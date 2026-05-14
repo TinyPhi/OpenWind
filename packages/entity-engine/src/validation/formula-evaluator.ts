@@ -43,7 +43,10 @@ export async function evaluateFormula(
   fields: Record<string, unknown>,
 ): Promise<unknown> {
   if (!ivm) {
-    logger.warn({ expression }, "Formula evaluation skipped: isolated-vm not installed");
+    logger.warn(
+      { expression },
+      "Formula evaluation skipped: isolated-vm not installed",
+    );
     return null;
   }
 

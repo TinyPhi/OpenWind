@@ -81,7 +81,12 @@ export async function createEntity(
   if (!row) throw new EntityError("ENTITY_NOT_FOUND");
 
   logger.info(
-    { tenantId, entityTypeId: input.entityTypeId, instanceId: row.id, actorId: input.createdBy },
+    {
+      tenantId,
+      entityTypeId: input.entityTypeId,
+      instanceId: row.id,
+      actorId: input.createdBy,
+    },
     "Entity created",
   );
 
@@ -107,11 +112,7 @@ export async function getEntity(
   if (!row) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
 
   // Recompute formula fields on read
-  const allFields = await loadEntityFields(
-    db,
-    row.entityTypeId,
-    tenantId,
-  );
+  const allFields = await loadEntityFields(db, row.entityTypeId, tenantId);
   const fieldsWithFormulas = await applyFormulaFields(
     allFields,
     row.fields as Record<string, unknown>,
@@ -356,10 +357,7 @@ async function loadEntityFields(
     .where(
       and(
         eq(entityFields.entityTypeId, entityTypeId),
-        or(
-          isNull(entityFields.tenantId),
-          eq(entityFields.tenantId, tenantId),
-        ),
+        or(isNull(entityFields.tenantId), eq(entityFields.tenantId, tenantId)),
       ),
     )
     .orderBy(entityFields.sortOrder);

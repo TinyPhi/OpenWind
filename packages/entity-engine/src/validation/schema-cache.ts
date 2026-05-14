@@ -55,10 +55,7 @@ export async function getValidationSchema(
     .where(
       and(
         eq(entityFields.entityTypeId, entityTypeId),
-        or(
-          isNull(entityFields.tenantId),
-          eq(entityFields.tenantId, tenantId),
-        ),
+        or(isNull(entityFields.tenantId), eq(entityFields.tenantId, tenantId)),
       ),
     )
     .orderBy(entityFields.sortOrder);

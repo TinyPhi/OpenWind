@@ -51,7 +51,17 @@ export type ConditionTree =
   | FieldCondition;
 
 export interface FieldCondition {
-  op: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "contains" | "in" | "empty" | "not_empty";
+  op:
+    | "eq"
+    | "neq"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "contains"
+    | "in"
+    | "empty"
+    | "not_empty";
   field: string;
   value?: unknown;
 }

@@ -3,7 +3,10 @@ import { buildZodSchema, transformZodErrors } from "./schema-builder.js";
 import type { EntityField } from "../types.js";
 
 function makeField(
-  overrides: Partial<EntityField> & { name: string; fieldType: EntityField["fieldType"] },
+  overrides: Partial<EntityField> & {
+    name: string;
+    fieldType: EntityField["fieldType"];
+  },
 ): EntityField {
   return {
     id: "field-1",
@@ -22,18 +25,30 @@ function makeField(
 describe("buildZodSchema", () => {
   describe("text field", () => {
     it("accepts a valid string", () => {
-      const schema = buildZodSchema([makeField({ name: "title", fieldType: "text" })], "create");
+      const schema = buildZodSchema(
+        [makeField({ name: "title", fieldType: "text" })],
+        "create",
+      );
       expect(schema.safeParse({ title: "Hello" }).success).toBe(true);
     });
 
     it("rejects non-string values", () => {
-      const schema = buildZodSchema([makeField({ name: "title", fieldType: "text" })], "create");
+      const schema = buildZodSchema(
+        [makeField({ name: "title", fieldType: "text" })],
+        "create",
+      );
       expect(schema.safeParse({ title: 42 }).success).toBe(false);
     });
 
     it("enforces maxLength", () => {
       const schema = buildZodSchema(
-        [makeField({ name: "title", fieldType: "text", config: { maxLength: 5 } })],
+        [
+          makeField({
+            name: "title",
+            fieldType: "text",
+            config: { maxLength: 5 },
+          }),
+        ],
         "create",
       );
       expect(schema.safeParse({ title: "123456" }).success).toBe(false);
@@ -42,7 +57,13 @@ describe("buildZodSchema", () => {
 
     it("enforces minLength", () => {
       const schema = buildZodSchema(
-        [makeField({ name: "title", fieldType: "text", config: { minLength: 3 } })],
+        [
+          makeField({
+            name: "title",
+            fieldType: "text",
+            config: { minLength: 3 },
+          }),
+        ],
         "create",
       );
       expect(schema.safeParse({ title: "ab" }).success).toBe(false);
@@ -51,7 +72,13 @@ describe("buildZodSchema", () => {
 
     it("enforces pattern", () => {
       const schema = buildZodSchema(
-        [makeField({ name: "code", fieldType: "text", config: { pattern: "^[A-Z]{3}$" } })],
+        [
+          makeField({
+            name: "code",
+            fieldType: "text",
+            config: { pattern: "^[A-Z]{3}$" },
+          }),
+        ],
         "create",
       );
       expect(schema.safeParse({ code: "ABC" }).success).toBe(true);
@@ -61,13 +88,22 @@ describe("buildZodSchema", () => {
 
   describe("number field", () => {
     it("accepts a valid number", () => {
-      const schema = buildZodSchema([makeField({ name: "qty", fieldType: "number" })], "create");
+      const schema = buildZodSchema(
+        [makeField({ name: "qty", fieldType: "number" })],
+        "create",
+      );
       expect(schema.safeParse({ qty: 5 }).success).toBe(true);
     });
 
     it("enforces min and max", () => {
       const schema = buildZodSchema(
-        [makeField({ name: "qty", fieldType: "number", config: { min: 1, max: 10 } })],
+        [
+          makeField({
+            name: "qty",
+            fieldType: "number",
+            config: { min: 1, max: 10 },
+          }),
+        ],
         "create",
       );
       expect(schema.safeParse({ qty: 0 }).success).toBe(false);
@@ -77,7 +113,13 @@ describe("buildZodSchema", () => {
 
     it("enforces decimalPlaces", () => {
       const schema = buildZodSchema(
-        [makeField({ name: "price", fieldType: "number", config: { decimalPlaces: 2 } })],
+        [
+          makeField({
+            name: "price",
+            fieldType: "number",
+            config: { decimalPlaces: 2 },
+          }),
+        ],
         "create",
       );
       expect(schema.safeParse({ price: 9.999 }).success).toBe(false);
@@ -89,7 +131,9 @@ describe("buildZodSchema", () => {
     const field = makeField({
       name: "priority",
       fieldType: "enum",
-      config: { options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
+      config: {
+        options: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+      },
     });
 
     it("accepts valid enum values", () => {
@@ -118,71 +162,119 @@ describe("buildZodSchema", () => {
 
     it("rejects invalid values in array", () => {
       const schema = buildZodSchema([field], "create");
-      expect(schema.safeParse({ tags: ["bug", "invalid"] }).success).toBe(false);
+      expect(schema.safeParse({ tags: ["bug", "invalid"] }).success).toBe(
+        false,
+      );
     });
   });
 
   describe("boolean field", () => {
     it("accepts true/false", () => {
-      const schema = buildZodSchema([makeField({ name: "active", fieldType: "boolean" })], "create");
+      const schema = buildZodSchema(
+        [makeField({ name: "active", fieldType: "boolean" })],
+        "create",
+      );
       expect(schema.safeParse({ active: true }).success).toBe(true);
       expect(schema.safeParse({ active: false }).success).toBe(true);
     });
 
     it("rejects non-boolean", () => {
-      const schema = buildZodSchema([makeField({ name: "active", fieldType: "boolean" })], "create");
+      const schema = buildZodSchema(
+        [makeField({ name: "active", fieldType: "boolean" })],
+        "create",
+      );
       expect(schema.safeParse({ active: "true" }).success).toBe(false);
     });
   });
 
   describe("date field", () => {
     it("accepts ISO date string", () => {
-      const schema = buildZodSchema([makeField({ name: "dob", fieldType: "date" })], "create");
+      const schema = buildZodSchema(
+        [makeField({ name: "dob", fieldType: "date" })],
+        "create",
+      );
       expect(schema.safeParse({ dob: "2024-01-15" }).success).toBe(true);
     });
 
     it("rejects invalid date format", () => {
-      const schema = buildZodSchema([makeField({ name: "dob", fieldType: "date" })], "create");
+      const schema = buildZodSchema(
+        [makeField({ name: "dob", fieldType: "date" })],
+        "create",
+      );
       expect(schema.safeParse({ dob: "15-01-2024" }).success).toBe(false);
     });
   });
 
   describe("datetime field", () => {
     it("accepts ISO datetime with offset", () => {
-      const schema = buildZodSchema([makeField({ name: "ts", fieldType: "datetime" })], "create");
-      expect(schema.safeParse({ ts: "2024-01-15T10:30:00+05:30" }).success).toBe(true);
+      const schema = buildZodSchema(
+        [makeField({ name: "ts", fieldType: "datetime" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({ ts: "2024-01-15T10:30:00+05:30" }).success,
+      ).toBe(true);
     });
   });
 
   describe("currency field", () => {
     it("accepts valid currency object", () => {
-      const schema = buildZodSchema([makeField({ name: "price", fieldType: "currency" })], "create");
-      expect(schema.safeParse({ price: { amount: 100, currency: "USD" } }).success).toBe(true);
+      const schema = buildZodSchema(
+        [makeField({ name: "price", fieldType: "currency" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({ price: { amount: 100, currency: "USD" } }).success,
+      ).toBe(true);
     });
 
     it("rejects negative amounts", () => {
-      const schema = buildZodSchema([makeField({ name: "price", fieldType: "currency" })], "create");
-      expect(schema.safeParse({ price: { amount: -1, currency: "USD" } }).success).toBe(false);
+      const schema = buildZodSchema(
+        [makeField({ name: "price", fieldType: "currency" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({ price: { amount: -1, currency: "USD" } }).success,
+      ).toBe(false);
     });
 
     it("enforces allowedCurrencies", () => {
       const schema = buildZodSchema(
-        [makeField({ name: "price", fieldType: "currency", config: { allowedCurrencies: ["INR", "USD"] } })],
+        [
+          makeField({
+            name: "price",
+            fieldType: "currency",
+            config: { allowedCurrencies: ["INR", "USD"] },
+          }),
+        ],
         "create",
       );
-      expect(schema.safeParse({ price: { amount: 100, currency: "EUR" } }).success).toBe(false);
-      expect(schema.safeParse({ price: { amount: 100, currency: "INR" } }).success).toBe(true);
+      expect(
+        schema.safeParse({ price: { amount: 100, currency: "EUR" } }).success,
+      ).toBe(false);
+      expect(
+        schema.safeParse({ price: { amount: 100, currency: "INR" } }).success,
+      ).toBe(true);
     });
   });
 
   describe("user_ref / entity_ref fields", () => {
     it("accepts valid UUID", () => {
-      const schema = buildZodSchema([makeField({ name: "owner", fieldType: "user_ref" })], "create");
-      expect(schema.safeParse({ owner: "550e8400-e29b-41d4-a716-446655440000" }).success).toBe(true);
+      const schema = buildZodSchema(
+        [makeField({ name: "owner", fieldType: "user_ref" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({ owner: "550e8400-e29b-41d4-a716-446655440000" })
+          .success,
+      ).toBe(true);
     });
 
     it("rejects non-UUID strings", () => {
-      const schema = buildZodSchema([makeField({ name: "owner", fieldType: "user_ref" })], "create");
+      const schema = buildZodSchema(
+        [makeField({ name: "owner", fieldType: "user_ref" })],
+        "create",
+      );
       expect(schema.safeParse({ owner: "not-a-uuid" }).success).toBe(false);
     });
   });
@@ -234,7 +326,13 @@ describe("transformZodErrors", () => {
 
   it("maps too_big string to TOO_LONG", () => {
     const schema = buildZodSchema(
-      [makeField({ name: "title", fieldType: "text", config: { maxLength: 3 } })],
+      [
+        makeField({
+          name: "title",
+          fieldType: "text",
+          config: { maxLength: 3 },
+        }),
+      ],
       "create",
     );
     const result = schema.safeParse({ title: "abcde" });
@@ -248,11 +346,13 @@ describe("transformZodErrors", () => {
 
   it("maps invalid_enum_value to INVALID_ENUM with options", () => {
     const schema = buildZodSchema(
-      [makeField({
-        name: "priority",
-        fieldType: "enum",
-        config: { options: [{ value: "low" }, { value: "high" }] },
-      })],
+      [
+        makeField({
+          name: "priority",
+          fieldType: "enum",
+          config: { options: [{ value: "low" }, { value: "high" }] },
+        }),
+      ],
       "create",
     );
     const result = schema.safeParse({ priority: "critical" });

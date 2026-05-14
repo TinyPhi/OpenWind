@@ -12,7 +12,9 @@ function makeSelectBuilder(results: () => unknown[]) {
   return q;
 }
 
-const mockInsertValues = vi.fn(() => ({ returning: vi.fn().mockResolvedValue([fakeEvent]) }));
+const mockInsertValues = vi.fn(() => ({
+  returning: vi.fn().mockResolvedValue([fakeEvent]),
+}));
 const mockUpdate = vi.fn(() => ({
   set: vi.fn(() => ({
     where: vi.fn().mockResolvedValue([]),
@@ -120,9 +122,12 @@ describe("executeTransition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectCallCount = 0;
-    mockInsertValues.mockReturnValue({ returning: vi.fn().mockResolvedValue([fakeEvent]) });
+    mockInsertValues.mockReturnValue({
+      returning: vi.fn().mockResolvedValue([fakeEvent]),
+    });
     dbMock.insert.mockImplementation((table) => {
-      if (table === "outbox_events_mock") return { values: vi.fn().mockResolvedValue([]) };
+      if (table === "outbox_events_mock")
+        return { values: vi.fn().mockResolvedValue([]) };
       if (table === "workflow_events_mock") return { values: mockInsertValues };
       return { values: vi.fn().mockResolvedValue([]) };
     });
@@ -340,11 +345,28 @@ describe("getAvailableTransitions", () => {
   });
 
   it("returns transitions available for current state and actor roles", async () => {
-    const t1 = { ...fakeTransition, id: "t1", allowedRoles: [], conditions: null };
-    const t2 = { ...fakeTransition, id: "t2", fromState: "open", toState: "escalated", allowedRoles: ["manager"], conditions: null };
+    const t1 = {
+      ...fakeTransition,
+      id: "t1",
+      allowedRoles: [],
+      conditions: null,
+    };
+    const t2 = {
+      ...fakeTransition,
+      id: "t2",
+      fromState: "open",
+      toState: "escalated",
+      allowedRoles: ["manager"],
+      conditions: null,
+    };
     selectResults = [() => [fakeInstance], () => [t1, t2]];
 
-    const result = await getAvailableTransitions(dbMock as never, TENANT_ID, INSTANCE_ID, ["agent"]);
+    const result = await getAvailableTransitions(
+      dbMock as never,
+      TENANT_ID,
+      INSTANCE_ID,
+      ["agent"],
+    );
     // t1 is open to all roles; t2 requires manager
     expect(result.map((t) => t.id)).toContain("t1");
     expect(result.map((t) => t.id)).not.toContain("t2");
@@ -352,7 +374,12 @@ describe("getAvailableTransitions", () => {
 
   it("returns empty array when instance not found", async () => {
     selectResults = [() => []];
-    const result = await getAvailableTransitions(dbMock as never, TENANT_ID, "missing", []);
+    const result = await getAvailableTransitions(
+      dbMock as never,
+      TENANT_ID,
+      "missing",
+      [],
+    );
     expect(result).toEqual([]);
   });
 
@@ -364,7 +391,12 @@ describe("getAvailableTransitions", () => {
     };
     selectResults = [() => [fakeInstance], () => [t]];
 
-    const result = await getAvailableTransitions(dbMock as never, TENANT_ID, INSTANCE_ID, []);
+    const result = await getAvailableTransitions(
+      dbMock as never,
+      TENANT_ID,
+      INSTANCE_ID,
+      [],
+    );
     expect(result).toHaveLength(0);
   });
 });
@@ -376,19 +408,24 @@ describe("getWorkflowEventLog", () => {
   });
 
   it("returns ordered events for a valid instance", async () => {
-    selectResults = [
-      () => [{ id: INSTANCE_ID }],
-      () => [fakeEvent],
-    ];
+    selectResults = [() => [{ id: INSTANCE_ID }], () => [fakeEvent]];
 
-    const events = await getWorkflowEventLog(dbMock as never, TENANT_ID, INSTANCE_ID);
+    const events = await getWorkflowEventLog(
+      dbMock as never,
+      TENANT_ID,
+      INSTANCE_ID,
+    );
     expect(events).toHaveLength(1);
     expect(events[0]?.toState).toBe("in_progress");
   });
 
   it("returns empty array when instance not found", async () => {
     selectResults = [() => []];
-    const events = await getWorkflowEventLog(dbMock as never, TENANT_ID, "missing");
+    const events = await getWorkflowEventLog(
+      dbMock as never,
+      TENANT_ID,
+      "missing",
+    );
     expect(events).toEqual([]);
   });
 });

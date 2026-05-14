@@ -37,7 +37,9 @@ export async function executeTransition(
     .limit(1);
 
   if (!instance) {
-    throw new WorkflowError("INSTANCE_NOT_FOUND", { instanceId: request.instanceId });
+    throw new WorkflowError("INSTANCE_NOT_FOUND", {
+      instanceId: request.instanceId,
+    });
   }
 
   if (!instance.workflowId) {
@@ -55,7 +57,9 @@ export async function executeTransition(
     .limit(1);
 
   if (!workflow) {
-    throw new WorkflowError("INSTANCE_NOT_FOUND", { workflowId: instance.workflowId });
+    throw new WorkflowError("INSTANCE_NOT_FOUND", {
+      workflowId: instance.workflowId,
+    });
   }
 
   // 3. Find matching transition
@@ -91,7 +95,12 @@ export async function executeTransition(
 
   // 5. Guard: conditions
   const fields = instance.fields as Record<string, unknown>;
-  if (!evaluateConditionTree(transition.conditions as ConditionTree | null, fields)) {
+  if (
+    !evaluateConditionTree(
+      transition.conditions as ConditionTree | null,
+      fields,
+    )
+  ) {
     throw new WorkflowError("CONDITION_NOT_MET", {
       transitionId: transition.id,
     });
@@ -109,7 +118,9 @@ export async function executeTransition(
 
   // 7. Guard: requires_comment
   if (transition.requiresComment && !request.comment?.trim()) {
-    throw new WorkflowError("REQUIRED_FIELDS_MISSING", { missing: ["comment"] });
+    throw new WorkflowError("REQUIRED_FIELDS_MISSING", {
+      missing: ["comment"],
+    });
   }
 
   const triggeredBy = request.triggeredBy ?? "user";
@@ -142,7 +153,9 @@ export async function executeTransition(
     .returning();
 
   if (!eventRow) {
-    throw new WorkflowError("INSTANCE_NOT_FOUND", { reason: "event insert failed" });
+    throw new WorkflowError("INSTANCE_NOT_FOUND", {
+      reason: "event insert failed",
+    });
   }
 
   // 10. Write outbox event (same transaction — outbox pattern)
@@ -180,7 +193,14 @@ export async function executeTransition(
   );
 
   // Handle SLA for new state
-  await scheduleSlaIfNeeded(db, tenantId, instance.workflowId, request.instanceId, transition.toState, occurredAt);
+  await scheduleSlaIfNeeded(
+    db,
+    tenantId,
+    instance.workflowId,
+    request.instanceId,
+    transition.toState,
+    occurredAt,
+  );
 
   return {
     id: eventRow.id,
@@ -229,8 +249,13 @@ export async function getAvailableTransitions(
 
   return transitions
     .filter((t) => {
-      if (t.allowedRoles.length > 0 && !hasRequiredRole(actorRoles, t.allowedRoles)) return false;
-      if (!evaluateConditionTree(t.conditions as ConditionTree | null, fields)) return false;
+      if (
+        t.allowedRoles.length > 0 &&
+        !hasRequiredRole(actorRoles, t.allowedRoles)
+      )
+        return false;
+      if (!evaluateConditionTree(t.conditions as ConditionTree | null, fields))
+        return false;
       return true;
     })
     .map((t) => ({
@@ -309,7 +334,9 @@ async function scheduleSlaIfNeeded(
   if (!state?.slaHours) return;
 
   // Write an SLA-scheduled outbox event; the worker will enqueue the BullMQ job
-  const fireAt = new Date(enteredAt.getTime() + state.slaHours * 60 * 60 * 1000);
+  const fireAt = new Date(
+    enteredAt.getTime() + state.slaHours * 60 * 60 * 1000,
+  );
 
   await db.insert(outboxEvents).values({
     tenantId,
@@ -327,6 +354,9 @@ async function scheduleSlaIfNeeded(
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-function hasRequiredRole(actorRoles: string[], allowedRoles: string[]): boolean {
+function hasRequiredRole(
+  actorRoles: string[],
+  allowedRoles: string[],
+): boolean {
   return actorRoles.some((r) => allowedRoles.includes(r));
 }

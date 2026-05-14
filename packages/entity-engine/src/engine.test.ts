@@ -15,7 +15,8 @@ function makeQueryBuilder(finalResult: () => unknown[]) {
   q["orderBy"] = () => q;
   q["limit"] = () => q;
   q["offset"] = () => q;
-  q["then"] = (resolve: (v: unknown[]) => void) => Promise.resolve(finalResult()).then(resolve);
+  q["then"] = (resolve: (v: unknown[]) => void) =>
+    Promise.resolve(finalResult()).then(resolve);
   // Make it thenable as a promise via Symbol.iterator trick — just override .then
   return q;
 }
@@ -42,9 +43,19 @@ const dbMock = {
 };
 
 vi.mock("@platform/db", () => ({
-  entityInstances: { id: "id", tenantId: "tenant_id", entityTypeId: "entity_type_id", $inferSelect: {}, $inferInsert: {} },
+  entityInstances: {
+    id: "id",
+    tenantId: "tenant_id",
+    entityTypeId: "entity_type_id",
+    $inferSelect: {},
+    $inferInsert: {},
+  },
   entityTypes: { id: "id", tenantId: "tenant_id" },
-  entityFields: { entityTypeId: "entity_type_id", tenantId: "tenant_id", sortOrder: "sort_order" },
+  entityFields: {
+    entityTypeId: "entity_type_id",
+    tenantId: "tenant_id",
+    sortOrder: "sort_order",
+  },
   entityRelations: {},
 }));
 
@@ -59,7 +70,9 @@ vi.mock("drizzle-orm", () => ({
 // ── Mock validation layer ─────────────────────────────────────────────────────
 
 const mockGetValidationSchema = vi.fn();
-const mockApplyFormulaFields = vi.fn(async (_fields: unknown[], values: Record<string, unknown>) => values);
+const mockApplyFormulaFields = vi.fn(
+  async (_fields: unknown[], values: Record<string, unknown>) => values,
+);
 
 vi.mock("./validation/index.js", () => ({
   getValidationSchema: (...args: unknown[]) => mockGetValidationSchema(...args),
@@ -80,9 +93,8 @@ vi.mock("@platform/config", () => ({
 
 // ── Import engine AFTER mocks ─────────────────────────────────────────────────
 
-const { createEntity, getEntity, updateEntity, deleteEntity, listEntities } = await import(
-  "./engine.js"
-);
+const { createEntity, getEntity, updateEntity, deleteEntity, listEntities } =
+  await import("./engine.js");
 
 const TENANT_ID = "tenant-aaa";
 const ENTITY_TYPE_ID = "type-bbb";
@@ -114,7 +126,10 @@ const fakeInstance = {
 
 function makePassingSchema(data: Record<string, unknown> = {}) {
   return {
-    safeParse: vi.fn((input) => ({ success: true, data: { ...data, ...input } })),
+    safeParse: vi.fn((input) => ({
+      success: true,
+      data: { ...data, ...input },
+    })),
   };
 }
 
@@ -136,7 +151,9 @@ describe("createEntity", () => {
     dbMock.select
       .mockReturnValueOnce(makeQueryBuilder(() => [fakeEntityType]))
       .mockReturnValue(makeQueryBuilder(() => []));
-    mockGetValidationSchema.mockResolvedValue(makePassingSchema({ subject: "Test" }));
+    mockGetValidationSchema.mockResolvedValue(
+      makePassingSchema({ subject: "Test" }),
+    );
     mockInsertReturning.mockResolvedValue([fakeInstance]);
   });
 
@@ -151,7 +168,9 @@ describe("createEntity", () => {
 
   it("throws ValidationError when schema validation fails", async () => {
     mockGetValidationSchema.mockResolvedValue(
-      makeFailingSchema([{ path: ["subject"], code: "invalid_type", message: "Required" }]),
+      makeFailingSchema([
+        { path: ["subject"], code: "invalid_type", message: "Required" },
+      ]),
     );
     await expect(
       createEntity(dbMock as never, TENANT_ID, {
@@ -203,8 +222,12 @@ describe("updateEntity", () => {
       .mockReturnValueOnce(makeQueryBuilder(() => [fakeInstance]))
       .mockReturnValueOnce(makeQueryBuilder(() => [fakeEntityType]))
       .mockReturnValue(makeQueryBuilder(() => []));
-    mockGetValidationSchema.mockResolvedValue(makePassingSchema({ subject: "Updated" }));
-    mockUpdateReturning.mockResolvedValue([{ ...fakeInstance, fields: { subject: "Updated" } }]);
+    mockGetValidationSchema.mockResolvedValue(
+      makePassingSchema({ subject: "Updated" }),
+    );
+    mockUpdateReturning.mockResolvedValue([
+      { ...fakeInstance, fields: { subject: "Updated" } },
+    ]);
   });
 
   it("updates fields when partial schema passes", async () => {
@@ -216,7 +239,9 @@ describe("updateEntity", () => {
 
   it("throws ValidationError when partial field is invalid", async () => {
     mockGetValidationSchema.mockResolvedValue(
-      makeFailingSchema([{ path: ["subject"], code: "too_big", message: "Too long" }]),
+      makeFailingSchema([
+        { path: ["subject"], code: "too_big", message: "Too long" },
+      ]),
     );
     await expect(
       updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {

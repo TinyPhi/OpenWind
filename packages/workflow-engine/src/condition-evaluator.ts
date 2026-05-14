@@ -31,15 +31,35 @@ function evaluateFieldCondition(
     case "neq":
       return value !== cond.value;
     case "gt":
-      return typeof value === "number" && typeof cond.value === "number" && value > cond.value;
+      return (
+        typeof value === "number" &&
+        typeof cond.value === "number" &&
+        value > cond.value
+      );
     case "gte":
-      return typeof value === "number" && typeof cond.value === "number" && value >= cond.value;
+      return (
+        typeof value === "number" &&
+        typeof cond.value === "number" &&
+        value >= cond.value
+      );
     case "lt":
-      return typeof value === "number" && typeof cond.value === "number" && value < cond.value;
+      return (
+        typeof value === "number" &&
+        typeof cond.value === "number" &&
+        value < cond.value
+      );
     case "lte":
-      return typeof value === "number" && typeof cond.value === "number" && value <= cond.value;
+      return (
+        typeof value === "number" &&
+        typeof cond.value === "number" &&
+        value <= cond.value
+      );
     case "contains":
-      return typeof value === "string" && typeof cond.value === "string" && value.includes(cond.value);
+      return (
+        typeof value === "string" &&
+        typeof cond.value === "string" &&
+        value.includes(cond.value)
+      );
     case "in":
       return Array.isArray(cond.value) && cond.value.includes(value);
     case "empty":

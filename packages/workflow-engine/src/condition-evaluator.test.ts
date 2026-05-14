@@ -22,12 +22,20 @@ describe("evaluateConditionTree", () => {
     });
 
     it("eq: fails on unequal value", () => {
-      const cond: ConditionTree = { op: "eq", field: "status", value: "closed" };
+      const cond: ConditionTree = {
+        op: "eq",
+        field: "status",
+        value: "closed",
+      };
       expect(evaluateConditionTree(cond, fields)).toBe(false);
     });
 
     it("neq: passes when not equal", () => {
-      const cond: ConditionTree = { op: "neq", field: "status", value: "closed" };
+      const cond: ConditionTree = {
+        op: "neq",
+        field: "status",
+        value: "closed",
+      };
       expect(evaluateConditionTree(cond, fields)).toBe(true);
     });
 
@@ -57,22 +65,38 @@ describe("evaluateConditionTree", () => {
     });
 
     it("contains: passes when string contains substring", () => {
-      const cond: ConditionTree = { op: "contains", field: "name", value: "lic" };
+      const cond: ConditionTree = {
+        op: "contains",
+        field: "name",
+        value: "lic",
+      };
       expect(evaluateConditionTree(cond, fields)).toBe(true);
     });
 
     it("contains: fails when string does not contain substring", () => {
-      const cond: ConditionTree = { op: "contains", field: "name", value: "Bob" };
+      const cond: ConditionTree = {
+        op: "contains",
+        field: "name",
+        value: "Bob",
+      };
       expect(evaluateConditionTree(cond, fields)).toBe(false);
     });
 
     it("in: passes when value is in array", () => {
-      const cond: ConditionTree = { op: "in", field: "status", value: ["open", "pending"] };
+      const cond: ConditionTree = {
+        op: "in",
+        field: "status",
+        value: ["open", "pending"],
+      };
       expect(evaluateConditionTree(cond, fields)).toBe(true);
     });
 
     it("in: fails when value is not in array", () => {
-      const cond: ConditionTree = { op: "in", field: "status", value: ["closed"] };
+      const cond: ConditionTree = {
+        op: "in",
+        field: "status",
+        value: ["closed"],
+      };
       expect(evaluateConditionTree(cond, fields)).toBe(false);
     });
 

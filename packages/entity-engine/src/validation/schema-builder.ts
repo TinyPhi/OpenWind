@@ -46,7 +46,10 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
     case "number": {
       const min = typeof cfg["min"] === "number" ? cfg["min"] : undefined;
       const max = typeof cfg["max"] === "number" ? cfg["max"] : undefined;
-      const dp = typeof cfg["decimalPlaces"] === "number" ? (cfg["decimalPlaces"] as number) : undefined;
+      const dp =
+        typeof cfg["decimalPlaces"] === "number"
+          ? (cfg["decimalPlaces"] as number)
+          : undefined;
 
       let base = z.number();
       if (min !== undefined) base = base.min(min);
@@ -115,7 +118,8 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
       });
 
     case "files": {
-      const maxCount = typeof cfg["maxCount"] === "number" ? cfg["maxCount"] : 20;
+      const maxCount =
+        typeof cfg["maxCount"] === "number" ? cfg["maxCount"] : 20;
       return z
         .array(
           z.object({
