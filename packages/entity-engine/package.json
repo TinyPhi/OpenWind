@@ -8,17 +8,22 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@platform/config": "workspace:*",
     "@platform/db": "workspace:*",
     "@platform/logger": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "redis": "^4.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@platform/tsconfig": "workspace:*",
     "@types/node": "^25.7.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
   }
 }
