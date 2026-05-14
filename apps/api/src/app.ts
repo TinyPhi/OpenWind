@@ -18,9 +18,7 @@ export function createApp(): Hono {
   // 4. Error handler — registered last so it wraps all subsequent route errors
   app.use("*", errorHandler());
 
-  app.get("/health", (c) =>
-    c.json({ status: "ok", env: env.NODE_ENV }),
-  );
+  app.get("/health", (c) => c.json({ status: "ok", env: env.NODE_ENV }));
 
   return app;
 }

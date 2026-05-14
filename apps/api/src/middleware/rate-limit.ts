@@ -1,5 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import { Redis } from "ioredis";
+import type { MiddlewareHandler } from "hono";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 
@@ -43,7 +44,7 @@ export interface RateLimitOptions {
   authLimit?: number;
 }
 
-export const rateLimit = (options: RateLimitOptions = {}) =>
+export const rateLimit = (options: RateLimitOptions = {}): MiddlewareHandler =>
   createMiddleware(async (c, next) => {
     const isAuthRoute =
       c.req.path.startsWith("/auth") || c.req.path.startsWith("/api-keys");
@@ -73,7 +74,10 @@ export const rateLimit = (options: RateLimitOptions = {}) =>
     c.header("x-ratelimit-reset", String(resetAt));
 
     if (!allowed) {
-      return c.json({ error: "RATE_LIMITED", message: "Too many requests" }, 429);
+      return c.json(
+        { error: "RATE_LIMITED", message: "Too many requests" },
+        429,
+      );
     }
 
     await next();

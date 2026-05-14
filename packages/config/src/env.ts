@@ -11,6 +11,10 @@ const EnvSchema = z
     REDIS_URL: z.string().url(),
     ZITADEL_ISSUER: z.string().url(),
     ZITADEL_AUDIENCE: z.string(),
+    // Token introspection — used for sensitive ops that require active-token verification
+    ZITADEL_INTROSPECTION_URL: z.string().url(),
+    ZITADEL_INTROSPECTION_CLIENT_ID: z.string(),
+    ZITADEL_INTROSPECTION_CLIENT_SECRET: z.string(),
     NOVU_API_KEY: z.string(),
     S3_ENDPOINT: z.string().url(),
     S3_BUCKET: z.string(),

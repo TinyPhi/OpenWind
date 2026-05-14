@@ -1,6 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import { ZodError } from "zod";
 import { HTTPException } from "hono/http-exception";
+import type { MiddlewareHandler } from "hono";
 import { WorkflowError } from "@platform/workflow-engine";
 import { EntityError, ValidationError } from "@platform/entity-engine";
 import { logger } from "@platform/logger";
@@ -30,7 +31,7 @@ function toStatus(map: Record<string, number>, code: string): StatusCode {
   return (map[code] ?? 500) as StatusCode;
 }
 
-export const errorHandler = () =>
+export const errorHandler = (): MiddlewareHandler =>
   createMiddleware(async (c, next) => {
     try {
       await next();
@@ -40,7 +41,11 @@ export const errorHandler = () =>
 
       if (err instanceof ValidationError) {
         return c.json(
-          { error: "VALIDATION_ERROR", message: "Validation failed", fields: err.fields },
+          {
+            error: "VALIDATION_ERROR",
+            message: "Validation failed",
+            fields: err.fields,
+          },
           422,
         );
       }
@@ -75,7 +80,10 @@ export const errorHandler = () =>
       }
 
       if (err instanceof HTTPException) {
-        return c.json({ error: "HTTP_ERROR", message: err.message }, err.status);
+        return c.json(
+          { error: "HTTP_ERROR", message: err.message },
+          err.status,
+        );
       }
 
       logger.error(
@@ -87,6 +95,9 @@ export const errorHandler = () =>
         "Unhandled error",
       );
 
-      return c.json({ error: "INTERNAL_ERROR", message: "An unexpected error occurred" }, 500);
+      return c.json(
+        { error: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+        500,
+      );
     }
   });
