@@ -33,11 +33,9 @@ function buildAuth(): Auth {
     return { type: "token", token: env.OPENBAO_TOKEN };
   }
   // Zod refine in env.ts guarantees both are present when OPENBAO_TOKEN is absent
-  return {
-    type: "approle",
-    roleId: env.OPENBAO_ROLE_ID!,
-    secretId: env.OPENBAO_SECRET_ID!,
-  };
+  const roleId = env.OPENBAO_ROLE_ID ?? "";
+  const secretId = env.OPENBAO_SECRET_ID ?? "";
+  return { type: "approle", roleId, secretId };
 }
 
 export async function openbaoRequest<T>(
@@ -59,7 +57,10 @@ export async function openbaoRequest<T>(
 
   if (!res.ok) {
     const text = await res.text();
-    logger.error({ path, status: res.status, body: text }, "OpenBao request failed");
+    logger.error(
+      { path, status: res.status, body: text },
+      "OpenBao request failed",
+    );
     // Invalidate cached AppRole token on 403 so next call re-authenticates
     if (res.status === 403) cachedToken = null;
     throw new Error(`OpenBao error ${res.status}: ${text}`);

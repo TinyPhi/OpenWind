@@ -1,6 +1,5 @@
 {
   "extends": "@platform/tsconfig/node.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+  "include": ["src"]
 }

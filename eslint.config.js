@@ -3,6 +3,7 @@ import tsPlugin from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 import noRestrictedImports from "eslint-plugin-no-relative-import-paths";
+import globals from "globals";
 
 /**
  * ESLint flat config.
@@ -45,6 +46,10 @@ export default [
       parserOptions: {
         project: true,
         tsconfigRootDir: import.meta.dirname,
+      },
+      globals: {
+        ...globals.node,
+        ...globals.browser,
       },
     },
     rules: {
@@ -174,13 +179,33 @@ export default [
     },
   },
 
-  // ─── Tests: relaxed rules ─────────────────────────────────────────────────
+  // ─── Tests: relaxed rules + disable type-checked rules ───────────────────
+  // Test files are excluded from the per-package tsconfigs (they're compiled by
+  // vitest, not tsc). Disabling type-checked rules avoids "file not in project"
+  // errors while still linting test code for obvious mistakes.
   {
     files: ["**/*.test.ts", "**/*.spec.ts", "tests/**/*.ts"],
+    languageOptions: {
+      parserOptions: {
+        project: false,
+      },
+    },
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/explicit-function-return-type": "off",
       "@typescript-eslint/no-unsafe-assignment": "off",
       "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unnecessary-condition": "off",
+      "@typescript-eslint/require-await": "off",
+      "@typescript-eslint/no-floating-promises": "off",
+      "@typescript-eslint/no-misused-promises": "off",
+      "@typescript-eslint/await-thenable": "off",
+      "@typescript-eslint/prefer-nullish-coalescing": "off",
+      "@typescript-eslint/prefer-optional-chain": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
       "no-restricted-imports": "off",
     },
   },
