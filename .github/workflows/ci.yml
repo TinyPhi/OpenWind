@@ -184,40 +184,7 @@ jobs:
       - name: Run tenant isolation tests
         run: pnpm test:isolation
 
-  # ── 4. AI-assisted code review ─────────────────────────────────────────────
-  claude-review:
-    name: Claude review
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: write
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get diff
-        id: diff
-        run: |
-          git diff ${{ github.event.pull_request.base.sha }} \
-                   ${{ github.event.pull_request.head.sha }} \
-                   -- '*.ts' '*.tsx' > /tmp/pr.diff
-          echo "diff_size=$(wc -c < /tmp/pr.diff)" >> $GITHUB_OUTPUT
-
-      - name: Claude code review
-        if: steps.diff.outputs.diff_size > 0
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          node .github/scripts/claude-review.mjs \
-            --pr ${{ github.event.pull_request.number }} \
-            --diff /tmp/pr.diff \
-            --conventions CLAUDE.md
-
-  # ── 5. Security scan ──────────────────────────────────────────────────────
+  # ── 4. Security scan ──────────────────────────────────────────────────────
   security:
     name: Security scan
     runs-on: ubuntu-latest
