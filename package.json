@@ -21,7 +21,9 @@
     "db:migrate:create": "turbo run db:migrate:create --filter=@platform/db",
     "db:seed": "turbo run db:seed --filter=@platform/db",
     "db:studio": "turbo run db:studio --filter=@platform/db",
-    "clean": "turbo run clean && find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +"
+    "clean": "turbo run clean && find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +",
+    "ci": "pnpm commitlint --from HEAD~1 --to HEAD && pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",
