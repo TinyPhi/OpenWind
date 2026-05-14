@@ -2,7 +2,6 @@ import {
   pgTable,
   uuid,
   text,
-  boolean,
   jsonb,
   timestamp,
   index,
@@ -13,7 +12,9 @@ export const tenants = pgTable("tenants", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   plan: text("plan").default("standard").notNull(),
-  isActive: boolean("is_active").default(true).notNull(),
+  // Lifecycle: provisioning → active → suspended → deleted
+  // text + CHECK (see migration 0001) so new states don't require ALTER TYPE
+  status: text("status").default("active").notNull(),
   config: jsonb("config").default({}).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
@@ -22,6 +23,24 @@ export const tenants = pgTable("tenants", {
     .defaultNow()
     .notNull(),
 });
+
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    name: text("name").notNull(),
+    keyHash: text("key_hash").notNull().unique(),
+    scopes: text("scopes").array().default([]).notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
+  }),
+);
 
 export const connectorCredentials = pgTable(
   "connector_credentials",

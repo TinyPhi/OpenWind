@@ -1,18 +1,9 @@
-import { Hono } from "hono";
-import { logger as honoLogger } from "hono/logger";
-import { env } from "@platform/config";
 import { logger } from "@platform/logger";
+import { createApp } from "./app.js";
 
-const app = new Hono();
-
-app.use("*", honoLogger());
-
-app.get("/health", (c) => c.json({ status: "ok", env: env.NODE_ENV }));
-
+const app = createApp();
 const port = 3000;
+
 logger.info({ port }, "API server starting");
 
-export default {
-  port,
-  fetch: app.fetch,
-};
+export default { port, fetch: app.fetch };

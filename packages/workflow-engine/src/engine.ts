@@ -141,6 +141,7 @@ export async function executeTransition(
   const [eventRow] = await db
     .insert(workflowEvents)
     .values({
+      tenantId,
       instanceId: request.instanceId,
       workflowId: instance.workflowId,
       fromState: instance.currentState,

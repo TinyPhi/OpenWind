@@ -96,12 +96,21 @@ importers:
       '@platform/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@platform/secrets':
+        specifier: workspace:*
+        version: link:../../packages/secrets
       '@platform/workflow-engine':
         specifier: workspace:*
         version: link:../../packages/workflow-engine
       hono:
         specifier: ^4.5.0
         version: 4.12.18
+      ioredis:
+        specifier: ^5.4.0
+        version: 5.10.1
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@platform/tsconfig':
         specifier: workspace:*
@@ -635,6 +644,25 @@ importers:
         version: 5.9.3
 
   packages/plugin-sdk:
+    dependencies:
+      '@platform/config':
+        specifier: workspace:*
+        version: link:../config
+      '@platform/logger':
+        specifier: workspace:*
+        version: link:../logger
+    devDependencies:
+      '@platform/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: ^25.7.0
+        version: 25.7.0
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
+  packages/secrets:
     dependencies:
       '@platform/config':
         specifier: workspace:*

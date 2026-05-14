@@ -5,6 +5,8 @@ name: platform
 #
 # Services:
 #   postgres   — Primary database (RLS-enabled, multi-tenant)
+#   pgbouncer  — Connection pooler (transaction mode, required for RLS)
+#   openbao    — Secrets manager (OpenBao dev mode, auto-unsealed)
 #   redis      — Queue backend (BullMQ) + application cache
 #   minio      — S3-compatible object storage (local)
 #   zitadel    — Identity provider (OIDC/OAuth2/SAML)
@@ -16,6 +18,9 @@ name: platform
 # Stop everything:     docker compose down
 # Reset all data:      docker compose down -v
 # View logs:           docker compose logs -f [service]
+#
+# App connects to:     postgres://app_user:...@localhost:6432/platform  (PgBouncer)
+# OpenBao UI/API:      http://localhost:8200  (token: dev-root-token)
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -51,6 +56,73 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  # ── PgBouncer (connection pooler) ─────────────────────────────────────────
+  # Transaction mode is required so SET LOCAL app.tenant_id scoping works
+  # correctly — session mode would let the setting leak across pooled connections.
+  pgbouncer:
+    image: bitnami/pgbouncer:latest
+    restart: unless-stopped
+    environment:
+      POSTGRESQL_HOST: postgres
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_DATABASE: platform
+      POSTGRESQL_USERNAME: app_user
+      POSTGRESQL_PASSWORD: app_user_dev_password
+      PGBOUNCER_DATABASE: platform
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: 1000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 20
+      PGBOUNCER_AUTH_TYPE: scram-sha-256
+    ports:
+      - "6432:6432"   # App connects here, not 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432", "-U", "app_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── OpenBao (secrets manager) ──────────────────────────────────────────────
+  # Dev mode: auto-unsealed, single static root token, data not persisted.
+  # The init container creates the Transit secrets engine and the
+  # platform-credentials key with derivation enabled.
+  openbao:
+    image: openbao/openbao:latest
+    restart: unless-stopped
+    command: server -dev -dev-root-token-id=dev-root-token
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: dev-root-token
+      BAO_ADDR: http://0.0.0.0:8200
+      BAO_LOG_LEVEL: warn
+    ports:
+      - "8200:8200"   # OpenBao API + UI → http://localhost:8200
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot container that configures OpenBao after it starts
+  openbao-init:
+    image: openbao/openbao:latest
+    depends_on:
+      openbao:
+        condition: service_healthy
+    environment:
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: dev-root-token
+    entrypoint: >
+      /bin/sh -c "
+        bao secrets enable transit &&
+        bao write -f transit/keys/platform-credentials derived=true &&
+        echo 'OpenBao Transit key created with derivation enabled'
+      "
+    restart: "no"
 
   # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
@@ -218,3 +290,4 @@ volumes:
   minio_data:
   novu_mongo_data:
   mailhog_data:
+  # OpenBao has no volume — dev mode data is ephemeral by design

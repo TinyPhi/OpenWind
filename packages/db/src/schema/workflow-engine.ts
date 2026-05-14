@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   timestamp,
+  index,
 } from "drizzle-orm/pg-core";
 import { entityInstances, entityTypes } from "./entity-engine.js";
 
@@ -49,21 +50,31 @@ export const workflowTransitions = pgTable("workflow_transitions", {
   requiresFields: text("requires_fields").array().default([]).notNull(),
 });
 
-export const workflowEvents = pgTable("workflow_events", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  instanceId: uuid("instance_id")
-    .notNull()
-    .references(() => entityInstances.id),
-  workflowId: uuid("workflow_id")
-    .notNull()
-    .references(() => workflows.id),
-  fromState: text("from_state"),
-  toState: text("to_state").notNull(),
-  triggeredBy: text("triggered_by").notNull(),
-  actorId: uuid("actor_id"),
-  comment: text("comment"),
-  metadata: jsonb("metadata").default({}).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const workflowEvents = pgTable(
+  "workflow_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    instanceId: uuid("instance_id")
+      .notNull()
+      .references(() => entityInstances.id),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id),
+    fromState: text("from_state"),
+    toState: text("to_state").notNull(),
+    triggeredBy: text("triggered_by").notNull(),
+    actorId: uuid("actor_id"),
+    comment: text("comment"),
+    metadata: jsonb("metadata").default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantInstanceIdx: index("workflow_events_tenant_instance_idx").on(
+      t.tenantId,
+      t.instanceId,
+    ),
+  }),
+);

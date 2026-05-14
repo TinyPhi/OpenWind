@@ -21,8 +21,11 @@
     "@platform/db": "workspace:*",
     "@platform/entity-engine": "workspace:*",
     "@platform/logger": "workspace:*",
+    "@platform/secrets": "workspace:*",
     "@platform/workflow-engine": "workspace:*",
-    "hono": "^4.5.0"
+    "hono": "^4.5.0",
+    "ioredis": "^5.4.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@platform/tsconfig": "workspace:*",
