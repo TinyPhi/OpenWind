@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNotNull } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import {
   entityInstances,
@@ -47,6 +47,36 @@ export async function executeTransition(
       instanceId: request.instanceId,
       reason: "no workflow attached",
     });
+  }
+
+  // 1b. Idempotency check — return existing event if key already used
+  if (request.idempotencyKey) {
+    const [existing] = await db
+      .select()
+      .from(workflowEvents)
+      .where(
+        and(
+          eq(workflowEvents.instanceId, request.instanceId),
+          eq(workflowEvents.idempotencyKey, request.idempotencyKey),
+          isNotNull(workflowEvents.idempotencyKey),
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      return {
+        id: existing.id,
+        instanceId: existing.instanceId,
+        workflowId: existing.workflowId,
+        fromState: existing.fromState ?? null,
+        toState: existing.toState,
+        triggeredBy: existing.triggeredBy as WorkflowEvent["triggeredBy"],
+        actorId: existing.actorId ?? null,
+        comment: existing.comment ?? null,
+        metadata: (existing.metadata as Record<string, unknown>) ?? {},
+        createdAt: existing.createdAt,
+      };
+    }
   }
 
   // 2. Load workflow definition
@@ -149,6 +179,7 @@ export async function executeTransition(
       triggeredBy,
       actorId: request.actorId ?? null,
       comment: request.comment ?? null,
+      idempotencyKey: request.idempotencyKey ?? null,
       metadata: request.metadata ?? {},
     })
     .returning();

@@ -72,6 +72,7 @@ export interface TransitionRequest {
   actorId?: string;
   actorRoles?: string[];
   comment?: string;
+  idempotencyKey?: string;
   triggeredBy?: "user" | "automation" | "api" | "system";
   metadata?: Record<string, unknown>;
 }

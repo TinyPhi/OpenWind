@@ -51,6 +51,7 @@ vi.mock("@platform/db", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
   and: vi.fn((...args) => ({ args, op: "and" })),
+  isNotNull: vi.fn((col) => ({ col, op: "isNotNull" })),
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -107,6 +108,7 @@ const fakeEvent = {
   triggeredBy: "user",
   actorId: "user-aaa",
   comment: null,
+  idempotencyKey: null,
   metadata: {},
   createdAt: new Date(),
 };
@@ -317,6 +319,60 @@ describe("executeTransition", () => {
       transitionId: TRANSITION_ID,
       comment: "Picking this up now",
     });
+    expect(event.toState).toBe("in_progress");
+  });
+
+  it("returns existing event without re-executing when idempotency key matches", async () => {
+    const existingEvent = { ...fakeEvent, id: "event-existing", idempotencyKey: "key-abc" };
+    // Selects: instance, then idempotency check finds the event
+    selectResults = [() => [fakeInstance], () => [existingEvent]];
+
+    const event = await executeTransition(dbMock as never, TENANT_ID, {
+      instanceId: INSTANCE_ID,
+      transitionId: TRANSITION_ID,
+      idempotencyKey: "key-abc",
+    });
+
+    expect(event.id).toBe("event-existing");
+    // update and insert must NOT have been called
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("executes normally when idempotency key is new", async () => {
+    // Selects: instance, idempotency check (empty), workflow, transition, SLA state
+    selectResults = [
+      () => [fakeInstance],
+      () => [], // no prior event with this key
+      () => [fakeWorkflow],
+      () => [fakeTransition],
+      () => [], // no SLA
+    ];
+
+    const event = await executeTransition(dbMock as never, TENANT_ID, {
+      instanceId: INSTANCE_ID,
+      transitionId: TRANSITION_ID,
+      idempotencyKey: "key-new",
+    });
+
+    expect(event.toState).toBe("in_progress");
+    expect(mockInsertValues).toHaveBeenCalled();
+  });
+
+  it("executes normally when no idempotency key is supplied", async () => {
+    // No idempotency select — selectResults only needs instance/workflow/transition/SLA
+    selectResults = [
+      () => [fakeInstance],
+      () => [fakeWorkflow],
+      () => [fakeTransition],
+      () => [],
+    ];
+
+    const event = await executeTransition(dbMock as never, TENANT_ID, {
+      instanceId: INSTANCE_ID,
+      transitionId: TRANSITION_ID,
+    });
+
     expect(event.toState).toBe("in_progress");
   });
 
