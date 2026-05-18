@@ -24,6 +24,8 @@ const mockUpdate = vi.fn(() => ({
 let selectCallCount = 0;
 let selectResults: (() => unknown[])[] = [];
 
+const mockExecute = vi.fn().mockResolvedValue([]);
+
 const dbMock = {
   select: vi.fn(() => {
     const result = selectResults[selectCallCount] ?? (() => []);
@@ -37,6 +39,7 @@ const dbMock = {
     return { values: mockInsertValues };
   }),
   update: mockUpdate,
+  execute: mockExecute,
 };
 
 vi.mock("@platform/db", () => ({
@@ -52,6 +55,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
   and: vi.fn((...args) => ({ args, op: "and" })),
   isNotNull: vi.fn((col) => ({ col, op: "isNotNull" })),
+  sql: vi.fn((..._args: unknown[]) => ({ op: "sql" })),
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -124,6 +128,7 @@ describe("executeTransition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectCallCount = 0;
+    mockExecute.mockResolvedValue([]);
     mockInsertValues.mockReturnValue({
       returning: vi.fn().mockResolvedValue([fakeEvent]),
     });
@@ -320,6 +325,25 @@ describe("executeTransition", () => {
       comment: "Picking this up now",
     });
     expect(event.toState).toBe("in_progress");
+  });
+
+  it("propagates Postgres 55P03 lock error when row is already locked", async () => {
+    const lockError = Object.assign(new Error("lock_not_available"), {
+      code: "55P03",
+    });
+    selectResults = [() => [fakeInstance]];
+    mockExecute.mockRejectedValueOnce(lockError);
+
+    await expect(
+      executeTransition(dbMock as never, TENANT_ID, {
+        instanceId: INSTANCE_ID,
+        transitionId: TRANSITION_ID,
+      }),
+    ).rejects.toMatchObject({ code: "55P03" });
+
+    // No state update or event insert should have occurred
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockInsertValues).not.toHaveBeenCalled();
   });
 
   it("returns existing event without re-executing when idempotency key matches", async () => {

@@ -1,4 +1,4 @@
-import { eq, and, isNotNull } from "drizzle-orm";
+import { eq, and, isNotNull, sql } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import {
   entityInstances,
@@ -49,7 +49,17 @@ export async function executeTransition(
     });
   }
 
-  // 1b. Idempotency check — return existing event if key already used
+  // 1b. Pessimistic row lock — prevents concurrent transitions on the same instance.
+  // Throws Postgres error 55P03 (lock_not_available) if another transaction holds the lock;
+  // caller's withTenantContext transaction keeps the lock until commit.
+  await db.execute(
+    sql`SELECT 1 FROM entity_instances
+        WHERE id = ${request.instanceId}::uuid
+          AND tenant_id = ${tenantId}::uuid
+        FOR UPDATE NOWAIT`,
+  );
+
+  // 1d. Idempotency check — return existing event if key already used
   if (request.idempotencyKey) {
     const [existing] = await db
       .select()
