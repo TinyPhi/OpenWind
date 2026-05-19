@@ -30,9 +30,16 @@ export const executeTransitionHandler = factory.createHandlers(
           transitionId,
           actorId: userId,
           actorRoles: roles,
-          comment,
           triggeredBy: "user",
-          metadata: idempotencyKey ? { ...metadata, idempotencyKey } : metadata,
+          ...(comment !== undefined ? { comment } : {}),
+          ...(metadata !== undefined || idempotencyKey !== undefined
+            ? {
+                metadata: {
+                  ...metadata,
+                  ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
+                },
+              }
+            : {}),
         }),
       );
 
