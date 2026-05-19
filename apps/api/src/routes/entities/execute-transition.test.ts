@@ -115,7 +115,7 @@ describe("POST /entities/:id/transitions", () => {
     );
   });
 
-  it("stores idempotencyKey inside metadata", async () => {
+  it("passes idempotencyKey directly in the transition request", async () => {
     mockExecuteTransition.mockResolvedValue(fakeEvent);
 
     await makeApp().request(`/${INST_ID}/transitions`, {
@@ -130,7 +130,7 @@ describe("POST /entities/:id/transitions", () => {
     expect(mockExecuteTransition).toHaveBeenCalledWith(
       {},
       "t-aaa",
-      expect.objectContaining({ metadata: { idempotencyKey: "key-xyz" } }),
+      expect.objectContaining({ idempotencyKey: "key-xyz" }),
     );
   });
 

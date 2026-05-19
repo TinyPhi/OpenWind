@@ -63,28 +63,49 @@ export const errorHandler = (): MiddlewareHandler =>
         );
       }
 
-      if (err instanceof ValidationError) {
+      if (
+        err instanceof ValidationError ||
+        (err !== null &&
+          typeof err === "object" &&
+          "name" in err &&
+          err.name === "ValidationError")
+      ) {
+        const vErr = err as ValidationError;
         return c.json(
           {
             error: "VALIDATION_ERROR",
             message: "Validation failed",
-            fields: err.fields,
+            fields: vErr.fields,
           },
           422,
         );
       }
 
-      if (err instanceof WorkflowError) {
+      if (
+        err instanceof WorkflowError ||
+        (err !== null &&
+          typeof err === "object" &&
+          "name" in err &&
+          err.name === "WorkflowError")
+      ) {
+        const wErr = err as WorkflowError;
         return c.json(
-          { error: err.code, message: err.code },
-          toStatus(WORKFLOW_STATUS, err.code),
+          { error: wErr.code, message: wErr.code },
+          toStatus(WORKFLOW_STATUS, wErr.code),
         );
       }
 
-      if (err instanceof EntityError) {
+      if (
+        err instanceof EntityError ||
+        (err !== null &&
+          typeof err === "object" &&
+          "name" in err &&
+          err.name === "EntityError")
+      ) {
+        const eErr = err as EntityError;
         return c.json(
-          { error: err.code, message: err.code },
-          toStatus(ENTITY_STATUS, err.code),
+          { error: eErr.code, message: eErr.code },
+          toStatus(ENTITY_STATUS, eErr.code),
         );
       }
 
