@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNotNull, sql } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import {
   entityInstances,
@@ -47,6 +47,46 @@ export async function executeTransition(
       instanceId: request.instanceId,
       reason: "no workflow attached",
     });
+  }
+
+  // 1b. Pessimistic row lock — prevents concurrent transitions on the same instance.
+  // Throws Postgres error 55P03 (lock_not_available) if another transaction holds the lock;
+  // caller's withTenantContext transaction keeps the lock until commit.
+  await db.execute(
+    sql`SELECT 1 FROM entity_instances
+        WHERE id = ${request.instanceId}::uuid
+          AND tenant_id = ${tenantId}::uuid
+        FOR UPDATE NOWAIT`,
+  );
+
+  // 1d. Idempotency check — return existing event if key already used
+  if (request.idempotencyKey) {
+    const [existing] = await db
+      .select()
+      .from(workflowEvents)
+      .where(
+        and(
+          eq(workflowEvents.instanceId, request.instanceId),
+          eq(workflowEvents.idempotencyKey, request.idempotencyKey),
+          isNotNull(workflowEvents.idempotencyKey),
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      return {
+        id: existing.id,
+        instanceId: existing.instanceId,
+        workflowId: existing.workflowId,
+        fromState: existing.fromState ?? null,
+        toState: existing.toState,
+        triggeredBy: existing.triggeredBy as WorkflowEvent["triggeredBy"],
+        actorId: existing.actorId ?? null,
+        comment: existing.comment ?? null,
+        metadata: (existing.metadata as Record<string, unknown>) ?? {},
+        createdAt: existing.createdAt,
+      };
+    }
   }
 
   // 2. Load workflow definition
@@ -149,6 +189,7 @@ export async function executeTransition(
       triggeredBy,
       actorId: request.actorId ?? null,
       comment: request.comment ?? null,
+      idempotencyKey: request.idempotencyKey ?? null,
       metadata: request.metadata ?? {},
     })
     .returning();

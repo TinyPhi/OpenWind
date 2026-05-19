@@ -72,9 +72,56 @@ export interface TransitionRequest {
   actorId?: string;
   actorRoles?: string[];
   comment?: string;
+  idempotencyKey?: string;
   triggeredBy?: "user" | "automation" | "api" | "system";
   metadata?: Record<string, unknown>;
 }
+
+export interface WorkflowFull extends WorkflowDefinition {
+  states: WorkflowState[];
+  transitions: WorkflowTransition[];
+}
+
+export type CreateWorkflowInput = {
+  entityTypeId: string;
+  name: string;
+  initialState: string;
+};
+
+export type CreateWorkflowStateInput = {
+  name: string;
+  label: string;
+  color?: string | undefined;
+  isTerminal?: boolean | undefined;
+  slaHours?: number | null | undefined;
+  sortOrder?: number | undefined;
+};
+
+export type UpdateWorkflowStateInput = {
+  label?: string | undefined;
+  color?: string | undefined;
+  isTerminal?: boolean | undefined;
+  slaHours?: number | null | undefined;
+  sortOrder?: number | undefined;
+};
+
+export type CreateWorkflowTransitionInput = {
+  fromState: string;
+  toState: string;
+  label?: string | undefined;
+  allowedRoles?: string[] | undefined;
+  conditions?: ConditionTree | null | undefined;
+  requiresComment?: boolean | undefined;
+  requiresFields?: string[] | undefined;
+};
+
+export type UpdateWorkflowTransitionInput = {
+  label?: string | undefined;
+  allowedRoles?: string[] | undefined;
+  conditions?: ConditionTree | null | undefined;
+  requiresComment?: boolean | undefined;
+  requiresFields?: string[] | undefined;
+};
 
 // Domain event written to outbox on successful transition
 export interface WorkflowTransitionedEvent {

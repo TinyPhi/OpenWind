@@ -1,6 +1,30 @@
 import { defineConfig } from "vitest/config";
+import path from "path";
+
+const packages = path.resolve(__dirname, "../../packages");
 
 export default defineConfig({
+  resolve: {
+    // Point workspace packages to their TypeScript source so that all
+    // imports — both in test files and in dynamically-loaded modules under
+    // test — resolve to the same entry point and share a single module
+    // instance. Without this, different module loaders (Vite vs Node native
+    // ESM) can produce separate class objects, breaking instanceof checks.
+    alias: {
+      "@platform/workflow-engine": path.join(
+        packages,
+        "workflow-engine/src/index.ts",
+      ),
+      "@platform/entity-engine": path.join(
+        packages,
+        "entity-engine/src/index.ts",
+      ),
+      "@platform/logger": path.join(packages, "logger/src/index.ts"),
+      "@platform/auth": path.join(packages, "auth/src/index.ts"),
+      "@platform/db": path.join(packages, "db/src/index.ts"),
+      "@platform/config": path.join(packages, "config/src/index.ts"),
+    },
+  },
   test: {
     environment: "node",
     // Provide all required @platform/config env vars so tests don't need to

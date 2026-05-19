@@ -16,6 +16,7 @@ import { bulkSetStateHandler } from "./bulk-set-state.js";
 import { executeTransitionHandler } from "./execute-transition.js";
 import { listTransitionsHandler } from "./list-transitions.js";
 import { listWorkflowEventsHandler } from "./list-workflow-events.js";
+import { listEventsHandler } from "./list-events.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -38,6 +39,8 @@ router.post("/:id/state", ...setEntityStateHandler);
 router.get("/:id/transitions/history", ...listWorkflowEventsHandler);
 router.get("/:id/transitions", ...listTransitionsHandler);
 router.post("/:id/transitions", ...executeTransitionHandler);
+
+router.get("/:id/events", ...listEventsHandler);
 
 router.post("/:id/relations", ...createRelationHandler);
 router.get("/:id/relations", ...listRelationsHandler);

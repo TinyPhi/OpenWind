@@ -297,7 +297,7 @@ OpenWind and offer it as a service to others, you must release your modification
 under the same license.
 
 For commercial licensing (embedding OpenWind in a proprietary product without
-AGPL obligations), contact [hello@tinyphi.com](mailto:hello@tinyphi.com).
+AGPL obligations), contact [abmish@outlook.in](mailto:abmish@outlook.in).
 
 ---
 

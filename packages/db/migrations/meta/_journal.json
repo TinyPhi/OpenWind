@@ -36,6 +36,20 @@
       "when": 1778749338303,
       "tag": "0002_entity_instances_search_vector",
       "breakpoints": false
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778749338304,
+      "tag": "0003_entity_instances_fields_gin",
+      "breakpoints": false
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778749338305,
+      "tag": "0004_workflow_events_idempotency_key",
+      "breakpoints": false
     }
   ]
 }

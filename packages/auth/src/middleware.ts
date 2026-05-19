@@ -23,6 +23,13 @@ type AuthVariables = { Variables: { auth: AuthContext } };
 export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
   createMiddleware<AuthVariables>(
     async (c: Context<AuthVariables>, next: Next): Promise<Response | void> => {
+      // Short-circuit when auth has been pre-populated (e.g. by test fixtures
+      // or an upstream gateway that already verified the token).
+      if (c.get("auth")) {
+        await next();
+        return;
+      }
+
       const authHeader = c.req.header("Authorization");
       if (!authHeader?.startsWith("Bearer ")) {
         return c.json({ error: "UNAUTHORIZED", message: "Missing token" }, 401);

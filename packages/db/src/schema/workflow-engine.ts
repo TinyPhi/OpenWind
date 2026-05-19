@@ -7,7 +7,9 @@ import {
   jsonb,
   timestamp,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { entityInstances, entityTypes } from "./entity-engine.js";
 
 export const workflows = pgTable("workflows", {
@@ -66,6 +68,7 @@ export const workflowEvents = pgTable(
     triggeredBy: text("triggered_by").notNull(),
     actorId: uuid("actor_id"),
     comment: text("comment"),
+    idempotencyKey: text("idempotency_key"),
     metadata: jsonb("metadata").default({}).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -76,5 +79,10 @@ export const workflowEvents = pgTable(
       t.tenantId,
       t.instanceId,
     ),
+    instanceIdempotencyIdx: uniqueIndex(
+      "workflow_events_instance_idempotency_idx",
+    )
+      .on(t.instanceId, t.idempotencyKey)
+      .where(sql`${t.idempotencyKey} IS NOT NULL`),
   }),
 );

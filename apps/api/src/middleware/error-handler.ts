@@ -6,6 +6,15 @@ import { WorkflowError } from "@platform/workflow-engine";
 import { EntityError, ValidationError } from "@platform/entity-engine";
 import { logger } from "@platform/logger";
 
+// Postgres error code 55P03 = lock_not_available (raised by FOR UPDATE NOWAIT)
+function isLockNotAvailableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code =
+    (err as { code?: unknown }).code ??
+    (err as { cause?: { code?: unknown } }).cause?.code;
+  return code === "55P03";
+}
+
 const WORKFLOW_STATUS: Record<string, number> = {
   INSTANCE_NOT_FOUND: 404,
   TRANSITION_NOT_AVAILABLE: 409,
@@ -13,6 +22,11 @@ const WORKFLOW_STATUS: Record<string, number> = {
   CONDITION_NOT_MET: 422,
   REQUIRED_FIELDS_MISSING: 422,
   SLA_TIMER_FAILED: 500,
+  WORKFLOW_NOT_FOUND: 404,
+  WORKFLOW_STATE_NOT_FOUND: 404,
+  WORKFLOW_TRANSITION_NOT_FOUND: 404,
+  WORKFLOW_HAS_ACTIVE_INSTANCES: 409,
+  WORKFLOW_STATE_IN_USE: 409,
 };
 
 const ENTITY_STATUS: Record<string, number> = {
@@ -38,6 +52,16 @@ export const errorHandler = (): MiddlewareHandler =>
       return;
     } catch (err: unknown) {
       const requestId = c.get("requestId") as string | undefined;
+
+      if (isLockNotAvailableError(err)) {
+        return c.json(
+          {
+            error: "TRANSITION_CONFLICT",
+            message: "Another transition is in progress for this entity",
+          },
+          409,
+        );
+      }
 
       if (err instanceof ValidationError) {
         return c.json(
