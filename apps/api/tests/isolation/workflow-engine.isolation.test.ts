@@ -307,18 +307,18 @@ describe("getWorkflowEventLog — cross-tenant isolation", () => {
 // ── RLS direct SELECT isolation ───────────────────────────────────────────────
 
 describe("RLS — direct query on workflow_events within tenant context", () => {
-  it.skip(
-    "direct SELECT within Tenant A context returns no Tenant B rows (requires non-superuser role)",
-    async () => {
-      await withTenantContext(TENANT_A, async (tx) => {
-        const rows = await tx
-          .select({ id: workflowEvents.id, instanceId: workflowEvents.instanceId })
-          .from(workflowEvents)
-          .where(eq(workflowEvents.instanceId, instanceIdB));
-        expect(rows).toHaveLength(0);
-      });
-    },
-  );
+  it.skip("direct SELECT within Tenant A context returns no Tenant B rows (requires non-superuser role)", async () => {
+    await withTenantContext(TENANT_A, async (tx) => {
+      const rows = await tx
+        .select({
+          id: workflowEvents.id,
+          instanceId: workflowEvents.instanceId,
+        })
+        .from(workflowEvents)
+        .where(eq(workflowEvents.instanceId, instanceIdB));
+      expect(rows).toHaveLength(0);
+    });
+  });
 
   it("direct SELECT for own events succeeds within context", async () => {
     await withTenantContext(TENANT_A, async (tx) => {
@@ -336,10 +336,13 @@ describe("RLS — direct query on workflow_events within tenant context", () => 
 describe("POST /entities/:id/transitions — HTTP cross-tenant isolation", () => {
   function makeApp(tenantId: string, userId: string, roles: string[]) {
     const app = new Hono<{ Variables: { auth: AuthContext } }>();
-    app.use("*", async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", { tenantId, userId, roles, email: "test@example.com" });
-      await next();
-    });
+    app.use(
+      "*",
+      async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
+        c.set("auth", { tenantId, userId, roles, email: "test@example.com" });
+        await next();
+      },
+    );
     app.post("/:id/transitions", ...executeTransitionHandler);
     return app;
   }

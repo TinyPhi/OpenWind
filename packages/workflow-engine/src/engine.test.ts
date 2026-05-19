@@ -347,7 +347,11 @@ describe("executeTransition", () => {
   });
 
   it("returns existing event without re-executing when idempotency key matches", async () => {
-    const existingEvent = { ...fakeEvent, id: "event-existing", idempotencyKey: "key-abc" };
+    const existingEvent = {
+      ...fakeEvent,
+      id: "event-existing",
+      idempotencyKey: "key-abc",
+    };
     // Selects: instance, then idempotency check finds the event
     selectResults = [() => [fakeInstance], () => [existingEvent]];
 

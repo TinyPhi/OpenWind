@@ -12,7 +12,10 @@ export const listTransitionsHandler = factory.createHandlers(
 
     const rolesParam = c.req.query("roles");
     const actorRoles = rolesParam
-      ? rolesParam.split(",").map((r) => r.trim()).filter(Boolean)
+      ? rolesParam
+          .split(",")
+          .map((r) => r.trim())
+          .filter(Boolean)
       : roles;
 
     try {

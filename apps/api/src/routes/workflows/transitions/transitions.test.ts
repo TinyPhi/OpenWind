@@ -79,7 +79,11 @@ describe("POST /workflows/:id/transitions", () => {
     const res = await makeApp().request(`/${WF_ID}/transitions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fromState: "open", toState: "in_progress", label: "Start" }),
+      body: JSON.stringify({
+        fromState: "open",
+        toState: "in_progress",
+        label: "Start",
+      }),
     });
 
     expect(res.status).toBe(201);
@@ -135,14 +139,11 @@ describe("PATCH /workflows/:id/transitions/:transitionId", () => {
       allowedRoles: ["admin"],
     });
 
-    const res = await makeApp().request(
-      `/${WF_ID}/transitions/${TRANS_ID}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allowedRoles: ["admin"] }),
-      },
-    );
+    const res = await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowedRoles: ["admin"] }),
+    });
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -155,14 +156,11 @@ describe("PATCH /workflows/:id/transitions/:transitionId", () => {
       new WorkflowError("WORKFLOW_TRANSITION_NOT_FOUND"),
     );
 
-    const res = await makeApp().request(
-      `/${WF_ID}/transitions/${TRANS_ID}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: "x" }),
-      },
-    );
+    const res = await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "x" }),
+    });
     expect(res.status).toBe(404);
   });
 });
@@ -173,12 +171,16 @@ describe("DELETE /workflows/:id/transitions/:transitionId", () => {
   it("returns 204 on success", async () => {
     mockDeleteTransition.mockResolvedValue(undefined);
 
-    const res = await makeApp().request(
-      `/${WF_ID}/transitions/${TRANS_ID}`,
-      { method: "DELETE" },
-    );
+    const res = await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "DELETE",
+    });
     expect(res.status).toBe(204);
-    expect(mockDeleteTransition).toHaveBeenCalledWith({}, "t-aaa", WF_ID, TRANS_ID);
+    expect(mockDeleteTransition).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      WF_ID,
+      TRANS_ID,
+    );
   });
 
   it("returns 404 when transition not found", async () => {
@@ -187,10 +189,9 @@ describe("DELETE /workflows/:id/transitions/:transitionId", () => {
       new WorkflowError("WORKFLOW_TRANSITION_NOT_FOUND"),
     );
 
-    const res = await makeApp().request(
-      `/${WF_ID}/transitions/${TRANS_ID}`,
-      { method: "DELETE" },
-    );
+    const res = await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "DELETE",
+    });
     expect(res.status).toBe(404);
   });
 });

@@ -38,9 +38,8 @@ vi.mock("@platform/logger", () => ({
 
 const { errorHandler } = await import("./error-handler.js");
 const { WorkflowError } = await import("@platform/workflow-engine");
-const { EntityError, ValidationError } = await import(
-  "@platform/entity-engine"
-);
+const { EntityError, ValidationError } =
+  await import("@platform/entity-engine");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -142,7 +141,9 @@ describe("errorHandler — EntityError mapping", () => {
 describe("errorHandler — ValidationError", () => {
   it("returns 422 with fields array", async () => {
     const res = await makeApp(
-      new ValidationError([{ field: "name", code: "too_small", message: "Required" }]),
+      new ValidationError([
+        { field: "name", code: "too_small", message: "Required" },
+      ]),
     ).request("/test");
     expect(res.status).toBe(422);
     const json = await res.json();

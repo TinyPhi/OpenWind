@@ -17,7 +17,10 @@ function isLockError(err: unknown): boolean {
 export function handleWorkflowError(c: Context, err: unknown): Response {
   if (isLockError(err)) {
     return c.json(
-      { error: "TRANSITION_CONFLICT", message: "Concurrent transition in progress" },
+      {
+        error: "TRANSITION_CONFLICT",
+        message: "Concurrent transition in progress",
+      },
       409,
     ) as Response;
   }
@@ -28,11 +31,17 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
       case "WORKFLOW_STATE_NOT_FOUND":
       case "WORKFLOW_TRANSITION_NOT_FOUND":
       case "INSTANCE_NOT_FOUND":
-        return c.json({ error: err.code, message: "Not found" }, 404) as Response;
+        return c.json(
+          { error: err.code, message: "Not found" },
+          404,
+        ) as Response;
 
       case "TRANSITION_NOT_AVAILABLE":
         return c.json(
-          { error: err.code, message: "Transition is not available from the current state" },
+          {
+            error: err.code,
+            message: "Transition is not available from the current state",
+          },
           409,
         ) as Response;
 
@@ -49,18 +58,26 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
         return c.json(
           {
             error: err.code,
-            message: "Cannot delete: state is referenced by one or more transitions",
+            message:
+              "Cannot delete: state is referenced by one or more transitions",
           },
           409,
         ) as Response;
 
       case "TRANSITION_FORBIDDEN":
-        return c.json({ error: err.code, message: "Forbidden" }, 403) as Response;
+        return c.json(
+          { error: err.code, message: "Forbidden" },
+          403,
+        ) as Response;
 
       case "CONDITION_NOT_MET":
       case "REQUIRED_FIELDS_MISSING":
         return c.json(
-          { error: err.code, message: "Transition conditions not met", meta: err.meta },
+          {
+            error: err.code,
+            message: "Transition conditions not met",
+            meta: err.meta,
+          },
           422,
         ) as Response;
 

@@ -113,7 +113,11 @@ describe("POST /workflows", () => {
     const res = await makeApp().request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entityTypeId: "not-uuid", name: "x", initialState: "open" }),
+      body: JSON.stringify({
+        entityTypeId: "not-uuid",
+        name: "x",
+        initialState: "open",
+      }),
     });
     expect(res.status).toBe(400);
     expect(mockCreate).not.toHaveBeenCalled();

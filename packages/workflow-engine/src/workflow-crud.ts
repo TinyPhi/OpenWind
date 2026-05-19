@@ -23,9 +23,7 @@ import type {
 
 // ── Row mappers ───────────────────────────────────────────────────────────────
 
-function rowToWorkflow(
-  r: typeof workflows.$inferSelect,
-): WorkflowDefinition {
+function rowToWorkflow(r: typeof workflows.$inferSelect): WorkflowDefinition {
   return {
     id: r.id,
     tenantId: r.tenantId ?? null,
@@ -70,10 +68,7 @@ function rowToTransition(
 // Writes (create/delete states/transitions) are restricted to tenant-owned rows.
 
 function visibleTo(tenantId: string) {
-  return or(
-    isNull(workflows.tenantId),
-    eq(workflows.tenantId, tenantId),
-  );
+  return or(isNull(workflows.tenantId), eq(workflows.tenantId, tenantId));
 }
 
 // ── Workflow CRUD ─────────────────────────────────────────────────────────────
@@ -140,9 +135,7 @@ export async function listWorkflows(
   const rows = await db
     .select()
     .from(workflows)
-    .where(
-      and(eq(workflows.entityTypeId, entityTypeId), visibleTo(tenantId)),
-    )
+    .where(and(eq(workflows.entityTypeId, entityTypeId), visibleTo(tenantId)))
     .orderBy(asc(workflows.createdAt));
 
   return rows.map(rowToWorkflow);
@@ -172,12 +165,12 @@ export async function deleteWorkflow(
     throw new WorkflowError("WORKFLOW_HAS_ACTIVE_INSTANCES", { workflowId });
   }
 
-  await db.delete(workflowTransitions).where(
-    eq(workflowTransitions.workflowId, workflowId),
-  );
-  await db.delete(workflowStates).where(
-    eq(workflowStates.workflowId, workflowId),
-  );
+  await db
+    .delete(workflowTransitions)
+    .where(eq(workflowTransitions.workflowId, workflowId));
+  await db
+    .delete(workflowStates)
+    .where(eq(workflowStates.workflowId, workflowId));
   await db.delete(workflows).where(eq(workflows.id, workflowId));
 
   logger.info({ tenantId, workflowId }, "Workflow deleted");
@@ -222,7 +215,10 @@ export async function addWorkflowState(
 
   if (!row) throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND");
 
-  logger.info({ tenantId, workflowId, stateId: row.id }, "Workflow state added");
+  logger.info(
+    { tenantId, workflowId, stateId: row.id },
+    "Workflow state added",
+  );
   return rowToState(row);
 }
 
@@ -253,8 +249,7 @@ export async function updateWorkflowState(
     )
     .returning();
 
-  if (!row)
-    throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", { stateId });
+  if (!row) throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", { stateId });
 
   logger.info({ tenantId, workflowId, stateId }, "Workflow state updated");
   return rowToState(row);
@@ -354,7 +349,8 @@ export async function updateWorkflowTransition(
 
   const updates: Partial<typeof workflowTransitions.$inferInsert> = {};
   if (input.label !== undefined) updates.label = input.label;
-  if (input.allowedRoles !== undefined) updates.allowedRoles = input.allowedRoles;
+  if (input.allowedRoles !== undefined)
+    updates.allowedRoles = input.allowedRoles;
   if (input.conditions !== undefined)
     updates.conditions =
       (input.conditions as Record<string, unknown> | null) ?? null;
