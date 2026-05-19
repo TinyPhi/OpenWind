@@ -104,7 +104,6 @@ export function handleError(err: unknown, c: Context): Response {
     );
   }
 
-
   if (err instanceof ZodError) {
     return c.json(
       {
