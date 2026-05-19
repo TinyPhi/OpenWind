@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { logger as honoLogger } from "hono/logger";
 import { env } from "@platform/config";
 import { correlationId } from "./middleware/correlation-id.js";
-import { errorHandler } from "./middleware/error-handler.js";
+import { handleError } from "./middleware/error-handler.js";
 import { rateLimit } from "./middleware/rate-limit.js";
 import { entityTypesRouter } from "./routes/entity-types/index.js";
 import { entitiesRouter } from "./routes/entities/index.js";
@@ -18,8 +18,8 @@ export function createApp(): Hono {
   app.use("*", honoLogger());
   // 3. Rate limiter — before auth so unauthenticated flood is blocked cheaply
   app.use("*", rateLimit());
-  // 4. Error handler — registered last so it wraps all subsequent route errors
-  app.use("*", errorHandler());
+  // 4. Error handler — app.onError is the correct Hono v4 API for route errors
+  app.onError(handleError);
 
   app.get("/health", (c) => c.json({ status: "ok", env: env.NODE_ENV }));
 
