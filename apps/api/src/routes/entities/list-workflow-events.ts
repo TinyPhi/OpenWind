@@ -12,7 +12,9 @@ export const listWorkflowEventsHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
 
     try {
+      // TODO: add cursor-based pagination
       const events = await getWorkflowEventLog(db, tenantId, id);
+
       return c.json({ data: events });
     } catch (err) {
       return handleWorkflowError(c, err);

@@ -15,7 +15,7 @@ export const listTransitionsHandler = factory.createHandlers(
       ? rolesParam
           .split(",")
           .map((r) => r.trim())
-          .filter(Boolean)
+          .filter((r) => roles.includes(r))
       : roles;
 
     try {

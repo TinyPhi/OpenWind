@@ -106,4 +106,22 @@ describe("GET /entities/:id/transitions", () => {
     const json = await res.json();
     expect(json.data).toEqual([]);
   });
+
+  it("restricts / clamps the query parameter roles to only those present in the verified auth token", async () => {
+    mockGetAvailableTransitions.mockResolvedValue([]);
+
+    await makeApp().request(
+      `/${INST_ID}/transitions?roles=admin,agent,superuser`,
+      {
+        method: "GET",
+      },
+    );
+
+    expect(mockGetAvailableTransitions).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      INST_ID,
+      ["admin"],
+    );
+  });
 });

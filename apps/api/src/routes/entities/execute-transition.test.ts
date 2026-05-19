@@ -77,7 +77,7 @@ describe("POST /entities/:id/transitions", () => {
     );
   });
 
-  it("returns 200 with the workflow event when transition succeeds", async () => {
+  it("returns 201 with the workflow event when transition succeeds", async () => {
     mockExecuteTransition.mockResolvedValue(fakeEvent);
 
     const res = await makeApp().request(`/${INST_ID}/transitions`, {
@@ -86,7 +86,8 @@ describe("POST /entities/:id/transitions", () => {
       body: JSON.stringify({ transitionId: TRANS_ID }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
+
     const json = await res.json();
     expect(json.data.id).toBe(fakeEvent.id);
     expect(json.data.toState).toBe("in_progress");

@@ -88,7 +88,9 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
           {
             error: err.code,
             message: "Required fields are missing",
-            fields: err.meta?.missing,
+            fields: Array.isArray(err.meta?.missing)
+              ? err.meta.missing
+              : undefined,
           },
           422,
         ) as Response;

@@ -96,7 +96,7 @@ describe("POST /entities/:id/transitions", () => {
     );
   });
 
-  it("returns 200 with workflow event on success", async () => {
+  it("returns 201 with workflow event on success", async () => {
     mockExecuteTransition.mockResolvedValue(fakeEvent);
 
     const res = await makeApp().request(`/${INSTANCE_ID}/transitions`, {
@@ -105,7 +105,7 @@ describe("POST /entities/:id/transitions", () => {
       body: JSON.stringify({ transitionId: TRANSITION_ID }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const json = await res.json();
     expect(json.data.fromState).toBe("open");
     expect(json.data.toState).toBe("in_progress");
@@ -271,16 +271,18 @@ describe("GET /entities/:id/transitions", () => {
     );
   });
 
-  it("uses roles query param when provided", async () => {
+  it("filters and clamps roles query param to authenticated roles when provided", async () => {
     mockGetAvailableTransitions.mockResolvedValue([]);
 
-    await makeApp().request(`/${INSTANCE_ID}/transitions?roles=agent,viewer`);
+    await makeApp().request(
+      `/${INSTANCE_ID}/transitions?roles=admin,agent,viewer`,
+    );
 
     expect(mockGetAvailableTransitions).toHaveBeenCalledWith(
       {},
       "t-aaa",
       INSTANCE_ID,
-      ["agent", "viewer"],
+      ["admin"],
     );
   });
 
