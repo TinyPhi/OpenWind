@@ -181,6 +181,10 @@ export async function executeTransition(
 
   // 8–9. Update state + append event + write outbox — all in the caller's transaction
   // (caller wraps in withTenantContext which provides a transaction)
+  //
+  // Transitions are irreversible by design (ADR-002 WE-02). workflow_events is an
+  // append-only audit log. If a rollback path is needed, define an explicit reverse
+  // transition in the workflow definition — do not attempt to mutate past events.
   await db
     .update(entityInstances)
     .set({ currentState: transition.toState, updatedAt: occurredAt })
