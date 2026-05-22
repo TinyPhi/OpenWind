@@ -38,6 +38,10 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code / Claire tooling
+.claude/
+.claire/
+
 # Test coverage
 coverage/
 
