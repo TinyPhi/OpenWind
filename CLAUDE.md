@@ -479,15 +479,19 @@ humans drive architecture decisions, security reviews, and product judgment.
 
 ### Available Claude Code skills (use these, don't improvise)
 
-| Skill              | When to use                                                                 |
-| ------------------ | --------------------------------------------------------------------------- |
-| `/spec`            | Before any new feature — write the spec first                               |
-| `/spec-tasks`      | Turn a spec into an ordered implementation task list                        |
-| `/security-review` | Any PR touching auth, new tables, new routes, file access, or secrets       |
-| `/review`          | Standard PR review                                                          |
-| `/ultrareview`     | Deep multi-agent review — run on all non-trivial PRs before merge           |
-| `/verify`          | After implementation — confirm the feature works end-to-end in the real app |
-| `/simplify`        | Post-implementation code quality pass                                       |
+| Skill              | Source                | When to use                                                           |
+| ------------------ | --------------------- | --------------------------------------------------------------------- |
+| `/spec`            | `.claude/commands/`   | Before any new feature — write the spec first                         |
+| `/spec-tasks`      | `.claude/commands/`   | Turn a spec into an ordered implementation task list                  |
+| `/spec-review`     | `.claude/commands/`   | Stress-test a spec before implementation starts                       |
+| `/security-review` | built-in plugin skill | Any PR touching auth, new tables, new routes, file access, or secrets |
+| `/review`          | built-in plugin skill | Standard PR review                                                    |
+| `/verify`          | built-in plugin skill | After implementation — confirm the feature works end-to-end           |
+| `/simplify`        | built-in plugin skill | Post-implementation code quality pass                                 |
+
+**`/ultrareview`** is a built-in Claude Code feature (not a slash command skill). Type
+`/ultrareview` in any Claude Code session. It launches a multi-agent cloud review of
+the current branch. Run on all non-trivial PRs before merge.
 
 ### The config-first test (Phase 2+)
 

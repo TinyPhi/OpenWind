@@ -36,8 +36,11 @@ Use `{TENANT_ID}` as the placeholder throughout. Reference the existing helpdesk
 
 ## Checklist before merging a new module seed
 
+- [ ] Module row inserted into `modules` registry table (`name`, `slug`, `description`, `version`)
 - [ ] All entity_type rows have `tenant_id = '{TENANT_ID}'`
 - [ ] All field types are valid values from `entity_fields.field_type` enum
+- [ ] `entity_fields` rows include `label` (NOT NULL) and use `is_required` (not `required`)
+- [ ] `entity_types` rows include `plural` (NOT NULL); no `slug` column
 - [ ] Workflow terminal states have no outgoing transitions
 - [ ] SLA states have a `sla_hours` value set
 - [ ] Automation rule conditions are valid JSON rule trees (see ADR-002 grammar)

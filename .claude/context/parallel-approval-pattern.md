@@ -27,6 +27,12 @@ The automation rule condition is a JSON rule tree evaluated by the condition eva
 For a 2-of-3 quorum, the automation rule action calls a script action that counts
 `approval` entities related to the parent and checks the ratio.
 
+**Prerequisite — N2 fix from PR #49:** `evaluateConditionTree` currently receives `{}`
+as context for non-`entity.created` events. A quorum condition on `approval.transitioned`
+will always evaluate against empty context and silently fail (quorum never detected).
+The automation quorum rule cannot work until N2 is resolved. Do not implement quorum
+automation until that fix is merged.
+
 ## Stuck-instance edge cases (issue #65)
 
 Known edge cases that need resolution before Phase 2 pilot:
@@ -45,15 +51,20 @@ For the reimbursements module pilot, use sequential (single approver) approval f
 
 ```sql
 -- approval entity type
-INSERT INTO entity_types (id, tenant_id, name, slug, allow_custom_fields)
-VALUES (gen_random_uuid(), '{TENANT_ID}', 'Approval', 'approval', false);
+-- entity_types has no slug column; plural is NOT NULL
+INSERT INTO entity_types (id, tenant_id, name, plural, allow_custom_fields)
+VALUES (gen_random_uuid(), '{TENANT_ID}', 'Approval', 'Approvals', false);
 
-INSERT INTO entity_fields (id, tenant_id, entity_type_id, name, slug, field_type, required, config)
+-- entity_fields has no slug column; required column is is_required; label is NOT NULL
+INSERT INTO entity_fields
+  (id, tenant_id, entity_type_id, name, label, field_type, is_required, config)
 VALUES
-  (gen_random_uuid(), '{TENANT_ID}', <approval_type_id>, 'Status', 'status', 'select',
-   true, '{"options": ["pending","approved","rejected"]}'),
-  (gen_random_uuid(), '{TENANT_ID}', <approval_type_id>, 'Approver', 'approver_id', 'user_ref',
-   true, '{}'),
-  (gen_random_uuid(), '{TENANT_ID}', <approval_type_id>, 'Parent', 'parent_id', 'entity_ref',
-   true, '{"entity_type_slug": "expense_claim"}');
+  (gen_random_uuid(), '{TENANT_ID}', <approval_type_id>,
+   'status', 'Status', 'select', true,
+   '{"options": ["pending","approved","rejected"]}'),
+  (gen_random_uuid(), '{TENANT_ID}', <approval_type_id>,
+   'approver_id', 'Approver', 'user_ref', true, '{}'),
+  (gen_random_uuid(), '{TENANT_ID}', <approval_type_id>,
+   'parent_id', 'Parent', 'entity_ref', true,
+   '{"entity_type_slug": "expense_claim"}');
 ```

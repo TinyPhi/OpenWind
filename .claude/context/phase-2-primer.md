@@ -1,5 +1,10 @@
 # Phase 2 Context Primer
 
+> ⚠️ **Planned architecture — most of this does not exist yet.**
+> Phase 2 has not started. APIs, packages, and tables described here are the
+> intended design, not current reality. Do not import these packages or reference
+> these tables until their track is implemented and merged.
+
 Load this file when working on any Phase 2 feature (platform services, module system, UI).
 
 **Phase 2 goal:** Helpdesk, reimbursements, and CRM live for pilot customers.
