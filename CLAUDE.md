@@ -22,6 +22,14 @@ Reference documents (read these for deep context before working on a new area):
 - `docs/decisions/ADR-002-workflow-engine.md` — state machine design
 - `docs/decisions/ADR-003-field-validation.md` — entity validation
 
+**`docs/` is the single home for all project documentation.** `docs/sup-docs/` contains
+supporting material for development, maintenance, and project tracking:
+
+- `docs/sup-docs/roadmap-tracker.md` — big-ticket feature table, % complete per track, all phases
+- `docs/sup-docs/week-log.md` — running WoW velocity log (update each session)
+- `docs/sup-docs/phase-timeline.md` — projected schedule and AI-first team operating model
+- `docs/sup-docs/analysis-YYYY-MM-DD.md` — frozen session snapshots
+
 ---
 
 ## Repository layout
@@ -374,7 +382,11 @@ const EnvSchema = z.object({
   S3_ACCESS_KEY: z.string(),
   S3_SECRET_KEY: z.string(),
   ANTHROPIC_API_KEY: z.string(),
-  ENCRYPTION_KEY: z.string().length(64), // 32 bytes hex-encoded
+  // OpenBao (replaces ENCRYPTION_KEY — see Phase 1 / 1A)
+  OPENBAO_ADDR: z.string().url(),
+  OPENBAO_ROLE_ID: z.string(),
+  OPENBAO_SECRET_ID: z.string(),
+  OPENBAO_TRANSIT_KEY: z.string(),
 });
 
 export const env = EnvSchema.parse(process.env);
@@ -392,19 +404,16 @@ output in development.
 ```typescript
 import { logger } from "@platform/logger";
 
-logger.info("Transition executed", {
-  instanceId,
-  fromState,
-  toState,
-  actorId,
-  durationMs,
-});
+// pino signature: logger.level(mergingObject, message) — object FIRST, message SECOND
+logger.info(
+  { instanceId, fromState, toState, actorId, durationMs },
+  "Transition executed",
+);
 
-logger.error("Transition failed", {
-  instanceId,
-  error: err.code,
-  meta: err.meta,
-});
+logger.error(
+  { instanceId, error: err.code, meta: err.meta },
+  "Transition failed",
+);
 ```
 
 **Every log entry at INFO level or above must include:**
@@ -454,36 +463,57 @@ These are non-negotiable and reviewed in every PR:
 
 ## AI development conventions (Claude Code)
 
-This codebase is developed with Claude as a primary engineering partner.
-Conventions for effective AI-assisted development:
+This codebase is developed with an AI-first team model. Claude Code handles implementation;
+humans drive architecture decisions, security reviews, and product judgment.
 
-**Before starting a new feature:**
+### Session workflow (every feature track)
 
-1. Read the relevant ADR(s) and module README
-2. Describe the feature to Claude with explicit references to which engine/layer
-   it touches and what the data flow is
-3. Ask Claude to identify edge cases before writing implementation
+1. **Spec** — run `/spec` to write a spec for the track. Reference the relevant ADR, the
+   engine it touches, and the data flow. Identify edge cases before writing a line of code.
+2. **Plan** — run `/spec-tasks` to turn the spec into an ordered task list.
+3. **Implement** — Claude Code implements with tests in one session. Always include tests
+   in the same generation pass — never implementation without tests.
+4. **Review** — `gh pr create`, then run `/ultrareview` on the PR before merge.
+   Security-sensitive PRs (new routes, new tables, auth changes) also run `/security-review`.
+5. **Log** — update `docs/sup-docs/week-log.md` and `docs/sup-docs/roadmap-tracker.md`.
 
-**When generating code:**
+### Available Claude Code skills (use these, don't improvise)
 
-- Always include the relevant existing code as context (the schema, the
-  neighboring routes, the test file for the module being extended)
-- Ask for tests in the same generation — never generate implementation without
-  tests
-- Specify error handling explicitly — don't leave it to inference
+| Skill              | When to use                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| `/spec`            | Before any new feature — write the spec first                               |
+| `/spec-tasks`      | Turn a spec into an ordered implementation task list                        |
+| `/security-review` | Any PR touching auth, new tables, new routes, file access, or secrets       |
+| `/review`          | Standard PR review                                                          |
+| `/ultrareview`     | Deep multi-agent review — run on all non-trivial PRs before merge           |
+| `/verify`          | After implementation — confirm the feature works end-to-end in the real app |
+| `/simplify`        | Post-implementation code quality pass                                       |
 
-**The `/.claude/` directory:**
+### The config-first test (Phase 2+)
+
+Before shipping any module feature, ask: **did this require TypeScript changes outside
+`packages/*` or `apps/*`?** If yes, something is wrong. Modules are seed SQL only.
+The engine interprets them. No per-module backend TypeScript.
+
+### Where humans must stay in the loop
+
+- Writing or modifying ADRs (architecture decisions belong to humans)
+- Security-sensitive code paths — always run `/security-review`
+- Phase exit decisions — don't advance phases without explicit sign-off
+- Pilot customer interactions and onboarding
+
+### The `/.claude/` directory
 
 - `/.claude/prompts/` — reusable prompt templates for common tasks
 - `/.claude/context/` — domain documents loaded as context for specialized work
 
-**Prompt templates available:**
+### Prompt templates
 
-- `new-module.md` — scaffold a new business module
-- `new-connector.md` — scaffold a third-party connector
-- `new-migration.md` — write a database migration with RLS and indexes
-- `new-route.md` — scaffold a Hono route with validation and tests
-- `new-workflow-config.md` — define a new workflow for an entity type
+- `new-module.md` — seed SQL for a new business module (Phase 2+)
+- `new-connector.md` — scaffold a third-party connector (Phase 3)
+- `new-migration.md` — database migration with RLS, indexes, and rollback
+- `new-route.md` — Hono route with Zod validation and tests
+- `new-workflow-config.md` — workflow definition (states, transitions, SLA) as seed SQL
 
 ---
 
@@ -559,6 +589,7 @@ platform-specific notes (Linux, macOS Apple Silicon, Windows WSL2).
 
 1. Check the relevant ADR first — the decision and its reasoning are there
 2. Check existing tests — they document expected behavior precisely
-3. Check the `/.claude/context/` directory for domain-specific guides
-4. If a decision is not covered by an ADR, write one before implementing —
+3. Check `/.claude/context/` for domain-specific guides (module system, patterns)
+4. Check `docs/sup-docs/roadmap-tracker.md` to understand where this work fits in the phase plan
+5. If a decision is not covered by an ADR, write one before implementing —
    document the context, options, and decision even if it's short
