@@ -80,7 +80,7 @@ updated: YYYY-MM-DD
 
 ## §G Goal
 
-## <!-- What done looks like. Measurable where possible. -->
+<!-- What done looks like. Measurable where possible. -->
 
 ## §C Constraints
 
