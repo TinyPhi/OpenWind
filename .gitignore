@@ -42,8 +42,10 @@ Thumbs.db
 *.swp
 *.swo
 
-# Claude Code / Claire tooling
-.claude/
+# Claude Code — commit shared config (rules, skills, context, prompts, commands, settings)
+# ignore only personal/generated files
+.claude/worktrees/
+.claude/settings.local.json
 .claire/
 
 # Test coverage
