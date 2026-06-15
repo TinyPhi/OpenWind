@@ -12,6 +12,9 @@
 
 import { execSync } from "child_process";
 
+// In CI, service containers are managed by the workflow runner — skip this check.
+if (process.env.CI) process.exit(0);
+
 const required = process.argv.slice(2);
 
 if (required.length === 0) {

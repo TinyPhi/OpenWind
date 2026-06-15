@@ -24,7 +24,7 @@
     "@platform/tsconfig": "workspace:*",
     "@types/node": "^25.7.0",
     "drizzle-kit": "^0.31.10",
-    "tsx": "^4.0.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.5.0"
   }
 }
