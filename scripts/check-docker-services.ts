@@ -12,9 +12,6 @@
 
 import { execSync } from "child_process";
 
-// In CI, service containers are managed by the workflow runner — skip this check.
-if (process.env.CI) process.exit(0);
-
 const required = process.argv.slice(2);
 
 if (required.length === 0) {
@@ -34,7 +31,7 @@ function platformHint(): string {
 
 // 1. Check the Docker daemon is reachable at all.
 try {
-  execSync("docker info", { stdio: "ignore" });
+  execSync("docker info", { stdio: "ignore", timeout: 5000 });
 } catch {
   console.error("\n❌  Docker / OrbStack is not running.\n");
   console.error(platformHint());

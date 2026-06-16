@@ -54,7 +54,7 @@ Full task spec: [first-loop-task.md](first-loop-task.md)
 apps/
   api/          Hono API server
   worker/       BullMQ background workers
-  admin-ui/     Refine + shadcn/ui
+  admin-ui/     Refine + shadcn/ui (agent/admin views)
   portal/       Customer-facing React portal
 packages/
   db/           Drizzle schema, migrations, client
@@ -68,6 +68,10 @@ packages/
   config/       Zod-validated env vars — import from @platform/config
   logger/       Structured pino logger
   secrets/      OpenBao client
+  connector-sdk/ Third-party connector scaffold (Phase 3)
+  plugin-sdk/   Plugin extension points (Phase 3)
+  ui/           Shared design system (shadcn/ui + tokens)
+  ai/           Anthropic SDK wrapper + RAG helpers
 modules/        Seed SQL only — zero TypeScript here
 tests/
   integration/  Cross-package integration tests
@@ -127,8 +131,9 @@ Full setup: `docs/local-setup.md`
 
 1. Check the relevant ADR in `docs/decisions/` — the decision and reasoning are there
 2. Check existing tests — they document expected behavior precisely
-3. Check `.claude/context/` for domain-specific guides
-4. If a decision isn't covered by an ADR, write one before implementing
+3. Check `.claude/context/` for domain-specific guides (entity-engine.md, workflow-engine.md, automation-engine.md)
+4. Check `docs/sup-docs/roadmap-tracker.md` — understand the phase context before changing scope
+5. If a decision isn't covered by an ADR, write one before implementing
 
 ---
 

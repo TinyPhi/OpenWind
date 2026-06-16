@@ -11,7 +11,7 @@ At the start of every session:
 
 1. Read CLAUDE.md Current Focus section
 2. Read PROGRESS.md if it exists (prior iteration context)
-3. Check BLOCKERS.md — address anything open before new work
+3. Check BLOCKERS.md if it exists — address anything open before new work
 4. `git status && git log --oneline -5`
 
 ---
@@ -57,7 +57,7 @@ docker compose up -d && pnpm test:e2e
 - Writing migrations that follow the established pattern
 - Choosing between equivalent implementation approaches
 
-**Stop and write to BLOCKERS.md:**
+**Stop and write to BLOCKERS.md (create if absent):**
 
 - A decision changes the schema or API contract of an existing package
 - An acceptance criterion is ambiguous — state your assumption and ask
@@ -101,6 +101,16 @@ docker compose up -d && pnpm test:e2e
 
 `/ultrareview` is a built-in Claude Code feature (not a skill) — type it in any session.
 It launches a multi-agent cloud review. Run on all non-trivial PRs before merge.
+
+---
+
+## Engine context docs (`.claude/context/`)
+
+Load when working in those packages — key invariants, gotchas, error codes:
+
+- `entity-engine.md` — two-phase validation, soft-delete, schema cache, audit hooks
+- `workflow-engine.md` — pessimistic lock, TRANSITION_LOCKED retry, SLA outbox, append-only events
+- `automation-engine.md` — recursion cap, circuit breaker, SSRF guard, issue #2 warning
 
 ---
 

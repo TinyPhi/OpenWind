@@ -1,7 +1,8 @@
 # Vision — OpenWind Platform
 
 **Status:** Living document. Update when a phase gate is crossed.  
-**Companion:** [docs/platform-vision.md](docs/platform-vision.md) · [docs/sup-docs/roadmap-tracker.md](docs/sup-docs/roadmap-tracker.md)
+**Scope:** Agent-facing quick reference — current milestone, principles, scope boundaries.  
+**Full roadmap:** [docs/platform-vision.md](docs/platform-vision.md) has the architecture and execution detail. These two documents are intentionally separate: this one is short and agent-loadable; the other is the full reference.
 
 ---
 

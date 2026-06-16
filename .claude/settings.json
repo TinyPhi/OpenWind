@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=\"${CLAUDE_TOOL_INPUT_FILE_PATH:-}\"; if [[ \"$FILE\" == *.ts ]] || [[ \"$FILE\" == *.tsx ]]; then npx eslint --max-warnings=0 \"$FILE\" 2>&1 | tail -8; fi"
+            "command": "node -e \"var cp=require('child_process'),f=process.env.CLAUDE_TOOL_INPUT_FILE_PATH||'';if(f.match(/\\.tsx?$/)){var r=cp.spawnSync('npx',['eslint','--max-warnings=0',f],{encoding:'utf8'});process.stdout.write((r.stdout||'').split('\\n').slice(-8).join('\\n'));}\""
           }
         ]
       },
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=\"${CLAUDE_TOOL_INPUT_FILE_PATH:-}\"; if [[ \"$FILE\" == */migrations/*.sql ]]; then echo '⚠️  New migration: remember to add isolation tests in tests/isolation/ for any new tenant-scoped tables.'; fi"
+            "command": "node -e \"var f=process.env.CLAUDE_TOOL_INPUT_FILE_PATH||'';if(f.includes('/migrations/')&&f.endsWith('.sql'))console.log('\\u26a0\\ufe0f  New migration: add isolation tests in tests/isolation/ for any new tenant-scoped tables.');\""
           }
         ]
       }
