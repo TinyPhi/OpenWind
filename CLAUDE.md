@@ -135,6 +135,10 @@ Full setup: `docs/local-setup.md`
 4. Check `docs/sup-docs/roadmap-tracker.md` — understand the phase context before changing scope
 5. If a decision isn't covered by an ADR, write one before implementing
 
+---
+
+## Maintenance notes
+
 **Dep bumps:** The `pnpm.overrides.esbuild` pin (`>=0.28.1`) is for GHSA-gv7w-rqvm-qjhr
 (esbuild < 0.28.1, high severity). Do not remove it — tsx@4.x and vite@6.x both pull in the
 vulnerable version transitively.
