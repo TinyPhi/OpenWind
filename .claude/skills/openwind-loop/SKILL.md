@@ -21,8 +21,8 @@ Each iteration is two separate Claude Code invocations with no shared context.
 ```
 1. Read CLAUDE.md Current Focus section
 2. Read VISION.md current milestone
-3. Read PROGRESS.md (last iteration context)
-4. Read BLOCKERS.md (any open blockers from previous runs)
+3. Read PROGRESS.md if it exists (last iteration context; absent on first run)
+4. Read BLOCKERS.md if it exists (open blockers; absent on first run)
 5. git status + git log --oneline -5
 6. Pick the first unchecked acceptance criterion
 7. Do one unit of work (one migration, one package feature, one test suite)

@@ -14,6 +14,11 @@ paths:
 
 These are non-negotiable and reviewed in every PR touching these paths.
 
+**`packages/secrets/`** is the OpenBao (HashiCorp Vault fork) client wrapper. It handles
+dynamic secret leases, token renewal, and secret injection at runtime. No other package
+reads secrets from the vault directly — all access goes through `@platform/secrets`.
+See `packages/secrets/README.md` for the API surface.
+
 ---
 
 1. **RLS is not optional.** Every new table storing tenant data needs RLS enabled and a

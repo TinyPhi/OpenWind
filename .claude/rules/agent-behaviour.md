@@ -99,8 +99,9 @@ docker compose up -d && pnpm test:e2e
 | `/simplify`        | Post-implementation code quality pass                                    |
 | `/openwind-loop`   | Project-specific loop: exact commands, config-first test, exit condition |
 
-`/ultrareview` is a built-in Claude Code feature (not a skill) — type it in any session.
-It launches a multi-agent cloud review. Run on all non-trivial PRs before merge.
+`/ultrareview` is a built-in Claude Code workflow (not a skill) — type it in any session.
+It launches a parallel multi-agent review across correctness, security, and performance dimensions.
+Run on all non-trivial PRs before merge.
 
 ---
 
