@@ -7,7 +7,7 @@ Encodes the exact verification commands, config-first test, and autonomy rules f
 
 ## When to use
 
-Use this skill when handed a task from [first-loop-task.md](../../../first-loop-task.md) or
+Use this skill when handed a task from [first-loop-task.md](../../../docs/sup-docs/first-loop-task.md) or
 when the Current Focus section of [CLAUDE.md](../../../CLAUDE.md) describes a track to implement.
 
 ---

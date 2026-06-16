@@ -45,6 +45,7 @@ try {
   const raw = execSync("docker compose ps --services --filter status=running", {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "ignore"],
+    timeout: 15000,
   });
   running = raw
     .split("\n")

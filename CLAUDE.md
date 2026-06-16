@@ -37,7 +37,7 @@ Acceptance criteria for 2B:
 - [ ] `pnpm test:isolation` green for all module-seeded entity types
 - [ ] `pnpm test && pnpm typecheck && pnpm lint` clean
 
-Full task spec: [first-loop-task.md](first-loop-task.md)
+Full task spec: [first-loop-task.md](docs/sup-docs/first-loop-task.md)
 
 **Off-limits (never touch autonomously):**
 
