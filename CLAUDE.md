@@ -54,6 +54,13 @@ Work in this order (sequential dependencies at the top):
 - [ ] [#128](../../issues/128) OpenBao + MinIO commented out of `docker-compose.yml`: the code expects them but `docker compose up` doesn't start them. Uncomment and reconcile with `.env.example`.
 - [ ] [#129](../../issues/129) Worker has no health endpoint: orchestrators cannot health-check `apps/worker`. Add an HTTP readiness probe.
 
+**Delivery is gated (Claude Code only; plain git + CI unaffected).** Every change runs
+Plan → Code → Review → Ship: freeze + **you approve** an acceptance-criteria plan-lock
+(`/spec-tasks` or the `openwind-loop` pick step) before editing source; all edits then one `/review`;
+the commit procedure runs `typecheck+lint+test+test:isolation`, writes the commit marker, and opens a
+structured PR. Hooks hard-block bare `git commit`, `.ts` in `modules/`, and edits on `main`. See
+[.claude/README.md](.claude/README.md) and [definition-of-done.md](.claude/references/definition-of-done.md).
+
 **Off-limits (never touch autonomously):**
 
 - Parallel approval code — deferred to Phase 3

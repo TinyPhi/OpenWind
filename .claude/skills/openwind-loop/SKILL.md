@@ -25,9 +25,14 @@ Each iteration is two separate Claude Code invocations with no shared context.
 4. Read BLOCKERS.md if it exists (open blockers; absent on first run)
 5. git status + git log --oneline -5
 6. Pick the first unchecked acceptance criterion
-7. Do one unit of work (one migration, one package feature, one test suite)
+6a. FREEZE THE PLAN-LOCK — if there is no approved plan-lock for this branch, build a payload from
+    the chosen criterion (with a `verify` command + `scope_paths`), run
+    `echo '<payload>' | .claude/hooks/write-plan.sh set -`, present it to the human, and on
+    explicit approval run `.claude/hooks/write-plan.sh approve`. The edit gate blocks source edits
+    until this exists. (Same mechanism as /spec-tasks; see that skill for the payload shape.)
+7. Do one unit of work (one migration, one package feature, one test suite) — all edits + tests first
 8. Write what was done and what is next to PROGRESS.md
-9. Stop — do not run verification commands
+9. Stop — do not run verification commands; do NOT run `git commit` (use the commit procedure below)
 ```
 
 ### Pass 2 — Verifier
@@ -49,6 +54,10 @@ Each iteration is two separate Claude Code invocations with no shared context.
   env var, Docker stack not up, etc.) — include the exact blocker
 - The verifier may not pass based on the writer's description alone — it must
   run the commands itself
+- **Stop-hook backstop:** when the writer asserts a unit is complete in an autonomous run, it writes
+  `.claude/state/claimed-done`. The Stop hook then blocks the session from ending if the pipeline
+  did not actually finish (source still uncommitted). It does **not** re-run typecheck — the commit
+  procedure already owns verification. Clear the sentinel to pause mid-work intentionally.
 
 ---
 
@@ -85,6 +94,33 @@ git worktree add ../agent-[name]-branch [branch]
 
 Each agent reads and writes only its own worktree. All agents write status back to
 PROGRESS.md in the main worktree so the verifier has a unified view.
+
+---
+
+## Commit procedure (the SHIP stage — never raw `git commit`)
+
+The commit gate hard-blocks a bare `git commit`. Once a unit is complete, run this procedure (it is
+the canonical, gate-respecting way _any_ change — even a one-liner — gets committed; there is no new
+skill to learn):
+
+1. **All edits + tests are in.** No mid-review — review happens once, at the end.
+2. Run the exit condition: `pnpm typecheck && pnpm lint && pnpm test && pnpm test:isolation`. Block on any red.
+3. Run `/review` (and `/security-review` if the diff touches auth/db/routes/files/secrets). Triage
+   findings; apply ACCEPTED. Check the diff against `.claude/references/definition-of-done.md`.
+4. Record the review: `echo '<payload>' | .claude/hooks/write-review.sh -` (it refuses unless an
+   approved plan-lock exists, the diff is non-empty, and tests are present). Payload carries
+   `verdict`, `dod_met`, `dod_unmet`, `security_review`.
+5. **Present the pass to the human and get approval** (`OPENWIND_AUTOPASS=off`). Until the owner
+   enables auto, every pass is human-approved.
+6. Stage explicitly (never `git add -A`). Update `docs/sup-docs/week-log.md` + `roadmap-tracker.md`.
+7. `.claude/hooks/write-ship-marker.sh`, then `git commit` (Conventional Commits, lowercase subject).
+8. Push, open a structured PR (paste the plan-lock acceptance criteria into the PR body). Never merge.
+
+| The excuse                     | The reality                                                                               |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| "I'll review while I edit."    | Mid-review is wasted tokens on code that will change. Edits first, one review at the end. |
+| "Tests pass, ship it."         | The pass is the human's call until `OPENWIND_AUTOPASS=on`. Present it.                    |
+| "Bare `git commit` is faster." | The commit gate blocks it. Run the procedure; the marker is what unlocks the commit.      |
 
 ---
 
