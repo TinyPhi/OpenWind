@@ -47,6 +47,27 @@ docker compose up -d && pnpm test:e2e
 
 ---
 
+## Locked delivery flow (gated — enforced by hooks)
+
+Every change moves through four gated stages. The gates are **hooks** (hard-block, every Claude-Code
+session); the stages live **inside existing skills** — there is no new skill to learn. Full reference:
+`.claude/README.md`; completion contract: `.claude/references/definition-of-done.md`.
+
+| Stage | Run it with | Gate (hook) |
+| --- | --- | --- |
+| **Plan** | `/spec-tasks` or the `openwind-loop` pick step → freezes `plan.json`, **you approve it** | — |
+| **Code** | normal editing | `edit-gate` blocks `apps/`·`packages/`·`modules/` edits without an approved plan-lock |
+| **Review** | `/review` (+ `/security-review`) → `write-review.sh` writes `review.json` | review needs plan+code+tests |
+| **Ship** | the loop's **commit procedure** (exit condition → marker → commit → PR) | `commit-gate` blocks `git commit` without a fresh marker + matching review |
+
+The human sits at **two checkpoints**: approve the freeze (start) and approve the pass (end,
+`OPENWIND_AUTOPASS=off`). The agent does everything in between. Never run a bare `git commit` — it
+is blocked; use the commit procedure, which writes the marker that unlocks it. `PROGRESS.md` and
+`BLOCKERS.md` are written during this flow (and are gitignored). Bypass envs exist for genuine cases
+and are logged to `.claude/state/bypass.log`.
+
+---
+
 ## Autonomy rules
 
 **Proceed without asking:**
@@ -78,11 +99,13 @@ docker compose up -d && pnpm test:e2e
 ## Session workflow (every feature track)
 
 1. `/spec` — write spec referencing the ADR, engine it touches, and data flow
-2. `/spec-tasks` — turn spec into ordered task list
-3. Implement with tests in same pass — never implementation without tests
-4. `gh pr create` → `/ultrareview` before merge
-5. For PRs touching auth, new tables, new routes, or files: also run `/security-review`
-6. Update `docs/sup-docs/week-log.md` and `docs/sup-docs/roadmap-tracker.md`
+2. `/spec-tasks` — turn spec into ordered task list **and freeze the plan-lock (you approve it)** — _Plan gate_
+3. Implement with tests in same pass — never implementation without tests. All edits first, no mid-review — _Code gate: needs the approved plan_
+4. `/review` (+ `/security-review` for auth/tables/routes/files/secrets) → `write-review.sh` — _Review gate: needs plan+code+tests_
+5. Commit procedure (exit condition → marker → `git commit` → push → PR) — never a bare `git commit` — _Ship gate_
+6. `/ultrareview` before merge; update `docs/sup-docs/week-log.md` and `docs/sup-docs/roadmap-tracker.md`
+
+See **Locked delivery flow** above and `.claude/README.md` for the gates that enforce each step.
 
 ---
 

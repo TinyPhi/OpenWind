@@ -39,6 +39,13 @@ Acceptance criteria for 2B:
 
 Full task spec: [first-loop-task.md](docs/sup-docs/first-loop-task.md)
 
+**Delivery is gated (Claude Code only; plain git + CI unaffected).** Every change runs
+Plan → Code → Review → Ship: freeze + **you approve** an acceptance-criteria plan-lock
+(`/spec-tasks` or the `openwind-loop` pick step) before editing source; all edits then one `/review`;
+the commit procedure runs `typecheck+lint+test+test:isolation`, writes the commit marker, and opens a
+structured PR. Hooks hard-block bare `git commit`, `.ts` in `modules/`, and edits on `main`. See
+[.claude/README.md](.claude/README.md) and [definition-of-done.md](.claude/references/definition-of-done.md).
+
 **Off-limits (never touch autonomously):**
 
 - Issue #2 (SSRF + PII leakage gaps) — pilot blocker, needs human review

@@ -249,6 +249,19 @@ See [CLAUDE.md](CLAUDE.md) for the full conventions reference.
 
 ---
 
+## Working with Claude Code (optional)
+
+If you use [Claude Code](https://claude.com/claude-code) on this repo, the `.claude/` directory adds
+a **gated delivery flow** (Plan → Code → Review → Ship) enforced by hooks: you freeze and approve an
+acceptance-criteria plan before editing source, review once at the end, and commit through a
+procedure that runs the full exit condition. See [`.claude/README.md`](.claude/README.md).
+
+**This is Claude-Code-only and does not change how you contribute.** The hooks fire only inside a
+Claude Code session. Plain `git`, the Husky `pre-commit`/`commit-msg` hooks, and CI are untouched —
+human PRs are gated by CI exactly as documented above. You never need Claude Code to contribute.
+
+---
+
 ## License
 
 By contributing to OpenWind, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).

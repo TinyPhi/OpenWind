@@ -15,10 +15,57 @@
       "Bash(ls*)",
       "Bash(wc -l*)",
       "Bash(grep*)",
-      "Bash(npx tsx scripts/check-docker-services.ts*)"
+      "Bash(npx tsx scripts/check-docker-services.ts*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git branch*)",
+      "Bash(git checkout*)",
+      "Bash(git push*)",
+      "Bash(gh pr*)",
+      "Bash(gh run*)",
+      "Bash(pnpm db:migrate*)",
+      "Bash(pnpm db:seed*)",
+      "Bash(.claude/hooks/*)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git rebase*)",
+      "Bash(git commit --no-verify*)",
+      "Write(.env*)",
+      "Write(**/.env*)"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-gate.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/destructive-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/edit-gate.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/protected-paths.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
@@ -35,6 +82,35 @@
           {
             "type": "command",
             "command": "node -e \"var f=process.env.CLAUDE_TOOL_INPUT_FILE_PATH||'';if(f.includes('/migrations/')&&f.endsWith('.sql'))console.log('\\u26a0\\ufe0f  New migration: add isolation tests in tests/isolation/ for any new tenant-scoped tables.');\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/ship-cleanup.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/verify-stop.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh"
           }
         ]
       }
