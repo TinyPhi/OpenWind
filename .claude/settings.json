@@ -5,10 +5,19 @@
       "Bash(git log*)",
       "Bash(git diff*)",
       "Bash(git show*)",
+      "Bash(git add *)",
+      "Bash(git commit*)",
+      "Bash(git checkout*)",
+      "Bash(git branch*)",
+      "Bash(git stash*)",
+      "Bash(git worktree*)",
       "Bash(pnpm typecheck*)",
       "Bash(pnpm lint*)",
       "Bash(pnpm test*)",
       "Bash(pnpm build*)",
+      "Bash(pnpm install*)",
+      "Bash(pnpm db:migrate)",
+      "Bash(pnpm db:seed)",
       "Bash(docker compose ps*)",
       "Bash(docker compose logs*)",
       "Bash(find . *)",
@@ -16,9 +25,48 @@
       "Bash(wc -l*)",
       "Bash(grep*)",
       "Bash(npx tsx scripts/check-docker-services.ts*)"
-    ]
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git rebase -i*)",
+      "Bash(git reset --hard*)",
+      "Write(.env*)",
+      "Write(secrets/**)",
+      "Write(.git/**)"
+    ],
+    "defaultMode": "acceptEdits"
   },
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd /Users/ab/P/TinyPhi/OpenWind; OUT=\"\"; [ -f BLOCKERS.md ] && OUT=\"$OUT\\n=== BLOCKERS.md ===\\n$(cat BLOCKERS.md)\"; [ -f PROGRESS.md ] && OUT=\"$OUT\\n=== PROGRESS.md (last 40 lines) ===\\n$(tail -40 PROGRESS.md)\"; [ -n \"$OUT\" ] && echo -e \"$OUT\" || true'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'CMD=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r \".command // empty\" 2>/dev/null || true); if echo \"$CMD\" | grep -qE \"(rm -rf|DROP TABLE|DROP DATABASE|--force-with-lease|git push --force|--no-verify|chmod 777)\"; then echo \"Blocked destructive command: $CMD\" >&2; exit 2; fi'"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r \".file_path // empty\" 2>/dev/null || true); if echo \"$FILE\" | grep -qE \"(\\.env$|\\.env\\.|\\.env\\.local|secrets/)\"; then echo \"Protected file — refusing write to: $FILE\" >&2; exit 2; fi'"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
@@ -35,6 +83,17 @@
           {
             "type": "command",
             "command": "node -e \"var f=process.env.CLAUDE_TOOL_INPUT_FILE_PATH||'';if(f.includes('/migrations/')&&f.endsWith('.sql'))console.log('\\u26a0\\ufe0f  New migration: add isolation tests in tests/isolation/ for any new tenant-scoped tables.');\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd /Users/ab/P/TinyPhi/OpenWind; echo \"--- Stop gate: typecheck + lint ---\"; pnpm typecheck 2>&1 | tail -5; pnpm lint 2>&1 | tail -5'",
+            "timeout": 90
           }
         ]
       }

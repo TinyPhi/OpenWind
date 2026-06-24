@@ -29,6 +29,30 @@ Scope = the package or area changed. Message describes the effect, not the mecha
 
 ---
 
+## Parallel agent worktrees
+
+When running multiple agents simultaneously against this codebase, each agent needs
+its own git worktree to avoid conflicting writes:
+
+```bash
+# Create a worktree for a specific fix branch
+git worktree add ../openwind-fix-121 fix/PLAT-121-rls-role
+
+# List active worktrees
+git worktree list
+
+# Remove when done
+git worktree remove ../openwind-fix-121
+```
+
+**Naming convention:** `../openwind-<type>-<issue>` for issue-driven work,
+`../openwind-<agent-name>` for open-ended agent sessions.
+
+Each agent reads and writes only its own worktree. Write status back to
+`PROGRESS.md` in the main worktree so the verifier has a unified view.
+
+---
+
 ## PR checklist
 
 - [ ] Tests included (coverage does not drop)

@@ -56,3 +56,26 @@ of a resource belonging to another tenant. Always 404.
 
 **Any PR touching auth, new tables, new routes, file access, or secrets must pass
 `/security-review` before merge.**
+
+---
+
+## Threat modelling for new features (STRIDE)
+
+Before implementing any feature that crosses a trust boundary, run STRIDE:
+
+1. **Map trust boundaries** — where does untrusted data enter? (API inputs, webhook payloads,
+   connector callbacks, uploaded files, query params)
+2. **Name the assets** — what's worth stealing or corrupting? (tenant data, session tokens,
+   secrets, file contents, audit log integrity)
+3. **Run STRIDE** — for each boundary, ask:
+   - **S**poofing — can an attacker pretend to be another tenant or user?
+   - **T**ampering — can they modify data in transit or at rest?
+   - **R**epudiation — can they deny an action with no audit trail?
+   - **I**nformation disclosure — can they read data they shouldn't?
+   - **D**enial of service — can they exhaust a resource?
+   - **E**levation of privilege — can they gain permissions they weren't granted?
+4. **Write abuse cases** alongside acceptance criteria — for every "user can do X" write
+   "attacker attempts X on another tenant's data" and confirm it's blocked.
+
+STRIDE is mandatory for: new tables, new API routes, auth changes, connector integrations,
+any feature that reads or writes tenant-scoped data.
