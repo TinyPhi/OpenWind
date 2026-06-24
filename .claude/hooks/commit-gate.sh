@@ -15,8 +15,13 @@ let input = {};
 try { input = JSON.parse(fs.readFileSync(0, "utf8") || "{}"); } catch (e) {}
 if ((input.tool_name || "") !== "Bash") process.exit(0);
 const cmd = (input.tool_input && input.tool_input.command) || "";
-// Only gate real commits, not help/version or unrelated subcommands.
-if (!/\bgit\b[^|;&]*\bcommit\b/.test(cmd)) process.exit(0);
+// Match a real `git commit` INVOCATION: commit must be the subcommand (only global
+// flags may sit between `git` and `commit`) - not any command that merely mentions both.
+function gitSub(c, s) {
+  const re = /\bgit\b((?:\s+(?:-C\s+\S+|-c\s+\S+|--[\w-]+(?:=\S+)?|-[A-Za-z]+))*)\s+([a-z][a-z-]*)/g;
+  let m; while ((m = re.exec(c)) !== null) { if (m[2] === s) return true; } return false;
+}
+if (!gitSub(cmd, "commit")) process.exit(0);
 if (/--help\b|\s-h\b|--version\b/.test(cmd)) process.exit(0);
 function ensureDir() { try { fs.mkdirSync(repo + "/.claude/state", { recursive: true }); } catch (e) {} }
 if (process.env.SHIP_BYPASS === "1" || /\bSHIP_BYPASS=1\b/.test(cmd)) {
