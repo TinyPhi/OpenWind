@@ -111,20 +111,44 @@ See **Locked delivery flow** above and `.claude/README.md` for the gates that en
 
 ## Available skills
 
-| Skill              | When to use                                                              |
-| ------------------ | ------------------------------------------------------------------------ |
-| `/spec`            | Before any new feature                                                   |
-| `/spec-tasks`      | Turn a spec into an ordered task list                                    |
-| `/spec-review`     | Stress-test a spec before implementation                                 |
-| `/security-review` | Any PR touching auth, new tables, routes, file access, secrets           |
-| `/review`          | Standard PR review                                                       |
-| `/verify`          | After implementation — confirm the feature works end-to-end              |
-| `/simplify`        | Post-implementation code quality pass                                    |
-| `/openwind-loop`   | Project-specific loop: exact commands, config-first test, exit condition |
+| Skill              | When to use                                                               |
+| ------------------ | ------------------------------------------------------------------------- |
+| `/spec`            | Before any new feature                                                    |
+| `/spec-tasks`      | Turn a spec into an ordered task list                                     |
+| `/spec-review`     | Stress-test a spec before implementation                                  |
+| `/security-review` | Any PR touching auth, new tables, routes, file access, secrets            |
+| `/review`          | Standard PR review                                                        |
+| `/verify`          | After implementation — confirm the feature works end-to-end               |
+| `/simplify`        | Post-implementation code quality pass                                     |
+| `/openwind-loop`   | Project-specific loop: exact commands, config-first test, exit condition  |
+| `/doubt`           | Adversarial review of a non-trivial decision before it stands             |
+| `/debug`           | Systematic root-cause debugging when a failure isn't obvious              |
+| `/sourced`         | Implementation grounded in official versioned docs (Phase 3 integrations) |
+| `/interview`       | Extract what the user actually wants before speccing or building          |
+| `/refine`          | Transform a vague idea into a sharp direction with explicit trade-offs    |
 
 `/ultrareview` is a built-in Claude Code workflow (not a skill) — type it in any session.
 It launches a parallel multi-agent review across correctness, security, and performance dimensions.
 Run on all non-trivial PRs before merge.
+
+---
+
+## Failure modes to avoid
+
+These are the most common ways agent output degrades — watch for them in your own work:
+
+- **Wrong assumptions** — filling in ambiguous requirements without surfacing them.
+  Use `/interview` or write the assumption to BLOCKERS.md before proceeding.
+- **Not managing confusion** — pressing forward when something doesn't add up.
+  Stop, name the confusion, present the trade-off, wait for guidance.
+- **Modifying orthogonal code** — touching files outside the task's scope.
+  The config-first test catches this for `modules/`; apply the same discipline everywhere.
+- **Skipping verification** — marking a criterion done based on "it seems right".
+  Evidence required: tests pass, typecheck clean, lint clean.
+- **Overcomplicated implementation** — three similar lines is better than a premature abstraction.
+  If you are adding an abstraction, name the concrete duplication it removes.
+- **False confidence on framework patterns** — using training-data patterns for versioned APIs.
+  Use `/sourced` when the correctness of a pattern depends on the package version.
 
 ---
 

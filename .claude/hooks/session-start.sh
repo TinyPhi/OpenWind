@@ -25,5 +25,15 @@ pipeline actually finished. Humans approve every pass until OPENWIND_AUTOPASS=on
 Source of truth: CLAUDE.md (Current Focus + Off-limits), the relevant docs/decisions/ADR,
 docs/sup-docs/{roadmap-tracker,week-log}.md, .claude/references/definition-of-done.md, .claude/README.md.
 EOF
+
+# Surface working context if present (folded from PR #132's PROGRESS/BLOCKERS idea, path-fixed).
+REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"
+for f in BLOCKERS.md PROGRESS.md; do
+  if [ -f "$REPO/$f" ]; then
+    echo
+    echo "=== $f (latest) ==="
+    tail -40 "$REPO/$f"
+  fi
+done
 exit 0
 
