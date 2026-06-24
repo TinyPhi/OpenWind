@@ -114,13 +114,19 @@ skill to learn):
    enables auto, every pass is human-approved.
 6. Stage explicitly (never `git add -A`). Update `docs/sup-docs/week-log.md` + `roadmap-tracker.md`.
 7. `.claude/hooks/write-ship-marker.sh`, then `git commit` (Conventional Commits, lowercase subject).
-8. Push, open a structured PR (paste the plan-lock acceptance criteria into the PR body). Never merge.
+   Use a **valid scope from the project's commitlint config** (e.g. `dx` for tooling) — `claude` is
+   not allowed and CI will reject it.
+8. Push, open a structured PR (paste the plan-lock acceptance criteria into the PR body).
+9. **Monitor CI to green — this is part of raising the PR, not optional.** Poll the PR checks until
+   terminal; if any job fails, read the failed log, fix on the same branch, and push again. The PR is
+   not "raised" until CI is green. Never merge — that is the human's action.
 
 | The excuse                     | The reality                                                                               |
 | ------------------------------ | ----------------------------------------------------------------------------------------- |
 | "I'll review while I edit."    | Mid-review is wasted tokens on code that will change. Edits first, one review at the end. |
 | "Tests pass, ship it."         | The pass is the human's call until `OPENWIND_AUTOPASS=on`. Present it.                    |
 | "Bare `git commit` is faster." | The commit gate blocks it. Run the procedure; the marker is what unlocks the commit.      |
+| "PR is open, I'm done."        | Raising a PR includes watching CI to green and fixing failures. Open + red ≠ done.        |
 
 ---
 
