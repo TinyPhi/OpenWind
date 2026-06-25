@@ -18,6 +18,9 @@ if (input.stop_hook_active === true) process.exit(0);
 let sentinel = false;
 try { fs.accessSync(repo + "/.claude/state/claimed-done"); sentinel = true; } catch (e) {}
 if (!sentinel) process.exit(0);
+// Scope is intentionally product-code only (apps/ packages/ modules/ tests/).
+// Changes to .claude/, scripts/, or root config files are excluded — the commit-gate
+// and its review-diff check are the authoritative guards for those paths.
 let dirty = "";
 try { dirty = cp.execSync("git status --porcelain -- apps packages modules tests", { cwd: repo }).toString().trim(); } catch (e) {}
 if (!dirty) { try { fs.unlinkSync(repo + "/.claude/state/claimed-done"); } catch (e) {} process.exit(0); }

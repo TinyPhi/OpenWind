@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # commit-gate.sh — PreToolUse(Bash)
 # Hard-blocks `git commit` unless BOTH are fresh for this branch:
-#   - ship-ready.json   (staged_tree_sha matches `git diff --staged`, age <= 30m)
+#   - ship-ready.json   (staged_tree_sha matches `git diff --staged`, age <= 60m)
 #   - review.json       (diff_sha matches `git diff HEAD` — review covers the committed code)
 # Realises the "Ship stage needs a passing Review + marker". Exit 2 = block.
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"

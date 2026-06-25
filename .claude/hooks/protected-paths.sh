@@ -4,8 +4,8 @@
 #   - any edit while on main/develop (integration branches)
 #   - *.ts / *.tsx under modules/ (config-first rule, ADR-004)
 #   - docs/decisions/ADR* (ADRs are human-written)
-#   - .github/workflows/ci.yml
-#   - any .env* file
+#   - .github/workflows/* (all CI/CD files)
+#   - secret .env files (.env, .env.local, .env.production, etc.) — .env.example is allowed
 # Mirrors documented rules + CI, so it is never arbitrary. Exit 2 = block.
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"
 export REPO
@@ -50,8 +50,8 @@ if (/^\.github\/workflows\//.test(rel)) {
   if (!bypassed("OPENWIND_OFFLIMITS")) block("CI/CD workflows are off-limits to autonomous edits - a malicious or careless workflow can exfiltrate secrets or disable required checks (CLAUDE.md off-limits).", "OPENWIND_OFFLIMITS=ack");
   process.exit(0);
 }
-if (/(^|\/)\.env(\.|$)/.test(rel)) {
-  block("Never write secrets/.env files. Use @platform/config + the secrets manager.", null);
+if (/(^|\/)\.env(\.|$)/.test(rel) && !/(^|\/)\.env\.example$/.test(rel)) {
+  block("Never write secrets/.env files. Use @platform/config + the secrets manager. (.env.example is allowed — it is a checked-in template)", null);
 }
 process.exit(0);
 '

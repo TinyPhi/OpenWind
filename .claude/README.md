@@ -74,3 +74,22 @@ acceptance criteria into the **PR body** so human reviewers see the frozen contr
 Every bypass env is honored and **logged to `.claude/state/bypass.log`** with timestamp + branch.
 They exist for genuine cases (bootstrapping this system, hotfixes, human-directed ADR edits) — not
 routine use. See `references/definition-of-done.md` for the completion contract the gates enforce.
+
+**`bash run.sh` (subshell invoke):** commit-gate parses the Bash tool's command string — it cannot
+inspect what a shell script calls. A script containing `git commit` bypasses commit-gate silently.
+Mitigated by edit-gate (blocks edits without a plan), Husky pre-commit (still fires inside the
+subshell's git process), and the SHIP_BYPASS audit log, but worth knowing.
+
+## Known limitations
+
+**State files are not locked.** `.claude/state/` is a flat directory with no file locking. Two
+concurrent sessions on the same branch share `plan.json`, `review.json`, `ship-ready.json`, and
+`pass-approved.json`. The failure modes are conservative (one session's stale marker blocks the
+other), but simultaneous parallel-agent worktrees on the same branch can produce confusing errors.
+Use separate worktrees (see git-conventions.md).
+
+**`pass-approved.json` is not snapshotted by the marker.** The commit-gate checks pass-approval
+at commit time, independently of when the marker was written. If `pass-approved.json` is cleared
+between marker-write and commit (e.g., `ship-cleanup.sh` fires on an unrelated failed commit), the
+human needs to type `approve-ship` again. The conservative failure mode is correct — this note is
+here so it doesn't surprise you.

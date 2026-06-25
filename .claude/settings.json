@@ -37,8 +37,15 @@
       "Bash(git rebase*)",
       "Bash(git commit --no-verify*)",
       "Bash(git commit -n*)",
-      "Write(.env*)",
-      "Write(**/.env*)",
+      "Write(.env)",
+      "Write(.env.local*)",
+      "Write(.env.production*)",
+      "Write(.env.staging*)",
+      "Write(.env.test*)",
+      "Write(.env.development*)",
+      "Write(**/.env)",
+      "Write(**/.env.local*)",
+      "Write(**/.env.production*)",
       "Write(.git/**)"
     ]
   },

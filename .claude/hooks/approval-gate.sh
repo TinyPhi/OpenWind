@@ -30,9 +30,16 @@ if (/\bapprove-plan\b/i.test(prompt)) {
   }
 }
 if (/\bapprove-ship\b/i.test(prompt)) {
-  const rec = { branch: branch(), diff_sha: sha("diff HEAD"), approved_iso: new Date().toISOString(), approved_by: "human:UserPromptSubmit" };
-  fs.writeFileSync(repo + "/.claude/state/pass-approved.json", JSON.stringify(rec, null, 2));
-  out.push("[approval-gate] SHIP/PASS APPROVED by human for the current diff - the commit is unlocked while the diff is unchanged.");
+  let marker = null;
+  try { marker = JSON.parse(fs.readFileSync(repo + "/.claude/state/ship-ready.json", "utf8")); } catch (e) {}
+  const staged = sha("diff --staged");
+  if (!marker || marker.staged_tree_sha !== staged) {
+    out.push("[approval-gate] Cannot record approve-ship: no ship marker for the current staged diff. Run the commit procedure (write-ship-marker.sh) first, then type 'approve-ship'.");
+  } else {
+    const rec = { branch: branch(), diff_sha: sha("diff HEAD"), approved_iso: new Date().toISOString(), approved_by: "human:UserPromptSubmit" };
+    fs.writeFileSync(repo + "/.claude/state/pass-approved.json", JSON.stringify(rec, null, 2));
+    out.push("[approval-gate] SHIP/PASS APPROVED by human for the current diff - the commit is unlocked while the diff is unchanged.");
+  }
 }
 if (out.length) process.stdout.write(out.join("\n") + "\n");
 process.exit(0);

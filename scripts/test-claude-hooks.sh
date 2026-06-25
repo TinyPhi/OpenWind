@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # test-claude-hooks.sh — unit tests for the Claude Code guardrail hooks.
-# Runs in CI (contribution-guardrails workflow) and locally. Feeds each hook sample
-# stdin and asserts its block (exit 2) / allow (exit 0) behaviour, so a PR that breaks
-# a gate's logic fails CI instead of silently weakening enforcement.
-# No network. Side effects (a temp file + .claude/state) are cleaned up on exit.
+# Runs in CI (contribution-guardrails workflow). Feeds each hook sample stdin and asserts
+# its block (exit 2) / allow (exit 0) behaviour, so a PR that breaks a gate's logic fails
+# CI instead of silently weakening enforcement. NOTE: the full gate-chain happy-path
+# assertions are skipped locally when the working tree has uncommitted changes — they
+# always run in CI's clean checkout. No network. Side effects (a temp file + .claude/state)
+# are cleaned up on exit (existing .claude/state is saved and restored).
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 H=.claude/hooks
@@ -11,10 +13,23 @@ PASS=0
 FAIL=0
 TMP=.claude/_hooktest_tmp.ts
 
+# Save any live gate state before tests mutate it, restore on exit so running
+# this script locally mid-session doesn't destroy plan.json / review.json / etc.
+_STATE_BACKUP=
+if [ -d .claude/state ]; then
+  _STATE_BACKUP="$(mktemp -d)"
+  cp -r .claude/state/. "$_STATE_BACKUP/"
+fi
+
 cleanup() {
   git reset -q -- "$TMP" 2>/dev/null || true
   rm -f "$TMP"
   rm -rf .claude/state
+  if [ -n "${_STATE_BACKUP:-}" ] && [ -d "$_STATE_BACKUP" ]; then
+    mkdir -p .claude/state
+    cp -r "$_STATE_BACKUP/." .claude/state/
+    rm -rf "$_STATE_BACKUP"
+  fi
 }
 trap cleanup EXIT
 
@@ -102,6 +117,12 @@ ck 0 "human approve-plan prompt stamps approved:true" $?
 edit_after_approve=$(printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"packages/db/x.ts"}}' | "$H/edit-gate.sh"; echo $?)
 ck 0 "edit-gate allows source after human plan approval" $edit_after_approve
 
+echo "approve-ship guard (no marker = no pass-approved written):"
+rm -f .claude/state/ship-ready.json .claude/state/pass-approved.json
+printf '%s' '{"prompt":"how does approve-ship work?"}' | "$H/approval-gate.sh" >/dev/null 2>&1
+[ -f .claude/state/pass-approved.json ]
+ck 1 "approve-ship keyword in question does NOT write pass-approved without a marker" $?
+
 echo "human pass-approval + full gate chain:"
 printf 'export const _h = 1;\n' >"$TMP"
 git add "$TMP"
@@ -113,7 +134,7 @@ ck 0 "commit blocked without human pass-approval" $?
 printf '%s' '{"prompt":"approve-ship"}' | "$H/approval-gate.sh" >/dev/null 2>&1
 OTHER=$(git status --porcelain | grep -v '_hooktest_tmp' || true)
 if [ -n "$OTHER" ]; then
-  echo "  skip  full-chain ALLOW assertions (working tree has other uncommitted changes; asserted in CI's clean checkout)"
+  echo "  skip  full-chain ALLOW assertions (working tree has uncommitted changes; these always run in CI's clean checkout — see header note)"
 else
   with_pass=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" >/dev/null 2>&1; echo $?)
   ck 0 "full gate chain ALLOWS commit (plan+review+dod+marker+pass-approval, fully staged)" "$with_pass"
