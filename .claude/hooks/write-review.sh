@@ -32,7 +32,7 @@ const review={
   verdict:p.verdict||"pass",
   findings_triaged:p.findings_triaged||{accepted:[],deferred:[],rejected:[]},
   tests_present:testsPresent,
-  dod_met:p.dod_met!==false,
+  dod_met:p.dod_met===true,
   dod_unmet:p.dod_unmet||[],
   security_review:(p.security_review===undefined?null:p.security_review)
 };

@@ -19,7 +19,7 @@ let sentinel = false;
 try { fs.accessSync(repo + "/.claude/state/claimed-done"); sentinel = true; } catch (e) {}
 if (!sentinel) process.exit(0);
 let dirty = "";
-try { dirty = cp.execSync("git status --porcelain -- apps packages modules", { cwd: repo }).toString().trim(); } catch (e) {}
+try { dirty = cp.execSync("git status --porcelain -- apps packages modules tests", { cwd: repo }).toString().trim(); } catch (e) {}
 if (!dirty) { try { fs.unlinkSync(repo + "/.claude/state/claimed-done"); } catch (e) {} process.exit(0); }
 process.stderr.write(
   "VERIFY-STOP - you claimed done, but the pipeline did not complete.\n" +

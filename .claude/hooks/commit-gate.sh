@@ -24,7 +24,7 @@ function gitSub(c, s) {
 if (!gitSub(cmd, "commit")) process.exit(0);
 if (/--help\b|\s-h\b|--version\b/.test(cmd)) process.exit(0);
 function ensureDir() { try { fs.mkdirSync(repo + "/.claude/state", { recursive: true }); } catch (e) {} }
-if (process.env.SHIP_BYPASS === "1" || /\bSHIP_BYPASS=1\b/.test(cmd)) {
+if (process.env.SHIP_BYPASS === "1" || /(?:^|[;&|]|\s)SHIP_BYPASS=1\s+(?:[A-Za-z_]\w*=\S+\s+)*git\b/.test(cmd)) {
   ensureDir();
   try { fs.appendFileSync(repo + "/.claude/state/bypass.log", new Date().toISOString() + " commit-gate SHIP_BYPASS=1 " + cmd.slice(0, 200) + "\n"); } catch (e) {}
   process.exit(0);
@@ -43,15 +43,18 @@ if (!marker) fails.push("no ship marker (run the commit procedure: it writes the
 else if (marker.branch !== branch) fails.push("ship marker is for branch " + marker.branch);
 else {
   const ageMin = (Date.now() - Date.parse(marker.timestamp_iso || 0)) / 60000;
-  if (!(ageMin <= 30)) fails.push("ship marker is " + Math.round(ageMin) + " min old (>30); re-run the commit procedure");
+  if (!(ageMin <= 60)) fails.push("ship marker is " + Math.round(ageMin) + " min old (>60); re-run the commit procedure");
   else if (marker.staged_tree_sha !== sha("diff --staged")) fails.push("staged tree changed since the marker was written; re-stage and re-run the commit procedure");
 }
+// Everything must be staged: the reviewed tree (diff HEAD) must equal the committed tree
+// (diff --staged), so the review covers exactly what lands. Blocks partial/forgotten staging.
+if (sha("diff HEAD") !== sha("diff --staged")) fails.push("unstaged changes present - stage or stash them so the review covers exactly what is committed");
 // Review
 const review = readJSON("review.json");
 if (!review) fails.push("no review record (run /review before committing)");
 else if (review.branch !== branch) fails.push("review is for branch " + review.branch);
 else if (review.diff_sha !== sha("diff HEAD")) fails.push("code changed since the last review; re-run /review against the final diff");
-else if (review.dod_met === false) fails.push("Definition-of-Done not met: " + (review.dod_unmet || []).join(", "));
+else if (review.dod_met !== true) fails.push("Definition-of-Done not affirmatively met (dod_met must be true): " + (review.dod_unmet || []).join(", "));
 if (fails.length === 0) process.exit(0);
 process.stderr.write(
   "COMMIT GATE - blocked git commit on " + branch + "\n- " + fails.join("\n- ") + "\n" +

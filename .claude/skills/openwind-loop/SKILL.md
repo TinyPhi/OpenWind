@@ -113,9 +113,10 @@ skill to learn):
 5. **Present the pass to the human and get approval** (`OPENWIND_AUTOPASS=off`). Until the owner
    enables auto, every pass is human-approved.
 6. Stage explicitly (never `git add -A`). Update `docs/sup-docs/week-log.md` + `roadmap-tracker.md`.
-7. `.claude/hooks/write-ship-marker.sh`, then `git commit` (Conventional Commits, lowercase subject).
-   Use a **valid scope from the project's commitlint config** (e.g. `dx` for tooling) — `claude` is
-   not allowed and CI will reject it.
+7. `.claude/hooks/write-ship-marker.sh` — **write the marker LAST**, after the exit condition and
+   review have finished, so its 60-min window covers only stage→commit, not the (possibly slow)
+   test run. Then `git commit` (Conventional Commits, lowercase subject). Use a **valid scope from
+   the project's commitlint config** (e.g. `dx` for tooling) — `claude` is not allowed and CI will reject it.
 8. Push, open a structured PR (paste the plan-lock acceptance criteria into the PR body).
 9. **Monitor CI to green — this is part of raising the PR, not optional.** Poll the PR checks until
    terminal; if any job fails, read the failed log, fix on the same branch, and push again. The PR is

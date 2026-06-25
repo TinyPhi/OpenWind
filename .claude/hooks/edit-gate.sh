@@ -18,7 +18,9 @@ const fp = ti.file_path || input.file_path || "";
 if (!fp) process.exit(0);
 let rel = fp;
 if (rel.indexOf(repo) === 0) rel = rel.slice(repo.length).replace(/^\/+/, "");
-if (!/^(apps|packages|modules)\//.test(rel)) process.exit(0);
+// Only gate real source/schema files under the source roots - docs/config (.md, .json,
+// .env.example, etc.) under apps/packages/modules edit freely without a plan-lock.
+if (!/^(apps|packages|modules)\/.*\.(ts|tsx|js|jsx|mjs|cjs|sql)$/.test(rel)) process.exit(0);
 function ensureDir() { try { fs.mkdirSync(repo + "/.claude/state", { recursive: true }); } catch (e) {} }
 if (process.env.OPENWIND_GATE === "off") {
   ensureDir();

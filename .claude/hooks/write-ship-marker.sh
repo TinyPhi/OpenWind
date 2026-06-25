@@ -18,6 +18,6 @@ const marker={
   timestamp_iso:new Date().toISOString()
 };
 fs.writeFileSync(repo+"/.claude/state/ship-ready.json",JSON.stringify(marker,null,2));
-console.log("ship marker written for "+marker.branch+" (staged_sha="+marker.staged_tree_sha.slice(0,12)+"...). Commit now - valid 30 min.");
+console.log("ship marker written for "+marker.branch+" (staged_sha="+marker.staged_tree_sha.slice(0,12)+"...). Write this LAST, after the exit condition + review; commit now - valid 60 min.");
 process.exit(0);
 '
