@@ -12,7 +12,7 @@ const BulkUpdateSchema = z.object({
       z.object({
         id: z.string().uuid(),
         fields: z.record(z.unknown()).optional(),
-        assignedTo: z.string().uuid().nullable().optional(),
+        assignedTo: z.string().nullable().optional(),
       }),
     )
     .min(1)

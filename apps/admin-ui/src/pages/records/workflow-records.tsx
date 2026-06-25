@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
+import { userManager } from "../../authProvider.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -310,7 +311,8 @@ function KanbanColumn({
   records,
   fields,
   typeSlug,
-  workflowId,
+  entityTypeId: _entityTypeId,
+  workflowId: _workflowId,
   transitions,
   allRecords,
   onCardDrop,
@@ -320,13 +322,13 @@ function KanbanColumn({
   records: EntityInstance[];
   fields: EntityField[];
   typeSlug: string;
+  entityTypeId: string;
   workflowId: string;
   transitions: Transition[];
   allRecords: EntityInstance[];
   onCardDrop: (recordId: string, toStateName: string) => void;
   onColumnDrop: (fromStateName: string, toStateName: string) => void;
 }): React.ReactElement {
-  const navigate = useNavigate();
   const [dropState, setDropState] = useState<ColDropState>("idle");
   const enterCount = useRef(0);
 
@@ -492,28 +494,6 @@ function KanbanColumn({
           <div className="kb-reorder-zone">Insert column here</div>
         )}
       </div>
-
-      {/* Footer */}
-      <div className="kb-col-footer">
-        <button
-          className="kb-add-btn"
-          onClick={() =>
-            navigate(`/records/${typeSlug}/new`, {
-              state: { workflowId, initialState: state?.name },
-            })
-          }
-        >
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-            <path
-              d="M5.5 1v9M1 5.5h9"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-          </svg>
-          Add item
-        </button>
-      </div>
     </div>
   );
 }
@@ -522,11 +502,17 @@ function KanbanColumn({
 
 export function WorkflowRecords(): React.ReactElement {
   const { workflowSlug } = useParams<{ workflowSlug: string }>();
+  const navigate = useNavigate();
   const { getTypeById } = useEntityTypes();
 
   const [workflowId, setWorkflowId] = useState<string>("");
   const [entityTypeId, setEntityTypeId] = useState<string>("");
   const [workflowName, setWorkflowName] = useState<string>("");
+  const [workflowAssignedTo, setWorkflowAssignedTo] = useState<string | null>(
+    null,
+  );
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
   const [fields, setFields] = useState<EntityField[]>([]);
   const [records, setRecords] = useState<EntityInstance[]>([]);
   const [states, setStates] = useState<WorkflowState[]>([]);
@@ -543,6 +529,17 @@ export function WorkflowRecords(): React.ReactElement {
     toStateName: string;
     transition: Transition;
   } | null>(null);
+
+  useEffect(() => {
+    void userManager.getUser().then((u) => {
+      if (!u) return;
+      setCurrentUserId(u.profile.sub);
+      const roleClaim = u.profile["urn:zitadel:iam:org:project:roles"] as
+        | Record<string, unknown>
+        | undefined;
+      setCurrentUserRoles(roleClaim ? Object.keys(roleClaim) : []);
+    });
+  }, []);
 
   useEffect(() => {
     if (!workflowSlug) return;
@@ -578,6 +575,7 @@ export function WorkflowRecords(): React.ReactElement {
               id: string;
               name: string;
               entityTypeId: string;
+              assignedTo: string | null;
               states: WorkflowState[];
               transitions: Transition[];
             };
@@ -587,6 +585,7 @@ export function WorkflowRecords(): React.ReactElement {
         setWorkflowId(wf.id);
         setWorkflowName(wf.name);
         setEntityTypeId(wf.entityTypeId);
+        setWorkflowAssignedTo(wf.assignedTo ?? null);
 
         const loadedStates = wf.states as WorkflowState[];
         const loadedTransitions = wf.transitions as Transition[];
@@ -624,6 +623,11 @@ export function WorkflowRecords(): React.ReactElement {
   const typeSlug = entityType
     ? toTypeSlug(entityType.plural || entityType.name)
     : "";
+
+  const showSettings =
+    currentUserId !== null &&
+    (currentUserRoles.includes("admin") ||
+      (workflowAssignedTo !== null && currentUserId === workflowAssignedTo));
 
   const orderedStates: WorkflowState[] = colOrder
     .map((name) => states.find((s) => s.name === name))
@@ -809,6 +813,22 @@ export function WorkflowRecords(): React.ReactElement {
       {/* Top bar */}
       <div className="kb-topbar">
         <div className="kb-topbar-left">
+          <button
+            type="button"
+            className="kb-back-btn"
+            onClick={() => navigate(-1)}
+            title="Go back"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M10 13L5 8l5-5"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
           <h1 className="kb-heading">
             {displayIcon && (
               <span className="kb-heading-icon">{displayIcon}</span>
@@ -834,29 +854,40 @@ export function WorkflowRecords(): React.ReactElement {
               ⚠ {transError}
             </span>
           )}
-          <Link
-            to={`/workflows/${workflowName ? toWorkflowSlug(workflowName) : ""}`}
-            className="kb-settings-btn"
-          >
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <circle
-                cx="6.5"
-                cy="6.5"
-                r="2"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M6.5 1v1.5M6.5 10.5V12M1 6.5h1.5M10.5 6.5H12"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-            Settings
-          </Link>
-          {typeSlug && (
-            <Link to={`/records/${typeSlug}/new`} className="kb-new-btn">
+          {showSettings && workflowSlug && (
+            <Link
+              to={`/workflows/${workflowSlug}`}
+              className="kb-settings-btn"
+              title="Workflow Settings"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle
+                  cx="7"
+                  cy="7"
+                  r="2"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.636 2.636l1.06 1.06M10.304 10.304l1.06 1.06M11.364 2.636l-1.06 1.06M3.696 10.304l-1.06 1.06"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              Workflow Settings
+            </Link>
+          )}
+          {entityTypeId && (
+            <Link
+              to={
+                typeSlug
+                  ? `/records/${typeSlug}/new`
+                  : `/entity-types/${entityTypeId}/records/new`
+              }
+              state={{ workflowId }}
+              className="kb-new-btn"
+            >
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path
                   d="M6.5 1v11M1 6.5h11"
@@ -894,6 +925,7 @@ export function WorkflowRecords(): React.ReactElement {
                 records={recs}
                 fields={fields}
                 typeSlug={typeSlug}
+                entityTypeId={entityTypeId}
                 workflowId={workflowId}
                 transitions={transitions}
                 allRecords={records}
@@ -977,6 +1009,29 @@ export function WorkflowRecords(): React.ReactElement {
           background: var(--bg-secondary);
           border: 1px solid var(--border-color);
           color: var(--text-secondary);
+          text-decoration: none;
+          transition: background var(--transition-fast), color var(--transition-fast);
+          white-space: nowrap;
+        }
+        .kb-back-btn {
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 32px; height: 32px; padding: 0;
+          border-radius: var(--radius-sm);
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          color: var(--text-secondary);
+          cursor: pointer;
+          transition: background var(--transition-fast), color var(--transition-fast);
+          flex-shrink: 0;
+        }
+        .kb-back-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+        .kb-settings-btn {
+          display: inline-flex; align-items: center; gap: 6px;
+          font-size: 13px; font-weight: 500; padding: 7px 14px;
+          border-radius: var(--radius-sm);
+          background: var(--bg-secondary); color: var(--text-secondary);
+          border: 1px solid var(--border-primary);
           text-decoration: none;
           transition: background var(--transition-fast), color var(--transition-fast);
           white-space: nowrap;

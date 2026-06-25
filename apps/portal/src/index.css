@@ -1310,3 +1310,100 @@ button { cursor: pointer; font: inherit; border: none; background: none; }
 @media (max-width: 480px) {
   .rl-table th:nth-child(n+3), .rl-table td:nth-child(n+3) { display: none; }
 }
+
+/* ── Record detail: tabs ────────────────────────────────────── */
+.rd-tab-card { overflow: visible; }
+.rd-tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 4px; gap: 2px; }
+.rd-tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 14px; font-size: 13px; font-weight: 500;
+  color: var(--text-3); background: none; border: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  cursor: pointer; transition: color .15s, border-color .15s;
+}
+.rd-tab:hover { color: var(--text); }
+.rd-tab-active { color: var(--accent) !important; border-bottom-color: var(--accent); }
+.rd-tab-count {
+  font-size: 10px; font-weight: 700; line-height: 1;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1px 6px; color: var(--text-2);
+}
+.rd-tab-active .rd-tab-count { background: var(--accent-light); border-color: hsla(250,84%,60%,.3); color: var(--accent); }
+.rd-tab-body { padding: 0; }
+.rd-tl-by { font-size: 11.5px; color: var(--text-3); }
+
+/* ── Comment composer ───────────────────────────────────────── */
+.rd-cmt-tab { }
+.rd-cmt-composer { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); }
+.rd-cmt-reply-banner {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-2);
+  background: var(--accent-light); border: 1px solid hsla(250,84%,60%,.2);
+  border-radius: var(--radius-sm); padding: 5px 10px; margin-bottom: 8px;
+}
+.rd-cmt-reply-banner strong { color: var(--text); }
+.rd-cmt-reply-cancel { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--text-3); font-size: 16px; line-height: 1; padding: 0 2px; }
+.rd-cmt-reply-cancel:hover { color: var(--text); }
+.rd-cmt-input-wrap { position: relative; }
+.rd-cmt-textarea {
+  width: 100%; resize: vertical; min-height: 72px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 9px 12px;
+  font-size: 13px; color: var(--text); font-family: inherit; transition: border-color .15s;
+}
+.rd-cmt-textarea:focus { outline: none; border-color: var(--accent); }
+.rd-cmt-textarea:disabled { opacity: .6; }
+.rd-cmt-mention-dropdown {
+  position: absolute; bottom: calc(100% + 4px); left: 0; right: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 100; overflow: hidden;
+}
+.rd-cmt-mention-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 12px; text-align: left; background: none; border: none;
+  cursor: pointer; transition: background .1s;
+}
+.rd-cmt-mention-item:hover, .rd-cmt-mention-item-active { background: var(--surface-2); }
+.rd-cmt-mention-avatar {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent-light); color: var(--accent);
+  font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.rd-cmt-mention-name { display: block; font-size: 13px; font-weight: 500; color: var(--text); }
+.rd-cmt-mention-email { display: block; font-size: 11px; color: var(--text-3); }
+.rd-cmt-composer-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.rd-cmt-hint { font-size: 11px; color: var(--text-3); }
+.rd-cmt-post-btn { font-size: 12px; padding: 5px 14px; }
+.rd-cmt-empty { padding: 18px; font-size: 13px; }
+
+/* ── Comment thread ─────────────────────────────────────────── */
+.rd-cmt-thread { display: flex; flex-direction: column; }
+.rd-cmt-node { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+.rd-cmt-node:last-child { border-bottom: none; }
+.rd-cmt-node-reply {
+  background: var(--surface-2); border-left: 2px solid hsla(250,84%,60%,.2);
+  padding: 10px 12px 8px; border-bottom: 1px solid var(--border);
+}
+.rd-cmt-node-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rd-cmt-node-avatar {
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent-light); color: var(--accent);
+  font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.rd-cmt-node-reply .rd-cmt-node-avatar { width: 22px; height: 22px; font-size: 10px; }
+.rd-cmt-node-author { font-size: 13px; font-weight: 600; color: var(--text); }
+.rd-cmt-node-time { font-size: 11px; color: var(--text-3); margin-left: auto; }
+.rd-cmt-node-body { font-size: 13.5px; color: var(--text); line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.rd-cmt-mention-chip { display: inline; background: var(--accent-light); color: var(--accent); border-radius: 3px; padding: 0 3px; font-weight: 500; }
+.rd-cmt-node-actions { margin-top: 6px; }
+.rd-cmt-reply-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; color: var(--text-3); background: none;
+  border: none; cursor: pointer; padding: 2px 6px; border-radius: var(--radius-sm);
+  transition: color .1s, background .1s;
+}
+.rd-cmt-reply-btn:hover { color: var(--accent); background: var(--accent-light); }
+.rd-cmt-inline-reply { margin-top: 10px; }
+.rd-cmt-replies { border-left: 2px solid hsla(250,84%,60%,.12); margin-left: 14px; margin-top: 4px; }

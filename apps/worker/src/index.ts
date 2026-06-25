@@ -9,7 +9,7 @@ import { scheduleFileCleanup, stopFileCleanupWorker } from "./file-cleanup.js";
 import { stopTenantPurgeWorker } from "./tenant-purge.js";
 import { stopExportWorker } from "./export-worker.js";
 
-logger.info("Worker process starting");
+logger.info({}, "Worker process starting");
 
 // Pollers (interval-based, must be explicitly started and stopped)
 startOutboxPoller();
@@ -22,7 +22,7 @@ void scheduleFileCleanup();
 // start processing on import above.
 
 async function shutdown(): Promise<void> {
-  logger.info("Worker shutting down");
+  logger.info({}, "Worker shutting down");
   await Promise.all([
     stopOutboxPoller(),
     stopSlaScheduler(),

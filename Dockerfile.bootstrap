@@ -1,0 +1,19 @@
+FROM node:22-alpine
+WORKDIR /app
+
+RUN npm install -g pnpm tsx turbo
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/db/package.json ./packages/db/
+COPY packages/config/package.json ./packages/config/
+
+# Copy full source so tsx can run the bootstrap script and all pnpm scripts
+COPY . .
+
+RUN pnpm install --no-frozen-lockfile
+
+# Build packages that seed.ts imports at runtime (config must have dist/)
+RUN pnpm --filter @platform/config build
+
+CMD ["tsx", "scripts/bootstrap.ts"]

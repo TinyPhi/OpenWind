@@ -233,7 +233,7 @@ pnpm bootstrap           # full setup from scratch (fully automated, no manual s
 
 > **Important:** Always use `docker compose down -v` (not just `down`) before re-running bootstrap from scratch. Without `-v`, Docker preserves the Postgres volume and the old Zitadel data will mix with the new setup.
 
-Full setup guide: [`docs/local-setup.md`](docs/local-setup.md)
+Full setup guide (local + production): [`SETUP.md`](SETUP.md)
 
 ---
 

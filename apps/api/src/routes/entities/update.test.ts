@@ -25,9 +25,25 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+const mockTx = {
+  select: () => mockTx,
+  from: () => mockTx,
+  where: () => mockTx,
+  limit: () => Promise.resolve([]),
+};
+
+const mockDb = {
+  select: () => mockDb,
+  from: () => mockDb,
+  where: () => mockDb,
+  limit: () => Promise.resolve([]),
+};
+
 vi.mock("@platform/db", () => ({
-  db: {},
-  withTenantContext: (tenantId, fn) => fn({}),
+  db: mockDb,
+  tenantUsers: {},
+  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
+    fn(mockTx),
 }));
 
 vi.mock("@platform/entity-engine", async (importOriginal) => {
@@ -86,7 +102,7 @@ describe("PATCH /entities/:id", () => {
     const json = await res.json();
     expect(json.data.fields.subject).toBe("updated");
     expect(mockUpdateEntity).toHaveBeenCalledWith(
-      {},
+      expect.any(Object),
       "t-aaa",
       INST_ID,
       expect.objectContaining({ fields: { subject: "updated" } }),
@@ -148,7 +164,7 @@ describe("PATCH /entities/:id", () => {
 
     expect(res.status).toBe(200);
     expect(mockUpdateEntity).toHaveBeenCalledWith(
-      {},
+      expect.any(Object),
       "t-aaa",
       INST_ID,
       expect.objectContaining({ assignedTo: null }),

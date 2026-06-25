@@ -219,5 +219,5 @@ export async function stopSlaScheduler(): Promise<void> {
     await activeTick;
     activeTick = null;
   }
-  logger.info("SLA scheduler stopped");
+  logger.info({}, "SLA scheduler stopped");
 }

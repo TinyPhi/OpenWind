@@ -82,5 +82,5 @@ export async function stopOutboxPoller(): Promise<void> {
     await activeTick;
     activeTick = null;
   }
-  logger.info("Outbox poller stopped");
+  logger.info({}, "Outbox poller stopped");
 }

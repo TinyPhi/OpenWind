@@ -13,12 +13,21 @@ function getJwks(): JwksGetter {
     // ZITADEL_JWKS_URL lets the API container fetch keys via the Docker-internal
     // hostname (e.g. http://zitadel:8080) while still validating the iss claim
     // against ZITADEL_ISSUER (http://localhost:8080 as seen by the browser).
-    // env.ZITADEL_JWKS_URL is optional — TypeScript can't narrow through the Zod .refine() wrapper
-
     const jwksUri = new URL(
       (env.ZITADEL_JWKS_URL ?? `${env.ZITADEL_ISSUER}/oauth/v2/keys`) as string,
     );
-    _jwks = createRemoteJWKSet(jwksUri);
+    // Zitadel routes by Host header — provide a custom fetcher that sets Host
+    // to match EXTERNALDOMAIN even when connecting via internal Docker hostname.
+    const issuerHost = new URL(env.ZITADEL_ISSUER).hostname;
+    const hostOverride =
+      jwksUri.hostname !== issuerHost ? issuerHost : undefined;
+    _jwks = createRemoteJWKSet(jwksUri, {
+      ...(hostOverride !== undefined
+        ? {
+            headers: { Host: hostOverride },
+          }
+        : {}),
+    });
   }
   return _jwks;
 }
@@ -44,7 +53,7 @@ export async function verifyJwt(
       {
         error: String(err),
         issuer: env.ZITADEL_ISSUER,
-        audience: env.ZITADEL_AUDIENCE ?? "(not set)",
+        audience: env.ZITADEL_AUDIENCE || "(not set)",
       },
       "JWT verification failed",
     );
@@ -83,5 +92,6 @@ export function extractAuthContext(
     roles,
     email: claims.email ?? "",
     displayName,
+    orgId,
   };
 }

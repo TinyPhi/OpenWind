@@ -7,8 +7,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
-import { viewConfigs } from "@platform/db";
+import { withTenantContext, viewConfigs } from "@platform/db";
 import { eq, and, sql } from "drizzle-orm";
 import { factory } from "./factory.js";
 
@@ -36,21 +35,23 @@ const ViewConfigPatchSchema = z
 
 export const getViewConfigHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent", "member"),
+  requireRole("admin", "agent"),
   async (c) => {
     const entityType = c.req.param("entityType") ?? "";
     const { tenantId } = c.get("auth");
 
-    const [row] = await db
-      .select()
-      .from(viewConfigs)
-      .where(
-        and(
-          eq(viewConfigs.tenantId, tenantId),
-          eq(viewConfigs.entityTypeSlug, entityType),
-        ),
-      )
-      .limit(1);
+    const [row] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .select()
+        .from(viewConfigs)
+        .where(
+          and(
+            eq(viewConfigs.tenantId, tenantId),
+            eq(viewConfigs.entityTypeSlug, entityType),
+          ),
+        )
+        .limit(1),
+    );
 
     if (!row) {
       return c.json({
@@ -80,36 +81,38 @@ export const updateViewConfigHandler = factory.createHandlers(
     // Atomic upsert — avoids the TOCTOU race of SELECT then INSERT-or-UPDATE.
     // The unique constraint on (tenant_id, entity_type_slug) makes conflicts
     // deterministic; we only update the fields the caller actually provided.
-    const [row] = await db
-      .insert(viewConfigs)
-      .values({
-        tenantId,
-        entityTypeSlug: entityType,
-        listColumns: input.listColumns ?? [],
-        detailLayout: input.detailLayout ?? [],
-        formFieldOrder: input.formFieldOrder ?? [],
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [viewConfigs.tenantId, viewConfigs.entityTypeSlug],
-        set: {
-          // Only update fields the caller provided; leave others untouched
-          ...(input.listColumns !== undefined && {
-            listColumns: input.listColumns,
-          }),
-          ...(input.detailLayout !== undefined && {
-            detailLayout: input.detailLayout,
-          }),
-          ...(input.formFieldOrder !== undefined && {
-            formFieldOrder: input.formFieldOrder,
-          }),
+    const [row] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .insert(viewConfigs)
+        .values({
+          tenantId,
+          entityTypeSlug: entityType,
+          listColumns: input.listColumns ?? [],
+          detailLayout: input.detailLayout ?? [],
+          formFieldOrder: input.formFieldOrder ?? [],
+          createdAt: now,
           updatedAt: now,
-          // Preserve the original createdAt on conflict
-          createdAt: sql`${viewConfigs.createdAt}`,
-        },
-      })
-      .returning();
+        })
+        .onConflictDoUpdate({
+          target: [viewConfigs.tenantId, viewConfigs.entityTypeSlug],
+          set: {
+            // Only update fields the caller provided; leave others untouched
+            ...(input.listColumns !== undefined && {
+              listColumns: input.listColumns,
+            }),
+            ...(input.detailLayout !== undefined && {
+              detailLayout: input.detailLayout,
+            }),
+            ...(input.formFieldOrder !== undefined && {
+              formFieldOrder: input.formFieldOrder,
+            }),
+            updatedAt: now,
+            // Preserve the original createdAt on conflict
+            createdAt: sql`${viewConfigs.createdAt}`,
+          },
+        })
+        .returning(),
+    );
 
     return c.json({ data: row });
   },

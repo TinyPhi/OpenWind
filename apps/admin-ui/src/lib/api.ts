@@ -1,6 +1,6 @@
 import { userManager } from "../authProvider.js";
 
-export const API_URL = "http://localhost:3000";
+export const API_URL = "/api";
 
 export async function fetchWithAuth(
   url: string,

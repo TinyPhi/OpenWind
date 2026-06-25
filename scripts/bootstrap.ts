@@ -24,21 +24,49 @@ import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createInterface } from "node:readline";
 import { createSign } from "node:crypto";
+import { request as nodeHttpRequest } from "node:http";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_FILE = join(ROOT, ".env.local");
 const ENV_EXAMPLE = join(ROOT, ".env.example");
-const ZITADEL_BASE = "http://localhost:8080";
+const IN_DOCKER = process.env["RUNNING_IN_DOCKER"] === "true";
+const _ZITADEL_EXTERNAL_DOMAIN =
+  process.env["ZITADEL_EXTERNAL_DOMAIN"] ?? "localhost";
+const _ZITADEL_HOST_PORT = process.env["ZITADEL_HOST_PORT"] ?? "8080";
+// ZITADEL_BASE is used for API calls from within the bootstrap container.
+// When IN_DOCKER, always connect via Docker service name (zitadel:8080) regardless
+// of the external domain — the httpPost/httpGet helpers set the Host header separately
+// so Zitadel's instance routing still works. This avoids routing through the public
+// internet when ExternalDomain is a real hostname (e.g. owzitadel.rokkalabs.com).
+const ZITADEL_BASE =
+  process.env["ZITADEL_BOOTSTRAP_URL"] ??
+  (IN_DOCKER
+    ? "http://zitadel:8080"
+    : `http://localhost:${_ZITADEL_HOST_PORT}`);
+// Health check always uses the internal container address — no Host header
+// routing needed, and it works regardless of EXTERNALSECURE setting.
+const ZITADEL_HEALTH_URL = IN_DOCKER
+  ? "http://zitadel:8080"
+  : `http://localhost:${_ZITADEL_HOST_PORT}`;
+// Browser-accessible URL — shown in PAT instructions and final summary.
+// When EXTERNALSECURE=true the subdomain is served over HTTPS by a reverse proxy
+// on the standard port (443) — no port suffix needed.
+const _ZITADEL_EXTERNAL_SECURE =
+  process.env["ZITADEL_EXTERNALSECURE"] === "true";
+const ZITADEL_BROWSER_URL =
+  _ZITADEL_EXTERNAL_DOMAIN !== "localhost"
+    ? _ZITADEL_EXTERNAL_SECURE
+      ? `https://${_ZITADEL_EXTERNAL_DOMAIN}`
+      : `http://${_ZITADEL_EXTERNAL_DOMAIN}:${_ZITADEL_HOST_PORT}`
+    : `http://localhost:${_ZITADEL_HOST_PORT}`;
 const TOTAL_STEPS = 10;
 
 // Demo credentials (printed in summary, committed to docs — dev only)
 const DEMO_ADMIN_EMAIL = "owAdmin@openwind.local";
 const DEMO_USER_EMAIL = "owUser@openwind.local";
-const DEMO_AGENT_EMAIL = "owAgent@openwind.local";
 const DEMO_PASSWORD = "OpenWind1234!";
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -112,17 +140,7 @@ function runCapture(cmd: string): string {
   }
 }
 
-// ── Input helpers ─────────────────────────────────────────────────────────────
-
-async function ask(prompt: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise<string>((resolve) => {
-    rl.question(prompt, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-  });
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -212,28 +230,113 @@ function writeEnvVars(vars: Record<string, string>): void {
 }
 
 // ── Zitadel API helper ────────────────────────────────────────────────────────
+// Node.js fetch treats `Host` as a forbidden header and ignores it — the URL
+// hostname always becomes the Host header. We use node:http directly so we can
+// connect to http://zitadel:8080 (internal Docker name) while sending
+// Host: localhost (the EXTERNALDOMAIN Zitadel's instance is registered for).
+
+function httpPost(
+  url: string,
+  hostOverride: string,
+  headers: Record<string, string>,
+  body: string,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const bodyBuf = Buffer.from(body);
+    const req = nodeHttpRequest(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port ? parseInt(parsed.port) : 80,
+        path: parsed.pathname + parsed.search,
+        method: "POST",
+        headers: {
+          ...headers,
+          Host: hostOverride,
+          "Content-Length": bodyBuf.length.toString(),
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, text: data }),
+        );
+      },
+    );
+    req.setTimeout(15_000, () => {
+      req.destroy(new Error("Zitadel API request timed out"));
+    });
+    req.on("error", reject);
+    req.write(bodyBuf);
+    req.end();
+  });
+}
+
+function httpGet(
+  url: string,
+  hostOverride: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = nodeHttpRequest(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port ? parseInt(parsed.port) : 80,
+        path: parsed.pathname + parsed.search,
+        method: "GET",
+        headers: { ...headers, Host: hostOverride },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, text: data }),
+        );
+      },
+    );
+    req.setTimeout(15_000, () => {
+      req.destroy(new Error("Zitadel API request timed out"));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 async function zCall(
   path: string,
   token: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<unknown> {
-  const res = await fetch(`${ZITADEL_BASE}${path}`, {
-    method: options.method ?? "GET",
-    signal: AbortSignal.timeout(15_000),
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(
-      `${options.method ?? "GET"} ${path} → ${res.status}: ${body}`,
+  const method = options.method ?? "GET";
+  const commonHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+  let result: { status: number; text: string };
+  if (method === "GET") {
+    result = await httpGet(
+      `${ZITADEL_BASE}${path}`,
+      _ZITADEL_EXTERNAL_DOMAIN,
+      commonHeaders,
+    );
+  } else {
+    result = await httpPost(
+      `${ZITADEL_BASE}${path}`,
+      _ZITADEL_EXTERNAL_DOMAIN,
+      commonHeaders,
+      options.body !== undefined ? JSON.stringify(options.body) : "",
     );
   }
-  return res.json() as Promise<unknown>;
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error(`${method} ${path} → ${result.status}: ${result.text}`);
+  }
+  return JSON.parse(result.text) as unknown;
 }
 
 // ── JWT Profile Grant (authNexus pattern) ────────────────────────────────────
@@ -260,34 +363,55 @@ function signJwt(
   return `${header}.${body}.${signer.sign(privateKeyPem, "base64url")}`;
 }
 
+async function discoverIssuer(): Promise<string> {
+  // Hit the OIDC discovery endpoint to get the exact issuer URL Zitadel expects
+  // as the JWT audience — avoids port mismatch between internal (8080) and external (443).
+  try {
+    const res = await httpGet(
+      `${ZITADEL_BASE}/.well-known/openid-configuration`,
+      _ZITADEL_EXTERNAL_DOMAIN,
+      {},
+    );
+    if (res.status === 200) {
+      const data = JSON.parse(res.text) as { issuer: string };
+      if (data.issuer) return data.issuer;
+    }
+  } catch {
+    // fall back to ZITADEL_BASE
+  }
+  return ZITADEL_BASE;
+}
+
 async function getTokenFromKeyJson(keyJson: ZitadelKeyJson): Promise<string> {
+  const issuer = await discoverIssuer();
   const now = Math.floor(Date.now() / 1000);
   const jwt = signJwt(
     {
       iss: keyJson.userId,
       sub: keyJson.userId,
-      aud: [ZITADEL_BASE],
+      aud: [issuer],
       iat: now,
       exp: now + 60,
     },
     keyJson.key,
     keyJson.keyId,
   );
-  const res = await fetch(`${ZITADEL_BASE}/oauth/v2/token`, {
-    method: "POST",
-    signal: AbortSignal.timeout(15_000),
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
+  const result = await httpPost(
+    `${ZITADEL_BASE}/oauth/v2/token`,
+    _ZITADEL_EXTERNAL_DOMAIN,
+    { "Content-Type": "application/x-www-form-urlencoded" },
+    new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       scope: "openid urn:zitadel:iam:org:project:id:zitadel:aud",
       assertion: jwt,
     }).toString(),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`JWT token exchange failed ${res.status}: ${text}`);
+  );
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error(
+      `JWT token exchange failed ${result.status}: ${result.text}`,
+    );
   }
-  const data = (await res.json()) as { access_token: string };
+  const data = JSON.parse(result.text) as { access_token: string };
   return data.access_token;
 }
 
@@ -310,7 +434,7 @@ async function generateAndSaveKeyJson(token: string): Promise<void> {
       queries: [
         {
           userNameQuery: {
-            userName: "setup-admin",
+            userName: "openwind-api-bot",
             method: "TEXT_QUERY_METHOD_EQUALS",
           },
         },
@@ -320,7 +444,9 @@ async function generateAndSaveKeyJson(token: string): Promise<void> {
 
   const userId = search.result?.[0]?.id;
   if (!userId) {
-    warn("Could not find setup-admin user — skipping key JSON generation");
+    warn(
+      "Could not find openwind-api-bot machine user — skipping key JSON generation",
+    );
     return;
   }
 
@@ -333,37 +459,15 @@ async function generateAndSaveKeyJson(token: string): Promise<void> {
   const keyJsonStr = Buffer.from(keyRes.keyDetails, "base64").toString("utf8");
   writeEnvVars({
     ZITADEL_KEY_JSON: Buffer.from(keyJsonStr).toString("base64"),
+    // ZITADEL_SERVICE_ACCOUNT_KEY is the raw JSON string read by the API server
+    // (zitadel-management.ts) for live user/role queries at runtime.
+    ZITADEL_SERVICE_ACCOUNT_KEY: keyJsonStr,
   });
-  ok(
-    "ZITADEL_KEY_JSON saved to .env.local — future bootstrap runs will be fully headless",
-  );
-}
-
-// Read the machine key that Zitadel prints to stdout during first-boot setup.
-// When MACHINEKEY_KEYPATH is not used (or not supported by the version), Zitadel
-// logs the key JSON directly to its stdout. We scrape it from container logs.
-function readZitadelMachineKey(): ZitadelKeyJson | null {
-  try {
-    const logs = execSync(`docker compose logs zitadel`, {
-      encoding: "utf8",
-      cwd: ROOT,
-    });
-    // Find the line containing the machine key JSON (has "serviceaccount" type)
-    for (const line of logs.split("\n")) {
-      const idx = line.indexOf('{"type":"serviceaccount"');
-      if (idx !== -1) {
-        const jsonStr = line.slice(idx).trim();
-        return JSON.parse(jsonStr) as ZitadelKeyJson;
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  ok("ZITADEL_KEY_JSON + ZITADEL_SERVICE_ACCOUNT_KEY saved to .env.local");
 }
 
 async function getAdminToken(): Promise<string> {
-  // Headless path A — saved key JSON already in .env.local (re-runs after first setup)
+  // Fast path — saved key from a previous run (stored in .env.local after first setup)
   const keyJson = readKeyJsonFromEnv();
   if (keyJson) {
     try {
@@ -371,68 +475,41 @@ async function getAdminToken(): Promise<string> {
       ok("Authenticated via saved JWT key — fully headless");
       return token;
     } catch (e) {
-      warn(
-        `Saved key auth failed (${String(e)}) — trying machine key from volume`,
-      );
+      warn(`Saved key auth failed (${String(e)}) — clearing stale key`);
+      writeEnvVars({ ZITADEL_KEY_JSON: "" });
     }
   }
 
-  // Headless path B — Zitadel wrote a machine key to the mounted volume on first boot
-  info("Reading machine key from Zitadel container volume...");
-  const machineKey = readZitadelMachineKey();
-  if (machineKey) {
+  // First-run path — PAT generated by `zitadel/setup.bat` (ow-zita-setup container)
+  // and passed in via ZITADEL_SETUP_PAT env var when running `openwind/setup.bat --pat <token>`.
+  const setupPat = process.env["ZITADEL_SETUP_PAT"]?.trim();
+  if (setupPat && setupPat.length > 20) {
+    ok(
+      "Using PAT from ZITADEL_SETUP_PAT — generating key JSON for future headless runs...",
+    );
     try {
-      const token = await getTokenFromKeyJson(machineKey);
-      ok(
-        "Authenticated via Zitadel machine key — fully headless, no manual step needed",
-      );
-      // Save to .env.local so future runs use path A (faster)
-      writeEnvVars({
-        ZITADEL_KEY_JSON: Buffer.from(JSON.stringify(machineKey)).toString(
-          "base64",
-        ),
-      });
-      ok("Machine key saved to .env.local for future runs");
-      return token;
+      await generateAndSaveKeyJson(setupPat);
     } catch (e) {
       warn(
-        `Machine key auth failed (${String(e)}) — falling back to manual PAT`,
+        `Could not save key JSON (${String(e)}) — this run will succeed but next run may need a new PAT`,
       );
     }
-  } else {
-    warn(
-      "Machine key not found in volume — volume may not be mounted or Zitadel is still initialising",
-    );
+    return setupPat;
   }
 
-  // Fallback — manual PAT (only hits if docker-compose.yml is missing the volume config)
-  console.log(`
-  ${YELLOW}One manual step is required.${RESET}
-  Zitadel's API needs a Personal Access Token (PAT) for this first setup.
-  This is a one-time step — afterwards, a service account key is saved to
-  .env.local and all future runs will be fully headless.
+  fail(`No Zitadel credentials found.
 
-  ${BOLD}1.${RESET} Open:  ${CYAN}http://localhost:8080${RESET}
-  ${BOLD}2.${RESET} Log in: ${DIM}admin@platform.local  /  Admin1234!${RESET}
-  ${BOLD}3.${RESET} Click your avatar (top-right) → "Personal Access Tokens"
-  ${BOLD}4.${RESET} Click "${BOLD}+ New${RESET}" → set no expiry → click "Add" → ${BOLD}copy the token${RESET}
+  Run the Zitadel setup first to generate a PAT:
+
+    ${CYAN}cd zitadel${RESET}
+    ${CYAN}setup.bat${RESET}          (Windows)
+    ${CYAN}./setup.sh${RESET}         (Linux / Mac)
+
+  Then re-run OpenWind setup with the printed PAT:
+
+    ${CYAN}setup.bat --pat <token>${RESET}    (Windows)
+    ${CYAN}./setup.sh --pat <token>${RESET}   (Linux / Mac)
 `);
-
-  const pat = await ask(`  ${BOLD}Paste your PAT here:${RESET} `);
-  if (!pat || pat.length < 20) {
-    fail("PAT is too short. Copy the full token from Zitadel and try again.");
-  }
-
-  info("Generating service account key for future headless runs...");
-  try {
-    await generateAndSaveKeyJson(pat);
-  } catch (e) {
-    warn(
-      `Could not generate key JSON: ${String(e)} — future runs will still need a PAT`,
-    );
-  }
-
-  return pat;
 }
 
 // ── Zitadel setup (mirrors setup-dev-auth.ts but returns projectId) ───────────
@@ -440,8 +517,8 @@ async function getAdminToken(): Promise<string> {
 async function runZitadelSetup(
   pat: string,
 ): Promise<{ projectId: string; oidcClientId: string }> {
-  const PROJECT_NAME = "Platform";
-  const APP_NAME = "platform-api";
+  const PROJECT_NAME = "OpenWind";
+  const APP_NAME = "openwind-api";
   const SA_NAME = "platform-introspection";
   const TOKEN_EXPIRY = 15 * 60;
 
@@ -536,10 +613,15 @@ async function runZitadelSetup(
   let oidcClientId: string;
   let oidcClientSecret: string;
 
+  // Include APP_URL / CORS_ORIGIN in redirect URIs when set.
+  // APP_URL is the new base var; CORS_ORIGIN is the legacy alias — check both.
+  const corsOrigin = process.env["APP_URL"] ?? process.env["CORS_ORIGIN"];
+  const extraOrigins: string[] = corsOrigin ? [corsOrigin] : [];
   const oidcPayload = {
     redirectUris: [
       "http://localhost:3001/auth/callback",
       "http://localhost:3000/auth/callback",
+      ...extraOrigins.map((o) => `${o}/auth/callback`),
     ],
     responseTypes: ["OIDC_RESPONSE_TYPE_CODE"],
     grantTypes: [
@@ -552,6 +634,8 @@ async function runZitadelSetup(
       "http://localhost:3001",
       "http://localhost:3001/login",
       "http://localhost:3000",
+      ...extraOrigins,
+      ...extraOrigins.map((o) => `${o}/login`),
     ],
     accessTokenType: "OIDC_TOKEN_TYPE_JWT",
     accessTokenRoleAssertion: true,
@@ -613,8 +697,8 @@ async function runZitadelSetup(
       method: "POST",
       body: {
         userName: SA_NAME,
-        name: "Platform Introspection Service",
-        description: "Service account for token introspection",
+        name: "OpenWind Introspection Service",
+        description: "OpenWind service account for token introspection",
         accessTokenType: "ACCESS_TOKEN_TYPE_JWT",
       },
     })) as { userId: string };
@@ -644,8 +728,8 @@ async function runZitadelSetup(
     body: {
       queries: [
         {
-          emailQuery: {
-            emailAddress: "admin@platform.local",
+          userNameQuery: {
+            userName: "owZitadelAdmin",
             method: "TEXT_QUERY_METHOD_EQUALS",
           },
         },
@@ -659,7 +743,7 @@ async function runZitadelSetup(
         method: "POST",
         body: { projectId, roleKeys: ["admin"] },
       });
-      ok(`Granted "admin" role to admin@platform.local`);
+      ok(`Granted "admin" role to owZitadelAdmin`);
     } catch (e) {
       if (
         !String(e).includes("409") &&
@@ -667,20 +751,46 @@ async function runZitadelSetup(
       ) {
         warn(`Could not grant admin role to root admin: ${String(e)}`);
       } else {
-        ok(`admin@platform.local already has "admin" role`);
+        ok(`owZitadelAdmin already has "admin" role`);
       }
     }
   }
 
-  // 7. Write env vars
+  // 7. Allow username-only login (no @domain suffix required)
+  try {
+    await zCall("/management/v1/policies/domain", pat, {
+      method: "PUT",
+      body: {
+        userLoginMustBeDomain: false,
+        validateOrgDomains: false,
+        smtpSenderAddressMatchesInstanceDomain: false,
+      },
+    });
+    ok(
+      "Login policy updated — users can log in with username only (no @domain needed)",
+    );
+  } catch (e) {
+    warn(`Could not update domain policy: ${String(e)}`);
+  }
+
+  // 8. Write env vars
+  // ZITADEL_ISSUER must be the browser-accessible URL (localhost), not the
+  // internal Docker name — the frontend calls this from the user's browser.
+  // VITE_ prefixed copies are needed because Vite only exposes VITE_* vars
+  // to import.meta.env in the dev server.
   writeEnvVars({
-    ZITADEL_ISSUER: ZITADEL_BASE,
+    // Base URL vars — set these and the derived vars below are optional.
+    ZITADEL_URL: ZITADEL_BROWSER_URL,
+    // Keep explicit derived vars so existing setups that read them directly still work.
+    ZITADEL_ISSUER: ZITADEL_BROWSER_URL,
     ZITADEL_AUDIENCE: projectId,
-    ZITADEL_INTROSPECTION_URL: `${ZITADEL_BASE}/oauth/v2/introspect`,
+    ZITADEL_INTROSPECTION_URL: `${ZITADEL_BROWSER_URL}/oauth/v2/introspect`,
     ZITADEL_INTROSPECTION_CLIENT_ID: introspectionClientId,
     ZITADEL_INTROSPECTION_CLIENT_SECRET: introspectionClientSecret,
     ZITADEL_OIDC_CLIENT_ID: oidcClientId,
     ZITADEL_OIDC_CLIENT_SECRET: oidcClientSecret,
+    VITE_ZITADEL_ISSUER: ZITADEL_BROWSER_URL,
+    VITE_ZITADEL_OIDC_CLIENT_ID: oidcClientId,
   });
 
   return { projectId, oidcClientId };
@@ -771,28 +881,36 @@ async function main(): Promise<void> {
 
   step(1, "Checking prerequisites");
 
-  const nodeMajor = parseInt(process.versions.node.split(".")[0] ?? "0", 10);
-  if (nodeMajor < 22) {
-    fail(
-      `Node.js 22+ required. Current: v${process.versions.node}.\nDownload from https://nodejs.org`,
+  if (IN_DOCKER) {
+    ok("Running inside Docker — skipping host prerequisite checks");
+  } else {
+    const nodeMajor = parseInt(process.versions.node.split(".")[0] ?? "0", 10);
+    if (nodeMajor < 22) {
+      fail(
+        `Node.js 22+ required. Current: v${process.versions.node}.\nDownload from https://nodejs.org`,
+      );
+    }
+    ok(`Node.js v${process.versions.node}`);
+
+    const pnpmVer = runCapture("pnpm --version");
+    if (!pnpmVer) fail("pnpm not found. Install: npm install -g pnpm");
+    ok(`pnpm ${pnpmVer}`);
+
+    const dockerRunning = runCapture(
+      "docker info --format '{{.ServerVersion}}'",
     );
+    if (!dockerRunning)
+      fail("Docker is not running. Start Docker Desktop and re-run.");
+    ok(`Docker ${dockerRunning}`);
   }
-  ok(`Node.js v${process.versions.node}`);
-
-  const pnpmVer = runCapture("pnpm --version");
-  if (!pnpmVer) fail("pnpm not found. Install: npm install -g pnpm");
-  ok(`pnpm ${pnpmVer}`);
-
-  const dockerRunning = runCapture("docker info --format '{{.ServerVersion}}'");
-  if (!dockerRunning)
-    fail("Docker is not running. Start Docker Desktop and re-run.");
-  ok(`Docker ${dockerRunning}`);
 
   // ── 2. Environment ────────────────────────────────────────────────────────────
 
   step(2, "Setting up environment");
 
-  if (!existsSync(ENV_FILE)) {
+  if (IN_DOCKER) {
+    ok("Running inside Docker — .env.local is mounted from host");
+  } else if (!existsSync(ENV_FILE)) {
     if (!existsSync(ENV_EXAMPLE)) {
       fail(".env.example not found — are you in the OpenWind repository root?");
     }
@@ -806,9 +924,14 @@ async function main(): Promise<void> {
 
   step(3, "Starting Docker services");
 
-  run("docker compose up -d");
-  ok("Docker services started");
-  info("Postgres, PgBouncer, Redis, Zitadel, API, Frontend");
+  if (IN_DOCKER) {
+    ok("Running inside Docker — services are already up");
+    info("Postgres, PgBouncer, Redis, Zitadel, API, Frontend");
+  } else {
+    run("docker compose up -d");
+    ok("Docker services started");
+    info("Postgres, PgBouncer, Redis, Zitadel, API, Frontend");
+  }
 
   // ── 4. Health checks ──────────────────────────────────────────────────────────
 
@@ -816,8 +939,16 @@ async function main(): Promise<void> {
 
   info("This can take up to 60s on first boot while Zitadel initialises...");
 
-  await waitForPostgres();
-  await waitForHttp(`${ZITADEL_BASE}/healthz`, "Zitadel", 80, 3000);
+  if (IN_DOCKER) {
+    ok(
+      "Postgres is ready (pgbouncer healthcheck passed before bootstrap started)",
+    );
+  } else {
+    await waitForPostgres();
+  }
+  await waitForHttp(`${ZITADEL_HEALTH_URL}/healthz`, "Zitadel", 80, 3000);
+
+  info(`Zitadel bootstrap URL: ${ZITADEL_BASE}`);
 
   // Extra buffer for Zitadel internal startup (database migrations, admin user creation)
   info("Giving Zitadel 10s to complete internal setup...");
@@ -826,21 +957,28 @@ async function main(): Promise<void> {
   // ── 5. Dependencies ───────────────────────────────────────────────────────────
 
   step(5, "Installing Node.js dependencies");
-  run("pnpm install --frozen-lockfile");
-  ok("All workspace packages installed");
+  if (IN_DOCKER) {
+    ok("Running inside Docker — dependencies already installed in image");
+  } else {
+    run("pnpm install --frozen-lockfile");
+    ok("All workspace packages installed");
+  }
 
   // ── 6. Database ───────────────────────────────────────────────────────────────
 
   step(6, "Running database migrations and base seed");
 
-  // Build internal packages needed by db:seed and seed:demo scripts.
-  // Turbo respects the dependency graph: config is built before db.
-  run("pnpm turbo run build --filter=@platform/config --filter=@platform/db");
-
-  run("pnpm db:migrate", { env: { DOTENV_CONFIG_PATH: ".env.local" } });
+  const dbEnv: NodeJS.ProcessEnv = { DOTENV_CONFIG_PATH: ".env.local" };
+  if (IN_DOCKER && process.env["MIGRATION_DATABASE_URL"]) {
+    dbEnv["MIGRATION_DATABASE_URL"] = process.env["MIGRATION_DATABASE_URL"];
+  }
+  // Run from within packages/db using pnpm exec so the local .bin/tsx is resolved.
+  // This avoids turbo (whose workspace binary has the wrong platform binary on alpine).
+  const dbPkgDir = join(ROOT, "packages", "db");
+  run("pnpm exec tsx src/run-migrations.ts", { cwd: dbPkgDir, env: dbEnv });
   ok("Migrations applied");
 
-  run("pnpm db:seed", { env: { DOTENV_CONFIG_PATH: ".env.local" } });
+  run("pnpm exec tsx src/seed.ts", { cwd: dbPkgDir, env: dbEnv });
   ok("Base data seeded (dev tenant, roles)");
 
   // ── 7. Auth setup ─────────────────────────────────────────────────────────────
@@ -859,16 +997,14 @@ async function main(): Promise<void> {
   // env_file and the environment: block, recreating the container if anything changed.
   info("Recreating api and frontend containers with updated credentials...");
   try {
-    execSync("docker compose up -d --force-recreate api admin-ui", {
+    execSync("docker compose up -d --force-recreate ow-backend ow-frontend", {
       stdio: "ignore",
       cwd: ROOT,
     });
-    ok(
-      "API and frontend containers recreated (ZITADEL_AUDIENCE + OIDC client ID applied)",
-    );
+    ok("ow-backend and ow-frontend recreated with updated credentials");
   } catch {
     warn(
-      "Could not recreate containers — run `docker compose up -d api admin-ui` manually",
+      "Could not recreate containers — run `docker compose up -d --force-recreate ow-backend ow-frontend` manually",
     );
   }
 
@@ -885,14 +1021,6 @@ async function main(): Promise<void> {
   });
 
   await createDemoUser(authToken, projectId, {
-    email: DEMO_AGENT_EMAIL,
-    firstName: "Support",
-    lastName: "Agent",
-    userName: "owAgent",
-    role: "agent",
-  });
-
-  await createDemoUser(authToken, projectId, {
     email: DEMO_USER_EMAIL,
     firstName: "Portal",
     lastName: "User",
@@ -900,49 +1028,98 @@ async function main(): Promise<void> {
     role: "user",
   });
 
-  // ── 9. Demo data ──────────────────────────────────────────────────────────────
+  // Test users — 5 users with "user" role for development / demo purposes
+  const TEST_USERS = [
+    {
+      firstName: "Alice",
+      lastName: "Tester",
+      userName: "testUser1",
+      email: "testUser1@openwind.local",
+    },
+    {
+      firstName: "Bob",
+      lastName: "Tester",
+      userName: "testUser2",
+      email: "testUser2@openwind.local",
+    },
+    {
+      firstName: "Carol",
+      lastName: "Tester",
+      userName: "testUser3",
+      email: "testUser3@openwind.local",
+    },
+    {
+      firstName: "David",
+      lastName: "Tester",
+      userName: "testUser4",
+      email: "testUser4@openwind.local",
+    },
+    {
+      firstName: "Eve",
+      lastName: "Tester",
+      userName: "testUser5",
+      email: "testUser5@openwind.local",
+    },
+  ];
 
-  step(9, "Seeding module templates");
+  for (const u of TEST_USERS) {
+    await createDemoUser(authToken, projectId, { ...u, role: "user" });
+  }
 
-  run("pnpm seed:demo");
+  // ── 9. Module templates ───────────────────────────────────────────────────────
+
+  step(9, "Module templates");
+
   ok(
-    "7 templates seeded (Helpdesk, CRM, HRMS, Reimbursements, Projects, Invoicing, Procurement)",
+    "Templates auto-seed on first visit to the Templates page — no action needed",
   );
+  info('Or click "Seed Templates" on the Templates page if the list is empty.');
 
   // ── 10. Summary ───────────────────────────────────────────────────────────────
 
   step(10, "Bootstrap complete");
 
+  const appUrl =
+    process.env["CORS_ORIGIN"] ??
+    `http://localhost:${process.env["ADMIN_UI_HOST_PORT"] ?? "3001"}`;
+
   console.log(`
 ${BOLD}${GREEN}  ✅  OpenWind is ready!${RESET}
 
-  ${BOLD}Everything is running in Docker.${RESET} Open ${CYAN}http://localhost:3001${RESET} and log in.
+  ${BOLD}Open the app in your browser:${RESET}
 
-  ${BOLD}URLs${RESET}
-  ┌─────────────────────────────────────────────────────────┐
-  │  App (admin + portal)  ${CYAN}http://localhost:3001${RESET}            │
-  │  API                   ${CYAN}http://localhost:3000${RESET}            │
-  │  API docs              ${CYAN}http://localhost:3000/docs${RESET}       │
-  │  Zitadel console       ${CYAN}http://localhost:8080${RESET}            │
-  └─────────────────────────────────────────────────────────┘
+    ${CYAN}${BOLD}${appUrl}${RESET}
 
-  ${BOLD}Demo credentials${RESET}  (all at http://localhost:3001)
-  ┌─────────────────────────────────────────────────────────┐
-  │  ${YELLOW}owAdmin${RESET}  /  ${YELLOW}OpenWind1234!${RESET}   → admin view             │
-  │  ${YELLOW}owAgent${RESET}  /  ${YELLOW}OpenWind1234!${RESET}   → agent view             │
-  │  ${YELLOW}owUser${RESET}   /  ${YELLOW}OpenWind1234!${RESET}   → user view              │
-  │                                                         │
-  │  Zitadel console (system admin)                         │
-  │  ${DIM}admin@platform.local   /  Admin1234!${RESET}                │
-  └─────────────────────────────────────────────────────────┘
+  ${BOLD}─────────────────────────────────────────────────────────────${RESET}
+  ${BOLD}Login accounts${RESET}
 
-  ${BOLD}What's ready${RESET}
-  • 7 module templates available on the Templates page
-  • Fork any template to create a named entity type + workflow
-  • Clean slate — no pre-created workflows or records
+  ${BOLD}OpenWind Admin${RESET}  (full platform access)
+    Username:  ${YELLOW}owAdmin${RESET}
+    Password:  ${YELLOW}${DEMO_PASSWORD}${RESET}
 
-  ${DIM}Rebuild after code changes: docker compose up -d --build${RESET}
-  ${DIM}Reset everything: docker compose down -v && rm .env.local && pnpm bootstrap${RESET}
+  ${BOLD}Portal User${RESET}  (end-user view)
+    Username:  ${YELLOW}owUser${RESET}
+    Password:  ${YELLOW}${DEMO_PASSWORD}${RESET}
+
+  ${BOLD}Test Users${RESET}  (5 users with "user" role)
+    testUser1 / testUser2 / testUser3 / testUser4 / testUser5
+    Password:  ${YELLOW}${DEMO_PASSWORD}${RESET}
+
+  ${BOLD}─────────────────────────────────────────────────────────────${RESET}
+  ${BOLD}Zitadel console${RESET}  (identity provider — manage users, orgs, apps)
+
+    URL:       ${CYAN}${ZITADEL_BROWSER_URL}${RESET}
+    Username:  ${DIM}owZitadelAdmin@openwind.local${RESET}
+    Password:  ${DIM}see ZITADEL_ADMIN_PASSWORD in .env.local${RESET}
+
+  ${BOLD}─────────────────────────────────────────────────────────────${RESET}
+  ${YELLOW}${BOLD}  ⚠  One last step:${RESET} restart the app containers to apply credentials:
+
+    ${BOLD}docker compose restart ow-backend ow-frontend${RESET}
+
+  ${BOLD}─────────────────────────────────────────────────────────────${RESET}
+  ${DIM}Rebuild after code changes:  docker compose up -d --build${RESET}
+  ${DIM}Reset everything:            docker compose down -v && docker compose --profile bootstrap run --rm bootstrap${RESET}
 `);
 }
 

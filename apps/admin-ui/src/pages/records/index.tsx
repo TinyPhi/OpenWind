@@ -1,7 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
+import { useEntityTypes } from "../../entity-type-context.js";
+
+function toWorkflowSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
 
 type Workflow = {
   id: string;
@@ -47,7 +54,6 @@ export function AdminRecords(): React.ReactElement {
   }, []);
 
   const etMap = new Map(entityTypes.map((e) => [e.id, e]));
-  const withData = workflows.filter((wf) => wf.recordCount > 0);
 
   if (loading) {
     return (
@@ -85,7 +91,9 @@ export function AdminRecords(): React.ReactElement {
             its records.
           </p>
         </div>
-        <div className="stat-pill">{workflows.length} workflows</div>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div className="stat-pill">{workflows.length} workflows</div>
+        </div>
       </div>
 
       {workflows.length === 0 ? (
@@ -101,12 +109,6 @@ export function AdminRecords(): React.ReactElement {
             + New Workflow
           </button>
         </div>
-      ) : withData.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon">📋</div>
-          <h4>No records yet</h4>
-          <p>Install a template and create your first record to see it here.</p>
-        </div>
       ) : (
         <div
           style={{
@@ -115,9 +117,9 @@ export function AdminRecords(): React.ReactElement {
             gap: "20px",
           }}
         >
-          {withData.map((wf, i) => {
+          {workflows.map((wf, i) => {
             const et = etMap.get(wf.entityTypeId);
-            const slug = toTypeSlug(et?.plural ?? et?.name ?? "");
+            const wfSlug = toWorkflowSlug(wf.name);
             const gradient = CARD_GRADIENTS[i % CARD_GRADIENTS.length];
             const activeStates = wf.states.filter((s) => !s.isTerminal);
             const terminalStates = wf.states.filter((s) => s.isTerminal);
@@ -125,7 +127,7 @@ export function AdminRecords(): React.ReactElement {
             return (
               <div
                 key={wf.id}
-                onClick={() => navigate(`/records/${slug}`)}
+                onClick={() => navigate(`/workflows/${wfSlug}/records`)}
                 style={{
                   borderRadius: "16px",
                   overflow: "hidden",
@@ -156,6 +158,24 @@ export function AdminRecords(): React.ReactElement {
                     position: "relative",
                   }}
                 >
+                  {wf.recordCount > 0 && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "12px",
+                        right: "12px",
+                        background: "rgba(255,255,255,.25)",
+                        backdropFilter: "blur(4px)",
+                        borderRadius: "20px",
+                        padding: "2px 10px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: "#fff",
+                      }}
+                    >
+                      {wf.recordCount} record{wf.recordCount !== 1 ? "s" : ""}
+                    </div>
+                  )}
                   <div style={{ fontSize: "32px", marginBottom: "8px" }}>
                     {et?.icon ?? "📋"}
                   </div>
@@ -246,7 +266,7 @@ export function AdminRecords(): React.ReactElement {
                     style={{ width: "100%", justifyContent: "center" }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      navigate(`/records/${slug}`);
+                      navigate(`/workflows/${wfSlug}/records`);
                     }}
                   >
                     View Records →

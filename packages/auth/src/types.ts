@@ -4,6 +4,7 @@ export interface AuthContext {
   roles: string[];
   email: string;
   displayName: string;
+  orgId?: string | undefined;
 }
 
 // Zitadel JWT claim shapes

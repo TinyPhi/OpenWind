@@ -98,4 +98,20 @@ router.post(
   },
 );
 
+// Seed the module registry (admin only) — idempotent, safe to call multiple times
+router.post("/seed", requireAuth(db), requireRole("admin"), async (c) => {
+  const auth = c.get("auth");
+  try {
+    await ModuleService.seedRegistry();
+    const list = await ModuleService.listModules(auth.tenantId);
+    return c.json({ data: { seeded: list.length } }, 201);
+  } catch (err: unknown) {
+    logger.error({ err }, "seedRegistry failed");
+    return c.json(
+      { error: "SEED_FAILED", message: "Failed to seed module registry" },
+      500,
+    );
+  }
+});
+
 export { router as modulesRouter };

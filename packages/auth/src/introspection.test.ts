@@ -1,7 +1,10 @@
+import type { IncomingMessage, ClientRequest } from "node:http";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { EventEmitter } from "node:events";
 
 vi.mock("@platform/config", () => ({
   env: {
+    ZITADEL_ISSUER: "https://zitadel.example.com",
     ZITADEL_INTROSPECTION_URL:
       "https://zitadel.example.com/oauth/v2/introspect",
     ZITADEL_INTROSPECTION_CLIENT_ID: "client-id",
@@ -13,71 +16,124 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// Mock node:http so tests don't make real network calls.
+// The implementation uses node:http.request (not fetch) to set a custom Host
+// header for Zitadel's internal-Docker routing.
+const mockRequest = vi.fn();
+vi.mock("node:http", () => ({ request: mockRequest }));
+
 // Must import AFTER mocks are registered
 const { introspectToken } = await import("./introspection.js");
 
-const mockFetch = vi.fn();
-vi.stubGlobal("fetch", mockFetch);
+function makeHttpResponse(
+  statusCode = 200,
+): EventEmitter & { statusCode: number } {
+  const res = new EventEmitter() as EventEmitter & { statusCode: number };
+  res.statusCode = statusCode;
+  return res;
+}
 
-function makeFetchResponse(body: unknown, ok = true, status = 200): Response {
-  return {
-    ok,
-    status,
-    json: () => Promise.resolve(body),
-  } as unknown as Response;
+function makeHttpRequest(res: EventEmitter): Partial<ClientRequest> {
+  const req: Partial<ClientRequest> = {
+    setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+    on: vi.fn() as unknown as ClientRequest["on"],
+    write: vi.fn() as unknown as ClientRequest["write"],
+    end: vi.fn() as unknown as ClientRequest["end"],
+  };
+  // Trigger callback on next tick to simulate async
+  mockRequest.mockImplementationOnce(
+    (_opts: unknown, callback: (res: IncomingMessage) => void) => {
+      setTimeout(() => callback(res as unknown as IncomingMessage), 0);
+      return req;
+    },
+  );
+  return req;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Reset the module cache between tests so the internal Map is fresh.
-  // We achieve this by passing unique tokens per test.
 });
 
 describe("introspectToken", () => {
   it("returns active result for a valid token", async () => {
-    const activeResult = { active: true, sub: "user-123" };
-    mockFetch.mockResolvedValueOnce(makeFetchResponse(activeResult));
+    const body = JSON.stringify({ active: true, sub: "user-123" });
+    const res = makeHttpResponse();
+    makeHttpRequest(res);
 
-    const result = await introspectToken("valid-token-1");
+    const promise = introspectToken("valid-token-1a");
+    // emit data + end on next tick
+    setTimeout(() => {
+      res.emit("data", Buffer.from(body));
+      res.emit("end");
+    }, 1);
 
+    const result = await promise;
     expect(result.active).toBe(true);
     expect(result.sub).toBe("user-123");
   });
 
   it("returns inactive result when server responds with active=false", async () => {
-    mockFetch.mockResolvedValueOnce(makeFetchResponse({ active: false }));
+    const body = JSON.stringify({ active: false });
+    const res = makeHttpResponse();
+    makeHttpRequest(res);
 
-    const result = await introspectToken("invalid-token-2");
+    const promise = introspectToken("invalid-token-2a");
+    setTimeout(() => {
+      res.emit("data", Buffer.from(body));
+      res.emit("end");
+    }, 1);
 
+    const result = await promise;
     expect(result.active).toBe(false);
   });
 
   it("returns inactive result when fetch throws a network error", async () => {
-    mockFetch.mockRejectedValueOnce(new Error("network error"));
+    const req: Partial<ClientRequest> = {
+      setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+      on: vi.fn((event: string, handler: (err: Error) => void) => {
+        if (event === "error")
+          setTimeout(() => handler(new Error("network error")), 1);
+      }) as unknown as ClientRequest["on"],
+      write: vi.fn() as unknown as ClientRequest["write"],
+      end: vi.fn() as unknown as ClientRequest["end"],
+    };
+    mockRequest.mockImplementationOnce(() => req);
 
-    const result = await introspectToken("errored-token-3");
-
+    const result = await introspectToken("errored-token-3a");
     expect(result.active).toBe(false);
   });
 
   it("returns inactive result when server returns non-2xx", async () => {
-    mockFetch.mockResolvedValueOnce(makeFetchResponse({}, false, 503));
+    const res = makeHttpResponse(503);
+    makeHttpRequest(res);
 
-    const result = await introspectToken("bad-server-4");
+    const promise = introspectToken("bad-server-4a");
+    setTimeout(() => {
+      res.emit("data", Buffer.from("{}"));
+      res.emit("end");
+    }, 1);
 
+    const result = await promise;
     expect(result.active).toBe(false);
   });
 
   it("uses cached result on second call with same token", async () => {
-    const activeResult = { active: true, sub: "user-cached" };
-    mockFetch.mockResolvedValueOnce(makeFetchResponse(activeResult));
+    const body = JSON.stringify({ active: true, sub: "user-cached" });
+    const res = makeHttpResponse();
+    makeHttpRequest(res);
 
-    const r1 = await introspectToken("cached-token-5");
-    const r2 = await introspectToken("cached-token-5");
+    const promise = introspectToken("cached-token-5a");
+    setTimeout(() => {
+      res.emit("data", Buffer.from(body));
+      res.emit("end");
+    }, 1);
+
+    const r1 = await promise;
+    const r2 = await introspectToken("cached-token-5a");
 
     expect(r1.active).toBe(true);
     expect(r2.active).toBe(true);
-    // fetch should only be called once
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    // node:http.request should only be called once — second call hits cache
+    expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 });

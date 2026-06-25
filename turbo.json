@@ -70,7 +70,7 @@
     },
     "db:migrate": {
       "cache": false,
-      "env": ["DATABASE_URL"]
+      "env": ["DATABASE_URL", "MIGRATION_DATABASE_URL"]
     },
     "db:migrate:create": {
       "cache": false

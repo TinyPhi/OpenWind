@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
@@ -43,9 +43,17 @@ type WorkflowEvent = {
   fromState: string | null;
   toState: string;
   actorId: string;
+  actorDisplayName?: string | null;
   comment: string | null;
   triggeredAt: string;
+  createdAt?: string;
   metadata?: Record<string, unknown>;
+};
+type OrgUser = {
+  userId: string;
+  email: string;
+  displayName: string | null;
+  loginName?: string;
 };
 
 /* ── Field display ───────────────────────────────────────────── */
@@ -300,7 +308,7 @@ function StateBadge({
 function HistoryIcon({
   type,
 }: {
-  type: "create" | "update" | "transition";
+  type: "create" | "update" | "transition" | "comment";
 }): React.ReactElement {
   if (type === "create") {
     return (
@@ -340,6 +348,24 @@ function HistoryIcon({
       </div>
     );
   }
+  if (type === "comment") {
+    return (
+      <div className="rcd-tl-icon rcd-tl-icon-comment">
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+        </svg>
+      </div>
+    );
+  }
   return (
     <div className="rcd-tl-icon rcd-tl-icon-transition">
       <svg
@@ -355,6 +381,322 @@ function HistoryIcon({
         <polyline points="5 12 19 12" />
         <polyline points="13 6 19 12 13 18" />
       </svg>
+    </div>
+  );
+}
+
+/* ── Comment composer with @mention ─────────────────────────── */
+function CommentComposer({
+  users,
+  replyTo,
+  onCancel,
+  onSubmit,
+  placeholder,
+}: {
+  users: OrgUser[];
+  replyTo: WorkflowEvent | null;
+  onCancel?: () => void;
+  onSubmit: (
+    text: string,
+    mentions: string[],
+    replyTo: string | null,
+  ) => Promise<void>;
+  placeholder?: string;
+}): React.ReactElement {
+  const [text, setText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionAnchor, setMentionAnchor] = useState(0);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const mentionResults =
+    mentionQuery !== null
+      ? users
+          .filter((u) => {
+            const q = mentionQuery.toLowerCase();
+            return (
+              (u.displayName ?? "").toLowerCase().includes(q) ||
+              u.email.toLowerCase().includes(q)
+            );
+          })
+          .slice(0, 6)
+      : [];
+
+  function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>): void {
+    const val = e.target.value;
+    setText(val);
+    const cursor = e.target.selectionStart;
+    const atMatch = /@([\w.]*)$/.exec(val.slice(0, cursor));
+    if (atMatch) {
+      setMentionQuery(atMatch[1] ?? "");
+      setMentionAnchor(atMatch.index);
+      setMentionIdx(0);
+    } else {
+      setMentionQuery(null);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (mentionQuery !== null && mentionResults.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIdx((i) => Math.min(i + 1, mentionResults.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIdx((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const u = mentionResults[mentionIdx];
+        if (u) insertMention(u);
+        return;
+      }
+      if (e.key === "Escape") {
+        setMentionQuery(null);
+        return;
+      }
+    }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      void handleSubmit();
+    }
+  }
+
+  function insertMention(u: OrgUser): void {
+    const name = u.displayName ?? u.email;
+    const before = text.slice(0, mentionAnchor);
+    const after = text.slice(mentionAnchor).replace(/^@[\w.]*/, "");
+    setText(`${before}@${name} ${after}`);
+    setMentionQuery(null);
+    textareaRef.current?.focus();
+  }
+
+  function extractMentions(): string[] {
+    const nameToId = new Map(
+      users.map((u) => [u.displayName ?? u.email, u.userId]),
+    );
+    const ids: string[] = [];
+    for (const m of text.matchAll(/@([\w. ]+?)(?=\s|$)/g)) {
+      const uid = nameToId.get(m[1]?.trim() ?? "");
+      if (uid) ids.push(uid);
+    }
+    return [...new Set(ids)];
+  }
+
+  async function handleSubmit(): Promise<void> {
+    if (!text.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit(text.trim(), extractMentions(), replyTo?.id ?? null);
+      setText("");
+      setMentionQuery(null);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="cmt-composer">
+      {replyTo && (
+        <div className="cmt-reply-banner">
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="9 14 4 9 9 4" />
+            <path d="M20 20v-7a4 4 0 00-4-4H4" />
+          </svg>
+          Replying to{" "}
+          <strong>
+            {replyTo.actorDisplayName ?? replyTo.actorId.slice(0, 8) + "…"}
+          </strong>
+          {onCancel && (
+            <button
+              type="button"
+              className="cmt-reply-cancel"
+              onClick={onCancel}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+      <div className="cmt-input-wrap">
+        <textarea
+          ref={textareaRef}
+          className="cmt-textarea"
+          rows={3}
+          placeholder={
+            placeholder ??
+            "Add a comment… Use @ to mention someone (Ctrl+Enter to post)"
+          }
+          value={text}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          disabled={submitting}
+        />
+        {mentionQuery !== null && mentionResults.length > 0 && (
+          <div className="cmt-mention-dropdown">
+            {mentionResults.map((u, i) => (
+              <button
+                key={u.userId}
+                type="button"
+                className={`cmt-mention-item ${i === mentionIdx ? "cmt-mention-item-active" : ""}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertMention(u);
+                }}
+              >
+                <span className="cmt-mention-avatar">
+                  {(u.displayName ?? u.email).slice(0, 1).toUpperCase()}
+                </span>
+                <span>
+                  <span className="cmt-mention-name">
+                    {u.displayName ?? u.email}
+                  </span>
+                  <span className="cmt-mention-email">{u.email}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="cmt-composer-footer">
+        <span className="cmt-hint">@ to mention · Ctrl+Enter to post</span>
+        <button
+          type="button"
+          className="portal-btn-primary cmt-post-btn"
+          disabled={!text.trim() || submitting}
+          onClick={() => void handleSubmit()}
+        >
+          {submitting ? "Posting…" : "Post"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Comment thread node ─────────────────────────────────────── */
+function CommentNode({
+  event,
+  allComments,
+  users,
+  depth,
+  onSubmitReply,
+}: {
+  event: WorkflowEvent;
+  allComments: WorkflowEvent[];
+  users: OrgUser[];
+  depth: number;
+  onSubmitReply: (
+    text: string,
+    mentions: string[],
+    replyTo: string | null,
+  ) => Promise<void>;
+}): React.ReactElement {
+  const [showReplyBox, setShowReplyBox] = useState(false);
+  const meta = event.metadata as { type?: string; text?: string } | undefined;
+  const commentText = meta?.text ?? event.comment ?? "";
+  const ts = event.triggeredAt;
+  const directReplies = allComments.filter(
+    (e) =>
+      (e.metadata as { replyTo?: string | null } | undefined)?.replyTo ===
+      event.id,
+  );
+
+  const renderText = (): React.ReactNode =>
+    commentText.split(/(@[\w. ]+)/g).map((part, i) =>
+      part.startsWith("@") ? (
+        <span key={i} className="cmt-mention-chip">
+          {part}
+        </span>
+      ) : (
+        <React.Fragment key={i}>{part}</React.Fragment>
+      ),
+    );
+
+  return (
+    <div className={`cmt-node ${depth > 0 ? "cmt-node-reply" : ""}`}>
+      <div className="cmt-node-header">
+        <span className="cmt-node-avatar">
+          {(event.actorDisplayName ?? event.actorId).slice(0, 1).toUpperCase()}
+        </span>
+        <span className="cmt-node-author">
+          {event.actorDisplayName ?? event.actorId.slice(0, 8) + "…"}
+        </span>
+        <span className="cmt-node-time">
+          {ts
+            ? new Date(ts).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : ""}
+        </span>
+      </div>
+      <div className="cmt-node-body">{renderText()}</div>
+      <div className="cmt-node-actions">
+        <button
+          type="button"
+          className="cmt-reply-btn"
+          onClick={() => setShowReplyBox((v) => !v)}
+        >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="9 14 4 9 9 4" />
+            <path d="M20 20v-7a4 4 0 00-4-4H4" />
+          </svg>
+          Reply
+        </button>
+      </div>
+      {showReplyBox && (
+        <div className="cmt-inline-reply">
+          <CommentComposer
+            users={users}
+            replyTo={event}
+            onCancel={() => setShowReplyBox(false)}
+            placeholder="Reply… (@ to mention)"
+            onSubmit={async (text, mentions, replyToId) => {
+              await onSubmitReply(text, mentions, replyToId);
+              setShowReplyBox(false);
+            }}
+          />
+        </div>
+      )}
+      {directReplies.length > 0 && (
+        <div className="cmt-replies">
+          {directReplies.map((r) => (
+            <CommentNode
+              key={r.id}
+              event={r}
+              allComments={allComments}
+              users={users}
+              depth={depth + 1}
+              onSubmitReply={onSubmitReply}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -377,14 +719,13 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [transError, setTransError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, unknown>>({});
+  const [editAssignedTo, setEditAssignedTo] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [allStates, setAllStates] = useState<WorkflowState[]>([]);
-  const [allTransitions, setAllTransitions] = useState<Transition[]>([]);
   const [currentState, setCurrentState] = useState("");
-  const [users, setUsers] = useState<
-    Array<{ userId: string; email: string; displayName: string | null }>
-  >([]);
+  const [users, setUsers] = useState<OrgUser[]>([]);
+  const [activeTab, setActiveTab] = useState<"history" | "comments">("history");
 
   const getFieldLabel = (fieldName: string): string => {
     if (fieldName === "state" || fieldName === "currentState") return "State";
@@ -396,7 +737,8 @@ export function CustomerRecordDetail(): React.ReactElement {
   const getActorName = (actorId: string | null): string => {
     if (!actorId) return "System";
     const u = users.find((user) => user.userId === actorId);
-    return u?.displayName ?? u?.email ?? actorId.slice(0, 8) + "…";
+    if (!u) return actorId.slice(0, 8) + "…";
+    return u.displayName ?? u.loginName ?? u.email;
   };
 
   function loadRecord(): Promise<void> {
@@ -435,6 +777,27 @@ export function CustomerRecordDetail(): React.ReactElement {
       .finally(() => setLoading(false));
   }
 
+  async function refreshHistory(): Promise<void> {
+    if (!id) return;
+    const histRes = await fetchWithAuth(
+      `${API_URL}/entities/${id}/transitions/history`,
+    ).catch(() => ({ data: [] }));
+    setHistory((histRes as { data?: WorkflowEvent[] }).data ?? []);
+  }
+
+  async function submitComment(
+    text: string,
+    mentions: string[],
+    replyTo: string | null,
+  ): Promise<void> {
+    if (!id) return;
+    await fetchWithAuth(`${API_URL}/entities/${id}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ text, mentions, replyTo }),
+    });
+    await refreshHistory();
+  }
+
   useEffect(() => {
     void loadRecord();
   }, [entityTypeId, id]);
@@ -442,7 +805,6 @@ export function CustomerRecordDetail(): React.ReactElement {
   useEffect(() => {
     if (!record?.workflowId && !entityTypeId) {
       setAllStates([]);
-      setAllTransitions([]);
       return;
     }
 
@@ -468,15 +830,12 @@ export function CustomerRecordDetail(): React.ReactElement {
             ).data ?? [])[0];
         if (wf) {
           setAllStates(wf.states as WorkflowState[]);
-          setAllTransitions(wf.transitions as Transition[]);
         } else {
           setAllStates([]);
-          setAllTransitions([]);
         }
       })
       .catch(() => {
         setAllStates([]);
-        setAllTransitions([]);
       });
   }, [record?.workflowId, entityTypeId]);
 
@@ -487,7 +846,11 @@ export function CustomerRecordDetail(): React.ReactElement {
     try {
       await fetchWithAuth(`${API_URL}/entities/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ fields: editValues, currentState }),
+        body: JSON.stringify({
+          fields: editValues,
+          currentState,
+          assignedTo: editAssignedTo || null,
+        }),
       });
       setEditing(false);
       setLoading(true);
@@ -547,11 +910,15 @@ export function CustomerRecordDetail(): React.ReactElement {
     );
   }
 
-  const availableTransitions = allTransitions.filter(
-    (t) => t.fromState === record.currentState,
-  );
   const currentStateObj = allStates.find((s) => s.name === record.currentState);
-  const isTerminal = currentStateObj?.isTerminal ?? false;
+
+  const historyEvents = history;
+  const allCommentEvents = history.filter(
+    (e) => (e.metadata as { type?: string } | null)?.type === "comment",
+  );
+  const topLevelComments = allCommentEvents.filter(
+    (e) => !(e.metadata as { replyTo?: string | null } | null)?.replyTo,
+  );
 
   const titleField = fields.find(
     (f) => f.name === "subject" || f.name === "title" || f.name === "name",
@@ -631,34 +998,6 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
         </div>
-
-        {!editing && (
-          <button
-            className="rcd-edit-btn"
-            onClick={() => {
-              setEditValues(record.fields);
-              setCurrentState(record.currentState ?? "");
-              setEditing(true);
-              setSaveError(null);
-            }}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
-            Edit
-          </button>
-        )}
       </div>
 
       {transError && (
@@ -699,15 +1038,30 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
               {!editing && (
                 <button
-                  className="rcd-panel-action"
+                  className="rcd-panel-edit-icon"
+                  aria-label="Edit record"
                   onClick={() => {
                     setEditValues(record.fields);
                     setCurrentState(record.currentState ?? "");
+                    setEditAssignedTo(record.assignedTo ?? "");
                     setEditing(true);
                     setSaveError(null);
                   }}
                 >
-                  Edit
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
                 </button>
               )}
             </div>
@@ -743,6 +1097,21 @@ export function CustomerRecordDetail(): React.ReactElement {
                       </select>
                     </div>
                   )}
+                  <div className="portal-field-group portal-field-full">
+                    <label className="portal-field-label">Assigned To</label>
+                    <select
+                      className="portal-input"
+                      value={editAssignedTo}
+                      onChange={(e) => setEditAssignedTo(e.target.value)}
+                    >
+                      <option value="">Unassigned</option>
+                      {users.map((u) => (
+                        <option key={u.userId} value={u.userId}>
+                          {u.displayName ?? u.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   {fields.map((f) => (
                     <div
                       key={f.id}
@@ -786,6 +1155,25 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             ) : (
               <div className="rcd-fields">
+                <div className="rcd-field-row">
+                  <div className="rcd-field-label">Assigned To</div>
+                  <div className="rcd-field-value">
+                    {record.assignedTo ? (
+                      <span>
+                        {(() => {
+                          const u = users.find(
+                            (u) => u.userId === record.assignedTo,
+                          );
+                          return u
+                            ? (u.displayName ?? u.loginName ?? u.email)
+                            : record.assignedTo;
+                        })()}
+                      </span>
+                    ) : (
+                      <span className="rcd-muted">Unassigned</span>
+                    )}
+                  </div>
+                </div>
                 {fields.map((f) => (
                   <div key={f.id} className="rcd-field-row">
                     <div className="rcd-field-label">{f.label}</div>
@@ -804,238 +1192,10 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             )}
           </div>
-
-          {/* History timeline */}
-          {history.length > 0 && (
-            <div className="rcd-panel">
-              <div className="rcd-panel-header">
-                <div className="rcd-panel-title">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <polyline points="12 6 12 12 16 14" />
-                  </svg>
-                  Activity
-                  <span className="rcd-panel-count">{history.length}</span>
-                </div>
-              </div>
-              <div className="rcd-timeline">
-                {[...history].reverse().map((event) => {
-                  const meta = event.metadata;
-                  const isCreate = meta?.type === "create";
-                  const isUpdate = meta?.type === "update";
-                  const eventType = isCreate
-                    ? "create"
-                    : isUpdate
-                      ? "update"
-                      : "transition";
-
-                  return (
-                    <div key={event.id} className="rcd-tl-item">
-                      <div className="rcd-tl-left">
-                        <HistoryIcon type={eventType} />
-                        <div className="rcd-tl-line" />
-                      </div>
-                      <div className="rcd-tl-body">
-                        {isCreate ? (
-                          <div className="rcd-tl-title">
-                            Record created
-                            <span className="rcd-tl-actor">
-                              by {getActorName(event.actorId)}
-                            </span>
-                          </div>
-                        ) : isUpdate ? (
-                          <div>
-                            <div className="rcd-tl-title">
-                              Record updated
-                              <span className="rcd-tl-actor">
-                                by {getActorName(event.actorId)}
-                              </span>
-                            </div>
-                            {"changed" in (meta as Record<string, unknown>) &&
-                              typeof (meta as Record<string, unknown>)[
-                                "changed"
-                              ] === "object" &&
-                              (meta as Record<string, unknown>)["changed"] !==
-                                null &&
-                              Object.keys(
-                                (meta as Record<string, unknown>)[
-                                  "changed"
-                                ] as object,
-                              ).length > 0 && (
-                                <ul className="rcd-tl-changes">
-                                  {Object.entries(
-                                    (
-                                      meta as Record<
-                                        string,
-                                        Record<string, Record<string, unknown>>
-                                      >
-                                    )["changed"] ?? {},
-                                  ).map(([fieldName, change]) => (
-                                    <li key={fieldName}>
-                                      <strong>
-                                        {getFieldLabel(fieldName)}
-                                      </strong>
-                                      : {String(change["old"] ?? "—")} →{" "}
-                                      {String(change["new"] ?? "—")}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                          </div>
-                        ) : (
-                          <div className="rcd-tl-transition-row">
-                            {event.fromState && (
-                              <>
-                                <span className="rcd-tl-state">
-                                  {event.fromState}
-                                </span>
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  className="rcd-tl-arrow"
-                                >
-                                  <polyline points="5 12 19 12" />
-                                  <polyline points="13 6 19 12 13 18" />
-                                </svg>
-                              </>
-                            )}
-                            <span className="rcd-tl-state rcd-tl-state-to">
-                              {event.toState}
-                            </span>
-                            <span className="rcd-tl-actor">
-                              by {getActorName(event.actorId)}
-                            </span>
-                          </div>
-                        )}
-                        {event.comment && !isCreate && !isUpdate && (
-                          <div className="rcd-tl-comment">
-                            "{event.comment}"
-                          </div>
-                        )}
-                        <div className="rcd-tl-time">
-                          {new Date(event.triggeredAt).toLocaleString(
-                            undefined,
-                            {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            },
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ── Right sidebar ── */}
         <div className="rcd-sidebar">
-          {/* Actions — available transitions */}
-          <div className="rcd-panel rcd-panel-actions">
-            <div className="rcd-panel-header">
-              <div className="rcd-panel-title">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <polyline points="13 2 13 9 20 9" />
-                  <path d="M19 14v6a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2h7" />
-                </svg>
-                Actions
-              </div>
-            </div>
-            <div className="rcd-actions-body">
-              {isTerminal ? (
-                <div className="rcd-terminal-note">
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  This record is in a terminal state.
-                </div>
-              ) : availableTransitions.length === 0 ? (
-                <div className="rcd-terminal-note">
-                  No actions available for this state.
-                </div>
-              ) : (
-                <div className="rcd-action-list">
-                  {availableTransitions.map((t) => (
-                    <button
-                      key={t.id}
-                      className="rcd-action-btn"
-                      disabled={transitioning !== null}
-                      onClick={() => {
-                        if (t.requiresComment) {
-                          setStateModal(t);
-                        } else {
-                          void executeTransition(t);
-                        }
-                      }}
-                    >
-                      {transitioning === t.id ? (
-                        <span className="rcd-action-spinner" />
-                      ) : (
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="5 12 19 12" />
-                          <polyline points="13 6 19 12 13 18" />
-                        </svg>
-                      )}
-                      <span>{t.label || `Move to ${t.toState}`}</span>
-                      <span className="rcd-action-target">{t.toState}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* Record info */}
           <div className="rcd-panel">
             <div className="rcd-panel-header">
@@ -1130,6 +1290,225 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ── Activity section — full width ──────────────────── */}
+      <div className="rcd-activity-section">
+        <div className="rcd-tabs">
+          <button
+            type="button"
+            className={`rcd-tab${activeTab === "history" ? " rcd-tab-active" : ""}`}
+            onClick={() => {
+              setActiveTab("history");
+            }}
+          >
+            History
+            {historyEvents.length > 0 && (
+              <span className="rcd-tab-count">{historyEvents.length}</span>
+            )}
+          </button>
+          <button
+            type="button"
+            className={`rcd-tab${activeTab === "comments" ? " rcd-tab-active" : ""}`}
+            onClick={() => {
+              setActiveTab("comments");
+            }}
+          >
+            Comments
+            {allCommentEvents.length > 0 && (
+              <span className="rcd-tab-count">{allCommentEvents.length}</span>
+            )}
+          </button>
+        </div>
+
+        {activeTab === "history" && (
+          <div className="rcd-activity-body">
+            {historyEvents.length === 0 ? (
+              <p className="rcd-empty-hint">No history yet.</p>
+            ) : (
+              <div className="rcd-timeline rcd-timeline-wide">
+                {[...historyEvents].reverse().map((event) => {
+                  const meta = event.metadata;
+                  const isCreate = meta?.type === "create";
+                  const isUpdate = meta?.type === "update";
+                  const isComment = meta?.type === "comment";
+                  const eventType = isCreate
+                    ? "create"
+                    : isUpdate
+                      ? "update"
+                      : isComment
+                        ? "comment"
+                        : "transition";
+                  return (
+                    <div key={event.id} className="rcd-tl-item">
+                      <div className="rcd-tl-left">
+                        <HistoryIcon type={eventType} />
+                        <div className="rcd-tl-line" />
+                      </div>
+                      <div className="rcd-tl-body">
+                        {isComment ? (
+                          <div className="rcd-tl-title">
+                            Added a comment
+                            <span className="rcd-tl-actor">
+                              by{" "}
+                              {event.actorDisplayName ??
+                                getActorName(event.actorId)}
+                            </span>
+                          </div>
+                        ) : isCreate ? (
+                          <div className="rcd-tl-title">
+                            Record created
+                            <span className="rcd-tl-actor">
+                              by{" "}
+                              {event.actorDisplayName ??
+                                getActorName(event.actorId)}
+                            </span>
+                          </div>
+                        ) : isUpdate ? (
+                          <div>
+                            <div className="rcd-tl-title">
+                              Record updated
+                              <span className="rcd-tl-actor">
+                                by{" "}
+                                {event.actorDisplayName ??
+                                  getActorName(event.actorId)}
+                              </span>
+                            </div>
+                            {"changed" in (meta as Record<string, unknown>) &&
+                              typeof (meta as Record<string, unknown>)[
+                                "changed"
+                              ] === "object" &&
+                              (meta as Record<string, unknown>)["changed"] !==
+                                null &&
+                              Object.keys(
+                                (meta as Record<string, unknown>)[
+                                  "changed"
+                                ] as object,
+                              ).length > 0 && (
+                                <ul className="rcd-tl-changes">
+                                  {Object.entries(
+                                    (
+                                      meta as Record<
+                                        string,
+                                        Record<string, Record<string, unknown>>
+                                      >
+                                    )["changed"] ?? {},
+                                  ).map(([fieldName, change]) => (
+                                    <li key={fieldName}>
+                                      <strong>
+                                        {getFieldLabel(fieldName)}
+                                      </strong>
+                                      :{" "}
+                                      {fieldName === "assignedTo"
+                                        ? ((change["oldName"] as
+                                            | string
+                                            | null) ??
+                                          getActorName(
+                                            change["old"] as string | null,
+                                          ))
+                                        : String(change["old"] ?? "—")}{" "}
+                                      →{" "}
+                                      {fieldName === "assignedTo"
+                                        ? ((change["newName"] as
+                                            | string
+                                            | null) ??
+                                          getActorName(
+                                            change["new"] as string | null,
+                                          ))
+                                        : String(change["new"] ?? "—")}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                          </div>
+                        ) : (
+                          <div className="rcd-tl-transition-row">
+                            {event.fromState && (
+                              <>
+                                <span className="rcd-tl-state">
+                                  {event.fromState}
+                                </span>
+                                <svg
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="rcd-tl-arrow"
+                                >
+                                  <polyline points="5 12 19 12" />
+                                  <polyline points="13 6 19 12 13 18" />
+                                </svg>
+                              </>
+                            )}
+                            <span className="rcd-tl-state rcd-tl-state-to">
+                              {event.toState}
+                            </span>
+                            <span className="rcd-tl-actor">
+                              by{" "}
+                              {event.actorDisplayName ??
+                                getActorName(event.actorId)}
+                            </span>
+                          </div>
+                        )}
+                        {event.comment && !isCreate && !isUpdate && (
+                          <div className="rcd-tl-comment">
+                            "{event.comment}"
+                          </div>
+                        )}
+                        <div className="rcd-tl-time">
+                          {new Date(event.triggeredAt).toLocaleString(
+                            undefined,
+                            {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            },
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "comments" && (
+          <div className="rcd-activity-body cmt-tab">
+            <CommentComposer
+              users={users}
+              replyTo={null}
+              onSubmit={(text, mentions, replyTo) => {
+                return submitComment(text, mentions, replyTo);
+              }}
+            />
+            <div className="cmt-thread">
+              {topLevelComments.length === 0 ? (
+                <p className="rcd-empty-hint">No comments yet.</p>
+              ) : (
+                [...topLevelComments].reverse().map((c) => (
+                  <CommentNode
+                    key={c.id}
+                    event={c}
+                    allComments={allCommentEvents}
+                    users={users}
+                    depth={0}
+                    onSubmitReply={(text, mentions, replyTo) => {
+                      return submitComment(text, mentions, replyTo);
+                    }}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Transition modal ─────────────────────────────────── */}

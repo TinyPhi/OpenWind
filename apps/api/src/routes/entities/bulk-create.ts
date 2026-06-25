@@ -12,8 +12,8 @@ const BulkCreateSchema = z.object({
       z.object({
         entityTypeId: z.string().uuid(),
         fields: z.record(z.unknown()),
-        createdBy: z.string().uuid().optional(),
-        assignedTo: z.string().uuid().optional(),
+        createdBy: z.string().optional(),
+        assignedTo: z.string().optional(),
         workflowId: z.string().uuid().optional(),
       }),
     )

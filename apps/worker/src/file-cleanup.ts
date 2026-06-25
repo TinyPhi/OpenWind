@@ -70,7 +70,7 @@ async function runCleanup(): Promise<void> {
     .limit(BATCH_LIMIT);
 
   if (staleFiles.length === 0) {
-    logger.info("file-cleanup: no stale files found");
+    logger.info({}, "file-cleanup: no stale files found");
     return;
   }
 
@@ -154,7 +154,7 @@ export async function scheduleFileCleanup(): Promise<void> {
     },
   );
   await queue.close();
-  logger.info("file-cleanup: recurring job scheduled (every 1h)");
+  logger.info({}, "file-cleanup: recurring job scheduled (every 1h)");
 }
 
 export async function stopFileCleanupWorker(): Promise<void> {

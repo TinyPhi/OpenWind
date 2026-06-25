@@ -25,9 +25,18 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+const mockTx = {
+  select: () => mockTx,
+  from: () => mockTx,
+  where: () => mockTx,
+  limit: () => Promise.resolve([]),
+};
+
 vi.mock("@platform/db", () => ({
   db: {},
-  withTenantContext: (tenantId, fn) => fn({}),
+  tenantUsers: {},
+  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
+    fn(mockTx),
 }));
 
 vi.mock("@platform/entity-engine", async (importOriginal) => {
@@ -92,7 +101,7 @@ describe("POST /entities", () => {
     const json = await res.json();
     expect(json.data.id).toBe("inst-1");
     expect(mockCreateEntity).toHaveBeenCalledWith(
-      {},
+      expect.any(Object),
       "t-aaa",
       expect.objectContaining({ entityTypeId: TYPE_ID }),
     );

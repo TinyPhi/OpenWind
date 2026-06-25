@@ -166,7 +166,11 @@ export async function createEntity(
       triggeredBy: "user",
       actorId: input.actorId ?? input.createdBy ?? null,
       comment: "Record created",
-      metadata: { type: "create", fields: fieldsWithFormulas },
+      metadata: {
+        type: "create",
+        fields: fieldsWithFormulas,
+        actorName: input.actorName ?? null,
+      },
     });
   }
 
@@ -413,7 +417,11 @@ export async function updateEntity(
             existing.currentState !== row.currentState
               ? `State changed to ${row.currentState}`
               : "Record updated",
-          metadata: { type: "update", changed },
+          metadata: {
+            type: "update",
+            changed,
+            actorName: input.actorName ?? null,
+          },
         });
       }
     }
@@ -513,7 +521,11 @@ export async function updateEntity(
             existing.currentState !== row.currentState
               ? `State changed to ${row.currentState}`
               : "Record updated",
-          metadata: { type: "update", changed },
+          metadata: {
+            type: "update",
+            changed,
+            actorName: input.actorName ?? null,
+          },
         });
       }
     }

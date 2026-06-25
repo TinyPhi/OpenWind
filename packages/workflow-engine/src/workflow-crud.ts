@@ -32,6 +32,7 @@ function rowToWorkflow(r: typeof workflows.$inferSelect): WorkflowDefinition {
     name: r.name,
     initialState: r.initialState,
     isActive: r.isActive,
+    assignedTo: r.assignedTo as string | null,
     createdAt: r.createdAt,
   };
 }
@@ -219,6 +220,7 @@ export async function updateWorkflow(
 
   const updates: Partial<typeof workflows.$inferInsert> = {};
   if (input.isActive !== undefined) updates.isActive = input.isActive;
+  if (input.assignedTo !== undefined) updates.assignedTo = input.assignedTo;
 
   const [updated] = await db
     .update(workflows)

@@ -1,3 +1,4 @@
+import { request as nodeHttpRequest } from "node:http";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import type { IntrospectionResult } from "./types.js";
@@ -34,6 +35,50 @@ export async function introspectToken(
   return result;
 }
 
+// node:http request so we can set a custom Host header.
+// Node.js fetch treats Host as a forbidden header and ignores it — Zitadel
+// routes by Host header so we must send Host matching EXTERNALDOMAIN even
+// when connecting via the internal Docker service name (zitadel:8080).
+function httpPostForm(
+  url: string,
+  hostOverride: string,
+  headers: Record<string, string>,
+  body: string,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const bodyBuf = Buffer.from(body);
+    const req = nodeHttpRequest(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port ? parseInt(parsed.port) : 80,
+        path: parsed.pathname + parsed.search,
+        method: "POST",
+        headers: {
+          ...headers,
+          Host: hostOverride,
+          "Content-Length": bodyBuf.length.toString(),
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, text: data }),
+        );
+      },
+    );
+    req.setTimeout(10_000, () => {
+      req.destroy(new Error("Introspection request timed out"));
+    });
+    req.on("error", reject);
+    req.write(bodyBuf);
+    req.end();
+  });
+}
+
 async function callIntrospectionEndpoint(
   token: string,
 ): Promise<IntrospectionResult> {
@@ -41,35 +86,38 @@ async function callIntrospectionEndpoint(
   const clientId = env.ZITADEL_INTROSPECTION_CLIENT_ID;
   const clientSecret = env.ZITADEL_INTROSPECTION_CLIENT_SECRET;
 
-  const body = new URLSearchParams({ token });
+  // Host header must match EXTERNALDOMAIN — extract from ZITADEL_ISSUER
+  const issuerHost = new URL(env.ZITADEL_ISSUER).hostname;
+
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
     "base64",
   );
 
-  let resp: Response;
+  let result: { status: number; text: string };
   try {
-    resp = await fetch(url, {
-      method: "POST",
-      headers: {
+    result = await httpPostForm(
+      url,
+      issuerHost,
+      {
         "Content-Type": "application/x-www-form-urlencoded",
         Authorization: `Basic ${credentials}`,
       },
-      body: body.toString(),
-    });
+      new URLSearchParams({ token }).toString(),
+    );
   } catch (err) {
     logger.error({ error: String(err) }, "Token introspection request failed");
     return { active: false };
   }
 
-  if (!resp.ok) {
+  if (result.status < 200 || result.status >= 300) {
     logger.warn(
-      { status: resp.status },
+      { status: result.status },
       "Token introspection returned non-2xx",
     );
     return { active: false };
   }
 
-  return (await resp.json()) as IntrospectionResult;
+  return JSON.parse(result.text) as IntrospectionResult;
 }
 
 // djb2 hash — good enough for an in-process cache key

@@ -16,13 +16,18 @@ packages/*/src/**/*.d.ts.map
 # Turbo
 .turbo/
 
-# Environment
-.env
+# Environment — .env is committed (no secrets, just COMPOSE_ENV_FILES pointer)
 .env.local
 .env.*.local
 
 # Local Docker overrides
 docker-compose.override.yml
+
+# Server deployment files — hosted config for rokkalabs.com, not for open-source
+.env.server
+docker-compose.server.yml
+setup.server.sh
+server-up.sh
 
 # Database
 *.db
@@ -46,6 +51,8 @@ Thumbs.db
 # ignore only personal/generated files
 .claude/worktrees/
 .claude/settings.local.json
+# Local-only skills (not committed — contain reviewer-specific audit patterns)
+.claude/skills/pre-pr-review/
 .claire/
 
 # Claude Code — guardrail state (per-branch/session, never commit)
@@ -66,3 +73,17 @@ coverage/
 INTERNAL.md
 INTEGRATION.md
 logs.md
+
+# Local tunnel scripts
+db-bridge.bat
+
+# Env profiles — prod.env has real credentials, never commit it
+envs/
+
+# Leftover empty files created by failed docker compose commands
+ow-database
+pgbouncer
+prod
+
+# Local env switching script (Windows only, not cross-platform)
+switch-env.bat

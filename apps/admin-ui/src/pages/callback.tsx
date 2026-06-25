@@ -1,12 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { userManager } from "../authProvider.js";
 
 export function AuthCallback(): React.ReactElement {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const called = useRef(false);
 
   useEffect(() => {
+    if (called.current) return;
+    called.current = true;
     userManager
       .signinCallback()
       .then(async () => {
