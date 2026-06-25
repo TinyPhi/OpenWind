@@ -89,7 +89,7 @@ and are logged to `.claude/state/bypass.log`.
 
 - Touch issue #2 (SSRF/PII gaps) — human review required
 - Enable or implement parallel approval — deferred to Phase 3
-- Modify `.github/workflows/ci.yml`
+- Modify any `.github/workflows/` file (CI/CD — secret-exfiltration / check-disabling risk)
 - Write or modify ADR files in `docs/decisions/`
 - Force-push or rebase published commits
 - Touch schema cache or `redis.keys()` code

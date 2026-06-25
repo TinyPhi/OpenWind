@@ -17,16 +17,19 @@ function gitSub(c, s) {
   let m; while ((m = re.exec(c)) !== null) { if (m[2] === s) return true; } return false;
 }
 if (!gitSub(cmd, "commit")) process.exit(0);
-// Only clean up if the commit actually landed. A successful commit advances HEAD past the
-// HEAD the marker recorded; if HEAD is unchanged (commit rejected, e.g. by husky), keep the
-// marker so the agent does not have to redo the whole procedure.
+// Clean up only when the commit verifiably landed: a marker exists AND HEAD advanced past the
+// HEAD it recorded. If there is no marker (e.g. the SHIP_BYPASS path writes none) or HEAD is
+// unchanged (commit rejected by husky), do NOT delete claimed-done — leave it for verify-stop,
+// which inspects the working tree and will block a false "done".
 let marker = null;
 try { marker = JSON.parse(fs.readFileSync(repo + "/.claude/state/ship-ready.json", "utf8")); } catch (e) {}
 let head = "";
 try { head = cp.execSync("git rev-parse HEAD", { cwd: repo }).toString().trim(); } catch (e) {}
-if (marker && marker.head_sha && head && head === marker.head_sha) process.exit(0);
-for (const f of ["ship-ready.json", "claimed-done"]) {
-  try { fs.unlinkSync(repo + "/.claude/state/" + f); } catch (e) {}
+const committed = marker && marker.head_sha && head && head !== marker.head_sha;
+if (committed) {
+  for (const f of ["ship-ready.json", "claimed-done"]) {
+    try { fs.unlinkSync(repo + "/.claude/state/" + f); } catch (e) {}
+  }
 }
 process.exit(0);
 '

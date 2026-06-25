@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # write-ship-marker.sh — helper for the SHIP step, run immediately before `git commit`.
-# Writes .claude/state/ship-ready.json bound to the current staged tree (valid 30 min).
+# Writes .claude/state/ship-ready.json bound to the current staged tree (valid 60 min).
 set -euo pipefail
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"
 export REPO

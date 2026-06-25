@@ -36,6 +36,7 @@
       "Bash(git reset --hard*)",
       "Bash(git rebase*)",
       "Bash(git commit --no-verify*)",
+      "Bash(git commit -n*)",
       "Write(.env*)",
       "Write(**/.env*)",
       "Write(.git/**)"

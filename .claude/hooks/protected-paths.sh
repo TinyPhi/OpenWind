@@ -46,8 +46,8 @@ if (/^docs\/decisions\/ADR/i.test(rel)) {
   if (!bypassed("OPENWIND_OFFLIMITS")) block("ADRs are human-written (CLAUDE.md off-limits).", "OPENWIND_OFFLIMITS=ack");
   process.exit(0);
 }
-if (rel === ".github/workflows/ci.yml") {
-  if (!bypassed("OPENWIND_OFFLIMITS")) block("CI workflow is off-limits to autonomous edits (CLAUDE.md).", "OPENWIND_OFFLIMITS=ack");
+if (/^\.github\/workflows\//.test(rel)) {
+  if (!bypassed("OPENWIND_OFFLIMITS")) block("CI/CD workflows are off-limits to autonomous edits - a malicious or careless workflow can exfiltrate secrets or disable required checks (CLAUDE.md off-limits).", "OPENWIND_OFFLIMITS=ack");
   process.exit(0);
 }
 if (/(^|\/)\.env(\.|$)/.test(rel)) {
