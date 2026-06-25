@@ -44,6 +44,8 @@ ck 2 "rm -rf / blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_
 ck 2 "rm --recursive --force ~ blocked (long form)" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm --recursive --force ~/data"}}')"
 ck 0 "rm -rf node_modules allowed" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -rf node_modules"}}')"
 ck 2 "git push --force blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git push --force"}}')"
+ck 2 "git push +refspec force blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git push origin +main"}}')"
+ck 0 "normal git push allowed (no force)" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}')"
 ck 2 "git commit --no-verify blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x"}}')"
 ck 2 "git commit -anm combined flag blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -anm wip"}}')"
 

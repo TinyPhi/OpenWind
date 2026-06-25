@@ -32,6 +32,6 @@ if (/\b(DROP\s+TABLE|TRUNCATE)\b/i.test(cmd) && !/migration|\.sql\b/i.test(cmd))
   block("DROP TABLE / TRUNCATE outside a migration file.");
 }
 if (/\bgit\s+commit\b[^|;&]*(--no-verify|\s-[A-Za-z]*n[A-Za-z]*\b)/.test(cmd)) block("git commit --no-verify (incl. combined short flags like -anm) bypasses husky/commitlint. Fix the issue instead.");
-if (/\bgit\s+push\b[^|;&]*(--force\b|--force-with-lease\b|\s-f\b)/.test(cmd)) block("git push --force can overwrite published history.");
+if (/\bgit\s+push\b[^|;&]*(--force\b|--force-with-lease\b|\s-f\b|\s\+[A-Za-z0-9._\/@^~-]+(:[A-Za-z0-9._\/@^~-]+)?)/.test(cmd)) block("git push force-update (--force / -f / --force-with-lease / +refspec) can overwrite published history.");
 process.exit(0);
 '
