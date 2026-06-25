@@ -70,3 +70,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Module seed registry was not auto-populated on first list request
 - Helpdesk seed rewritten as a single DO block to fix install errors on Postgres simple protocol
 - Type cast errors in seed SQL for Postgres simple protocol
+
+---
+
+## [Unreleased — modular]
+
+### Added
+
+#### Admin UI — RBAC & access control
+
+- **Role-based route guards** — `RequireAdmin` component wraps admin-only routes (`/users`, `/entity-types`, `/workflows` list/create); non-admin users are redirected to `/dashboard` instead of seeing a blank page or a 403
+- **Workflow settings access for assignees** — users assigned to a workflow can now open its settings page; access is checked inside the component (admin or workflow assignee)
+- **Templates page** — available to all authenticated users (previously admin-only); agents and customers can browse installed modules
+- **Settings page** — accessible to all authenticated users; was previously gated too aggressively
+- **Dashboard highlight** — active module cards are visually highlighted; the dashboard now surfaces the user's assigned workflows
+
+#### Admin UI — User assignment
+
+- **Searchable user picker** — `UserPicker` component with async search, avatar initials, and role badges; used for assigning users to entity instances
+- **Assigned-to field** — create and edit forms surface the assignee picker; workflow records list shows the assigned user
+- **Always-visible "New record" button** — previously hidden when no records existed; now always shown
+
+#### Admin UI — Workflow detail
+
+- **Workflow assignee field** — workflow settings page exposes an assignee picker so workflows can be owned by a specific user
+- **Template preview modal** — clicking a template card opens a modal showing states, transitions, and field definitions before install
+- **Dirty-state navigation guard** — leaving the workflow settings page with unsaved changes triggers a browser confirmation prompt (`useBlocker`)
+
+#### Admin UI — Layout & UX
+
+- **Records sidebar nav item** — links to `/records` alongside Automations, Workflows, and Templates
+- **Full-width activity section** — record detail activity feed spans the full panel width for better readability
+- **User-picker dropdown portal** — dropdown renders via React portal to escape `overflow:hidden` / z-index clipping in scroll containers
+
+#### API
+
+- `GET /platform/users` — filters users by organisation (Zitadel org scope) using the v2 userservice endpoint
+- `assigned_to` field support on entity instances — create, update, and list routes accept and return the assignee user ID
+- Migration `0020` — `assigned_to TEXT` column on `entity_instances` (nullable, no FK — user IDs are managed by Zitadel)
+- Migration `0021` — entity `user_id` columns changed from UUID to TEXT to match Zitadel's string user IDs
+
+#### Portal
+
+- Zitadel OIDC auth — portal now authenticates via the same OIDC flow as admin-ui; role-based redirect sends customers to portal, agents/admins to admin-ui
+
+#### Developer experience
+
+- **Single-command setup** — `setup.sh` / `setup.bat` bootstraps the entire stack from zero: Postgres, Redis, Zitadel (generated at runtime, not committed), migrations, seed data, demo users
+- **Modular Zitadel** — Zitadel is no longer inlined in `docker-compose.yml`; it runs as a separate compose project, joined via the `openwind_zitadel` external Docker network. This keeps the identity provider decoupled from the app stack
+- **Service name prefixes** — all app containers renamed to `ow-*` (`ow-backend`, `ow-frontend`, `ow-database`, `ow-cache`, `ow-pgbouncer`) for clarity in multi-project Docker environments
+- **Bootstrap container** — `Dockerfile.bootstrap` + `bootstrap` compose service runs migrations, seeds, and Zitadel config in one idempotent pass; safe to re-run
+- **Configurable host ports** — `POSTGRES_HOST_PORT`, `ADMIN_UI_HOST_PORT` env vars let you remap host ports without editing compose files (useful when defaults conflict with other local services)
+
+### Changed
+
+- `docker-compose.yml` — Zitadel service removed from main compose; `openwind_zitadel` external network moved to the gitignored `docker-compose.server.yml` overlay so `docker compose up -d` works on a fresh clone with no external network pre-created
+- `vite.config.ts` — `allowedHosts` and proxy target are now env-var driven (`VITE_ALLOWED_HOSTS`, `VITE_API_PROXY_TARGET`); neither is set in a default local checkout
+
+### Fixed
+
+- API calls from the admin-ui container now route through the Vite proxy (`/api`) instead of hitting `localhost:3000` directly (which is unreachable inside Docker)
+- User-picker dropdown clipped by scroll containers — fixed with a React portal
+- `assigned_to` field rejected UUID validation — relaxed to TEXT to match Zitadel string IDs
+- Zitadel service account key parsing — added PKCS#1/PKCS#8 fallback and base64 decode path
+- Portal auth redirect loop — portal now correctly identifies customer role and stays on portal routes

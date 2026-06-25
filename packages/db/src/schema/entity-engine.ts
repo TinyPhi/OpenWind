@@ -72,8 +72,8 @@ export const entityInstances = pgTable(
     workflowId: uuid("workflow_id"),
     currentState: text("current_state").default("initial").notNull(),
     fields: jsonb("fields").default({}).notNull(),
-    createdBy: uuid("created_by"),
-    assignedTo: uuid("assigned_to"),
+    createdBy: text("created_by"),
+    assignedTo: text("assigned_to"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

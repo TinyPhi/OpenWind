@@ -1,7 +1,7 @@
 import type { DataProvider } from "@refinedev/core";
 import { userManager } from "./authProvider.js";
 
-const apiUrl = "http://localhost:3000";
+const apiUrl = "/api";
 
 const REQUEST_TIMEOUT_MS = 8_000;
 

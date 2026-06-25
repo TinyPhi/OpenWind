@@ -9,7 +9,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 const ListEntitiesQuerySchema = z.object({
   entityTypeId: z.string().uuid(),
   state: z.string().optional(),
-  assignedTo: z.string().uuid().optional(),
+  assignedTo: z.string().optional(),
   fields: z
     .string()
     .optional()
@@ -50,13 +50,21 @@ export const listEntitiesHandler = factory.createHandlers(
   requireAuth(),
   zValidator("query", ListEntitiesQuerySchema),
   async (c) => {
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId, roles } = c.get("auth");
     const query = c.req.valid("query");
+
+    const isPrivileged = roles.includes("admin") || roles.includes("agent");
 
     try {
       const { fields, ...rest } = query;
+      // Non-privileged users are always scoped to their own records — query param cannot override
+      const assignedTo = isPrivileged ? rest.assignedTo : userId;
       const page = await withTenantContext(tenantId, (tx) =>
-        listEntities(tx, tenantId, { ...rest, fieldFilters: fields }),
+        listEntities(tx, tenantId, {
+          ...rest,
+          assignedTo,
+          fieldFilters: fields,
+        }),
       );
       return c.json({ data: page.data, nextCursor: page.nextCursor });
     } catch (err) {

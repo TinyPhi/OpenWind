@@ -17,6 +17,7 @@ import { executeTransitionHandler } from "./execute-transition.js";
 import { listTransitionsHandler } from "./list-transitions.js";
 import { listWorkflowEventsHandler } from "./list-workflow-events.js";
 import { listEventsHandler } from "./list-events.js";
+import { addCommentHandler } from "./add-comment.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -41,6 +42,7 @@ router.get("/:id/transitions", ...listTransitionsHandler);
 router.post("/:id/transitions", ...executeTransitionHandler);
 
 router.get("/:id/events", ...listEventsHandler);
+router.post("/:id/comments", ...addCommentHandler);
 
 router.post("/:id/relations", ...createRelationHandler);
 router.get("/:id/relations", ...listRelationsHandler);

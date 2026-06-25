@@ -60,6 +60,8 @@ export type CreateEntityInput = {
   fields: Record<string, unknown>;
   createdBy?: string | undefined;
   actorId?: string | undefined;
+  /** Display name snapshot stored in event metadata for immutable history. */
+  actorName?: string | undefined;
   assignedTo?: string | undefined;
   workflowId?: string | undefined;
   currentState?: string | undefined;
@@ -72,6 +74,8 @@ export type UpdateEntityInput = {
   /** Actor performing the update — used by the audit hook. */
   actorId?: string | undefined;
   actorType?: "user" | "api_key" | "system" | undefined;
+  /** Display name snapshot stored in event metadata for immutable history. */
+  actorName?: string | undefined;
 };
 
 export type ListEntitiesInput = {

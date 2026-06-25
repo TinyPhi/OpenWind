@@ -16,7 +16,7 @@ const ListWorkflowsQuerySchema = z.object({
 
 export const listWorkflowsHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent"),
   zValidator("query", ListWorkflowsQuerySchema),
   async (c) => {
     const { entityTypeId, activeOnly } = c.req.valid("query");

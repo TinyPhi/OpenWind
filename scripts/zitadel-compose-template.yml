@@ -1,0 +1,91 @@
+name: zitadel
+
+services:
+  zitadel-db:
+    container_name: zitadel-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: zitadel_dev_password
+      POSTGRES_DB: zitadel
+    volumes:
+      - zitadel_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zitadel -d zitadel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - internal
+
+  zitadel:
+    container_name: zitadel
+    image: ghcr.io/zitadel/zitadel:v4.15.1
+    restart: unless-stopped
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY}" --tlsMode ${ZITADEL_TLS_MODE:-disabled}
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: zitadel-db
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: zitadel_dev_password
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: zitadel_dev_password
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_EXTERNALSECURE: "${ZITADEL_EXTERNALSECURE:-false}"
+      ZITADEL_EXTERNALPORT: "${ZITADEL_EXTERNAL_PORT:-8080}"
+      ZITADEL_EXTERNALDOMAIN: "${ZITADEL_EXTERNAL_DOMAIN:-localhost}"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: owZitadelAdmin@openwind.local
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "${ZITADEL_ADMIN_PASSWORD}"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      # Dev-only: MFA is disabled so the local setup works without an authenticator app.
+      # Before exposing this instance to any network, enable MFA in the Zitadel console
+      # (Default Settings → Login Policy → Force MFA) or redeploy with "true".
+      ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_FORCEMFA: "false"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "false"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_TOKENEXCHANGE: "true"
+    ports:
+      - "${ZITADEL_HOST_PORT:-8080}:8080"
+    depends_on:
+      zitadel-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/zitadel", "ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - internal
+      - openwind_zitadel
+
+  ow-zita-setup:
+    container_name: ow-zita-setup
+    profiles: [setup]
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - __GEN_PAT_SRC__:/app/scripts/gen-pat.mjs:ro
+      - __OUTPUT_DIR__:/app/output
+    command: node /app/scripts/gen-pat.mjs
+    environment:
+      ZITADEL_EXTERNALDOMAIN: "${ZITADEL_EXTERNAL_DOMAIN:-localhost}"
+      ZITADEL_EXTERNALSECURE: "${ZITADEL_EXTERNALSECURE:-false}"
+    networks:
+      - openwind_zitadel
+    depends_on:
+      zitadel:
+        condition: service_started
+    restart: "no"
+
+networks:
+  internal:
+    internal: true
+  openwind_zitadel:
+    name: openwind_zitadel
+
+volumes:
+  zitadel_db_data:

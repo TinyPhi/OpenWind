@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+.turbo
+**/dist
+**/.next
+**/.cache
+*.log
+.env.local
+.env.*.local
+docker-compose.override.yml

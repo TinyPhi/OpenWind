@@ -5,6 +5,8 @@ export interface WorkflowDefinition {
   name: string;
   initialState: string;
   isActive: boolean;
+  /** Zitadel user ID of the designated workflow admin. null = unassigned. */
+  assignedTo: string | null;
   createdAt: Date;
 }
 
@@ -91,6 +93,7 @@ export type CreateWorkflowInput = {
 
 export type UpdateWorkflowInput = {
   isActive?: boolean | undefined;
+  assignedTo?: string | null | undefined;
 };
 
 export type CreateWorkflowStateInput = {

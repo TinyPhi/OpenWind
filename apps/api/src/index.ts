@@ -17,7 +17,7 @@ const server = serve({ fetch: app.fetch, port }, () => {
 });
 
 async function shutdown(): Promise<void> {
-  logger.info("API server shutting down");
+  logger.info({}, "API server shutting down");
   await new Promise<void>((resolve, reject) =>
     server.close((err) => (err ? reject(err) : resolve())),
   );

@@ -25,10 +25,18 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useOne } from "@refinedev/core";
-import { useParams, Link, useNavigate, useBlocker } from "react-router-dom";
+import {
+  useParams,
+  Link,
+  useNavigate,
+  useBlocker,
+  Navigate,
+} from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
+import { UserPicker } from "../../components/user-picker.js";
+import type { UserOption } from "../../components/user-picker.js";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -63,6 +71,7 @@ type WorkflowFull = {
   entityTypeId: string;
   initialState: string;
   isActive: boolean;
+  assignedTo: string | null;
   createdAt: string;
   states: WorkflowState[];
   transitions: WorkflowTransition[];
@@ -117,7 +126,7 @@ type AddTransitionForm = {
   fromState: string;
   toState: string;
   label: string;
-  allowedRoles: string;
+  allowedRoles: string[];
   requiresComment: boolean;
 };
 
@@ -134,7 +143,7 @@ const EMPTY_TRANSITION: AddTransitionForm = {
   fromState: "",
   toState: "",
   label: "",
-  allowedRoles: "",
+  allowedRoles: [],
   requiresComment: false,
 };
 
@@ -970,21 +979,6 @@ export function WorkflowDetail(): React.ReactElement {
     queryOptions: { enabled: !!id },
   });
 
-  const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(() => {
-    userManager
-      .getUser()
-      .then((user) => {
-        if (!user?.profile) return;
-        const rolesMap = (user.profile["urn:zitadel:iam:org:project:roles"] ??
-          {}) as Record<string, unknown>;
-        setIsAdmin(Object.keys(rolesMap).includes("admin"));
-      })
-      .catch(() => {
-        /* leave isAdmin false */
-      });
-  }, []);
-
   const [fields, setFields] = useState<EntityField[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState(false);
   const [showAddField, setShowAddField] = useState(false);
@@ -1051,6 +1045,76 @@ export function WorkflowDetail(): React.ReactElement {
       body: JSON.stringify(draft),
     });
     void refetch();
+  }
+
+  // Current user identity for access control
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
+  useEffect(() => {
+    userManager
+      .getUser()
+      .then((u) => {
+        if (!u) return;
+        setCurrentUserId(u.profile.sub);
+        const roleClaim = u.profile["urn:zitadel:iam:org:project:roles"] as
+          | Record<string, unknown>
+          | undefined;
+        setCurrentUserRoles(roleClaim ? Object.keys(roleClaim) : []);
+      })
+      .catch(() => {
+        /* leave defaults */
+      });
+  }, []);
+
+  // User assignment
+  const [orgUsers, setOrgUsers] = useState<UserOption[]>([]);
+  const [assignedTo, setAssignedTo] = useState<string | null>(null);
+  const [savingAssign, setSavingAssign] = useState(false);
+
+  // Available roles from Zitadel (for transition role picker)
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetchWithAuth(`${API_URL}/roles`)
+      .then((res) => {
+        setAvailableRoles((res as { data?: string[] }).data ?? []);
+      })
+      .catch(() => {
+        setAvailableRoles(["admin", "agent", "user"]);
+      });
+  }, []);
+
+  useEffect(() => {
+    fetchWithAuth(`${API_URL}/users`)
+      .then((res) => {
+        setOrgUsers((res as { data?: UserOption[] }).data ?? []);
+      })
+      .catch(() => {
+        /* users list unavailable — picker stays empty */
+      });
+  }, []);
+
+  useEffect(() => {
+    if (data?.data) {
+      setAssignedTo((data.data as WorkflowFull).assignedTo ?? null);
+    }
+  }, [data?.data]);
+
+  async function handleAssign(userId: string | null): Promise<void> {
+    if (!id) return;
+    setSavingAssign(true);
+    try {
+      await fetchWithAuth(`${API_URL}/workflows/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assignedTo: userId }),
+      });
+      setAssignedTo(userId);
+      void refetch();
+    } catch {
+      // ignore — keep current assignment
+    } finally {
+      setSavingAssign(false);
+    }
   }
 
   async function handleToggleActive(): Promise<void> {
@@ -1245,17 +1309,16 @@ export function WorkflowDetail(): React.ReactElement {
     setSavingTrans(true);
     setTransError(null);
     try {
-      const allowedRoles = transForm.allowedRoles
-        .split(",")
-        .map((r) => r.trim())
-        .filter(Boolean);
       await fetchWithAuth(`${API_URL}/workflows/${id}/transitions`, {
         method: "POST",
         body: JSON.stringify({
           fromState: transForm.fromState.trim(),
           toState: transForm.toState.trim(),
           label: transForm.label.trim() || undefined,
-          allowedRoles: allowedRoles.length > 0 ? allowedRoles : undefined,
+          allowedRoles:
+            transForm.allowedRoles.length > 0
+              ? transForm.allowedRoles
+              : undefined,
           requiresComment: transForm.requiresComment,
         }),
       });
@@ -1294,17 +1357,13 @@ export function WorkflowDetail(): React.ReactElement {
     setSavingTrans(true);
     setTransError(null);
     try {
-      const allowedRoles = transForm.allowedRoles
-        .split(",")
-        .map((r) => r.trim())
-        .filter(Boolean);
       await fetchWithAuth(
         `${API_URL}/workflows/${id}/transitions/${editingTransition.id}`,
         {
           method: "PATCH",
           body: JSON.stringify({
             label: transForm.label.trim() || null,
-            allowedRoles: allowedRoles.length > 0 ? allowedRoles : [],
+            allowedRoles: transForm.allowedRoles,
             requiresComment: transForm.requiresComment,
           }),
         },
@@ -1360,6 +1419,16 @@ export function WorkflowDetail(): React.ReactElement {
         </Link>
       </div>
     );
+  }
+
+  // Access check: only admin role or the assigned workflow admin can view this page
+  const isAdmin = currentUserRoles.includes("admin");
+  const isWorkflowAdmin =
+    currentUserId !== null &&
+    workflow.assignedTo !== null &&
+    currentUserId === workflow.assignedTo;
+  if (currentUserId !== null && !isAdmin && !isWorkflowAdmin) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   const sortedStates = [...workflow.states].sort(
@@ -1642,6 +1711,66 @@ export function WorkflowDetail(): React.ReactElement {
             accent="hsl(35,90%,50%)"
           />
         </div>
+      </div>
+
+      {/* ── Assign Workflow ─────────────────────────────────────────────── */}
+      <div
+        className="data-panel"
+        style={{
+          marginBottom: "20px",
+          display: "flex",
+          alignItems: "center",
+          gap: "16px",
+          padding: "14px 20px",
+          flexWrap: "wrap",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            minWidth: "120px",
+          }}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--text-secondary)",
+            }}
+          >
+            Workflow Admin
+          </span>
+        </div>
+        <UserPicker
+          users={orgUsers}
+          value={assignedTo}
+          onChange={(uid) => void handleAssign(uid)}
+          placeholder="Assign workflow admin…"
+          disabled={savingAssign}
+        />
+        {savingAssign && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            Saving…
+          </span>
+        )}
+        {!savingAssign && assignedTo && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            This user has full admin access over this workflow.
+          </span>
+        )}
       </div>
 
       {inlineError && (
@@ -2263,7 +2392,7 @@ export function WorkflowDetail(): React.ReactElement {
                                   fromState: t.fromState,
                                   toState: t.toState,
                                   label: t.label,
-                                  allowedRoles: t.allowedRoles.join(", "),
+                                  allowedRoles: [...t.allowedRoles],
                                   requiresComment: t.requiresComment,
                                 });
                                 setTransError(null);
@@ -2873,19 +3002,53 @@ export function WorkflowDetail(): React.ReactElement {
                 </div>
                 <div className="form-group">
                   <label className="form-label">
-                    Allowed Roles (comma-separated, blank = any)
+                    Allowed Roles (blank = any role)
                   </label>
-                  <input
-                    className="form-input"
-                    placeholder="e.g. admin, agent"
-                    value={transForm.allowedRoles}
-                    onChange={(e) =>
-                      setTransForm((f) => ({
-                        ...f,
-                        allowedRoles: e.target.value,
-                      }))
-                    }
-                  />
+                  {availableRoles.length === 0 ? (
+                    <p style={{ fontSize: "13px", color: "#6b7280" }}>
+                      Loading roles…
+                    </p>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                        maxHeight: "160px",
+                        overflowY: "auto",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "6px",
+                        padding: "8px",
+                      }}
+                    >
+                      {availableRoles.map((role) => (
+                        <label
+                          key={role}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            fontSize: "14px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={transForm.allowedRoles.includes(role)}
+                            onChange={(e) =>
+                              setTransForm((f) => ({
+                                ...f,
+                                allowedRoles: e.target.checked
+                                  ? [...f.allowedRoles, role]
+                                  : f.allowedRoles.filter((r) => r !== role),
+                              }))
+                            }
+                          />
+                          {role}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <label className="form-checkbox">
                   <input
@@ -3226,19 +3389,53 @@ export function WorkflowDetail(): React.ReactElement {
                 </div>
                 <div className="form-group">
                   <label className="form-label">
-                    Allowed Roles (comma-separated, blank = any)
+                    Allowed Roles (blank = any role)
                   </label>
-                  <input
-                    className="form-input"
-                    placeholder="e.g. admin, agent"
-                    value={transForm.allowedRoles}
-                    onChange={(e) =>
-                      setTransForm((f) => ({
-                        ...f,
-                        allowedRoles: e.target.value,
-                      }))
-                    }
-                  />
+                  {availableRoles.length === 0 ? (
+                    <p style={{ fontSize: "13px", color: "#6b7280" }}>
+                      Loading roles…
+                    </p>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                        maxHeight: "160px",
+                        overflowY: "auto",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "6px",
+                        padding: "8px",
+                      }}
+                    >
+                      {availableRoles.map((role) => (
+                        <label
+                          key={role}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            fontSize: "14px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={transForm.allowedRoles.includes(role)}
+                            onChange={(e) =>
+                              setTransForm((f) => ({
+                                ...f,
+                                allowedRoles: e.target.checked
+                                  ? [...f.allowedRoles, role]
+                                  : f.allowedRoles.filter((r) => r !== role),
+                              }))
+                            }
+                          />
+                          {role}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <label className="form-checkbox">
                   <input

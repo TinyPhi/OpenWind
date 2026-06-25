@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { UserPicker } from "../../components/user-picker.js";
 
 type EntityField = {
   id: string;
@@ -179,6 +180,25 @@ export function EntityInstanceDetail(): React.ReactElement {
     const u = users.find((user) => user.userId === actorId);
     return u?.displayName ?? u?.email ?? actorId;
   };
+
+  const [savingAssign, setSavingAssign] = useState(false);
+
+  async function handleAssign(userId: string | null): Promise<void> {
+    if (!instanceId) return;
+    setSavingAssign(true);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${instanceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assignedTo: userId }),
+      });
+      setLoading(true);
+      void loadRecord();
+    } catch {
+      // ignore — record stays as-is
+    } finally {
+      setSavingAssign(false);
+    }
+  }
 
   const [stateModal, setStateModal] = useState(false);
   const [selectedState, setSelectedState] = useState("");
@@ -392,6 +412,70 @@ export function EntityInstanceDetail(): React.ReactElement {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Assign To */}
+      <div
+        className="data-panel"
+        style={{
+          marginBottom: "24px",
+          display: "flex",
+          alignItems: "center",
+          gap: "16px",
+          padding: "14px 20px",
+          flexWrap: "wrap",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            minWidth: "90px",
+          }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--text-secondary)",
+            }}
+          >
+            Assigned To
+          </span>
+        </div>
+        <UserPicker
+          users={users.map((u) => ({
+            userId: u.userId,
+            displayName: u.displayName ?? u.email,
+            email: u.email,
+          }))}
+          value={record.assignedTo}
+          onChange={(uid) => void handleAssign(uid)}
+          placeholder="Assign to a user…"
+          disabled={savingAssign}
+        />
+        {savingAssign && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            Saving…
+          </span>
+        )}
+        {!savingAssign && record.assignedTo && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            Assigned user has edit access to this record.
+          </span>
+        )}
       </div>
 
       {/* Fields card */}

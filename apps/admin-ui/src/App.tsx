@@ -17,7 +17,6 @@ import { AuthCallback } from "./pages/callback.js";
 import { Dashboard } from "./pages/dashboard.js";
 import { Modules } from "./pages/modules.js";
 import { EntityTypeDetail } from "./pages/entity-types/detail.js";
-import { EntityInstanceDetail } from "./pages/entity-types/instance-detail.js";
 import { EntityInstanceCreate } from "./pages/entity-types/instance-create.js";
 import { Workflows } from "./pages/workflows/index.js";
 import { WorkflowDetail } from "./pages/workflows/detail.js";
@@ -25,11 +24,13 @@ import { CreateWorkflow } from "./pages/workflows/create.js";
 import { AdminRecords } from "./pages/records/index.js";
 import { WorkflowRecords } from "./pages/records/workflow-records.js";
 import { Settings } from "./pages/settings.js";
+import { UsersPage } from "./pages/users.js";
 import { CustomerRecordList } from "./pages/customer/record-list.js";
 import { CustomerRecordCreate } from "./pages/customer/record-create.js";
 import { CustomerRecordDetail } from "./pages/customer/record-detail.js";
 import { Automations } from "./pages/automations/index.js";
 import { AutomationWizard } from "./pages/automations/wizard/wizard.js";
+import { RequireAdmin } from "./components/require-admin.js";
 import "./index.css";
 
 export function App(): React.ReactElement {
@@ -40,7 +41,11 @@ export function App(): React.ReactElement {
         dataProvider={dataProvider}
         routerProvider={routerProvider}
         resources={[
-          { name: "dashboard", list: "/", meta: { label: "Dashboard" } },
+          {
+            name: "dashboard",
+            list: "/dashboard",
+            meta: { label: "Dashboard" },
+          },
           { name: "modules", list: "/modules", meta: { label: "Templates" } },
           {
             name: "records",
@@ -75,31 +80,10 @@ export function App(): React.ReactElement {
               </Authenticated>
             }
           >
-            {/* Admin / Agent routes */}
-            <Route index element={<Dashboard />} />
-            <Route path="/modules" element={<Modules />} />
-
-            {/* Records — workflow cards; card click goes to /records/:typeSlug */}
+            {/* All authenticated users */}
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/records" element={<AdminRecords />} />
-
-            {/* Entity types — still accessible from workflow detail "Manage Fields" link */}
-            <Route path="/entity-types/:id" element={<EntityTypeDetail />} />
-            <Route
-              path="/entity-types/:id/records/new"
-              element={<EntityInstanceCreate />}
-            />
-            <Route
-              path="/entity-types/:id/records/:instanceId"
-              element={<EntityInstanceDetail />}
-            />
-
-            {/* Workflows */}
-            <Route path="/workflows" element={<Workflows />} />
-            <Route path="/workflows/new" element={<CreateWorkflow />} />
-            <Route
-              path="/workflows/:workflowSlug"
-              element={<WorkflowDetail />}
-            />
             <Route
               path="/workflows/:workflowSlug/records"
               element={<WorkflowRecords />}
@@ -113,10 +97,7 @@ export function App(): React.ReactElement {
               element={<AutomationWizard />}
             />
 
-            <Route path="/settings" element={<Settings />} />
-
             {/* Customer routes */}
-            <Route path="/home" element={<Navigate to="/records" replace />} />
             <Route path="/records/:typeSlug" element={<CustomerRecordList />} />
             <Route
               path="/records/:typeSlug/new"
@@ -126,6 +107,30 @@ export function App(): React.ReactElement {
               path="/records/:typeSlug/:id"
               element={<CustomerRecordDetail />}
             />
+
+            <Route path="/settings" element={<Settings />} />
+
+            <Route path="/modules" element={<Modules />} />
+
+            {/* Workflow detail — access checked inside component (admin or workflow assignee) */}
+            <Route
+              path="/workflows/:workflowSlug"
+              element={<WorkflowDetail />}
+            />
+
+            {/* Admin-only routes */}
+            <Route element={<RequireAdmin />}>
+              <Route path="/users" element={<UsersPage />} />
+              <Route path="/entity-types/:id" element={<EntityTypeDetail />} />
+              <Route
+                path="/entity-types/:id/records/new"
+                element={<EntityInstanceCreate />}
+              />
+              <Route path="/workflows" element={<Workflows />} />
+              <Route path="/workflows/new" element={<CreateWorkflow />} />
+            </Route>
+
+            <Route path="/home" element={<Navigate to="/records" replace />} />
           </Route>
         </Routes>
       </Refine>

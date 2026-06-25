@@ -5,6 +5,29 @@ import { userManager } from "../authProvider.js";
 
 // ── Admin nav items ──────────────────────────────────────────────────────────
 
+// Nav shown to super-admins only
+const SUPER_ADMIN_NAV_EXTRA = [
+  {
+    route: "/users",
+    label: "Users",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth="2"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
+        />
+      </svg>
+    ),
+  },
+];
+
 const ADMIN_NAV = [
   {
     route: "/",
@@ -82,6 +105,25 @@ const ADMIN_NAV = [
       </svg>
     ),
   },
+  {
+    route: "/records",
+    label: "Records",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth="2"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776"
+        />
+      </svg>
+    ),
+  },
 ];
 
 const SETTINGS_NAV = {
@@ -109,7 +151,7 @@ const SETTINGS_NAV = {
   ),
 };
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function getRolesFromProfile(
   profile: Record<string, unknown> | undefined,
@@ -120,7 +162,7 @@ function getRolesFromProfile(
   return Object.keys(rolesMap);
 }
 
-// ── Layout ───────────────────────────────────────────────────────────────────
+// â”€â”€ Layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function Layout({
   children,
@@ -163,18 +205,23 @@ export function Layout({
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  // Customer = has "user" or "customer" role but NOT admin or agent
+  // RBAC tiers:
+  //   admin  = super admin — full access including Users page
+  //   agent  = workflow admin — Workflows + Templates + Records, no Users/Dashboard
+  //   user   = record assignee — Records + Templates only (portal-like view)
+  const isAdmin = roles.includes("admin");
+  const isAgent = roles.includes("agent") && !isAdmin;
   const isCustomer =
     (roles.includes("user") || roles.includes("customer")) &&
-    !roles.includes("admin") &&
-    !roles.includes("agent");
-  const roleLabel = isCustomer
-    ? roles.includes("user")
-      ? "User"
-      : "Customer"
-    : roles.includes("agent")
+    !isAdmin &&
+    !isAgent;
+  const roleLabel = isAdmin
+    ? "Administrator"
+    : isAgent
       ? "Agent"
-      : "Administrator";
+      : roles.includes("user")
+        ? "User"
+        : "Customer";
 
   const name = identity?.name ?? (isCustomer ? "User" : "Admin");
   const email = identity?.email ?? "";
@@ -190,20 +237,21 @@ export function Layout({
   }
 
   function isActive(route: string): boolean {
-    if (route === "/") return location.pathname === "/";
+    if (route === "/")
+      return location.pathname === "/" || location.pathname === "/dashboard";
     return (
       location.pathname === route || location.pathname.startsWith(route + "/")
     );
   }
 
-  // ── Shared topnav ───────────────────────────────────────────────────────
+  // â”€â”€ Shared topnav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const topnav = (
     <header className="main-header">
       <div className="header-title-section">
         <button
           className="admin-hamburger"
           onClick={() => {
-            // On mobile (≤640px) only drive the overlay drawer
+            // On mobile (â‰¤640px) only drive the overlay drawer
             if (window.innerWidth <= 640) {
               setMobileNavOpen((o) => !o);
             } else {
@@ -415,7 +463,7 @@ export function Layout({
     </header>
   );
 
-  // ── Customer layout ─────────────────────────────────────────────────────
+  // ── Customer / user layout ──────────────────────────────────────────────
   if (isCustomer) {
     return (
       <div className="app-container">
@@ -439,6 +487,7 @@ export function Layout({
                 gap: "2px",
               }}
             >
+              {/* Records — shows cards where user has assigned tickets */}
               <Link
                 to="/records"
                 className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive("/records") ? "active" : ""}`}
@@ -460,6 +509,28 @@ export function Layout({
                 {(sidebarOpen || mobileNavOpen) && <span>Records</span>}
               </Link>
 
+              {/* Templates — users can browse / fork workflows */}
+              <Link
+                to="/modules"
+                className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive("/modules") ? "active" : ""}`}
+                title={!sidebarOpen ? "Templates" : undefined}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="2"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v2.25A2.25 2.25 0 006 10.5zm0 9.75h2.25A2.25 2.25 0 0010.5 18v-2.25a2.25 2.25 0 00-2.25-2.25H6a2.25 2.25 0 00-2.25 2.25V18A2.25 2.25 0 006 20.25zm9.75-9.75H18a2.25 2.25 0 002.25-2.25V6A2.25 2.25 0 0018 3.75h-2.25A2.25 2.25 0 0013.5 6v2.25a2.25 2.25 0 002.25 2.25z"
+                  />
+                </svg>
+                {(sidebarOpen || mobileNavOpen) && <span>Templates</span>}
+              </Link>
+
               <div className="nav-divider" />
               <Link
                 to="/settings"
@@ -477,6 +548,12 @@ export function Layout({
     );
   }
 
+  // Agent nav = admin nav minus Dashboard, plus no Users
+  // Super admin gets all ADMIN_NAV + SUPER_ADMIN_NAV_EXTRA (Users)
+  const sidebarNav = isAdmin
+    ? [...ADMIN_NAV, ...SUPER_ADMIN_NAV_EXTRA]
+    : ADMIN_NAV; // agents see same nav as admin minus dashboard (dashboard requires admin role — handled by page itself)
+
   // ── Admin / Agent layout ────────────────────────────────────────────────
   return (
     <div className="app-container">
@@ -493,7 +570,7 @@ export function Layout({
           className={`sidebar ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"} ${mobileNavOpen ? "mobile-nav-open" : ""}`}
         >
           <nav className="sidebar-menu">
-            {ADMIN_NAV.map((item) => (
+            {sidebarNav.map((item) => (
               <Link
                 key={item.route}
                 to={item.route}

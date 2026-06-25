@@ -24,7 +24,9 @@ export const userManager = new UserManager({
   loadUserInfo: true,
 });
 
-export const API_URL = "http://localhost:3000";
+// API_URL is injected at container startup via docker-entrypoint.sh → window.__CONFIG__.
+// Falls back to localhost:3000 for local dev (no Docker).
+export const API_URL = cfg("API_URL", "http://localhost:3000");
 
 export async function fetchWithAuth(
   url: string,

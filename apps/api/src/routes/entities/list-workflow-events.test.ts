@@ -25,9 +25,27 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+// Chainable DB mock: supports both .limit() and direct await (no .limit())
+const mockTx: Record<string, unknown> = {
+  select: () => mockTx,
+  from: () => mockTx,
+  where: () => mockTx,
+  limit: () => Promise.resolve([]),
+  then: (resolve: (v: unknown[]) => unknown) =>
+    Promise.resolve([]).then(resolve),
+  catch: (reject: (e: unknown) => unknown) =>
+    (Promise.resolve([]) as Promise<unknown[]>).catch(reject),
+};
+
 vi.mock("@platform/db", () => ({
   db: {},
-  withTenantContext: (tenantId, fn) => fn({}),
+  tenantUsers: {},
+  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
+    fn(mockTx),
+}));
+
+vi.mock("../../lib/zitadel-management.js", () => ({
+  listOrgUsers: () => Promise.resolve([]),
 }));
 
 vi.mock("@platform/workflow-engine", async (importOriginal) => {
@@ -106,7 +124,11 @@ describe("GET /entities/:id/transitions/history", () => {
       method: "GET",
     });
 
-    expect(mockGetWorkflowEventLog).toHaveBeenCalledWith({}, "t-aaa", INST_ID);
+    expect(mockGetWorkflowEventLog).toHaveBeenCalledWith(
+      expect.any(Object),
+      "t-aaa",
+      INST_ID,
+    );
   });
 
   it("returns 200 with an empty array for an instance with no events", async () => {

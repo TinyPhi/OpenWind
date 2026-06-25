@@ -42,6 +42,13 @@ type Module = {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", {
     day: "2-digit",
@@ -372,7 +379,7 @@ export function Dashboard(): React.ReactElement {
   // recent records across all workflows (latest 8)
   type RecentRecord = {
     workflowName: string;
-    workflowId: string;
+    workflowSlug: string;
     state: string | null;
     color: string | null;
     createdAt: string | undefined;
@@ -381,7 +388,7 @@ export function Dashboard(): React.ReactElement {
     .flatMap((s) =>
       s.records.map((r) => ({
         workflowName: s.workflow.name,
-        workflowId: s.workflow.id,
+        workflowSlug: slugify(s.workflow.name),
         state: r.currentState,
         color:
           s.workflow.states.find((st) => st.name === r.currentState)?.color ??
@@ -622,7 +629,11 @@ export function Dashboard(): React.ReactElement {
                     <div
                       key={s.workflow.id}
                       className="dash-perf-row"
-                      onClick={() => navigate(`/records/${s.workflow.id}`)}
+                      onClick={() =>
+                        navigate(
+                          `/workflows/${slugify(s.workflow.name)}/records`,
+                        )
+                      }
                       style={{
                         display: "grid",
                         gridTemplateColumns: "1fr 60px 60px 60px 160px 60px",
@@ -826,7 +837,9 @@ export function Dashboard(): React.ReactElement {
                 {recentRecords.map((r, idx) => (
                   <div
                     key={idx}
-                    onClick={() => navigate(`/records/${r.workflowId}`)}
+                    onClick={() =>
+                      navigate(`/workflows/${r.workflowSlug}/records`)
+                    }
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -931,13 +944,6 @@ export function Dashboard(): React.ReactElement {
                   link: "/workflows",
                 },
                 {
-                  label: "Entity Types",
-                  value: new Set(stats.map((s) => s.workflow.entityTypeId))
-                    .size,
-                  icon: "📐",
-                  link: "/entity-types",
-                },
-                {
                   label: "Total Records",
                   value: totalRecords,
                   icon: "📋",
@@ -1016,7 +1022,6 @@ export function Dashboard(): React.ReactElement {
               {[
                 { label: "New Workflow", path: "/workflows/new", icon: "+" },
                 { label: "Browse Modules", path: "/modules", icon: "🧩" },
-                { label: "Entity Types", path: "/entity-types", icon: "📐" },
                 { label: "View Records", path: "/records", icon: "📋" },
               ].map((a) => (
                 <button

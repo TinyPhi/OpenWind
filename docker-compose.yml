@@ -54,11 +54,11 @@ services:
         -c log_min_duration_statement=1000
         -c log_line_prefix='%t [%p] %u@%d '
         -c log_statement=ddl
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432" # direct postgres for pnpm db:migrate from host
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
       interval: 5s
@@ -145,8 +145,6 @@ services:
         --maxmemory-policy allkeys-lru
         --save 60 1000
         --loglevel notice
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -190,49 +188,6 @@ services:
   #       mc anonymous set none local/platform-files &&
   #       echo 'MinIO bucket initialized'
   #     "
-
-  # ── Zitadel (Identity provider) ────────────────────────────────────────────
-  zitadel:
-    container_name: ow-identity
-    image: ghcr.io/zitadel/zitadel:latest
-    restart: unless-stopped
-    command: start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled
-    environment:
-      ZITADEL_DATABASE_POSTGRES_HOST: postgres
-      ZITADEL_DATABASE_POSTGRES_PORT: 5432
-      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: platform
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: platform_dev_password
-      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
-      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: platform
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: platform_dev_password
-      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
-      ZITADEL_EXTERNALSECURE: "false"
-      ZITADEL_EXTERNALPORT: 8080
-      ZITADEL_EXTERNALDOMAIN: localhost
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin@platform.local
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Admin1234!
-      # Machine user with JSON key — Zitadel prints the key JSON to stdout on first boot.
-      # bootstrap.ts reads it from container logs (docker compose logs zitadel).
-      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: setup-admin
-      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Setup Admin
-      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINEKEY_TYPE: 1
-      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINEKEY_EXPIRATIONDATE: "2040-01-01T00:00:00Z"
-      # Disable Login V2 (the new SPA login) — it requires a separately hosted
-      # frontend that isn't bundled in the Docker image, causing 404 in dev.
-      # With this off, the console falls back to the built-in Login V1 HTML UI.
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "false"
-    ports:
-      - "8080:8080" # Zitadel UI + API → http://localhost:8080
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "/app/zitadel", "ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
 
   # ── Novu (Notifications) — profile:notifications ───────────────────────────
   # Not started by default. Run with: docker compose --profile notifications up -d
@@ -324,7 +279,7 @@ services:
   # Runs with tsx so source changes are picked up on container restart.
   # env_file provides all secrets; environment overrides service URLs so
   # container-to-container networking works (pgbouncer:5432 not localhost:6432).
-  api:
+  ow-backend:
     container_name: ow-backend
     build:
       context: .
@@ -335,18 +290,18 @@ services:
     environment:
       DATABASE_URL: postgres://app_user:app_user_dev_password@pgbouncer:5432/platform
       REDIS_URL: redis://redis:6379
-      # Zitadel routes by Host header — must match EXTERNALDOMAIN (localhost).
-      # extra_hosts maps localhost → Zitadel container so JWKS/introspection
-      # fetches from the API container hit the right service.
-      ZITADEL_JWKS_URL: http://localhost:8080/oauth/v2/keys
-      ZITADEL_INTROSPECTION_URL: http://localhost:8080/oauth/v2/introspect
+      # Zitadel connection — if ZITADEL_URL is set in .env.local (production / custom deploy)
+      # the backend uses that public URL for JWKS and introspection.
+      # Without ZITADEL_URL the default falls back to the shared Docker network name
+      # (http://zitadel:8080) so local dev continues to work with no extra config.
+      ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
+      ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
       # OPENBAO_ADDR: http://openbao:8200  # uncomment when openbao service is enabled
       # S3_ENDPOINT: http://minio:9000      # uncomment when minio service is enabled
-    ports:
-      - "3000:3000"
     restart: unless-stopped
-    extra_hosts:
-      - "localhost:host-gateway"
+    networks:
+      - default
+      - openwind_zitadel
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -356,19 +311,59 @@ services:
   # ── Admin UI (React + Refine) ──────────────────────────────────────────────
   # Dev mode: Vite dev server with HMR. Source files are mounted as volumes so
   # any change on the host is picked up instantly — no rebuild needed.
-  admin-ui:
+  ow-frontend:
     container_name: ow-frontend
     build:
       context: .
       dockerfile: apps/admin-ui/Dockerfile.dev
     ports:
-      - "3001:3001" # Vite dev server → http://localhost:3001
+      - "${ADMIN_UI_HOST_PORT:-3001}:3001" # Vite dev server → http://localhost:3001
     volumes:
       - ./apps/admin-ui/src:/app/apps/admin-ui/src
       - ./apps/admin-ui/index.html:/app/apps/admin-ui/index.html
       - ./apps/admin-ui/vite.config.ts:/app/apps/admin-ui/vite.config.ts
       - ./.env.local:/app/.env.local:ro
     restart: unless-stopped
+
+  # ── Bootstrap (one-time setup) — profile:bootstrap ───────────────────────────
+  # Runs migrations, seeds the DB, configures Zitadel, and creates demo users.
+  # Designed to be idempotent — safe to re-run.
+  #
+  # Usage:
+  #   docker compose --profile bootstrap run --rm bootstrap
+  bootstrap:
+    container_name: ow-bootstrap
+    profiles: [bootstrap]
+    build:
+      context: .
+      dockerfile: Dockerfile.bootstrap
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      RUNNING_IN_DOCKER: "true"
+      DATABASE_URL: postgres://app_user:app_user_dev_password@pgbouncer:5432/platform
+      MIGRATION_DATABASE_URL: postgres://migration_user:migration_user_dev_password@postgres:5432/platform
+      REDIS_URL: redis://redis:6379
+      ZITADEL_EXTERNAL_DOMAIN: "${ZITADEL_EXTERNAL_DOMAIN:-localhost}"
+      ZITADEL_HOST_PORT: "${ZITADEL_HOST_PORT:-8080}"
+      ZITADEL_EXTERNALSECURE: "${ZITADEL_EXTERNALSECURE:-false}"
+      # APP_URL is the public base URL of the OpenWind UI (e.g. https://openwind.rokkalabs.com).
+      # Bootstrap uses it to register the correct OIDC redirect URIs in Zitadel.
+      # Leave empty for local dev — localhost:3001 redirect URIs are always registered.
+      APP_URL: "${APP_URL:-}"
+      # Passed in by setup.bat/setup.sh via: docker compose run -e ZITADEL_SETUP_PAT=<token>
+      # Used on first boot only — after bootstrap saves ZITADEL_KEY_JSON this is no longer needed.
+      ZITADEL_SETUP_PAT: "${ZITADEL_SETUP_PAT:-}"
+    volumes:
+      - ./.env.local:/app/.env.local
+    networks:
+      - default
+      - openwind_zitadel
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    restart: "no"
 
 # ─────────────────────────────────────────────────────────────────────────────
 volumes:
@@ -377,4 +372,7 @@ volumes:
   novu_mongo_data:
   mailhog_data:
   # minio_data:    # uncomment when minio service is enabled
-  # OpenBao has no volume — dev mode data is ephemeral by design
+networks:
+  openwind_zitadel:
+    external: true # created by the zitadel compose project (../zitadel/)
+    name: openwind_zitadel
