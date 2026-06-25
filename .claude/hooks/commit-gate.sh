@@ -55,6 +55,15 @@ if (!review) fails.push("no review record (run /review before committing)");
 else if (review.branch !== branch) fails.push("review is for branch " + review.branch);
 else if (review.diff_sha !== sha("diff HEAD")) fails.push("code changed since the last review; re-run /review against the final diff");
 else if (review.dod_met !== true) fails.push("Definition-of-Done not affirmatively met (dod_met must be true): " + (review.dod_unmet || []).join(", "));
+// Human pass-approval (the second checkpoint) - only the approval-gate (a human typing
+// "approve-ship") writes pass-approved.json, so the agent cannot self-approve. Skipped only when
+// the owner has graduated to auto-pass (OPENWIND_AUTOPASS=1).
+if (process.env.OPENWIND_AUTOPASS !== "1") {
+  const pa = readJSON("pass-approved.json");
+  if (!pa) fails.push("no human pass-approval - a human must type 'approve-ship' in chat (or the owner sets OPENWIND_AUTOPASS=1)");
+  else if (pa.branch !== branch) fails.push("pass-approval is for branch " + pa.branch);
+  else if (pa.diff_sha !== sha("diff HEAD")) fails.push("code changed since the human approved the pass; ask for 'approve-ship' again");
+}
 if (fails.length === 0) process.exit(0);
 process.stderr.write(
   "COMMIT GATE - blocked git commit on " + branch + "\n- " + fails.join("\n- ") + "\n" +

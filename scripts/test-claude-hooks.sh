@@ -77,7 +77,7 @@ echo "commit-gate B2 / write-review dod_met (with a controlled diff):"
 printf 'export const _t = 1;\n' >"$TMP"
 git add "$TMP"
 printf '%s' '{"track":"t","acceptance_criteria":[{"text":"x"}],"scope_paths":["**"]}' | "$H/write-plan.sh" set - >/dev/null 2>&1
-"$H/write-plan.sh" approve >/dev/null 2>&1
+printf '%s' '{"prompt":"approve-plan"}' | "$H/approval-gate.sh" >/dev/null 2>&1
 printf '%s' '{}' | "$H/write-review.sh" - --allow-no-tests >/dev/null 2>&1
 grep -q '"dod_met": false' .claude/state/review.json
 ck 0 "absent dod_met defaults to false" $?
@@ -85,6 +85,46 @@ printf 'export const _u = 2;\n' >>"$TMP"
 OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" 2>&1)
 printf '%s' "$OUT" | grep -q "unstaged changes present"
 ck 0 "commit-gate flags unstaged changes" $?
+
+echo "human approval (agent cannot self-approve):"
+rm -rf .claude/state
+git reset -q -- "$TMP" 2>/dev/null || true
+printf '%s' '{"track":"t","acceptance_criteria":[{"text":"x"}],"scope_paths":["**"]}' | "$H/write-plan.sh" set - >/dev/null 2>&1
+grep -q '"approved": false' .claude/state/plan.json
+ck 0 "draft plan is approved:false" $?
+"$H/write-plan.sh" approve >/dev/null 2>&1
+ck 1 "agent self-approve (write-plan.sh approve) is refused" $?
+printf '%s' '{"prompt":"please approve-plan now"}' | "$H/approval-gate.sh" >/dev/null 2>&1
+grep -q '"approved": true' .claude/state/plan.json
+ck 0 "human approve-plan prompt stamps approved:true" $?
+edit_after_approve=$(printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"packages/db/x.ts"}}' | "$H/edit-gate.sh"; echo $?)
+ck 0 "edit-gate allows source after human plan approval" $edit_after_approve
+
+echo "human pass-approval + full gate chain:"
+printf 'export const _h = 1;\n' >"$TMP"
+git add "$TMP"
+printf '%s' '{"dod_met":true}' | "$H/write-review.sh" - --allow-no-tests >/dev/null 2>&1
+"$H/write-ship-marker.sh" >/dev/null 2>&1
+no_pass=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" 2>&1)
+printf '%s' "$no_pass" | grep -q "no human pass-approval"
+ck 0 "commit blocked without human pass-approval" $?
+printf '%s' '{"prompt":"approve-ship"}' | "$H/approval-gate.sh" >/dev/null 2>&1
+OTHER=$(git status --porcelain | grep -v '_hooktest_tmp' || true)
+if [ -n "$OTHER" ]; then
+  echo "  skip  full-chain ALLOW assertions (working tree has other uncommitted changes; asserted in CI's clean checkout)"
+else
+  with_pass=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" >/dev/null 2>&1; echo $?)
+  ck 0 "full gate chain ALLOWS commit (plan+review+dod+marker+pass-approval, fully staged)" "$with_pass"
+  rm -f .claude/state/pass-approved.json
+  autopass=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | OPENWIND_AUTOPASS=1 "$H/commit-gate.sh" >/dev/null 2>&1; echo $?)
+  ck 0 "OPENWIND_AUTOPASS=1 skips the human pass-approval requirement" "$autopass"
+fi
+
+echo "mark-done produces the sentinel verify-stop checks:"
+rm -f .claude/state/claimed-done
+"$H/mark-done.sh" >/dev/null 2>&1
+[ -f .claude/state/claimed-done ]
+ck 0 "mark-done writes claimed-done" $?
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"

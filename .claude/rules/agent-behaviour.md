@@ -60,8 +60,9 @@ session); the stages live **inside existing skills** — there is no new skill t
 | **Review** | `/review` (+ `/security-review`) → `write-review.sh` writes `review.json`                | review needs plan+code+tests                                                          |
 | **Ship**   | the loop's **commit procedure** (exit condition → marker → commit → PR)                  | `commit-gate` blocks `git commit` without a fresh marker + matching review            |
 
-The human sits at **two checkpoints**: approve the freeze (start) and approve the pass (end,
-`OPENWIND_AUTOPASS=off`). The agent does everything in between. Never run a bare `git commit` — it
+The human sits at **two real checkpoints**: type `approve-plan` (start) and `approve-ship` (end) in
+chat. The agent **cannot self-approve** — the `approval-gate` hook fires on your prompt, which the
+agent cannot emit. `OPENWIND_AUTOPASS=1` graduates the pass to auto. The agent does everything in between. Never run a bare `git commit` — it
 is blocked; use the commit procedure, which writes the marker that unlocks it. `PROGRESS.md` and
 `BLOCKERS.md` are written during this flow (and are gitignored). Bypass envs exist for genuine cases
 and are logged to `.claude/state/bypass.log`.

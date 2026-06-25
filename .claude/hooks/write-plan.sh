@@ -15,12 +15,8 @@ fs.mkdirSync(repo+"/.claude/state",{recursive:true});
 function branch(){ try{return cp.execSync("git rev-parse --abbrev-ref HEAD",{cwd:repo}).toString().trim();}catch(e){return "";} }
 function baseSha(){ for(const c of ["git merge-base HEAD origin/main","git rev-parse main","git rev-parse HEAD"]){ try{return cp.execSync(c,{cwd:repo}).toString().trim();}catch(e){} } return ""; }
 if(mode==="approve"){
-  let plan; try{plan=JSON.parse(fs.readFileSync(statePath,"utf8"));}catch(e){ console.error("No plan-lock to approve. Run: write-plan.sh set <payload>"); process.exit(1);}
-  if(plan.branch!==branch()){ console.error("Plan-lock branch "+plan.branch+" != current "+branch()); process.exit(1);}
-  plan.approved=true; plan.approved_iso=new Date().toISOString();
-  fs.writeFileSync(statePath,JSON.stringify(plan,null,2));
-  console.log("plan-lock APPROVED for "+plan.branch+" ("+(plan.acceptance_criteria||[]).length+" criteria). Source edits unlocked.");
-  process.exit(0);
+  console.error("Plan approval is HUMAN-ONLY and cannot be performed by the agent. The human types \"approve-plan\" in chat; the approval-gate (UserPromptSubmit) hook stamps approved:true. Use write-plan.sh set to draft or redraft the plan.");
+  process.exit(1);
 }
 if(mode==="set"){
   const src=process.argv[2]; if(!src){console.error("usage: write-plan.sh set <payload.json|->");process.exit(1);}
@@ -34,7 +30,7 @@ if(mode==="set"){
     scope_paths:p.scope_paths||[]
   };
   fs.writeFileSync(statePath,JSON.stringify(plan,null,2));
-  console.log("plan-lock DRAFTED (approved:false) for "+plan.branch+". Present the criteria to the human; on explicit approval run: write-plan.sh approve");
+  console.log("plan-lock DRAFTED (approved:false) for "+plan.branch+". Present the criteria to the human; they type \"approve-plan\" in chat to approve (the agent cannot self-approve).");
   process.exit(0);
 }
 console.error("usage: write-plan.sh set <payload.json|-> | write-plan.sh approve"); process.exit(1);

@@ -27,9 +27,9 @@ Each iteration is two separate Claude Code invocations with no shared context.
 6. Pick the first unchecked acceptance criterion
 6a. FREEZE THE PLAN-LOCK — if there is no approved plan-lock for this branch, build a payload from
     the chosen criterion (with a `verify` command + `scope_paths`), run
-    `echo '<payload>' | .claude/hooks/write-plan.sh set -`, present it to the human, and on
-    explicit approval run `.claude/hooks/write-plan.sh approve`. The edit gate blocks source edits
-    until this exists. (Same mechanism as /spec-tasks; see that skill for the payload shape.)
+    `echo '<payload>' | .claude/hooks/write-plan.sh set -`, present the criteria to the human, and
+    ask them to type `approve-plan` in chat (the agent cannot self-approve). The edit gate blocks
+    source edits until the human has approved. (Same mechanism as /spec-tasks; see it for the payload.)
 7. Do one unit of work (one migration, one package feature, one test suite) — all edits + tests first
 8. Write what was done and what is next to PROGRESS.md
 9. Stop — do not run verification commands; do NOT run `git commit` (use the commit procedure below)
@@ -110,8 +110,9 @@ skill to learn):
 4. Record the review: `echo '<payload>' | .claude/hooks/write-review.sh -` (it refuses unless an
    approved plan-lock exists, the diff is non-empty, and tests are present). Payload carries
    `verdict`, `dod_met`, `dod_unmet`, `security_review`.
-5. **Present the pass to the human and get approval** (`OPENWIND_AUTOPASS=off`). Until the owner
-   enables auto, every pass is human-approved.
+5. **Present the pass to the human; they type `approve-ship` in chat** to approve it — the agent
+   cannot self-approve. The commit gate stays blocked until that approval matches the diff. Required
+   on every commit until the owner sets `OPENWIND_AUTOPASS=1`.
 6. Stage explicitly (never `git add -A`). Update `docs/sup-docs/week-log.md` + `roadmap-tracker.md`.
 7. `.claude/hooks/write-ship-marker.sh` — **write the marker LAST**, after the exit condition and
    review have finished, so its 60-min window covers only stage→commit, not the (possibly slow)

@@ -47,7 +47,7 @@ A change is **done** only when every applicable box is true:
 ## Ship-readiness
 
 - [ ] Rollback path exists for anything risky.
-- [ ] **The human has approved the pass** before commit (`OPENWIND_AUTOPASS=off`) — until the owner enables auto.
+- [ ] **The human approved the pass** (`approve-ship` in chat) before commit — required until the owner sets `OPENWIND_AUTOPASS=1`.
 
 ---
 

@@ -6,21 +6,24 @@ cat <<'EOF'
 OpenWind gated delivery is ACTIVE for Claude Code in this repo (plain git + CI are unaffected).
 
 Pipeline — each stage gated on the prior stage's artifact (hard-block for all sessions):
-  PLAN  -> freeze acceptance criteria + scope (/spec-tasks or the openwind-loop pick step),
-           then YOU approve the freeze. Edit gate blocks source edits until plan.json has approved:true.
+  PLAN  -> agent drafts acceptance criteria + scope (/spec-tasks or the openwind-loop pick step).
+           The HUMAN approves by typing "approve-plan" in chat - the agent CANNOT self-approve.
+           Edit gate blocks source edits until plan.json is human-approved.
   CODE  -> all edits + tests land first. No mid-review.
   REVIEW-> one /review at the end (+ /security-review if auth/db/routes/files/secrets). Writes review.json.
-  SHIP  -> commit step runs `pnpm typecheck && pnpm lint && pnpm test && pnpm test:isolation`,
-           writes the commit marker, commits, pushes, opens a structured PR. Never raw `git commit`.
+  SHIP  -> run `pnpm typecheck && pnpm lint && pnpm test && pnpm test:isolation`, write the marker,
+           then the HUMAN types "approve-ship" to approve the pass. Commit gate blocks `git commit`
+           until the marker, the review, AND the human pass-approval all match the diff. Never raw `git commit`.
 
 Hard blocks (with bypass env, all logged to .claude/state/bypass.log):
-  - edit source without an approved plan-lock            (OPENWIND_GATE=off)
-  - git commit without fresh marker + matching review    (SHIP_BYPASS=1)
-  - edit on main/develop, modules/*.ts, ADRs, ci.yml      (OPENWIND_OFFLIMITS=ack / OPENWIND_ALLOW_MODULE_TS=1)
-  - rm -rf risky / DROP / --no-verify / push --force      (no bypass)
+  - edit source without a HUMAN-approved plan-lock                       (OPENWIND_GATE=off)
+  - git commit without marker + matching review + human pass-approval    (SHIP_BYPASS=1)
+  - edit on main/develop, modules/*.ts, ADRs, .github/workflows/*        (OPENWIND_OFFLIMITS=ack / OPENWIND_ALLOW_MODULE_TS=1)
+  - rm -rf risky / DROP / --no-verify / push --force                     (no bypass)
 
-Completion: write .claude/state/claimed-done only when truly done; the Stop hook checks the
-pipeline actually finished. Humans approve every pass until OPENWIND_AUTOPASS=on.
+Completion: when you are sure the unit is done, run .claude/hooks/mark-done.sh; the Stop hook then
+confirms the pipeline actually finished (everything committed) before the session can end. The human
+pass-approval ("approve-ship") is required on every commit until the owner sets OPENWIND_AUTOPASS=1.
 
 Source of truth: CLAUDE.md (Current Focus + Off-limits), the relevant docs/decisions/ADR,
 docs/sup-docs/{roadmap-tracker,week-log}.md, .claude/references/definition-of-done.md, .claude/README.md.

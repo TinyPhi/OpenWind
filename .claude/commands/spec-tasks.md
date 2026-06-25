@@ -47,8 +47,9 @@ hard-blocked (see `.claude/README.md`).
    ```
 
 2. Write it: `echo '<payload>' | .claude/hooks/write-plan.sh set -` (writes `approved:false`).
-3. **Present the criteria + scope to the human and get explicit approval.** Hedged answers
-   ("looks fine", "I guess") are **not** approval. On a clear yes: `.claude/hooks/write-plan.sh approve`.
+3. **Present the criteria + scope to the human; they type `approve-plan` in chat to approve.** The
+   agent cannot self-approve — `write-plan.sh approve` is refused; only a human prompt stamps it
+   (via the `approval-gate` hook). Hedged answers ("looks fine", "I guess") are **not** approval.
 4. Only now may coding begin. Implement against the locked criteria; do not expand scope without
    re-freezing.
 
