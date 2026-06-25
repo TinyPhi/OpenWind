@@ -260,6 +260,11 @@ procedure that runs the full exit condition. See [`.claude/README.md`](.claude/R
 Claude Code session. Plain `git`, the Husky `pre-commit`/`commit-msg` hooks, and CI are untouched —
 human PRs are gated by CI exactly as documented above. You never need Claude Code to contribute.
 
+The **Contribution guardrails** CI workflow enforces the same intent for _everyone_ (not just Claude
+Code users): source changes should ship with tests, new tables/routes need isolation tests, and
+`modules/` stays TypeScript-free. For a genuinely exempt change, put `[skip-tests-check]` or
+`[skip-isolation-check]` in the PR title with a one-line reason.
+
 ---
 
 ## License
