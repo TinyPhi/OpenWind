@@ -74,6 +74,7 @@ ck 0 "normal git push allowed (no force)" "$(hook destructive-guard.sh '{"tool_n
 ck 2 "git commit --no-verify blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x"}}')"
 ck 2 "git commit -anm combined flag blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -anm wip"}}')"
 ck 0 "commit msg mentioning -n flag NOT blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"fix: handle -n flag in parser\""}}')"
+ck 2 "git commit --no-verify AFTER -m still blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m x --no-verify"}}')"
 ck 2 "rm -rf .. (bare parent) blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -rf .."}}')"
 
 echo "protected-paths:"

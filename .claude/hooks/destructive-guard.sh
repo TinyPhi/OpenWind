@@ -38,16 +38,10 @@ if (/\bDROP\s+DATABASE\b/i.test(cmd)) block("DROP DATABASE.");
 if (/\b(DROP\s+TABLE|TRUNCATE\s+TABLE)\b/i.test(cmd) && !/migration|\.sql\b/i.test(cmd)) {
   block("DROP TABLE / TRUNCATE TABLE outside a migration file.");
 }
-// git history / verify hazards
-{
-  const gi = cmd.search(/\bgit\s+commit\b/);
-  if (gi >= 0) {
-    let region = cmd.slice(gi);
-    const mi = region.search(/\s(-m\b|-F\b|--message\b|--file\b)/); // stop before the commit message
-    if (mi >= 0) region = region.slice(0, mi);
-    if (/(--no-verify|\s-[A-Za-z]*n[A-Za-z]*\b)/.test(region)) block("git commit --no-verify (incl. combined short flags like -anm) bypasses husky/commitlint. Fix the issue instead.");
-  }
-}
+// git history / verify hazards. Strip quoted spans (the commit message is data) so -n/--no-verify is
+// matched only as a real flag, wherever it sits relative to -m (truncating at -m missed flags AFTER it).
+const noVerifyScan = raw.replace(/"[^"]*"/g, " ").replace(/\x27[^\x27]*\x27/g, " ");
+if (/\bgit\s+commit\b[^|;&]*(--no-verify|\s-[A-Za-z]*n[A-Za-z]*\b)/.test(noVerifyScan)) block("git commit --no-verify (incl. combined short flags like -anm) bypasses husky/commitlint. Fix the issue instead.");
 if (/\bgit\s+push\b[^|;&]*(--force\b|--force-with-lease\b|\s-f\b|\s\+[A-Za-z0-9._\/@^~-]+(:[A-Za-z0-9._\/@^~-]+)?)/.test(cmd)) block("git push force-update (--force / -f / --force-with-lease / +refspec) can overwrite published history.");
 process.exit(0);
 '
