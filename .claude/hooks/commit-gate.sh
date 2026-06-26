@@ -21,7 +21,7 @@ function gitSub(c, s) {
   const re = /\bgit\b((?:\s+(?:-C\s+\S+|-c\s+\S+|--[\w-]+(?:=\S+)?|-[A-Za-z]+))*)\s+([a-z][a-z-]*)/g;
   let m; while ((m = re.exec(c)) !== null) { if (m[2] === s) return true; } return false;
 }
-if (!gitSub(cmd, "commit")) process.exit(0);
+if (!gitSub(cmd.replace(/[\x27\x22]/g, " "), "commit")) process.exit(0);
 if (/--help\b|\s-h\b|--version\b/.test(cmd)) process.exit(0);
 function ensureDir() { try { fs.mkdirSync(repo + "/.claude/state", { recursive: true }); } catch (e) {} }
 if (process.env.SHIP_BYPASS === "1" || /(?:^|[;&|]|\s)SHIP_BYPASS=1\s+(?:[A-Za-z_]\w*=\S+\s+)*git\b/.test(cmd)) {
@@ -56,7 +56,8 @@ else if (review.branch !== branch) fails.push("review is for branch " + review.b
 else if (review.diff_sha !== sha("diff HEAD")) fails.push("code changed since the last review; re-run /review against the final diff");
 else if (review.dod_met !== true) fails.push("Definition-of-Done not affirmatively met (dod_met must be true): " + (review.dod_unmet || []).join(", "));
 // Human pass-approval (the second checkpoint) - only the approval-gate (a human typing
-// "approve-ship") writes pass-approved.json, so the agent cannot self-approve. Skipped only when
+// "approve-ship") writes pass-approved.json - so the agent should not casually self-approve
+// (best-effort guardrail, not a hard guarantee). Skipped only when
 // the owner has graduated to auto-pass (OPENWIND_AUTOPASS=1).
 if (process.env.OPENWIND_AUTOPASS !== "1") {
   const pa = readJSON("pass-approved.json");

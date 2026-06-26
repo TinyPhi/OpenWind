@@ -252,7 +252,8 @@ See [CLAUDE.md](CLAUDE.md) for the full conventions reference.
 ## Working with Claude Code (optional)
 
 If you use [Claude Code](https://claude.com/claude-code) on this repo, the `.claude/` directory adds
-a **gated delivery flow** (Plan → Code → Review → Ship) enforced by hooks: you freeze and approve an
+a **delivery flow** (Plan → Code → Review → Ship) guided by best-effort hooks (guardrails, not a
+security boundary — the real gate is CI, and PR review once branch protection requires it): you freeze and approve an
 acceptance-criteria plan before editing source, review once at the end, and commit through a
 procedure that runs the full exit condition. See [`.claude/README.md`](.claude/README.md).
 

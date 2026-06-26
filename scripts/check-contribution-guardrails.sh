@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# check-contribution-guardrails.sh — PR-level enforcement of the gate-equivalent rules,
-# for ALL contributors (this runs in CI, not just inside Claude Code). It is the layer that
-# actually binds everyone — the .claude hooks are the same checks earlier, as fast feedback.
+# check-contribution-guardrails.sh — a few PR-level checks for ALL contributors (runs in CI). This
+# covers a SUBSET of the intent — config-first (no TS in modules/), tests-with-code, and isolation
+# tests for new tables/routes. It does NOT reproduce the plan/approval/commit or destructive/
+# protected-path .claude hooks; it is the binding CI floor, not a mirror of every guardrail.
 #
 # Usage: check-contribution-guardrails.sh <base-sha>
 # Escapes (put the token in the PR title): [skip-tests-check]  [skip-isolation-check]
@@ -60,6 +61,6 @@ echo ""
 if [ "$fail" -eq 0 ]; then
   echo "contribution guardrails: PASS"
 else
-  echo "contribution guardrails: FAIL — see above. These mirror the .claude gate rules and bind every contributor."
+  echo "contribution guardrails: FAIL — see above. These are the binding CI checks (a subset of the guardrail intent: config-first, tests-with-code, isolation)."
   exit 1
 fi

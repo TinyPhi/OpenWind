@@ -2,7 +2,8 @@
 # approval-gate.sh — UserPromptSubmit
 # The ONLY path by which a human approval enters the system. It fires on the HUMAN's prompt,
 # which the agent cannot emit (the agent produces tool calls + text, never a user prompt), so
-# the agent CANNOT self-approve. Detects two directives in the human's message:
+# making ACCIDENTAL self-approval unlikely (not a hard guarantee - a determined agent can still write
+# the state file; the un-fakeable human approval is the PR review). Detects two directives:
 #   approve-plan  -> stamps the branch plan-lock approved:true (unlocks source edits)
 #   approve-ship  -> writes pass-approved bound to the current diff (unlocks the commit)
 # Never blocks; only records approval. Stdout is surfaced to the session as confirmation.

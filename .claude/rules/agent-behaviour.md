@@ -47,11 +47,13 @@ docker compose up -d && pnpm test:e2e
 
 ---
 
-## Locked delivery flow (gated — enforced by hooks)
+## Delivery flow (guardrails, not barricades)
 
-Every change moves through four gated stages. The gates are **hooks** (hard-block, every Claude-Code
-session); the stages live **inside existing skills** — there is no new skill to learn. Full reference:
-`.claude/README.md`; completion contract: `.claude/references/definition-of-done.md`.
+Every change moves through four stages. The hooks are **guardrails** — best-effort speed bumps that
+catch honest mistakes and make the disciplined path the default. They are **not a security boundary**:
+a determined agent can bypass them, so the real enforcement is CI + required human PR review + branch
+protection. The stages live **inside existing skills** — there is no new skill to learn. Full
+reference: `.claude/README.md`; completion contract: `.claude/references/definition-of-done.md`.
 
 | Stage      | Run it with                                                                              | Gate (hook)                                                                           |
 | ---------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -60,10 +62,12 @@ session); the stages live **inside existing skills** — there is no new skill t
 | **Review** | `/review` (+ `/security-review`) → `write-review.sh` writes `review.json`                | review needs plan+code+tests                                                          |
 | **Ship**   | the loop's **commit procedure** (exit condition → marker → commit → PR)                  | `commit-gate` blocks `git commit` without a fresh marker + matching review            |
 
-The human sits at **two real checkpoints**: type `approve-plan` (start) and `approve-ship` (end) in
-chat. The agent **cannot self-approve** — the `approval-gate` hook fires on your prompt, which the
-agent cannot emit. `OPENWIND_AUTOPASS=1` graduates the pass to auto. The agent does everything in between. Never run a bare `git commit` — it
-is blocked; use the commit procedure, which writes the marker that unlocks it. `PROGRESS.md` and
+The human approves twice: type `approve-plan` (start) and `approve-ship` (end) in chat. The
+`approval-gate` hook fires on your prompt rather than agent output, which makes _accidental_
+self-approval unlikely — but it is not a hard guarantee (the approval state is a plain file). The
+real, un-fakeable human approval is the **PR review**. `OPENWIND_AUTOPASS=1` graduates the pass to
+auto. The agent does everything in between; use the commit procedure rather than a bare `git commit`
+(the marker is what the gate looks for). `PROGRESS.md` and
 `BLOCKERS.md` are written during this flow (and are gitignored). Bypass envs exist for genuine cases
 and are logged to `.claude/state/bypass.log`.
 
@@ -106,7 +110,7 @@ and are logged to `.claude/state/bypass.log`.
 5. Commit procedure (exit condition → marker → `git commit` → push → PR) — never a bare `git commit` — _Ship gate_
 6. `/ultrareview` before merge; update `docs/sup-docs/week-log.md` and `docs/sup-docs/roadmap-tracker.md`
 
-See **Locked delivery flow** above and `.claude/README.md` for the gates that enforce each step.
+See the **Delivery flow** section above and `.claude/README.md` for the guardrails that guide each step.
 
 ---
 

@@ -30,7 +30,7 @@ if(mode==="set"){
     scope_paths:p.scope_paths||[]
   };
   fs.writeFileSync(statePath,JSON.stringify(plan,null,2));
-  console.log("plan-lock DRAFTED (approved:false) for "+plan.branch+". Present the criteria to the human; they type \"approve-plan\" in chat to approve (the agent cannot self-approve).");
+  console.log("plan-lock DRAFTED (approved:false) for "+plan.branch+". Present the criteria to the human; they type \"approve-plan\" in chat to approve (the agent must not self-approve).");
   process.exit(0);
 }
 console.error("usage: write-plan.sh set <payload.json|-> | write-plan.sh approve"); process.exit(1);

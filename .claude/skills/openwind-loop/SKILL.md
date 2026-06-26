@@ -28,7 +28,7 @@ Each iteration is two separate Claude Code invocations with no shared context.
 6a. FREEZE THE PLAN-LOCK — if there is no approved plan-lock for this branch, build a payload from
     the chosen criterion (with a `verify` command + `scope_paths`), run
     `echo '<payload>' | .claude/hooks/write-plan.sh set -`, present the criteria to the human, and
-    ask them to type `approve-plan` in chat (the agent cannot self-approve). The edit gate blocks
+    ask them to type `approve-plan` in chat (the agent must not self-approve). The edit gate guards
     source edits until the human has approved. (Same mechanism as /spec-tasks; see it for the payload.)
 7. Do one unit of work (one migration, one package feature, one test suite) — all edits + tests first
 8. Write what was done and what is next to PROGRESS.md
@@ -99,7 +99,8 @@ PROGRESS.md in the main worktree so the verifier has a unified view.
 
 ## Commit procedure (the SHIP stage — never raw `git commit`)
 
-The commit gate hard-blocks a bare `git commit`. Once a unit is complete, run this procedure (it is
+The commit gate blocks a bare `git commit` in the common path (best-effort; bypassable via a subshell
+or `SHIP_BYPASS=1`). Once a unit is complete, run this procedure (it is
 the canonical, gate-respecting way _any_ change — even a one-liner — gets committed; there is no new
 skill to learn):
 
@@ -111,7 +112,7 @@ skill to learn):
    approved plan-lock exists, the diff is non-empty, and tests are present). Payload carries
    `verdict`, `dod_met`, `dod_unmet`, `security_review`.
 5. **Present the pass to the human; they type `approve-ship` in chat** to approve it — the agent
-   cannot self-approve. The commit gate stays blocked until that approval matches the diff. Required
+   must not self-approve. The commit gate stays blocked until that approval matches the diff. Required
    on every commit until the owner sets `OPENWIND_AUTOPASS=1`.
 6. Stage explicitly (never `git add -A`). Update `docs/sup-docs/week-log.md` + `roadmap-tracker.md`.
 7. `.claude/hooks/write-ship-marker.sh` — **write the marker LAST**, after the exit condition and

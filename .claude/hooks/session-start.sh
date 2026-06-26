@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # session-start.sh — SessionStart
-# Injects the gated-delivery rules into context every session (mechanical, not advisory:
-# the agent cannot rationalise away a rule it is reminded of every session AND a hook enforces).
+# Injects the delivery-guardrail rules into context every session as a reminder. These are
+# best-effort nudges, not an enforcement boundary (the body text says so explicitly).
 cat <<'EOF'
-OpenWind gated delivery is ACTIVE for Claude Code in this repo (plain git + CI are unaffected).
+OpenWind delivery guardrails are ACTIVE for Claude Code in this repo (plain git + CI are unaffected).
+These are GUARDRAILS, not barricades - a best-effort speed bump that catches honest mistakes and makes
+the disciplined path the default. They are NOT a security boundary (a determined agent can bypass
+them). The real gate is CI (active today); required PR review + branch protection are recommended and must be enabled in repo settings.
 
-Pipeline — each stage gated on the prior stage's artifact (hard-block for all sessions):
+Pipeline - the hooks nudge you to produce each stage's artifact before the next:
   PLAN  -> agent drafts acceptance criteria + scope (/spec-tasks or the openwind-loop pick step).
-           The HUMAN approves by typing "approve-plan" in chat - the agent CANNOT self-approve.
-           Edit gate blocks source edits until plan.json is human-approved.
+           The HUMAN approves by typing "approve-plan" in chat (so accidental self-approval is
+           unlikely; the un-fakeable human gate is the PR review). Edit gate guards source edits.
   CODE  -> all edits + tests land first. No mid-review.
   REVIEW-> one /review at the end (+ /security-review if auth/db/routes/files/secrets). Writes review.json.
   SHIP  -> run `pnpm typecheck && pnpm lint && pnpm test && pnpm test:isolation`, write the marker,
            then the HUMAN types "approve-ship" to approve the pass. Commit gate blocks `git commit`
            until the marker, the review, AND the human pass-approval all match the diff. Never raw `git commit`.
 
-Hard blocks (with bypass env, all logged to .claude/state/bypass.log):
+Best-effort blocks (with documented bypass env, all logged to .claude/state/bypass.log):
   - edit source without a HUMAN-approved plan-lock                       (OPENWIND_GATE=off)
   - git commit without marker + matching review + human pass-approval    (SHIP_BYPASS=1)
   - edit on main/develop, modules/*.ts, ADRs, .github/workflows/*        (OPENWIND_OFFLIMITS=ack / OPENWIND_ALLOW_MODULE_TS=1)

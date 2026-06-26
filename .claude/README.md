@@ -1,18 +1,32 @@
 # `.claude/` — Agent guardrails for OpenWind
 
 This directory configures **Claude Code** for this repo: rules, context docs, prompt scaffolds,
-skills, and a set of **hooks that enforce a gated delivery flow**. The hooks are the _teeth_; the
-skills produce the artifacts the hooks check.
+skills, and a set of **hooks that guide a disciplined delivery flow** (Plan → Code → Review → Ship).
+
+> ### These are guardrails, not barricades
+>
+> The hooks make the disciplined path the easy default and catch **honest mistakes** early — fast
+> local feedback before CI. They are **not a security boundary.** A determined agent can bypass them
+> (write its own state files directly, write files via `Bash` instead of the Write tool, or run a
+> wrapper script the per-command hooks don't see). They are deliberately best-effort.
+>
+> **The real enforcement lives outside these scripts — and most of it must be enabled in GitHub
+> settings, not here:** **CI** is active today and runs on every PR (the only currently-binding gate).
+> **Branch protection + required PR review** are what make the human approval un-fakeable, and a
+> `.github/CODEOWNERS` (for `.claude/` · `scripts/` · `.github/`) is included — but CODEOWNERS only
+> has teeth once a branch-protection rule requires code-owner review, which is **not yet configured.**
+> Until then, treat the hooks as a seatbelt, not a vault, and CI as the floor.
 
 > **Not using Claude Code? This does not affect you.** Every hook here fires _only_ inside a Claude
 > Code session. Plain `git`, the Husky `pre-commit`/`commit-msg` hooks, and GitHub Actions CI are
 > untouched. Human PRs are gated by CI exactly as before. Nothing in this directory can block a
 > contributor who does not run Claude Code.
 
-## The gated delivery flow
+## The delivery flow
 
-Work moves through four stages; each is independently runnable and pausable, and **each is gated on
-the previous stage's artifact** (hard block, every session):
+Work moves through four stages; each is independently runnable and pausable. Each **nudges** you to
+produce the previous stage's artifact before the next — a speed bump that makes the disciplined path
+the default, not a hard wall (see "guardrails, not barricades" above):
 
 ```
  PLAN ─────────► CODE ─────────► REVIEW ─────────► SHIP
@@ -29,17 +43,19 @@ The discipline lives **inside the existing skills** — `/spec-tasks` (or the `o
 step) freezes the plan, `/review` + `/security-review` produce the review, the loop's commit
 procedure ships. No new skill to learn.
 
-### Two human checkpoints (real — the agent cannot self-approve)
+### Two human checkpoints (a convention the hooks encourage)
 
-Approval enters the system **only** through the `approval-gate` hook, which fires on _your prompt_ —
-something the agent cannot emit (it produces tool calls + text, never a user message). So the agent
-literally cannot approve its own work.
+The intent is that a human approves twice — `approve-plan` (unlock edits) and `approve-ship` (unlock
+the commit) — via the `approval-gate` hook, which fires on _your_ chat message rather than agent
+output. That makes **accidental** self-approval unlikely. It is **not** a hard guarantee: the approval
+state is a plain file, so a determined agent can still write it. The approval that genuinely cannot be
+faked is the **human review on the pull request** — _once branch protection requires it_. Keep that
+as the real gate. `OPENWIND_AUTOPASS=1` skips the ship checkpoint.
 
-1. **Approve the freeze** (start) — the agent drafts `plan.json`; **you type `approve-plan`** in chat
-   to unlock source edits. The agent's `write-plan.sh approve` is refused.
-2. **Approve the pass** (end) — after the checks pass, **you type `approve-ship`**; the commit gate
-   stays blocked until that approval matches the exact diff being committed. Set `OPENWIND_AUTOPASS=1`
-   to graduate to auto (skips the pass checkpoint).
+1. **Approve the freeze** (start) — the agent drafts `plan.json`; you type `approve-plan` in chat to
+   unlock source edits. The agent's `write-plan.sh approve` is refused (it must ask you).
+2. **Approve the pass** (end) — after the checks pass, you type `approve-ship`; the commit gate
+   stays blocked until that approval matches the exact diff being committed.
 
 ## Hooks
 

@@ -25,8 +25,8 @@ No argument: uses `SPEC.md` at repo root.
 ## Freeze the plan-lock (gated delivery)
 
 Finalizing a plan **freezes a branch plan-lock** — the agreed acceptance-criteria contract the
-edit gate requires before any source edit. Without it, `apps/`·`packages/`·`modules/` edits are
-hard-blocked (see `.claude/README.md`).
+edit gate looks for before any source edit. Without it, `apps/`·`packages/`·`modules/` edits through
+the Write/Edit tools are blocked by default (best-effort, bypassable — see `.claude/README.md`).
 
 1. Build a payload from §R and §T — each criterion carries a **`verify` command**, not just prose:
 
@@ -48,7 +48,7 @@ hard-blocked (see `.claude/README.md`).
 
 2. Write it: `echo '<payload>' | .claude/hooks/write-plan.sh set -` (writes `approved:false`).
 3. **Present the criteria + scope to the human; they type `approve-plan` in chat to approve.** The
-   agent cannot self-approve — `write-plan.sh approve` is refused; only a human prompt stamps it
+   agent should not self-approve — `write-plan.sh approve` is refused; a human prompt stamps it
    (via the `approval-gate` hook). Hedged answers ("looks fine", "I guess") are **not** approval.
 4. Only now may coding begin. Implement against the locked criteria; do not expand scope without
    re-freezing.
