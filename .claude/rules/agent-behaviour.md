@@ -47,6 +47,32 @@ docker compose up -d && pnpm test:e2e
 
 ---
 
+## Delivery flow (guardrails, not barricades)
+
+Every change moves through four stages. The hooks are **guardrails** — best-effort speed bumps that
+catch honest mistakes and make the disciplined path the default. They are **not a security boundary**:
+a determined agent can bypass them, so the real enforcement is CI + required human PR review + branch
+protection. The stages live **inside existing skills** — there is no new skill to learn. Full
+reference: `.claude/README.md`; completion contract: `.claude/references/definition-of-done.md`.
+
+| Stage      | Run it with                                                                              | Gate (hook)                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **Plan**   | `/spec-tasks` or the `openwind-loop` pick step → freezes `plan.json`, **you approve it** | —                                                                                     |
+| **Code**   | normal editing                                                                           | `edit-gate` blocks `apps/`·`packages/`·`modules/` edits without an approved plan-lock |
+| **Review** | `/review` (+ `/security-review`) → `write-review.sh` writes `review.json`                | review needs plan+code+tests                                                          |
+| **Ship**   | the loop's **commit procedure** (exit condition → marker → commit → PR)                  | `commit-gate` blocks `git commit` without a fresh marker + matching review            |
+
+The human approves twice: type `approve-plan` (start) and `approve-ship` (end) in chat. The
+`approval-gate` hook fires on your prompt rather than agent output, which makes _accidental_
+self-approval unlikely — but it is not a hard guarantee (the approval state is a plain file). The
+real, un-fakeable human approval is the **PR review**. `OPENWIND_AUTOPASS=1` graduates the pass to
+auto. The agent does everything in between; use the commit procedure rather than a bare `git commit`
+(the marker is what the gate looks for). `PROGRESS.md` and
+`BLOCKERS.md` are written during this flow (and are gitignored). Bypass envs exist for genuine cases
+and are logged to `.claude/state/bypass.log`.
+
+---
+
 ## Autonomy rules
 
 **Proceed without asking:**
@@ -68,7 +94,7 @@ docker compose up -d && pnpm test:e2e
 
 - Touch issue #2 (SSRF/PII gaps) — human review required
 - Enable or implement parallel approval — deferred to Phase 3
-- Modify `.github/workflows/ci.yml`
+- Modify any `.github/workflows/` file (CI/CD — secret-exfiltration / check-disabling risk)
 - Write or modify ADR files in `docs/decisions/`
 - Force-push or rebase published commits
 - Touch schema cache or `redis.keys()` code
@@ -78,30 +104,56 @@ docker compose up -d && pnpm test:e2e
 ## Session workflow (every feature track)
 
 1. `/spec` — write spec referencing the ADR, engine it touches, and data flow
-2. `/spec-tasks` — turn spec into ordered task list
-3. Implement with tests in same pass — never implementation without tests
-4. `gh pr create` → `/ultrareview` before merge
-5. For PRs touching auth, new tables, new routes, or files: also run `/security-review`
-6. Update `docs/sup-docs/week-log.md` and `docs/sup-docs/roadmap-tracker.md`
+2. `/spec-tasks` — turn spec into ordered task list **and freeze the plan-lock (you approve it)** — _Plan gate_
+3. Implement with tests in same pass — never implementation without tests. All edits first, no mid-review — _Code gate: needs the approved plan_
+4. `/review` (+ `/security-review` for auth/tables/routes/files/secrets) → `write-review.sh` — _Review gate: needs plan+code+tests_
+5. Commit procedure (exit condition → marker → `git commit` → push → PR) — never a bare `git commit` — _Ship gate_
+6. `/ultrareview` before merge; update `docs/sup-docs/week-log.md` and `docs/sup-docs/roadmap-tracker.md`
+
+See the **Delivery flow** section above and `.claude/README.md` for the guardrails that guide each step.
 
 ---
 
 ## Available skills
 
-| Skill              | When to use                                                              |
-| ------------------ | ------------------------------------------------------------------------ |
-| `/spec`            | Before any new feature                                                   |
-| `/spec-tasks`      | Turn a spec into an ordered task list                                    |
-| `/spec-review`     | Stress-test a spec before implementation                                 |
-| `/security-review` | Any PR touching auth, new tables, routes, file access, secrets           |
-| `/review`          | Standard PR review                                                       |
-| `/verify`          | After implementation — confirm the feature works end-to-end              |
-| `/simplify`        | Post-implementation code quality pass                                    |
-| `/openwind-loop`   | Project-specific loop: exact commands, config-first test, exit condition |
+| Skill                          | When to use                                                               |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| `/spec`                        | Before any new feature                                                    |
+| `/spec-tasks`                  | Turn a spec into an ordered task list                                     |
+| `/spec-review`                 | Stress-test a spec before implementation                                  |
+| `/security-review`             | Any PR touching auth, new tables, routes, file access, secrets            |
+| `/review`                      | Standard PR review                                                        |
+| `/verify`                      | After implementation — confirm the feature works end-to-end               |
+| `/simplify`                    | Post-implementation code quality pass                                     |
+| `/openwind-loop`               | Project-specific loop: exact commands, config-first test, exit condition  |
+| `doubt-driven-development`     | Adversarial review of a non-trivial decision before it stands             |
+| `debugging-and-error-recovery` | Systematic root-cause debugging when a failure isn't obvious              |
+| `source-driven-development`    | Implementation grounded in official versioned docs (Phase 3 integrations) |
+| `interview-me`                 | Extract what the user actually wants before speccing or building          |
+| `idea-refine`                  | Transform a vague idea into a sharp direction with explicit trade-offs    |
 
 `/ultrareview` is a built-in Claude Code workflow (not a skill) — type it in any session.
 It launches a parallel multi-agent review across correctness, security, and performance dimensions.
 Run on all non-trivial PRs before merge.
+
+---
+
+## Failure modes to avoid
+
+These are the most common ways agent output degrades — watch for them in your own work:
+
+- **Wrong assumptions** — filling in ambiguous requirements without surfacing them.
+  Use `interview-me` or write the assumption to BLOCKERS.md before proceeding.
+- **Not managing confusion** — pressing forward when something doesn't add up.
+  Stop, name the confusion, present the trade-off, wait for guidance.
+- **Modifying orthogonal code** — touching files outside the task's scope.
+  The config-first test catches this for `modules/`; apply the same discipline everywhere.
+- **Skipping verification** — marking a criterion done based on "it seems right".
+  Evidence required: tests pass, typecheck clean, lint clean.
+- **Overcomplicated implementation** — three similar lines is better than a premature abstraction.
+  If you are adding an abstraction, name the concrete duplication it removes.
+- **False confidence on framework patterns** — using training-data patterns for versioned APIs.
+  Use `source-driven-development` when the correctness of a pattern depends on the package version.
 
 ---
 

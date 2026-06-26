@@ -17,7 +17,46 @@ No argument: uses `SPEC.md` at repo root.
 3. Expand `§T` into a full phase plan (see OUTPUT FORMAT)
 4. Update the `§T` table in the spec file with any new/refined tasks
 5. Save the expanded plan to `docs/specs/<filename>-tasks.md`
-6. Print the kick-off prompt
+6. **Freeze the plan-lock** (see below) — this is the gate that lets coding begin
+7. Print the kick-off prompt
+
+---
+
+## Freeze the plan-lock (gated delivery)
+
+Finalizing a plan **freezes a branch plan-lock** — the agreed acceptance-criteria contract the
+edit gate looks for before any source edit. Without it, `apps/`·`packages/`·`modules/` edits through
+the Write/Edit tools are blocked by default (best-effort, bypassable — see `.claude/README.md`).
+
+1. Build a payload from §R and §T — each criterion carries a **`verify` command**, not just prose:
+
+   ```json
+   {
+     "track": "<track or feature>",
+     "spec_ref": "docs/specs/<filename>.md",
+     "adr_refs": ["docs/decisions/ADR-00X-...md"],
+     "acceptance_criteria": [
+       {
+         "id": "AC1",
+         "text": "<testable outcome>",
+         "verify": "pnpm test:isolation -t <name>"
+       }
+     ],
+     "scope_paths": ["packages/db/**", "tests/isolation/**"]
+   }
+   ```
+
+2. Write it: `echo '<payload>' | .claude/hooks/write-plan.sh set -` (writes `approved:false`).
+3. **Present the criteria + scope to the human; they type `approve-plan` in chat to approve.** The
+   agent should not self-approve — `write-plan.sh approve` is refused; a human prompt stamps it
+   (via the `approval-gate` hook). Hedged answers ("looks fine", "I guess") are **not** approval.
+4. Only now may coding begin. Implement against the locked criteria; do not expand scope without
+   re-freezing.
+
+| The excuse                              | The reality                                                                         |
+| --------------------------------------- | ----------------------------------------------------------------------------------- |
+| "It's a one-line fix, skip the plan."   | The edit gate blocks it anyway. A one-criterion freeze takes seconds.               |
+| "I'll approve my own plan and move on." | The edit gate needs `approved:true` — and approval is the human's, not the agent's. |
 
 ---
 

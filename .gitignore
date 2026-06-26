@@ -55,6 +55,11 @@ Thumbs.db
 .claude/skills/pre-pr-review/
 .claire/
 
+# Claude Code — guardrail state (per-branch/session, never commit)
+.claude/state/
+PROGRESS.md
+BLOCKERS.md
+
 # Test coverage
 coverage/
 

@@ -249,6 +249,25 @@ See [CLAUDE.md](CLAUDE.md) for the full conventions reference.
 
 ---
 
+## Working with Claude Code (optional)
+
+If you use [Claude Code](https://claude.com/claude-code) on this repo, the `.claude/` directory adds
+a **delivery flow** (Plan → Code → Review → Ship) guided by best-effort hooks (guardrails, not a
+security boundary — the real gate is CI, and PR review once branch protection requires it): you freeze and approve an
+acceptance-criteria plan before editing source, review once at the end, and commit through a
+procedure that runs the full exit condition. See [`.claude/README.md`](.claude/README.md).
+
+**This is Claude-Code-only and does not change how you contribute.** The hooks fire only inside a
+Claude Code session. Plain `git`, the Husky `pre-commit`/`commit-msg` hooks, and CI are untouched —
+human PRs are gated by CI exactly as documented above. You never need Claude Code to contribute.
+
+The **Contribution guardrails** CI workflow enforces the same intent for _everyone_ (not just Claude
+Code users): source changes should ship with tests, new tables/routes need isolation tests, and
+`modules/` stays TypeScript-free. For a genuinely exempt change, put `[skip-tests-check]` or
+`[skip-isolation-check]` in the PR title with a one-line reason.
+
+---
+
 ## License
 
 By contributing to OpenWind, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).
