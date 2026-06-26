@@ -21,7 +21,10 @@ function gitSub(c, s) {
   const re = /\bgit\b((?:\s+(?:-C\s+\S+|-c\s+\S+|--[\w-]+(?:=\S+)?|-[A-Za-z]+))*)\s+([a-z][a-z-]*)/g;
   let m; while ((m = re.exec(c)) !== null) { if (m[2] === s) return true; } return false;
 }
-if (!gitSub(cmd.replace(/[\x27\x22]/g, " "), "commit")) process.exit(0);
+// Strip QUOTED SPANS (their content is data: messages, grep patterns, echo text) before detecting a
+// real subcommand - so `grep "git commit"` / `echo "...git commit..."` are not treated as commits.
+const noStr = cmd.replace(/"[^"]*"/g, " ").replace(/\x27[^\x27]*\x27/g, " ");
+if (!gitSub(noStr, "commit")) process.exit(0);
 if (/--help\b|\s-h\b|--version\b/.test(cmd)) process.exit(0);
 function ensureDir() { try { fs.mkdirSync(repo + "/.claude/state", { recursive: true }); } catch (e) {} }
 if (process.env.SHIP_BYPASS === "1" || /(?:^|[;&|]|\s)SHIP_BYPASS=1\s+(?:[A-Za-z_]\w*=\S+\s+)*git\b/.test(cmd)) {

@@ -16,7 +16,8 @@ function gitSub(c, s) {
   const re = /\bgit\b((?:\s+(?:-C\s+\S+|-c\s+\S+|--[\w-]+(?:=\S+)?|-[A-Za-z]+))*)\s+([a-z][a-z-]*)/g;
   let m; while ((m = re.exec(c)) !== null) { if (m[2] === s) return true; } return false;
 }
-if (!gitSub(cmd.replace(/[\x27\x22]/g, " "), "commit")) process.exit(0);
+const noStr = cmd.replace(/"[^"]*"/g, " ").replace(/\x27[^\x27]*\x27/g, " ");
+if (!gitSub(noStr, "commit")) process.exit(0);
 // Clean up only when the commit verifiably landed: a marker exists AND HEAD advanced past the
 // HEAD it recorded. If there is no marker (e.g. the SHIP_BYPASS path writes none) or HEAD is
 // unchanged (commit rejected by husky), do NOT delete claimed-done — leave it for verify-stop,

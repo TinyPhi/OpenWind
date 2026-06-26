@@ -19,7 +19,14 @@ fs.mkdirSync(repo + "/.claude/state", { recursive: true });
 function branch() { try { return cp.execSync("git rev-parse --abbrev-ref HEAD", { cwd: repo }).toString().trim(); } catch (e) { return ""; } }
 function sha(args) { try { return crypto.createHash("sha256").update(cp.execSync("git " + args, { cwd: repo })).digest("hex"); } catch (e) { return null; } }
 const out = [];
-if (/\bapprove-plan\b/i.test(prompt)) {
+function isApprove(kw) {
+  // fire only when the directive LEADS a line (optionally after a short affirmative) and is not
+  // negated/questioned - so "what does approve-ship do?" or "do NOT approve-plan" do not approve.
+  const atStart = new RegExp("(?:^|\\n)\\s*(?:ok|yes|please|sure|go ahead|approved?)?[\\s,:!.-]*" + kw + "\\b", "i").test(prompt);
+  const negated = new RegExp("\\b(?:not|never|no|why|what|how|explain|describe|cannot)\\b[^\\n]*" + kw, "i").test(prompt);
+  return atStart && !negated;
+}
+if (isApprove("approve-plan")) {
   let plan = null;
   try { plan = JSON.parse(fs.readFileSync(repo + "/.claude/state/plan.json", "utf8")); } catch (e) {}
   if (!plan) out.push("[approval-gate] No plan-lock to approve - the agent must draft one (write-plan.sh set) first.");
@@ -30,7 +37,7 @@ if (/\bapprove-plan\b/i.test(prompt)) {
     out.push("[approval-gate] PLAN APPROVED by human for " + plan.branch + " - source edits unlocked.");
   }
 }
-if (/\bapprove-ship\b/i.test(prompt)) {
+if (isApprove("approve-ship")) {
   let marker = null;
   try { marker = JSON.parse(fs.readFileSync(repo + "/.claude/state/ship-ready.json", "utf8")); } catch (e) {}
   const staged = sha("diff --staged");

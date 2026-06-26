@@ -20,7 +20,7 @@ let rel = fp;
 if (rel.indexOf(repo) === 0) rel = rel.slice(repo.length).replace(/^\/+/, "");
 // Only gate real source/schema files under the source roots - docs/config (.md, .json,
 // .env.example, etc.) under apps/packages/modules edit freely without a plan-lock.
-if (!/^(apps|packages|modules)\/.*\.(ts|tsx|js|jsx|mjs|cjs|sql)$/.test(rel)) process.exit(0);
+if (!/^(apps|packages|modules)\/.*\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|sql)$/.test(rel)) process.exit(0);
 // Tests edit freely - writing a test should never require a plan-lock. verify-stop still
 // requires tests committed before "done", so this stays consistent with that hook.
 if (/\.(test|spec)\.[tj]sx?$|(^|\/)(tests?|__tests__)\//.test(rel)) process.exit(0);

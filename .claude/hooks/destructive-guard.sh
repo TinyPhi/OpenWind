@@ -23,7 +23,7 @@ function block(msg) {
 const rmRecursive = /\brm\b[^|;&]*(?:\s-[A-Za-z]*r[A-Za-z]*\b|\s--recursive\b)/.test(cmd);
 const rmForce = /\brm\b[^|;&]*(?:\s-[A-Za-z]*f[A-Za-z]*\b|\s--force\b)/.test(cmd);
 if (rmRecursive && rmForce) {
-  if (/\brm\s+[^\n]*\s(\/|~|\$HOME|\.git\b|\*|\.\.\/|\s\.\s|\s\.$)/.test(cmd) ||
+  if (/\brm\s+[^\n]*\s(\/|~|\$HOME|\.git\b|\*|\.\.(\/|\s|$)|\s\.\s|\s\.$)/.test(cmd) ||
       /\brm\s+-[a-zA-Z]*\s+(\/|~|\.|\*)\s*$/.test(cmd) ||
       /\brm\s[^|;&]*\s\.\/(\*|\s|$)/.test(cmd)) {
     block("rm -rf targeting a risky path (root, home, repo root, .git, cwd, or a bare glob).");
@@ -39,7 +39,15 @@ if (/\b(DROP\s+TABLE|TRUNCATE\s+TABLE)\b/i.test(cmd) && !/migration|\.sql\b/i.te
   block("DROP TABLE / TRUNCATE TABLE outside a migration file.");
 }
 // git history / verify hazards
-if (/\bgit\s+commit\b[^|;&]*(--no-verify|\s-[A-Za-z]*n[A-Za-z]*\b)/.test(cmd)) block("git commit --no-verify (incl. combined short flags like -anm) bypasses husky/commitlint. Fix the issue instead.");
+{
+  const gi = cmd.search(/\bgit\s+commit\b/);
+  if (gi >= 0) {
+    let region = cmd.slice(gi);
+    const mi = region.search(/\s(-m\b|-F\b|--message\b|--file\b)/); // stop before the commit message
+    if (mi >= 0) region = region.slice(0, mi);
+    if (/(--no-verify|\s-[A-Za-z]*n[A-Za-z]*\b)/.test(region)) block("git commit --no-verify (incl. combined short flags like -anm) bypasses husky/commitlint. Fix the issue instead.");
+  }
+}
 if (/\bgit\s+push\b[^|;&]*(--force\b|--force-with-lease\b|\s-f\b|\s\+[A-Za-z0-9._\/@^~-]+(:[A-Za-z0-9._\/@^~-]+)?)/.test(cmd)) block("git push force-update (--force / -f / --force-with-lease / +refspec) can overwrite published history.");
 process.exit(0);
 '

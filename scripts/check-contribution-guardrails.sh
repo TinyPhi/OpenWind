@@ -21,7 +21,7 @@ bad() {
 good() { echo "  ✓ $1"; }
 
 echo "== config-first (ADR-004): no TypeScript under modules/ =="
-MOD_TS=$(printf '%s\n' "$ADDED" | grep -E '^modules/.*\.(ts|tsx)$' || true)
+MOD_TS=$(printf '%s\n' "$ADDED" | grep -E '^modules/.*\.(ts|tsx)$' | grep -vE '(^|/)index\.tsx?$' || true)
 if [ -n "$MOD_TS" ]; then
   bad "TypeScript added under modules/ — modules are seed SQL only:"
   printf '%s\n' "$MOD_TS" | sed 's/^/        /'

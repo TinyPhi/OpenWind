@@ -64,7 +64,7 @@ as the real gate. `OPENWIND_AUTOPASS=1` skips the ship checkpoint.
 | `edit-gate.sh`         | PreToolUse `Write\|Edit` | no edits to `apps/`·`packages/`·`modules/` without an **approved** `plan.json`                                                                  | hard        | `OPENWIND_GATE=off`                                    |
 | `commit-gate.sh`       | PreToolUse `Bash`        | no `git commit` without a fresh marker, a review matching the diff, **and** the human `approve-ship`                                            | hard        | `SHIP_BYPASS=1`                                        |
 | `ship-cleanup.sh`      | PostToolUse `Bash`       | deletes the marker + done-sentinel after a commit (one-shot)                                                                                    | —           | —                                                      |
-| `destructive-guard.sh` | PreToolUse `Bash`        | blocks `rm -rf` on risky paths, `DROP`/`TRUNCATE`, `--no-verify`, `push --force`                                                                | hard        | none                                                   |
+| `destructive-guard.sh` | PreToolUse `Bash`        | blocks `rm -rf` on risky paths, `DROP`/`TRUNCATE TABLE`, `--no-verify`, `push --force`                                                          | default     | subshell/wrapper (like all hooks)                      |
 | `protected-paths.sh`   | PreToolUse `Write\|Edit` | blocks edits on `main`/`develop`, `modules/*.ts`, ADRs, `.github/workflows/*`, `.env*`                                                          | hard        | `OPENWIND_OFFLIMITS=ack`, `OPENWIND_ALLOW_MODULE_TS=1` |
 | `verify-stop.sh`       | Stop                     | only when a `claimed-done` sentinel exists: blocks a _false_ "done" if the pipeline did not finish (cheap check; does **not** re-run typecheck) | conditional | clear the sentinel                                     |
 | `session-start.sh`     | SessionStart             | injects the rules into context each session                                                                                                     | —           | —                                                      |
@@ -74,8 +74,8 @@ as the real gate. `OPENWIND_AUTOPASS=1` skips the ship checkpoint.
 
 Plus `approval-gate.sh` (UserPromptSubmit) — the human-only approval path (`approve-plan` /
 `approve-ship`) — and `mark-done.sh` — the helper the agent runs to assert completion (writes the
-sentinel `verify-stop` checks). The two **existing** hooks are preserved: a PostToolUse ESLint pass
-on edited `.ts` files, and a new-migration reminder.
+sentinel `verify-stop` checks). The two **existing** hooks are preserved as-is (a PostToolUse ESLint
+pass and a new-migration reminder; left untouched, and not relied upon by this flow).
 
 ## State (`.claude/state/`, gitignored)
 

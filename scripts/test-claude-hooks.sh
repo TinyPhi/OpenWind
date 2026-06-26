@@ -46,6 +46,7 @@ ck 0 "docs under packages/ not gated" "$(hook edit-gate.sh '{"tool_name":"Write"
 ck 2 ".ts under packages/ gated" "$(hook edit-gate.sh '{"tool_name":"Write","tool_input":{"file_path":"packages/db/x.ts"}}')"
 ck 2 ".sql under modules/ gated" "$(hook edit-gate.sh '{"tool_name":"Write","tool_input":{"file_path":"modules/crm/002.sql"}}')"
 ck 0 "test files exempt" "$(hook edit-gate.sh '{"tool_name":"Write","tool_input":{"file_path":"packages/db/foo.test.ts"}}')"
+ck 2 ".mts under packages gated" "$(hook edit-gate.sh '{"tool_name":"Write","tool_input":{"file_path":"packages/db/x.mts"}}')"
 ck 0 "outside source roots ignored" "$(hook edit-gate.sh '{"tool_name":"Edit","tool_input":{"file_path":"docs/x.md"}}')"
 
 echo "commit-gate (bypass anchoring):"
@@ -53,8 +54,10 @@ ck 2 "SHIP_BYPASS token in -m message does NOT bypass" "$(hook commit-gate.sh '{
 ck 0 "SHIP_BYPASS prefix bypasses (standalone)" "$(hook commit-gate.sh '{"tool_name":"Bash","tool_input":{"command":"SHIP_BYPASS=1 git commit -m x"}}')"
 ck 0 "SHIP_BYPASS prefix bypasses (mid-compound)" "$(hook commit-gate.sh '{"tool_name":"Bash","tool_input":{"command":"cd /tmp && SHIP_BYPASS=1 git commit -m x"}}')"
 ck 0 "non-commit git command ignored" "$(hook commit-gate.sh '{"tool_name":"Bash","tool_input":{"command":"git status"}}')"
-ck 2 "quoted subcommand git \"commit\" still gated" "$(hook commit-gate.sh '{"tool_name":"Bash","tool_input":{"command":"git \"commit\" -m x"}}')"
+ck 0 "quoted subcommand git \"commit\" is a best-effort miss (allowed; quotes = data)" "$(hook commit-gate.sh '{"tool_name":"Bash","tool_input":{"command":"git \"commit\" -m x"}}')"
 ck 2 "git -c k=v commit still gated" "$(hook commit-gate.sh '{"tool_name":"Bash","tool_input":{"command":"git -c user.name=A commit -m x"}}')"
+ck 0 "grep mentioning \"git commit\" NOT gated" "$(hook commit-gate.sh '{"tool_name":"Bash","tool_input":{"command":"grep -r \"git commit\" docs/"}}')"
+ck 0 "echo mentioning git commit NOT gated" "$(hook commit-gate.sh '{"tool_name":"Bash","tool_input":{"command":"echo \"remember to git commit later\""}}')"
 
 echo "destructive-guard:"
 ck 2 "rm -rf / blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}')"
@@ -70,11 +73,16 @@ ck 2 "git push +refspec force blocked" "$(hook destructive-guard.sh '{"tool_name
 ck 0 "normal git push allowed (no force)" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}')"
 ck 2 "git commit --no-verify blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x"}}')"
 ck 2 "git commit -anm combined flag blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -anm wip"}}')"
+ck 0 "commit msg mentioning -n flag NOT blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"fix: handle -n flag in parser\""}}')"
+ck 2 "rm -rf .. (bare parent) blocked" "$(hook destructive-guard.sh '{"tool_name":"Bash","tool_input":{"command":"rm -rf .."}}')"
 
 echo "protected-paths:"
 ck 2 "modules/*.ts blocked" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":"modules/crm/x.ts"}}')"
 ck 2 ".env* blocked" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":".env.local"}}')"
 ck 2 "ADR files blocked" "$(hook protected-paths.sh '{"tool_name":"Edit","tool_input":{"file_path":"docs/decisions/ADR-001-multitenancy.md"}}')"
+ck 2 "prod.env (non-dotfile secret) blocked" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":"apps/api/prod.env"}}')"
+ck 0 ".env.example allowed" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":".env.example"}}')"
+ck 0 "modules stub index.ts allowed by config-first" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":"modules/crm/index.ts"}}')"
 ck 2 "any workflow file blocked" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":".github/workflows/deploy.yml"}}')"
 
 echo "verify-stop (sentinel-gated):"
@@ -121,6 +129,12 @@ ck 1 "agent self-approve (write-plan.sh approve) is refused" $?
 printf '%s' '{"prompt":"please approve-plan now"}' | "$H/approval-gate.sh" >/dev/null 2>&1
 grep -q '"approved": true' .claude/state/plan.json
 ck 0 "human approve-plan prompt stamps approved:true" $?
+rm -f .claude/state/plan.json
+printf '%s' '{"track":"t","acceptance_criteria":[{"text":"x"}],"scope_paths":["**"]}' | "$H/write-plan.sh" set - >/dev/null 2>&1
+printf '%s' '{"prompt":"what does approve-plan do?"}' | "$H/approval-gate.sh" >/dev/null 2>&1
+grep -q '"approved": false' .claude/state/plan.json
+ck 0 "question mentioning approve-plan does NOT approve" $?
+printf '%s' '{"prompt":"approve-plan"}' | "$H/approval-gate.sh" >/dev/null 2>&1  # re-approve so the edit-gate precondition holds
 edit_after_approve=$(printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"packages/db/x.ts"}}' | "$H/edit-gate.sh"; echo $?)
 ck 0 "edit-gate allows source after human plan approval" $edit_after_approve
 

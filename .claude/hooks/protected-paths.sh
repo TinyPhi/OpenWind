@@ -38,8 +38,8 @@ try { branch = cp.execSync("git rev-parse --abbrev-ref HEAD", { cwd: repo }).toS
 if (branch === "main" || branch === "develop") {
   block("These are integration branches. Create a feat/ fix/ chore/ docs/ test/ branch off main first.", null);
 }
-if (/^modules\/.+\.(ts|tsx)$/.test(rel)) {
-  if (!bypassed("OPENWIND_ALLOW_MODULE_TS")) block("Config-first (ADR-004): modules/ is seed SQL only - zero TypeScript. Express this as engine config / seed SQL, or add a missing engine capability via an engine PR.", "OPENWIND_ALLOW_MODULE_TS=1");
+if (/^modules\/.+\.(ts|tsx)$/.test(rel) && !/(^|\/)index\.tsx?$/.test(rel)) {
+  if (!bypassed("OPENWIND_ALLOW_MODULE_TS")) block("Config-first (ADR-004): modules/ is seed SQL only - no TypeScript LOGIC (a one-line stub index.ts is allowed). Express this as engine config / seed SQL, or add a missing engine capability via an engine PR.", "OPENWIND_ALLOW_MODULE_TS=1");
   process.exit(0);
 }
 if (/^docs\/decisions\/ADR/i.test(rel)) {
@@ -47,11 +47,11 @@ if (/^docs\/decisions\/ADR/i.test(rel)) {
   process.exit(0);
 }
 if (/^\.github\/workflows\//.test(rel)) {
-  if (!bypassed("OPENWIND_OFFLIMITS")) block("CI/CD workflows are off-limits to autonomous edits - a malicious or careless workflow can exfiltrate secrets or disable required checks (CLAUDE.md off-limits).", "OPENWIND_OFFLIMITS=ack");
+  if (!bypassed("OPENWIND_OFFLIMITS")) block("CI/CD workflows are off-limits to autonomous edits - a workflow can exfiltrate secrets or disable required checks (CLAUDE.md off-limits). (CODEOWNERS is the real protection for `.github/` and `scripts/`.)", "OPENWIND_OFFLIMITS=ack");
   process.exit(0);
 }
-if (/(^|\/)\.env(\.|$)/.test(rel) && !/(^|\/)\.env\.example$/.test(rel)) {
-  block("Never write secrets/.env files. Use @platform/config + the secrets manager. (.env.example is allowed — it is a checked-in template)", null);
+if ((/(^|\/)\.env(\.|$)/.test(rel) || /\.env$/.test(rel) || /\.env\.[\w-]+$/.test(rel)) && !/\.env\.example$/.test(rel)) {
+  block("Never write secrets/.env files (incl. prod.env, local.env). Use @platform/config + the secrets manager. (.env.example is allowed - it is a checked-in template)", null);
 }
 process.exit(0);
 '
