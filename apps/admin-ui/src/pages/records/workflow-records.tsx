@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import {
+  useParams,
+  Link,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
@@ -42,6 +47,16 @@ type Transition = {
   label: string;
   requiresComment: boolean;
   requiresFields: string[];
+};
+type ChildTicket = {
+  id: string;
+  parentId: string;
+  parentCurrentState: string | null;
+  workflowId: string;
+  fields: Record<string, unknown>;
+  assignedTo: string | null;
+  createdAt: string;
+  accessReason: "assigned" | "mention" | "manual";
 };
 
 function toWorkflowSlug(name: string): string {
@@ -323,6 +338,7 @@ function KanbanColumn({
   allRecords,
   onCardDrop,
   onColumnDrop,
+  childTickets = [],
 }: {
   state: WorkflowState | null;
   records: EntityInstance[];
@@ -334,6 +350,7 @@ function KanbanColumn({
   allRecords: EntityInstance[];
   onCardDrop: (recordId: string, toStateName: string) => void;
   onColumnDrop: (fromStateName: string, toStateName: string) => void;
+  childTickets?: ChildTicket[];
 }): React.ReactElement {
   const [dropState, setDropState] = useState<ColDropState>("idle");
   const enterCount = useRef(0);
@@ -488,9 +505,11 @@ function KanbanColumn({
           />
         ))}
 
-        {records.length === 0 && dropState === "idle" && (
-          <div className="kb-col-empty">No items</div>
-        )}
+        {records.length === 0 &&
+          dropState === "idle" &&
+          childTickets.length === 0 && (
+            <div className="kb-col-empty">No items</div>
+          )}
 
         {dropState === "valid" && (
           <div className="kb-drop-zone">Drop to move here</div>
@@ -498,6 +517,50 @@ function KanbanColumn({
 
         {dropState === "reorder" && (
           <div className="kb-reorder-zone">Insert column here</div>
+        )}
+
+        {/* Sub-tasks — only rendered when user has accessible child tickets in this column */}
+        {childTickets.length > 0 && (
+          <div className="kb-subtasks">
+            <div className="kb-subtasks-divider">
+              <span className="kb-subtasks-label">Sub-tasks</span>
+            </div>
+            {childTickets.map((ct) => {
+              const title =
+                String(
+                  ct.fields.title ?? ct.fields.subject ?? ct.fields.name ?? "",
+                ).trim() || `#${ct.id.slice(0, 8)}`;
+              const isDone =
+                String(ct.fields.child_status ?? "open") === "done";
+              const assigneeInitial = ct.assignedTo
+                ? ct.assignedTo.slice(0, 1).toUpperCase()
+                : null;
+              return (
+                <div
+                  key={ct.id}
+                  className="kb-subtask-card"
+                  onClick={() =>
+                    window.location.assign(`/records/${typeSlug}/${ct.id}`)
+                  }
+                >
+                  <div className="kb-subtask-row">
+                    <span
+                      className={`kb-subtask-status ${isDone ? "kb-subtask-status--done" : ""}`}
+                      title={isDone ? "Done" : "Open"}
+                    >
+                      {isDone ? "✓" : "○"}
+                    </span>
+                    <span className="kb-subtask-title">{title}</span>
+                    {assigneeInitial && (
+                      <span className="kb-subtask-avatar">
+                        {assigneeInitial}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
@@ -509,7 +572,10 @@ function KanbanColumn({
 export function WorkflowRecords(): React.ReactElement {
   const { workflowSlug } = useParams<{ workflowSlug: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { getTypeById } = useEntityTypes();
+
+  const activeFilter = searchParams.get("filter") ?? "all";
 
   const [workflowId, setWorkflowId] = useState<string>("");
   const [entityTypeId, setEntityTypeId] = useState<string>("");
@@ -517,8 +583,10 @@ export function WorkflowRecords(): React.ReactElement {
   const [workflowAssignedTo, setWorkflowAssignedTo] = useState<string[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
+  const [isUserRole, setIsUserRole] = useState(false);
   const [fields, setFields] = useState<EntityField[]>([]);
   const [records, setRecords] = useState<EntityInstance[]>([]);
+  const [childTickets, setChildTickets] = useState<ChildTicket[]>([]);
   const [states, setStates] = useState<WorkflowState[]>([]);
   const [transitions, setTransitions] = useState<Transition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -556,7 +624,9 @@ export function WorkflowRecords(): React.ReactElement {
       const roleClaim = u.profile["urn:zitadel:iam:org:project:roles"] as
         | Record<string, unknown>
         | undefined;
-      setCurrentUserRoles(roleClaim ? Object.keys(roleClaim) : []);
+      const roles = roleClaim ? Object.keys(roleClaim) : [];
+      setCurrentUserRoles(roles);
+      setIsUserRole(!roles.includes("admin") && !roles.includes("agent"));
     });
   }, []);
 
@@ -623,9 +693,13 @@ export function WorkflowRecords(): React.ReactElement {
 
         const [fieldsRes, recRes, usersRes] = await Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
-          fetchWithAuth(
-            `${API_URL}/entities?entityTypeId=${wf.entityTypeId}&rootOnly=true`,
-          ),
+          isUserRole
+            ? fetchWithAuth(
+                `${API_URL}/entities/my-tickets?workflowId=${wf.id}`,
+              )
+            : fetchWithAuth(
+                `${API_URL}/entities?entityTypeId=${wf.entityTypeId}&rootOnly=true`,
+              ),
           fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
         ]);
         setFields(
@@ -633,14 +707,29 @@ export function WorkflowRecords(): React.ReactElement {
             (f) => !f.isSystem,
           ),
         );
-        setRecords((recRes as { data?: EntityInstance[] }).data ?? []);
+        if (isUserRole) {
+          const myData =
+            (
+              recRes as {
+                data?: {
+                  parentTickets?: EntityInstance[];
+                  childTickets?: ChildTicket[];
+                };
+              }
+            ).data ?? {};
+          setRecords(myData.parentTickets ?? []);
+          setChildTickets(myData.childTickets ?? []);
+        } else {
+          setRecords((recRes as { data?: EntityInstance[] }).data ?? []);
+          setChildTickets([]);
+        }
         setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
       })
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : "Failed to load"),
       )
       .finally(() => setLoading(false));
-  }, [workflowSlug]);
+  }, [workflowSlug, isUserRole]);
 
   useEffect(() => {
     if (!searchExpanded) return;
@@ -699,7 +788,13 @@ export function WorkflowRecords(): React.ReactElement {
     filterAssignedTo !== "",
   ].filter(Boolean).length;
 
-  const filteredRecords = records.filter((rec) => {
+  // For general users: apply the chip filter from Records page URL param
+  const chipFilteredRecords =
+    isUserRole && activeFilter !== "all" && activeFilter !== "subtasks"
+      ? records // my-tickets already returns only accessible records; chip filter is handled server-side by access reason — keep all for now, chip is visual on Records page only
+      : records;
+
+  const filteredRecords = chipFilteredRecords.filter((rec) => {
     if (searchText.trim()) {
       const title = titleFieldName
         ? String(rec.fields[titleFieldName] ?? "")
@@ -736,12 +831,27 @@ export function WorkflowRecords(): React.ReactElement {
     }
   }
 
+  // Group child tickets by their parent's current state for sub-tasks sections
+  const childByState: Record<string, ChildTicket[]> = {};
+  for (const ct of childTickets) {
+    if (ct.parentCurrentState) {
+      (childByState[ct.parentCurrentState] ??= []).push(ct);
+    }
+  }
+
   const columns: Array<{
     state: WorkflowState | null;
     recs: EntityInstance[];
+    children: ChildTicket[];
   }> = [
-    ...(unassigned.length > 0 ? [{ state: null, recs: unassigned }] : []),
-    ...orderedStates.map((s) => ({ state: s, recs: grouped[s.name] ?? [] })),
+    ...(unassigned.length > 0
+      ? [{ state: null, recs: unassigned, children: [] }]
+      : []),
+    ...orderedStates.map((s) => ({
+      state: s,
+      recs: grouped[s.name] ?? [],
+      children: childByState[s.name] ?? [],
+    })),
   ];
 
   const handleColumnReorder = useCallback(
@@ -1282,7 +1392,7 @@ export function WorkflowRecords(): React.ReactElement {
       ) : (
         <div className="kb-board-scroll">
           <div className="kb-board">
-            {columns.map(({ state, recs }) => (
+            {columns.map(({ state, recs, children }) => (
               <KanbanColumn
                 key={state?.name ?? "__unassigned__"}
                 state={state}
@@ -1297,6 +1407,7 @@ export function WorkflowRecords(): React.ReactElement {
                   handleCardDrop(recordId, toStateName)
                 }
                 onColumnDrop={handleColumnReorder}
+                childTickets={children}
               />
             ))}
           </div>
@@ -1504,6 +1615,44 @@ export function WorkflowRecords(): React.ReactElement {
           animation: kb-fadein .12s ease;
         }
         @keyframes kb-fadein { from{opacity:0;transform:scaleY(.9)} to{opacity:1;transform:scaleY(1)} }
+
+        .kb-subtasks { margin-top: 8px; }
+        .kb-subtasks-divider {
+          display: flex; align-items: center; gap: 8px;
+          margin: 6px 0 4px;
+        }
+        .kb-subtasks-divider::before, .kb-subtasks-divider::after {
+          content: ''; flex: 1; height: 1px;
+          background: var(--border-subtle);
+        }
+        .kb-subtasks-label {
+          font-size: 10px; font-weight: 600; letter-spacing: .05em;
+          color: var(--text-muted); text-transform: uppercase; white-space: nowrap;
+        }
+        .kb-subtask-card {
+          padding: 6px 8px; border-radius: var(--radius-sm);
+          cursor: pointer; transition: background .12s;
+        }
+        .kb-subtask-card:hover { background: var(--bg-tertiary); }
+        .kb-subtask-row {
+          display: flex; align-items: center; gap: 6px;
+        }
+        .kb-subtask-status {
+          font-size: 11px; width: 16px; text-align: center;
+          color: var(--text-muted); flex-shrink: 0;
+        }
+        .kb-subtask-status--done { color: var(--success, #22c55e); }
+        .kb-subtask-title {
+          font-size: 12px; color: var(--text-primary);
+          flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .kb-subtask-avatar {
+          width: 18px; height: 18px; border-radius: 50%;
+          background: var(--accent-primary); color: #fff;
+          font-size: 10px; font-weight: 600;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+        }
 
         .kb-col-footer {
           padding: 6px 10px 8px;
