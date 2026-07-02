@@ -1113,18 +1113,6 @@ export function CustomerRecordDetail(): React.ReactElement {
   const canChangeAssignedTo =
     isAdminOrAgent || (currentUserId !== null && currentUserId === creatorId);
 
-  async function _loadAccessList(): Promise<void> {
-    if (!id) return;
-    try {
-      const res = await fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(
-        () => ({ data: [] }),
-      );
-      setAccessList((res as { data: AccessEntry[] }).data);
-    } catch {
-      /* best-effort */
-    }
-  }
-
   async function handleAccessChange(): Promise<void> {
     if (!id || !accessChangeModal) return;
     setAccessChangeSaving(true);

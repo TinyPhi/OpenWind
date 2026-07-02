@@ -28,6 +28,7 @@ import { getAccessHandler } from "./get-access.js";
 import { grantAccessHandler } from "./grant-access.js";
 import { revokeAccessHandler } from "./revoke-access.js";
 import { updateAccessHandler } from "./update-access.js";
+import { myTicketsHandler } from "./my-tickets.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -35,6 +36,7 @@ const router = new Hono<{ Variables: { auth: AuthContext } }>();
 router.get("/", ...listEntitiesHandler);
 router.post("/", ...createEntityHandler);
 router.get("/search", ...searchEntitiesHandler);
+router.get("/my-tickets", ...myTicketsHandler);
 
 // Bulk routes — rate-limited to 10 req/min at the gateway layer
 router.post("/bulk", ...bulkCreateHandler);

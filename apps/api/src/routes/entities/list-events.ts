@@ -21,7 +21,10 @@ export const listEventsHandler = factory.createHandlers(
 
     try {
       const events = await withTenantContext(tenantId, (tx) =>
-        getWorkflowEventLog(tx, tenantId, instanceId, { eventType, limit }),
+        getWorkflowEventLog(tx, tenantId, instanceId, {
+          ...(eventType !== undefined && { eventType }),
+          ...(limit !== undefined && { limit }),
+        }),
       );
       return c.json({ data: events });
     } catch (err) {
