@@ -58,6 +58,18 @@ vi.mock("@platform/db", () => ({
     maxChildDepth: "max_child_depth",
     maxChildrenPerParent: "max_children_per_parent",
   },
+  workflowEvents: {
+    id: "id",
+    tenantId: "tenant_id",
+    instanceId: "instance_id",
+    workflowId: "workflow_id",
+    fromState: "from_state",
+    toState: "to_state",
+    triggeredBy: "triggered_by",
+    actorId: "actor_id",
+    comment: "comment",
+    metadata: "metadata",
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({

@@ -173,7 +173,9 @@ export const myTicketsHandler = factory.createHandlers(
       const workflowCounts = new Map<string, number>();
 
       for (const row of accessibleRows) {
-        const accessMap = parseAccessMap(row.fields as unknown);
+        const accessMap = parseAccessMap(
+          (row.fields as Record<string, unknown>).__accessUsers,
+        );
         const reason = deriveAccessReason(
           userId,
           row.createdBy,
