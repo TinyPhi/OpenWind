@@ -985,6 +985,8 @@ export function CustomerRecordDetail(): React.ReactElement {
   } | null>(null);
   const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [oidcLoaded, setOidcLoaded] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
   useEffect(() => {
     userManager
       .getUser()
@@ -1018,13 +1020,25 @@ export function CustomerRecordDetail(): React.ReactElement {
             ];
           });
         }
+        setOidcLoaded(true);
       })
       .catch(() => {
-        /* leave defaults */
+        setOidcLoaded(true);
       });
   }, []);
   const isAdminOrAgent =
     currentUserRoles.includes("admin") || currentUserRoles.includes("agent");
+
+  // Current user's access entry (null for admins/agents — they bypass access list)
+  const myAccessEntry =
+    !isAdminOrAgent && currentUserId
+      ? (accessList.find((e) => e.userId === currentUserId) ?? null)
+      : null;
+  // Can post comments: admin/agent always; user needs read_comment or read_write level
+  const canComment =
+    isAdminOrAgent ||
+    myAccessEntry?.level === "read_comment" ||
+    myAccessEntry?.level === "read_write";
 
   // Derived: true when viewing a child ticket (has a parent)
   const isChildTicket = !!record?.parentId;
@@ -1468,6 +1482,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   }
 
   useEffect(() => {
+    setAccessDenied(false);
     void loadRecord().then(() => {
       void loadComments();
     });
@@ -1477,6 +1492,17 @@ export function CustomerRecordDetail(): React.ReactElement {
     setComments([]);
     initializedCollapse.current = false;
   }, [entityTypeId, id]);
+
+  // Access-denied check: once both the record and OIDC identity are loaded,
+  // verify the general user is in the ticket's access list.
+  useEffect(() => {
+    if (!oidcLoaded || loading || isAdminOrAgent) return;
+    if (currentUserId === null) return;
+    if (accessList.length === 0) return;
+    if (!accessList.some((e) => e.userId === currentUserId)) {
+      setAccessDenied(true);
+    }
+  }, [oidcLoaded, loading, currentUserId, isAdminOrAgent, accessList]);
 
   useEffect(() => {
     if (!record) return;
@@ -1723,30 +1749,32 @@ export function CustomerRecordDetail(): React.ReactElement {
                 minute: "2-digit",
               })}
             </span>
-            <button
-              type="button"
-              className="rcd-reply-btn"
-              onClick={() => {
-                setReplyTo(event);
-                setActiveTab("comments");
-              }}
-              title="Reply"
-            >
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            {canComment && (
+              <button
+                type="button"
+                className="rcd-reply-btn"
+                onClick={() => {
+                  setReplyTo(event);
+                  setActiveTab("comments");
+                }}
+                title="Reply"
               >
-                <polyline points="9 14 4 9 9 4" />
-                <path d="M20 20v-7a4 4 0 00-4-4H4" />
-              </svg>
-              Reply
-            </button>
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="9 14 4 9 9 4" />
+                  <path d="M20 20v-7a4 4 0 00-4-4H4" />
+                </svg>
+                Reply
+              </button>
+            )}
           </div>
           <div className="rcd-feed-comment-text">{renderText()}</div>
         </div>
@@ -2007,6 +2035,27 @@ export function CustomerRecordDetail(): React.ReactElement {
 
   return (
     <div className="rcd-page">
+      {/* ── Access-denied overlay ────────────────────────── */}
+      {accessDenied && (
+        <div className="rcd-access-overlay">
+          <div className="rcd-access-modal">
+            <div className="rcd-access-icon">🔒</div>
+            <h3 className="rcd-access-title">Access Restricted</h3>
+            <p className="rcd-access-body">
+              You don't have access to this ticket. Contact the ticket owner or
+              an agent to request access.
+            </p>
+            <button
+              type="button"
+              className="portal-btn-primary"
+              onClick={() => navigate(-1)}
+            >
+              Go Back
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Breadcrumb nav ───────────────────────────────── */}
       <div className="rcd-nav">
         <button
@@ -2252,8 +2301,8 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
 
-          {/* Parent ticket chip */}
-          {parentRecord && (
+          {/* Parent ticket chip — only for admin/agent; general users may not have access to parent */}
+          {parentRecord && isAdminOrAgent && (
             <div className="rcd-parent-row">
               <span className="rcd-parent-label">Parent</span>
               <Link
@@ -2275,16 +2324,14 @@ export function CustomerRecordDetail(): React.ReactElement {
                 </svg>
                 {parentRecord.title}
               </Link>
-              {isAdminOrAgent && (
-                <button
-                  type="button"
-                  className="rcd-detach-btn"
-                  title="Detach from parent"
-                  onClick={() => void detachParent()}
-                >
-                  ×
-                </button>
-              )}
+              <button
+                type="button"
+                className="rcd-detach-btn"
+                title="Detach from parent"
+                onClick={() => void detachParent()}
+              >
+                ×
+              </button>
             </div>
           )}
 
@@ -2501,16 +2548,43 @@ export function CustomerRecordDetail(): React.ReactElement {
                   )}
                 </div>
                 <div className="rcd-composer-dock">
-                  <CommentComposer
-                    users={users}
-                    replyTo={replyTo}
-                    onCancel={() => setReplyTo(null)}
-                    onSubmit={(text, mentions, replyToId) =>
-                      submitComment(text, mentions, replyToId).then(() =>
-                        setReplyTo(null),
-                      )
-                    }
-                  />
+                  {canComment ? (
+                    <CommentComposer
+                      users={users}
+                      replyTo={replyTo}
+                      onCancel={() => setReplyTo(null)}
+                      onSubmit={(text, mentions, replyToId) =>
+                        submitComment(text, mentions, replyToId).then(() =>
+                          setReplyTo(null),
+                        )
+                      }
+                    />
+                  ) : myAccessEntry?.level === "read_only" ? (
+                    <div className="rcd-readonly-notice">
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect
+                          x="3"
+                          y="11"
+                          width="18"
+                          height="11"
+                          rx="2"
+                          ry="2"
+                        />
+                        <path d="M7 11V7a5 5 0 0110 0v4" />
+                      </svg>
+                      You have read-only access to this ticket and cannot post
+                      comments. Contact an agent to request comment access.
+                    </div>
+                  ) : null}
                 </div>
               </>
             ) : (
