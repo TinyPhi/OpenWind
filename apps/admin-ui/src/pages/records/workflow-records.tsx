@@ -261,6 +261,49 @@ function TransitionModal({
   );
 }
 
+// ── Child Ticket Card ──────────────────────────────────────────────────────────
+
+function ChildTicketCard({
+  ticket,
+  typeSlug,
+}: {
+  ticket: ChildTicket;
+  typeSlug: string;
+}): React.ReactElement {
+  const navigate = useNavigate();
+  const title =
+    String(
+      ticket.fields.title ?? ticket.fields.subject ?? ticket.fields.name ?? "",
+    ).trim() || `#${ticket.id.slice(0, 8)}`;
+  const isDone = String(ticket.fields.child_status ?? "open") === "done";
+
+  return (
+    <div
+      className="kb-card kb-card--child"
+      onClick={() => navigate(`/records/${typeSlug}/${ticket.id}`)}
+    >
+      <div className="kb-card-title">{title}</div>
+
+      <div className="kb-card-footer">
+        <span className="kb-card-id">#{ticket.id.slice(0, 8)}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span
+            className={`kb-child-status-badge ${isDone ? "kb-child-status-badge--done" : ""}`}
+          >
+            {isDone ? "✓ Done" : "○ Open"}
+          </span>
+          {ticket.assignedTo && (
+            <span className="kb-subtask-avatar">
+              {ticket.assignedTo.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <span className="kb-card-time">{relativeTime(ticket.createdAt)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Card ───────────────────────────────────────────────────────────────────────
 
 function RecordCard({
@@ -519,47 +562,17 @@ function KanbanColumn({
           <div className="kb-reorder-zone">Insert column here</div>
         )}
 
-        {/* Sub-tasks — only rendered when user has accessible child tickets in this column */}
+        {/* Sub-tasks — rendered as full cards below parent cards */}
         {childTickets.length > 0 && (
           <div className="kb-subtasks">
             <div className="kb-subtasks-divider">
-              <span className="kb-subtasks-label">Sub-tasks</span>
+              <span className="kb-subtasks-label">
+                Sub-tasks ({childTickets.length})
+              </span>
             </div>
-            {childTickets.map((ct) => {
-              const title =
-                String(
-                  ct.fields.title ?? ct.fields.subject ?? ct.fields.name ?? "",
-                ).trim() || `#${ct.id.slice(0, 8)}`;
-              const isDone =
-                String(ct.fields.child_status ?? "open") === "done";
-              const assigneeInitial = ct.assignedTo
-                ? ct.assignedTo.slice(0, 1).toUpperCase()
-                : null;
-              return (
-                <div
-                  key={ct.id}
-                  className="kb-subtask-card"
-                  onClick={() =>
-                    window.location.assign(`/records/${typeSlug}/${ct.id}`)
-                  }
-                >
-                  <div className="kb-subtask-row">
-                    <span
-                      className={`kb-subtask-status ${isDone ? "kb-subtask-status--done" : ""}`}
-                      title={isDone ? "Done" : "Open"}
-                    >
-                      {isDone ? "✓" : "○"}
-                    </span>
-                    <span className="kb-subtask-title">{title}</span>
-                    {assigneeInitial && (
-                      <span className="kb-subtask-avatar">
-                        {assigneeInitial}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {childTickets.map((ct) => (
+              <ChildTicketCard key={ct.id} ticket={ct} typeSlug={typeSlug} />
+            ))}
           </div>
         )}
       </div>
@@ -1619,7 +1632,7 @@ export function WorkflowRecords(): React.ReactElement {
         .kb-subtasks { margin-top: 8px; }
         .kb-subtasks-divider {
           display: flex; align-items: center; gap: 8px;
-          margin: 6px 0 4px;
+          margin: 6px 0 6px;
         }
         .kb-subtasks-divider::before, .kb-subtasks-divider::after {
           content: ''; flex: 1; height: 1px;
@@ -1629,22 +1642,24 @@ export function WorkflowRecords(): React.ReactElement {
           font-size: 10px; font-weight: 600; letter-spacing: .05em;
           color: var(--text-muted); text-transform: uppercase; white-space: nowrap;
         }
-        .kb-subtask-card {
-          padding: 6px 8px; border-radius: var(--radius-sm);
-          cursor: pointer; transition: background .12s;
+        .kb-card--child {
+          cursor: pointer;
+          border-left: 2px solid var(--accent-primary);
+          opacity: .92;
         }
-        .kb-subtask-card:hover { background: var(--bg-tertiary); }
-        .kb-subtask-row {
-          display: flex; align-items: center; gap: 6px;
+        .kb-card--child:hover { opacity: 1; }
+        .kb-child-status-badge {
+          font-size: 10px; font-weight: 500;
+          padding: 1px 6px; border-radius: 10px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          color: var(--text-muted);
+          white-space: nowrap;
         }
-        .kb-subtask-status {
-          font-size: 11px; width: 16px; text-align: center;
-          color: var(--text-muted); flex-shrink: 0;
-        }
-        .kb-subtask-status--done { color: var(--success, #22c55e); }
-        .kb-subtask-title {
-          font-size: 12px; color: var(--text-primary);
-          flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        .kb-child-status-badge--done {
+          background: hsla(142,72%,40%,.12);
+          border-color: hsla(142,72%,40%,.3);
+          color: hsl(142,60%,40%);
         }
         .kb-subtask-avatar {
           width: 18px; height: 18px; border-radius: 50%;
