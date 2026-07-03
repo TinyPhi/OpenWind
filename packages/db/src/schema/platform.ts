@@ -9,6 +9,7 @@ import {
   unique,
   boolean,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const tenants = pgTable("tenants", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -135,6 +136,9 @@ export const files = pgTable(
       t.tenantId,
       t.entityId,
     ),
+    entityCleanScanIdx: index("files_entity_clean_scan_idx")
+      .on(t.tenantId, t.entityId, t.scanStatus)
+      .where(sql`scan_status = 'clean'`),
   }),
 );
 

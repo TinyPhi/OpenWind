@@ -2546,6 +2546,161 @@ select.form-input {
 .rcd-sidebar-add:hover { background: var(--accent-light); color: var(--accent-primary); border-color: hsla(250,84%,60%,.35); }
 .rcd-sidebar-hint { font-size: 12px; color: var(--text-muted); padding: 12px 14px; margin: 0; }
 
+/* ── File attachment chips ── */
+.fa-sidebar-list { display: flex; flex-direction: column; gap: 4px; }
+.fa-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  min-width: 0;
+}
+.fa-chip-blocked { background: hsla(0,70%,55%,.08); border-color: hsla(0,70%,55%,.25); }
+.fa-chip-staged { background: var(--bg-secondary); }
+.fa-chip-icon { flex-shrink: 0; color: var(--text-muted); display: flex; align-items: center; }
+.fa-chip-thumb { width: 20px; height: 20px; object-fit: cover; border-radius: 3px; flex-shrink: 0; }
+.fa-chip-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.fa-chip-size { flex-shrink: 0; font-size: 11px; color: var(--text-muted); }
+.fa-chip-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.fa-chip-tag-blocked { background: hsla(0,70%,55%,.12); color: #c0392b; }
+.fa-chip-tag-pending { background: hsla(40,90%,50%,.12); color: #b7860b; }
+.fa-chip-tag-clean { background: hsla(140,60%,40%,.12); color: #1a7a40; }
+.fa-chip-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.fa-chip-action:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.fa-chip-delete:hover { background: hsla(0,70%,55%,.1); color: #c0392b; }
+
+/* Comment composer file attachments */
+.cmt-staged-files { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px 0; }
+.cmt-file-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
+.cmt-attach-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 5px;
+  color: var(--text-muted);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.cmt-attach-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+/* Upload zone */
+.fa-upload-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1.5px dashed var(--border-color);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+  user-select: none;
+}
+.fa-upload-zone:hover,
+.fa-upload-zone-active { border-color: var(--accent-primary); background: var(--accent-light); color: var(--accent-primary); }
+.fa-upload-zone-disabled { opacity: .5; cursor: not-allowed; }
+
+/* File preview modal */
+.fa-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.fa-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+.fa-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+.fa-modal-title { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fa-modal-size { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+.fa-modal-download {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 5px;
+  color: var(--text-muted); transition: background var(--transition-fast), color var(--transition-fast);
+}
+.fa-modal-download:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.fa-modal-close {
+  width: 28px; height: 28px; border: none; background: transparent; cursor: pointer;
+  border-radius: 5px; font-size: 18px; line-height: 1; color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--transition-fast);
+}
+.fa-modal-close:hover { background: var(--bg-tertiary); }
+.fa-modal-body { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; }
+.fa-modal-image-wrap { padding: 16px; display: flex; align-items: center; justify-content: center; }
+.fa-modal-image { max-width: 100%; max-height: calc(90vh - 80px); object-fit: contain; border-radius: 4px; }
+.fa-modal-embed { width: 100%; height: calc(90vh - 80px); border: none; display: block; }
+.fa-modal-text {
+  width: 100%; margin: 0; padding: 16px;
+  font-family: var(--font-mono, monospace); font-size: 12px;
+  line-height: 1.6; color: var(--text-primary);
+  white-space: pre-wrap; word-break: break-all;
+  overflow: auto; max-height: calc(90vh - 80px);
+}
+.fa-modal-hint { font-size: 13px; color: var(--text-muted); padding: 24px; margin: 0; }
+.fa-modal-hint-error { color: #c0392b; }
+
 /* ── Child ticket cards (vertical stack) ── */
 .rcd-sidebar-children {
   display: flex;

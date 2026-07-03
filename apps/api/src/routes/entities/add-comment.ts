@@ -23,6 +23,7 @@ const AddCommentSchema = z.object({
   text: z.string().min(1).max(4000),
   mentions: z.array(MentionSchema).default([]),
   replyTo: z.string().uuid().nullable().default(null),
+  fileIds: z.array(z.string().uuid()).max(10).default([]),
 });
 
 export const addCommentHandler = factory.createHandlers(
@@ -31,7 +32,7 @@ export const addCommentHandler = factory.createHandlers(
   async (c) => {
     const id = c.req.param("id") ?? "";
     const { tenantId, userId, orgId, roles } = c.get("auth");
-    const { text, mentions, replyTo } = c.req.valid("json");
+    const { text, mentions, replyTo, fileIds } = c.req.valid("json");
     const isPrivileged = roles.includes("admin") || roles.includes("agent");
 
     const [instance] = await withTenantContext(tenantId, (tx) =>
@@ -151,6 +152,7 @@ export const addCommentHandler = factory.createHandlers(
             mentions: mentionUserIds,
             replyTo,
             actorName,
+            ...(fileIds.length > 0 && { fileIds }),
           },
         })
         .returning(),

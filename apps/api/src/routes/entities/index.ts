@@ -32,6 +32,11 @@ import { myTicketsHandler } from "./my-tickets.js";
 import { requestAccessHandler } from "./request-access.js";
 import { listAccessRequestsHandler } from "./list-access-requests.js";
 import { resolveAccessRequestHandler } from "./resolve-access-request.js";
+import { listAttachmentsHandler } from "./list-attachments.js";
+import { createAttachmentHandler } from "./create-attachment.js";
+import { deleteAttachmentHandler } from "./delete-attachment.js";
+import { addCommentAttachmentHandler } from "./add-comment-attachment.js";
+import { deleteCommentAttachmentHandler } from "./delete-comment-attachment.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -78,5 +83,18 @@ router.delete("/:id/access/:userId", ...revokeAccessHandler);
 router.post("/:id/access-requests", ...requestAccessHandler);
 router.get("/:id/access-requests", ...listAccessRequestsHandler);
 router.patch("/:id/access-requests/:reqId", ...resolveAccessRequestHandler);
+
+router.get("/:id/attachments", ...listAttachmentsHandler);
+router.post("/:id/attachments", ...createAttachmentHandler);
+router.delete("/:id/attachments/:fileId", ...deleteAttachmentHandler);
+
+router.post(
+  "/:id/comments/:eventId/attachments",
+  ...addCommentAttachmentHandler,
+);
+router.delete(
+  "/:id/comments/:eventId/attachments/:fileId",
+  ...deleteCommentAttachmentHandler,
+);
 
 export { router as entitiesRouter };

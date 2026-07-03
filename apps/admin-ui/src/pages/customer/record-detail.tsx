@@ -3,6 +3,14 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
+import { useFileUpload } from "../../hooks/use-file-upload.js";
+import {
+  type AttachmentFile,
+  FileChip,
+  StagedFileChip,
+  AttachmentUploadZone,
+  FilePreviewModal,
+} from "../../components/file-attachment.js";
 
 type EntityField = {
   id: string;
@@ -397,13 +405,15 @@ function HistoryIcon({
   );
 }
 
-/* ── Comment composer with @mention ─────────────────────────── */
+/* ── Comment composer with @mention + file attachments ──────── */
 function CommentComposer({
   users,
   replyTo,
   onCancel,
   onSubmit,
   placeholder,
+  entityId,
+  moduleSlug,
 }: {
   users: OrgUser[];
   replyTo: WorkflowEvent | null;
@@ -412,8 +422,11 @@ function CommentComposer({
     text: string,
     mentions: string[],
     replyTo: string | null,
+    fileIds: string[],
   ) => Promise<void>;
   placeholder?: string;
+  entityId: string;
+  moduleSlug: string;
 }): React.ReactElement {
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -422,6 +435,14 @@ function CommentComposer({
   const [mentionIdx, setMentionIdx] = useState(0);
   const [mentionedIds, setMentionedIds] = useState<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    stagedFiles,
+    addFiles,
+    removeFile,
+    clearFiles,
+    pendingCount,
+    cleanFileIds,
+  } = useFileUpload({ entityId, moduleSlug });
 
   const mentionResults =
     mentionQuery !== null
@@ -493,10 +514,16 @@ function CommentComposer({
     if (!text.trim() || submitting) return;
     setSubmitting(true);
     try {
-      await onSubmit(text.trim(), [...mentionedIds], replyTo?.id ?? null);
+      await onSubmit(
+        text.trim(),
+        [...mentionedIds],
+        replyTo?.id ?? null,
+        cleanFileIds,
+      );
       setText("");
       setMentionQuery(null);
       setMentionedIds(new Set());
+      clearFiles();
     } finally {
       setSubmitting(false);
     }
@@ -547,6 +574,15 @@ function CommentComposer({
           onChange={handleInput}
           onKeyDown={handleKeyDown}
           disabled={submitting}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData.files).filter((f) =>
+              f.type.startsWith("image/"),
+            );
+            if (files.length) {
+              e.preventDefault();
+              void addFiles(files);
+            }
+          }}
         />
         {mentionQuery !== null && mentionResults.length > 0 && (
           <div className="cmt-mention-dropdown">
@@ -574,12 +610,50 @@ function CommentComposer({
           </div>
         )}
       </div>
+      {stagedFiles.length > 0 && (
+        <div className="cmt-staged-files">
+          {stagedFiles.map((f) => (
+            <StagedFileChip key={f.fileId} file={f} onRemove={removeFile} />
+          ))}
+        </div>
+      )}
       <div className="cmt-composer-footer">
         <span className="cmt-hint">@ to mention · Ctrl+Enter to post</span>
+        <label
+          className="cmt-attach-btn"
+          title="Attach files"
+          style={{ cursor: "pointer" }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+          </svg>
+          <input
+            type="file"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) {
+                void addFiles(files);
+                e.target.value = "";
+              }
+            }}
+          />
+        </label>
         <button
           type="button"
           className="portal-btn-primary cmt-post-btn"
-          disabled={!text.trim() || submitting}
+          disabled={!text.trim() || submitting || pendingCount > 0}
+          title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
           onClick={() => void handleSubmit()}
         >
           {submitting ? "Posting…" : "Post"}
@@ -937,6 +1011,12 @@ export function CustomerRecordDetail(): React.ReactElement {
   const commentsScrollRef = useRef<HTMLDivElement>(null);
   const historyScrollRef = useRef<HTMLDivElement>(null);
 
+  // File attachments
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [attachUploading, setAttachUploading] = useState(false);
+
   // Child tickets state
   const [children, setChildren] = useState<ChildInstance[]>([]);
   const [childrenLoading, setChildrenLoading] = useState(false);
@@ -983,6 +1063,7 @@ export function CustomerRecordDetail(): React.ReactElement {
     replyTo: string | null;
     newUsers: OrgUser[]; // users without existing access
     selectedLevel: AccessLevel; // level to grant new users
+    fileIds?: string[];
   } | null>(null);
   const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -1341,6 +1422,21 @@ export function CustomerRecordDetail(): React.ReactElement {
     await loadComments();
   }
 
+  async function refreshAttachments(): Promise<void> {
+    if (!id) return;
+    setAttachmentsLoading(true);
+    try {
+      const res = (await fetchWithAuth(
+        `${API_URL}/entities/${id}/attachments`,
+      )) as { data: AttachmentFile[] };
+      setAttachments(res.data);
+    } catch {
+      /* best-effort */
+    } finally {
+      setAttachmentsLoading(false);
+    }
+  }
+
   async function loadChildren(): Promise<void> {
     if (!id) return;
     setChildrenLoading(true);
@@ -1533,11 +1629,17 @@ export function CustomerRecordDetail(): React.ReactElement {
     text: string,
     mentionEntries: Array<{ userId: string; level: AccessLevel }>,
     replyTo: string | null,
+    fileIds: string[],
   ): Promise<void> {
     if (!id) return;
     await fetchWithAuth(`${API_URL}/entities/${id}/comments`, {
       method: "POST",
-      body: JSON.stringify({ text, mentions: mentionEntries, replyTo }),
+      body: JSON.stringify({
+        text,
+        mentions: mentionEntries,
+        replyTo,
+        fileIds,
+      }),
     });
     // Optimistically add newly-granted users to local access list
     for (const m of mentionEntries) {
@@ -1549,12 +1651,14 @@ export function CustomerRecordDetail(): React.ReactElement {
       }
     }
     await refreshComments();
+    if (fileIds.length > 0) await refreshAttachments();
   }
 
   async function submitComment(
     text: string,
     mentionIds: string[],
     replyTo: string | null,
+    fileIds: string[] = [],
   ): Promise<void> {
     if (!id) return;
     const existingIds = new Set(accessList.map((e) => e.userId));
@@ -1567,6 +1671,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         replyTo,
         newUsers,
         selectedLevel: "read_comment",
+        fileIds,
       });
       return;
     }
@@ -1578,13 +1683,14 @@ export function CustomerRecordDetail(): React.ReactElement {
         level: (existing?.level ?? "read_comment") as AccessLevel,
       };
     });
-    await doSubmitComment(text, mentionEntries, replyTo);
+    await doSubmitComment(text, mentionEntries, replyTo, fileIds);
   }
 
   useEffect(() => {
     setAccessDenied(false);
     void loadRecord().then(() => {
       void loadComments();
+      void refreshAttachments();
     });
     // Reset history state when navigating to a new record
     setHistoryLoaded(false);
@@ -1889,6 +1995,30 @@ export function CustomerRecordDetail(): React.ReactElement {
             )}
           </div>
           <div className="rcd-feed-comment-text">{renderText()}</div>
+          {(() => {
+            const commentFileIds: string[] = Array.isArray(
+              (meta as { fileIds?: unknown }).fileIds,
+            )
+              ? (meta as { fileIds: string[] }).fileIds
+              : [];
+            if (commentFileIds.length === 0) return null;
+            return (
+              <div className="cmt-file-chips">
+                {commentFileIds.map((fid) => {
+                  const file = attachments.find((a) => a.id === fid);
+                  if (!file) return null;
+                  return (
+                    <FileChip
+                      key={fid}
+                      file={file}
+                      onPreview={setPreviewFile}
+                      canDelete={false}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       </>
     );
@@ -2721,10 +2851,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <CommentComposer
                       users={users}
                       replyTo={replyTo}
+                      entityId={id ?? ""}
+                      moduleSlug={typeSlug ?? ""}
                       onCancel={() => setReplyTo(null)}
-                      onSubmit={(text, mentions, replyToId) =>
-                        submitComment(text, mentions, replyToId).then(() =>
-                          setReplyTo(null),
+                      onSubmit={(text, mentions, replyToId, fileIds) =>
+                        submitComment(text, mentions, replyToId, fileIds).then(
+                          () => setReplyTo(null),
                         )
                       }
                     />
@@ -3105,6 +3237,135 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           )}
           {/* end depth-limit guard */}
+
+          {/* ── Attachments ──────────────────────────────── */}
+          <div className="rcd-sidebar-section">
+            <div className="rcd-sidebar-hdr">
+              <span className="rcd-sidebar-hdr-title">
+                Attachments
+                {attachments.filter((a) => a.scanStatus !== "deleted").length >
+                  0 && (
+                  <span className="rcd-sidebar-count">
+                    {
+                      attachments.filter((a) => a.scanStatus !== "deleted")
+                        .length
+                    }
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="rcd-sidebar-body">
+              {attachmentsLoading ? (
+                <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
+                  Loading…
+                </p>
+              ) : attachments.filter((a) => a.scanStatus !== "deleted")
+                  .length === 0 ? (
+                <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
+                  No attachments yet.
+                </p>
+              ) : (
+                <div className="fa-sidebar-list">
+                  {attachments
+                    .filter((a) => a.scanStatus !== "deleted")
+                    .map((file) => (
+                      <FileChip
+                        key={file.id}
+                        file={file}
+                        onPreview={setPreviewFile}
+                        canDelete={
+                          !!(
+                            currentUserRoles.includes("admin") ||
+                            currentUserRoles.includes("agent") ||
+                            file.uploadedBy === currentUserId
+                          )
+                        }
+                        onDelete={(fileId) => {
+                          void (async () => {
+                            try {
+                              await fetchWithAuth(
+                                `${API_URL}/entities/${id}/attachments/${fileId}`,
+                                { method: "DELETE" },
+                              );
+                              await refreshAttachments();
+                            } catch (err) {
+                              alert(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Delete failed",
+                              );
+                            }
+                          })();
+                        }}
+                      />
+                    ))}
+                </div>
+              )}
+              {(() => {
+                const accessMap = (record.fields as Record<string, unknown>)
+                  .__accessUsers as
+                  | Record<string, { level: string }>
+                  | undefined;
+                const hasWriteAccess =
+                  currentUserRoles.includes("admin") ||
+                  currentUserRoles.includes("agent") ||
+                  accessMap?.[currentUserId ?? ""]?.level === "read_write" ||
+                  record.createdBy === currentUserId ||
+                  record.assignedTo === currentUserId;
+                return hasWriteAccess;
+              })() && (
+                <div style={{ marginTop: "8px" }}>
+                  <AttachmentUploadZone
+                    disabled={attachUploading}
+                    onFiles={async (files) => {
+                      setAttachUploading(true);
+                      for (const file of files) {
+                        try {
+                          const initRes = (await fetchWithAuth(
+                            `${API_URL}/files`,
+                            {
+                              method: "POST",
+                              body: JSON.stringify({
+                                originalName: file.name,
+                                mimeType: file.type,
+                                sizeBytes: file.size,
+                                moduleSlug: typeSlug ?? "unknown",
+                                entityId: id,
+                              }),
+                            },
+                          )) as { data: { fileId: string; uploadUrl: string } };
+                          await fetch(initRes.data.uploadUrl, {
+                            method: "PUT",
+                            headers: { "Content-Type": file.type },
+                            body: file,
+                          });
+                          await fetchWithAuth(
+                            `${API_URL}/files/${initRes.data.fileId}/complete`,
+                            { method: "POST" },
+                          );
+                          await fetchWithAuth(
+                            `${API_URL}/entities/${id}/attachments`,
+                            {
+                              method: "POST",
+                              body: JSON.stringify({
+                                fileId: initRes.data.fileId,
+                              }),
+                            },
+                          );
+                        } catch (err) {
+                          alert(
+                            `Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+                          );
+                        }
+                      }
+                      setAttachUploading(false);
+                      await refreshAttachments();
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* People with access — always visible */}
           <div className="rcd-sidebar-section">
@@ -3641,7 +3902,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                           "read_comment") as AccessLevel)
                       : selectedLevel,
                   }));
-                  void doSubmitComment(text, mentionEntries, replyTo);
+                  void doSubmitComment(
+                    text,
+                    mentionEntries,
+                    replyTo,
+                    pendingMentionGrant.fileIds ?? [],
+                  );
                 }}
               >
                 Grant &amp; post
@@ -4035,6 +4301,14 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── File preview modal ───────────────────────────────── */}
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
+        />
       )}
     </div>
   );
