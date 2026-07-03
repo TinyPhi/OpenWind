@@ -2709,7 +2709,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         const assignee = users.find(
                           (u) => u.userId === child.assignedTo,
                         );
-                        const childState = allStates.find(
+                        const childState = CHILD_TICKET_STATES.find(
                           (s) => s.name === child.currentState,
                         );
                         const dueDateField = [
