@@ -24,6 +24,7 @@ type EntityInstance = {
   createdAt: string;
   updatedAt: string;
   assignedTo: string | null;
+  createdBy: string | null;
   parentId?: string | null;
   childCount?: number;
   deletedAt?: string | null;
@@ -924,9 +925,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [currentState, setCurrentState] = useState("");
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"comments" | "history">(
-    "comments",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "comments" | "history" | "access-requests"
+  >("comments");
   const [quickAssigning, setQuickAssigning] = useState(false);
   const [replyTo, setReplyTo] = useState<WorkflowEvent | null>(null);
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(
@@ -987,6 +988,31 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [oidcLoaded, setOidcLoaded] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
+
+  // Access requests
+  type AccessRequest = {
+    id: string;
+    requesterId: string;
+    requestedLevel: AccessLevel;
+    status: "pending" | "approved" | "rejected";
+    resolvedBy: string | null;
+    resolvedAt: string | null;
+    createdAt: string;
+  };
+  const [accessReqList, setAccessReqList] = useState<AccessRequest[]>([]);
+  const [accessReqLoaded, setAccessReqLoaded] = useState(false);
+  const [requestingAccess, setRequestingAccess] = useState(false);
+  const [myAccessReqStatus, setMyAccessReqStatus] = useState<
+    "none" | "pending" | "approved" | "rejected"
+  >("none");
+  // resolve popup
+  const [resolveModal, setResolveModal] = useState<{
+    reqId: string;
+    requesterId: string;
+    currentRequestedLevel: AccessLevel;
+  } | null>(null);
+  const [resolveLevel, setResolveLevel] = useState<AccessLevel>("read_comment");
+  const [resolveSaving, setResolveSaving] = useState(false);
   useEffect(() => {
     userManager
       .getUser()
@@ -1039,6 +1065,12 @@ export function CustomerRecordDetail(): React.ReactElement {
     isAdminOrAgent ||
     myAccessEntry?.level === "read_comment" ||
     myAccessEntry?.level === "read_write";
+
+  // Creator or assignee — may see and resolve access requests
+  const isOwner =
+    currentUserId !== null &&
+    (record?.createdBy === currentUserId ||
+      record?.assignedTo === currentUserId);
 
   // Derived: true when viewing a child ticket (has a parent)
   const isChildTicket = !!record?.parentId;
@@ -1338,6 +1370,70 @@ export function CustomerRecordDetail(): React.ReactElement {
     }
   }
 
+  async function loadAccessRequests(): Promise<void> {
+    if (!id) return;
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/entities/${id}/access-requests`,
+      );
+      const rows = (res as { data: AccessRequest[] }).data;
+      setAccessReqList(rows);
+      setAccessReqLoaded(true);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  async function submitAccessRequest(
+    level: AccessLevel = "read_comment",
+  ): Promise<void> {
+    if (!id || requestingAccess) return;
+    setRequestingAccess(true);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/access-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestedLevel: level }),
+      });
+      setMyAccessReqStatus("pending");
+    } catch {
+      /* best-effort */
+    } finally {
+      setRequestingAccess(false);
+    }
+  }
+
+  async function resolveAccessRequest(
+    reqId: string,
+    action: "approve" | "reject",
+    level: AccessLevel,
+  ): Promise<void> {
+    if (!id) return;
+    setResolveSaving(true);
+    try {
+      await fetchWithAuth(
+        `${API_URL}/entities/${id}/access-requests/${reqId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, level }),
+        },
+      );
+      setAccessReqList((prev) =>
+        prev.map((r) =>
+          r.id === reqId
+            ? { ...r, status: action === "approve" ? "approved" : "rejected" }
+            : r,
+        ),
+      );
+      setResolveModal(null);
+    } catch {
+      /* best-effort */
+    } finally {
+      setResolveSaving(false);
+    }
+  }
+
   async function createChild(): Promise<void> {
     if (!id || !entityTypeId || !newChildTitle.trim()) return;
     setCreatingChild(true);
@@ -1503,6 +1599,18 @@ export function CustomerRecordDetail(): React.ReactElement {
       setAccessDenied(true);
     }
   }, [oidcLoaded, loading, currentUserId, isAdminOrAgent, accessList]);
+
+  // Load access requests when owner (creator/assignee)
+  useEffect(() => {
+    if (isOwner && id) void loadAccessRequests();
+  }, [isOwner, id]);
+
+  // Sync requester's own request status
+  useEffect(() => {
+    if (!currentUserId || accessDenied) return;
+    const mine = accessReqList.find((r) => r.requesterId === currentUserId);
+    setMyAccessReqStatus(mine ? mine.status : "none");
+  }, [accessReqList, currentUserId, accessDenied]);
 
   useEffect(() => {
     if (!record) return;
@@ -2042,16 +2150,41 @@ export function CustomerRecordDetail(): React.ReactElement {
             <div className="rcd-access-icon">🔒</div>
             <h3 className="rcd-access-title">Access Restricted</h3>
             <p className="rcd-access-body">
-              You don't have access to this ticket. Contact the ticket owner to
-              request access.
+              You don't have access to this ticket. You can request access from
+              the ticket owner.
             </p>
-            <button
-              type="button"
-              className="portal-btn-primary"
-              onClick={() => navigate(-1)}
-            >
-              Go Back
-            </button>
+            {myAccessReqStatus === "pending" ? (
+              <div className="rcd-access-req-sent">
+                Access request sent — waiting for owner approval.
+              </div>
+            ) : myAccessReqStatus === "rejected" ? (
+              <div className="rcd-access-req-rejected">
+                Your access request was declined. You may request again.
+              </div>
+            ) : null}
+            <div className="rcd-access-modal-actions">
+              <button
+                type="button"
+                className="portal-btn-secondary"
+                onClick={() => navigate(-1)}
+              >
+                Go Back
+              </button>
+              {myAccessReqStatus !== "pending" && (
+                <button
+                  type="button"
+                  className="portal-btn-primary"
+                  disabled={requestingAccess}
+                  onClick={() => void submitAccessRequest("read_only")}
+                >
+                  {requestingAccess
+                    ? "Sending…"
+                    : myAccessReqStatus === "rejected"
+                      ? "Request Again"
+                      : "Request Access"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -2526,6 +2659,40 @@ export function CustomerRecordDetail(): React.ReactElement {
                 <span className="rcd-tab-count">{timelineEvents.length}</span>
               )}
             </button>
+            {(isOwner || isAdminOrAgent) && (
+              <button
+                type="button"
+                className={`rcd-tab ${activeTab === "access-requests" ? "rcd-tab-active" : ""}`}
+                onClick={() => {
+                  setActiveTab("access-requests");
+                  void loadAccessRequests();
+                }}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <line x1="19" y1="8" x2="19" y2="14" />
+                  <line x1="22" y1="11" x2="16" y2="11" />
+                </svg>
+                Access Requests
+                {accessReqList.filter((r) => r.status === "pending").length >
+                  0 && (
+                  <span className="rcd-tab-count rcd-tab-count-warn">
+                    {accessReqList.filter((r) => r.status === "pending").length}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Tab content */}
@@ -2581,13 +2748,35 @@ export function CustomerRecordDetail(): React.ReactElement {
                         />
                         <path d="M7 11V7a5 5 0 0110 0v4" />
                       </svg>
-                      You have read-only access to this ticket and cannot post
-                      comments. Contact an agent to request comment access.
+                      <span style={{ flex: 1 }}>
+                        You have read-only access and cannot post comments.
+                        {myAccessReqStatus === "pending"
+                          ? " Comment access request sent — pending approval."
+                          : myAccessReqStatus === "rejected"
+                            ? " Your comment access request was declined."
+                            : ""}
+                      </span>
+                      {myAccessReqStatus !== "pending" && (
+                        <button
+                          type="button"
+                          className="rcd-readonly-req-btn"
+                          disabled={requestingAccess}
+                          onClick={() =>
+                            void submitAccessRequest("read_comment")
+                          }
+                        >
+                          {requestingAccess
+                            ? "Sending…"
+                            : myAccessReqStatus === "rejected"
+                              ? "Request Again"
+                              : "Request Comment Access"}
+                        </button>
+                      )}
                     </div>
                   ) : null}
                 </div>
               </>
-            ) : (
+            ) : activeTab === "history" ? (
               <div className="rcd-tab-scroll" ref={historyScrollRef}>
                 {historyLoading ? (
                   <div className="portal-loading" style={{ padding: "32px 0" }}>
@@ -2610,6 +2799,68 @@ export function CustomerRecordDetail(): React.ReactElement {
                           {renderFeedEvent(event)}
                         </React.Fragment>
                       ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rcd-tab-scroll">
+                {!accessReqLoaded ? (
+                  <div className="portal-loading" style={{ padding: "32px 0" }}>
+                    <div className="spinner" />
+                  </div>
+                ) : accessReqList.length === 0 ? (
+                  <p className="rcd-empty-hint rcd-empty-hint-feed">
+                    No access requests yet.
+                  </p>
+                ) : (
+                  <div className="rcd-areq-list">
+                    {accessReqList.map((req) => {
+                      const requesterName =
+                        users.find((u) => u.userId === req.requesterId)
+                          ?.displayName ?? req.requesterId.slice(0, 12);
+                      return (
+                        <div
+                          key={req.id}
+                          className={`rcd-areq-row rcd-areq-row--${req.status}`}
+                        >
+                          <div className="rcd-areq-meta">
+                            <span className="rcd-areq-name">
+                              {requesterName}
+                            </span>
+                            <span className="rcd-areq-level">
+                              {req.requestedLevel === "read_only"
+                                ? "View only"
+                                : req.requestedLevel === "read_comment"
+                                  ? "View + comment"
+                                  : "Full access"}
+                            </span>
+                            <span
+                              className={`rcd-areq-status rcd-areq-status--${req.status}`}
+                            >
+                              {req.status === "pending"
+                                ? "Pending"
+                                : req.status === "approved"
+                                  ? "Approved"
+                                  : "Rejected"}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className="rcd-areq-action-btn"
+                            onClick={() => {
+                              setResolveLevel(req.requestedLevel);
+                              setResolveModal({
+                                reqId: req.id,
+                                requesterId: req.requesterId,
+                                currentRequestedLevel: req.requestedLevel,
+                              });
+                            }}
+                          >
+                            {req.status === "pending" ? "Review" : "Change"}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -3624,6 +3875,112 @@ export function CustomerRecordDetail(): React.ReactElement {
                 }
               >
                 {transitioning === stateModal.id ? "Moving…" : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Resolve access-request modal ─────────────────────── */}
+      {resolveModal && (
+        <div className="modal-overlay" onClick={() => setResolveModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Review access request</h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setResolveModal(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p
+                style={{
+                  fontSize: "13px",
+                  color: "var(--text-secondary)",
+                  marginBottom: "14px",
+                }}
+              >
+                {users.find((u) => u.userId === resolveModal.requesterId)
+                  ?.displayName ?? resolveModal.requesterId}{" "}
+                requested{" "}
+                <strong>
+                  {resolveModal.currentRequestedLevel === "read_only"
+                    ? "view-only"
+                    : resolveModal.currentRequestedLevel === "read_comment"
+                      ? "view + comment"
+                      : "full"}{" "}
+                  access
+                </strong>
+                . Select the level to grant:
+              </p>
+              <div className="modal-access-opts">
+                {(
+                  [
+                    {
+                      value: "read_only",
+                      label: "View only",
+                      desc: "Can read the ticket but not comment",
+                    },
+                    {
+                      value: "read_comment",
+                      label: "View + comment",
+                      desc: "Can read and post comments",
+                    },
+                    {
+                      value: "read_write",
+                      label: "Full access",
+                      desc: "Can edit fields and transition state",
+                    },
+                  ] as { value: AccessLevel; label: string; desc: string }[]
+                ).map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`modal-access-opt ${resolveLevel === opt.value ? "modal-access-opt--active" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="resolve-level"
+                      value={opt.value}
+                      checked={resolveLevel === opt.value}
+                      onChange={() => setResolveLevel(opt.value)}
+                    />
+                    <span className="modal-access-opt-label">{opt.label}</span>
+                    <span className="modal-access-opt-desc">{opt.desc}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="portal-btn-secondary"
+                disabled={resolveSaving}
+                onClick={() =>
+                  void resolveAccessRequest(
+                    resolveModal.reqId,
+                    "reject",
+                    resolveLevel,
+                  )
+                }
+              >
+                Reject
+              </button>
+              <button
+                type="button"
+                className="portal-btn-primary"
+                disabled={resolveSaving}
+                onClick={() =>
+                  void resolveAccessRequest(
+                    resolveModal.reqId,
+                    "approve",
+                    resolveLevel,
+                  )
+                }
+              >
+                {resolveSaving ? "Saving…" : "Approve"}
               </button>
             </div>
           </div>

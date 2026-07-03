@@ -136,3 +136,40 @@ export const entityRelations = pgTable(
       .where(sql`${t.deletedAt} IS NULL`),
   }),
 );
+
+export const accessRequests = pgTable(
+  "access_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    instanceId: uuid("instance_id")
+      .notNull()
+      .references(() => entityInstances.id),
+    requesterId: text("requester_id").notNull(),
+    requestedLevel: text("requested_level")
+      .$type<"read_only" | "read_comment" | "read_write">()
+      .notNull(),
+    status: text("status")
+      .$type<"pending" | "approved" | "rejected">()
+      .notNull()
+      .default("pending"),
+    resolvedBy: text("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantInstanceIdx: index("access_requests_tenant_instance_idx").on(
+      t.tenantId,
+      t.instanceId,
+    ),
+    tenantRequesterIdx: index("access_requests_tenant_requester_idx").on(
+      t.tenantId,
+      t.requesterId,
+    ),
+  }),
+);

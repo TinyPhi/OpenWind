@@ -29,6 +29,9 @@ import { grantAccessHandler } from "./grant-access.js";
 import { revokeAccessHandler } from "./revoke-access.js";
 import { updateAccessHandler } from "./update-access.js";
 import { myTicketsHandler } from "./my-tickets.js";
+import { requestAccessHandler } from "./request-access.js";
+import { listAccessRequestsHandler } from "./list-access-requests.js";
+import { resolveAccessRequestHandler } from "./resolve-access-request.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -71,5 +74,9 @@ router.get("/:id/access", ...getAccessHandler);
 router.post("/:id/access", ...grantAccessHandler);
 router.patch("/:id/access/:userId", ...updateAccessHandler);
 router.delete("/:id/access/:userId", ...revokeAccessHandler);
+
+router.post("/:id/access-requests", ...requestAccessHandler);
+router.get("/:id/access-requests", ...listAccessRequestsHandler);
+router.patch("/:id/access-requests/:reqId", ...resolveAccessRequestHandler);
 
 export { router as entitiesRouter };

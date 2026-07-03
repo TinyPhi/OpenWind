@@ -3154,6 +3154,9 @@ select.form-input {
 .rcd-access-icon { font-size: 40px; }
 .rcd-access-title { font-size: 17px; font-weight: 700; color: var(--text-primary, var(--text-1)); margin: 0; }
 .rcd-access-body { font-size: 13px; color: var(--text-secondary, var(--text-2)); margin: 0; line-height: 1.6; }
+.rcd-access-modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+.rcd-access-req-sent { font-size: 12px; color: hsl(215,70%,50%); background: hsla(215,70%,50%,.08); border: 1px solid hsla(215,70%,50%,.25); border-radius: 6px; padding: 8px 12px; text-align: center; }
+.rcd-access-req-rejected { font-size: 12px; color: hsl(350,70%,50%); background: hsla(350,70%,50%,.08); border: 1px solid hsla(350,70%,50%,.25); border-radius: 6px; padding: 8px 12px; text-align: center; }
 
 /* ── Record detail: read-only comment notice ──────────────────────────── */
 .rcd-readonly-notice {
@@ -3165,6 +3168,54 @@ select.form-input {
   line-height: 1.5;
 }
 .rcd-readonly-notice svg { flex-shrink: 0; color: hsl(38,70%,45%); }
+.rcd-readonly-req-btn {
+  flex-shrink: 0; white-space: nowrap;
+  padding: 4px 10px; font-size: 11.5px; font-weight: 600;
+  border: 1px solid hsla(38,90%,50%,.4); border-radius: 5px;
+  background: hsla(38,90%,50%,.12); color: hsl(38,60%,35%);
+  cursor: pointer; transition: background .15s;
+}
+.rcd-readonly-req-btn:hover { background: hsla(38,90%,50%,.22); }
+.rcd-readonly-req-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Access requests tab ──────────────────────────────────────────────── */
+.rcd-tab-count-warn { background: hsla(350,80%,55%,.12) !important; border-color: hsla(350,80%,55%,.3) !important; color: hsl(350,70%,50%) !important; }
+.rcd-areq-list { display: flex; flex-direction: column; gap: 0; }
+.rcd-areq-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--border-color);
+  transition: background .1s;
+}
+.rcd-areq-row:last-child { border-bottom: none; }
+.rcd-areq-row--approved { opacity: .7; }
+.rcd-areq-meta { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.rcd-areq-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.rcd-areq-level { font-size: 11px; color: var(--text-muted); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 6px; }
+.rcd-areq-status { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 2px 7px; }
+.rcd-areq-status--pending { background: hsla(38,90%,50%,.1); color: hsl(38,70%,40%); border: 1px solid hsla(38,90%,50%,.3); }
+.rcd-areq-status--approved { background: hsla(145,60%,45%,.1); color: hsl(145,55%,35%); border: 1px solid hsla(145,60%,45%,.3); }
+.rcd-areq-status--rejected { background: hsla(350,80%,55%,.1); color: hsl(350,70%,50%); border: 1px solid hsla(350,80%,55%,.3); }
+.rcd-areq-action-btn {
+  flex-shrink: 0; padding: 4px 12px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--border-color); border-radius: 5px;
+  background: var(--bg-secondary); color: var(--text-secondary);
+  cursor: pointer; transition: background .15s, border-color .15s;
+}
+.rcd-areq-action-btn:hover { background: var(--bg-tertiary); border-color: var(--accent-primary); color: var(--accent-primary); }
+
+/* Resolve modal access level picker */
+.modal-access-opts { display: flex; flex-direction: column; gap: 8px; }
+.modal-access-opt {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--border-color); cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.modal-access-opt input[type="radio"] { margin-top: 2px; flex-shrink: 0; }
+.modal-access-opt--active { border-color: var(--accent-primary); background: hsla(250,84%,60%,.06); }
+.modal-access-opt-label { font-size: 13px; font-weight: 600; color: var(--text-primary); display: block; }
+.modal-access-opt-desc { font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 1px; }
 .portal-alert-error { padding: 12px 16px; background: var(--danger-light); border: 1px solid hsl(350,80%,70%); border-radius: var(--radius-sm); color: hsl(350,80%,55%); font-size: 13px; }
 .portal-module-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .portal-module-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; transition: box-shadow .15s; }
