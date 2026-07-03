@@ -12,7 +12,8 @@ export const listAccessRequestsHandler = factory.createHandlers(
   requireAuth(),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId, userId } = c.get("auth");
+    const { tenantId, userId, roles } = c.get("auth");
+    const isAdminOrAgent = roles.includes("admin") || roles.includes("agent");
 
     try {
       const [instance] = await withTenantContext(tenantId, (tx) =>
@@ -35,10 +36,9 @@ export const listAccessRequestsHandler = factory.createHandlers(
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 
-      // Only creator or assignee may see the access request list
       const isOwner =
         instance.createdBy === userId || instance.assignedTo === userId;
-      if (!isOwner) {
+      if (!isOwner && !isAdminOrAgent) {
         return c.json({ error: "FORBIDDEN", message: "Not found" }, 404);
       }
 

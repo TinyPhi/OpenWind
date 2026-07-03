@@ -1002,6 +1002,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [accessReqList, setAccessReqList] = useState<AccessRequest[]>([]);
   const [accessReqLoaded, setAccessReqLoaded] = useState(false);
   const [requestingAccess, setRequestingAccess] = useState(false);
+  const [confirmReqLevel, setConfirmReqLevel] = useState<AccessLevel | null>(
+    null,
+  );
   const [myAccessReqStatus, setMyAccessReqStatus] = useState<
     "none" | "pending" | "approved" | "rejected"
   >("none");
@@ -1378,9 +1381,10 @@ export function CustomerRecordDetail(): React.ReactElement {
       );
       const rows = (res as { data: AccessRequest[] }).data;
       setAccessReqList(rows);
-      setAccessReqLoaded(true);
     } catch {
-      /* best-effort */
+      setAccessReqList([]);
+    } finally {
+      setAccessReqLoaded(true);
     }
   }
 
@@ -2175,13 +2179,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                   type="button"
                   className="portal-btn-primary"
                   disabled={requestingAccess}
-                  onClick={() => void submitAccessRequest("read_only")}
+                  onClick={() => setConfirmReqLevel("read_only")}
                 >
-                  {requestingAccess
-                    ? "Sending…"
-                    : myAccessReqStatus === "rejected"
-                      ? "Request Again"
-                      : "Request Access"}
+                  {myAccessReqStatus === "rejected"
+                    ? "Request Again"
+                    : "Request Access"}
                 </button>
               )}
             </div>
@@ -2761,15 +2763,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                           type="button"
                           className="rcd-readonly-req-btn"
                           disabled={requestingAccess}
-                          onClick={() =>
-                            void submitAccessRequest("read_comment")
-                          }
+                          onClick={() => setConfirmReqLevel("read_comment")}
                         >
-                          {requestingAccess
-                            ? "Sending…"
-                            : myAccessReqStatus === "rejected"
-                              ? "Request Again"
-                              : "Request Comment Access"}
+                          {myAccessReqStatus === "rejected"
+                            ? "Request Again"
+                            : "Request Comment Access"}
                         </button>
                       )}
                     </div>
@@ -3876,6 +3874,58 @@ export function CustomerRecordDetail(): React.ReactElement {
               >
                 {transitioning === stateModal.id ? "Moving…" : "Confirm"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm access-request modal ─────────────────────── */}
+      {confirmReqLevel !== null && (
+        <div className="modal-overlay" onClick={() => setConfirmReqLevel(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Request access?</span>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setConfirmReqLevel(null)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p
+                style={{
+                  margin: "0 0 18px",
+                  color: "var(--text-secondary)",
+                  fontSize: "14px",
+                }}
+              >
+                {confirmReqLevel === "read_comment"
+                  ? "This will send a request to the ticket owner for comment access. They will be able to approve or decline."
+                  : "This will send a request to the ticket owner for view access. They will be able to approve or decline."}
+              </p>
+              <div className="rcd-access-modal-actions">
+                <button
+                  type="button"
+                  className="portal-btn-secondary"
+                  onClick={() => setConfirmReqLevel(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="portal-btn-primary"
+                  disabled={requestingAccess}
+                  onClick={() => {
+                    const lvl = confirmReqLevel;
+                    setConfirmReqLevel(null);
+                    void submitAccessRequest(lvl);
+                  }}
+                >
+                  {requestingAccess ? "Sending…" : "Send Request"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

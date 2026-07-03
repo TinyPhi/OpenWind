@@ -22,7 +22,8 @@ export const resolveAccessRequestHandler = factory.createHandlers(
   async (c) => {
     const id = c.req.param("id") ?? "";
     const reqId = c.req.param("reqId") ?? "";
-    const { tenantId, userId } = c.get("auth");
+    const { tenantId, userId, roles } = c.get("auth");
+    const isAdminOrAgent = roles.includes("admin") || roles.includes("agent");
     const { action, level } = c.req.valid("json");
 
     try {
@@ -49,7 +50,7 @@ export const resolveAccessRequestHandler = factory.createHandlers(
 
       const isOwner =
         instance.createdBy === userId || instance.assignedTo === userId;
-      if (!isOwner) {
+      if (!isOwner && !isAdminOrAgent) {
         return c.json({ error: "FORBIDDEN", message: "Not found" }, 404);
       }
 
