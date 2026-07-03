@@ -3134,7 +3134,9 @@ select.form-input {
 /* ── Record detail: access-denied overlay ─────────────────────────────── */
 .rcd-access-overlay {
   position: fixed; inset: 0; z-index: 9000;
-  background: rgba(0,0,0,.55);
+  background: rgba(0,0,0,.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
 }

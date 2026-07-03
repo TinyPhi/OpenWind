@@ -2042,8 +2042,8 @@ export function CustomerRecordDetail(): React.ReactElement {
             <div className="rcd-access-icon">🔒</div>
             <h3 className="rcd-access-title">Access Restricted</h3>
             <p className="rcd-access-body">
-              You don't have access to this ticket. Contact the ticket owner or
-              an agent to request access.
+              You don't have access to this ticket. Contact the ticket owner to
+              request access.
             </p>
             <button
               type="button"
