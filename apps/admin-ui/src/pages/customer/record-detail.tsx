@@ -27,6 +27,7 @@ type EntityField = {
 };
 type EntityInstance = {
   id: string;
+  entityTypeId: string;
   workflowId: string | null;
   currentState: string | null;
   fields: Record<string, unknown>;
@@ -999,6 +1000,12 @@ export function CustomerRecordDetail(): React.ReactElement {
 
   const [fields, setFields] = useState<EntityField[]>([]);
   const [record, setRecord] = useState<EntityInstance | null>(null);
+  // getTypeBySlug does a naive first-match lookup — if two entity types
+  // share a slug, it can resolve to the wrong one. Once the record itself
+  // has loaded, its own entityTypeId is authoritative and overrides the
+  // slug-derived guess (which only serves as the value for the very first
+  // fetch, before we know which record we're looking at).
+  const effectiveEntityTypeId = record?.entityTypeId ?? entityTypeId;
   const [comments, setComments] = useState<WorkflowEvent[]>([]);
   const [historyEvents, setHistoryEvents] = useState<WorkflowEvent[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -1344,9 +1351,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   };
 
   function loadRecord(): Promise<void> {
-    if (!entityTypeId || !id) return Promise.resolve();
+    if (!effectiveEntityTypeId || !id) return Promise.resolve();
     return Promise.all([
-      fetchWithAuth(`${API_URL}/entity-types/${entityTypeId}/fields`),
+      fetchWithAuth(`${API_URL}/entity-types/${effectiveEntityTypeId}/fields`),
       fetchWithAuth(`${API_URL}/entities/${id}`),
       fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
       fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(() => ({
@@ -1571,7 +1578,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   }
 
   async function createChild(): Promise<void> {
-    if (!id || !entityTypeId || !newChildTitle.trim()) return;
+    if (!id || !effectiveEntityTypeId || !newChildTitle.trim()) return;
     setCreatingChild(true);
     setCreateChildError(null);
     try {
@@ -1584,7 +1591,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       await fetchWithAuth(`${API_URL}/entities/${id}/children`, {
         method: "POST",
         body: JSON.stringify({
-          entityTypeId,
+          entityTypeId: effectiveEntityTypeId,
           fields: childFields,
           ...(newChildAssignedTo ? { assignedTo: newChildAssignedTo } : {}),
         }),
@@ -1741,7 +1748,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       void loadComments();
       void refreshAttachments();
     });
-  }, [entityTypeId, id]);
+  }, [effectiveEntityTypeId, id]);
 
   // Access-denied check: once both the record and OIDC identity are loaded,
   // verify the general user is in the ticket's access list.
@@ -1777,14 +1784,14 @@ export function CustomerRecordDetail(): React.ReactElement {
   }, [record?.id, record?.parentId]);
 
   useEffect(() => {
-    if (!record?.workflowId && !entityTypeId) {
+    if (!record?.workflowId && !effectiveEntityTypeId) {
       setAllStates([]);
       return;
     }
 
     const wfUrl = record?.workflowId
       ? `${API_URL}/workflows/${record.workflowId}`
-      : `${API_URL}/workflows?${new URLSearchParams({ entityTypeId: entityTypeId ?? "" }).toString()}`;
+      : `${API_URL}/workflows?${new URLSearchParams({ entityTypeId: effectiveEntityTypeId ?? "" }).toString()}`;
 
     fetchWithAuth(wfUrl)
       .then((res) => {
@@ -1821,7 +1828,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       .catch(() => {
         setAllStates([]);
       });
-  }, [record?.workflowId, entityTypeId]);
+  }, [record?.workflowId, effectiveEntityTypeId]);
 
   async function saveEdit(): Promise<void> {
     if (!id) return;
