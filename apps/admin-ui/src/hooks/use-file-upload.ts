@@ -156,7 +156,7 @@ export function useFileUpload({
   entityId,
   moduleSlug,
 }: {
-  entityId: string;
+  entityId?: string;
   moduleSlug: string;
 }): {
   stagedFiles: StagedFile[];

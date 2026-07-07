@@ -2,6 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
+import { useFileUpload } from "../../hooks/use-file-upload.js";
+import {
+  AttachmentUploadZone,
+  StagedFileChip,
+} from "../../components/file-attachment.js";
 
 type UserOption = {
   userId: string;
@@ -533,6 +538,8 @@ export function CustomerRecordCreate(): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const { stagedFiles, addFiles, removeFile, pendingCount, cleanFileIds } =
+    useFileUpload({ moduleSlug: typeSlug ?? "unknown" });
 
   const selectedWorkflow = workflows.find((w) => w.id === workflowId);
   const availableStates = selectedWorkflow?.states ?? [];
@@ -613,6 +620,18 @@ export function CustomerRecordCreate(): React.ReactElement {
         body: JSON.stringify(payload),
       });
       const created = (res as { data: { id: string } }).data;
+      for (const fileId of cleanFileIds) {
+        try {
+          await fetchWithAuth(`${API_URL}/entities/${created.id}/attachments`, {
+            method: "POST",
+            body: JSON.stringify({ fileId }),
+          });
+        } catch {
+          // Record was created; a single attachment failing to bind
+          // shouldn't block navigation — it can be re-attached from the
+          // detail page.
+        }
+      }
       if (routeState.returnTo) {
         navigate(routeState.returnTo);
       } else {
@@ -708,6 +727,24 @@ export function CustomerRecordCreate(): React.ReactElement {
             No fields defined for this entity type.
           </p>
         )}
+        <div className="portal-field-group">
+          <label className="portal-field-label">Attachments</label>
+          {stagedFiles.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "6px",
+                marginBottom: "8px",
+              }}
+            >
+              {stagedFiles.map((f) => (
+                <StagedFileChip key={f.fileId} file={f} onRemove={removeFile} />
+              ))}
+            </div>
+          )}
+          <AttachmentUploadZone onFiles={(files) => addFiles(files)} />
+        </div>
         <div className="portal-form-actions">
           <button
             type="button"
@@ -719,7 +756,8 @@ export function CustomerRecordCreate(): React.ReactElement {
           <button
             type="submit"
             className="portal-btn-primary"
-            disabled={saving}
+            disabled={saving || pendingCount > 0}
+            title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
           >
             {saving ? "Creating…" : `Create ${entityType?.name ?? "Record"}`}
           </button>
