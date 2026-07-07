@@ -558,6 +558,9 @@ export function CustomerRecordCreate(): React.ReactElement {
 
   useEffect(() => {
     if (!entityTypeId) return;
+    // cancelled prevents a stale response (from React Strict Mode's double-invoke
+    // or a rapid entityTypeId change) from overwriting state set by the current fetch.
+    let cancelled = false;
     Promise.all([
       fetchWithAuth(`${API_URL}/entity-types/${entityTypeId}/fields`),
       fetchWithAuth(
@@ -566,27 +569,30 @@ export function CustomerRecordCreate(): React.ReactElement {
       fetchWithAuth(`${API_URL}/users`),
     ])
       .then(([fieldsRes, wfRes, usersRes]) => {
-        // Show all fields — isSystem marks module-seeded fields (title, priority,
-        // description, etc.) which users absolutely need to fill in when creating.
+        if (cancelled) return;
         const fs = (fieldsRes as { data: EntityField[] }).data;
         setFields(fs);
         const wfs = (wfRes as { data?: WorkflowDef[] }).data ?? [];
         setWorkflows(wfs);
-        // Pre-select: honour workflowId from router state first, then auto-select if only one.
         const preselect = routeState.workflowId;
         if (preselect && wfs.some((w) => w.id === preselect)) {
           setWorkflowId(preselect);
         } else if (wfs.length === 1 && wfs[0]) {
           setWorkflowId(wfs[0].id);
         }
-
         const usrs = (usersRes as { data?: UserOption[] }).data ?? [];
         setUsers(usrs);
       })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
-      )
-      .finally(() => setLoading(false));
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Failed to load");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [entityTypeId]);
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
