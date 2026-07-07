@@ -1351,15 +1351,24 @@ export function CustomerRecordDetail(): React.ReactElement {
   };
 
   function loadRecord(): Promise<void> {
-    if (!effectiveEntityTypeId || !id) return Promise.resolve();
-    return Promise.all([
-      fetchWithAuth(`${API_URL}/entity-types/${effectiveEntityTypeId}/fields`),
-      fetchWithAuth(`${API_URL}/entities/${id}`),
-      fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
-      fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(() => ({
-        data: [],
-      })),
-    ])
+    if (!id) return Promise.resolve();
+    // Fetch the record first — its own entityTypeId is authoritative, unlike
+    // the slug-derived guess (which can resolve to the wrong entity type if
+    // two share a slug). Fetching fields off the record's real entityTypeId,
+    // sequentially rather than as a reactive dependency, avoids a setRecord(null)
+    // → effectiveEntityTypeId flips back to the guess → re-fires effect loop.
+    return fetchWithAuth(`${API_URL}/entities/${id}`)
+      .then((recRes) => {
+        const rec = (recRes as { data: EntityInstance }).data;
+        return Promise.all([
+          fetchWithAuth(`${API_URL}/entity-types/${rec.entityTypeId}/fields`),
+          Promise.resolve(recRes),
+          fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
+          fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(() => ({
+            data: [],
+          })),
+        ]);
+      })
       .then(([fieldsRes, recRes, usersRes, accessRes]) => {
         setFields(
           (fieldsRes as { data: EntityField[] }).data.filter(
@@ -1748,7 +1757,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       void loadComments();
       void refreshAttachments();
     });
-  }, [effectiveEntityTypeId, id]);
+  }, [id]);
 
   // Access-denied check: once both the record and OIDC identity are loaded,
   // verify the general user is in the ticket's access list.
