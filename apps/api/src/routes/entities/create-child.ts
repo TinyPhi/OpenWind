@@ -9,7 +9,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 const CreateChildSchema = z.object({
   entityTypeId: z.string().uuid(),
   fields: z.record(z.unknown()).default({}),
-  assignedTo: z.string().uuid().optional(),
+  assignedTo: z.string().optional(),
 });
 
 export const createChildHandler = factory.createHandlers(
