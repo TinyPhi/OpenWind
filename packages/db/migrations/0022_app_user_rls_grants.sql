@@ -5,7 +5,7 @@
 --
 -- DOWN MIGRATION:
 -- REVOKE INSERT, UPDATE, DELETE ON entity_types, workflows, workflow_states, workflow_transitions FROM app_user;
--- REVOKE UPDATE ON tenants FROM app_user;
+-- REVOKE UPDATE (config, updated_at) ON tenants FROM app_user;
 -- REVOKE DELETE ON dead_letter_events FROM app_user;
 --
 -- app_user previously had SELECT-only on entity_types, workflows,
@@ -33,8 +33,10 @@ GRANT INSERT, UPDATE, DELETE ON
 TO app_user;
 
 -- tenants: module install/uninstall updates config.installed_modules + updated_at.
+-- Column-scoped to exactly what that call site writes — tenants has no RLS (it's the
+-- root config table, not itself tenant-scoped), so this is the only privilege boundary.
 -- Row selection (WHERE tenants.id = tenantId) is enforced at the application layer.
-GRANT UPDATE ON tenants TO app_user;
+GRANT UPDATE (config, updated_at) ON tenants TO app_user;
 
 -- dead_letter_events: apps/worker/src/tenant-purge.ts deletes a tenant's dead-lettered
 -- job rows via withTenantContext during tenant purge. 0019 granted only SELECT, INSERT

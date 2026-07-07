@@ -48,7 +48,7 @@ over a premature abstraction, and it matches the file's pre-existing pattern.
 Re-ran the full exit condition after fixes: typecheck/lint/test/test:isolation all still
 green (see Verification below, numbers reflect the post-fix state).
 
-### New finding (not fixed, flagged for follow-up — not in scope of #121/#122)
+### New finding — filed as [#136](../../issues/136), not fixed in this PR
 
 `entity_types` and `workflows` have a nullable `tenant_id` but **no RLS policy at all**
 (`NULL` tenant_id = system/template rows visible to every tenant); `workflow_states` /
@@ -57,16 +57,38 @@ on the explicit ownership checks in `packages/workflow-engine` (`assertWorkflowO
 `visibleTo`). This was already true before this PR (RLS was bypassed everywhere via the
 superuser connection) — the grant migration does not change or worsen it, since GRANTs are
 table-level, not row-level. But it means these four tables have zero second line of defense.
-Recommend filing a new GH issue for a design decision (schema change) before Phase 3.
+Needs a design decision (schema change) before Phase 3 — tracked in #136.
+
+### Human PR review round (PR #135, reviewed by @PrabhuVijit) — all addressed
+
+PR approved with 2 medium + 3 low non-blocking items; user asked to fix all of them in this
+PR rather than defer, since none required large changes:
+
+- **SEC-1** (medium): `GRANT UPDATE ON tenants` was table-wide; column-scoped to
+  `GRANT UPDATE (config, updated_at) ON tenants TO app_user` — the only columns the
+  module-install/uninstall call site writes. Amended migration 0022 directly (pre-merge,
+  never applied to a real environment).
+- **TEST-1** (medium): fixing the vacuous-test bug (see above) had removed the only
+  assertion that Tenant A's `executeAutomationRules` run doesn't write execution rows
+  attributed to Tenant B's rule (the engine-level `WHERE tenant_id` guard, distinct from
+  the RLS layer). Restored it as a new test scoped by `ruleId = ruleIdB AND tenantId =
+  TENANT_A`.
+- **DOCS-1** (low): fixed a markdown line-wrap in `security.md` where prettier had broken
+  a sentence mid-backtick-phrase (`` `SET LOCAL ROLE\napp_user` `` at column 0).
+- **SUGG-1** (low): filed #136 for the no-RLS tracking issue instead of leaving it as a
+  PROGRESS.md note.
+- **SUGG-2** (low): added a comment in `executeRawInTenantContext` pointing future module-
+  seed authors at the 0022 grant pattern if they hit `permission denied for table X`.
 
 ### Verification (CI-equivalent local run — see note below)
 
 - pnpm typecheck: PASS
 - pnpm lint: PASS
-- pnpm test: PASS (320/320 — automation-engine isolation suite grew from 8 real + 1 no-op
-  skip to 9 real assertions)
-- pnpm test:isolation: PASS (111/111, all three previously-`.skip`'d RLS assertions now run
-  for real and pass)
+- pnpm test: PASS (321/321 — up from 320: the automation-engine isolation suite grew from
+  8 real + 1 no-op skip → 9 real assertions after the initial fix, then +1 more restoring
+  the engine-layer WHERE test from the PR review round)
+- pnpm test:isolation: PASS (112/112, all three previously-`.skip`'d RLS assertions run for
+  real and pass, plus the restored engine-layer assertion)
 
 **How verification was run:** OrbStack was not running at session start. The repo's own
 `docker-compose.yml` `postgres` service couldn't bind port 5432 because a pre-existing,
@@ -90,12 +112,9 @@ hardening checklist in CLAUDE.md, in order:
 3. Doc fixes from the review: `roadmap-tracker.md` Phase 2 gate wording, `platform-vision.md`
    Mermaid diagram, ADR-004 added to CLAUDE.md reference list
 4. Remaining hardening items #120, #123, #124, #125, #128, #129
-5. File a follow-up GH issue for the `entity_types`/`workflows`/`workflow_states`/
-   `workflow_transitions` no-RLS finding above
+5. #136 — design + implement RLS policies for `entity_types`/`workflows`/`workflow_states`/
+   `workflow_transitions` (filed during PR #135 review)
 
 ### Open questions
 
-- None blocking. The `tenants` UPDATE grant was scoped broadly (full row UPDATE, not
-  column-level) since Postgres column-level grants would need per-column ACL entries and
-  the existing `workflows` rename path also needs full-row UPDATE — flagged in the plan,
-  no objection raised.
+- None blocking.

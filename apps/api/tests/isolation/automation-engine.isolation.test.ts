@@ -151,6 +151,21 @@ describe("executeAutomationRules — cross-tenant isolation", () => {
     expect(execsA.length).toBeGreaterThan(0);
     expect(execsB).toHaveLength(0);
   });
+
+  it("Tenant A runs produce no execution records on Tenant B's rule", async () => {
+    // Superuser db, no withTenantContext — tests the engine-level WHERE
+    // tenant_id guard in executeAutomationRules, not the RLS layer.
+    const execsForBRule = await db
+      .select({ id: automationExecutions.id })
+      .from(automationExecutions)
+      .where(
+        and(
+          eq(automationExecutions.ruleId, ruleIdB),
+          eq(automationExecutions.tenantId, TENANT_A),
+        ),
+      );
+    expect(execsForBRule).toHaveLength(0);
+  });
 });
 
 // ── Execution log isolation ────────────────────────────────────────────────────
