@@ -42,6 +42,16 @@ export function App(): React.ReactElement {
         authProvider={authProvider}
         dataProvider={dataProvider}
         routerProvider={routerProvider}
+        options={{
+          reactQuery: {
+            // Prevents Authenticated from unmounting children on background auth
+            // re-checks triggered by window focus. Token renewal is handled by
+            // automaticSilentRenew in oidc-client-ts — background checks are redundant.
+            clientConfig: {
+              defaultOptions: { queries: { refetchOnWindowFocus: false } },
+            },
+          },
+        }}
         resources={[
           {
             name: "dashboard",

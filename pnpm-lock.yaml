@@ -88,6 +88,9 @@ importers:
       '@refinedev/react-router-v6':
         specifier: ^4.0.0
         version: 4.6.2(@refinedev/core@4.58.0(@tanstack/react-query@4.44.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@tanstack/react-query':
+        specifier: ^4.44.0
+        version: 4.44.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       oidc-client-ts:
         specifier: ^3.5.0
         version: 3.5.0
@@ -1556,12 +1559,6 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
-  '@esbuild/darwin-x64@0.28.1':
-    resolution: {integrity: sha512-zfdzgK9ACBNZLI/CyHTOx81SyNbM6YXn7rxSgX97VjyiPl9W1i4Ka4fgKECEoFCKGpvBj5qArWIGgQjOwkgskQ==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [darwin]
-
   '@esbuild/freebsd-arm64@0.28.1':
     resolution: {integrity: sha512-wG2EA8ENdEI0qhkSZMjfqrdY+ziCYCPMmtZjjIwOmXFjmyzEHn+UUxk5of+SYsjtfs3VpnlC7QLzSI5hY/rOAw==}
     engines: {node: '>=18'}
@@ -1640,12 +1637,6 @@ packages:
     cpu: [x64]
     os: [netbsd]
 
-  '@esbuild/openbsd-arm64@0.28.1':
-    resolution: {integrity: sha512-MEFJe5C3R8pwXdZ5Y21oo6m7ePiS0d9pWucn99O/wvyJZChoIQKrQDxKrGeW8F5+T0okTHesAmDeiHDTIq0V/Q==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [openbsd]
-
   '@esbuild/openbsd-x64@0.28.1':
     resolution: {integrity: sha512-i/ZLIOafE0Z8cI/XANJAixoJL/uRAoS2xOA3rb0xN+KK0K177cMAsQYkzHtBrtMXAKuAc7HGgcWiZ/sRC1Nxgw==}
     engines: {node: '>=18'}
@@ -1668,12 +1659,6 @@ packages:
     resolution: {integrity: sha512-lCv9eK/H6ZJWbE7bh2nw54CZ9M2nupBxJcTsdk/QQnWkdSjKGuxmmH8/GWrlT1eMmZfn4dGcCjRte397WqfQXA==}
     engines: {node: '>=18'}
     cpu: [arm64]
-    os: [win32]
-
-  '@esbuild/win32-ia32@0.28.1':
-    resolution: {integrity: sha512-zvb/mB2bSCoJOpoCBgYKKpX6YM6mJBlBUVUtVj41DlZJVEB6/0CKlRYxP5wWl1C1ILiCoAU5wZZ4q1P3qeS6Eg==}
-    engines: {node: '>=18'}
-    cpu: [ia32]
     os: [win32]
 
   '@esbuild/win32-x64@0.28.1':
@@ -2313,11 +2298,6 @@ packages:
     resolution: {integrity: sha512-RUkAE404z/J8NsyrUosMcBaXT6M4bRFxTQrmkDQBLQVXaC8Jl0e9bMvYDSX0GW7Ffm2m3j9y7RXgR1foeUAM9w==}
     cpu: [arm64]
     os: [darwin]
-
-  '@turbo/linux-64@2.9.12':
-    resolution: {integrity: sha512-InIUtH7cw/vqXNX1Gr7QgWfmw3ct08pV5CpfdEOR48z2u2rzdmpIuk00B/Q2xCb0PMWtKgiMQynfuphmEuUyTQ==}
-    cpu: [x64]
-    os: [linux]
 
   '@turbo/linux-arm64@2.9.12':
     resolution: {integrity: sha512-lC6nD//Xh67fmJM0LKaLsg74Wry0aYrgMklpiNgCbUaMdPIOqj0A00iri3NU7Lb7pZHx8ViisgpeDKlpSgFUCA==}
@@ -5988,9 +5968,6 @@ snapshots:
   '@esbuild/darwin-arm64@0.28.1':
     optional: true
 
-  '@esbuild/darwin-x64@0.28.1':
-    optional: true
-
   '@esbuild/freebsd-arm64@0.28.1':
     optional: true
 
@@ -6030,9 +6007,6 @@ snapshots:
   '@esbuild/netbsd-x64@0.28.1':
     optional: true
 
-  '@esbuild/openbsd-arm64@0.28.1':
-    optional: true
-
   '@esbuild/openbsd-x64@0.28.1':
     optional: true
 
@@ -6043,9 +6017,6 @@ snapshots:
     optional: true
 
   '@esbuild/win32-arm64@0.28.1':
-    optional: true
-
-  '@esbuild/win32-ia32@0.28.1':
     optional: true
 
   '@esbuild/win32-x64@0.28.1':
@@ -6717,9 +6688,6 @@ snapshots:
     optional: true
 
   '@turbo/darwin-arm64@2.9.12':
-    optional: true
-
-  '@turbo/linux-64@2.9.12':
     optional: true
 
   '@turbo/linux-arm64@2.9.12':
@@ -7708,7 +7676,6 @@ snapshots:
       '@esbuild/android-arm64': 0.28.1
       '@esbuild/android-x64': 0.28.1
       '@esbuild/darwin-arm64': 0.28.1
-      '@esbuild/darwin-x64': 0.28.1
       '@esbuild/freebsd-arm64': 0.28.1
       '@esbuild/freebsd-x64': 0.28.1
       '@esbuild/linux-arm': 0.28.1
@@ -7722,12 +7689,10 @@ snapshots:
       '@esbuild/linux-x64': 0.28.1
       '@esbuild/netbsd-arm64': 0.28.1
       '@esbuild/netbsd-x64': 0.28.1
-      '@esbuild/openbsd-arm64': 0.28.1
       '@esbuild/openbsd-x64': 0.28.1
       '@esbuild/openharmony-arm64': 0.28.1
       '@esbuild/sunos-x64': 0.28.1
       '@esbuild/win32-arm64': 0.28.1
-      '@esbuild/win32-ia32': 0.28.1
       '@esbuild/win32-x64': 0.28.1
 
   escalade@3.2.0: {}
@@ -9288,7 +9253,6 @@ snapshots:
     optionalDependencies:
       '@turbo/darwin-64': 2.9.12
       '@turbo/darwin-arm64': 2.9.12
-      '@turbo/linux-64': 2.9.12
       '@turbo/linux-arm64': 2.9.12
       '@turbo/windows-64': 2.9.12
       '@turbo/windows-arm64': 2.9.12
