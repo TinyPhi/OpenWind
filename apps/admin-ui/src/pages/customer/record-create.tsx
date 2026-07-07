@@ -514,13 +514,13 @@ export function CustomerRecordCreate(): React.ReactElement {
     returnTo?: string;
   };
   const { getTypeBySlug, getTypeById } = useEntityTypes();
-  // Prefer slug match; fall back to the entityTypeId passed via router state
-  // (set by WorkflowRecords so the form works even when slug matching fails).
+  // Prefer the explicit entityTypeId from router state (set by WorkflowRecords) —
+  // it is authoritative and avoids slug ambiguity when multiple entity types share
+  // the same slug. Fall back to slug matching for direct URL access.
   const entityType =
-    (typeSlug ? getTypeBySlug(typeSlug) : undefined) ??
     (routeState.entityTypeId
       ? getTypeById(routeState.entityTypeId)
-      : undefined);
+      : undefined) ?? (typeSlug ? getTypeBySlug(typeSlug) : undefined);
   const entityTypeId = entityType?.id ?? routeState.entityTypeId;
 
   const [fields, setFields] = useState<EntityField[]>([]);
