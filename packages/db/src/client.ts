@@ -21,6 +21,8 @@ export async function executeRawInTenantContext(
   rawSql: string,
 ): Promise<void> {
   await queryClient.begin(async (tx) => {
+    // Switch to app_user so RLS policies are enforced (superusers bypass RLS by default).
+    await tx`SET LOCAL ROLE app_user`;
     await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
     await tx.unsafe(rawSql);
   });

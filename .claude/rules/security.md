@@ -25,10 +25,14 @@ See `packages/secrets/README.md` for the API surface.
    - **Explicit `WHERE tenant_id = ?` filters** in every engine query. These are the primary
      guard. Do not remove them on the assumption that RLS alone is sufficient.
    - **RLS via `set_config('app.tenant_id', …)`** set by `withTenantContext`. Second line of
-     defence. `withTenantContext` sets the GUC but does not switch the DB role — if
-     `DATABASE_URL` is a superuser, RLS is bypassed and only the explicit filters protect you.
-     Every new table storing tenant data also needs RLS enabled and a policy defined. PRs
-     missing either layer are blocked. See ADR-001.
+     defence. `withTenantContext` and `executeRawInTenantContext` issue `SET LOCAL ROLE
+app_user` before setting the GUC (#121), so RLS is enforced even when `DATABASE_URL`
+     is a superuser — `SET LOCAL ROLE` switches to the non-superuser `app_user` role for the
+     duration of the transaction. Every new table storing tenant data also needs RLS enabled
+     and a policy defined, and `app_user` needs the matching grants (see
+     `packages/db/migrations/0019_create_app_user.sql` and later grant migrations, e.g.
+     `0022_app_user_rls_grants.sql`) or writes will fail with permission-denied once routed
+     through `withTenantContext`. PRs missing either layer are blocked. See ADR-001.
 
 2. **Validate all external input with Zod before using it.** API inputs, webhook payloads,
    connector data, file metadata — all validated before processing.

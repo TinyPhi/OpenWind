@@ -1,41 +1,101 @@
-## 2026-06-24 — post-review followup (PR #130)
+## 2026-07-07 — Hardening #121 / #122: RLS role enforcement
 
 ### Done
 
-- Backfilled GH issue numbers (#120–#129) into CLAUDE.md hardening checklist
-- Created PROGRESS.md (this file) as session handoff
-- Fixed VISION.md "for pilot" wording duplication
-- Fixed `docs/platform-vision.md` P1 chart style to green (S2)
+- `packages/db/src/middleware.ts`: `withTenantContext` now issues `SET LOCAL ROLE app_user`
+  before setting the `app.tenant_id` GUC, mirroring `withTenantAndUserContext`. Closes #121.
+- `packages/db/src/client.ts`: same fix in `executeRawInTenantContext` (used by module seed SQL).
+- `packages/db/migrations/0022_app_user_rls_grants.sql`: grants `app_user` the
+  `INSERT/UPDATE/DELETE` it was missing on `entity_types`, `workflows`, `workflow_states`,
+  `workflow_transitions` (previously SELECT-only), and `UPDATE` on `tenants` — required
+  because workflow-state/transition CRUD, module install/uninstall, and module seed SQL all
+  route through `withTenantContext`/`executeRawInTenantContext` and would otherwise start
+  failing with permission-denied the moment the role switch landed.
+- Un-skipped the three cross-tenant RLS assertions (#122): `entity-engine.isolation.test.ts`,
+  `workflow-engine.isolation.test.ts`, and `automation-engine.isolation.test.ts` (this last
+  one had no assertion at all — wrote a real direct-SELECT-via-RLS test for it, using
+  `withTenantContext` + a query with no explicit tenant filter, matching the other two files).
+- Updated `.claude/rules/db-conventions.md` and `.claude/rules/security.md` to describe the
+  new role-switch behavior instead of the stale "RLS is bypassed" warning.
+- Branch: `fix/PLAT-121-rls-role`. Plan-lock approved by human before any source edit.
 
-_Prior session (PR #119, same date): reconciled stale docs with code reality after external review — CLAUDE.md, VISION.md, db-conventions.md, platform-vision.md, roadmap-tracker.md, week-log.md, phase-2-primer.md, automation-engine.md, security.md, git-conventions.md._
+### /code-review + /security-review findings (fixed before shipping)
 
-### Verification
+Security review: no findings (traced every call site touching newly-granted tables; all
+tenant-scoped writes are JWT-derived and gated by pre-existing ownership checks).
 
-- pnpm typecheck: N/A — docs-only
-- pnpm lint: N/A — docs-only
-- pnpm test: N/A — docs-only
-- pnpm test:isolation: N/A — docs-only
+Correctness review surfaced two real bugs, both fixed:
+
+- **`apps/worker/src/tenant-purge.ts:154`** deletes from `dead_letter_events` inside
+  `withTenantContext`, but `app_user` only had SELECT+INSERT on that table (migration 0019)
+  — the role switch would have broken tenant purge/GDPR deletion with permission-denied for
+  any tenant with a dead-lettered job. Added `GRANT DELETE ON dead_letter_events TO app_user`
+  to migration 0022.
+- **`automation-engine.isolation.test.ts`**'s un-skipped RLS test never seeded a Tenant B
+  `automation_executions` row, so it passed vacuously regardless of whether RLS worked.
+  Added a `beforeAll` that creates a real Tenant B execution via `executeAutomationRules`,
+  plus a sanity-check test proving the row exists (via superuser query) before the RLS test
+  proves it's invisible from Tenant A's context.
+
+Also fixed two lower-severity findings: `security.md` pointed only to migration 0019 for
+`app_user`'s grants (now also references 0022), and 0022's DOWN MIGRATION block was buried
+after 20 lines of rationale instead of near the top like every sibling migration.
+
+Declined one cleanup suggestion: dedup the `SET LOCAL ROLE app_user` line across 3 call
+sites into a shared helper — CLAUDE.md's code-style guidance favors 3 similar 2-line blocks
+over a premature abstraction, and it matches the file's pre-existing pattern.
+
+Re-ran the full exit condition after fixes: typecheck/lint/test/test:isolation all still
+green (see Verification below, numbers reflect the post-fix state).
+
+### New finding (not fixed, flagged for follow-up — not in scope of #121/#122)
+
+`entity_types` and `workflows` have a nullable `tenant_id` but **no RLS policy at all**
+(`NULL` tenant_id = system/template rows visible to every tenant); `workflow_states` /
+`workflow_transitions` have no `tenant_id` column at all — isolation there depends entirely
+on the explicit ownership checks in `packages/workflow-engine` (`assertWorkflowOwned`,
+`visibleTo`). This was already true before this PR (RLS was bypassed everywhere via the
+superuser connection) — the grant migration does not change or worsen it, since GRANTs are
+table-level, not row-level. But it means these four tables have zero second line of defense.
+Recommend filing a new GH issue for a design decision (schema change) before Phase 3.
+
+### Verification (CI-equivalent local run — see note below)
+
+- pnpm typecheck: PASS
+- pnpm lint: PASS
+- pnpm test: PASS (320/320 — automation-engine isolation suite grew from 8 real + 1 no-op
+  skip to 9 real assertions)
+- pnpm test:isolation: PASS (111/111, all three previously-`.skip`'d RLS assertions now run
+  for real and pass)
+
+**How verification was run:** OrbStack was not running at session start. The repo's own
+`docker-compose.yml` `postgres` service couldn't bind port 5432 because a pre-existing,
+unrelated container (`platform-postgres-1`, same repo directory but an older compose
+project name, still running from a prior session) already held it — left untouched, not
+part of this PR. Instead of reusing that dev container (which has broader ambient app_user
+grants from `docker/postgres/init/001_setup.sql`'s `ALTER DEFAULT PRIVILEGES`, masking any
+CI-only grant gaps), spun up plain `postgres:16-alpine` + `redis:7-alpine` containers on
+ports 5433/6379 matching `.github/workflows/ci.yml` exactly (same `platform` superuser,
+same `platform_test` DB, no init script) so the grant migration was validated against the
+same conditions as the real CI gate. Removed both temp containers after the run.
 
 ### Next
 
-**Hardening sprint — all 10 items must close before 3A starts.**
-Run `gh issue list --state open --label phase:2` to see current queue.
+Per the consulting review (`docs/reviews/2026-06-29-consulting-review.md`) and the
+hardening checklist in CLAUDE.md, in order:
 
-Work in this order (top two are sequentially dependent):
-
-1. [#121](../../issues/121) — RLS role fix (`withTenantContext` + `SET LOCAL ROLE app_user`)
-2. [#122](../../issues/122) — un-skip isolation tests, run CI as `app_user` (depends on #121)
-3. [#120](../../issues/120) — automation double-trigger / depth-reset
-4. [#123](../../issues/123) — automation queue retries
-5. [#124](../../issues/124) — auth middleware `onConflictDoNothing`
-6. [#125](../../issues/125) — wire `notify` action to Novu
-7. [#126](../../issues/126) — emit `entity.created` / `entity.assigned` to outbox
-8. [#127](../../issues/127) — guard `setEntityState` / `bulkSetState`
-9. [#128](../../issues/128) — uncomment OpenBao + MinIO in docker-compose.yml
-10. [#129](../../issues/129) — worker health endpoint
-
-**After hardening sprint:** Phase 3 planning sign-off required before starting 3A. Write `.claude/context/phase-3-primer.md` before the first 3A session (noted in CLAUDE.md Phase 3 tracks table).
+1. #126 — emit `entity.created` / `entity.assigned` to the outbox (core function, currently
+   dead automations)
+2. #127 — guard `setEntityState` / `bulkSetState` (audit/compliance side-door)
+3. Doc fixes from the review: `roadmap-tracker.md` Phase 2 gate wording, `platform-vision.md`
+   Mermaid diagram, ADR-004 added to CLAUDE.md reference list
+4. Remaining hardening items #120, #123, #124, #125, #128, #129
+5. File a follow-up GH issue for the `entity_types`/`workflows`/`workflow_states`/
+   `workflow_transitions` no-RLS finding above
 
 ### Open questions
 
-- None. Phase 3 track sequencing (3A → 3B → 3C, 3D parallel) is documented in CLAUDE.md.
+- None blocking. The `tenants` UPDATE grant was scoped broadly (full row UPDATE, not
+  column-level) since Postgres column-level grants would need per-column ACL entries and
+  the existing `workflows` rename path also needs full-row UPDATE — flagged in the plan,
+  no objection raised.
