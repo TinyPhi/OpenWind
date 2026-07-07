@@ -1,5 +1,5 @@
 import type { DataProvider } from "@refinedev/core";
-import { userManager, silentRefresh } from "./authProvider.js";
+import { userManager, silentRefresh, waitForAuth } from "./authProvider.js";
 
 const apiUrl = "/api";
 
@@ -46,6 +46,7 @@ async function fetchWithAuth(
   url: string,
   options: RequestInit = {},
 ): Promise<unknown> {
+  await waitForAuth();
   const user = await userManager.getUser();
   let token = user?.access_token;
 

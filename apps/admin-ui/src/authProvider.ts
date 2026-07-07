@@ -1,4 +1,5 @@
 import { UserManager, WebStorageStateStore } from "oidc-client-ts";
+import type { User } from "oidc-client-ts";
 import type { AuthProvider } from "@refinedev/core";
 
 declare const window: Window & {
@@ -37,6 +38,35 @@ export const userManager = new UserManager({
   automaticSilentRenew: true,
   loadUserInfo: true,
 });
+
+// ── Auth-ready gate ───────────────────────────────────────────────────────────
+// Resolves as soon as a valid access_token is confirmed available.
+// — On page reload: resolves immediately (user already in localStorage).
+// — On initial login: resolves when signinCallback() fires the userLoaded event.
+// fetchWithAuth awaits this before reading the token so it never sends a
+// request with a missing Bearer header due to a post-callback race condition.
+
+let _authReadyResolve: (() => void) | undefined;
+const _authReady = new Promise<void>((resolve) => {
+  _authReadyResolve = resolve;
+});
+
+// Check localStorage immediately (page reload path).
+void userManager.getUser().then((u) => {
+  if (u && !u.expired) _authReadyResolve?.();
+});
+
+// Resolve whenever a user is stored (initial login path).
+userManager.events.addUserLoaded((_u: User) => {
+  _authReadyResolve?.();
+});
+
+// 3 s safety-valve: never block requests longer than this.
+const _authTimeout = new Promise<void>((r) => setTimeout(r, 3000));
+
+export function waitForAuth(): Promise<void> {
+  return Promise.race([_authReady, _authTimeout]);
+}
 
 // Attempt a silent token refresh using the stored refresh_token.
 // Returns the new access_token on success, null on failure.

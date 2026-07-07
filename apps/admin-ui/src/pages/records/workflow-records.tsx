@@ -1362,12 +1362,12 @@ export function WorkflowRecords(): React.ReactElement {
           {/* New record */}
           {entityTypeId && (
             <Link
-              to={
-                typeSlug
-                  ? `/records/${typeSlug}/new`
-                  : `/entity-types/${entityTypeId}/records/new`
-              }
-              state={{ workflowId }}
+              to={`/records/${typeSlug || entityTypeId}/new`}
+              state={{
+                workflowId,
+                entityTypeId,
+                returnTo: `/workflows/${workflowSlug ?? ""}/records`,
+              }}
               className="kb-circ-btn kb-circ-btn-primary"
               title={`New ${entityType?.name ?? "Record"}`}
             >
@@ -1396,8 +1396,16 @@ export function WorkflowRecords(): React.ReactElement {
         <div className="kb-empty-state">
           <div className="kb-empty-icon">📋</div>
           <p className="kb-empty-title">No {displayName.toLowerCase()} yet</p>
-          {typeSlug && (
-            <Link to={`/records/${typeSlug}/new`} className="kb-new-btn">
+          {(typeSlug || entityTypeId) && (
+            <Link
+              to={`/records/${typeSlug || entityTypeId}/new`}
+              state={{
+                workflowId,
+                entityTypeId,
+                returnTo: `/workflows/${workflowSlug ?? ""}/records`,
+              }}
+              className="kb-new-btn"
+            >
               Create the first one
             </Link>
           )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 
@@ -507,9 +507,21 @@ function FieldInput({
 export function CustomerRecordCreate(): React.ReactElement {
   const { typeSlug } = useParams<{ typeSlug: string }>();
   const navigate = useNavigate();
-  const { getTypeBySlug } = useEntityTypes();
-  const entityType = typeSlug ? getTypeBySlug(typeSlug) : undefined;
-  const entityTypeId = entityType?.id;
+  const location = useLocation();
+  const routeState = (location.state ?? {}) as {
+    workflowId?: string;
+    entityTypeId?: string;
+    returnTo?: string;
+  };
+  const { getTypeBySlug, getTypeById } = useEntityTypes();
+  // Prefer slug match; fall back to the entityTypeId passed via router state
+  // (set by WorkflowRecords so the form works even when slug matching fails).
+  const entityType =
+    (typeSlug ? getTypeBySlug(typeSlug) : undefined) ??
+    (routeState.entityTypeId
+      ? getTypeById(routeState.entityTypeId)
+      : undefined);
+  const entityTypeId = entityType?.id ?? routeState.entityTypeId;
 
   const [fields, setFields] = useState<EntityField[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowDef[]>([]);
@@ -560,7 +572,13 @@ export function CustomerRecordCreate(): React.ReactElement {
         setFields(fs);
         const wfs = (wfRes as { data?: WorkflowDef[] }).data ?? [];
         setWorkflows(wfs);
-        if (wfs.length === 1 && wfs[0]) setWorkflowId(wfs[0].id);
+        // Pre-select: honour workflowId from router state first, then auto-select if only one.
+        const preselect = routeState.workflowId;
+        if (preselect && wfs.some((w) => w.id === preselect)) {
+          setWorkflowId(preselect);
+        } else if (wfs.length === 1 && wfs[0]) {
+          setWorkflowId(wfs[0].id);
+        }
 
         const usrs = (usersRes as { data?: UserOption[] }).data ?? [];
         setUsers(usrs);
@@ -589,7 +607,11 @@ export function CustomerRecordCreate(): React.ReactElement {
         body: JSON.stringify(payload),
       });
       const created = (res as { data: { id: string } }).data;
-      navigate(`/records/${typeSlug}/${created.id}`);
+      if (routeState.returnTo) {
+        navigate(routeState.returnTo);
+      } else {
+        navigate(`/records/${typeSlug}/${created.id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create");
       setSaving(false);
@@ -605,7 +627,10 @@ export function CustomerRecordCreate(): React.ReactElement {
 
   return (
     <div className="portal-page">
-      <Link to={`/records/${typeSlug ?? ""}`} className="portal-back-link">
+      <Link
+        to={routeState.returnTo ?? `/records/${typeSlug ?? ""}`}
+        className="portal-back-link"
+      >
         ← {entityType?.plural ?? "Records"}
       </Link>
       <h1 className="portal-page-title">New {entityType?.name}</h1>
@@ -678,7 +703,7 @@ export function CustomerRecordCreate(): React.ReactElement {
         )}
         <div className="portal-form-actions">
           <Link
-            to={`/records/${typeSlug ?? ""}`}
+            to={routeState.returnTo ?? `/records/${typeSlug ?? ""}`}
             className="portal-btn-secondary"
           >
             Cancel

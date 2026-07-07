@@ -1,4 +1,4 @@
-import { userManager, silentRefresh } from "../authProvider.js";
+import { userManager, silentRefresh, waitForAuth } from "../authProvider.js";
 
 export const API_URL = "/api";
 
@@ -40,6 +40,7 @@ export async function fetchWithAuth(
   url: string,
   options: RequestInit = {},
 ): Promise<unknown> {
+  await waitForAuth();
   const user = await userManager.getUser();
   let token = user?.access_token;
 
@@ -89,6 +90,7 @@ export async function fetchWithAuth(
 }
 
 export async function fetchRawWithAuth(url: string): Promise<Response> {
+  await waitForAuth();
   const user = await userManager.getUser();
   const token = user?.access_token;
   const headers = new Headers();
