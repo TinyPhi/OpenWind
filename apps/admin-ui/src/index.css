@@ -3320,7 +3320,10 @@ select.form-input {
   transition: max-height .28s ease;
 }
 .rcd-expand-body-open {
-  max-height: 600px;
+  /* Large cap, not a real limit — entity types can have many fields (e.g.
+     tender's 11-field edit form + attachments), and a tight cap here
+     clips the form's content and its Save/Cancel footer. */
+  max-height: 5000px;
   border-top: 1px solid var(--border-color);
 }
 .rcd-expand-inner { padding: 16px 20px 14px; }
