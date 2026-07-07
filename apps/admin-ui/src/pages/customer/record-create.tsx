@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 
@@ -566,9 +566,9 @@ export function CustomerRecordCreate(): React.ReactElement {
       fetchWithAuth(`${API_URL}/users`),
     ])
       .then(([fieldsRes, wfRes, usersRes]) => {
-        const fs = (fieldsRes as { data: EntityField[] }).data.filter(
-          (f) => !f.isSystem,
-        );
+        // Show all fields — isSystem marks module-seeded fields (title, priority,
+        // description, etc.) which users absolutely need to fill in when creating.
+        const fs = (fieldsRes as { data: EntityField[] }).data;
         setFields(fs);
         const wfs = (wfRes as { data?: WorkflowDef[] }).data ?? [];
         setWorkflows(wfs);
@@ -627,12 +627,13 @@ export function CustomerRecordCreate(): React.ReactElement {
 
   return (
     <div className="portal-page">
-      <Link
-        to={routeState.returnTo ?? `/records/${typeSlug ?? ""}`}
+      <button
+        type="button"
         className="portal-back-link"
+        onClick={() => navigate(-1)}
       >
         ← {entityType?.plural ?? "Records"}
-      </Link>
+      </button>
       <h1 className="portal-page-title">New {entityType?.name}</h1>
       <form
         onSubmit={(e) => void handleSubmit(e)}
@@ -702,12 +703,13 @@ export function CustomerRecordCreate(): React.ReactElement {
           </p>
         )}
         <div className="portal-form-actions">
-          <Link
-            to={routeState.returnTo ?? `/records/${typeSlug ?? ""}`}
+          <button
+            type="button"
             className="portal-btn-secondary"
+            onClick={() => navigate(-1)}
           >
             Cancel
-          </Link>
+          </button>
           <button
             type="submit"
             className="portal-btn-primary"
