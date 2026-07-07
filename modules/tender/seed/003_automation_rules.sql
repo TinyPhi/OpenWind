@@ -16,9 +16,15 @@
 --   (a) implement a "create_child" action handler in automation-engine
 --       (calling createChildRelation, then set_field-ing costing_child_id
 --       back onto the parent) before enabling this rule, or
---   (b) fall back to the tender_owner manually creating the costing child
+--   (b) fall back to the tender's agent manually creating the costing child
 --       ticket and setting costing_child_id by hand until (a) ships.
 -- Tracked as a Phase-3-adjacent engine gap, not a module config gap.
+--
+-- ROLE NOTE: this platform has no "costing_lead" role (only agent/admin exist
+-- globally) — the child ticket's assignee is a specific user, not a role
+-- lookup. "assignToUserId" below is a placeholder the eventual create_child
+-- handler must resolve from context (e.g. a config-driven default assignee
+-- per tenant, or manual selection at automation-setup time) — never a role.
 
 INSERT INTO automation_rules (id, tenant_id, name, is_enabled, trigger_type, trigger_config, conditions, actions, priority)
 SELECT
@@ -38,7 +44,7 @@ SELECT
     {
       "type": "create_child",
       "config": {
-        "assignToRole": "costing_lead",
+        "assignToUserId": null,
         "descriptionTemplate": "{{title}}\n\n{{summary}}",
         "writeBackField": "costing_child_id"
       }

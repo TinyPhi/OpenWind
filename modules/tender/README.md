@@ -11,10 +11,18 @@ Source spec: `docs/specs/tender-management.md`.
 
 ## Required setup before install
 
-- `tender_owner` and `costing_lead` roles must exist in `packages/auth` role
-  config before this module is installed for a tenant — `costing_lead` in
-  particular is **not** assumed pre-existing (spec §C). `admin` already exists
-  platform-wide and is a superset for all tender transitions.
+- None — this module uses only the platform's existing global roles (`agent`,
+  `admin`, sourced from Zitadel claims). There is no `tender_owner` or
+  `costing_lead` role anywhere in this platform (verified against
+  `packages/auth`) — an earlier draft of this module wrongly assumed those
+  roles existed and gated every transition on them, which would have meant
+  **no user could ever transition a tender**. Fixed: all transitions now use
+  `allowed_roles: [agent, admin]`.
+- "Tender owner" is not a role — it's whichever agent is `assignedTo` the
+  tender, same convention as any other ticket.
+- Costing isolation does not need a role either — the costing analyst is
+  isolated by being `assignedTo` the child ticket (see Automation rules),
+  regardless of whether they hold the `agent` role or no role at all.
 - See "Known gap" below — the automation rule in `003_automation_rules.sql`
   ships **disabled** because the engine can't execute it yet.
 
@@ -51,24 +59,31 @@ States (`submitted` is terminal, no outgoing transitions): `draft`, `boq_prepara
 
 Transitions (see `002_workflow.sql`):
 
-| from                      | to                            | roles               | requires_fields                                                | requires_comment |
-| ------------------------- | ----------------------------- | ------------------- | -------------------------------------------------------------- | ---------------- |
-| draft                     | boq_preparation               | tender_owner, admin | summary, finance_details, eligibility_criteria, certifications | no               |
-| boq_preparation           | pending_costing_review        | tender_owner, admin | boq_file                                                       | no               |
-| pending_costing_review    | costing_approved              | tender_owner, admin | —                                                              | yes              |
-| pending_costing_review    | boq_preparation (reject)      | tender_owner, admin | —                                                              | yes              |
-| costing_approved          | document_preparation          | tender_owner, admin | —                                                              | no               |
-| document_preparation      | pending_submission_review     | tender_owner, admin | tender_documents                                               | no               |
-| pending_submission_review | submitted (terminal)          | tender_owner, admin | —                                                              | no               |
-| pending_submission_review | document_preparation (reject) | tender_owner, admin | —                                                              | yes              |
+| from                      | to                            | roles        | requires_fields                                                | requires_comment |
+| ------------------------- | ----------------------------- | ------------ | -------------------------------------------------------------- | ---------------- |
+| draft                     | boq_preparation               | agent, admin | summary, finance_details, eligibility_criteria, certifications | no               |
+| boq_preparation           | pending_costing_review        | agent, admin | boq_file                                                       | no               |
+| pending_costing_review    | costing_approved              | agent, admin | —                                                              | yes              |
+| pending_costing_review    | boq_preparation (reject)      | agent, admin | —                                                              | yes              |
+| costing_approved          | document_preparation          | agent, admin | —                                                              | no               |
+| document_preparation      | pending_submission_review     | agent, admin | tender_documents                                               | no               |
+| pending_submission_review | submitted (terminal)          | agent, admin | —                                                              | no               |
+| pending_submission_review | document_preparation (reject) | agent, admin | —                                                              | yes              |
+
+Note: `allowed_roles` checks the actor's global roles only — the platform's
+workflow engine (`packages/workflow-engine/src/engine.ts::executeTransition`)
+does not currently consult per-instance access grants (`__accessUsers`) when
+gating transitions. So any `agent`/`admin`, not just the tender's assignee,
+can transition any tender. Narrowing that further would require an engine
+change and is out of scope here.
 
 ## Automation rules
 
 `003_automation_rules.sql` defines one rule: on `workflow.transitioned` into
 `pending_costing_review` where `costing_child_id` is not already set, create a
-costing child ticket (assigned to `costing_lead`, description seeded from
-`title` + `summary` only) and write the resulting child id back onto
-`costing_child_id`.
+costing child ticket (assigned to a specific user — no role lookup, since no
+`costing_lead` role exists — description seeded from `title` + `summary`
+only) and write the resulting child id back onto `costing_child_id`.
 
 ### Known gap — cannot execute yet
 
@@ -94,9 +109,10 @@ meaningful for R9** (exactly-once child creation). Two options, not decided here
    out of scope for this seed-SQL-only task per CLAUDE.md's "zero TypeScript in
    modules/" rule, and per `.claude/rules/agent-behaviour.md` counts as touching an
    existing package's contract (flag for human review before implementing).
-2. Until (1) ships, `tender_owner` creates the costing child ticket manually via the
-   existing child-relation UI/API and sets `costing_child_id` by hand on first entry
-   to `pending_costing_review`. Subsequent reject/reopen loops still work purely via
+2. Until (1) ships, the tender's agent creates the costing child ticket manually via
+   the existing child-relation UI/API, assigns it to whichever specific user should
+   do the costing work, and sets `costing_child_id` by hand on first entry to
+   `pending_costing_review`. Subsequent reject/reopen loops still work purely via
    the existing child `child_status` reopen path (no automation needed there).
 
 ## View config
