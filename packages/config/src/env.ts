@@ -81,6 +81,10 @@ const EnvSchema = z
     CORS_ORIGIN: z.string().url().optional(),
     NOVU_API_KEY: z.string(),
     S3_ENDPOINT: z.string().url(),
+    // Public URL browsers use to reach MinIO. In Docker the internal endpoint is
+    // http://minio:9000 but presigned URLs must resolve from the browser, so set
+    // this to http://localhost:9000 (or the CDN/proxy URL in production).
+    S3_PUBLIC_URL: z.string().url().optional(),
     S3_BUCKET: z.string(),
     S3_ACCESS_KEY: z.string(),
     S3_SECRET_KEY: z.string(),
@@ -101,6 +105,11 @@ const EnvSchema = z
     // ClamAV — virus scanning for uploaded files (2A platform services)
     CLAMAV_HOST: z.string().default("localhost"),
     CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+    // Set to "true" in dev when ClamAV is not running — files skip the queue and are marked clean immediately
+    SKIP_AV_SCAN: z
+      .string()
+      .transform((v) => v === "true")
+      .default("false"),
     // OpenBao — Transit envelope encryption for connector credentials
     OPENBAO_ADDR: z.string().url(),
     OPENBAO_TRANSIT_KEY: z.string().default("platform-credentials"),

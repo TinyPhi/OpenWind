@@ -1,12 +1,41 @@
 import { requireAuth } from "@platform/auth";
-import { withTenantContext } from "@platform/db";
+import { withTenantContext, workflows, entityRelations } from "@platform/db";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   getEntity,
   getParentId,
   countActiveChildren,
+  RELATION_CHILD_OF,
 } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+
+async function getAncestorDepth(
+  db: Parameters<Parameters<typeof withTenantContext>[1]>[0],
+  tenantId: string,
+  instanceId: string,
+): Promise<number> {
+  let current = instanceId;
+  let depth = 0;
+  while (depth < 20) {
+    const [parentRel] = await db
+      .select({ toInstanceId: entityRelations.toInstanceId })
+      .from(entityRelations)
+      .where(
+        and(
+          eq(entityRelations.tenantId, tenantId),
+          eq(entityRelations.fromInstanceId, current),
+          eq(entityRelations.relationType, RELATION_CHILD_OF),
+          isNull(entityRelations.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!parentRel) break;
+    current = parentRel.toInstanceId;
+    depth++;
+  }
+  return depth;
+}
 
 export const getEntityHandler = factory.createHandlers(
   requireAuth(),
@@ -15,16 +44,33 @@ export const getEntityHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
 
     try {
-      const [instance, parentId, childCount] = await withTenantContext(
-        tenantId,
-        (tx) =>
+      const [instance, parentId, childCount, ancestorDepth] =
+        await withTenantContext(tenantId, (tx) =>
           Promise.all([
             getEntity(tx, tenantId, id),
             getParentId(tx, tenantId, id),
             countActiveChildren(tx, tenantId, id),
+            getAncestorDepth(tx, tenantId, id),
           ]),
-      );
-      return c.json({ data: { ...instance, parentId, childCount } });
+        );
+
+      let maxChildDepth = 0;
+      if (instance.workflowId) {
+        const [wf] = await withTenantContext(tenantId, (tx) =>
+          tx
+            .select({ maxChildDepth: workflows.maxChildDepth })
+            .from(workflows)
+            .where(eq(workflows.id, instance.workflowId ?? ""))
+            .limit(1),
+        );
+        maxChildDepth = wf?.maxChildDepth ?? 0;
+      }
+
+      const canAddChildren = maxChildDepth > 0 && ancestorDepth < maxChildDepth;
+
+      return c.json({
+        data: { ...instance, parentId, childCount, canAddChildren },
+      });
     } catch (err) {
       return handleEntityError(c, err);
     }

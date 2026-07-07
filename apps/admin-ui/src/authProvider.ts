@@ -34,9 +34,20 @@ export const userManager = new UserManager({
     "openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:id offline_access",
   post_logout_redirect_uri: window.location.origin + "/login",
   userStore: new WebStorageStateStore({ store: window.localStorage }),
-  automaticSilentRenew: false,
+  automaticSilentRenew: true,
   loadUserInfo: true,
 });
+
+// Attempt a silent token refresh using the stored refresh_token.
+// Returns the new access_token on success, null on failure.
+export async function silentRefresh(): Promise<string | null> {
+  try {
+    const user = await userManager.signinSilent();
+    return user?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const authProvider: AuthProvider = {
   login: async () => {
@@ -73,6 +84,11 @@ export const authProvider: AuthProvider = {
     const user = await userManager.getUser();
     if (user && !user.expired) {
       return { authenticated: true };
+    }
+    // Token expired — attempt silent refresh before giving up.
+    if (user?.refresh_token) {
+      const newToken = await silentRefresh();
+      if (newToken) return { authenticated: true };
     }
     return {
       authenticated: false,

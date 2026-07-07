@@ -153,41 +153,41 @@ services:
       timeout: 3s
       retries: 10
 
-  # ── MinIO (local S3) — NOT IN USE YET ────────────────────────────────────
-  # Uncomment when packages/files (presigned URL service) is wired into the API.
-  # minio:
-  #   container_name: ow-storage
-  #   image: minio/minio:latest
-  #   restart: unless-stopped
-  #   command: server /data --console-address ":9001"
-  #   environment:
-  #     MINIO_ROOT_USER: platform_access_key
-  #     MINIO_ROOT_PASSWORD: platform_secret_key_dev_only
-  #     MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
-  #   ports:
-  #     - "9000:9000"
-  #     - "9001:9001"
-  #   volumes:
-  #     - minio_data:/data
-  #   healthcheck:
-  #     test: ["CMD", "mc", "ready", "local"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #
-  # minio-init:
-  #   container_name: ow-storage-init
-  #   image: minio/mc:latest
-  #   depends_on:
-  #     minio:
-  #       condition: service_healthy
-  #   entrypoint: >
-  #     /bin/sh -c "
-  #       mc alias set local http://minio:9000 platform_access_key platform_secret_key_dev_only &&
-  #       mc mb --ignore-existing local/platform-files &&
-  #       mc anonymous set none local/platform-files &&
-  #       echo 'MinIO bucket initialized'
-  #     "
+  # ── MinIO (local S3) ──────────────────────────────────────────────────────
+  minio:
+    container_name: ow-storage
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: platform_access_key
+      MINIO_ROOT_PASSWORD: platform_secret_key_dev_only
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    container_name: ow-storage-init
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 platform_access_key platform_secret_key_dev_only &&
+        mc mb --ignore-existing local/platform-files &&
+        mc anonymous set none local/platform-files &&
+        echo 'MinIO bucket initialized'
+      "
+    restart: "no"
 
   # ── Novu (Notifications) — profile:notifications ───────────────────────────
   # Not started by default. Run with: docker compose --profile notifications up -d
@@ -297,7 +297,8 @@ services:
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
       # OPENBAO_ADDR: http://openbao:8200  # uncomment when openbao service is enabled
-      # S3_ENDPOINT: http://minio:9000      # uncomment when minio service is enabled
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_URL: http://localhost:9000
     restart: unless-stopped
     networks:
       - default
@@ -306,6 +307,8 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   # ── Admin UI (React + Refine) ──────────────────────────────────────────────
@@ -372,7 +375,7 @@ volumes:
   redis_data:
   novu_mongo_data:
   mailhog_data:
-  # minio_data:    # uncomment when minio service is enabled
+  minio_data:
 networks:
   openwind_zitadel:
     external: true # created by the zitadel compose project (../zitadel/)

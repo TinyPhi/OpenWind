@@ -86,7 +86,410 @@ function canPreview(mimeType: string): boolean {
   );
 }
 
-/* ── FileChip ──────────────────────────────────────────────────── */
+/* ── FileCard icon (large, format-specific) ────────────────────── */
+
+type FormatBadge = { label: string; color: string; textColor: string };
+
+function formatBadge(mimeType: string): FormatBadge {
+  if (mimeType === "application/pdf")
+    return { label: "PDF", color: "#e74c3c", textColor: "#fff" };
+  if (
+    mimeType.includes("wordprocessingml") ||
+    mimeType === "application/msword"
+  )
+    return { label: "DOC", color: "#2980b9", textColor: "#fff" };
+  if (
+    mimeType.includes("spreadsheetml") ||
+    mimeType === "application/vnd.ms-excel"
+  )
+    return { label: "XLS", color: "#27ae60", textColor: "#fff" };
+  if (
+    mimeType.includes("presentationml") ||
+    mimeType === "application/vnd.ms-powerpoint"
+  )
+    return { label: "PPT", color: "#e67e22", textColor: "#fff" };
+  if (mimeType.startsWith("image/"))
+    return { label: "IMG", color: "#8e44ad", textColor: "#fff" };
+  if (mimeType === "text/csv")
+    return { label: "CSV", color: "#16a085", textColor: "#fff" };
+  if (mimeType === "text/plain")
+    return { label: "TXT", color: "#7f8c8d", textColor: "#fff" };
+  if (mimeType === "application/json")
+    return { label: "JSON", color: "#f39c12", textColor: "#fff" };
+  if (mimeType.includes("zip"))
+    return { label: "ZIP", color: "#95a5a6", textColor: "#fff" };
+  return { label: "FILE", color: "#bdc3c7", textColor: "#555" };
+}
+
+function fileCardIcon(mimeType: string): React.ReactElement {
+  const badge = formatBadge(mimeType);
+
+  // Images get a photo icon instead of a text badge
+  if (mimeType.startsWith("image/")) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 4,
+        }}
+      >
+        <svg
+          width="30"
+          height="30"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={badge.color}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <circle cx="8.5" cy="8.5" r="1.5" fill={badge.color} stroke="none" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            color: badge.color,
+            letterSpacing: "0.5px",
+          }}
+        >
+          {badge.label}
+        </span>
+      </div>
+    );
+  }
+
+  // JSON — braces icon
+  if (mimeType === "application/json") {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 4,
+        }}
+      >
+        <svg
+          width="30"
+          height="30"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={badge.color}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M8 3H7a2 2 0 00-2 2v5a2 2 0 01-2 2 2 2 0 012 2v5c0 1.1.9 2 2 2h1" />
+          <path d="M16 3h1a2 2 0 012 2v5a2 2 0 002 2 2 2 0 00-2 2v5a2 2 0 01-2 2h-1" />
+        </svg>
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            color: badge.color,
+            letterSpacing: "0.5px",
+          }}
+        >
+          {badge.label}
+        </span>
+      </div>
+    );
+  }
+
+  // All document formats — colored rounded badge with format label
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 5,
+      }}
+    >
+      {/* Document base icon */}
+      <svg width="36" height="44" viewBox="0 0 36 44" fill="none">
+        {/* Page shadow */}
+        <path
+          d="M4 2h20l8 8v32a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2z"
+          fill="#f0f2f5"
+          stroke="#d1d5db"
+          strokeWidth="1"
+        />
+        {/* Fold corner */}
+        <path d="M24 2l8 8h-6a2 2 0 01-2-2V2z" fill="#d1d5db" />
+        {/* Format badge */}
+        <rect x="4" y="24" width="28" height="14" rx="2" fill={badge.color} />
+        <text
+          x="18"
+          y="34"
+          textAnchor="middle"
+          fontSize="9"
+          fontWeight="700"
+          fontFamily="system-ui, -apple-system, sans-serif"
+          fill={badge.textColor}
+          letterSpacing="0.5"
+        >
+          {badge.label}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+/* ── DeleteConfirmModal ─────────────────────────────────────────── */
+
+function DeleteConfirmModal({
+  fileName,
+  onConfirm,
+  onCancel,
+}: {
+  fileName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}): React.ReactElement {
+  return (
+    <div className="fa-del-backdrop" onClick={onCancel}>
+      <div className="fa-del-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="fa-del-icon">
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+            <path d="M10 11v6M14 11v6" />
+            <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+          </svg>
+        </div>
+        <p className="fa-del-title">Delete attachment?</p>
+        <p className="fa-del-body">
+          <strong>{fileName}</strong> will be permanently removed.
+        </p>
+        <div className="fa-del-actions">
+          <button type="button" className="fa-del-cancel" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="fa-del-confirm" onClick={onConfirm}>
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── FileCard ───────────────────────────────────────────────────── */
+
+export function FileCard({
+  file,
+  onPreview,
+  onDelete,
+  canDelete,
+}: {
+  file: AttachmentFile;
+  onPreview: (file: AttachmentFile) => void;
+  onDelete?: (fileId: string) => void;
+  canDelete?: boolean;
+}): React.ReactElement {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const isQuarantined = file.scanStatus === "quarantined";
+  const isClean = file.scanStatus === "clean";
+  const isPending = file.scanStatus === "pending";
+  const isFailed = file.scanStatus === "scan_failed";
+
+  async function triggerDownload(): Promise<void> {
+    try {
+      const res = (await fetchWithAuth(`${API_URL}/files/${file.id}`)) as {
+        data: { downloadUrl: string };
+      };
+      const blob = await fetch(res.data.downloadUrl).then((r) => r.blob());
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = file.originalName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
+    } catch {
+      /* swallow */
+    }
+  }
+
+  function handleView(e: React.MouseEvent): void {
+    e.stopPropagation();
+    if (!canPreview(file.mimeType)) {
+      void triggerDownload();
+    } else {
+      onPreview(file);
+    }
+  }
+
+  function handleDownload(e: React.MouseEvent): void {
+    e.stopPropagation();
+    void triggerDownload();
+  }
+
+  const badge = formatBadge(file.mimeType);
+
+  return (
+    <>
+      <div
+        className={`fa-card ${isQuarantined ? "fa-card-blocked" : isPending || isFailed ? "fa-card-pending" : ""}`}
+        title={
+          isQuarantined ? "File blocked — malware detected" : file.originalName
+        }
+      >
+        {/* Coloured top accent bar driven by format badge colour */}
+        <div className="fa-card-bar" style={{ background: badge.color }} />
+
+        {/* Icon area */}
+        <div className="fa-card-icon">{fileCardIcon(file.mimeType)}</div>
+
+        {/* Name + meta */}
+        <div className="fa-card-meta">
+          <span className="fa-card-name">{file.originalName}</span>
+          <span className="fa-card-size">
+            {isQuarantined
+              ? "Blocked"
+              : isPending
+                ? "Scanning…"
+                : isFailed
+                  ? "Scan failed"
+                  : formatBytes(file.sizeBytes)}
+          </span>
+        </div>
+
+        {/* Hover action overlay — always rendered so CSS :hover works */}
+        <div className="fa-card-actions">
+          {isClean && (
+            <button
+              type="button"
+              className="fa-card-btn"
+              title={canPreview(file.mimeType) ? "Preview" : "Download"}
+              onClick={handleView}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          )}
+          {isClean && (
+            <button
+              type="button"
+              className="fa-card-btn"
+              title="Download"
+              onClick={handleDownload}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </button>
+          )}
+          {canDelete && onDelete && !isPending && (
+            <button
+              type="button"
+              className="fa-card-btn fa-card-btn-delete"
+              title="Delete"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDelete(true);
+              }}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                <path d="M10 11v6M14 11v6" />
+                <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {confirmDelete && onDelete && (
+        <DeleteConfirmModal
+          fileName={file.originalName}
+          onConfirm={() => {
+            setConfirmDelete(false);
+            onDelete(file.id);
+          }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/* ── FileCardRow — horizontal scrollable strip ──────────────────── */
+
+export function FileCardRow({
+  files,
+  onPreview,
+  onDelete,
+  canDelete,
+}: {
+  files: AttachmentFile[];
+  onPreview: (file: AttachmentFile) => void;
+  onDelete: (fileId: string) => void;
+  canDelete: (file: AttachmentFile) => boolean;
+}): React.ReactElement {
+  return (
+    <div className="fa-card-row">
+      {files.map((file) => (
+        <FileCard
+          key={file.id}
+          file={file}
+          onPreview={onPreview}
+          onDelete={onDelete}
+          canDelete={canDelete(file)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ── FileChip (kept for comment composer staged files) ─────────── */
 
 export function FileChip({
   file,
@@ -145,22 +548,27 @@ export function FileChip({
         </button>
       )}
       {isClean && !canPreview(file.mimeType) && (
-        <a
+        <button
+          type="button"
           className="fa-chip-action"
-          href={`${API_URL}/files/${file.id}`}
           title="Download"
-          onClick={(e) => {
-            e.preventDefault();
+          onClick={() => {
             void (async () => {
               try {
                 const res = (await fetchWithAuth(
                   `${API_URL}/files/${file.id}`,
-                )) as {
-                  data: { downloadUrl: string };
-                };
-                window.open(res.data.downloadUrl, "_blank");
+                )) as { data: { downloadUrl: string } };
+                const blob = await fetch(res.data.downloadUrl).then((r) =>
+                  r.blob(),
+                );
+                const objUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = objUrl;
+                a.download = file.originalName;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
               } catch {
-                alert("Could not get download link.");
+                /* swallow */
               }
             })();
           }}
@@ -179,7 +587,7 @@ export function FileChip({
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
-        </a>
+        </button>
       )}
       {canDelete && onDelete && !isQuarantined && (
         <button
@@ -337,7 +745,9 @@ export function FilePreviewModal({
     const ctrl = new AbortController();
     async function load(): Promise<void> {
       try {
-        const res = (await fetchWithAuth(`${API_URL}/files/${file.id}`)) as {
+        const res = (await fetchWithAuth(
+          `${API_URL}/files/${file.id}?inline=1`,
+        )) as {
           data: { downloadUrl: string };
         };
         if (ctrl.signal.aborted) return;
@@ -367,13 +777,22 @@ export function FilePreviewModal({
           <span className="fa-modal-title">{file.originalName}</span>
           <span className="fa-modal-size">{formatBytes(file.sizeBytes)}</span>
           {downloadUrl && (
-            <a
-              href={downloadUrl}
-              download={file.originalName}
+            <button
+              type="button"
               className="fa-modal-download"
               title="Download"
-              target="_blank"
-              rel="noreferrer"
+              onClick={() => {
+                void fetch(downloadUrl)
+                  .then((r) => r.blob())
+                  .then((blob) => {
+                    const objUrl = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = objUrl;
+                    a.download = file.originalName;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
+                  });
+              }}
             >
               <svg
                 width="14"
@@ -389,7 +808,7 @@ export function FilePreviewModal({
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-            </a>
+            </button>
           )}
           <button type="button" className="fa-modal-close" onClick={onClose}>
             ×
@@ -421,6 +840,28 @@ export function FilePreviewModal({
               )}
               {isText && textContent !== null && (
                 <pre className="fa-modal-text">{textContent}</pre>
+              )}
+              {!isImage && !isPdf && !isText && (
+                <div className="fa-modal-no-preview">
+                  <svg
+                    width="40"
+                    height="40"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ opacity: 0.35 }}
+                  >
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <p>No preview available for this file type.</p>
+                  <p style={{ fontSize: "12px", opacity: 0.6 }}>
+                    Use the download button above to open it.
+                  </p>
+                </div>
               )}
             </>
           )}

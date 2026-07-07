@@ -44,22 +44,52 @@ export interface RateLimitOptions {
   authLimit?: number;
 }
 
+/**
+ * Extract a stable identity key from the request without full JWT verification.
+ * Used only for rate-limit bucketing (not for auth decisions).
+ * Prefers the tenant/user from a JWT bearer token; falls back to IP.
+ */
+function rateLimitKey(c: Parameters<MiddlewareHandler>[0]): string {
+  // If requireAuth has already run, use the verified auth context.
+  const auth = c.get("auth") as
+    | { tenantId?: string; userId?: string }
+    | undefined;
+  if (auth?.tenantId) return auth.tenantId;
+
+  // Try to decode (not verify) the JWT to get a tenant bucket.
+  const bearer = c.req.header("Authorization");
+  if (bearer?.startsWith("Bearer ")) {
+    try {
+      const payload = JSON.parse(
+        Buffer.from(
+          bearer.slice(7).split(".")[1] ?? "",
+          "base64url",
+        ).toString(),
+      ) as Record<string, unknown>;
+      const org = payload["urn:zitadel:iam:org:id"];
+      if (typeof org === "string" && org) return org;
+      const sub = payload["sub"];
+      if (typeof sub === "string" && sub) return sub;
+    } catch {
+      // fall through to IP
+    }
+  }
+
+  return (
+    c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? "unknown"
+  );
+}
+
 export const rateLimit = (options: RateLimitOptions = {}): MiddlewareHandler =>
   createMiddleware(async (c, next) => {
     const isAuthRoute =
       c.req.path.startsWith("/auth") || c.req.path.startsWith("/api-keys");
     const limit = isAuthRoute
       ? (options.authLimit ?? 10)
-      : (options.limit ?? 100);
+      : (options.limit ?? 500);
     const windowSeconds = options.windowSeconds ?? 60;
 
-    // Key by tenant if authenticated, otherwise by IP
-    const auth = c.get("auth") as { tenantId?: string } | undefined;
-    const tenantId =
-      auth?.tenantId ??
-      c.req.header("x-forwarded-for") ??
-      c.req.header("x-real-ip") ??
-      "unknown";
+    const tenantId = rateLimitKey(c);
     const routeClass = isAuthRoute ? "auth" : "api";
     const key = `rl:${tenantId}:${routeClass}`;
 

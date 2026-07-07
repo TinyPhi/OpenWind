@@ -61,6 +61,7 @@ export {
   moveChildRelation,
   canUserReadInstance,
   getParentId,
+  getAncestorDepth,
   countActiveChildren,
   listChildInstances,
   RELATION_PARENT_OF,

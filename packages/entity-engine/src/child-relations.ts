@@ -27,7 +27,7 @@ export const RELATION_CHILD_OF = "child_of";
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /** Walk up the ancestor chain; return the number of ancestor levels above instanceId. */
-async function getAncestorDepth(
+export async function getAncestorDepth(
   db: DbOrTx,
   tenantId: string,
   instanceId: string,

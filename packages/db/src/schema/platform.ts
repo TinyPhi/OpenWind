@@ -122,7 +122,7 @@ export const files = pgTable(
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     /** pending | clean | quarantined | scan_failed | deleted */
     scanStatus: text("scan_status").default("pending").notNull(),
-    uploadedBy: uuid("uploaded_by").notNull(),
+    uploadedBy: text("uploaded_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

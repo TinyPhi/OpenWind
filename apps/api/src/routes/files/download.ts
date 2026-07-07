@@ -14,9 +14,10 @@ export const getDownloadUrlHandler = factory.createHandlers(
   async (c) => {
     const { id: fileId } = c.req.valid("param");
     const { tenantId } = c.get("auth");
+    const inline = c.req.query("inline") === "1";
 
     try {
-      const result = await getDownloadUrl(db, tenantId, fileId);
+      const result = await getDownloadUrl(db, tenantId, fileId, inline);
       return c.json({ data: result });
     } catch (err: unknown) {
       if (err instanceof FileError) {

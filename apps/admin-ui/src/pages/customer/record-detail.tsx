@@ -7,6 +7,7 @@ import { useFileUpload } from "../../hooks/use-file-upload.js";
 import {
   type AttachmentFile,
   FileChip,
+  FileCardRow,
   StagedFileChip,
   AttachmentUploadZone,
   FilePreviewModal,
@@ -35,6 +36,7 @@ type EntityInstance = {
   createdBy: string | null;
   parentId?: string | null;
   childCount?: number;
+  canAddChildren?: boolean;
   deletedAt?: string | null;
 };
 type ChildInstance = {
@@ -618,46 +620,65 @@ function CommentComposer({
         </div>
       )}
       <div className="cmt-composer-footer">
-        <span className="cmt-hint">@ to mention · Ctrl+Enter to post</span>
-        <label
-          className="cmt-attach-btn"
-          title="Attach files"
-          style={{ cursor: "pointer" }}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        <span className="cmt-hint">@ mention · Ctrl+Enter to post</span>
+        <div className="cmt-footer-actions">
+          <label className="cmt-attach-btn" title="Attach files">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+            </svg>
+            <span>Attach</span>
+            <input
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                if (files.length) {
+                  void addFiles(files);
+                  e.target.value = "";
+                }
+              }}
+            />
+          </label>
+          <div className="cmt-footer-sep" />
+          <button
+            type="button"
+            className="portal-btn-primary cmt-post-btn"
+            disabled={!text.trim() || submitting || pendingCount > 0}
+            title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
+            onClick={() => void handleSubmit()}
           >
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-          </svg>
-          <input
-            type="file"
-            multiple
-            style={{ display: "none" }}
-            onChange={(e) => {
-              const files = Array.from(e.target.files ?? []);
-              if (files.length) {
-                void addFiles(files);
-                e.target.value = "";
-              }
-            }}
-          />
-        </label>
-        <button
-          type="button"
-          className="portal-btn-primary cmt-post-btn"
-          disabled={!text.trim() || submitting || pendingCount > 0}
-          title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
-          onClick={() => void handleSubmit()}
-        >
-          {submitting ? "Posting…" : "Post"}
-        </button>
+            {submitting ? (
+              "Posting…"
+            ) : (
+              <>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+                Post
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1422,6 +1443,21 @@ export function CustomerRecordDetail(): React.ReactElement {
     await loadComments();
   }
 
+  async function refreshHistory(): Promise<void> {
+    if (!id) return;
+    setHistoryLoaded(false);
+    setHistoryLoading(true);
+    try {
+      const res = await fetchWithAuth(
+        `${API_URL}/entities/${id}/transitions/history?eventType=history`,
+      ).catch(() => ({ data: [] }));
+      setHistoryEvents((res as { data?: WorkflowEvent[] }).data ?? []);
+      setHistoryLoaded(true);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   async function refreshAttachments(): Promise<void> {
     if (!id) return;
     setAttachmentsLoading(true);
@@ -1687,16 +1723,24 @@ export function CustomerRecordDetail(): React.ReactElement {
   }
 
   useEffect(() => {
+    // Clear all derived state immediately so the UI shows the spinner rather
+    // than the previous record's data while the new one loads.
+    setLoading(true);
+    setRecord(null);
+    setComments([]);
+    setChildren([]);
+    setChildrenLoading(false);
+    setHistoryEvents([]);
+    setHistoryLoaded(false);
+    setAttachments([]);
+    setParentRecord(null);
     setAccessDenied(false);
+    setError(null);
+    initializedCollapse.current = false;
     void loadRecord().then(() => {
       void loadComments();
       void refreshAttachments();
     });
-    // Reset history state when navigating to a new record
-    setHistoryLoaded(false);
-    setHistoryEvents([]);
-    setComments([]);
-    initializedCollapse.current = false;
   }, [entityTypeId, id]);
 
   // Access-denied check: once both the record and OIDC identity are loaded,
@@ -2104,6 +2148,8 @@ export function CustomerRecordDetail(): React.ReactElement {
     const isAccessGrant = meta?.type === "access_grant";
     const isAccessUpdate = meta?.type === "access_update";
     const isAccessRevoke = meta?.type === "access_revoke";
+    const isFileAttached = meta?.type === "file_attached";
+    const isFileDeleted = meta?.type === "file_deleted";
 
     if (isComment) {
       return (
@@ -2169,6 +2215,64 @@ export function CustomerRecordDetail(): React.ReactElement {
                   removed <strong>{target}</strong>'s access
                 </>
               )}
+            </span>
+            <div className="rcd-feed-event-time">
+              {new Date(event.triggeredAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isFileAttached || isFileDeleted) {
+      const actor = resolveActorName(event.actorDisplayName, event.actorId);
+      const fileName = String(
+        (meta as Record<string, unknown>)["originalName"] ?? "a file",
+      );
+      return (
+        <div key={event.id} className="rcd-feed-event">
+          <div className="rcd-feed-event-icon-wrap">
+            <div
+              className={`rcd-tl-icon ${isFileDeleted ? "rcd-tl-icon-update" : "rcd-tl-icon-create"}`}
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {isFileDeleted ? (
+                  <>
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="9" y1="13" x2="15" y2="13" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="12" y1="18" x2="12" y2="12" />
+                    <line x1="9" y1="15" x2="15" y2="15" />
+                  </>
+                )}
+              </svg>
+            </div>
+            <div className="rcd-feed-event-line" />
+          </div>
+          <div className="rcd-feed-event-body">
+            <span className="rcd-feed-event-text">
+              <strong>{actor}</strong> {isFileAttached ? "attached" : "deleted"}{" "}
+              <strong>{fileName}</strong>
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -2280,44 +2384,76 @@ export function CustomerRecordDetail(): React.ReactElement {
       {/* ── Access-denied overlay ────────────────────────── */}
       {accessDenied && (
         <div className="rcd-access-overlay">
-          <div className="rcd-access-modal">
-            <div className="rcd-access-icon">🔒</div>
-            <h3 className="rcd-access-title">Access Restricted</h3>
-            <p className="rcd-access-body">
-              You don't have access to this ticket. You can request access from
-              the ticket owner.
-            </p>
-            {myAccessReqStatus === "pending" ? (
-              <div className="rcd-access-req-sent">
-                Access request sent — waiting for owner approval.
-              </div>
-            ) : myAccessReqStatus === "rejected" ? (
-              <div className="rcd-access-req-rejected">
-                Your access request was declined. You may request again.
-              </div>
-            ) : null}
-            <div className="rcd-access-modal-actions">
-              <button
-                type="button"
-                className="portal-btn-secondary"
-                onClick={() => navigate(-1)}
-              >
-                Go Back
-              </button>
-              {myAccessReqStatus !== "pending" && (
+          {confirmReqLevel !== null ? (
+            <div className="rcd-access-modal">
+              <h3 className="rcd-access-title">Request access?</h3>
+              <p className="rcd-access-body">
+                {confirmReqLevel === "read_comment"
+                  ? "This will send a request to the ticket owner for comment access. They will be able to approve or decline."
+                  : "This will send a request to the ticket owner for view access. They will be able to approve or decline."}
+              </p>
+              <div className="rcd-access-modal-actions">
+                <button
+                  type="button"
+                  className="portal-btn-secondary"
+                  onClick={() => setConfirmReqLevel(null)}
+                >
+                  Cancel
+                </button>
                 <button
                   type="button"
                   className="portal-btn-primary"
                   disabled={requestingAccess}
-                  onClick={() => setConfirmReqLevel("read_only")}
+                  onClick={() => {
+                    const lvl = confirmReqLevel;
+                    setConfirmReqLevel(null);
+                    void submitAccessRequest(lvl);
+                  }}
                 >
-                  {myAccessReqStatus === "rejected"
-                    ? "Request Again"
-                    : "Request Access"}
+                  {requestingAccess ? "Sending…" : "Send Request"}
                 </button>
-              )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rcd-access-modal">
+              <div className="rcd-access-icon">🔒</div>
+              <h3 className="rcd-access-title">Access Restricted</h3>
+              <p className="rcd-access-body">
+                You don't have access to this ticket. You can request access
+                from the ticket owner.
+              </p>
+              {myAccessReqStatus === "pending" ? (
+                <div className="rcd-access-req-sent">
+                  Access request sent — waiting for owner approval.
+                </div>
+              ) : myAccessReqStatus === "rejected" ? (
+                <div className="rcd-access-req-rejected">
+                  Your access request was declined. You may request again.
+                </div>
+              ) : null}
+              <div className="rcd-access-modal-actions">
+                <button
+                  type="button"
+                  className="portal-btn-secondary"
+                  onClick={() => navigate(-1)}
+                >
+                  Go Back
+                </button>
+                {myAccessReqStatus !== "pending" && (
+                  <button
+                    type="button"
+                    className="portal-btn-primary"
+                    disabled={requestingAccess}
+                    onClick={() => setConfirmReqLevel("read_only")}
+                  >
+                    {myAccessReqStatus === "rejected"
+                      ? "Request Again"
+                      : "Request Access"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2694,40 +2830,219 @@ export function CustomerRecordDetail(): React.ReactElement {
                   </div>
                 </>
               ) : (
-                <div className="rcd-fields-grid">
-                  {(isChildTicket
-                    ? fields.filter((f) =>
-                        /^(due_?date|due|description|desc)$/i.test(f.name),
-                      )
-                    : fields
-                  ).map((f) => (
-                    <div key={f.id} className="rcd-field-item">
-                      <div className="rcd-field-lbl">{f.label}</div>
-                      <div className="rcd-field-val">
-                        <FieldValue
-                          value={record.fields[f.name]}
-                          fieldType={f.fieldType}
-                          field={f}
-                        />
+                <>
+                  <div className="rcd-fields-grid">
+                    {(isChildTicket
+                      ? fields.filter((f) =>
+                          /^(due_?date|due|description|desc)$/i.test(f.name),
+                        )
+                      : fields
+                    ).map((f) => (
+                      <div key={f.id} className="rcd-field-item">
+                        <div className="rcd-field-lbl">{f.label}</div>
+                        <div className="rcd-field-val">
+                          <FieldValue
+                            value={record.fields[f.name]}
+                            fieldType={f.fieldType}
+                            field={f}
+                          />
+                        </div>
                       </div>
+                    ))}
+                    {(isChildTicket
+                      ? fields.filter((f) =>
+                          /^(due_?date|due|description|desc)$/i.test(f.name),
+                        )
+                      : fields
+                    ).length === 0 && (
+                      <p
+                        className="rcd-empty-hint"
+                        style={{ padding: "0", gridColumn: "1/-1" }}
+                      >
+                        {isChildTicket
+                          ? "No details set."
+                          : "No custom fields defined."}
+                      </p>
+                    )}
+                  </div>
+                  {/* ── Attachments ─────────────────────────── */}
+                  <div className="rcd-expand-attachments">
+                    <div className="rcd-expand-attachments-hdr">
+                      <span className="rcd-expand-attachments-title">
+                        Attachments
+                        {attachments.filter((a) => a.scanStatus !== "deleted")
+                          .length > 0 && (
+                          <span className="rcd-sidebar-count">
+                            {
+                              attachments.filter(
+                                (a) => a.scanStatus !== "deleted",
+                              ).length
+                            }
+                          </span>
+                        )}
+                      </span>
                     </div>
-                  ))}
-                  {(isChildTicket
-                    ? fields.filter((f) =>
-                        /^(due_?date|due|description|desc)$/i.test(f.name),
-                      )
-                    : fields
-                  ).length === 0 && (
-                    <p
-                      className="rcd-empty-hint"
-                      style={{ padding: "0", gridColumn: "1/-1" }}
-                    >
-                      {isChildTicket
-                        ? "No details set."
-                        : "No custom fields defined."}
-                    </p>
-                  )}
-                </div>
+                    {attachmentsLoading ? (
+                      <p className="rcd-sidebar-hint">Loading…</p>
+                    ) : attachments.filter((a) => a.scanStatus !== "deleted")
+                        .length > 0 ? (
+                      <FileCardRow
+                        files={attachments.filter(
+                          (a) => a.scanStatus !== "deleted",
+                        )}
+                        onPreview={setPreviewFile}
+                        canDelete={(file) =>
+                          !!(
+                            currentUserRoles.includes("admin") ||
+                            currentUserRoles.includes("agent") ||
+                            file.uploadedBy === currentUserId
+                          )
+                        }
+                        onDelete={(fileId) => {
+                          void (async () => {
+                            try {
+                              await fetchWithAuth(
+                                `${API_URL}/entities/${id}/attachments/${fileId}`,
+                                { method: "DELETE" },
+                              );
+                              await Promise.all([
+                                refreshAttachments(),
+                                refreshHistory(),
+                              ]);
+                            } catch (err) {
+                              setTransError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Delete failed",
+                              );
+                            }
+                          })();
+                        }}
+                      />
+                    ) : null}
+                    {(() => {
+                      const accessMap = (
+                        record.fields as Record<string, unknown>
+                      ).__accessUsers as
+                        | Record<string, { level: string }>
+                        | undefined;
+                      const hasWriteAccess =
+                        currentUserRoles.includes("admin") ||
+                        currentUserRoles.includes("agent") ||
+                        accessMap?.[currentUserId ?? ""]?.level ===
+                          "read_write" ||
+                        record.createdBy === currentUserId ||
+                        record.assignedTo === currentUserId;
+                      return hasWriteAccess;
+                    })() && (
+                      <AttachmentUploadZone
+                        disabled={attachUploading}
+                        onFiles={async (files) => {
+                          setAttachUploading(true);
+                          for (const file of files) {
+                            try {
+                              const ext =
+                                file.name.split(".").pop()?.toLowerCase() ?? "";
+                              const EXT_MIME: Record<string, string> = {
+                                docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                doc: "application/msword",
+                                xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                xls: "application/vnd.ms-excel",
+                                pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                ppt: "application/vnd.ms-powerpoint",
+                                pdf: "application/pdf",
+                                txt: "text/plain",
+                                csv: "text/csv",
+                                json: "application/json",
+                                png: "image/png",
+                                jpg: "image/jpeg",
+                                jpeg: "image/jpeg",
+                                gif: "image/gif",
+                                webp: "image/webp",
+                                zip: "application/zip",
+                              };
+                              const mimeType =
+                                file.type !== ""
+                                  ? file.type
+                                  : (EXT_MIME[ext] ??
+                                    "application/octet-stream");
+                              const DOC_MIMES_ATTACH = new Set([
+                                "application/pdf",
+                                "application/msword",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                "application/vnd.ms-excel",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                "application/vnd.ms-powerpoint",
+                                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                "application/zip",
+                                "application/x-zip-compressed",
+                              ]);
+                              if (
+                                DOC_MIMES_ATTACH.has(mimeType) &&
+                                file.size < 1024
+                              ) {
+                                alert(
+                                  `"${file.name}" appears to be a cloud placeholder (${file.size} B) that hasn't been downloaded yet.\n\nIn File Explorer, right-click → "Always keep on this device", wait for it to download, then try again.`,
+                                );
+                                continue;
+                              }
+                              const initRes = (await fetchWithAuth(
+                                `${API_URL}/files`,
+                                {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    originalName: file.name,
+                                    mimeType,
+                                    sizeBytes: file.size,
+                                    moduleSlug: typeSlug ?? "unknown",
+                                    entityId: id,
+                                  }),
+                                },
+                              )) as {
+                                data: { fileId: string; uploadUrl: string };
+                              };
+                              const putRes = await fetch(
+                                initRes.data.uploadUrl,
+                                {
+                                  method: "PUT",
+                                  headers: { "Content-Type": mimeType },
+                                  body: file,
+                                },
+                              );
+                              if (!putRes.ok) {
+                                const body = await putRes
+                                  .text()
+                                  .catch(() => "");
+                                throw new Error(
+                                  `Storage upload failed (${putRes.status})${body ? `: ${body.slice(0, 200)}` : ""}`,
+                                );
+                              }
+                              await fetchWithAuth(
+                                `${API_URL}/files/${initRes.data.fileId}/complete`,
+                                { method: "POST" },
+                              );
+                              await fetchWithAuth(
+                                `${API_URL}/entities/${id}/attachments`,
+                                {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    fileId: initRes.data.fileId,
+                                  }),
+                                },
+                              );
+                            } catch (err) {
+                              setTransError(
+                                `Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+                              );
+                            }
+                          }
+                          setAttachUploading(false);
+                          await refreshAttachments();
+                        }}
+                      />
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -3001,8 +3316,8 @@ export function CustomerRecordDetail(): React.ReactElement {
 
         {/* ── Right sidebar ──────────────────────────────── */}
         <div className="rcd-sidebar">
-          {/* Child tickets — hidden for child tickets themselves */}
-          {!record.parentId && (
+          {/* Child tickets — shown only when workflow depth config allows another level */}
+          {record.canAddChildren && (
             <div className="rcd-sidebar-section">
               <div className="rcd-sidebar-hdr">
                 <span className="rcd-sidebar-hdr-title">
@@ -3237,135 +3552,6 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           )}
           {/* end depth-limit guard */}
-
-          {/* ── Attachments ──────────────────────────────── */}
-          <div className="rcd-sidebar-section">
-            <div className="rcd-sidebar-hdr">
-              <span className="rcd-sidebar-hdr-title">
-                Attachments
-                {attachments.filter((a) => a.scanStatus !== "deleted").length >
-                  0 && (
-                  <span className="rcd-sidebar-count">
-                    {
-                      attachments.filter((a) => a.scanStatus !== "deleted")
-                        .length
-                    }
-                  </span>
-                )}
-              </span>
-            </div>
-            <div className="rcd-sidebar-body">
-              {attachmentsLoading ? (
-                <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
-                  Loading…
-                </p>
-              ) : attachments.filter((a) => a.scanStatus !== "deleted")
-                  .length === 0 ? (
-                <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
-                  No attachments yet.
-                </p>
-              ) : (
-                <div className="fa-sidebar-list">
-                  {attachments
-                    .filter((a) => a.scanStatus !== "deleted")
-                    .map((file) => (
-                      <FileChip
-                        key={file.id}
-                        file={file}
-                        onPreview={setPreviewFile}
-                        canDelete={
-                          !!(
-                            currentUserRoles.includes("admin") ||
-                            currentUserRoles.includes("agent") ||
-                            file.uploadedBy === currentUserId
-                          )
-                        }
-                        onDelete={(fileId) => {
-                          void (async () => {
-                            try {
-                              await fetchWithAuth(
-                                `${API_URL}/entities/${id}/attachments/${fileId}`,
-                                { method: "DELETE" },
-                              );
-                              await refreshAttachments();
-                            } catch (err) {
-                              alert(
-                                err instanceof Error
-                                  ? err.message
-                                  : "Delete failed",
-                              );
-                            }
-                          })();
-                        }}
-                      />
-                    ))}
-                </div>
-              )}
-              {(() => {
-                const accessMap = (record.fields as Record<string, unknown>)
-                  .__accessUsers as
-                  | Record<string, { level: string }>
-                  | undefined;
-                const hasWriteAccess =
-                  currentUserRoles.includes("admin") ||
-                  currentUserRoles.includes("agent") ||
-                  accessMap?.[currentUserId ?? ""]?.level === "read_write" ||
-                  record.createdBy === currentUserId ||
-                  record.assignedTo === currentUserId;
-                return hasWriteAccess;
-              })() && (
-                <div style={{ marginTop: "8px" }}>
-                  <AttachmentUploadZone
-                    disabled={attachUploading}
-                    onFiles={async (files) => {
-                      setAttachUploading(true);
-                      for (const file of files) {
-                        try {
-                          const initRes = (await fetchWithAuth(
-                            `${API_URL}/files`,
-                            {
-                              method: "POST",
-                              body: JSON.stringify({
-                                originalName: file.name,
-                                mimeType: file.type,
-                                sizeBytes: file.size,
-                                moduleSlug: typeSlug ?? "unknown",
-                                entityId: id,
-                              }),
-                            },
-                          )) as { data: { fileId: string; uploadUrl: string } };
-                          await fetch(initRes.data.uploadUrl, {
-                            method: "PUT",
-                            headers: { "Content-Type": file.type },
-                            body: file,
-                          });
-                          await fetchWithAuth(
-                            `${API_URL}/files/${initRes.data.fileId}/complete`,
-                            { method: "POST" },
-                          );
-                          await fetchWithAuth(
-                            `${API_URL}/entities/${id}/attachments`,
-                            {
-                              method: "POST",
-                              body: JSON.stringify({
-                                fileId: initRes.data.fileId,
-                              }),
-                            },
-                          );
-                        } catch (err) {
-                          alert(
-                            `Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-                          );
-                        }
-                      }
-                      setAttachUploading(false);
-                      await refreshAttachments();
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
 
           {/* People with access — always visible */}
           <div className="rcd-sidebar-section">
@@ -4145,8 +4331,9 @@ export function CustomerRecordDetail(): React.ReactElement {
         </div>
       )}
 
-      {/* ── Confirm access-request modal ─────────────────────── */}
-      {confirmReqLevel !== null && (
+      {/* Confirm access-request modal is rendered inside rcd-access-overlay above
+          when accessDenied is true, to avoid z-index conflicts. */}
+      {!accessDenied && confirmReqLevel !== null && (
         <div className="modal-overlay" onClick={() => setConfirmReqLevel(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">

@@ -13,6 +13,26 @@ export type StagedFile = {
   uploadProgress: number;
 };
 
+const EXT_MIME: Record<string, string> = {
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  doc: "application/msword",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppt: "application/vnd.ms-powerpoint",
+  pdf: "application/pdf",
+  txt: "text/plain",
+  csv: "text/csv",
+  json: "application/json",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  zip: "application/zip",
+};
+
 const ALLOWED_MIMES = new Set([
   "application/pdf",
   "application/msword",
@@ -32,6 +52,21 @@ const ALLOWED_MIMES = new Set([
   "application/zip",
   "application/x-zip-compressed",
 ]);
+
+// Document formats must be at least 1 KB — anything smaller is a cloud
+// placeholder stub (OneDrive/SharePoint Files-on-Demand) not the real file.
+const DOC_MIMES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/zip",
+  "application/x-zip-compressed",
+]);
+const MIN_DOC_BYTES = 1024;
 
 function getSizeLimit(mimeType: string): number {
   if (mimeType.startsWith("image/")) return 10 * 1024 * 1024;
@@ -188,11 +223,20 @@ export function useFileUpload({
   const addFiles = useCallback(
     async (rawFiles: File[]): Promise<void> => {
       for (const file of rawFiles) {
-        if (!ALLOWED_MIMES.has(file.type)) {
+        const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+        const resolvedMime =
+          file.type !== "" ? file.type : (EXT_MIME[ext] ?? "");
+        if (!ALLOWED_MIMES.has(resolvedMime)) {
           alert(`File type not supported: "${file.name}"`);
           continue;
         }
-        const limit = getSizeLimit(file.type);
+        if (DOC_MIMES.has(resolvedMime) && file.size < MIN_DOC_BYTES) {
+          alert(
+            `"${file.name}" appears to be a cloud placeholder (${file.size} B) that hasn't been downloaded yet.\n\nIn File Explorer, right-click the file → "Always keep on this device", wait for it to download, then try again.`,
+          );
+          continue;
+        }
+        const limit = getSizeLimit(resolvedMime);
         if (file.size > limit) {
           alert(
             `"${file.name}" exceeds the ${Math.round(limit / 1024 / 1024)} MB limit for this type.`,
@@ -201,14 +245,14 @@ export function useFileUpload({
         }
 
         // Build preview URL from original file (before compression)
-        const previewUrl = file.type.startsWith("image/")
+        const previewUrl = resolvedMime.startsWith("image/")
           ? URL.createObjectURL(file)
           : undefined;
 
         // Compress images
         let uploadBlob: Blob = file;
-        let uploadMime = file.type;
-        if (file.type.startsWith("image/")) {
+        let uploadMime = resolvedMime;
+        if (resolvedMime.startsWith("image/")) {
           const compressed = await compressImage(file);
           uploadBlob = compressed.blob;
           uploadMime = compressed.mime;

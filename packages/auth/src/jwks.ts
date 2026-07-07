@@ -45,6 +45,11 @@ export async function verifyJwt(
         // Skip audience validation unless ZITADEL_AUDIENCE is explicitly set to the project ID.
         // Signature + issuer verification is the primary security guard.
         ...(env.ZITADEL_AUDIENCE ? { audience: env.ZITADEL_AUDIENCE } : {}),
+        // Allow up to 30 s of clock skew between Zitadel and the API container.
+        // Without this, tokens with nbf = "now" fail if the server clock is a
+        // few seconds behind Zitadel, causing 401s on the very first request
+        // after login before the client retries with a refreshed token.
+        clockTolerance: 30,
       },
     );
     return payload as JWTPayload & ZitadelClaims;
