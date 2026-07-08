@@ -184,6 +184,15 @@ sequenceDiagram
 
 ## 3. Execution Roadmap — Phases to Full Platform
 
+> **Numbering note:** This section's Phase 0–6 are the long-term product roadmap and do
+> **not** line up 1:1 with `CLAUDE.md`'s Phase 1/2/3 execution tracking (which has its own
+> 3A/3B/3C/3D subtracks). Mapping: this doc's Phase 0 (Foundation) = CLAUDE.md Phase 1;
+> this doc's Phase 1 (Working Product) = CLAUDE.md Phase 2; this doc's Phase 2 (Integration
+> Platform) ≈ CLAUDE.md Phases 3A–3B (Phase 2 here spans both the connector runtime and the
+> plugin/extensibility work CLAUDE.md tracks separately); Phases 3–6 here are aspirational
+> and beyond current planning. `CLAUDE.md` is the ground truth for current phase status —
+> see it before citing a phase status from this document.
+
 ```mermaid
 flowchart LR
     P0(["Phase 0\nFoundation\n✅ DONE"])
@@ -619,6 +628,10 @@ The plugin system requires the admin UI to become a Module Federation host, plug
 ---
 
 ## Full Platform Summary
+
+> _See the numbering note in [§3](#3-execution-roadmap--phases-to-full-platform) — this
+> diagram uses the same Phase 0–6 product-roadmap scheme, not `CLAUDE.md`'s Phase 1/2/3
+> execution tracking._
 
 ```mermaid
 graph LR

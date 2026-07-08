@@ -5,6 +5,71 @@
 
 ---
 
+## 2026-07-08 — Consulting-review followup: doc reconciliation
+
+**Session type:** Documentation
+**Branch:** `docs/consulting-review-followup-121-122`
+
+### Completed this session
+
+- Updated `docs/reviews/2026-06-29-consulting-review.md` with ✅ RESOLVED notes for #121/#122
+  (closed via PR #135) and the three quick-win doc fixes below
+- `roadmap-tracker.md`: Phase 2 gate wording changed from "Pilot customer onboarding" to
+  "Pre-Phase 3 hardening items #120–#129 all closed"
+- `platform-vision.md`: added a numbering-note callout above the Phase 0–6 roadmap diagram —
+  investigation found the "Phase 2 ▶ NEXT" the review flagged as contradicting CLAUDE.md
+  wasn't stale data, it's a different numbering scheme (this doc's Phase 0–6 long-term
+  roadmap vs. CLAUDE.md's Phase 1/2/3 execution tracking) that was undocumented and
+  confusing; added the mapping instead of changing the (accurate) diagram status
+- `CLAUDE.md`: added ADR-004 (config-first module design) to the reference docs list,
+  surfaced first per the review's §8 observation that it's the most operationally
+  important ADR for daily development
+
+### Phase snapshot
+
+| Track            | Status                                                      |
+| ---------------- | ----------------------------------------------------------- |
+| Hardening sprint | 🟡 2/10 — #121, #122 closed (PR #135); #120, #123–#129 open |
+| Phase 3          | 🔴 Not started (blocked by hardening)                       |
+
+### Next
+
+#126 (`entity.created`/`entity.assigned` triggers), then #127 (guard `setEntityState`/
+`bulkSetState`) — both core-function/compliance gaps per the consulting review's immediate
+priority list.
+
+---
+
+## 2026-07-07 — Hardening #121 / #122: RLS role enforcement (PR #135)
+
+**Session type:** Feature / security fix
+**Branch:** `fix/PLAT-121-rls-role` → PR #135 (merged)
+
+### Completed this session
+
+- `withTenantContext` / `executeRawInTenantContext` now issue `SET LOCAL ROLE app_user`
+  before setting the tenant GUC, closing #121
+- Migration `0022_app_user_rls_grants.sql` grants `app_user` the write privileges needed to
+  keep existing routes working under the new role (later tightened to column-scoped grants
+  on `tenants` per PR review)
+- Un-skipped the three cross-tenant RLS isolation tests, closing #122; one had no real
+  assertion at all and needed a genuine fixture (a vacuous-test bug caught in code review)
+- Filed #136 to track a separately-scoped gap found during review: `entity_types`/
+  `workflows`/`workflow_states`/`workflow_transitions` have no RLS policy at all
+
+### Phase snapshot
+
+| Track            | Status                                |
+| ---------------- | ------------------------------------- |
+| Hardening sprint | 🟡 2/10 — #121, #122 closed           |
+| Phase 3          | 🔴 Not started (blocked by hardening) |
+
+### Next
+
+#126, then #127.
+
+---
+
 ## 2026-06-24 — Post-review followup (PR #130)
 
 **Session type:** Documentation / tracking
