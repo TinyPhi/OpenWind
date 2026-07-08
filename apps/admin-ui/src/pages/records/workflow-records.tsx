@@ -266,9 +266,11 @@ function TransitionModal({
 function ChildTicketCard({
   ticket,
   typeSlug,
+  users,
 }: {
   ticket: ChildTicket;
   typeSlug: string;
+  users: OrgUser[];
 }): React.ReactElement {
   const navigate = useNavigate();
   const title =
@@ -277,6 +279,13 @@ function ChildTicketCard({
     ).trim() || `#${ticket.id.slice(0, 8)}`;
   const isDone = String(ticket.fields.child_status ?? "open") === "done";
 
+  const assignee = ticket.assignedTo
+    ? (users.find((u) => u.userId === ticket.assignedTo) ?? null)
+    : null;
+  const assigneeLabel = ticket.assignedTo
+    ? (assignee?.displayName ?? assignee?.email ?? "Unknown")
+    : "Unassigned";
+
   return (
     <div
       className="kb-card kb-card--child"
@@ -284,21 +293,27 @@ function ChildTicketCard({
     >
       <div className="kb-card-title">{title}</div>
 
+      <div className="kb-card-meta">
+        <span className="kb-card-meta-label">State</span>
+        <span
+          className={`kb-child-status-badge ${isDone ? "kb-child-status-badge--done" : ""}`}
+        >
+          {isDone ? "✓ Closed" : "○ Open"}
+        </span>
+      </div>
+
       <div className="kb-card-footer">
-        <span className="kb-card-id">#{ticket.id.slice(0, 8)}</span>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span
-            className={`kb-child-status-badge ${isDone ? "kb-child-status-badge--done" : ""}`}
-          >
-            {isDone ? "✓ Done" : "○ Open"}
-          </span>
-          {ticket.assignedTo && (
-            <span className="kb-subtask-avatar">
-              {ticket.assignedTo.slice(0, 1).toUpperCase()}
+        <span className="kb-card-time">
+          Created {relativeTime(ticket.createdAt)}
+        </span>
+        <span className="kb-card-assignee" title={assigneeLabel}>
+          {ticket.assignedTo ? (
+            <span className="kb-card-avatar kb-subtask-avatar">
+              {assigneeLabel.slice(0, 1).toUpperCase()}
             </span>
-          )}
-          <span className="kb-card-time">{relativeTime(ticket.createdAt)}</span>
-        </div>
+          ) : null}
+          {assigneeLabel}
+        </span>
       </div>
     </div>
   );
@@ -595,7 +610,12 @@ function KanbanColumn({
               </span>
             </div>
             {childTickets.map((ct) => (
-              <ChildTicketCard key={ct.id} ticket={ct} typeSlug={typeSlug} />
+              <ChildTicketCard
+                key={ct.id}
+                ticket={ct}
+                typeSlug={typeSlug}
+                users={users}
+              />
             ))}
           </div>
         )}
@@ -1662,25 +1682,33 @@ export function WorkflowRecords(): React.ReactElement {
         }
         @keyframes kb-fadein { from{opacity:0;transform:scaleY(.9)} to{opacity:1;transform:scaleY(1)} }
 
-        .kb-subtasks { margin-top: 8px; }
-        .kb-subtasks-divider {
-          display: flex; align-items: center; gap: 8px;
-          margin: 6px 0 6px;
+        .kb-subtasks {
+          margin-top: 10px;
+          padding: 8px 8px 10px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-subtle);
+          border-radius: 10px;
+          display: flex; flex-direction: column; gap: 8px;
         }
-        .kb-subtasks-divider::before, .kb-subtasks-divider::after {
-          content: ''; flex: 1; height: 1px;
-          background: var(--border-subtle);
+        .kb-subtasks-divider {
+          display: flex; align-items: center; gap: 6px;
+          padding: 0 2px;
         }
         .kb-subtasks-label {
-          font-size: 10px; font-weight: 600; letter-spacing: .05em;
+          font-size: 10px; font-weight: 700; letter-spacing: .06em;
           color: var(--text-muted); text-transform: uppercase; white-space: nowrap;
+          display: flex; align-items: center; gap: 5px;
+        }
+        .kb-subtasks-label::before {
+          content: '';
+          width: 6px; height: 6px; border-radius: 50%;
+          background: var(--accent-primary); opacity: .6;
         }
         .kb-card--child {
           cursor: pointer;
-          border-left: 2px solid var(--accent-primary);
-          opacity: .92;
+          background: var(--bg-secondary);
+          border-left: 3px solid var(--accent-primary);
         }
-        .kb-card--child:hover { opacity: 1; }
         .kb-child-status-badge {
           font-size: 10px; font-weight: 500;
           padding: 1px 6px; border-radius: 10px;
