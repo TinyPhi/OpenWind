@@ -184,6 +184,14 @@ sequenceDiagram
 
 ## 3. Execution Roadmap — Phases to Full Platform
 
+> **Numbering note:** This section's Phase 0–6 are the long-term product roadmap and do
+> **not** line up 1:1 with `CLAUDE.md`'s Phase 1/2/3 execution tracking (which has its own
+> 3A/3B/3C/3D subtracks). Mapping: this doc's Phase 0 (Foundation) = CLAUDE.md Phase 1;
+> this doc's Phase 1 (Working Product) = CLAUDE.md Phase 2; this doc's Phase 2 (Integration
+> Platform) ≈ CLAUDE.md Phase 3A; Phases 3–6 here are aspirational and beyond current
+> planning. `CLAUDE.md` is the ground truth for current phase status — see it before citing
+> a phase status from this document.
+
 ```mermaid
 flowchart LR
     P0(["Phase 0\nFoundation\n✅ DONE"])

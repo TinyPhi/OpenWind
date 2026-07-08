@@ -1,6 +1,6 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-06-18 (Track 2D complete — PR #115 merged)
+**Last updated:** 2026-07-08 (#121/#122 closed — PR #135 merged; Phase 2 gate wording corrected)
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
 
@@ -8,11 +8,11 @@
 
 ## Summary scorecard
 
-| Phase                           | Tracks              | Done            | % Complete | Gate                        |
-| ------------------------------- | ------------------- | --------------- | ---------- | --------------------------- |
-| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed   |
-| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **100%**   | Pilot customer onboarding   |
-| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace |
+| Phase                           | Tracks              | Done            | % Complete | Gate                                             |
+| ------------------------------- | ------------------- | --------------- | ---------- | ------------------------------------------------ |
+| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                        |
+| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **100%**   | Pre-Phase 3 hardening items #120–#129 all closed |
+| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace                      |
 
 ---
 
