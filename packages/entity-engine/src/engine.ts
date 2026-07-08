@@ -80,6 +80,7 @@ function buildEntityAssignedPayload(
   entityTypeId: string,
   assigneeId: string,
   assignedBy: string | null,
+  depth?: number,
 ): EntityAssignedEvent {
   return {
     eventType: "entity.assigned",
@@ -89,6 +90,10 @@ function buildEntityAssignedPayload(
     entityTypeId,
     assigneeId,
     assignedBy,
+    // depth + 1 for the guard, mirroring the transition action's convention
+    // (packages/automation-engine/src/actions/transition.ts) — only set when
+    // this assignment was itself driven by an automation rule (#120).
+    ...(depth !== undefined && { depth: depth + 1 }),
   };
 }
 
@@ -487,6 +492,7 @@ export async function updateEntity(
           row.entityTypeId,
           row.assignedTo,
           resolveAssignedBy(input.actorId, row.createdBy),
+          input.depth,
         ),
       });
     }
@@ -623,6 +629,7 @@ export async function updateEntity(
           row.entityTypeId,
           row.assignedTo,
           resolveAssignedBy(input.actorId, row.createdBy),
+          input.depth,
         ),
       });
     }
@@ -1268,6 +1275,7 @@ export async function bulkUpdateEntities(
                 row.entityTypeId,
                 row.assignedTo,
                 resolveAssignedBy(input.actorId, row.createdBy),
+                input.depth,
               ),
             });
           }
@@ -1317,6 +1325,7 @@ export async function bulkUpdateEntities(
                 row.entityTypeId,
                 row.assignedTo,
                 resolveAssignedBy(input.actorId, row.createdBy),
+                input.depth,
               ),
             });
           }

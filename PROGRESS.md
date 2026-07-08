@@ -1,3 +1,132 @@
+## 2026-07-08 — Hardening #120: automation double-trigger / depth-reset
+
+### Done
+
+Research first established this is actually two related bugs, not one:
+1. **Real double-execution**: the `transition` automation action both writes a
+   `workflow.transitioned` outbox row *and* recurses in-process for the same event —
+   any matching rule fired twice, independent of recursion depth.
+2. **Unbounded outbox-routed recursion**: `apps/worker/src/automation-worker.ts` hardcoded
+   `depth=0` for every dequeued outbox job, so `MAX_DEPTH` (10) never bounded a chain that
+   loops purely through the outbox. Affects the `transition` action (per #120's title) and a
+   second, previously-undocumented instance: `set_field` -> `updateEntity` ->
+   `entity.assigned`, which has no in-process fallback at all.
+
+Fixes (design confirmed with the user before implementing — see the double-trigger question):
+
+- `packages/workflow-engine/src/engine.ts`: `executeTransition` now skips the
+  `workflow.transitioned` outbox write when `request.triggeredBy === "automation"`.
+  Automation-triggered transitions rely solely on the existing, correctly-bounded in-process
+  `depth+1` recursion in `transition.ts`. User/API/system-triggered transitions keep writing
+  to the outbox unchanged (they have no in-process recursion, so they still need it to reach
+  automation at all). This closes the double-execution bug *and*, as a side effect, fully
+  closes the "transition via outbox" loop scenario (automation-triggered transitions no
+  longer touch the outbox at all).
+- `packages/automation-engine/src/event-schemas.ts`: added optional `depth?: number` to
+  `baseEvent`, inherited by all 4 discriminated `TriggerEventSchema` variants.
+- `packages/entity-engine/src/types.ts`/`engine.ts`: `updateEntity` accepts a new optional
+  `depth` input; when present, the resulting `entity.assigned` outbox payload carries
+  `depth + 1` (mirroring `transition.ts`'s convention).
+- `packages/automation-engine/src/actions/set-field.ts` / `executor.ts`: `executeSetFieldAction`
+  now receives and forwards `depth` to `updateEntity`.
+- `apps/worker/src/automation-worker.ts`: reads `payload.depth ?? 0` instead of hardcoding
+  `0` when dequeuing outbox-routed jobs — this is what actually lets `MAX_DEPTH` enforcement
+  survive the async outbox hop.
+
+**Found and fixed a third, more severe, unrelated bug while investigating AC5** (whether
+`workflow.sla_scheduled` — not part of `TriggerEventSchema`'s union — causes issues when
+dequeued): `apps/worker/src/outbox-poller.ts`'s query had no `event_type` filter, so it
+raced `apps/worker/src/sla-scheduler.ts`'s dedicated, filtered query for the exact same
+`workflow.sla_scheduled` rows. Given `outbox-poller.ts` polls every 2s vs. `sla-scheduler.ts`'s
+10s, it usually wins the `FOR UPDATE SKIP LOCKED` race, marks the row delivered, and hands it
+to `automationWorker` — which rejects it with `INVALID_EVENT_PAYLOAD` (it's not one of the 4
+schema variants) — so `sla-scheduler.ts` never sees the row again and **the SLA breach check
+for that state transition is silently never scheduled**. This looks like it's been live since
+the dual-poller architecture was introduced. Fixed by excluding `workflow.sla_scheduled` from
+`outbox-poller.ts`'s query, mirroring `sla-scheduler.ts`'s own specific-inclusion filter.
+
+**Notable finding while writing the Prove-It test for AC3**: no *current* automation action
+can actually reach the `set_field` -> `entity.assigned` recursion path, because `set_field`
+only ever writes to `input.fields`, never `input.assignedTo` — there is no `assign` action
+implemented yet (the `ActionType` union has the literal but `executor.ts`'s switch never
+handles it). So the depth-carrying fix for this path is defensive/forward-looking plumbing,
+not closing a path that's live today — unlike the `transition` double-trigger, which is a
+real, currently-reachable bug. Documented so this isn't mistaken for "already exploited."
+
+**Process note — stale dist caught late**: `apps/api/vitest.config.ts` aliases
+`@platform/entity-engine` and `@platform/workflow-engine` to source directly, but has no
+alias for `@platform/automation-engine` — so isolation tests were silently running against
+its last-built `dist/` output, not my source edits, until `pnpm --filter @platform/automation-engine build`
+was run. Cost real debugging time (added and removed temporary `console.log`s chasing a
+"fix that wasn't taking effect" before finding the missing alias) — worth a follow-up to add
+the missing vitest alias so this doesn't happen again for automation-engine specifically.
+
+### /code-review findings (8-angle fan-out) — fixed before shipping
+
+- **`bulkUpdateEntities` never passed `input.depth`** to the `entity.assigned` outbox payload
+  in either of its two branches, unlike the two `updateEntity` branches this PR already fixed
+  — both use the identical `UpdateEntityInput` type. Added `input.depth` to both call sites
+  for consistency, even though (like `updateEntity`'s own path) nothing currently reaches it.
+- **The `system.error` outbox event type has the exact same misrouting bug** I found and fixed
+  for `workflow.sla_scheduled`: `apps/worker/src/outbox-poller.ts` had no `event_type` filter
+  before this PR, so it would also claim `system.error` rows (written by `av-scan.ts` on final
+  scan failure) and hand them to `automationWorker`, which rejects them with
+  `INVALID_EVENT_PAYLOAD` since they're not part of `TriggerEventSchema`. Folded into the same
+  exclusion filter (`NOT IN ('workflow.sla_scheduled', 'system.error')`) with an explanatory
+  comment, since `system.error` has no dedicated consumer to race against — it just needs to
+  not be sent to automation at all.
+- **`readDepth()` in `automation-worker.ts` hand-rolled the exact `int, >=0` constraint already
+  declared as a Zod field** in `event-schemas.ts`'s `baseEvent`, duplicating validation logic
+  the codebase already centralizes there — and its manual `as {depth: unknown}` casts lacked
+  the code-style-required inline comment explaining why. Fixed by exporting a small
+  `OutboxDepthSchema` (`baseEvent.pick({ depth: true }).passthrough()`) from
+  `event-schemas.ts` and using `OutboxDepthSchema.safeParse(payload).data?.depth ?? 0` —
+  cuts ~15 lines to 3, removes the duplicated constraint, and removes the bare casts entirely.
+- **Isolation test file was 228 lines covering two logical concerns** (the live double-trigger
+  fix and the not-yet-reachable depth-carrying plumbing) — split into
+  `automation-depth-recursion.isolation.test.ts` (double-trigger, 1 test) and
+  `entity-assigned-depth.isolation.test.ts` (depth-carrying, 1 test).
+
+Declined to fix (documented instead):
+- **`triggeredBy` is now overloaded** for both attribution/audit *and* the outbox-delivery
+  decision (`if (triggeredBy !== "automation")`) — a future 5th `triggeredBy` value (e.g. a
+  Phase 3 "connector" origin) has no structural signal that it must also reconsider this
+  condition. No concrete bug today; the existing inline comment already documents the
+  reasoning for anyone touching this later.
+- **`depth` lives on the shared domain event schema** (`baseEvent`) rather than as
+  transport-only envelope metadata, so it's visible to `executor.ts`'s `eventFields` merge and
+  could theoretically be referenced in a tenant-configured condition tree (e.g. "only run if
+  depth > 3"). Not a security or correctness issue — separating payload from envelope
+  metadata throughout the outbox/executor pipeline is a real refactor, out of scope here.
+
+### Verification (CI-equivalent local run, same method as prior sessions)
+
+- pnpm typecheck: PASS
+- pnpm test: PASS (329/329, up from 327)
+- pnpm test:isolation: PASS (120/120, up from 118 — 2 new tests, split across
+  `automation-depth-recursion.isolation.test.ts` and `entity-assigned-depth.isolation.test.ts`.
+  Prove-It Pattern: written to fail on unfixed code, confirmed passing after the fix,
+  including catching my own stale-dist false negative along the way)
+- Diff-scoped `eslint --max-warnings=0`: clean
+
+### Next
+
+1. Doc/follow-up: add `@platform/automation-engine` to `apps/api/vitest.config.ts`'s
+   resolve aliases (matches entity-engine/workflow-engine already there) — prevents the
+   stale-dist trap hit this session
+2. #127 — guard `setEntityState` / `bulkSetState` (audit/compliance side-door)
+3. Remaining hardening items #123, #124, #125, #128, #129
+4. #136 — design + implement RLS policies for `entity_types`/`workflows`/`workflow_states`/
+   `workflow_transitions`
+5. File a follow-up issue for the `pnpm lint` no-op discovered in the #126 session
+
+### Open questions
+
+- None blocking. The `set_field`/`entity.assigned` depth plumbing is genuinely unreachable
+  by any current action — flagged above, not treated as a live exploit.
+
+---
+
 ## 2026-07-08 — Hardening #126: entity.created / entity.assigned triggers
 
 ### Done

@@ -3,6 +3,11 @@ import { z } from "zod";
 const baseEvent = z.object({
   version: z.literal(1),
   tenantId: z.string().uuid(),
+  // In-process recursion depth at the time this event was produced. Carried
+  // through the outbox so apps/worker/src/automation-worker.ts can resume
+  // MAX_DEPTH enforcement across the async hop instead of resetting to 0 (#120).
+  // Absent/undefined means depth 0 (a root-triggered event, e.g. a direct API call).
+  depth: z.number().int().min(0).optional(),
 });
 
 export const WorkflowTransitionedV1Schema = baseEvent.extend({
@@ -49,6 +54,13 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   EntityCreatedV1Schema,
   EntityAssignedV1Schema,
 ]);
+
+// Extracts just `depth` from an outbox payload before the full TriggerEventSchema
+// parse — apps/worker/src/automation-worker.ts needs it to call
+// executeAutomationRules with the right depth argument (#120), one step before
+// that function does its own full TriggerEventSchema.safeParse. Reuses
+// baseEvent's `depth` constraint so the two never drift apart.
+export const OutboxDepthSchema = baseEvent.pick({ depth: true }).passthrough();
 
 export type WorkflowTransitionedV1 = z.infer<
   typeof WorkflowTransitionedV1Schema

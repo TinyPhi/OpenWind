@@ -186,7 +186,7 @@ async function runAction(
         executeNotifyAction(db, tenantId, event, action.config);
         break;
       case "set_field":
-        await executeSetFieldAction(db, tenantId, event, action.config);
+        await executeSetFieldAction(db, tenantId, event, action.config, depth);
         break;
       case "transition":
         await executeTransitionAction(

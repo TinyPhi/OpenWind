@@ -1,7 +1,10 @@
 import { Worker, type Job } from "bullmq";
 import Redis from "ioredis";
 import { withTenantContext, deadLetterEvents } from "@platform/db";
-import { executeAutomationRules } from "@platform/automation-engine";
+import {
+  executeAutomationRules,
+  OutboxDepthSchema,
+} from "@platform/automation-engine";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 
@@ -18,6 +21,17 @@ interface AutomationJobData {
   ruleId?: string;
 }
 
+// Recovers the recursion depth carried in the outbox payload (#120) — without
+// this, every outbox-routed automation chain would resume at depth 0 no
+// matter how deep the in-process chain that produced it already was, and
+// MAX_DEPTH would never bound a cycle that loops purely through the outbox.
+// Uses OutboxDepthSchema (packages/automation-engine/src/event-schemas.ts) so
+// the int/non-negative constraint lives in one place, not re-declared here —
+// a malformed or malicious depth value must not defeat the MAX_DEPTH guard.
+function readDepth(payload: unknown): number {
+  return OutboxDepthSchema.safeParse(payload).data?.depth ?? 0;
+}
+
 export const automationWorker = new Worker<AutomationJobData>(
   "automation",
   async (job) => {
@@ -25,7 +39,13 @@ export const automationWorker = new Worker<AutomationJobData>(
     // Pass the Redis connection so the circuit breaker is active.
     // Without this argument the circuit breaker guard is silently skipped.
     await withTenantContext(tenantId, (tx) =>
-      executeAutomationRules(tx, tenantId, payload, 0, connection),
+      executeAutomationRules(
+        tx,
+        tenantId,
+        payload,
+        readDepth(payload),
+        connection,
+      ),
     );
   },
   { connection, concurrency: 5 },
