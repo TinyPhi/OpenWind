@@ -2695,8 +2695,8 @@ export function WorkflowDetail(): React.ReactElement {
             borderTop: "none",
             borderTopLeftRadius: 0,
             borderTopRightRadius: 0,
-            borderBottomLeftRadius: "var(--radius-lg)",
-            borderBottomRightRadius: "var(--radius-lg)",
+            borderBottomLeftRadius: "8px",
+            borderBottomRightRadius: "8px",
             padding: "24px",
             marginBottom: "20px",
           }}
@@ -2714,7 +2714,7 @@ export function WorkflowDetail(): React.ReactElement {
             <div
               style={{ display: "flex", flexDirection: "column", gap: "20px" }}
             >
-              <div className="data-panel">
+              <div className="data-panel wfd-settings-panel">
                 <SectionHeader label="Workflow Details" />
                 <div
                   style={{
@@ -2787,7 +2787,7 @@ export function WorkflowDetail(): React.ReactElement {
 
               {/* State color legend */}
               {workflow.states.length > 0 && (
-                <div className="data-panel">
+                <div className="data-panel wfd-settings-panel">
                   <SectionHeader label="State Colors" />
                   <div
                     style={{
@@ -2872,7 +2872,7 @@ export function WorkflowDetail(): React.ReactElement {
               style={{ display: "flex", flexDirection: "column", gap: "20px" }}
             >
               {/* Child ticket limits */}
-              <div className="data-panel">
+              <div className="data-panel wfd-settings-panel">
                 <SectionHeader label="Sub-task Limits" />
                 <p
                   style={{
@@ -2973,7 +2973,7 @@ export function WorkflowDetail(): React.ReactElement {
               </div>
 
               {/* Admin assignment */}
-              <div className="data-panel">
+              <div className="data-panel wfd-settings-panel">
                 <SectionHeader label="Workflow Admins" />
                 <p
                   style={{
@@ -3016,7 +3016,7 @@ export function WorkflowDetail(): React.ReactElement {
                               padding: "10px 12px",
                               background: "var(--bg-tertiary)",
                               border: "1px solid var(--border-color)",
-                              borderRadius: "var(--radius-md)",
+                              borderRadius: "var(--radius-sm)",
                             }}
                           >
                             <span
@@ -3165,7 +3165,7 @@ export function WorkflowDetail(): React.ReactElement {
 
               {/* Activate / Deactivate */}
               {isAdmin && (
-                <div className="data-panel">
+                <div className="data-panel wfd-settings-panel">
                   <SectionHeader label="Workflow Status" />
                   <p
                     style={{
@@ -3199,7 +3199,7 @@ export function WorkflowDetail(): React.ReactElement {
               {/* Danger zone */}
               {isAdmin && (
                 <div
-                  className="data-panel"
+                  className="data-panel wfd-settings-panel"
                   style={{
                     borderTop: "3px solid var(--danger)",
                     background: "hsla(0,84%,60%,.03)",

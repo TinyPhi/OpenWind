@@ -522,6 +522,15 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: var(--shadow-sm);
 }
 
+/* Workflow settings tab: cards sit in a flex column with an explicit gap —
+   data-panel's own margin-bottom would double up on that gap and throw off
+   column alignment, and its 20px radius reads too rounded next to the
+   tighter grid layout here. */
+.wfd-settings-panel {
+  margin-bottom: 0;
+  border-radius: 8px;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
