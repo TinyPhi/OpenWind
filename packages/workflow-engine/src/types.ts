@@ -82,6 +82,10 @@ export interface TransitionRequest {
   idempotencyKey?: string;
   triggeredBy?: "user" | "automation" | "api" | "system";
   metadata?: Record<string, unknown>;
+  // Automation recursion depth this transition was triggered at. Stamped onto
+  // the outbox event so the automation worker resumes MAX_DEPTH counting from
+  // here instead of resetting to 0 — see issue #120.
+  depth?: number;
 }
 
 export interface WorkflowFull extends WorkflowDefinition {
@@ -150,6 +154,7 @@ export interface WorkflowTransitionedEvent {
   triggeredBy: string;
   actorId: string | null;
   occurredAt: string;
+  depth?: number;
 }
 
 // Domain event written to outbox when an SLA timer breaches.

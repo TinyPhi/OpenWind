@@ -10,7 +10,17 @@ export const connection = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
 });
 
-export const automationQueue = new Queue("automation", { connection });
+// attempts: 3 with exponential backoff, matching the SLA queue — without this,
+// BullMQ defaults to attempts: 1, so a transient failure (or a downstream 429)
+// fails the job immediately instead of backing off, adding retry pressure
+// during an incident rather than damping it. See issue #123.
+export const automationQueue = new Queue("automation", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});
 
 // Default job options apply to every job added to this queue.
 // attempts: 3 with exponential backoff means transient DB failures are retried

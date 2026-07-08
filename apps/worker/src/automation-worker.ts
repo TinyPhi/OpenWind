@@ -22,10 +22,22 @@ export const automationWorker = new Worker<AutomationJobData>(
   "automation",
   async (job) => {
     const { tenantId, payload } = job.data;
+    // Resume MAX_DEPTH counting from the depth this event was triggered at
+    // (stamped by the transition action) instead of resetting to 0 — an
+    // outbox-delivered event from a recursive automation loop must still be
+    // bounded. Events from direct user/API transitions carry no depth and
+    // start at 0. See issue #120.
+    const depth =
+      typeof payload === "object" &&
+      payload !== null &&
+      "depth" in payload &&
+      typeof (payload as { depth?: unknown }).depth === "number"
+        ? (payload as { depth: number }).depth
+        : 0;
     // Pass the Redis connection so the circuit breaker is active.
     // Without this argument the circuit breaker guard is silently skipped.
     await withTenantContext(tenantId, (tx) =>
-      executeAutomationRules(tx, tenantId, payload, 0, connection),
+      executeAutomationRules(tx, tenantId, payload, depth, connection),
     );
   },
   { connection, concurrency: 5 },

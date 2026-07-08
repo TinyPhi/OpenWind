@@ -281,6 +281,7 @@ export async function executeTransition(
     triggeredBy,
     actorId: request.actorId ?? null,
     occurredAt: occurredAt.toISOString(),
+    depth: request.depth ?? 0,
   };
 
   await db.insert(outboxEvents).values({
