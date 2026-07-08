@@ -22,8 +22,8 @@
   roadmap vs. CLAUDE.md's Phase 1/2/3 execution tracking) that was undocumented and
   confusing; added the mapping instead of changing the (accurate) diagram status
 - `CLAUDE.md`: added ADR-004 (config-first module design) to the reference docs list,
-  surfaced first per the review's §8 observation that it's the most operationally
-  important ADR for daily development
+  surfaced second (after `architecture-brief.md`) per the review's §8 observation;
+  description softened to "most directly relevant to module authoring decisions"
 
 ### Phase snapshot
 
