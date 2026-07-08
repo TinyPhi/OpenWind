@@ -3,7 +3,13 @@
 **Date:** 2026-06-29  
 **Prompt:** _"As a top-notch business and technical consultant, review and analyze the vision, architecture, and other documents for OpenWind. What can be improved, updated, or brought up to date?"_  
 **Phase:** 2 complete → Pre-Phase 3 hardening sprint in progress (#120–#129)  
-**Status as of 2026-07-08:** #121 and #122 closed via [PR #135](../../pull/135) — RLS is now enforced via `SET LOCAL ROLE app_user`, and the three cross-tenant isolation tests run for real. See ✅ RESOLVED notes inline below. A new follow-up, [#136](../../issues/136), was filed during that PR's review for a related but separately-scoped gap (no RLS policy at all on `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`).
+**Status as of 2026-07-08:** #121 and #122 closed via [PR #135](../../pull/135) — RLS is now enforced via `SET LOCAL ROLE app_user`, and the three cross-tenant isolation tests run for real. See ✅ RESOLVED notes inline below. A new follow-up, [#136](../../issues/136), was filed during that PR's review for a related but separately-scoped gap (no RLS policy at all on `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`).  
+**Related reviews:** Follows the 2026-06-23 three-lens external review (CTO architecture + risk,
+Product capability, UX adoption — see `week-log.md`), which reconciled CLAUDE.md/VISION.md/
+db-conventions.md with code reality and first identified the #120–#129 hardening backlog. This
+consulting review is a separate, later pass (Claude Code multi-agent codebase analysis) that adds
+architectural depth and verifies specific claims against the codebase — it is not a re-run of the
+same review.
 
 ---
 
@@ -12,6 +18,10 @@
 OpenWind has a well-conceived, coherent architecture. The three core engines (Entity, Workflow, Automation) are substantively complete and properly layered. The config-first module model is a genuine differentiator. However, a pattern of **documentation drift** has accumulated: phase status, gating logic, and some safety claims in docs no longer match code reality. More critically, **three correctness gaps directly affect the tenant isolation guarantee** and must close before any pilot customer sees production data.
 
 The platform is architecturally sound but not yet ready to trust with real customer data.
+
+**Update, 2026-07-08:** Blocker 1 (RLS enforcement, #121/#122) is closed — see the inline
+✅ RESOLVED notes in §2 and §4/§5. Blockers 2–4 (#127, #126, #125) remain open; the
+severity picture above still applies to those.
 
 ---
 
@@ -33,8 +43,8 @@ The platform is architecturally sound but not yet ready to trust with real custo
 
 ### 🔴 Critical — Misleading Safety Claims
 
-**RLS claim in db-conventions.md was "no query needs WHERE tenant_id"** — ✅ RESOLVED (2026-07-08, PR #135)  
-The external review (2026-06-23) caught and corrected this. `db-conventions.md` and `security.md` now state both layers are mandatory and describe the actual `SET LOCAL ROLE app_user` enforcement mechanism.
+**RLS claim in db-conventions.md was "no query needs WHERE tenant_id"** — ✅ RESOLVED (docs: 2026-06-24, commit `c8531fd`; enforcement: 2026-07-08, PR #135)  
+The false claim itself was caught and corrected in the 2026-06-23 external review's reconciliation session, six weeks before this consulting review was written — `db-conventions.md` and `security.md` already stated both layers were mandatory by then. PR #135 (2026-07-08) is credited separately: it closed the code-level gap (#121) by adding `SET LOCAL ROLE app_user`, and updated the docs' description of the enforcement mechanism to match.
 
 **`platform-vision.md` Mermaid diagram shows Phase 2 as "▶ NEXT"** — ✅ RESOLVED (2026-07-08), but not as originally diagnosed  
 Investigation found this isn't a stale-status bug: `platform-vision.md` uses its own Phase 0–6
@@ -72,8 +82,13 @@ WE-02 (transitions irreversible by design, issue #64) and WE-03 (SLA recovery, i
 **Phase 1 open questions MT-02 and WE-05 never triaged**  
 MT-02 (BullMQ worker tenant_id signature verification) and WE-05 (`getAvailableTransitions` as single source of truth) are marked Phase 1 but neither resolved nor re-triaged into a later phase. Close with a resolution note or add to the hardening backlog.
 
-**Field type count discrepancy**  
-`architecture-brief.md` lists 13 types in one place; `local-setup.md` references "all 15 types." Audit the `entity_fields.field_type` enum in the DB schema and sync all docs to the canonical count.
+**Field type count discrepancy — finding retracted, no discrepancy exists**  
+Verified against `architecture-brief.md`'s field-type table (15 rows: text, longtext, number,
+currency, date, datetime, boolean, enum, multi_enum, user_ref, entity_ref, file, files,
+formula, lookup) and `platform-vision.md`'s "all 15 types" reference — both agree at 15. No
+"13 types" citation exists anywhere in the docs; the original finding's `local-setup.md`
+citation was also wrong (the "15 types" line is in `platform-vision.md`). Leaving this note
+in place instead of deleting the item so a future reader doesn't re-file it.
 
 ### 🟢 Minor
 
@@ -153,7 +168,7 @@ All 10 hardening items (#120–#129) must close, then `.claude/context/phase-3-p
 3. Close #127 (guard `setEntityState`/`bulkSetState`) — audit/compliance
 4. ~~Update `roadmap-tracker.md` Phase 2 gate wording~~ ✅ DONE (2026-07-08)
 5. ~~Fix `platform-vision.md` Mermaid diagram (Phase 2 complete)~~ ✅ DONE (2026-07-08) — see note above
-6. ~~Add ADR-004 to `CLAUDE.md` reference list~~ ✅ DONE (2026-07-08) — surfaced first per §8
+6. ~~Add ADR-004 to `CLAUDE.md` reference list~~ ✅ DONE (2026-07-08) — surfaced early (second, after `architecture-brief.md`) per §8's recommendation
 
 ### Before Phase 3 planning
 
