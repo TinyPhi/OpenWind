@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, and } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { db } from "@platform/db";
+import { db, withTenantContext } from "@platform/db";
 import { automationRules, automationExecutions } from "@platform/db";
 import {
   createAutomationRule,
@@ -151,21 +151,65 @@ describe("executeAutomationRules — cross-tenant isolation", () => {
     expect(execsA.length).toBeGreaterThan(0);
     expect(execsB).toHaveLength(0);
   });
+
+  it("Tenant A runs produce no execution records on Tenant B's rule", async () => {
+    // Superuser db, no withTenantContext — tests the engine-level WHERE
+    // tenant_id guard in executeAutomationRules, not the RLS layer.
+    const execsForBRule = await db
+      .select({ id: automationExecutions.id })
+      .from(automationExecutions)
+      .where(
+        and(
+          eq(automationExecutions.ruleId, ruleIdB),
+          eq(automationExecutions.tenantId, TENANT_A),
+        ),
+      );
+    expect(execsForBRule).toHaveLength(0);
+  });
 });
 
 // ── Execution log isolation ────────────────────────────────────────────────────
 
 describe("automation_executions — cross-tenant query isolation", () => {
-  it.skip("direct SELECT within Tenant A context returns no Tenant B executions (requires non-superuser role)", async () => {
-    // Validated by engine-level WHERE tenant_id = $tenantId on all queries
+  // Seed a real Tenant B execution row so the RLS assertion below has
+  // something to leak — without this, the query returns zero rows regardless
+  // of whether RLS works, and the test would pass vacuously.
+  beforeAll(async () => {
+    await executeAutomationRules(db, TENANT_B, {
+      version: 1,
+      eventType: "workflow.transitioned",
+      tenantId: TENANT_B,
+      instanceId: "00000000-0000-0000-0000-000000000199",
+      entityTypeId: "00000000-0000-0000-0000-000000000198",
+      workflowId: "00000000-0000-0000-0000-000000000197",
+      fromState: "open",
+      toState: "closed",
+      triggeredBy: "user",
+      actorId: null,
+      occurredAt: new Date().toISOString(),
+    });
   });
 
-  it("Tenant B executions are zero after Tenant A's runs", async () => {
+  it("sanity check: Tenant B execution row exists via superuser query", async () => {
     const execsB = await db
-      .select()
+      .select({ id: automationExecutions.id })
       .from(automationExecutions)
       .where(eq(automationExecutions.ruleId, ruleIdB));
-    expect(execsB).toHaveLength(0);
+    expect(execsB.length).toBeGreaterThan(0);
+  });
+
+  // withTenantContext now issues SET LOCAL ROLE app_user (#121), so RLS
+  // applies even though CI connects as the `platform` superuser. This query
+  // deliberately omits an explicit tenant_id filter to isolate the RLS layer
+  // from the engine-level WHERE-clause guard (tested elsewhere in this file).
+  it("direct SELECT within Tenant A context returns no Tenant B executions", async () => {
+    await withTenantContext(TENANT_A, async (tx) => {
+      const rows = await tx
+        .select({ id: automationExecutions.id })
+        .from(automationExecutions)
+        .where(eq(automationExecutions.ruleId, ruleIdB));
+      expect(rows).toHaveLength(0);
+    });
   });
 });
 

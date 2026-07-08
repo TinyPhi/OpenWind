@@ -169,6 +169,13 @@
       "when": 1782120766569,
       "tag": "0021_change_entity_user_ids_to_text",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783417672000,
+      "tag": "0022_app_user_rls_grants",
+      "breakpoints": false
     }
   ]
 }

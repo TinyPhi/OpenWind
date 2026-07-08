@@ -316,12 +316,11 @@ describe("searchEntities — cross-tenant search isolation", () => {
 // ── RLS layer verification ────────────────────────────────────────────────────
 
 describe("RLS — direct query isolation within tenant context", () => {
-  // RLS policies are bypassed by the database owner (superuser). CI runs as the
-  // `platform` superuser, so this assertion cannot be validated at the DB layer
-  // in that environment. Tenant isolation for app traffic is enforced by the
-  // engine layer's WHERE clauses (tested in the describe blocks above) and by
-  // RLS for the non-superuser `app_user` role in production.
-  it.skip("direct SELECT within Tenant A context returns no Tenant B rows (requires non-superuser role)", async () => {
+  // withTenantContext now issues SET LOCAL ROLE app_user before setting the
+  // tenant GUC (#121), so RLS policies apply even though CI connects as the
+  // `platform` superuser — `SET LOCAL ROLE` inside the transaction switches
+  // to a non-superuser, non-BYPASSRLS role for the duration of the query.
+  it("direct SELECT within Tenant A context returns no Tenant B rows", async () => {
     await withTenantContext(TENANT_A, async (tx) => {
       const rows = await tx
         .select({ id: entityInstances.id, tenantId: entityInstances.tenantId })

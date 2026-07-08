@@ -21,6 +21,10 @@ export async function executeRawInTenantContext(
   rawSql: string,
 ): Promise<void> {
   await queryClient.begin(async (tx) => {
+    // Switch to app_user so RLS policies are enforced (superusers bypass RLS by default).
+    // If module seed SQL hits "permission denied for table X", app_user is missing a
+    // grant on X — add it following the pattern in 0022_app_user_rls_grants.sql.
+    await tx`SET LOCAL ROLE app_user`;
     await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
     await tx.unsafe(rawSql);
   });

@@ -20,7 +20,9 @@ Never instantiate a DB client. Always import from `@platform/db`.
 1. **Explicit `WHERE tenant_id = ?` filters** in every engine query. These are the primary guard and must not be removed.
 2. **RLS via `set_config('app.tenant_id', …)`** set by `withTenantContext`. This is the second line of defence.
 
-`withTenantContext` sets the GUC but does not switch the DB role. If `DATABASE_URL` points at a superuser or table owner, RLS is bypassed and only the explicit filters protect you. Never remove explicit tenant filters on the assumption that RLS alone is sufficient. `withTenantAndUserContext` (used for saved views) sets both `app.tenant_id` and `app.user_id` and is the pattern to follow for user-scoped resources.
+`withTenantContext` and `executeRawInTenantContext` issue `SET LOCAL ROLE app_user` before setting the GUC (#121), so RLS is enforced even when `DATABASE_URL` connects as a superuser (e.g. CI's `platform` role) — `SET LOCAL ROLE` inside the transaction switches to the non-superuser, non-`BYPASSRLS` `app_user` role for the duration of that transaction. RLS and explicit `WHERE tenant_id` filters are both required — defense-in-depth, not alternatives. Never remove explicit tenant filters on the assumption that RLS alone is sufficient. `withTenantAndUserContext` (used for saved views) additionally sets `app.user_id` and is the pattern to follow for user-scoped resources.
+
+`entity_types` and `workflows` have no RLS policy at all (their `tenant_id` is nullable — `NULL` denotes system/template rows visible to every tenant); `workflow_states`/`workflow_transitions` have no `tenant_id` column and are scoped only via their parent `workflow_id`. Isolation on these four tables is enforced entirely by the explicit ownership checks in `packages/workflow-engine` (`assertWorkflowOwned`/`visibleTo`) — there is no RLS second layer for them yet.
 
 ---
 
