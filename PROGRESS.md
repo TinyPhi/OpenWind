@@ -150,6 +150,36 @@ Declined to fix (documented instead):
 
 ---
 
+## 2026-07-08 — Post-PR #137 cleanup
+
+### Done
+
+- Fixed two cosmetic residuals flagged in PR #137 review:
+  - `docs/reviews/2026-06-29-consulting-review.md` §6 item 12 struck through — finding
+    was retracted in §2 (no field type discrepancy exists); open action item was misleading.
+  - `docs/sup-docs/week-log.md` 2026-07-08 entry corrected — ADR-004 is now second in the
+    CLAUDE.md reference list (not "first"), description uses the softened wording.
+- `docs/sup-docs/roadmap-tracker.md` last-updated line updated to include PR #137.
+
+### Verification
+
+- pnpm typecheck: N/A — docs-only
+- pnpm lint: N/A — docs-only
+- pnpm test: N/A — docs-only
+- pnpm test:isolation: N/A — docs-only
+
+### Next
+
+1. #126 — emit `entity.created` / `entity.assigned` to the outbox (core function, currently dead automations)
+2. #127 — guard `setEntityState` / `bulkSetState` (audit/compliance side-door)
+3. Remaining hardening items #120, #123, #124, #125, #128, #129
+
+### Open questions
+
+- None blocking.
+
+---
+
 ## 2026-07-07 — Hardening #121 / #122: RLS role enforcement
 
 ### Done
