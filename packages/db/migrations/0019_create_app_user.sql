@@ -1,4 +1,5 @@
 -- Migration: 0019_create_app_user
+-- analytics: excluded (creates a DB role + grants — no table, no analytics surface)
 -- Creates the app_user role used by withTenantAndUserContext.
 -- app_user is a non-superuser, non-bypassrls role — all queries that must
 -- be subject to RLS run under this role (set via SET LOCAL ROLE inside a

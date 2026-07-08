@@ -314,10 +314,24 @@ export async function listProjectRoles(): Promise<string[]> {
 
 // ── List org users ────────────────────────────────────────────────────────────
 
-export async function listOrgUsers(orgId?: string): Promise<OrgUser[]> {
-  const cacheKey = orgId ?? "_default_";
+export async function listOrgUsers(
+  orgId: string | undefined,
+): Promise<OrgUser[]> {
+  // Never fall through to an unfiltered instance-wide query — a missing orgId
+  // (e.g. a token without the org claim) must fail closed, not leak every
+  // tenant's users into whichever caller hit this path. Also guards against a
+  // shared cache entry across tenants (see security review — listOrgUsers had
+  // a "_default_" fallback cache key that any org with a missing orgId shared).
+  if (!orgId) {
+    logger.warn(
+      {},
+      "listOrgUsers: called without an orgId — refusing to query",
+    );
+    return [];
+  }
+
   const now = Date.now();
-  const cached = _usersCache.get(cacheKey);
+  const cached = _usersCache.get(orgId);
   if (cached && now < cached.expiresAt) return cached.users;
 
   const token = await getAccessToken();
@@ -339,26 +353,16 @@ export async function listOrgUsers(orgId?: string): Promise<OrgUser[]> {
 
     const payload: Record<string, unknown> = {
       query: { limit: 500, asc: true },
+      queries: [{ organizationIdQuery: { organizationId: orgId } }],
     };
-    if (orgId) {
-      payload["queries"] = [{ organizationIdQuery: { organizationId: orgId } }];
-    }
 
-    logger.info(
-      { url, orgId, hasOrgFilter: !!orgId },
-      "listOrgUsers: calling Zitadel",
-    );
+    logger.info({ url, orgId }, "listOrgUsers: calling Zitadel");
 
     const result = await httpPost(
       url,
       issuerHost(),
       headers,
       JSON.stringify(payload),
-    );
-
-    logger.info(
-      { status: result.status, bodySnippet: result.text.slice(0, 500) },
-      "listOrgUsers: Zitadel raw response",
     );
 
     if (result.status < 200 || result.status >= 300) {
@@ -410,7 +414,7 @@ export async function listOrgUsers(orgId?: string): Promise<OrgUser[]> {
       })
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-    _usersCache.set(cacheKey, { users, expiresAt: now + CACHE_TTL_MS });
+    _usersCache.set(orgId, { users, expiresAt: now + CACHE_TTL_MS });
     return users;
   } catch (err) {
     logger.error({ err }, "Failed to list Zitadel org users");

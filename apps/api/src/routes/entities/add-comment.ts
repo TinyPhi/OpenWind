@@ -181,9 +181,15 @@ export const addCommentHandler = factory.createHandlers(
       if (userId !== instance.assignedTo) {
         usersToGrant.push({ userId, level: "read_comment" });
       }
-      for (const mention of mentions) {
-        if (!usersToGrant.some((u) => u.userId === mention.userId)) {
-          usersToGrant.push({ userId: mention.userId, level: mention.level });
+      // Only admins/agents may grant access to a third party via @mention —
+      // otherwise any commenter with mere read_comment access could mention an
+      // arbitrary user ID and hand them access, bypassing grant-access.ts's
+      // requireRole("admin", "agent") gate on the equivalent mutation.
+      if (isPrivileged) {
+        for (const mention of mentions) {
+          if (!usersToGrant.some((u) => u.userId === mention.userId)) {
+            usersToGrant.push({ userId: mention.userId, level: mention.level });
+          }
         }
       }
 

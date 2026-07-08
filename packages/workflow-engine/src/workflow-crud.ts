@@ -132,6 +132,30 @@ export async function getWorkflow(
   };
 }
 
+// Lightweight variant for callers that only need id/name/entityTypeId (e.g. slug
+// resolution) — skips the states/transitions/record-count joins list() does.
+export async function listWorkflowsSummary(
+  db: DbOrTx,
+  tenantId: string,
+  entityTypeId?: string,
+  activeOnly?: boolean,
+): Promise<WorkflowDefinition[]> {
+  const baseFilter = entityTypeId
+    ? and(eq(workflows.entityTypeId, entityTypeId), visibleTo(tenantId))
+    : visibleTo(tenantId);
+  const filter = activeOnly
+    ? and(baseFilter, eq(workflows.isActive, true))
+    : baseFilter;
+
+  const rows = await db
+    .select()
+    .from(workflows)
+    .where(filter)
+    .orderBy(asc(workflows.createdAt));
+
+  return rows.map(rowToWorkflow);
+}
+
 export async function listWorkflows(
   db: DbOrTx,
   tenantId: string,

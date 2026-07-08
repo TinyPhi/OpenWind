@@ -46,6 +46,12 @@ Open **http://localhost:3001**
 Zitadel console (identity provider): **http://localhost:8080**
 Username: `owZitadelAdmin@openwind.local` / Password: `Admin1234!`
 
+> **Security note:** `scripts/zitadel-compose-template.yml` sets
+> `ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_FORCEMFA: "false"` for dev convenience —
+> MFA is optional for the demo accounts above. Before exposing any environment
+> beyond local dev, set this to `"true"` (or enforce MFA per-org in the Zitadel
+> console) and rotate the default demo account passwords.
+
 ---
 
 ## Re-running / resetting

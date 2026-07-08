@@ -9,6 +9,7 @@ type WorkflowState = {
   label: string;
   color: string | null;
   isTerminal: boolean;
+  slaHours?: number | null;
 };
 
 type Workflow = {
@@ -23,7 +24,15 @@ type EntityRecord = {
   id: string;
   currentState: string | null;
   createdAt?: string;
+  updatedAt?: string;
+  assignedTo?: string | null;
   fields?: Record<string, unknown>;
+};
+
+type OrgUser = {
+  userId: string;
+  email: string;
+  displayName: string | null;
 };
 
 type WorkflowStat = {
@@ -49,14 +58,6 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 function getTodayLabel(): string {
   return new Date().toLocaleDateString("en-IN", {
     weekday: "long",
@@ -64,6 +65,43 @@ function getTodayLabel(): string {
     month: "long",
     year: "numeric",
   });
+}
+
+function recordTitle(rec: EntityRecord): string {
+  const f = rec.fields ?? {};
+  const v = f.subject ?? f.title ?? f.name;
+  return v ? String(v) : `#${rec.id.slice(0, 8)}`;
+}
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// Daily counts for the last `days` days, oldest first, based on `createdAt`.
+function dailyCounts(records: EntityRecord[], days: number): number[] {
+  const buckets = new Array(days).fill(0) as number[];
+  const now = new Date();
+  const todayStart = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const dayMs = 86_400_000;
+  for (const r of records) {
+    if (!r.createdAt) continue;
+    const t = new Date(r.createdAt).getTime();
+    const dayIndex = days - 1 - Math.floor((todayStart - t) / dayMs);
+    if (dayIndex >= 0 && dayIndex < days) {
+      buckets[dayIndex] = (buckets[dayIndex] ?? 0) + 1;
+    }
+  }
+  return buckets;
 }
 
 const WORKFLOW_COLORS = [
@@ -108,6 +146,7 @@ function KpiCard({
   icon,
   color,
   onClick,
+  spark,
 }: {
   label: string;
   value: string | number;
@@ -115,6 +154,7 @@ function KpiCard({
   icon: string;
   color: string;
   onClick?: () => void;
+  spark?: number[];
 }): React.ReactElement {
   return (
     <div
@@ -175,35 +215,42 @@ function KpiCard({
         {icon}
       </div>
       {/* content */}
-      <div style={{ flex: 1 }}>
-        <div
-          style={{
-            fontSize: "12px",
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            marginBottom: "4px",
-          }}
-        >
-          {label}
-        </div>
-        <div
-          style={{
-            fontSize: "28px",
-            fontWeight: 800,
-            fontFamily: "var(--font-heading)",
-            color: "var(--text-primary)",
-            lineHeight: 1,
-            marginBottom: "4px",
-          }}
-        >
-          {value}
-        </div>
-        {sub && (
-          <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-            {sub}
+      <div
+        style={{ flex: 1, display: "flex", alignItems: "center", gap: "12px" }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              marginBottom: "4px",
+            }}
+          >
+            {label}
           </div>
+          <div
+            style={{
+              fontSize: "28px",
+              fontWeight: 800,
+              fontFamily: "var(--font-heading)",
+              color: "var(--text-primary)",
+              lineHeight: 1,
+              marginBottom: "4px",
+            }}
+          >
+            {value}
+          </div>
+          {sub && (
+            <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+              {sub}
+            </div>
+          )}
+        </div>
+        {spark && spark.length > 1 && (
+          <Sparkline values={spark} color={color} />
         )}
       </div>
     </div>
@@ -256,6 +303,172 @@ function ProgressBar({
   );
 }
 
+function Sparkline({
+  values,
+  color,
+}: {
+  values: number[];
+  color: string;
+}): React.ReactElement {
+  const w = 72;
+  const h = 24;
+  const max = Math.max(1, ...values);
+  const step = values.length > 1 ? w / (values.length - 1) : w;
+  const points = values
+    .map((v, i) => `${i * step},${h - (v / max) * (h - 4) - 2}`)
+    .join(" ");
+  const lastX = (values.length - 1) * step;
+  const lastValue = values[values.length - 1] ?? 0;
+  const lastY = h - (lastValue / max) * (h - 4) - 2;
+
+  return (
+    <svg
+      width={w}
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+      style={{ overflow: "visible", flexShrink: 0 }}
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity="0.85"
+      />
+      <circle cx={lastX} cy={lastY} r="2" fill={color} />
+    </svg>
+  );
+}
+
+function Donut({
+  segments,
+  size = 108,
+  strokeWidth = 14,
+}: {
+  segments: Array<{ label: string; value: number; color: string }>;
+  size?: number;
+  strokeWidth?: number;
+}): React.ReactElement {
+  const total = segments.reduce((sum, s) => sum + s.value, 0);
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  let offsetAccum = 0;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "18px" }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="var(--bg-tertiary)"
+          strokeWidth={strokeWidth}
+        />
+        {total > 0 &&
+          segments.map((s) => {
+            const frac = s.value / total;
+            const dash = frac * circumference;
+            const dashArray = `${dash} ${circumference - dash}`;
+            const dashOffset = -offsetAccum * circumference;
+            offsetAccum += frac;
+            return (
+              <circle
+                key={s.label}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke={s.color}
+                strokeWidth={strokeWidth}
+                strokeDasharray={dashArray}
+                strokeDashoffset={dashOffset}
+                transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                strokeLinecap="butt"
+              />
+            );
+          })}
+        <text
+          x="50%"
+          y="47%"
+          textAnchor="middle"
+          fontSize="20"
+          fontWeight="800"
+          fill="var(--text-primary)"
+        >
+          {total}
+        </text>
+        <text
+          x="50%"
+          y="63%"
+          textAnchor="middle"
+          fontSize="9"
+          fontWeight="600"
+          letterSpacing="0.05em"
+          fill="var(--text-muted)"
+        >
+          RECORDS
+        </text>
+      </svg>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        {segments.slice(0, 5).map((s) => (
+          <div
+            key={s.label}
+            style={{ display: "flex", alignItems: "center", gap: "8px" }}
+          >
+            <span
+              style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "2px",
+                background: s.color,
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                fontSize: "12px",
+                color: "var(--text-secondary)",
+                flex: 1,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {s.label}
+            </span>
+            <span
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                color: "var(--text-primary)",
+              }}
+            >
+              {s.value}
+            </span>
+          </div>
+        ))}
+        {total === 0 && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            No records yet
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SectionHeader({
   title,
   action,
@@ -303,6 +516,7 @@ export function Dashboard(): React.ReactElement {
 
   const [stats, setStats] = useState<WorkflowStat[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
+  const [users, setUsers] = useState<OrgUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [roles, setRoles] = useState<string[]>([]);
 
@@ -325,11 +539,13 @@ export function Dashboard(): React.ReactElement {
     Promise.all([
       fetchWithAuth(`${API_URL}/workflows`),
       fetchWithAuth(`${API_URL}/modules`),
+      fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
     ])
-      .then(async ([wfRes, modRes]) => {
+      .then(async ([wfRes, modRes, usersRes]) => {
         const workflows = (wfRes as { data?: Workflow[] }).data ?? [];
         const mods = (modRes as { data?: Module[] }).data ?? [];
         setModules(mods);
+        setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
 
         const wfStats = await Promise.all(
           workflows.map(async (wf) => {
@@ -378,26 +594,105 @@ export function Dashboard(): React.ReactElement {
 
   // recent records across all workflows (latest 8)
   type RecentRecord = {
+    title: string;
     workflowName: string;
     workflowSlug: string;
     state: string | null;
     color: string | null;
     createdAt: string | undefined;
+    assigneeLabel: string | null;
   };
   const recentRecords: RecentRecord[] = stats
     .flatMap((s) =>
-      s.records.map((r) => ({
-        workflowName: s.workflow.name,
-        workflowSlug: slugify(s.workflow.name),
-        state: r.currentState,
-        color:
-          s.workflow.states.find((st) => st.name === r.currentState)?.color ??
-          null,
-        createdAt: r.createdAt,
-      })),
+      s.records.map((r) => {
+        const assignee = r.assignedTo
+          ? (users.find((u) => u.userId === r.assignedTo) ?? null)
+          : null;
+        return {
+          title: recordTitle(r),
+          workflowName: s.workflow.name,
+          workflowSlug: slugify(s.workflow.name),
+          state: r.currentState,
+          color:
+            s.workflow.states.find((st) => st.name === r.currentState)?.color ??
+            null,
+          createdAt: r.createdAt,
+          assigneeLabel: r.assignedTo
+            ? (assignee?.displayName ?? assignee?.email ?? "Unknown")
+            : null,
+        };
+      }),
     )
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
     .slice(0, 8);
+
+  // last-7-days sparkline for total record creation
+  const allRecords = stats.flatMap((s) => s.records);
+  const sparkTotal = dailyCounts(allRecords, 7);
+  const createdToday = sparkTotal[sparkTotal.length - 1] ?? 0;
+
+  // aggregate open records by state (top 5 + "Other") for the donut
+  const stateAgg = new Map<
+    string,
+    { label: string; value: number; color: string }
+  >();
+  for (const s of stats) {
+    for (const r of s.records) {
+      const st = s.workflow.states.find((x) => x.name === r.currentState);
+      if (!st || st.isTerminal) continue;
+      const key = `${s.workflow.id}:${st.name}`;
+      const color = st.color ?? "var(--accent-primary)";
+      const existing = stateAgg.get(key);
+      if (existing) existing.value += 1;
+      else stateAgg.set(key, { label: st.label, value: 1, color });
+    }
+  }
+  const sortedStates = [...stateAgg.values()].sort((a, b) => b.value - a.value);
+  const donutSegments =
+    sortedStates.length > 6
+      ? [
+          ...sortedStates.slice(0, 5),
+          {
+            label: "Other",
+            value: sortedStates.slice(5).reduce((sum, s) => sum + s.value, 0),
+            color: "var(--text-muted)",
+          },
+        ]
+      : sortedStates;
+
+  // records past their state's SLA — sorted by how overdue they are
+  type OverdueRecord = {
+    id: string;
+    title: string;
+    workflowSlug: string;
+    stateLabel: string;
+    color: string | null;
+    overdueHours: number;
+  };
+  const needsAttention: OverdueRecord[] = stats
+    .flatMap((s) =>
+      s.records.flatMap((r) => {
+        const st = s.workflow.states.find((x) => x.name === r.currentState);
+        if (!st || st.isTerminal || !st.slaHours) return [];
+        const since = r.updatedAt ?? r.createdAt;
+        if (!since) return [];
+        const hoursIn = (Date.now() - new Date(since).getTime()) / 3_600_000;
+        const overdueHours = hoursIn - st.slaHours;
+        if (overdueHours <= 0) return [];
+        return [
+          {
+            id: r.id,
+            title: recordTitle(r),
+            workflowSlug: slugify(s.workflow.name),
+            stateLabel: st.label,
+            color: st.color,
+            overdueHours,
+          },
+        ];
+      }),
+    )
+    .sort((a, b) => b.overdueHours - a.overdueHours)
+    .slice(0, 5);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
@@ -489,19 +784,28 @@ export function Dashboard(): React.ReactElement {
         <KpiCard
           label="Total Records"
           value={loading ? "—" : totalRecords}
-          sub="across all workflows"
+          sub={
+            createdToday > 0 ? `+${createdToday} today` : "across all workflows"
+          }
           icon="📋"
           color="hsl(265,84%,60%)"
           onClick={() => navigate("/records")}
+          {...(loading ? {} : { spark: sparkTotal })}
         />
         <KpiCard
           label="Open / In-Progress"
           value={loading ? "—" : totalOpen}
           sub={
-            totalClosed > 0 ? `${totalClosed} resolved` : "none resolved yet"
+            needsAttention.length > 0
+              ? `${needsAttention.length} overdue`
+              : totalClosed > 0
+                ? `${totalClosed} resolved`
+                : "none resolved yet"
           }
           icon="🔄"
-          color="hsl(35,90%,50%)"
+          color={
+            needsAttention.length > 0 ? "hsl(350,80%,60%)" : "hsl(35,90%,50%)"
+          }
           onClick={() => navigate("/records")}
         />
         <KpiCard
@@ -872,20 +1176,54 @@ export function Dashboard(): React.ReactElement {
                         flexShrink: 0,
                       }}
                     />
-                    {/* workflow name */}
-                    <span
-                      style={{
-                        fontSize: "13px",
-                        color: "var(--text-secondary)",
-                        flex: 1,
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {r.workflowName}
-                    </span>
+                    {/* title + workflow name */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          color: "var(--text-primary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {r.title}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "11px",
+                          color: "var(--text-muted)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {r.workflowName}
+                      </div>
+                    </div>
+                    {/* assignee avatar */}
+                    {r.assigneeLabel && (
+                      <span
+                        title={r.assigneeLabel}
+                        style={{
+                          width: "20px",
+                          height: "20px",
+                          borderRadius: "50%",
+                          background: "var(--bg-tertiary)",
+                          border: "1px solid var(--border-color)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          color: "var(--text-secondary)",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {r.assigneeLabel.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
                     {/* state badge */}
                     {r.state && (
                       <span
@@ -917,7 +1255,7 @@ export function Dashboard(): React.ReactElement {
                           marginLeft: "4px",
                         }}
                       >
-                        {formatDate(r.createdAt)}
+                        {relativeTime(r.createdAt)}
                       </span>
                     )}
                   </div>
@@ -1010,6 +1348,24 @@ export function Dashboard(): React.ReactElement {
             </div>
           </div>
 
+          {/* Records by state */}
+          <div
+            className="data-panel"
+            style={{ padding: "20px", marginBottom: 0 }}
+          >
+            <SectionHeader title="Records by State" />
+            {loading ? (
+              <div className="loading-center" style={{ height: "108px" }}>
+                <div
+                  className="spinner"
+                  style={{ width: "24px", height: "24px", marginBottom: 0 }}
+                />
+              </div>
+            ) : (
+              <Donut segments={donutSegments} />
+            )}
+          </div>
+
           {/* Quick actions */}
           <div
             className="data-panel"
@@ -1094,55 +1450,106 @@ export function Dashboard(): React.ReactElement {
             </div>
           )}
 
-          {/* Platform status */}
+          {/* Needs attention — records past their state's SLA */}
           <div
             className="data-panel"
             style={{ padding: "20px", marginBottom: 0 }}
           >
-            <SectionHeader title="Platform Status" />
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-            >
-              {[
-                { label: "API Server", ok: true },
-                { label: "Workflow Engine", ok: true },
-                { label: "Entity Engine", ok: true },
-                { label: "Auth (Zitadel)", ok: true },
-              ].map((svc) => (
-                <div
-                  key={svc.label}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontSize: "13px",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "7px",
-                      height: "7px",
-                      borderRadius: "50%",
-                      background: svc.ok
-                        ? "hsl(150,75%,45%)"
-                        : "hsl(350,80%,60%)",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span style={{ flex: 1 }}>{svc.label}</span>
+            <SectionHeader
+              title="Needs Attention"
+              action={
+                needsAttention.length > 0 ? (
                   <span
                     style={{
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: svc.ok ? "hsl(150,75%,45%)" : "hsl(350,80%,60%)",
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      padding: "2px 8px",
+                      borderRadius: "20px",
+                      background: "hsla(350,80%,60%,.12)",
+                      color: "hsl(350,80%,60%)",
+                      border: "1px solid hsla(350,80%,60%,.25)",
                     }}
                   >
-                    {svc.ok ? "Operational" : "Degraded"}
+                    {needsAttention.length} overdue
                   </span>
-                </div>
-              ))}
-            </div>
+                ) : undefined
+              }
+            />
+            {loading ? (
+              <div className="loading-center" style={{ height: "80px" }}>
+                <div
+                  className="spinner"
+                  style={{ width: "24px", height: "24px", marginBottom: 0 }}
+                />
+              </div>
+            ) : needsAttention.length === 0 ? (
+              <div className="empty-state-inline" style={{ padding: "8px 0" }}>
+                Nothing overdue — all records are within SLA. ✅
+              </div>
+            ) : (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "0" }}
+              >
+                {needsAttention.map((o, idx) => (
+                  <div
+                    key={o.id}
+                    onClick={() =>
+                      navigate(`/workflows/${o.workflowSlug}/records`)
+                    }
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      padding: "8px 4px",
+                      borderBottom:
+                        idx < needsAttention.length - 1
+                          ? "1px solid var(--border-color)"
+                          : "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "7px",
+                        height: "7px",
+                        borderRadius: "50%",
+                        background: "hsl(350,80%,60%)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: "13px",
+                          color: "var(--text-primary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {o.title}
+                      </div>
+                      <div
+                        style={{ fontSize: "11px", color: "var(--text-muted)" }}
+                      >
+                        {o.stateLabel}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        color: "hsl(350,80%,60%)",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {Math.round(o.overdueHours)}h over
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

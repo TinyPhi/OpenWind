@@ -7,6 +7,7 @@ import type * as EntityEngine from "@platform/entity-engine";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockUpdateEntityField = vi.fn();
+const requireRoleCalls: string[][] = [];
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -20,8 +21,11 @@ vi.mock("@platform/auth", () => ({
       });
       await next();
     },
-  requireRole: () => async (_c: Context, next: Next) => {
-    await next();
+  requireRole: (...roles: string[]) => {
+    requireRoleCalls.push(roles);
+    return async (_c: Context, next: Next) => {
+      await next();
+    };
   },
 }));
 
@@ -82,6 +86,10 @@ function makeField(
 
 describe("PATCH /entity-types/:typeId/fields/:fieldId", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("is gated by requireRole('admin') — field config is schema-level, not per-record", () => {
+    expect(requireRoleCalls).toContainEqual(["admin"]);
+  });
 
   it("returns 200 with the updated field on a valid label change", async () => {
     mockUpdateEntityField.mockResolvedValue(makeField({ label: "Details" }));

@@ -2131,6 +2131,34 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 0 0 3px var(--swatch-color);
 }
 
+.color-swatch-custom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(
+    from 0deg,
+    red,
+    yellow,
+    lime,
+    cyan,
+    blue,
+    magenta,
+    red
+  );
+  padding: 0;
+  overflow: hidden;
+}
+
+.color-swatch-custom input[type="color"] {
+  width: 150%;
+  height: 150%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  opacity: 0;
+}
+
 .color-preview {
   display: flex;
   align-items: center;

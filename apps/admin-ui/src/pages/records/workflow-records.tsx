@@ -692,8 +692,10 @@ export function WorkflowRecords(): React.ReactElement {
     setLoading(true);
     setError(null);
 
-    // Fetch all workflows, find the one whose slugified name matches
-    fetchWithAuth(`${API_URL}/workflows`)
+    // Fetch a lightweight summary of all workflows, find the one whose
+    // slugified name matches — avoids pulling states/transitions/record
+    // counts for every workflow just to resolve one id from the slug.
+    fetchWithAuth(`${API_URL}/workflows?summary=true`)
       .then(async (listRes) => {
         const all =
           (
@@ -702,8 +704,6 @@ export function WorkflowRecords(): React.ReactElement {
                 id: string;
                 name: string;
                 entityTypeId: string;
-                states: WorkflowState[];
-                transitions: Transition[];
               }>;
             }
           ).data ?? [];
@@ -1031,17 +1031,45 @@ export function WorkflowRecords(): React.ReactElement {
 
   if (loading) {
     return (
-      <div className="kb-page">
-        <div className="kb-loading">
-          <div className="spinner" />
-        </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "100%",
+          height: "100%",
+          minHeight: "60vh",
+        }}
+      >
+        <div className="spinner" />
       </div>
     );
   }
   if (error) {
     return (
-      <div className="kb-page">
-        <div className="kb-error">{error}</div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "100%",
+          height: "100%",
+          minHeight: "60vh",
+        }}
+      >
+        <div
+          className="kb-error"
+          style={{
+            background: "var(--danger-light)",
+            color: "var(--danger)",
+            border: "1px solid hsla(350,80%,60%,.25)",
+            borderRadius: "var(--radius-sm)",
+            padding: "12px 16px",
+            fontSize: "13px",
+          }}
+        >
+          {error}
+        </div>
       </div>
     );
   }
