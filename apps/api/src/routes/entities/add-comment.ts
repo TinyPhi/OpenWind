@@ -138,7 +138,7 @@ export const addCommentHandler = factory.createHandlers(
       actorName = dbUser.displayName;
     } else if (dbUser?.email && dbUser.email !== userId) {
       try {
-        const zUsers = await listOrgUsers(orgId);
+        const zUsers = orgId ? await listOrgUsers(orgId) : [];
         const zUser = zUsers.find((u) => u.userId === userId);
         actorName = zUser?.displayName ?? zUser?.loginName ?? dbUser.email;
       } catch {

@@ -44,7 +44,7 @@ Open **http://localhost:3001**
 | Test users | `testUser1`–`testUser5` | `OpenWind1234!` | Portal access |
 
 Zitadel console (identity provider): **http://localhost:8080**
-Username: `owZitadelAdmin@openwind.local` / Password: `Admin1234!`
+Username: `owZitadelAdmin@openwind.local` / Password: see `ZITADEL_ADMIN_PASSWORD` in `.env.local`
 
 > **Security note:** `scripts/zitadel-compose-template.yml` sets
 > `ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_FORCEMFA: "false"` for dev convenience —
@@ -80,6 +80,13 @@ setup.bat   # or ./setup.sh
     docker-compose.yml
     output/        ← temp folder, cleaned after setup
 ```
+
+---
+
+## Security notes
+
+- **MFA is disabled by default** (`FORCEMFA: false`) so the local dev experience works without an authenticator app. Before exposing this instance to the internet, enable MFA in the Zitadel console under **Default Settings → Login Policy → Force MFA**, or set `ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_FORCEMFA: "true"` before first boot.
+- **Generated secrets** (`ZITADEL_MASTERKEY`, `ZITADEL_ADMIN_PASSWORD`) are written to `.env.local` which is gitignored. Never commit this file.
 
 ---
 

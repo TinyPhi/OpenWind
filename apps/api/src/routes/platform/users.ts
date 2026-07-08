@@ -27,7 +27,7 @@ usersRouter.get(
     if (c.req.query("bust") === "1") invalidateUserCache();
 
     const [zitadelUsers, dbRows] = await Promise.all([
-      listOrgUsers(orgId),
+      orgId ? listOrgUsers(orgId) : Promise.resolve([]),
       withTenantContext(tenantId, (tx) =>
         tx
           .select({

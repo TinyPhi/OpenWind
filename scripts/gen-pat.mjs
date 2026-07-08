@@ -33,7 +33,7 @@ const HOST_HEADER    = process.env.ZITADEL_EXTERNALDOMAIN ?? 'localhost'
 // reverse proxy — the redirect URI must match what Zitadel exposes to browsers.
 const ZITADEL_SECURE = process.env.ZITADEL_EXTERNALSECURE === 'true'
 const ADMIN_LOGIN    = 'owZitadelAdmin@openwind.local'
-const ADMIN_PASS     = 'Admin1234!'
+const ADMIN_PASS     = process.env.ZITADEL_ADMIN_PASSWORD ?? fail('ZITADEL_ADMIN_PASSWORD env var is required')
 const PAT_EXPIRY     = '2030-01-01T00:00:00Z'
 const REDIRECT_URI   = ZITADEL_SECURE
   ? `https://${HOST_HEADER}/ui/console/auth/callback`

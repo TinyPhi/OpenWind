@@ -307,7 +307,9 @@ describe("getWorkflowEventLog — cross-tenant isolation", () => {
 // ── RLS direct SELECT isolation ───────────────────────────────────────────────
 
 describe("RLS — direct query on workflow_events within tenant context", () => {
-  it.skip("direct SELECT within Tenant A context returns no Tenant B rows (requires non-superuser role)", async () => {
+  // withTenantContext now issues SET LOCAL ROLE app_user (#121), so RLS
+  // applies even though CI connects as the `platform` superuser.
+  it("direct SELECT within Tenant A context returns no Tenant B rows", async () => {
     await withTenantContext(TENANT_A, async (tx) => {
       const rows = await tx
         .select({

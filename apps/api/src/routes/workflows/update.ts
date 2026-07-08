@@ -1,7 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { withTenantContext } from "@platform/db";
+import { withTenantContext, tenantUsers } from "@platform/db";
+import { eq, and, inArray } from "drizzle-orm";
 import { updateWorkflow } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
@@ -21,6 +22,34 @@ export const updateWorkflowHandler = factory.createHandlers(
     const id = c.req.param("id") ?? "";
     const { tenantId } = c.get("auth");
     const input = c.req.valid("json");
+
+    // Verify every workflow-admin user id belongs to this tenant before writing.
+    // assignedTo here is the workflow-admins array (see migration
+    // 0025_workflow_admins_array.sql) — not a single assignee, so each id in
+    // the array must be checked individually via inArray, not eq.
+    if (input.assignedTo !== undefined && input.assignedTo.length > 0) {
+      const found = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({ userId: tenantUsers.userId })
+          .from(tenantUsers)
+          .where(
+            and(
+              eq(tenantUsers.tenantId, tenantId),
+              inArray(tenantUsers.userId, input.assignedTo as string[]),
+            ),
+          ),
+      );
+      const foundIds = new Set(found.map((f) => f.userId));
+      const missing = input.assignedTo.filter((id) => !foundIds.has(id));
+      if (missing.length > 0)
+        return c.json(
+          {
+            error: "NOT_FOUND",
+            message: "One or more users not found in this tenant",
+          },
+          404,
+        );
+    }
 
     try {
       const workflow = await withTenantContext(tenantId, (tx) =>

@@ -120,7 +120,7 @@ services:
     # to re-init, which can cause duplicate key errors. Once bootstrap has
     # finished successfully this is safe to leave as unless-stopped.
     restart: unless-stopped
-    command: start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY}" --tlsMode disabled
     ports:
       - "10405:8080" # host port 10405 → Zitadel container port 8080
     environment:

@@ -45,7 +45,7 @@ export const listWorkflowEventsHandler = factory.createHandlers(
       const nameMap = new Map<string, string>();
       if (userIds.size > 0) {
         const [zitadelUsers, dbRows] = await Promise.all([
-          listOrgUsers(orgId),
+          orgId ? listOrgUsers(orgId) : Promise.resolve([]),
           withTenantContext(tenantId, (tx) =>
             tx
               .select({
@@ -100,7 +100,7 @@ export const listWorkflowEventsHandler = factory.createHandlers(
       }
 
       logger.info(
-        { userIds: [...userIds], nameMapEntries: Object.fromEntries(nameMap) },
+        { userCount: userIds.size, resolvedCount: nameMap.size },
         "history-enrich: nameMap built",
       );
 

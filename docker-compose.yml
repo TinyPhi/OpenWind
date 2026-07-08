@@ -360,7 +360,6 @@ services:
       ZITADEL_SETUP_PAT: "${ZITADEL_SETUP_PAT:-}"
     volumes:
       - ./.env.local:/app/.env.local
-      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - default
       - openwind_zitadel

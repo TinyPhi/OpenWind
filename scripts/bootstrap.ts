@@ -791,7 +791,6 @@ async function runZitadelSetup(
     ZITADEL_OIDC_CLIENT_SECRET: oidcClientSecret,
     VITE_ZITADEL_ISSUER: ZITADEL_BROWSER_URL,
     VITE_ZITADEL_OIDC_CLIENT_ID: oidcClientId,
-    VITE_ZITADEL_OIDC_CLIENT_SECRET: oidcClientSecret,
   });
 
   return { projectId, oidcClientId };
@@ -1110,8 +1109,8 @@ ${BOLD}${GREEN}  ✅  OpenWind is ready!${RESET}
   ${BOLD}Zitadel console${RESET}  (identity provider — manage users, orgs, apps)
 
     URL:       ${CYAN}${ZITADEL_BROWSER_URL}${RESET}
-    Username:  ${DIM}owZitadelAdmin${RESET}
-    Password:  ${DIM}Admin1234!${RESET}
+    Username:  ${DIM}owZitadelAdmin@openwind.local${RESET}
+    Password:  ${DIM}see ZITADEL_ADMIN_PASSWORD in .env.local${RESET}
 
   ${BOLD}─────────────────────────────────────────────────────────────${RESET}
   ${YELLOW}${BOLD}  ⚠  One last step:${RESET} restart the app containers to apply credentials:

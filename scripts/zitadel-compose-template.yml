@@ -24,7 +24,7 @@ services:
     container_name: zitadel
     image: ghcr.io/zitadel/zitadel:v4.15.1
     restart: unless-stopped
-    command: start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode ${ZITADEL_TLS_MODE:-disabled}
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY}" --tlsMode ${ZITADEL_TLS_MODE:-disabled}
     environment:
       ZITADEL_DATABASE_POSTGRES_HOST: zitadel-db
       ZITADEL_DATABASE_POSTGRES_PORT: 5432
@@ -39,8 +39,11 @@ services:
       ZITADEL_EXTERNALPORT: "${ZITADEL_EXTERNAL_PORT:-8080}"
       ZITADEL_EXTERNALDOMAIN: "${ZITADEL_EXTERNAL_DOMAIN:-localhost}"
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: owZitadelAdmin@openwind.local
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Admin1234!
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "${ZITADEL_ADMIN_PASSWORD}"
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      # Dev-only: MFA is disabled so the local setup works without an authenticator app.
+      # Before exposing this instance to any network, enable MFA in the Zitadel console
+      # (Default Settings → Login Policy → Force MFA) or redeploy with "true".
       ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_FORCEMFA: "false"
       ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "false"
       ZITADEL_DEFAULTINSTANCE_FEATURES_TOKENEXCHANGE: "true"

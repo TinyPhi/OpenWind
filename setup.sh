@@ -34,6 +34,34 @@ fi
 
 OPENWIND_URL="${APP_URL:-http://localhost:${ADMIN_UI_HOST_PORT:-3001}}"
 
+# ── Generated secrets (one-time, not persisted) ───────────────────────────────
+# If .env.local already contains these keys (re-run scenario), reuse them.
+if [[ -f ".env.local" ]] && grep -q "^ZITADEL_MASTERKEY=" ".env.local" 2>/dev/null; then
+  ZITADEL_MASTERKEY="$(grep "^ZITADEL_MASTERKEY=" ".env.local" | cut -d= -f2-)"
+  ZITADEL_ADMIN_PASSWORD="$(grep "^ZITADEL_ADMIN_PASSWORD=" ".env.local" | cut -d= -f2-)"
+else
+  # Generate a 32-character random masterkey (exactly what Zitadel requires)
+  # || true absorbs SIGPIPE: head closes the pipe after N bytes, tr exits 141,
+  # and set -o pipefail would kill the script without it.
+  ZITADEL_MASTERKEY="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32 || true)"
+  # Generate a random admin password.  Guaranteed to meet Zitadel's default complexity
+  # policy (HasUppercase, HasLowercase, HasNumber, HasSymbol):
+  #   • 22 random alphanumeric chars + "@!" suffix = 24 chars total
+  #   • "@!" satisfies HasSymbol; the random part provides the other classes
+  #   • No $ or % so Docker Compose variable interpolation can't mangle the YAML value
+  ZITADEL_ADMIN_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 22 || true)@!"
+
+  # Remove stale Zitadel DB volume if it exists.  If we generated NEW secrets above,
+  # an old volume would cause start-from-init to skip re-initialization, leaving the
+  # old (different) password in the DB — gen-pat.mjs would then fail with "Password
+  # is invalid".  Safe to remove: the volume is purely Zitadel bootstrap state; all
+  # OpenWind business data lives in the separate postgres volume.
+  if docker volume inspect zitadel_zitadel_db_data > /dev/null 2>&1; then
+    info "Removing stale Zitadel DB volume so Zitadel can reinitialise with new credentials…"
+    docker volume rm zitadel_zitadel_db_data > /dev/null 2>&1 || true
+  fi
+fi
+
 # ── Colours ───────────────────────────────────────────────────────────────────
 C='\033[0;36m'; G='\033[0;32m'; Y='\033[0;33m'; R='\033[0m'; DIM='\033[2m'
 banner() { echo -e "\n  ${C}$1${R}"; }
@@ -90,7 +118,7 @@ services:
     container_name: zitadel
     image: ghcr.io/zitadel/zitadel:v4.15.1
     restart: unless-stopped
-    command: start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode ${ZITADEL_TLS_MODE}
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY}" --tlsMode ${ZITADEL_TLS_MODE}
     environment:
       ZITADEL_DATABASE_POSTGRES_HOST: zitadel-db
       ZITADEL_DATABASE_POSTGRES_PORT: 5432
@@ -105,7 +133,7 @@ services:
       ZITADEL_EXTERNALPORT: "${ZITADEL_EXTERNAL_PORT}"
       ZITADEL_EXTERNALDOMAIN: "${ZITADEL_EXTERNAL_DOMAIN}"
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: owZitadelAdmin@openwind.local
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Admin1234!
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "${ZITADEL_ADMIN_PASSWORD}"
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
       ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_FORCEMFA: "false"
       ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "false"
@@ -137,6 +165,7 @@ services:
     environment:
       ZITADEL_EXTERNALDOMAIN: "${ZITADEL_EXTERNAL_DOMAIN}"
       ZITADEL_EXTERNALSECURE: "${ZITADEL_EXTERNALSECURE}"
+      ZITADEL_ADMIN_PASSWORD: "${ZITADEL_ADMIN_PASSWORD}"
     networks:
       - openwind_zitadel
     depends_on:
@@ -195,6 +224,12 @@ echo ""
 
 if [[ ! -f ".env.local" ]]; then
   [[ -f ".env.example" ]] && cp ".env.example" ".env.local" || touch ".env.local"
+fi
+
+# Persist generated secrets for re-run idempotency (values already set above if re-run)
+if ! grep -q "^ZITADEL_MASTERKEY=" ".env.local" 2>/dev/null; then
+  printf '\nZITADEL_MASTERKEY=%s\nZITADEL_ADMIN_PASSWORD=%s\n' \
+    "$ZITADEL_MASTERKEY" "$ZITADEL_ADMIN_PASSWORD" >> ".env.local"
 fi
 
 docker compose up -d postgres pgbouncer redis \

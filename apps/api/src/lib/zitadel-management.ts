@@ -44,7 +44,8 @@ interface UserCacheEntry {
   users: OrgUser[];
   expiresAt: number;
 }
-const _usersCache = new Map<string, UserCacheEntry>();
+// Values may be a settled entry or an in-flight Promise (single-flight guard).
+const _usersCache = new Map<string, UserCacheEntry | Promise<OrgUser[]>>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
@@ -81,13 +82,12 @@ function httpPost(
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const isHttps = parsed.protocol === "https:";
-    const request = isHttps ? nodeHttpsRequest : nodeHttpRequest;
-    const defaultPort = isHttps ? 443 : 80;
+    const requestFn = isHttps ? nodeHttpsRequest : nodeHttpRequest;
     const buf = Buffer.from(body, "utf8");
-    const req = request(
+    const req = requestFn(
       {
         hostname: parsed.hostname,
-        port: parsed.port ? parseInt(parsed.port, 10) : defaultPort,
+        port: parsed.port ? parseInt(parsed.port, 10) : isHttps ? 443 : 80,
         path: parsed.pathname + parsed.search,
         method: "POST",
         headers: {
@@ -121,12 +121,11 @@ function httpGet(
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const isHttps = parsed.protocol === "https:";
-    const request = isHttps ? nodeHttpsRequest : nodeHttpRequest;
-    const defaultPort = isHttps ? 443 : 80;
-    const req = request(
+    const requestFn = isHttps ? nodeHttpsRequest : nodeHttpRequest;
+    const req = requestFn(
       {
         hostname: parsed.hostname,
-        port: parsed.port ? parseInt(parsed.port, 10) : defaultPort,
+        port: parsed.port ? parseInt(parsed.port, 10) : isHttps ? 443 : 80,
         path: parsed.pathname + parsed.search,
         method: "GET",
         headers: {
@@ -314,26 +313,32 @@ export async function listProjectRoles(): Promise<string[]> {
 
 // ── List org users ────────────────────────────────────────────────────────────
 
-export async function listOrgUsers(
-  orgId: string | undefined,
-): Promise<OrgUser[]> {
-  // Never fall through to an unfiltered instance-wide query — a missing orgId
-  // (e.g. a token without the org claim) must fail closed, not leak every
-  // tenant's users into whichever caller hit this path. Also guards against a
-  // shared cache entry across tenants (see security review — listOrgUsers had
-  // a "_default_" fallback cache key that any org with a missing orgId shared).
-  if (!orgId) {
-    logger.warn(
-      {},
-      "listOrgUsers: called without an orgId — refusing to query",
-    );
-    return [];
-  }
-
+// orgId is required (not optional) — callers must guard at the call site
+// (`orgId ? listOrgUsers(orgId) : Promise.resolve([])`) rather than this
+// function silently falling through to an unfiltered instance-wide query on a
+// missing orgId. Also guards against a shared cache entry across tenants (see
+// security review — listOrgUsers previously had a "_default_" fallback cache
+// key that any org with a missing orgId shared).
+export async function listOrgUsers(orgId: string): Promise<OrgUser[]> {
+  const cacheKey = orgId;
   const now = Date.now();
-  const cached = _usersCache.get(orgId);
-  if (cached && now < cached.expiresAt) return cached.users;
+  const cached = _usersCache.get(cacheKey);
+  // Return settled cache entry if still fresh
+  if (cached && !(cached instanceof Promise) && now < cached.expiresAt)
+    return cached.users;
+  // Return in-flight promise if another caller already started the fetch
+  if (cached instanceof Promise) return cached;
 
+  const pending = _fetchOrgUsers(orgId, now, cacheKey);
+  _usersCache.set(cacheKey, pending);
+  return pending;
+}
+
+async function _fetchOrgUsers(
+  orgId: string,
+  now: number,
+  cacheKey: string,
+): Promise<OrgUser[]> {
   const token = await getAccessToken();
   if (!token) {
     logger.warn(
@@ -351,12 +356,11 @@ export async function listOrgUsers(
       "Content-Type": "application/json",
     };
 
+    const PAGE_LIMIT = 500;
     const payload: Record<string, unknown> = {
-      query: { limit: 500, asc: true },
+      query: { limit: PAGE_LIMIT, asc: true },
       queries: [{ organizationIdQuery: { organizationId: orgId } }],
     };
-
-    logger.info({ url, orgId }, "listOrgUsers: calling Zitadel");
 
     const result = await httpPost(
       url,
@@ -389,11 +393,17 @@ export async function listOrgUsers(
       };
     }
 
-    const data = JSON.parse(result.text) as { result?: ZitadelUser[] };
-    logger.info(
-      { totalUsers: data.result?.length ?? 0, orgId },
-      "listOrgUsers: Zitadel returned users",
-    );
+    const data = JSON.parse(result.text) as {
+      result?: ZitadelUser[];
+      details?: { totalResult?: string };
+    };
+    const totalResult = parseInt(data.details?.totalResult ?? "0", 10);
+    if (totalResult > PAGE_LIMIT) {
+      logger.warn(
+        { orgId, totalResult, fetched: PAGE_LIMIT },
+        "listOrgUsers: result truncated — total exceeds page limit",
+      );
+    }
     const users: OrgUser[] = (data.result ?? [])
       .filter((u) => u.human !== undefined && u.state === "USER_STATE_ACTIVE")
       .map((u) => {
@@ -418,6 +428,8 @@ export async function listOrgUsers(
     return users;
   } catch (err) {
     logger.error({ err }, "Failed to list Zitadel org users");
+    // Evict so the next caller retries rather than getting a rejected/hung promise.
+    _usersCache.delete(cacheKey);
     return [];
   }
 }

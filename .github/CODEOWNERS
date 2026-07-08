@@ -1,0 +1,14 @@
+# Code owners — maintainer review for the agent-guardrail control plane, CI, and scripts.
+#
+# IMPORTANT: CODEOWNERS only ENFORCES review once a branch-protection rule (or ruleset) for the
+# default branch has "Require review from Code Owners" enabled in GitHub repo settings. Until that
+# is turned on, this file is advisory only. Enable it to make these paths un-bypassable.
+
+# The guardrail control plane: hooks, skills, rules, settings (an agent must not silently rewrite these)
+/.claude/                @abmish @ArijChak
+
+# CI-trusted scripts (run by the contribution-guardrails workflow from the PR checkout)
+/scripts/                @abmish @ArijChak
+
+# CI/CD and repo config
+/.github/                @abmish @ArijChak

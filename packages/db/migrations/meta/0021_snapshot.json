@@ -157,13 +157,13 @@
         },
         "created_by": {
           "name": "created_by",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "assigned_to": {
           "name": "assigned_to",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
