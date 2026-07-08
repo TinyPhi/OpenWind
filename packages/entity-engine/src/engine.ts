@@ -7,6 +7,7 @@ import {
   workflows,
   workflowStates,
   workflowEvents,
+  outboxEvents,
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import type {
@@ -19,6 +20,9 @@ import type {
   BulkCreateResult,
   BulkUpdateResult,
   BulkSetStateResult,
+  EntityCreatedEvent,
+  EntityAssignedEvent,
+  FieldSensitivity,
 } from "./types.js";
 import {
   encodeCursor,
@@ -43,6 +47,7 @@ import {
 } from "./lookup-resolver.js";
 import { fireEntityAuditHook } from "./audit-hook.js";
 import type { AuditFieldSensitivity } from "./audit-hook.js";
+import { redactFields, buildSensitivityMap } from "./redact.js";
 
 type EntityValidator = (
   fields: Record<string, unknown>,
@@ -50,6 +55,54 @@ type EntityValidator = (
 ) => FieldError[];
 
 const crossFieldValidators = new Map<string, EntityValidator[]>();
+
+function buildEntityCreatedPayload(
+  tenantId: string,
+  instanceId: string,
+  entityTypeId: string,
+  fields: Record<string, unknown>,
+  createdBy: string | null,
+): EntityCreatedEvent {
+  return {
+    eventType: "entity.created",
+    version: 1,
+    tenantId,
+    instanceId,
+    entityTypeId,
+    fields,
+    createdBy,
+  };
+}
+
+function buildEntityAssignedPayload(
+  tenantId: string,
+  instanceId: string,
+  entityTypeId: string,
+  assigneeId: string,
+  assignedBy: string | null,
+): EntityAssignedEvent {
+  return {
+    eventType: "entity.assigned",
+    version: 1,
+    tenantId,
+    instanceId,
+    entityTypeId,
+    assigneeId,
+    assignedBy,
+  };
+}
+
+// Consistent "who assigned this" fallback for entity.assigned events: prefer
+// the explicit actor, then the record's creator, before giving up on null.
+// Previously computed ad hoc and inconsistently at each of the 6 call sites
+// (createEntity/updateEntity x2/bulkCreateEntities/bulkUpdateEntities x2) —
+// found during review, one call site dropped actorId entirely.
+function resolveAssignedBy(
+  actorId: string | undefined,
+  createdBy: string | null,
+): string | null {
+  return actorId ?? createdBy ?? null;
+}
 
 export function registerValidator(
   entityTypeName: string,
@@ -156,6 +209,17 @@ export async function createEntity(
 
   if (!row) throw new EntityError("ENTITY_NOT_FOUND");
 
+  // Field values are redacted before leaving the entity engine's field-level
+  // access boundary — both workflow_events.metadata (agent-facing audit trail)
+  // and outbox_events (feeds automation actions, e.g. webhook, that can
+  // forward the payload to external URLs) get the same "[REDACTED]"
+  // treatment admin_audit_log already applies, via redactFields/buildSensitivityMap.
+  const creationSensitivity = buildSensitivityMap(allFields);
+  const redactedFieldsForEvents = redactFields(
+    fieldsWithFormulas,
+    creationSensitivity,
+  );
+
   if (row.workflowId) {
     await db.insert(workflowEvents).values({
       tenantId,
@@ -168,11 +232,45 @@ export async function createEntity(
       comment: "Record created",
       metadata: {
         type: "create",
-        fields: fieldsWithFormulas,
+        fields: redactedFieldsForEvents,
         actorName: input.actorName ?? null,
       },
     });
   }
+
+  // Outbox events for automation triggers (#126). NOTE: automation rules on
+  // entity.created/entity.assigned can chain into create/update actions —
+  // this is the first path that makes the unbounded outbox-routed recursion
+  // gap (#120, MAX_DEPTH resets to 0 on the outbox path) actually reachable.
+  // #120 is tracked separately; not fixed here.
+  const outboxRows: Array<EntityCreatedEvent | EntityAssignedEvent> = [
+    buildEntityCreatedPayload(
+      tenantId,
+      row.id,
+      row.entityTypeId,
+      redactedFieldsForEvents,
+      row.createdBy,
+    ),
+  ];
+  if (row.assignedTo !== null) {
+    outboxRows.push(
+      buildEntityAssignedPayload(
+        tenantId,
+        row.id,
+        row.entityTypeId,
+        row.assignedTo,
+        resolveAssignedBy(input.actorId, row.createdBy),
+      ),
+    );
+  }
+  await db.insert(outboxEvents).values(
+    outboxRows.map((payload) => ({
+      tenantId,
+      eventType: payload.eventType,
+      version: 1,
+      payload,
+    })),
+  );
 
   logger.info(
     {
@@ -378,14 +476,39 @@ export async function updateEntity(
 
     if (!row) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
 
+    if (row.assignedTo !== null && row.assignedTo !== existing.assignedTo) {
+      await db.insert(outboxEvents).values({
+        tenantId,
+        eventType: "entity.assigned",
+        version: 1,
+        payload: buildEntityAssignedPayload(
+          tenantId,
+          row.id,
+          row.entityTypeId,
+          row.assignedTo,
+          resolveAssignedBy(input.actorId, row.createdBy),
+        ),
+      });
+    }
+
     // Logging logic
     if (row.workflowId) {
+      // Diff on raw values (redacting first would make every pii/financial
+      // change look like a no-op, since both sides would collapse to the
+      // same "[REDACTED]" string) — redact only the values actually stored.
+      const updateSensitivity = buildSensitivityMap(allFields);
       const oldFields = existing.fields as Record<string, unknown>;
       const newFields = row.fields as Record<string, unknown>;
       const changed: Record<string, { old: unknown; new: unknown }> = {};
       for (const key of Object.keys(newFields)) {
         if (JSON.stringify(oldFields[key]) !== JSON.stringify(newFields[key])) {
-          changed[key] = { old: oldFields[key], new: newFields[key] };
+          const sensitivity = updateSensitivity.get(key);
+          const isSensitive =
+            sensitivity === "pii" || sensitivity === "financial";
+          changed[key] = {
+            old: isSensitive ? "[REDACTED]" : oldFields[key],
+            new: isSensitive ? "[REDACTED]" : newFields[key],
+          };
         }
       }
       if (existing.assignedTo !== row.assignedTo) {
@@ -488,6 +611,21 @@ export async function updateEntity(
       .returning();
 
     if (!row) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
+
+    if (row.assignedTo !== null && row.assignedTo !== existing.assignedTo) {
+      await db.insert(outboxEvents).values({
+        tenantId,
+        eventType: "entity.assigned",
+        version: 1,
+        payload: buildEntityAssignedPayload(
+          tenantId,
+          row.id,
+          row.entityTypeId,
+          row.assignedTo,
+          resolveAssignedBy(input.actorId, row.createdBy),
+        ),
+      });
+    }
 
     // Logging logic for assignedTo and/or currentState update
     if (row.workflowId) {
@@ -692,6 +830,7 @@ export async function addEntityField(
       isIndexed: field.isIndexed,
       isSystem: field.isSystem,
       sortOrder: field.sortOrder,
+      sensitivity: field.sensitivity,
     })
     .returning();
 
@@ -807,6 +946,7 @@ export async function bulkCreateEntities(
   const auditMeta: Array<{
     entityTypeName: string;
     createdBy: string | null;
+    actorId: string | undefined;
     entityFields: Array<{ name: string; sensitivity: AuditFieldSensitivity }>;
   }> = [];
 
@@ -897,6 +1037,7 @@ export async function bulkCreateEntities(
     auditMeta.push({
       entityTypeName: entityType.name,
       createdBy: input.createdBy ?? null,
+      actorId: input.actorId,
       entityFields: allFields.map((f) => ({
         name: f.name,
         sensitivity: f.sensitivity,
@@ -911,6 +1052,59 @@ export async function bulkCreateEntities(
   const rows = await db.insert(entityInstances).values(toInsert).returning();
 
   const created = rows.map(rowToInstance);
+
+  // Outbox events for automation triggers (#126) — see createEntity for the
+  // #120 recursion-exposure note and the PII/financial redaction rationale.
+  // Sensitivity maps are cached per entity type (via typeMetaCache, already
+  // populated above) rather than rebuilt per row.
+  const sensitivityByType = new Map<string, Map<string, FieldSensitivity>>();
+  function getSensitivityMap(
+    entityTypeId: string,
+  ): Map<string, FieldSensitivity> {
+    const cached = sensitivityByType.get(entityTypeId);
+    if (cached) return cached;
+    const map = buildSensitivityMap(
+      typeMetaCache.get(entityTypeId)?.allFields ?? [],
+    );
+    sensitivityByType.set(entityTypeId, map);
+    return map;
+  }
+  const outboxRows = rows.flatMap((row, idx) => {
+    const events: Array<EntityCreatedEvent | EntityAssignedEvent> = [
+      buildEntityCreatedPayload(
+        tenantId,
+        row.id,
+        row.entityTypeId,
+        redactFields(
+          row.fields as Record<string, unknown>,
+          getSensitivityMap(row.entityTypeId),
+        ),
+        row.createdBy,
+      ),
+    ];
+    if (row.assignedTo !== null) {
+      events.push(
+        buildEntityAssignedPayload(
+          tenantId,
+          row.id,
+          row.entityTypeId,
+          row.assignedTo,
+          resolveAssignedBy(auditMeta[idx]?.actorId, row.createdBy),
+        ),
+      );
+    }
+    return events;
+  });
+  if (outboxRows.length > 0) {
+    await db.insert(outboxEvents).values(
+      outboxRows.map((payload) => ({
+        tenantId,
+        eventType: payload.eventType,
+        version: 1,
+        payload,
+      })),
+    );
+  }
 
   // Fire audit hooks for each created entity
   for (const [idx, row] of rows.entries()) {
@@ -945,6 +1139,15 @@ export async function bulkUpdateEntities(
 ): Promise<BulkUpdateResult> {
   const updated: EntityInstance[] = [];
   const errors: BulkUpdateResult["errors"] = [];
+  // Collected across all items and inserted once after Promise.all, instead
+  // of one insert per item (#126 review: bulkCreateEntities already batches
+  // its outbox rows; this matches that pattern instead of doing N round trips).
+  const assignedOutboxRows: Array<{
+    tenantId: string;
+    eventType: "entity.assigned";
+    version: 1;
+    payload: EntityAssignedEvent;
+  }> = [];
 
   await Promise.all(
     updates.map(async ({ id, input }, i) => {
@@ -1051,6 +1254,23 @@ export async function bulkUpdateEntities(
 
         if (row) {
           updated.push(rowToInstance(row));
+          if (
+            row.assignedTo !== null &&
+            row.assignedTo !== existing.assignedTo
+          ) {
+            assignedOutboxRows.push({
+              tenantId,
+              eventType: "entity.assigned",
+              version: 1,
+              payload: buildEntityAssignedPayload(
+                tenantId,
+                row.id,
+                row.entityTypeId,
+                row.assignedTo,
+                resolveAssignedBy(input.actorId, row.createdBy),
+              ),
+            });
+          }
           await fireEntityAuditHook({
             db,
             tenantId,
@@ -1083,6 +1303,23 @@ export async function bulkUpdateEntities(
 
         if (row) {
           updated.push(rowToInstance(row));
+          if (
+            row.assignedTo !== null &&
+            row.assignedTo !== existing.assignedTo
+          ) {
+            assignedOutboxRows.push({
+              tenantId,
+              eventType: "entity.assigned",
+              version: 1,
+              payload: buildEntityAssignedPayload(
+                tenantId,
+                row.id,
+                row.entityTypeId,
+                row.assignedTo,
+                resolveAssignedBy(input.actorId, row.createdBy),
+              ),
+            });
+          }
           // Load entity type for audit — not needed for the fields update path
           // above (entityType is already available there) but needed here.
           const [bulkEntityType, bulkAllFields] = await Promise.all([
@@ -1112,6 +1349,10 @@ export async function bulkUpdateEntities(
       }
     }),
   );
+
+  if (assignedOutboxRows.length > 0) {
+    await db.insert(outboxEvents).values(assignedOutboxRows);
+  }
 
   logger.info(
     { tenantId, count: updated.length, errorCount: errors.length },

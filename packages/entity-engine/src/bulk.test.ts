@@ -46,6 +46,7 @@ vi.mock("@platform/db", () => ({
     sortOrder: "sort_order",
   },
   entityRelations: {},
+  outboxEvents: {},
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -187,7 +188,9 @@ describe("bulkCreateEntities", () => {
 
     expect(result.created).toHaveLength(2);
     expect(result.errors).toHaveLength(0);
-    expect(dbMock.insert).toHaveBeenCalledTimes(1);
+    // 1 batch insert into entityInstances + 1 batch insert into outboxEvents
+    // (entity.created for both rows, #126)
+    expect(dbMock.insert).toHaveBeenCalledTimes(2);
   });
 
   it("collects validation errors per item without blocking valid items", async () => {
@@ -260,7 +263,9 @@ describe("bulkCreateEntities", () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.index).toBe(0);
     expect(result.created).toHaveLength(1);
-    expect(dbMock.insert).toHaveBeenCalledTimes(1);
+    // 1 batch insert into entityInstances + 1 batch insert into outboxEvents
+    // (entity.created for the one valid row, #126)
+    expect(dbMock.insert).toHaveBeenCalledTimes(2);
   });
 });
 

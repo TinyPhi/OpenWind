@@ -116,3 +116,29 @@ export type BulkSetStateResult = {
   updatedIds: string[];
   errors: Array<{ index: number; id: string; code: string }>;
 };
+
+// Domain events written to outbox on entity create/assignment.
+// Field names match EntityCreatedV1Schema / EntityAssignedV1Schema in
+// packages/automation-engine so the outbox poller's TriggerEventSchema.safeParse()
+// succeeds without transformation. Defined locally (not imported from
+// automation-engine) because entity-engine may only depend on db — automation-engine
+// already depends on entity-engine, so the reverse import would be a cycle.
+export interface EntityCreatedEvent {
+  eventType: "entity.created";
+  version: 1;
+  tenantId: string;
+  instanceId: string;
+  entityTypeId: string;
+  fields: Record<string, unknown>;
+  createdBy: string | null;
+}
+
+export interface EntityAssignedEvent {
+  eventType: "entity.assigned";
+  version: 1;
+  tenantId: string;
+  instanceId: string;
+  entityTypeId: string;
+  assigneeId: string;
+  assignedBy: string | null;
+}

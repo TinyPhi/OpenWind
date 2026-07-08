@@ -10,7 +10,7 @@ SELECT
   'entity.created', 
   '{"entityType": "ticket"}'::jsonb, 
   NULL, 
-  '[{"type": "set-field", "field": "priority", "value": "medium"}]'::jsonb, 
+  '[{"type": "set_field", "config": {"field": "priority", "value": "medium"}}]'::jsonb,
   0
 WHERE NOT EXISTS (
   SELECT 1 FROM automation_rules 
