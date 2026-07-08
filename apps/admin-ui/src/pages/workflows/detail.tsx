@@ -21,6 +21,7 @@ import {
   SortableContext,
   useSortable,
   horizontalListSortingStrategy,
+  verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -300,6 +301,64 @@ function StateDot({ color }: { color: string | null }): React.ReactElement {
       className="state-dot"
       style={{ backgroundColor: color ?? "var(--accent-primary)" }}
     />
+  );
+}
+
+/* ── Sortable field row (drag-and-drop reorder on Fields tab) ── */
+function SortableFieldRow({
+  field,
+  children,
+  dragDisabled,
+}: {
+  field: EntityField;
+  children: React.ReactNode;
+  dragDisabled: boolean;
+}): React.ReactElement {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: field.id, disabled: dragDisabled });
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition: transition ?? undefined,
+        opacity: isDragging ? 0.5 : 1,
+        background: isDragging ? "var(--bg-secondary)" : undefined,
+      }}
+    >
+      <td style={{ width: "28px", padding: "0 0 0 8px" }}>
+        {!dragDisabled && (
+          <span
+            {...attributes}
+            {...listeners}
+            style={{
+              cursor: "grab",
+              display: "inline-flex",
+              color: "var(--text-tertiary)",
+              touchAction: "none",
+            }}
+            title="Drag to reorder"
+          >
+            <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+              <circle cx="3" cy="2.5" r="1.2" fill="currentColor" />
+              <circle cx="7" cy="2.5" r="1.2" fill="currentColor" />
+              <circle cx="3" cy="7" r="1.2" fill="currentColor" />
+              <circle cx="7" cy="7" r="1.2" fill="currentColor" />
+              <circle cx="3" cy="11.5" r="1.2" fill="currentColor" />
+              <circle cx="7" cy="11.5" r="1.2" fill="currentColor" />
+            </svg>
+          </span>
+        )}
+      </td>
+      {children}
+    </tr>
   );
 }
 
@@ -1240,6 +1299,7 @@ export function WorkflowDetail(): React.ReactElement {
     onConfirm: () => void;
   } | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const fieldSensors = useSensors(useSensor(PointerSensor));
 
   const fetchFields = useCallback((entityTypeId: string): void => {
     setFieldsLoading(true);
@@ -1281,6 +1341,44 @@ export function WorkflowDetail(): React.ReactElement {
       setFieldError(err instanceof Error ? err.message : "Failed to add field");
     } finally {
       setSavingField(false);
+    }
+  }
+
+  async function handleFieldDragEnd(event: DragEndEvent): Promise<void> {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !workflow?.entityTypeId) return;
+
+    const sorted = [...fields].sort((a, b) => a.sortOrder - b.sortOrder);
+    const oldIndex = sorted.findIndex((f) => f.id === active.id);
+    const newIndex = sorted.findIndex((f) => f.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(sorted, oldIndex, newIndex).map((f, i) => ({
+      ...f,
+      sortOrder: i * 10,
+    }));
+
+    const snapshot = fields;
+    const oldOrderMap = new Map(sorted.map((f) => [f.id, f.sortOrder]));
+    setFields(reordered);
+    try {
+      await Promise.all(
+        reordered
+          .filter((f) => f.sortOrder !== (oldOrderMap.get(f.id) ?? -1))
+          .map((f) =>
+            fetchWithAuth(
+              `${API_URL}/entity-types/${workflow.entityTypeId}/fields/${f.id}`,
+              {
+                method: "PATCH",
+                body: JSON.stringify({ sortOrder: f.sortOrder }),
+              },
+            ),
+          ),
+      );
+    } catch (err) {
+      setFields(snapshot);
+      setInlineError(
+        err instanceof Error ? err.message : "Failed to reorder fields",
+      );
     }
   }
 
@@ -2443,120 +2541,145 @@ export function WorkflowDetail(): React.ReactElement {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th style={{ width: "28px" }}></th>
                     <th>Field</th>
                     <th className="wfd-table-hide-xs">Type</th>
                     <th className="wfd-table-hide-xs">Required</th>
                     <th style={{ width: "80px" }}></th>
                   </tr>
                 </thead>
-                <tbody>
-                  {[...fields]
-                    .sort((a, b) => a.sortOrder - b.sortOrder)
-                    .map((f) => (
-                      <tr key={f.id}>
-                        <td>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: "13px" }}>
-                              {f.label}
-                            </div>
-                            <code
-                              className="code-inline"
-                              style={{ fontSize: "11px" }}
-                            >
-                              {f.name}
-                            </code>
-                          </div>
-                        </td>
-                        <td className="wfd-table-hide-xs">
-                          <span className="badge badge-muted">
-                            {f.fieldType}
-                          </span>
-                        </td>
-                        <td className="wfd-table-hide-xs">
-                          {f.isRequired ? (
-                            <span className="badge badge-primary">Yes</span>
-                          ) : (
-                            <span className="text-muted-sm">—</span>
-                          )}
-                        </td>
-                        <td
-                          style={{ textAlign: "right", whiteSpace: "nowrap" }}
-                        >
-                          {isAdmin && (
-                            <div
+                <DndContext
+                  sensors={fieldSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={(e) => void handleFieldDragEnd(e)}
+                >
+                  <SortableContext
+                    items={[...fields]
+                      .sort((a, b) => a.sortOrder - b.sortOrder)
+                      .map((f) => f.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <tbody>
+                      {[...fields]
+                        .sort((a, b) => a.sortOrder - b.sortOrder)
+                        .map((f) => (
+                          <SortableFieldRow
+                            key={f.id}
+                            field={f}
+                            dragDisabled={!isAdmin}
+                          >
+                            <td>
+                              <div>
+                                <div
+                                  style={{ fontWeight: 600, fontSize: "13px" }}
+                                >
+                                  {f.label}
+                                </div>
+                                <code
+                                  className="code-inline"
+                                  style={{ fontSize: "11px" }}
+                                >
+                                  {f.name}
+                                </code>
+                              </div>
+                            </td>
+                            <td className="wfd-table-hide-xs">
+                              <span className="badge badge-muted">
+                                {f.fieldType}
+                              </span>
+                            </td>
+                            <td className="wfd-table-hide-xs">
+                              {f.isRequired ? (
+                                <span className="badge badge-primary">Yes</span>
+                              ) : (
+                                <span className="text-muted-sm">—</span>
+                              )}
+                            </td>
+                            <td
                               style={{
-                                display: "flex",
-                                gap: "6px",
-                                justifyContent: "flex-end",
+                                textAlign: "right",
+                                whiteSpace: "nowrap",
                               }}
                             >
-                              <button
-                                className="icon-btn icon-btn-edit"
-                                onClick={() => {
-                                  setEditingField(f);
-                                  setFieldForm({
-                                    name: f.name,
-                                    label: f.label,
-                                    fieldType: f.fieldType,
-                                    isRequired: f.isRequired,
-                                  });
-                                  setFieldError(null);
-                                }}
-                                title="Edit field"
-                              >
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
+                              {isAdmin && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: "6px",
+                                    justifyContent: "flex-end",
+                                  }}
                                 >
-                                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                </svg>
-                              </button>
-                              <button
-                                className="icon-btn icon-btn-delete"
-                                disabled={deletingFieldId === f.id}
-                                onClick={() =>
-                                  setConfirmDelete({
-                                    message: `Delete field "${f.label}"?`,
-                                    onConfirm: () => {
-                                      setConfirmDelete(null);
-                                      void handleDeleteField(f.id);
-                                    },
-                                  })
-                                }
-                                title="Delete field"
-                              >
-                                {deletingFieldId === f.id ? (
-                                  <span style={{ fontSize: "11px" }}>…</span>
-                                ) : (
-                                  <svg
-                                    width="13"
-                                    height="13"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
+                                  <button
+                                    className="icon-btn icon-btn-edit"
+                                    onClick={() => {
+                                      setEditingField(f);
+                                      setFieldForm({
+                                        name: f.name,
+                                        label: f.label,
+                                        fieldType: f.fieldType,
+                                        isRequired: f.isRequired,
+                                      });
+                                      setFieldError(null);
+                                    }}
+                                    title="Edit field"
                                   >
-                                    <polyline points="3 6 5 6 21 6" />
-                                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                    <path d="M10 11v6M14 11v6" />
-                                  </svg>
-                                )}
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
+                                    <svg
+                                      width="13"
+                                      height="13"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    className="icon-btn icon-btn-delete"
+                                    disabled={deletingFieldId === f.id}
+                                    onClick={() =>
+                                      setConfirmDelete({
+                                        message: `Delete field "${f.label}"?`,
+                                        onConfirm: () => {
+                                          setConfirmDelete(null);
+                                          void handleDeleteField(f.id);
+                                        },
+                                      })
+                                    }
+                                    title="Delete field"
+                                  >
+                                    {deletingFieldId === f.id ? (
+                                      <span style={{ fontSize: "11px" }}>
+                                        …
+                                      </span>
+                                    ) : (
+                                      <svg
+                                        width="13"
+                                        height="13"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <polyline points="3 6 5 6 21 6" />
+                                        <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                                        <path d="M10 11v6M14 11v6" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </SortableFieldRow>
+                        ))}
+                    </tbody>
+                  </SortableContext>
+                </DndContext>
               </table>
             </div>
           )}
