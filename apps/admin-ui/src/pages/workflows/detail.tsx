@@ -994,7 +994,7 @@ function KpiChip({
         background: "var(--bg-card)",
         border: "1px solid var(--border-color)",
         borderTop: `3px solid ${accent}`,
-        borderRadius: "var(--radius-md)",
+        borderRadius: "8px",
         minWidth: "90px",
       }}
     >
