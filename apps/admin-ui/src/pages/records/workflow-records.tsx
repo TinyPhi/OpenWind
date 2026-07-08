@@ -310,20 +310,31 @@ function RecordCard({
   record,
   fields,
   typeSlug,
+  stateLabel,
+  users,
 }: {
   record: EntityInstance;
   fields: EntityField[];
   typeSlug: string;
+  stateLabel?: string | null | undefined;
+  users: OrgUser[];
 }): React.ReactElement {
   const navigate = useNavigate();
   const divRef = useRef<HTMLDivElement>(null);
 
   const preview: Array<{ field: EntityField; value: string }> = [];
   for (const f of fields) {
-    if (preview.length >= 2) break;
+    if (preview.length >= 1) break;
     const v = fieldDisplay(record.fields[f.name], f.fieldType);
     if (v) preview.push({ field: f, value: v });
   }
+
+  const assignee = record.assignedTo
+    ? (users.find((u) => u.userId === record.assignedTo) ?? null)
+    : null;
+  const assigneeLabel = record.assignedTo
+    ? (assignee?.displayName ?? assignee?.email ?? "Unknown")
+    : "Unassigned";
 
   return (
     <div
@@ -351,16 +362,25 @@ function RecordCard({
         {preview[0]?.value ?? `#${record.id.slice(0, 8)}`}
       </div>
 
-      {preview[1] && (
+      {stateLabel && (
         <div className="kb-card-meta">
-          <span className="kb-card-meta-label">{preview[1].field.label}</span>
-          <span className="kb-card-meta-value">{preview[1].value}</span>
+          <span className="kb-card-meta-label">State</span>
+          <span className="kb-card-meta-value">{stateLabel}</span>
         </div>
       )}
 
       <div className="kb-card-footer">
-        <span className="kb-card-id">#{record.id.slice(0, 8)}</span>
-        <span className="kb-card-time">{relativeTime(record.createdAt)}</span>
+        <span className="kb-card-time">
+          Created {relativeTime(record.createdAt)}
+        </span>
+        <span className="kb-card-assignee" title={assigneeLabel}>
+          {record.assignedTo ? (
+            <span className="kb-card-avatar">
+              {assigneeLabel.slice(0, 1).toUpperCase()}
+            </span>
+          ) : null}
+          {assigneeLabel}
+        </span>
       </div>
     </div>
   );
@@ -382,6 +402,7 @@ function KanbanColumn({
   onCardDrop,
   onColumnDrop,
   childTickets = [],
+  users,
 }: {
   state: WorkflowState | null;
   records: EntityInstance[];
@@ -394,6 +415,7 @@ function KanbanColumn({
   onCardDrop: (recordId: string, toStateName: string) => void;
   onColumnDrop: (fromStateName: string, toStateName: string) => void;
   childTickets?: ChildTicket[];
+  users: OrgUser[];
 }): React.ReactElement {
   const [dropState, setDropState] = useState<ColDropState>("idle");
   const enterCount = useRef(0);
@@ -545,6 +567,8 @@ function KanbanColumn({
             record={rec}
             fields={fields}
             typeSlug={typeSlug}
+            stateLabel={state?.label}
+            users={users}
           />
         ))}
 
@@ -1429,6 +1453,7 @@ export function WorkflowRecords(): React.ReactElement {
                 }
                 onColumnDrop={handleColumnReorder}
                 childTickets={children}
+                users={users}
               />
             ))}
           </div>
@@ -1740,6 +1765,17 @@ export function WorkflowRecords(): React.ReactElement {
         }
         .kb-card-id   { font-size:10px; font-family:monospace; color:var(--text-muted); opacity:.7; }
         .kb-card-time { font-size:10px; color:var(--text-muted); opacity:.7; }
+        .kb-card-assignee {
+          display: flex; align-items: center; gap: 5px;
+          font-size: 10px; color: var(--text-muted); opacity: .8;
+          overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 120px;
+        }
+        .kb-card-avatar {
+          width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+          background: var(--accent-primary); color: #fff;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 9px; font-weight: 600;
+        }
 
         .kb-empty-state {
           flex: 1; display: flex; flex-direction: column;
