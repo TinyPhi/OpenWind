@@ -177,7 +177,7 @@ All 10 hardening items (#120–#129) must close, then `.claude/context/phase-3-p
 9. Write `.claude/context/phase-3-primer.md` (required by `CLAUDE.md` before 3A)
 10. Add ADR-002 addendum (WE-02/WE-03 closure with dates and issue links)
 11. Triage or close ADR-001 MT-02 and ADR-002 WE-05 open questions
-12. Resolve field type count discrepancy across docs
+12. ~~Resolve field type count discrepancy across docs~~ ✅ RETRACTED (2026-07-08) — verified 15 types in architecture-brief.md; no discrepancy exists (see §2 inline note)
 
 ### Before public launch / marketplace
 

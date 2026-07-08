@@ -1,6 +1,6 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-08 (PR #135 merged; #121/#122 closed; Phase 2 gate corrected)
+**Last updated:** 2026-07-08 (PR #135 + #137 merged; #121/#122 closed; consulting review + doc reconciliation complete)
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
 
