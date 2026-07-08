@@ -42,6 +42,8 @@ export const addCommentHandler = factory.createHandlers(
           workflowId: entityInstances.workflowId,
           currentState: entityInstances.currentState,
           assignedTo: entityInstances.assignedTo,
+          createdBy: entityInstances.createdBy,
+          fields: entityInstances.fields,
         })
         .from(entityInstances)
         .where(
@@ -57,8 +59,20 @@ export const addCommentHandler = factory.createHandlers(
       return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
     }
 
-    if (!isPrivileged && instance.assignedTo !== userId) {
-      return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+    if (!isPrivileged) {
+      const accessUsers =
+        (instance.fields as Record<string, unknown>).__accessUsers ?? {};
+      const userAccess = (accessUsers as Record<string, { level: string }>)[
+        userId
+      ];
+      const canComment =
+        instance.createdBy === userId ||
+        instance.assignedTo === userId ||
+        userAccess?.level === "read_comment" ||
+        userAccess?.level === "read_write";
+      if (!canComment) {
+        return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+      }
     }
 
     // Resolve workflowId — child tickets created before the inheritance fix may have null.
