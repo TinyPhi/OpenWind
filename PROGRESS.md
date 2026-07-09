@@ -1,3 +1,50 @@
+## 2026-07-09 — PR #139 human review round (all items fixed)
+
+@PrabhuVijit reviewed PR #139 with 2 blockers and 6 non-blocking items.
+
+- **STACK-1** (blocker): PR was based on the now-merged `fix/PLAT-126-entity-created-triggers`
+  branch instead of `main`, so CI never ran (`ci.yml`'s `pull_request` trigger only matches
+  `branches: [main, develop]`). Retargeted to `main`; cycled the PR closed/reopened to force a
+  `synchronize` CI run since changing the base only fires `edited`.
+- **POLLER-1** (blocker): `outbox-poller.ts`'s negative denylist repeated the exact failure
+  pattern that caused the `workflow.sla_scheduled` bug — any future non-trigger outbox event
+  type would silently break the same way by default. Switched to a positive allowlist of
+  `TriggerEventSchema`'s 4 literal event types, with a comment cross-referencing
+  `event-schemas.ts`.
+- **POLLER-2**: `system.error` rows would now accumulate forever with `delivered_at IS NULL`
+  since they're excluded from the (new) allowlist and have no consumer. `av-scan.ts` now sets
+  `deliveredAt` at insert time — dead-letter by design, not a stale row nothing ever picks up.
+- **TEST-1**: `automation-depth-recursion.isolation.test.ts`'s `afterAll` now also deletes
+  `automationExecutions` for the test tenant.
+- **TEST-2**: `entity-assigned-depth.isolation.test.ts`'s outbox cleanup moved into `afterAll`
+  so it runs unconditionally even if an earlier assertion throws.
+- **VITEST-1**: added the missing `@platform/automation-engine` vitest resolve alias to
+  `apps/api/vitest.config.ts` (matches entity-engine/workflow-engine) — this was the source of
+  the stale-dist debugging cost flagged in the #120 session's own Next list.
+- **DEPTH-LEAK-1**: `executor.ts`'s `eventFields` merge now strips `version`/`tenantId`/`depth`
+  before condition-tree evaluation, so a tenant-authored condition can no longer match on the
+  internal recursion counter.
+- **ARCH-1**: filed [#143](../../issues/143) tracking that automation-triggered transitions are
+  absent from the outbox (a Phase 3A connector-design gap) — reviewer recommended filing rather
+  than fixing now, since there's no connector consumer yet.
+
+### Verification
+
+- pnpm typecheck: PASS
+- pnpm test: PASS (332/332)
+- pnpm test:isolation: PASS (123/123)
+- Diff-scoped `eslint --max-warnings=0`: clean
+
+### Next
+
+- Watch PR #139 CI, then merge
+- #127, #123–#125, #128, #129 remain open
+- #136 — RLS policies for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`
+- #141 — `pnpm lint` no-op needs its own session
+- #143 — Phase 3A connector design must account for the outbox/workflow_events gap
+
+---
+
 ## 2026-07-08 — Hardening #120: automation double-trigger / depth-reset
 
 ### Done

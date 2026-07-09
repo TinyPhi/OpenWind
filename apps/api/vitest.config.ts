@@ -19,6 +19,10 @@ export default defineConfig({
         packages,
         "entity-engine/src/index.ts",
       ),
+      "@platform/automation-engine": path.join(
+        packages,
+        "automation-engine/src/index.ts",
+      ),
       "@platform/logger": path.join(packages, "logger/src/index.ts"),
       "@platform/auth": path.join(packages, "auth/src/index.ts"),
       "@platform/db": path.join(packages, "db/src/index.ts"),

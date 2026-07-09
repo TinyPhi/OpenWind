@@ -54,9 +54,15 @@ export async function executeAutomationRules(
     // assigneeId, slaHours) with any entity field values so that condition
     // trees can match on both. entity.created events carry a `fields` map;
     // all other event types carry their data as top-level properties only.
+    // Excludes envelope/engine-internal keys (fields is merged in separately
+    // below; version/tenantId/depth are transport metadata, not domain data —
+    // depth in particular is an internal recursion counter that a tenant
+    // should never be able to write a condition against, e.g. `depth > 3`).
     const eventFields: Record<string, unknown> = {
       ...Object.fromEntries(
-        Object.entries(event).filter(([k]) => k !== "fields"),
+        Object.entries(event).filter(
+          ([k]) => !["fields", "version", "tenantId", "depth"].includes(k),
+        ),
       ),
       ...("fields" in event ? (event.fields as Record<string, unknown>) : {}),
     };

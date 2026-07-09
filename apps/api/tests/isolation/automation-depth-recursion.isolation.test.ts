@@ -110,6 +110,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await withTenantContext(TENANT, async (tx) => {
     await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
+    await tx
+      .delete(automationExecutions)
+      .where(eq(automationExecutions.tenantId, TENANT));
   });
 });
 

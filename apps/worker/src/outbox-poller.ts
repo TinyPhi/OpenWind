@@ -12,21 +12,21 @@ let activeTick: Promise<void> | null = null;
 async function tick(): Promise<void> {
   try {
     await db.transaction(async (tx) => {
-      // Excludes outbox event types that aren't automation triggers (not part
-      // of TriggerEventSchema in packages/automation-engine) and have their
-      // own dedicated consumer or no consumer at all:
-      //  - workflow.sla_scheduled: sla-scheduler.ts polls this on its own
-      //    dedicated query and enqueues a delayed breach-check job, not an
-      //    automation run. Without this exclusion, this poller's 2s interval
-      //    usually wins the FOR UPDATE SKIP LOCKED race against
-      //    sla-scheduler's 10s one, marks the row delivered, and hands it to
-      //    automationWorker — which rejects it with INVALID_EVENT_PAYLOAD —
-      //    so sla-scheduler never sees the row again and the SLA breach check
-      //    for that state transition is silently never scheduled. Found
-      //    while investigating #120's outbox-depth handling.
-      //  - system.error: written by av-scan.ts on final scan failure; has no
-      //    consumer today, but would hit the same INVALID_EVENT_PAYLOAD
-      //    failure as sla_scheduled did if left unexcluded.
+      // Only claims outbox event types that are actually automation triggers —
+      // i.e. the exact literals in TriggerEventSchema's discriminated union
+      // (packages/automation-engine/src/event-schemas.ts). A positive allowlist,
+      // not a negative denylist: a denylist means every *new* outbox event type
+      // that isn't an automation trigger (workflow.sla_scheduled, system.error,
+      // and any future Phase 3 connector/system event) is claimed by default and
+      // silently breaks its real consumer — which is exactly how the
+      // workflow.sla_scheduled bug happened (this poller's 2s interval usually
+      // wins the FOR UPDATE SKIP LOCKED race against sla-scheduler.ts's dedicated
+      // 10s query, marks the row delivered, and hands it to automationWorker,
+      // which rejects it with INVALID_EVENT_PAYLOAD — so sla-scheduler never sees
+      // the row again and the SLA breach check is silently never scheduled).
+      // With an allowlist, a new non-trigger event type is excluded by default
+      // instead of requiring someone to remember to add it here. Found while
+      // investigating #120's outbox-depth handling.
       const rows = await tx.execute<{
         id: string;
         tenant_id: string;
@@ -37,7 +37,7 @@ async function tick(): Promise<void> {
         SELECT id, tenant_id, event_type, version, payload
         FROM outbox_events
         WHERE delivered_at IS NULL
-          AND event_type NOT IN ('workflow.sla_scheduled', 'system.error')
+          AND event_type IN ('workflow.transitioned', 'workflow.sla_breached', 'entity.created', 'entity.assigned')
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT ${BATCH_SIZE}

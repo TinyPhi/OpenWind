@@ -11,7 +11,7 @@
  * for #120's other half (the transition double-trigger fix), which *is* live.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { eq, and } from "drizzle-orm";
 import { db, withTenantContext, outboxEvents } from "@platform/db";
 import {
@@ -25,6 +25,12 @@ import {
 } from "@platform/automation-engine";
 
 const TENANT = "eeeeeeee-0000-4000-e000-000000000120";
+
+afterAll(async () => {
+  await withTenantContext(TENANT, async (tx) => {
+    await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
+  });
+});
 
 describe("entity.assigned outbox depth carries through for MAX_DEPTH enforcement (#120)", () => {
   it("updateEntity stamps depth+1 on the entity.assigned outbox payload when depth is supplied", async () => {
@@ -75,9 +81,5 @@ describe("entity.assigned outbox depth carries through for MAX_DEPTH enforcement
     expect((err as InstanceType<typeof AutomationError>).code).toBe(
       "MAX_DEPTH_EXCEEDED",
     );
-
-    await withTenantContext(TENANT, async (tx) => {
-      await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
-    });
   });
 });
