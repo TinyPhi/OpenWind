@@ -12,7 +12,12 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, and, desc } from "drizzle-orm";
-import { db, withTenantContext, outboxEvents } from "@platform/db";
+import {
+  db,
+  withTenantContext,
+  outboxEvents,
+  automationExecutions,
+} from "@platform/db";
 import {
   createEntityType,
   createEntity,
@@ -23,6 +28,7 @@ import type { EntityType } from "@platform/entity-engine";
 import {
   createAutomationRule,
   executeAutomationRules,
+  TriggerEventSchema,
 } from "@platform/automation-engine";
 
 const TENANT = "cccccccc-0000-4000-c000-000000000126";
@@ -74,6 +80,13 @@ beforeAll(async () => {
 afterAll(async () => {
   await withTenantContext(TENANT, async (tx) => {
     await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
+    // Without this, re-running this file against a non-fresh local DB
+    // accumulates executions from prior runs, making any future assertion on
+    // execution count fail confusingly (CI always starts from a fresh DB, so
+    // this is a local-debugging footgun rather than a CI risk).
+    await tx
+      .delete(automationExecutions)
+      .where(eq(automationExecutions.tenantId, TENANT));
   });
 });
 
@@ -105,6 +118,38 @@ describe("entity.created outbox emission and automation execution (#126)", () =>
     expect(payload.instanceId).toBe(instance.id);
     expect(payload.entityTypeId).toBe(entityType.id);
     expect(payload.version).toBe(1);
+  });
+
+  it("the outbox payload matches automation-engine's TriggerEventSchema exactly", async () => {
+    // entity-engine's EntityCreatedEvent (packages/entity-engine/src/types.ts)
+    // is a local interface, not imported from automation-engine's
+    // EntityCreatedV1Schema, to avoid a dependency cycle — see that file's
+    // comment. Nothing else keeps the two in sync: if automation-engine's
+    // schema ever gains a new required field, this row would fail
+    // TriggerEventSchema.safeParse() in production and every entity.created
+    // rule would silently stop firing, exactly the bug #126 fixes. This
+    // assertion catches that drift at test time instead.
+    await withTenantContext(TENANT, (tx) =>
+      createEntity(tx, TENANT, { entityTypeId: entityType.id, fields: {} }),
+    );
+
+    const [row] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select()
+        .from(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.tenantId, TENANT),
+            eq(outboxEvents.eventType, "entity.created"),
+          ),
+        )
+        .orderBy(desc(outboxEvents.createdAt))
+        .limit(1),
+    );
+
+    expect(row).toBeDefined();
+    const parsed = TriggerEventSchema.safeParse(row?.payload);
+    expect(parsed.success).toBe(true);
   });
 
   it("the seeded set_field rule actually fires when the outbox event is processed", async () => {

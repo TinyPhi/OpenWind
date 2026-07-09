@@ -162,6 +162,15 @@ export async function executeAutomationRules(
  * Returns `true` if the action was skipped because the circuit breaker is open;
  * `false` if the action executed (successfully or after throwing).
  * Throws if the underlying action handler throws.
+ *
+ * This switch is the shape contract every `automation_rules.actions` entry
+ * must match — apps/api/src/routes/automation-rules/schemas.ts's
+ * ActionConfigSchema validates API-created/updated rules against it, but
+ * module seed SQL (e.g. modules/helpdesk/seed/003_automation_rules.sql)
+ * writes `automation_rules` directly and bypasses that validation. A
+ * mismatched shape doesn't error here — it just falls to `default` below and
+ * silently does nothing. Check this switch by hand when adding a new seed's
+ * automation rule.
  */
 async function runAction(
   db: DbOrTx,

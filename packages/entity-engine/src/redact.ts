@@ -17,6 +17,17 @@
  *  - Keys that do not correspond to any known field pass through unmodified
  *  - Only top-level keys are checked — nested objects are not traversed
  *  - Pure: never mutates the input, always returns a new object
+ *
+ * Why `internal` fields are NOT redacted, even though this feeds outbox_events
+ * (which a tenant-configured `webhook` automation action can forward to an
+ * external URL): automation rules — including their actions — are configured
+ * by tenant admins only (`requireRole("admin")` on every automation-rules
+ * route), the same trust level that already has direct read access to every
+ * `internal` field via the entity API. `internal` is "not shown to end
+ * customers," not "untrusted by the tenant's own admins." If a future webhook
+ * consumer is meant to be less trusted than a tenant admin, this policy needs
+ * to be revisited — do not silently narrow or widen it without updating this
+ * comment.
  */
 
 import type { FieldSensitivity } from "./types.js";

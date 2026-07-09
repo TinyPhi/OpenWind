@@ -21,20 +21,59 @@ export const TRIGGER_TYPES = [
 export const TriggerTypeSchema = z.enum(TRIGGER_TYPES);
 
 // ── Action config ─────────────────────────────────────────────────────────────
+// Discriminated by `type` so `config`'s shape is actually checked per action,
+// not just accepted as an opaque record. The helpdesk module seed once shipped
+// `{"type": "set-field", "field": ..., "value": ...}` (wrong literal, wrong
+// nesting) against packages/automation-engine/src/executor.ts's `case
+// "set_field"`, which expects `{"type": "set_field", "config": {"field": ...,
+// "value": ...}}` — the rule silently matched no case and did nothing. Seed
+// SQL bypasses this Zod validation entirely (raw INSERT, not this API route),
+// so this schema protects only rules created/updated through the API — see
+// the comment in modules/helpdesk/seed/003_automation_rules.sql for the seed
+// side of this gap.
+//
+// notify/assign/create_entity/connector.action/script are declared in
+// packages/automation-engine/src/types.ts's ActionType union but not yet
+// implemented in executor.ts's switch (they fall through to "unhandled
+// action type" and no-op) — kept permissive (`z.record(z.unknown())`) rather
+// than over-constraining a shape that doesn't exist yet.
 
-export const ActionConfigSchema = z.object({
-  type: z.enum([
-    "notify",
-    "assign",
-    "transition",
-    "set_field",
-    "create_entity",
-    "webhook",
-    "connector.action",
-    "script",
-  ]),
-  config: z.record(z.unknown()),
+const SetFieldConfigSchema = z.object({
+  instanceId: z.string().optional(),
+  field: z.string().min(1),
+  value: z.unknown(),
 });
+
+const TransitionConfigSchema = z.object({
+  instanceId: z.string().optional(),
+  transitionId: z.string().min(1),
+  comment: z.string().optional(),
+});
+
+const WebhookActionConfigSchema = z.object({
+  url: z.string().url(),
+  method: z.enum(["POST", "PUT", "PATCH"]).optional(),
+  headers: z.record(z.string()).optional(),
+  includePayload: z.boolean().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+});
+
+export const ActionConfigSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("notify"), config: z.record(z.unknown()) }),
+  z.object({ type: z.literal("set_field"), config: SetFieldConfigSchema }),
+  z.object({ type: z.literal("transition"), config: TransitionConfigSchema }),
+  z.object({ type: z.literal("webhook"), config: WebhookActionConfigSchema }),
+  z.object({ type: z.literal("assign"), config: z.record(z.unknown()) }),
+  z.object({
+    type: z.literal("create_entity"),
+    config: z.record(z.unknown()),
+  }),
+  z.object({
+    type: z.literal("connector.action"),
+    config: z.record(z.unknown()),
+  }),
+  z.object({ type: z.literal("script"), config: z.record(z.unknown()) }),
+]);
 
 // ── Condition tree ────────────────────────────────────────────────────────────
 // Mirrors ConditionTree from @platform/workflow-engine. Validated at write time
