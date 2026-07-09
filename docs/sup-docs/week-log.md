@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-07-09 — #126 merged; doc reconciliation
+
+**Session type:** Docs (following code merge)
+**Branch:** `docs/PLAT-126-checklist-update`
+
+### Completed this session
+
+- PR #138 (`entity.created`/`entity.assigned` outbox triggers, #126) merged to `main`,
+  including the full PR review-fix round (redaction fail-open fix, seed-validation
+  discriminated union, drift-detection test, bulk-path isolation tests).
+- Resolved `PROGRESS.md` merge conflicts on both `fix/PLAT-126-entity-created-triggers`
+  (against `main`) and `fix/PLAT-120-automation-depth-recursion` (against `main` post-#138)
+  — conflicts were from concurrent log entries, not competing code changes.
+- Found PR #139 (#120) was still based on the now-merged `fix/PLAT-126-entity-created-triggers`
+  branch instead of `main` (a stacked-PR setup from before #138 merged), which silently
+  prevented CI from triggering (`ci.yml`'s `pull_request` trigger only matches
+  `branches: [main, develop]`). Retargeted to `main` and cycled the PR closed/reopened to
+  force a `synchronize` CI run (changing the base fires `edited`, which isn't a default
+  trigger type).
+- `CLAUDE.md`: marked #126 done in the hardening checklist.
+- `roadmap-tracker.md`: cleared the stale 2B gap note about `entity.created` never firing;
+  updated "Last updated" line.
+- `docs/reviews/2026-06-29-consulting-review.md`: added ✅ RESOLVED notes for #126 (Blocker 3,
+  the reality-check table row, and the prioritized action list), matching the #121/#122
+  pattern from the prior session.
+
+### Phase snapshot
+
+| Track                 | Status                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| Pre-Phase 3 hardening | #121, #122, #126 closed. #120 (PR #139) open, CI running. #127, #123–#125, #128, #129 open. |
+
+### Next
+
+- Watch PR #139 (#120) CI to green, then merge
+- #127 — guard `setEntityState`/`bulkSetState` (audit/compliance side-door)
+- Remaining hardening items #123, #124, #125, #128, #129
+- #136 — RLS policies for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`
+- #141 — `pnpm lint` no-op needs its own session
+
+---
+
 ## 2026-07-08 — Consulting-review followup: doc reconciliation
 
 **Session type:** Documentation
