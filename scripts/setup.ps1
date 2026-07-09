@@ -12,17 +12,80 @@ $outputDir = Join-Path $zitaDir 'output'
 $patFile   = Join-Path $outputDir 'pat.txt'
 $genPatSrc = Join-Path $owDir 'scripts\gen-pat.mjs'
 $template  = Join-Path $owDir 'scripts\zitadel-compose-template.yml'
+$envLocal  = Join-Path $owDir '.env.local'
 
 function Banner($msg) { Write-Host "" ; Write-Host "  $msg" -ForegroundColor Cyan }
 function Ok($msg)     { Write-Host "  [+] $msg" -ForegroundColor Green }
 function Info($msg)   { Write-Host "  --> $msg" -ForegroundColor DarkGray }
 function Fail($msg)   { Write-Host "" ; Write-Host "  [!] $msg" -ForegroundColor Red ; Write-Host "" ; exit 1 }
 
+function New-RandomToken($length) {
+    $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    -join (1..$length | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+}
+
+function Get-EnvLocalValue($key) {
+    if (-not (Test-Path $envLocal)) { return $null }
+    $line = Select-String -Path $envLocal -Pattern "^$key=" -SimpleMatch:$false | Select-Object -First 1
+    if (-not $line) { return $null }
+    return ($line.Line -split '=', 2)[1]
+}
+
 Write-Host ""
 Write-Host "  =============================================" -ForegroundColor Cyan
 Write-Host "   OpenWind Setup" -ForegroundColor Cyan
 Write-Host "  =============================================" -ForegroundColor Cyan
 Write-Host ""
+
+# ── Deployment config — override via environment for hosted deployments ──────
+if (-not $env:ZITADEL_EXTERNAL_DOMAIN) { $env:ZITADEL_EXTERNAL_DOMAIN = 'localhost' }
+if (-not $env:ZITADEL_HOST_PORT)       { $env:ZITADEL_HOST_PORT = '8080' }
+if (-not $env:ZITADEL_EXTERNALSECURE)  { $env:ZITADEL_EXTERNALSECURE = 'false' }
+if (-not $env:ZITADEL_TLS_MODE)        { $env:ZITADEL_TLS_MODE = 'disabled' }
+
+if ($env:ZITADEL_EXTERNALSECURE -eq 'true') {
+    $zitadelBrowserUrl = "https://$($env:ZITADEL_EXTERNAL_DOMAIN)"
+} elseif ($env:ZITADEL_EXTERNAL_DOMAIN -ne 'localhost') {
+    $zitadelBrowserUrl = "http://$($env:ZITADEL_EXTERNAL_DOMAIN):$($env:ZITADEL_HOST_PORT)"
+} else {
+    $zitadelBrowserUrl = "http://localhost:$($env:ZITADEL_HOST_PORT)"
+}
+$adminUiPort = if ($env:ADMIN_UI_HOST_PORT) { $env:ADMIN_UI_HOST_PORT } else { '3001' }
+$openwindUrl = if ($env:APP_URL) { $env:APP_URL } else { "http://localhost:$adminUiPort" }
+
+# ── Generated secrets (one-time, not persisted unless re-run) ────────────────
+# If .env.local already has these (re-run scenario), reuse them so Zitadel's
+# existing volume stays valid instead of getting wiped for nothing.
+$existingMasterkey = Get-EnvLocalValue 'ZITADEL_MASTERKEY'
+$existingAdminPass = Get-EnvLocalValue 'ZITADEL_ADMIN_PASSWORD'
+
+if ($existingMasterkey -and $existingAdminPass) {
+    $zitadelMasterkey   = $existingMasterkey
+    $zitadelAdminPassword = $existingAdminPass
+} else {
+    $zitadelMasterkey     = New-RandomToken 32
+    # 22 random alphanumeric chars + "@!" suffix satisfies Zitadel's default
+    # complexity policy (upper/lower/number/symbol) and avoids $ / % that would
+    # get mangled by Docker Compose variable interpolation.
+    $zitadelAdminPassword = (New-RandomToken 22) + '@!'
+
+    # docker writes to stderr and exits non-zero when the volume doesn't exist
+    # (the common case on a truly fresh machine) — with $ErrorActionPreference
+    # = 'Stop', PowerShell turns that into a terminating error even with
+    # 2>$null, so temporarily relax it just for this check.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    docker volume inspect zitadel_zitadel_db_data *> $null
+    $staleVolumeExists = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $prevEAP
+    if ($staleVolumeExists) {
+        Info "Removing stale Zitadel DB volume so Zitadel can reinitialise with new credentials..."
+        docker volume rm zitadel_zitadel_db_data *> $null
+    }
+}
+
+$env:ZITADEL_MASTERKEY      = $zitadelMasterkey
+$env:ZITADEL_ADMIN_PASSWORD = $zitadelAdminPassword
 
 # Step 1 -- Create ../zitadel/ and write docker-compose.yml
 Banner "Step 1/4  Setting up Zitadel identity provider"
@@ -85,6 +148,11 @@ if (-not (Test-Path '.env.local' -PathType Leaf)) {
     }
 }
 
+# Persist generated secrets for re-run idempotency (values already set above if re-run)
+if (-not (Get-EnvLocalValue 'ZITADEL_MASTERKEY')) {
+    Add-Content -Path '.env.local' -Value "`nZITADEL_MASTERKEY=$zitadelMasterkey`nZITADEL_ADMIN_PASSWORD=$zitadelAdminPassword"
+}
+
 docker compose up -d postgres pgbouncer redis
 if ($LASTEXITCODE -ne 0) { Fail "Failed to start infrastructure containers" }
 
@@ -106,9 +174,16 @@ Ok "App containers started"
 
 Write-Host ""
 Write-Host "  =============================================" -ForegroundColor Green
-Write-Host "   Done!  Open http://localhost:3001" -ForegroundColor Green
+Write-Host "   Done!" -ForegroundColor Green
+Write-Host ""
+Write-Host "   OpenWind:  $openwindUrl" -ForegroundColor White
+Write-Host "   Zitadel:   $zitadelBrowserUrl" -ForegroundColor White
 Write-Host "  =============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "   owAdmin / OpenWind1234!   (admin)" -ForegroundColor White
-Write-Host "   owUser  / OpenWind1234!   (user)" -ForegroundColor White
+Write-Host "   Zitadel admin (identity provider console):" -ForegroundColor White
+Write-Host "     owZitadelAdmin@openwind.local / $zitadelAdminPassword" -ForegroundColor White
+Write-Host ""
+Write-Host "   OpenWind app:" -ForegroundColor White
+Write-Host "     owAdmin / OpenWind1234!   (admin)" -ForegroundColor White
+Write-Host "     owUser  / OpenWind1234!   (user)" -ForegroundColor White
 Write-Host ""
