@@ -39,6 +39,15 @@ const mockModuleDbSelect = vi.fn(() => ({
   })),
 }));
 
+// Row tenant_users would return for the current test's SELECT-before-write
+// check (#124). Set per-test; undefined means "no existing row" (new user).
+let mockExistingTenantUser:
+  | { email: string | null; displayName: string | null }
+  | undefined;
+
+const mockTxInsertValues = vi.fn();
+const mockTxOnConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
+
 vi.mock("@platform/db", () => ({
   apiKeys: {
     id: "api_keys.id",
@@ -50,15 +59,39 @@ vi.mock("@platform/db", () => ({
   tenantUsers: {
     tenantId: "tenant_users.tenant_id",
     userId: "tenant_users.user_id",
+    email: "tenant_users.email",
+    displayName: "tenant_users.display_name",
   },
   db: { select: mockModuleDbSelect },
-  // withTenantContext is called fire-and-forget after JWT auth; mock it as a
-  // no-op so tests don't need a real db connection and don't throw 500s.
-  withTenantContext: vi.fn().mockResolvedValue(undefined),
+  // withTenantContext is called (awaited, not fire-and-forget) after JWT
+  // auth; mock it to run the callback against a fake tx that mimics the
+  // #124 select-then-conditionally-write flow.
+  withTenantContext: vi.fn((_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi
+              .fn()
+              .mockResolvedValue(
+                mockExistingTenantUser ? [mockExistingTenantUser] : [],
+              ),
+          })),
+        })),
+      })),
+      insert: vi.fn(() => ({
+        values: (v: unknown) => {
+          mockTxInsertValues(v);
+          return { onConflictDoUpdate: mockTxOnConflictDoUpdate };
+        },
+      })),
+    }),
+  ),
 }));
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
+  and: vi.fn((...conds) => ({ op: "and", conds })),
 }));
 
 const { requireAuth, requireRole, requireIntrospection } =
@@ -88,6 +121,7 @@ async function get(app: Hono, token?: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockExistingTenantUser = undefined;
 });
 
 // ── requireAuth ───────────────────────────────────────────────────────────────
@@ -124,6 +158,58 @@ describe("requireAuth", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as unknown;
     expect(body).toEqual({ ok: true });
+  });
+
+  // #124: the tenant_users sync must not write on every request — only
+  // insert for a brand-new user, or update when the synced fields drift.
+  describe("tenant_users sync (#124)", () => {
+    it("inserts the row when no tenant_user exists yet (new user)", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      mockExistingTenantUser = undefined;
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      expect(mockTxInsertValues).toHaveBeenCalledTimes(1);
+      expect(mockTxOnConflictDoUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips the write when the existing row already matches the JWT profile", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      mockExistingTenantUser = {
+        email: VALID_AUTH.email,
+        displayName: null,
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      expect(mockTxInsertValues).not.toHaveBeenCalled();
+      expect(mockTxOnConflictDoUpdate).not.toHaveBeenCalled();
+    });
+
+    it("writes the update when the existing row's profile has drifted", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      mockExistingTenantUser = {
+        email: "stale@example.com",
+        displayName: null,
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      expect(mockTxInsertValues).toHaveBeenCalledTimes(1);
+      expect(mockTxInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ email: VALID_AUTH.email }),
+      );
+      expect(mockTxOnConflictDoUpdate).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("returns 401 when API key is not found in db", async () => {

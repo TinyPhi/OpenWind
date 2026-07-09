@@ -1,5 +1,5 @@
 import { createMiddleware } from "hono/factory";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import type { Context, Next, MiddlewareHandler } from "hono";
 import { env } from "@platform/config";
@@ -176,34 +176,58 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
       // This must complete before the route handler runs so that
       // validateUserRefs() can find the user on their very first request
       // (fire-and-forget would race with the INSERT on a brand-new user).
-      // onConflictDoNothing hits the unique index and returns immediately on
-      // every subsequent request — the overhead is one index scan per JWT call.
       //
       // Why withTenantContext and not a plain db.insert()?
       // tenant_users has an RLS policy enforced via the `app.tenant_id` GUC
       // (see migration 0007).  Without withTenantContext setting that GUC,
       // the WITH CHECK clause evaluates to NULL and the INSERT is silently
-      // rejected by Postgres RLS.  The transaction overhead (~0.5 ms) is
-      // acceptable given this runs once per unique user per JWT expiry window.
-      // A lighter-weight set_config helper could reduce the overhead in future
-      // (tracked as a follow-up optimisation).
-      await withTenantContext(auth.tenantId, (tx) =>
-        tx
+      // rejected by Postgres RLS.
+      //
+      // (#124) Only insert/update when the row is missing or the profile
+      // actually changed — on the steady-state request (existing user, no
+      // profile change) this is a single indexed SELECT, not a write, so we
+      // avoid a HOT row rewrite on every authenticated request.
+      await withTenantContext(auth.tenantId, async (tx) => {
+        const [existing] = await tx
+          .select({
+            email: tenantUsers.email,
+            displayName: tenantUsers.displayName,
+          })
+          .from(tenantUsers)
+          .where(
+            and(
+              eq(tenantUsers.tenantId, auth.tenantId),
+              eq(tenantUsers.userId, auth.userId),
+            ),
+          )
+          .limit(1);
+
+        const nextEmail = auth.email || null;
+        const nextDisplayName = auth.displayName || null;
+
+        if (
+          existing?.email === nextEmail &&
+          existing.displayName === nextDisplayName
+        ) {
+          return;
+        }
+
+        await tx
           .insert(tenantUsers)
           .values({
             tenantId: auth.tenantId,
             userId: auth.userId,
-            email: auth.email || null,
-            displayName: auth.displayName || null,
+            email: nextEmail,
+            displayName: nextDisplayName,
           })
           .onConflictDoUpdate({
             target: [tenantUsers.tenantId, tenantUsers.userId],
             set: {
-              email: auth.email || null,
-              displayName: auth.displayName || null,
+              email: nextEmail,
+              displayName: nextDisplayName,
             },
-          }),
-      ).catch((err: unknown) => {
+          });
+      }).catch((err: unknown) => {
         logger.warn(
           { err, tenantId: auth.tenantId },
           "auth: failed to sync tenant user — user_ref validation may fail on this request",
