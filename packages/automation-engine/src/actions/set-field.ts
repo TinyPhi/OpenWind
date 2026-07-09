@@ -10,6 +10,7 @@ export async function executeSetFieldAction(
   tenantId: string,
   event: TriggerEvent,
   config: SetFieldConfig,
+  depth: number,
 ): Promise<void> {
   const instanceId =
     config.instanceId ?? ("instanceId" in event ? event.instanceId : undefined);
@@ -17,5 +18,6 @@ export async function executeSetFieldAction(
 
   await updateEntity(db, tenantId, instanceId, {
     fields: { [config.field]: config.value },
+    depth,
   });
 }

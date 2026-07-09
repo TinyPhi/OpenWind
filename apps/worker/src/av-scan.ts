@@ -247,6 +247,11 @@ avScanWorker.on("failed", (job, err) => {
             error: String(err),
             attemptsMade: job.attemptsMade,
           },
+          // system.error isn't an automation trigger (outbox-poller.ts's
+          // allowlist excludes it) and has no other consumer — dead-letter by
+          // design at write time, rather than leaving delivered_at NULL forever
+          // (which would make it look like an undelivered row nothing ever picks up).
+          deliveredAt: new Date(),
         });
       } catch (writeErr) {
         logger.error(
