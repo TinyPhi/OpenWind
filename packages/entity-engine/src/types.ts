@@ -116,3 +116,38 @@ export type BulkSetStateResult = {
   updatedIds: string[];
   errors: Array<{ index: number; id: string; code: string }>;
 };
+
+// Domain events written to outbox on entity create/assignment.
+// Field names match EntityCreatedV1Schema / EntityAssignedV1Schema in
+// packages/automation-engine/src/event-schemas.ts so the outbox poller's
+// TriggerEventSchema.safeParse() succeeds without transformation. Defined
+// locally (not imported from automation-engine) because entity-engine may
+// only depend on db — automation-engine already depends on entity-engine, so
+// the reverse import would be a cycle.
+//
+// MUST MATCH packages/automation-engine/src/event-schemas.ts's
+// EntityCreatedV1Schema / EntityAssignedV1Schema — nothing enforces this at
+// compile time. If that schema gains a required field, update these
+// interfaces too, or entity.created/entity.assigned outbox rows will start
+// failing TriggerEventSchema.safeParse() in production and every rule
+// triggered by them will silently stop firing (see the drift-detection
+// assertion in apps/api/tests/isolation/entity-created-trigger.isolation.test.ts).
+export interface EntityCreatedEvent {
+  eventType: "entity.created";
+  version: 1;
+  tenantId: string;
+  instanceId: string;
+  entityTypeId: string;
+  fields: Record<string, unknown>;
+  createdBy: string | null;
+}
+
+export interface EntityAssignedEvent {
+  eventType: "entity.assigned";
+  version: 1;
+  tenantId: string;
+  instanceId: string;
+  entityTypeId: string;
+  assigneeId: string;
+  assignedBy: string | null;
+}

@@ -1,3 +1,209 @@
+## 2026-07-08 — PR #138 human review round (all items fixed)
+
+@PrabhuVijit reviewed PR #138 with 1 blocker and 6 non-blocking items; user asked to fix
+all of them.
+
+- **REDACT-1 (blocker)**: `bulkCreateEntities`'s `getSensitivityMap` fell back to `?? []`
+  if a type was somehow missing from `typeMetaCache` — an empty sensitivity map means
+  `redactFields` redacts nothing, failing open on a security property. Changed to throw
+  `EntityError("ENTITY_TYPE_NOT_FOUND")` instead; the fallback was unreachable in practice
+  but "unreachable fallback that fails open on PII redaction" is exactly the bug class to
+  not leave in place.
+- **TEST-CLEANUP-1**: `entity-created-trigger.isolation.test.ts`'s `afterAll` now also
+  deletes `automationExecutions` for the test tenant (was only deleting `outboxEvents`) —
+  local re-runs against a non-fresh DB were accumulating execution rows.
+- **BULK-TEST-1**: added `apps/api/tests/isolation/bulk-entity-triggers.isolation.test.ts` —
+  real-DB tests proving `bulkCreateEntities` writes correctly-redacted `entity.created` rows
+  and `bulkUpdateEntities` fires `entity.assigned` only for items whose assignee actually
+  changed. The existing `bulk.test.ts` unit tests only checked `db.insert` call counts via
+  mocks, not payload shape or queryability.
+- **REDACT-INTERNAL**: documented in `redact.ts` why `internal`-sensitivity fields are
+  deliberately not redacted from the outbox (automation rules — including webhook actions —
+  are admin-only configured, the same trust level that already has direct read access to
+  `internal` fields via the entity API).
+- **EVENT-SCHEMA-DRIFT**: added a "MUST MATCH" comment in `entity-engine/src/types.ts`
+  naming the exact automation-engine schema these local interfaces have to track, plus a new
+  isolation test asserting a real `entity.created` outbox row parses cleanly against
+  automation-engine's actual `TriggerEventSchema` — catches drift at test time instead of
+  in production silently killing every `entity.created` rule.
+- **SEED-VALIDATION**: `apps/api/src/routes/automation-rules/schemas.ts`'s `ActionConfigSchema`
+  was a loose `{type: enum, config: z.record(unknown)}` — upgraded to a real discriminated
+  union with per-type config shapes (`set_field`, `transition`, `webhook` get their actual
+  field constraints; the 4 unimplemented `ActionType` variants stay permissive since their
+  shape doesn't exist yet). This only protects API-created/updated rules — module seed SQL
+  bypasses it entirely (raw INSERT), so also added matching comments in
+  `modules/helpdesk/seed/003_automation_rules.sql` and `executor.ts`'s `runAction` pointing
+  each at the other, since there's no automated check for the seed-SQL side of this gap.
+- **LINT-1**: filed [#141](../../issues/141) for the `pnpm lint` no-op found in the prior
+  review round, instead of leaving it as a PROGRESS.md note.
+
+### Verification
+
+- pnpm typecheck: PASS
+- pnpm test: PASS (330/330, up from 327)
+- pnpm test:isolation: PASS (121/121, up from 118 — 3 new tests: schema-drift-detection,
+  bulk-create redaction, bulk-update selective entity.assigned)
+- Diff-scoped `eslint --max-warnings=0`: clean
+
+### Next
+
+- #141 needs its own session (adding real `lint` scripts across every `package.json`)
+- Everything else from the original #126/#120 session's "Next" list still applies
+
+---
+
+## 2026-07-08 — Hardening #126: entity.created / entity.assigned triggers
+
+### Done
+
+- `packages/entity-engine/src/types.ts`: added local `EntityCreatedEvent`/`EntityAssignedEvent`
+  interfaces (plain TS, no cross-package import — entity-engine may only depend on `db` per
+  CLAUDE.md's dependency rule; automation-engine already depends on entity-engine, so the
+  reverse import would be a cycle). Mirrors how `workflow-engine` defines
+  `WorkflowTransitionedEvent` locally rather than importing automation-engine's zod schema.
+- `packages/entity-engine/src/engine.ts`: `createEntity`, `updateEntity` (both branches),
+  `bulkCreateEntities`, and `bulkUpdateEntities` now write `entity.created`/`entity.assigned`
+  rows to `outbox_events` in the same transaction. Closes #126.
+  - `entity.assigned` fires on any transition to a new non-null assignee — both
+    create-with-assignee and reassignment via update (confirmed with the user; the schema's
+    non-nullable `assigneeId` can't represent unassignment, so that case doesn't fire).
+  - Flagged with a code comment: this is the first path that makes #120's unbounded
+    outbox-routed automation recursion actually reachable (entity.created/assigned rules can
+    chain into create/update actions). Not fixed here — #120 stays out of scope.
+- **Found and fixed an adjacent bug while writing the Prove-It test**:
+  `modules/helpdesk/seed/003_automation_rules.sql`'s "auto-set priority" rule — the exact
+  example the consulting review cited as "silently does nothing" — used the wrong action
+  shape entirely: `{"type": "set-field", "field": ..., "value": ...}` when the executor's
+  `case "set_field"` expects `{"type": "set_field", "config": {"field": ..., "value": ...}}`.
+  Without this fix, the rule would have kept silently doing nothing after #126 landed, just
+  for a different reason. One-line seed SQL data fix, no schema/API change.
+- New isolation test `apps/api/tests/isolation/entity-created-trigger.isolation.test.ts` (5
+  tests) — Prove-It Pattern: written first, confirmed failing against unfixed `engine.ts`
+  (verified via `git stash` on just that file), confirmed passing after the fix. Proves the
+  full chain end-to-end: create an entity → real `outbox_events` row written → handed to
+  `executeAutomationRules` exactly as the outbox poller would → the helpdesk-style
+  `set_field` rule actually applies the field change. Also covers entity.assigned on create
+  and on reassignment, and that re-assigning to the same assignee doesn't re-fire.
+- Updated `engine.test.ts`/`bulk.test.ts` mocks and call-count assertions for the new
+  `outboxEvents` inserts (2 pre-existing `bulkCreateEntities` assertions needed
+  `toHaveBeenCalledTimes(1)` → `(2)`, since bulk create now does one batched insert into
+  `entityInstances` plus one batched insert into `outboxEvents`).
+- Branch: `fix/PLAT-126-entity-created-triggers`. Plan-lock approved by human before any
+  source edit; the `entity.assigned` semantics question (see above) was asked and answered
+  before drafting the plan, since the docs didn't disambiguate and the schema can't
+  represent every option.
+
+### /security-review finding (fixed before shipping): PII leaves the platform via the new outbox path
+
+The security review flagged that `entity.created`'s outbox payload carried the entity's full,
+unredacted field map (`fieldsWithFormulas`) — including `pii`/`financial`-classified fields —
+whereas every other secondary store that persists field values (`workflow_events.metadata`,
+`admin_audit_log`) redacts them first. Since `entity.created` never fired before this PR, this
+was the first path that let raw PII reach a table an admin-configured `webhook` automation
+action can forward to an external URL. Adversarially verified as real (not pre-existing —
+confirmed the entire outbox-insert block is new in this diff).
+
+Fixed: added `packages/entity-engine/src/redact.ts` (`redactFields`/`buildSensitivityMap`,
+same contract as `workflow-engine`'s equivalent, defined locally rather than imported —
+same dependency-direction reason as the event types above) and applied it to the `fields`
+value in both `createEntity`'s and `bulkCreateEntities`'s outbox payloads before insert.
+
+**While writing the Prove-It test for this fix, found a second, unrelated pre-existing bug**:
+`addEntityField` (`packages/entity-engine/src/engine.ts`) accepts a `sensitivity` parameter
+and threads it through the whole call chain — including the real API route
+(`POST /entity-types/:id/fields`, `apps/api/src/routes/entity-types/fields/create-field.ts`,
+already correctly forwarding `input.sensitivity`) — but its DB insert never actually included
+the `sensitivity` column, so every custom field ever created via that route silently fell back
+to the column default (`'internal'`), regardless of what the caller specified. This meant any
+tenant admin who marked a custom field `pii` or `financial` today gets none of the redaction
+protection everywhere that classification is supposed to enable — a bigger, platform-wide gap
+than the outbox-specific one above. No existing test caught it because the only test touching
+`sensitivity` (`audit-hook.test.ts`) mocks field metadata directly rather than exercising the
+real insert. One-line fix: added the missing `sensitivity: field.sensitivity` to the insert
+`.values()`. The new isolation test's redaction case exercises this real path end-to-end
+(creates the field via `addEntityField` with `sensitivity: "pii"`, then asserts redaction),
+so it doubles as the regression test for both bugs together.
+
+### /code-review findings (8-angle fan-out) — fixed before shipping
+
+- **`workflow_events.metadata` still leaked raw PII, and my own code comment falsely claimed
+  it didn't.** The first redaction fix only covered the new `entity.created` outbox path;
+  `createEntity`'s pre-existing `workflow_events` insert (for workflow-attached entities) and
+  `updateEntity`'s field-diff (`changed[key] = {old, new}`) both still wrote raw field values.
+  Fixed both: `createEntity` now redacts once and reuses the result for both writes;
+  `updateEntity`'s diff now computes on **raw** values (redacting first would make every
+  pii/financial change look like a no-op, since both sides collapse to the same
+  `"[REDACTED]"` string) and redacts only what gets stored.
+- **`assignedBy` on `entity.assigned` was computed inconsistently across all 6 call sites** —
+  `createEntity` used `actorId ?? createdBy`, `updateEntity`'s two branches and
+  `bulkUpdateEntities`'s two branches used `actorId ?? null` (dropping the creator fallback),
+  and `bulkCreateEntities` used `createdBy` alone (dropping `actorId` entirely — it never had
+  access to it, since the per-row `auditMeta` didn't carry it). Extracted a single
+  `resolveAssignedBy(actorId, createdBy)` and used it everywhere, and added `actorId` to
+  `bulkCreateEntities`'s parallel `auditMeta` array so the real actor is available per row.
+- **`bulkCreateEntities`'s outbox flatMap rebuilt a sensitivity map per row** instead of using
+  the function's existing per-type cache (`typeMetaCache`) — hoisted to a `getSensitivityMap`
+  helper keyed by `entityTypeId`.
+- **`bulkUpdateEntities` did one `outboxEvents` insert per item inside its `Promise.all`**
+  instead of batching like `bulkCreateEntities` does — N round trips instead of 1 for a
+  100-item bulk update. Collected rows into an array and moved the insert to after
+  `Promise.all`.
+- **Isolation test file exceeded testing-conventions.md's ~200-line split threshold** (264
+  lines, two logical concerns). Split into
+  `entity-created-trigger.isolation.test.ts` and `entity-assigned-trigger.isolation.test.ts`.
+
+Declined to fix (documented instead):
+- **#120 is now more exploitable, not just reachable**: `entity.created` fires on *every*
+  entity creation with zero tenant configuration required, unlike `workflow.transitioned`
+  which needs a deliberately configured multi-step workflow to loop. Still out of scope for
+  #126 (approved plan boundary), but the severity note is worth carrying into whoever picks
+  up #120 next.
+- **Helpdesk seed's `WHERE NOT EXISTS` idempotency guard matches on rule name, not content**,
+  so tenants that installed the module before this PR's action-shape fix keep the old broken
+  payload forever (reseeding doesn't overwrite existing rows, and blindly overwriting could
+  destroy a tenant's manual customization). Not fixed: no real tenants are onboarded yet
+  (Phase 2 complete, pilot NOT YET per the consulting review), so current-world impact is
+  zero; a backfill migration would need a product decision about detecting "still has the
+  broken shape" vs. "tenant customized it," not just a mechanical fix.
+- **No backfill for `entity_fields` rows already stuck at `sensitivity = 'internal'`** from
+  the `addEntityField` bug (fixed above, going forward only) — same reasoning: which existing
+  fields were *meant* to be `pii`/`financial` isn't mechanically knowable, needs a tenant/
+  product decision, not an automated fix.
+
+### Verification (CI-equivalent local run, same method as PR #135)
+
+- pnpm typecheck: PASS
+- pnpm lint: N/A — discovered `pnpm lint` (`turbo run lint`) is a pre-existing repo-wide
+  no-op: no package.json anywhere defines a `lint` script, so `turbo run lint` matches
+  nothing and trivially succeeds. Confirmed by running `npx eslint` directly on the repo
+  root (found real pre-existing errors in untouched files) and then scoped to just this
+  PR's changed files (zero errors/warnings). Worth a follow-up issue — flagging, not fixing,
+  since it's unrelated to #126 and affects the whole repo/CI, not just this change.
+- pnpm test: PASS (327/327, up from 321)
+- pnpm test:isolation: PASS (118/118, up from 112 — the new entity-created/entity-assigned
+  trigger tests, split across two files)
+
+### Next
+
+1. #127 — guard `setEntityState` / `bulkSetState` (audit/compliance side-door)
+2. Doc fixes from the review: `roadmap-tracker.md` Phase 2 gate wording, `platform-vision.md`
+   Mermaid diagram, ADR-004 reference — already shipped in PR #137 (awaiting team merge
+   approval as of this session)
+3. Remaining hardening items #120, #123, #124, #125, #128, #129
+4. #136 — design + implement RLS policies for `entity_types`/`workflows`/`workflow_states`/
+   `workflow_transitions`
+5. New: file a follow-up issue for the `pnpm lint` no-op discovered above
+
+### Open questions
+
+- None blocking on #126 itself. Flagging for awareness: `bulkCreateEntities`/
+  `bulkUpdateEntities` now emit outbox events per existing helpdesk-seed-style rules — any
+  tenant that already has module seeds installed will see previously-silent automations
+  start firing on the next deploy (not a bug, a behavior change worth a changelog note,
+  same category as the entity.created note in the original consulting review).
+
+---
+
 ## 2026-07-08 — Post-PR #137 cleanup
 
 ### Done
