@@ -1070,9 +1070,18 @@ export async function bulkCreateEntities(
   ): Map<string, FieldSensitivity> {
     const cached = sensitivityByType.get(entityTypeId);
     if (cached) return cached;
-    const map = buildSensitivityMap(
-      typeMetaCache.get(entityTypeId)?.allFields ?? [],
-    );
+    const typeMeta = typeMetaCache.get(entityTypeId);
+    if (!typeMeta) {
+      // Every entityTypeId reaching this point came from a row the validation
+      // loop above already accepted, which always populates typeMetaCache for
+      // that type first — this should be unreachable. Failing loudly here
+      // instead of falling back to `?? []` matters because an empty
+      // sensitivity map makes redactFields redact nothing: a silent fallback
+      // would fail OPEN on a security-sensitive property (PII/financial
+      // fields would leak into the outbox unredacted).
+      throw new EntityError("ENTITY_TYPE_NOT_FOUND", { entityTypeId });
+    }
+    const map = buildSensitivityMap(typeMeta.allFields);
     sensitivityByType.set(entityTypeId, map);
     return map;
   }

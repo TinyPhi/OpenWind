@@ -107,7 +107,6 @@ Declined to fix (documented instead):
   `automation-depth-recursion.isolation.test.ts` and `entity-assigned-depth.isolation.test.ts`.
   Prove-It Pattern: written to fail on unfixed code, confirmed passing after the fix,
   including catching my own stale-dist false negative along the way)
-- Diff-scoped `eslint --max-warnings=0`: clean
 
 ### Next
 
@@ -118,12 +117,65 @@ Declined to fix (documented instead):
 3. Remaining hardening items #123, #124, #125, #128, #129
 4. #136 — design + implement RLS policies for `entity_types`/`workflows`/`workflow_states`/
    `workflow_transitions`
-5. File a follow-up issue for the `pnpm lint` no-op discovered in the #126 session
 
 ### Open questions
 
 - None blocking. The `set_field`/`entity.assigned` depth plumbing is genuinely unreachable
   by any current action — flagged above, not treated as a live exploit.
+
+---
+
+## 2026-07-08 — PR #138 human review round (all items fixed)
+
+@PrabhuVijit reviewed PR #138 with 1 blocker and 6 non-blocking items; user asked to fix
+all of them.
+
+- **REDACT-1 (blocker)**: `bulkCreateEntities`'s `getSensitivityMap` fell back to `?? []`
+  if a type was somehow missing from `typeMetaCache` — an empty sensitivity map means
+  `redactFields` redacts nothing, failing open on a security property. Changed to throw
+  `EntityError("ENTITY_TYPE_NOT_FOUND")` instead; the fallback was unreachable in practice
+  but "unreachable fallback that fails open on PII redaction" is exactly the bug class to
+  not leave in place.
+- **TEST-CLEANUP-1**: `entity-created-trigger.isolation.test.ts`'s `afterAll` now also
+  deletes `automationExecutions` for the test tenant (was only deleting `outboxEvents`) —
+  local re-runs against a non-fresh DB were accumulating execution rows.
+- **BULK-TEST-1**: added `apps/api/tests/isolation/bulk-entity-triggers.isolation.test.ts` —
+  real-DB tests proving `bulkCreateEntities` writes correctly-redacted `entity.created` rows
+  and `bulkUpdateEntities` fires `entity.assigned` only for items whose assignee actually
+  changed. The existing `bulk.test.ts` unit tests only checked `db.insert` call counts via
+  mocks, not payload shape or queryability.
+- **REDACT-INTERNAL**: documented in `redact.ts` why `internal`-sensitivity fields are
+  deliberately not redacted from the outbox (automation rules — including webhook actions —
+  are admin-only configured, the same trust level that already has direct read access to
+  `internal` fields via the entity API).
+- **EVENT-SCHEMA-DRIFT**: added a "MUST MATCH" comment in `entity-engine/src/types.ts`
+  naming the exact automation-engine schema these local interfaces have to track, plus a new
+  isolation test asserting a real `entity.created` outbox row parses cleanly against
+  automation-engine's actual `TriggerEventSchema` — catches drift at test time instead of
+  in production silently killing every `entity.created` rule.
+- **SEED-VALIDATION**: `apps/api/src/routes/automation-rules/schemas.ts`'s `ActionConfigSchema`
+  was a loose `{type: enum, config: z.record(unknown)}` — upgraded to a real discriminated
+  union with per-type config shapes (`set_field`, `transition`, `webhook` get their actual
+  field constraints; the 4 unimplemented `ActionType` variants stay permissive since their
+  shape doesn't exist yet). This only protects API-created/updated rules — module seed SQL
+  bypasses it entirely (raw INSERT), so also added matching comments in
+  `modules/helpdesk/seed/003_automation_rules.sql` and `executor.ts`'s `runAction` pointing
+  each at the other, since there's no automated check for the seed-SQL side of this gap.
+- **LINT-1**: filed [#141](../../issues/141) for the `pnpm lint` no-op found in the prior
+  review round, instead of leaving it as a PROGRESS.md note.
+
+### Verification
+
+- pnpm typecheck: PASS
+- pnpm test: PASS (330/330, up from 327)
+- pnpm test:isolation: PASS (121/121, up from 118 — 3 new tests: schema-drift-detection,
+  bulk-create redaction, bulk-update selective entity.assigned)
+- Diff-scoped `eslint --max-warnings=0`: clean
+
+### Next
+
+- #141 needs its own session (adding real `lint` scripts across every `package.json`)
+- Everything else from the original #126/#120 session's "Next" list still applies
 
 ---
 
@@ -276,6 +328,36 @@ Declined to fix (documented instead):
   tenant that already has module seeds installed will see previously-silent automations
   start firing on the next deploy (not a bug, a behavior change worth a changelog note,
   same category as the entity.created note in the original consulting review).
+
+---
+
+## 2026-07-08 — Post-PR #137 cleanup
+
+### Done
+
+- Fixed two cosmetic residuals flagged in PR #137 review:
+  - `docs/reviews/2026-06-29-consulting-review.md` §6 item 12 struck through — finding
+    was retracted in §2 (no field type discrepancy exists); open action item was misleading.
+  - `docs/sup-docs/week-log.md` 2026-07-08 entry corrected — ADR-004 is now second in the
+    CLAUDE.md reference list (not "first"), description uses the softened wording.
+- `docs/sup-docs/roadmap-tracker.md` last-updated line updated to include PR #137.
+
+### Verification
+
+- pnpm typecheck: N/A — docs-only
+- pnpm lint: N/A — docs-only
+- pnpm test: N/A — docs-only
+- pnpm test:isolation: N/A — docs-only
+
+### Next
+
+1. #126 — emit `entity.created` / `entity.assigned` to the outbox (core function, currently dead automations)
+2. #127 — guard `setEntityState` / `bulkSetState` (audit/compliance side-door)
+3. Remaining hardening items #120, #123, #124, #125, #128, #129
+
+### Open questions
+
+- None blocking.
 
 ---
 
