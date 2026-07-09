@@ -1,5 +1,5 @@
 import { createMiddleware } from "hono/factory";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import type { Context, Next, MiddlewareHandler } from "hono";
 import { env } from "@platform/config";
@@ -322,29 +322,38 @@ async function resolveApiKey(
 ): Promise<AuthContext | null> {
   const keyHash = hashApiKey(rawKey);
 
-  const [row] = await db
-    .select()
-    .from(apiKeys)
-    .where(eq(apiKeys.keyHash, keyHash))
-    .limit(1);
+  // (#124-adjacent bug) api_keys has an RLS policy requiring app.tenant_id,
+  // but we don't know the tenant until AFTER this lookup succeeds — so it
+  // can't go through withTenantContext like every other tenant-scoped query.
+  // resolve_api_key_by_hash (migration 0031) is a narrowly-scoped
+  // SECURITY DEFINER function that bypasses RLS for this one lookup-by-secret
+  // and returns only id/tenant_id/scopes, never key_hash itself.
+  const result = await db.execute<{
+    id: string;
+    tenant_id: string;
+    scopes: string[];
+  }>(sql`select * from resolve_api_key_by_hash(${keyHash}::text)`);
+  const row = result[0];
 
   if (!row) return null;
 
-  // Best-effort: update last_used_at without blocking the request
-  void db
-    .update(apiKeys)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(apiKeys.id, row.id))
-    .catch((err: unknown) => {
-      logger.warn(
-        { error: String(err), keyId: row.id },
-        "Failed to update api_key last_used_at",
-      );
-    });
+  // Now that the tenant is known, this write goes through the normal
+  // RLS-compliant path. Best-effort: don't block the request on it.
+  void withTenantContext(row.tenant_id, (tx) =>
+    tx
+      .update(apiKeys)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(apiKeys.id, row.id)),
+  ).catch((err: unknown) => {
+    logger.warn(
+      { error: String(err), keyId: row.id },
+      "Failed to update api_key last_used_at",
+    );
+  });
 
   return {
     userId: `apikey:${row.id}`,
-    tenantId: row.tenantId,
+    tenantId: row.tenant_id,
     roles: row.scopes,
     email: "",
     displayName: `API Key ${row.id.slice(0, 8)}`,

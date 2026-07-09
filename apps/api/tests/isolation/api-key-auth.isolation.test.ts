@@ -1,0 +1,162 @@
+/**
+ * Isolation tests for API key authentication (#124-adjacent fix).
+ *
+ * api_keys has an RLS policy requiring app.tenant_id, but resolveApiKey must
+ * look a key up by hash BEFORE it knows which tenant it belongs to -- that's
+ * the whole point of the lookup. Migration 0031 adds a narrowly-scoped
+ * SECURITY DEFINER function (resolve_api_key_by_hash) that bypasses RLS for
+ * this one lookup-by-secret. These tests prove: a tenant's own key resolves
+ * to that tenant (never another one), an unknown hash resolves to nothing,
+ * and a full request through requireAuth() authenticates end-to-end against
+ * real Postgres (no mocks).
+ *
+ * Uses a real Postgres database. Two isolated tenants (A and B) are seeded
+ * before the suite and torn down after.
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { sql, eq } from "drizzle-orm";
+import { Hono } from "hono";
+import { db, withTenantContext, apiKeys, tenants } from "@platform/db";
+import { requireAuth, hashApiKey } from "@platform/auth";
+import type { AuthContext } from "@platform/auth";
+
+const TENANT_A = "aaaaaaaa-0000-4000-a000-000000000033";
+const TENANT_B = "bbbbbbbb-0000-4000-b000-000000000034";
+
+const RAW_KEY_A = "sk_isolation_test_tenant_a";
+const RAW_KEY_B = "sk_isolation_test_tenant_b";
+
+let keyAId: string;
+let keyBId: string;
+
+beforeAll(async () => {
+  // requireAuth's tenant-status check (resolveTenantStatus) reads the plain
+  // `tenants` table directly, so both tenants need a real row to resolve as
+  // "active" rather than "deleted" (tenants has no RLS -- see db-conventions).
+  await db.insert(tenants).values([
+    {
+      id: TENANT_A,
+      name: "Isolation Test A",
+      slug: `isolation-test-a-${TENANT_A}`,
+    },
+    {
+      id: TENANT_B,
+      name: "Isolation Test B",
+      slug: `isolation-test-b-${TENANT_B}`,
+    },
+  ]);
+
+  const [rowA] = await withTenantContext(TENANT_A, (tx) =>
+    tx
+      .insert(apiKeys)
+      .values({
+        tenantId: TENANT_A,
+        name: "isolation-test-a",
+        keyHash: hashApiKey(RAW_KEY_A),
+        scopes: ["agent"],
+      })
+      .returning(),
+  );
+  const [rowB] = await withTenantContext(TENANT_B, (tx) =>
+    tx
+      .insert(apiKeys)
+      .values({
+        tenantId: TENANT_B,
+        name: "isolation-test-b",
+        keyHash: hashApiKey(RAW_KEY_B),
+        scopes: ["agent"],
+      })
+      .returning(),
+  );
+  if (!rowA || !rowB) throw new Error("api key insert failed");
+  keyAId = rowA.id;
+  keyBId = rowB.id;
+});
+
+afterAll(async () => {
+  await withTenantContext(TENANT_A, (tx) =>
+    tx.delete(apiKeys).where(eq(apiKeys.id, keyAId)),
+  );
+  await withTenantContext(TENANT_B, (tx) =>
+    tx.delete(apiKeys).where(eq(apiKeys.id, keyBId)),
+  );
+  await db.delete(tenants).where(eq(tenants.id, TENANT_A));
+  await db.delete(tenants).where(eq(tenants.id, TENANT_B));
+});
+
+describe("resolve_api_key_by_hash (migration 0031)", () => {
+  it("resolves tenant A's key to tenant A, never tenant B", async () => {
+    const rows = await db.execute<{
+      id: string;
+      tenant_id: string;
+      scopes: string[];
+    }>(
+      sql`select * from resolve_api_key_by_hash(${hashApiKey(RAW_KEY_A)}::text)`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(keyAId);
+    expect(rows[0]?.tenant_id).toBe(TENANT_A);
+  });
+
+  it("resolves tenant B's key to tenant B, never tenant A", async () => {
+    const rows = await db.execute<{
+      id: string;
+      tenant_id: string;
+      scopes: string[];
+    }>(
+      sql`select * from resolve_api_key_by_hash(${hashApiKey(RAW_KEY_B)}::text)`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(keyBId);
+    expect(rows[0]?.tenant_id).toBe(TENANT_B);
+  });
+
+  it("returns nothing for an unknown key hash", async () => {
+    const rows = await db.execute(
+      sql`select * from resolve_api_key_by_hash(${hashApiKey("sk_totally_unknown")}::text)`,
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it("never exposes key_hash in its result columns", async () => {
+    const rows = await db.execute<Record<string, unknown>>(
+      sql`select * from resolve_api_key_by_hash(${hashApiKey(RAW_KEY_A)}::text)`,
+    );
+    expect(Object.keys(rows[0] ?? {})).not.toContain("key_hash");
+  });
+});
+
+describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () => {
+  function makeApp() {
+    const app = new Hono<{ Variables: { auth: AuthContext } }>();
+    app.get("/whoami", requireAuth(db), (c) => c.json({ auth: c.get("auth") }));
+    return app;
+  }
+
+  it("authenticates tenant A's key and scopes auth context to tenant A", async () => {
+    const res = await makeApp().request("/whoami", {
+      headers: { Authorization: `Bearer ${RAW_KEY_A}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { auth: AuthContext };
+    expect(body.auth.tenantId).toBe(TENANT_A);
+  });
+
+  it("rejects an unknown API key with 401", async () => {
+    const res = await makeApp().request("/whoami", {
+      headers: { Authorization: "Bearer sk_totally_unknown" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("records last_used_at on the correct tenant's row via the RLS-compliant write path", async () => {
+    await makeApp().request("/whoami", {
+      headers: { Authorization: `Bearer ${RAW_KEY_A}` },
+    });
+    const [row] = await withTenantContext(TENANT_A, (tx) =>
+      tx.select().from(apiKeys).where(eq(apiKeys.id, keyAId)),
+    );
+    expect(row?.lastUsedAt).not.toBeNull();
+  });
+});

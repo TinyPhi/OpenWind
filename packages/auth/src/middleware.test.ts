@@ -85,6 +85,12 @@ vi.mock("@platform/db", () => ({
           return { onConflictDoUpdate: mockTxOnConflictDoUpdate };
         },
       })),
+      // Used by resolveApiKey's last_used_at write once the tenant is known.
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn().mockResolvedValue(undefined),
+        })),
+      })),
     }),
   ),
 }));
@@ -92,6 +98,7 @@ vi.mock("@platform/db", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
   and: vi.fn((...conds) => ({ op: "and", conds })),
+  sql: (...args: unknown[]) => ({ sql: args }),
 }));
 
 const { requireAuth, requireRole, requireIntrospection } =
@@ -214,13 +221,7 @@ describe("requireAuth", () => {
 
   it("returns 401 when API key is not found in db", async () => {
     const mockDb = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([]),
-          })),
-        })),
-      })),
+      execute: vi.fn().mockResolvedValue([]),
     };
 
     const app = makeApp([
@@ -231,36 +232,18 @@ describe("requireAuth", () => {
   });
 
   it("resolves auth from API key when key matches db row", async () => {
+    // (#124-adjacent) resolveApiKey now looks the key up via the
+    // resolve_api_key_by_hash SECURITY DEFINER function (execute), not a
+    // plain select, since api_keys' RLS policy can't be satisfied before the
+    // tenant is known. resolveTenantStatus's select still goes through the
+    // module-level db (mockModuleDbSelect), already wired for "active".
     const fakeRow = {
       id: "key-id-1",
-      tenantId: "tenant-abc",
+      tenant_id: "tenant-abc",
       scopes: ["read"],
     };
-    const mockDbSelect = vi
-      .fn()
-      // First call: resolveApiKey lookup
-      .mockReturnValueOnce({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([fakeRow]),
-          })),
-        })),
-      })
-      // Second call: resolveTenantStatus lookup
-      .mockReturnValueOnce({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([{ status: "active" }]),
-          })),
-        })),
-      });
     const mockDb = {
-      select: mockDbSelect,
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn().mockResolvedValue([]),
-        })),
-      })),
+      execute: vi.fn().mockResolvedValue([fakeRow]),
     };
 
     const app = makeApp([
@@ -341,22 +324,11 @@ describe("requireIntrospection", () => {
   it("skips introspection for API keys (sk_ prefix)", async () => {
     const fakeRow = {
       id: "key-id-1",
-      tenantId: "tenant-abc",
+      tenant_id: "tenant-abc",
       scopes: ["read"],
     };
     const mockDb = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([fakeRow]),
-          })),
-        })),
-      })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn().mockResolvedValue([]),
-        })),
-      })),
+      execute: vi.fn().mockResolvedValue([fakeRow]),
     };
 
     const app = new Hono();
