@@ -12,6 +12,21 @@ let activeTick: Promise<void> | null = null;
 async function tick(): Promise<void> {
   try {
     await db.transaction(async (tx) => {
+      // Only claims outbox event types that are actually automation triggers —
+      // i.e. the exact literals in TriggerEventSchema's discriminated union
+      // (packages/automation-engine/src/event-schemas.ts). A positive allowlist,
+      // not a negative denylist: a denylist means every *new* outbox event type
+      // that isn't an automation trigger (workflow.sla_scheduled, system.error,
+      // and any future Phase 3 connector/system event) is claimed by default and
+      // silently breaks its real consumer — which is exactly how the
+      // workflow.sla_scheduled bug happened (this poller's 2s interval usually
+      // wins the FOR UPDATE SKIP LOCKED race against sla-scheduler.ts's dedicated
+      // 10s query, marks the row delivered, and hands it to automationWorker,
+      // which rejects it with INVALID_EVENT_PAYLOAD — so sla-scheduler never sees
+      // the row again and the SLA breach check is silently never scheduled).
+      // With an allowlist, a new non-trigger event type is excluded by default
+      // instead of requiring someone to remember to add it here. Found while
+      // investigating #120's outbox-depth handling.
       const rows = await tx.execute<{
         id: string;
         tenant_id: string;
@@ -22,6 +37,7 @@ async function tick(): Promise<void> {
         SELECT id, tenant_id, event_type, version, payload
         FROM outbox_events
         WHERE delivered_at IS NULL
+          AND event_type IN ('workflow.transitioned', 'workflow.sla_breached', 'entity.created', 'entity.assigned')
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT ${BATCH_SIZE}
