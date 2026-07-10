@@ -7,7 +7,7 @@ import {
   requireIntrospection,
   hashApiKey,
 } from "@platform/auth";
-import { db, apiKeys } from "@platform/db";
+import { withTenantContext, apiKeys } from "@platform/db";
 import { factory } from "./factory.js";
 
 const CreateApiKeySchema = z.object({
@@ -30,20 +30,22 @@ export const createApiKeyHandler = factory.createHandlers(
     const rawKey = `sk_live_${randomBytes(32).toString("base64url")}`;
     const keyHash = hashApiKey(rawKey);
 
-    const [created] = await db
-      .insert(apiKeys)
-      .values({
-        tenantId,
-        name,
-        keyHash,
-        scopes,
-      })
-      .returning({
-        id: apiKeys.id,
-        name: apiKeys.name,
-        scopes: apiKeys.scopes,
-        createdAt: apiKeys.createdAt,
-      });
+    const [created] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .insert(apiKeys)
+        .values({
+          tenantId,
+          name,
+          keyHash,
+          scopes,
+        })
+        .returning({
+          id: apiKeys.id,
+          name: apiKeys.name,
+          scopes: apiKeys.scopes,
+          createdAt: apiKeys.createdAt,
+        }),
+    );
 
     return c.json(
       {

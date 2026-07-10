@@ -8,7 +8,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { queryAuditLog } from "@platform/audit";
 import type { AuditActorType } from "@platform/audit";
 import { factory } from "./factory.js";
@@ -33,17 +33,19 @@ export const getAuditLogHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
     const q = c.req.valid("query");
 
-    const result = await queryAuditLog(db, {
-      tenantId,
-      actorId: q.actorId,
-      actorType: q.actorType as AuditActorType | undefined,
-      resourceType: q.resourceType,
-      resourceId: q.resourceId,
-      from: q.from !== undefined ? new Date(q.from) : undefined,
-      to: q.to !== undefined ? new Date(q.to) : undefined,
-      cursor: q.cursor,
-      limit: q.limit,
-    });
+    const result = await withTenantContext(tenantId, (tx) =>
+      queryAuditLog(tx, {
+        tenantId,
+        actorId: q.actorId,
+        actorType: q.actorType as AuditActorType | undefined,
+        resourceType: q.resourceType,
+        resourceId: q.resourceId,
+        from: q.from !== undefined ? new Date(q.from) : undefined,
+        to: q.to !== undefined ? new Date(q.to) : undefined,
+        cursor: q.cursor,
+        limit: q.limit,
+      }),
+    );
 
     return c.json({
       data: result.entries,

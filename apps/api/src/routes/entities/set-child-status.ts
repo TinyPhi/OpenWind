@@ -2,7 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db, entityInstances, withTenantContext } from "@platform/db";
+import { entityInstances, withTenantContext } from "@platform/db";
 import { getParentId, updateEntity } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -23,7 +23,9 @@ export const setChildStatusHandler = factory.createHandlers(
 
     try {
       // Verify this is actually a child ticket
-      const parentId = await getParentId(db, tenantId, instanceId);
+      const parentId = await withTenantContext(tenantId, (tx) =>
+        getParentId(tx, tenantId, instanceId),
+      );
       if (!parentId) {
         return c.json(
           {
