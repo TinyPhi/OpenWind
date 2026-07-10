@@ -11,7 +11,13 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-const { extractAuthContext } = await import("./jwks.js");
+const mockJwtVerify = vi.fn();
+vi.mock("jose", () => ({
+  createRemoteJWKSet: vi.fn(() => ({})),
+  jwtVerify: (...args: unknown[]) => mockJwtVerify(...args),
+}));
+
+const { extractAuthContext, verifyJwt } = await import("./jwks.js");
 import type { ZitadelClaims } from "./types.js";
 import type { JWTPayload } from "jose";
 
@@ -69,5 +75,29 @@ describe("extractAuthContext", () => {
     const claims: Claims = { ...BASE_CLAIMS, email: undefined };
     const result = extractAuthContext(claims);
     expect(result?.email).toBe("");
+  });
+});
+
+// #3: audience validation must always be enforced (ZITADEL_AUDIENCE is a
+// required, non-empty config value — see packages/config/src/env.ts).
+describe("verifyJwt", () => {
+  it("always passes the configured audience to jose's jwtVerify", async () => {
+    mockJwtVerify.mockResolvedValueOnce({ payload: BASE_CLAIMS });
+
+    await verifyJwt("some.jwt.token");
+
+    expect(mockJwtVerify).toHaveBeenCalledWith(
+      "some.jwt.token",
+      expect.anything(),
+      expect.objectContaining({ audience: "platform-api" }),
+    );
+  });
+
+  it("returns null when jwtVerify rejects (e.g. audience mismatch)", async () => {
+    mockJwtVerify.mockRejectedValueOnce(new Error("audience mismatch"));
+
+    const result = await verifyJwt("some.jwt.token");
+
+    expect(result).toBeNull();
   });
 });

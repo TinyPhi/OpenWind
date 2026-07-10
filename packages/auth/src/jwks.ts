@@ -42,9 +42,9 @@ export async function verifyJwt(
       {
         issuer: env.ZITADEL_ISSUER,
         // Zitadel puts the PROJECT ID in aud, not the OIDC client ID.
-        // Skip audience validation unless ZITADEL_AUDIENCE is explicitly set to the project ID.
-        // Signature + issuer verification is the primary security guard.
-        ...(env.ZITADEL_AUDIENCE ? { audience: env.ZITADEL_AUDIENCE } : {}),
+        // ZITADEL_AUDIENCE is required and non-empty (packages/config/src/env.ts),
+        // so audience validation is always enforced here.
+        audience: env.ZITADEL_AUDIENCE,
         // Allow up to 30 s of clock skew between Zitadel and the API container.
         // Without this, tokens with nbf = "now" fail if the server clock is a
         // few seconds behind Zitadel, causing 401s on the very first request
@@ -58,7 +58,7 @@ export async function verifyJwt(
       {
         error: String(err),
         issuer: env.ZITADEL_ISSUER,
-        audience: env.ZITADEL_AUDIENCE || "(not set)",
+        audience: env.ZITADEL_AUDIENCE,
       },
       "JWT verification failed",
     );

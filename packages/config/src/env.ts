@@ -58,8 +58,11 @@ const EnvSchema = z
     // matches localhost:8080 in the JWT, but we fetch keys via container hostname).
     ZITADEL_JWKS_URL: z.string().url().optional(),
     // Required — used by JWKS middleware to validate the JWT aud claim.
+    // .min(1): an empty string would otherwise pass z.string() and silently
+    // disable audience validation at runtime (jwks.ts) instead of failing
+    // closed here at boot.
     // ZITADEL_PROJECT_ID may fall back to this value in zitadel-management.ts.
-    ZITADEL_AUDIENCE: z.string(),
+    ZITADEL_AUDIENCE: z.string().min(1),
     // Dev fallback: used as tenantId when urn:zitadel:iam:org:id is absent (instance admin login).
     // Must never be set in production — it bypasses tenant isolation for instance-admin logins.
     DEV_TENANT_ID: z.string().optional(),
