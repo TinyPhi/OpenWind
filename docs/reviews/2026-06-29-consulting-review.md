@@ -3,7 +3,7 @@
 **Date:** 2026-06-29  
 **Prompt:** _"As a top-notch business and technical consultant, review and analyze the vision, architecture, and other documents for OpenWind. What can be improved, updated, or brought up to date?"_  
 **Phase:** 2 complete → Pre-Phase 3 hardening sprint in progress (#120–#129)  
-**Status as of 2026-07-08:** #121 and #122 closed via [PR #135](../../pull/135) — RLS is now enforced via `SET LOCAL ROLE app_user`, and the three cross-tenant isolation tests run for real. See ✅ RESOLVED notes inline below. A new follow-up, [#136](../../issues/136), was filed during that PR's review for a related but separately-scoped gap (no RLS policy at all on `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`).  
+**Status as of 2026-07-09:** #121 and #122 closed via [PR #135](../../pull/135) — RLS is now enforced via `SET LOCAL ROLE app_user`, and the three cross-tenant isolation tests run for real. #126 closed via [PR #138](../../pull/138) — `entity.created`/`entity.assigned` now emit to the outbox. See ✅ RESOLVED notes inline below. A new follow-up, [#136](../../issues/136), was filed during the #135 review for a related but separately-scoped gap (no RLS policy at all on `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`).  
 **Related reviews:** Follows the 2026-06-23 three-lens external review (CTO architecture + risk,
 Product capability, UX adoption — see `week-log.md`), which reconciled CLAUDE.md/VISION.md/
 db-conventions.md with code reality and first identified the #120–#129 hardening backlog. This
@@ -19,9 +19,9 @@ OpenWind has a well-conceived, coherent architecture. The three core engines (En
 
 The platform is architecturally sound but not yet ready to trust with real customer data.
 
-**Update, 2026-07-08:** Blocker 1 (RLS enforcement, #121/#122) is closed — see the inline
-✅ RESOLVED notes in §2 and §4/§5. Blockers 2–4 (#127, #126, #125) remain open; the
-severity picture above still applies to those.
+**Update, 2026-07-09:** Blocker 1 (RLS enforcement, #121/#122) and Blocker 3 (`entity.created`
+never fires, #126) are closed — see the inline ✅ RESOLVED notes in §2 and §4/§5. Blockers 2
+and 4 (#127, #125) remain open; the severity picture above still applies to those.
 
 ---
 
@@ -126,7 +126,7 @@ Good ADR coverage for Phases 1–2. Phase 3 onwards has **zero architectural dec
 | AI layer (Phase 3C)                          | `packages/ai`: 7 lines, `createClient()` only                                                    | No RAG, no prompt templates, no token counting                                   |
 | 7 module seeds complete                      | Helpdesk: 5 structured SQL files ✅; 6 others: 1 monolithic file each                            | 6/7 lack automation rules; only helpdesk follows the 4-file pattern from ADR-004 |
 | Novu notification delivery                   | `@platform/notifications` wrapper complete                                                       | `notify` action in automation engine only logs (#125)                            |
-| `entity.created` / `entity.assigned` trigger | Defined in `event-schemas.ts`                                                                    | Never emitted by entity engine (#126)                                            |
+| `entity.created` / `entity.assigned` trigger | Defined in `event-schemas.ts`                                                                    | ✅ RESOLVED (PR #138, 2026-07-09) — #126 closed, now emitted by entity engine    |
 | `setEntityState` / `bulkSetState`            | API exists                                                                                       | Bypasses workflow engine: no `workflow_events`, no outbox, no audit trail (#127) |
 | RLS enforced per request                     | `withTenantContext` / `executeRawInTenantContext` issue `SET LOCAL ROLE app_user` before the GUC | ✅ RESOLVED (PR #135, 2026-07-08) — #121 closed                                  |
 | Customer portal                              | Next.js app present, role-gated                                                                  | `file`, `user_ref`, `entity_ref`, `formula` field inputs fall back to plain text |
@@ -143,7 +143,7 @@ Good ADR coverage for Phases 1–2. Phase 3 onwards has **zero architectural dec
 
 **Blocker 2 — Data integrity:** `setEntityState` bypasses the workflow engine entirely (#127). State changes via this path produce no audit trail and fire no automations — a GDPR and compliance risk.
 
-**Blocker 3 — Core function:** `entity.created` never fires (#126). All automation rules triggered on entity creation are silently dead. This breaks the core automation value proposition.
+**Blocker 3 — Core function:** ✅ RESOLVED (PR #138, 2026-07-09). `entity.created`/`entity.assigned` now emit to the outbox (#126 closed); automation rules triggered on entity creation/assignment are live.
 
 **Blocker 4 — Core function:** `notify` action only logs (#125). SLA breach alerts and assignment notifications deliver nothing.
 
@@ -164,7 +164,7 @@ All 10 hardening items (#120–#129) must close, then `.claude/context/phase-3-p
 ### Immediate (before any pilot conversation)
 
 1. ~~Close #121 → #122 (RLS role + isolation tests) — security gate~~ ✅ DONE (PR #135, 2026-07-08)
-2. Close #126 (`entity.created`/`entity.assigned` triggers) — core function
+2. ~~Close #126 (`entity.created`/`entity.assigned` triggers) — core function~~ ✅ DONE (PR #138, 2026-07-09)
 3. Close #127 (guard `setEntityState`/`bulkSetState`) — audit/compliance
 4. ~~Update `roadmap-tracker.md` Phase 2 gate wording~~ ✅ DONE (2026-07-08)
 5. ~~Fix `platform-vision.md` Mermaid diagram (Phase 2 complete)~~ ✅ DONE (2026-07-08) — see note above

@@ -52,7 +52,7 @@ order behind them:
 
 - [x] [#121](../../issues/121) RLS under real role: `withTenantContext` sets `app.tenant_id` GUC but never `SET LOCAL ROLE app_user`. Add `SET LOCAL ROLE app_user` or `ALTER TABLE … FORCE ROW LEVEL SECURITY` so RLS is enforced regardless of connection role. — ✅ Done, PR #135 (2026-07-08)
 - [x] [#122](../../issues/122) Isolation tests skipped: the three cross-tenant RLS tests are `.skip` because CI runs as superuser. Run CI isolation suite as `app_user` so the isolation guarantee is actually proven. (depends on #121) — ✅ Done, PR #135 (2026-07-08)
-- [ ] [#126](../../issues/126) `entity.created` / `entity.assigned` triggers never fire: defined in `event-schemas.ts` but entity engine never emits them to the outbox.
+- [x] [#126](../../issues/126) `entity.created` / `entity.assigned` triggers never fire: defined in `event-schemas.ts` but entity engine never emits them to the outbox. — ✅ Done, PR #138 (2026-07-09)
 - [ ] [#127](../../issues/127) `setEntityState` / `bulkSetState` are unguarded state side-doors: mutate `current_state` directly with no `workflow_events` row and no outbox event.
 - [ ] [#120](../../issues/120) Automation double-trigger: `transition` action writes outbox + calls inline, depth resets to 0 on outbox path → `MAX_DEPTH` never fires in loops. Fix: carry `depth` through outbox payload or deduplicate by idempotency key.
 - [ ] [#123](../../issues/123) Automation queue retries: `automation` BullMQ queue has `attempts=1` (BullMQ default). Add `attempts: 3, backoff: { type: "exponential" }` to match the SLA queue.
