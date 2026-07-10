@@ -248,10 +248,9 @@ async function getAccessToken(): Promise<string | null> {
     );
 
     if (result.status < 200 || result.status >= 300) {
-      logger.error(
-        { status: result.status, body: result.text },
-        "Zitadel token exchange failed",
-      );
+      // Never log the raw response body -- it's an unvetted external payload
+      // that may carry provider-specific diagnostic detail we don't control.
+      logger.error({ status: result.status }, "Zitadel token exchange failed");
       return null;
     }
 
@@ -293,10 +292,8 @@ export async function listProjectRoles(): Promise<string[]> {
     );
 
     if (result.status < 200 || result.status >= 300) {
-      logger.error(
-        { status: result.status, body: result.text },
-        "Zitadel list roles failed",
-      );
+      // Never log the raw response body -- see comment in getAccessToken.
+      logger.error({ status: result.status }, "Zitadel list roles failed");
       return [];
     }
 
@@ -370,10 +367,8 @@ async function _fetchOrgUsers(
     );
 
     if (result.status < 200 || result.status >= 300) {
-      logger.warn(
-        { status: result.status, body: result.text },
-        "Zitadel list users failed",
-      );
+      // Never log the raw response body -- see comment in getAccessToken.
+      logger.warn({ status: result.status }, "Zitadel list users failed");
       return [];
     }
 
