@@ -4,10 +4,14 @@
 -- DROP INDEX IF EXISTS entity_instances_search_idx;
 -- ALTER TABLE "entity_instances" DROP COLUMN "search_vector";
 
+-- IF NOT EXISTS / DROP+CREATE guards throughout this file are a renumbering
+-- artifact: this migration was originally 0004 and already applied under that
+-- number on any deployment predating the 0019-0031 renumbering, so drizzle's
+-- position-based tracking re-runs it here.
 ALTER TABLE "entity_instances"
-  ADD COLUMN "search_vector" tsvector;
+  ADD COLUMN IF NOT EXISTS "search_vector" tsvector;
 
-CREATE INDEX "entity_instances_search_idx"
+CREATE INDEX IF NOT EXISTS "entity_instances_search_idx"
   ON "entity_instances" USING gin(search_vector);
 
 -- Note: 'english' dictionary is hardcoded for stemming. Non-English text still
@@ -31,6 +35,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS entity_instances_search_vector_trig ON entity_instances;
 CREATE TRIGGER entity_instances_search_vector_trig
   BEFORE INSERT OR UPDATE OF fields ON entity_instances
   FOR EACH ROW EXECUTE FUNCTION entity_instances_search_vector_update();
