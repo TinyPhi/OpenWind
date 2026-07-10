@@ -14,6 +14,19 @@ $genPatSrc = Join-Path $owDir 'scripts\gen-pat.mjs'
 $template  = Join-Path $owDir 'scripts\zitadel-compose-template.yml'
 $envLocal  = Join-Path $owDir '.env.local'
 
+# ── Compose project isolation ────────────────────────────────────────────────
+# Docker volumes/networks are named "{project}_{resource}" -- a GLOBAL engine
+# namespace, not scoped to this checkout's path. Without a unique project name,
+# a second checkout of this repo anywhere on the same machine (a test clone, a
+# coworker's fork, a throwaway eval) silently shares -- and can destroy -- the
+# real dev environment's Postgres/Zitadel data. Derive one from this checkout's
+# absolute path so isolation is automatic, not something anyone has to remember.
+$md5 = [System.Security.Cryptography.MD5]::Create()
+$hashBytes = $md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($owDir))
+$pathHash = ([System.BitConverter]::ToString($hashBytes) -replace '-', '').Substring(0, 8).ToLower()
+$owProjectName = if ($env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME } else { "openwind-$pathHash" }
+$zitaProjectName = "zitadel-$pathHash"
+
 function Banner($msg) { Write-Host "" ; Write-Host "  $msg" -ForegroundColor Cyan }
 function Ok($msg)     { Write-Host "  [+] $msg" -ForegroundColor Green }
 function Info($msg)   { Write-Host "  --> $msg" -ForegroundColor DarkGray }
@@ -75,12 +88,12 @@ if ($existingMasterkey -and $existingAdminPass) {
     # 2>$null, so temporarily relax it just for this check.
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = 'SilentlyContinue'
-    docker volume inspect zitadel_zitadel_db_data *> $null
+    docker volume inspect "${zitaProjectName}_zitadel_db_data" *> $null
     $staleVolumeExists = ($LASTEXITCODE -eq 0)
     $ErrorActionPreference = $prevEAP
     if ($staleVolumeExists) {
         Info "Removing stale Zitadel DB volume so Zitadel can reinitialise with new credentials..."
-        docker volume rm zitadel_zitadel_db_data *> $null
+        docker volume rm "${zitaProjectName}_zitadel_db_data" *> $null
     }
 }
 
@@ -104,6 +117,7 @@ $outputDirFwd = $outputDir -replace '\\', '/'
 $composeYml = Get-Content $template -Raw
 $composeYml = $composeYml -replace '__GEN_PAT_SRC__', $genPatSrcFwd
 $composeYml = $composeYml -replace '__OUTPUT_DIR__', $outputDirFwd
+$composeYml = $composeYml -replace '__PROJECT_NAME__', $zitaProjectName
 
 $composePath = Join-Path $zitaDir 'docker-compose.yml'
 Set-Content -Path $composePath -Value $composeYml -Encoding utf8
@@ -115,6 +129,10 @@ Info "(First boot takes 60-90s while Zitadel initialises)"
 Write-Host ""
 
 Set-Location $zitaDir
+# Switch to the zitadel project name -- COMPOSE_PROJECT_NAME (env var) beats a
+# compose file's own `name:` field, so leaving owProjectName set here would
+# silently redirect Zitadel's volume onto the openwind project instead.
+$env:COMPOSE_PROJECT_NAME = $zitaProjectName
 
 docker compose up -d
 if ($LASTEXITCODE -ne 0) { Fail "Failed to start Zitadel containers" }
@@ -125,6 +143,8 @@ docker compose --profile setup run --rm ow-zita-setup
 if ($LASTEXITCODE -ne 0) { Fail "PAT generation failed -- check: docker compose logs zitadel" }
 
 Set-Location $owDir
+# Switch back to the openwind project name for all subsequent commands.
+$env:COMPOSE_PROJECT_NAME = $owProjectName
 
 if (-not (Test-Path $patFile)) { Fail "PAT file not found at $patFile -- gen-pat.mjs did not complete" }
 $pat = (Get-Content $patFile -Raw).Trim()
@@ -186,4 +206,9 @@ Write-Host ""
 Write-Host "   OpenWind app:" -ForegroundColor White
 Write-Host "     owAdmin / OpenWind1234!   (admin)" -ForegroundColor White
 Write-Host "     owUser  / OpenWind1234!   (user)" -ForegroundColor White
+Write-Host ""
+Write-Host "   This checkout's Docker Compose project: $owProjectName" -ForegroundColor DarkGray
+Write-Host "   (isolated per checkout path -- safe to run alongside other clones." -ForegroundColor DarkGray
+Write-Host "    For ad-hoc 'docker compose ...' commands in a new terminal, run:" -ForegroundColor DarkGray
+Write-Host "    `$env:COMPOSE_PROJECT_NAME = '$owProjectName')" -ForegroundColor DarkGray
 Write-Host ""

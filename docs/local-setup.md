@@ -91,6 +91,29 @@ terminal — no digging through `.env.local` required:
 
 Open `http://localhost:3001` and log in with `owAdmin` / `OpenWind1234!`.
 
+### Multiple checkouts on the same machine
+
+`setup.sh`/`setup.bat` derive a Docker Compose project name from this
+checkout's **absolute path** and set it automatically for every command they
+run — so a test clone, a coworker's fork, or any other checkout on the same
+machine gets its own isolated Postgres/Redis/Zitadel volumes, never the
+real dev environment's. The derived name is printed at the end of every run
+(`This checkout's Docker Compose project: openwind-xxxxxxxx`).
+
+This isolation only applies automatically **inside** `setup.sh`/`setup.bat`.
+If you run bare `docker compose ...` commands yourself in a fresh terminal,
+export the printed project name first — otherwise commands like `docker
+compose down -v` fall back to the shared, non-isolated `openwind` project name
+baked into `docker-compose.yml`:
+
+```bash
+export COMPOSE_PROJECT_NAME=openwind-xxxxxxxx   # value from the setup summary
+```
+
+(The `../zitadel/` project doesn't need this — its generated `docker-compose.yml`
+has the isolated name baked in directly, so plain `docker compose` commands
+there are always correctly scoped.)
+
 ### Resetting everything
 
 ```bash
@@ -104,6 +127,9 @@ setup.bat   # or ./setup.sh                          # full setup again from scr
 > Zitadel instance still has the previous OIDC app/client secret, which no
 > longer matches what the fresh bootstrap will write to `.env.local` — and
 > login breaks. Same problem in reverse if only Zitadel is wiped.
+>
+> If you're resetting a non-default checkout, `export COMPOSE_PROJECT_NAME=...`
+> first (see above) so `docker compose down -v` targets the right volumes.
 
 ### Day-to-day commands
 

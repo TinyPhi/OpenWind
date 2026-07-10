@@ -1,4 +1,4 @@
-name: zitadel
+name: __PROJECT_NAME__
 
 services:
   zitadel-db:
