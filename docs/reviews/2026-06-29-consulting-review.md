@@ -172,19 +172,20 @@ All 10 hardening items (#120–#129) must close, then `.claude/context/phase-3-p
 
 ### Before Phase 3 planning
 
-7. Close remaining hardening items #120, #123–#125, #128–#129
-8. Write ADR for Connector SDK (before 3A spec)
-9. Write `.claude/context/phase-3-primer.md` (required by `CLAUDE.md` before 3A)
-10. Add ADR-002 addendum (WE-02/WE-03 closure with dates and issue links)
-11. Triage or close ADR-001 MT-02 and ADR-002 WE-05 open questions
-12. ~~Resolve field type count discrepancy across docs~~ ✅ RETRACTED (2026-07-08) — verified 15 types in architecture-brief.md; no discrepancy exists (see §2 inline note)
+7. ~~Close #120 (automation double-trigger / depth-reset)~~ ✅ DONE (PR #139, 2026-07-09) — merged ahead of #127, out of the originally stated priority order (see CLAUDE.md note)
+8. Close remaining hardening items #123–#125, #128–#129
+9. Write ADR for Connector SDK (before 3A spec)
+10. Write `.claude/context/phase-3-primer.md` (required by `CLAUDE.md` before 3A)
+11. Add ADR-002 addendum (WE-02/WE-03 closure with dates and issue links)
+12. Triage or close ADR-001 MT-02 and ADR-002 WE-05 open questions
+13. ~~Resolve field type count discrepancy across docs~~ ✅ RETRACTED (2026-07-08) — verified 15 types in architecture-brief.md; no discrepancy exists (see §2 inline note)
 
 ### Before public launch / marketplace
 
-13. Write ADRs for Plugin system, AI layer, Observability, Audit retention, Rate limiting, Notification SLA
-14. Backfill automation rules into 6/7 module seeds (follow helpdesk 4-file pattern)
-15. Fix portal field inputs for `file`/`user_ref`/`entity_ref`/`formula` types
-16. Validate schema cache (60s TTL) under realistic tenant load (ADR-001 MT-03)
+14. Write ADRs for Plugin system, AI layer, Observability, Audit retention, Rate limiting, Notification SLA
+15. Backfill automation rules into 6/7 module seeds (follow helpdesk 4-file pattern)
+16. Fix portal field inputs for `file`/`user_ref`/`entity_ref`/`formula` types
+17. Validate schema cache (60s TTL) under realistic tenant load (ADR-001 MT-03)
 
 ---
 

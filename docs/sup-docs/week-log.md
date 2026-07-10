@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-07-10 — #139 (#120) merged; doc reconciliation
+
+**Session type:** Docs (following code merge)
+**Branch:** `docs/PLAT-120-checklist-update`
+
+### Completed this session
+
+- PR #139 (`entity.assigned`/`workflow.transitioned` outbox double-trigger + depth-reset fix,
+  #120) confirmed merged to `main` (2026-07-09T11:09:01Z), including the full PR review-fix
+  round (positive-allowlist outbox routing, dead-letter `system.error` rows, depth-leak
+  fix in condition evaluation, vitest alias, test cleanup fixes) and PR #143 (Phase 3A
+  outbox/connector tracking issue).
+- PR #142 (docs reconciliation for #126) confirmed merged — approved by @PrabhuVijit with
+  two non-blocking suggestions (expected week-log drift; a note to flag #120/#127 ordering
+  in the next reconciliation, addressed below).
+- `CLAUDE.md`: marked #120 done in the hardening checklist; added a note that #120 (PR #139)
+  merged ahead of #127, out of the queue's originally stated priority order (#127 was still
+  next based on the 2026-06-29 consulting review, but #120 was already in flight before #126
+  finished) — #127 remains the next item to pick up.
+- `docs/reviews/2026-06-29-consulting-review.md`: struck #120 from the "Close remaining
+  hardening items" action-list line, renumbered the remaining items.
+
+### Phase snapshot
+
+| Track                 | Status                                                                |
+| --------------------- | --------------------------------------------------------------------- |
+| Pre-Phase 3 hardening | #121, #122, #126, #120 closed. #127 next. #123–#125, #128, #129 open. |
+
+### Next
+
+- #127 — guard `setEntityState`/`bulkSetState` (audit/compliance side-door)
+- Remaining hardening items #123, #124, #125, #128, #129
+- #136 — RLS policies for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`
+- #141 — `pnpm lint` no-op needs its own session
+- #143 — Phase 3A connector design must account for the outbox/workflow_events gap
+
+---
+
 ## 2026-07-09 — #126 merged; doc reconciliation
 
 **Session type:** Docs (following code merge)
