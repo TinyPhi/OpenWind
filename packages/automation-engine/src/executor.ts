@@ -54,9 +54,15 @@ export async function executeAutomationRules(
     // assigneeId, slaHours) with any entity field values so that condition
     // trees can match on both. entity.created events carry a `fields` map;
     // all other event types carry their data as top-level properties only.
+    // Excludes envelope/engine-internal keys (fields is merged in separately
+    // below; version/tenantId/depth are transport metadata, not domain data —
+    // depth in particular is an internal recursion counter that a tenant
+    // should never be able to write a condition against, e.g. `depth > 3`).
     const eventFields: Record<string, unknown> = {
       ...Object.fromEntries(
-        Object.entries(event).filter(([k]) => k !== "fields"),
+        Object.entries(event).filter(
+          ([k]) => !["fields", "version", "tenantId", "depth"].includes(k),
+        ),
       ),
       ...("fields" in event ? (event.fields as Record<string, unknown>) : {}),
     };
@@ -162,6 +168,15 @@ export async function executeAutomationRules(
  * Returns `true` if the action was skipped because the circuit breaker is open;
  * `false` if the action executed (successfully or after throwing).
  * Throws if the underlying action handler throws.
+ *
+ * This switch is the shape contract every `automation_rules.actions` entry
+ * must match — apps/api/src/routes/automation-rules/schemas.ts's
+ * ActionConfigSchema validates API-created/updated rules against it, but
+ * module seed SQL (e.g. modules/helpdesk/seed/003_automation_rules.sql)
+ * writes `automation_rules` directly and bypasses that validation. A
+ * mismatched shape doesn't error here — it just falls to `default` below and
+ * silently does nothing. Check this switch by hand when adding a new seed's
+ * automation rule.
  */
 async function runAction(
   db: DbOrTx,
@@ -186,7 +201,7 @@ async function runAction(
         executeNotifyAction(db, tenantId, event, action.config);
         break;
       case "set_field":
-        await executeSetFieldAction(db, tenantId, event, action.config);
+        await executeSetFieldAction(db, tenantId, event, action.config, depth);
         break;
       case "transition":
         await executeTransitionAction(

@@ -60,6 +60,7 @@ vi.mock("@platform/db", () => ({
     sortOrder: "sort_order",
   },
   entityRelations: {},
+  outboxEvents: {},
 }));
 
 vi.mock("drizzle-orm", () => ({

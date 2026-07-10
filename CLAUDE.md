@@ -15,6 +15,9 @@ no domain logic TypeScript in `modules/`.
 Reference docs (read before starting work in a new area):
 
 - `docs/architecture-brief.md` — full platform architecture
+- `docs/decisions/ADR-004-config-first-module-design.md` — config-first module model; the
+  ADR most directly relevant to module authoring decisions (zero TypeScript in
+  `modules/` — read this before touching anything under `modules/`)
 - `docs/decisions/ADR-001-multitenancy.md` — tenancy model and RLS
 - `docs/decisions/ADR-002-workflow-engine.md` — state machine design
 - `docs/decisions/ADR-003-field-validation.md` — entity validation
@@ -41,16 +44,20 @@ Phase 3 tracks (all 0% — no active work yet):
 **Pre-Phase 3 hardening (external review flagged — complete before starting 3A):**
 
 These are not Phase 3 features — they are correctness/safety fixes in existing code.
-Work in this order (sequential dependencies at the top):
+Work in this order (sequential dependencies at the top). **#126 and #127 jump the original
+queue** per the 2026-06-29 consulting review §6 ("Immediate — before any pilot conversation"):
+#126 is a core function currently dead, #127 is an audit/compliance side-door — both outrank
+the remaining items on pilot risk. #120/#123–#125/#128/#129 keep their original relative
+order behind them:
 
 - [x] [#121](../../issues/121) RLS under real role: `withTenantContext` sets `app.tenant_id` GUC but never `SET LOCAL ROLE app_user`. Add `SET LOCAL ROLE app_user` or `ALTER TABLE … FORCE ROW LEVEL SECURITY` so RLS is enforced regardless of connection role. — Closed via PR #135 (`b7174c4`, `74ea1ab`, `11156f2`); `withTenantContext`/`executeRawInTenantContext` issue `SET LOCAL ROLE app_user` (`packages/db/src/middleware.ts:25,40`, `packages/db/src/client.ts:28`).
 - [x] [#122](../../issues/122) Isolation tests skipped: the three cross-tenant RLS tests are `.skip` because CI runs as superuser. Run CI isolation suite as `app_user` so the isolation guarantee is actually proven. (depends on #121) — Closed alongside #121; see 2026-07-07 PROGRESS.md entry (assertions un-skipped and passing).
-- [x] [#120](../../issues/120) Automation double-trigger: `transition` action writes outbox + calls inline, depth resets to 0 on outbox path → `MAX_DEPTH` never fires in loops. Fix: carry `depth` through outbox payload or deduplicate by idempotency key. — Closed via `2369723` (depth carried through outbox payload).
+- [x] [#126](../../issues/126) `entity.created` / `entity.assigned` triggers never fire: defined in `event-schemas.ts` but entity engine never emits them to the outbox. — ✅ Done, PR #138 (2026-07-09)
+- [ ] [#127](../../issues/127) `setEntityState` / `bulkSetState` are unguarded state side-doors: mutate `current_state` directly with no `workflow_events` row and no outbox event.
+- [x] [#120](../../issues/120) Automation double-trigger: `transition` action writes outbox + calls inline, depth resets to 0 on outbox path → `MAX_DEPTH` never fires in loops. Fix: carry `depth` through outbox payload or deduplicate by idempotency key. — Closed via `2369723` (depth carried through outbox payload) and PR #139's revised fix (skip the outbox write entirely for automation-triggered transitions).
 - [x] [#123](../../issues/123) Automation queue retries: `automation` BullMQ queue has `attempts=1` (BullMQ default). Add `attempts: 3, backoff: { type: "exponential" }` to match the SLA queue. — Closed via `2369723` (`apps/worker/src/queues.ts:17-23`).
 - [x] [#124](../../issues/124) Auth middleware write-on-every-request: `packages/auth/src/middleware.ts:154-169` does `onConflictDoUpdate` (not `onConflictDoNothing`) on every authenticated request — HOT update per request at scale. — Closed via `2c44411`: SELECT-then-conditionally-write, only inserts/updates on new user or profile drift.
 - [ ] [#125](../../issues/125) `notify` action is a stub: `actions/notify.ts` only logs. Wire Novu delivery worker to close the notification loop.
-- [ ] [#126](../../issues/126) `entity.created` / `entity.assigned` triggers never fire: defined in `event-schemas.ts` but entity engine never emits them to the outbox.
-- [ ] [#127](../../issues/127) `setEntityState` / `bulkSetState` are unguarded state side-doors: mutate `current_state` directly with no `workflow_events` row and no outbox event.
 - [ ] [#128](../../issues/128) OpenBao + MinIO commented out of `docker-compose.yml`: the code expects them but `docker compose up` doesn't start them. Uncomment and reconcile with `.env.example`.
 - [ ] [#129](../../issues/129) Worker has no health endpoint: orchestrators cannot health-check `apps/worker`. Add an HTTP readiness probe.
 

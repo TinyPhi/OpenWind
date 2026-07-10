@@ -5,6 +5,113 @@
 
 ---
 
+## 2026-07-09 — #126 merged; doc reconciliation
+
+**Session type:** Docs (following code merge)
+**Branch:** `docs/PLAT-126-checklist-update`
+
+### Completed this session
+
+- PR #138 (`entity.created`/`entity.assigned` outbox triggers, #126) merged to `main`,
+  including the full PR review-fix round (redaction fail-open fix, seed-validation
+  discriminated union, drift-detection test, bulk-path isolation tests).
+- Resolved `PROGRESS.md` merge conflicts on both `fix/PLAT-126-entity-created-triggers`
+  (against `main`) and `fix/PLAT-120-automation-depth-recursion` (against `main` post-#138)
+  — conflicts were from concurrent log entries, not competing code changes.
+- Found PR #139 (#120) was still based on the now-merged `fix/PLAT-126-entity-created-triggers`
+  branch instead of `main` (a stacked-PR setup from before #138 merged), which silently
+  prevented CI from triggering (`ci.yml`'s `pull_request` trigger only matches
+  `branches: [main, develop]`). Retargeted to `main` and cycled the PR closed/reopened to
+  force a `synchronize` CI run (changing the base fires `edited`, which isn't a default
+  trigger type).
+- `CLAUDE.md`: marked #126 done in the hardening checklist.
+- `roadmap-tracker.md`: cleared the stale 2B gap note about `entity.created` never firing;
+  updated "Last updated" line.
+- `docs/reviews/2026-06-29-consulting-review.md`: added ✅ RESOLVED notes for #126 (Blocker 3,
+  the reality-check table row, and the prioritized action list), matching the #121/#122
+  pattern from the prior session.
+
+### Phase snapshot
+
+| Track                 | Status                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| Pre-Phase 3 hardening | #121, #122, #126 closed. #120 (PR #139) open, CI running. #127, #123–#125, #128, #129 open. |
+
+### Next
+
+- Watch PR #139 (#120) CI to green, then merge
+- #127 — guard `setEntityState`/`bulkSetState` (audit/compliance side-door)
+- Remaining hardening items #123, #124, #125, #128, #129
+- #136 — RLS policies for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`
+- #141 — `pnpm lint` no-op needs its own session
+
+---
+
+## 2026-07-08 — Consulting-review followup: doc reconciliation
+
+**Session type:** Documentation
+**Branch:** `docs/consulting-review-followup-121-122`
+
+### Completed this session
+
+- Updated `docs/reviews/2026-06-29-consulting-review.md` with ✅ RESOLVED notes for #121/#122
+  (closed via PR #135) and the three quick-win doc fixes below
+- `roadmap-tracker.md`: Phase 2 gate wording changed from "Pilot customer onboarding" to
+  "Pre-Phase 3 hardening items #120–#129 all closed"
+- `platform-vision.md`: added a numbering-note callout above the Phase 0–6 roadmap diagram —
+  investigation found the "Phase 2 ▶ NEXT" the review flagged as contradicting CLAUDE.md
+  wasn't stale data, it's a different numbering scheme (this doc's Phase 0–6 long-term
+  roadmap vs. CLAUDE.md's Phase 1/2/3 execution tracking) that was undocumented and
+  confusing; added the mapping instead of changing the (accurate) diagram status
+- `CLAUDE.md`: added ADR-004 (config-first module design) to the reference docs list,
+  surfaced second (after `architecture-brief.md`) per the review's §8 observation;
+  description softened to "most directly relevant to module authoring decisions"
+
+### Phase snapshot
+
+| Track            | Status                                                      |
+| ---------------- | ----------------------------------------------------------- |
+| Hardening sprint | 🟡 2/10 — #121, #122 closed (PR #135); #120, #123–#129 open |
+| Phase 3          | 🔴 Not started (blocked by hardening)                       |
+
+### Next
+
+#126 (`entity.created`/`entity.assigned` triggers), then #127 (guard `setEntityState`/
+`bulkSetState`) — both core-function/compliance gaps per the consulting review's immediate
+priority list.
+
+---
+
+## 2026-07-07 — Hardening #121 / #122: RLS role enforcement (PR #135)
+
+**Session type:** Feature / security fix
+**Branch:** `fix/PLAT-121-rls-role` → PR #135 (merged)
+
+### Completed this session
+
+- `withTenantContext` / `executeRawInTenantContext` now issue `SET LOCAL ROLE app_user`
+  before setting the tenant GUC, closing #121
+- Migration `0022_app_user_rls_grants.sql` grants `app_user` the write privileges needed to
+  keep existing routes working under the new role (later tightened to column-scoped grants
+  on `tenants` per PR review)
+- Un-skipped the three cross-tenant RLS isolation tests, closing #122; one had no real
+  assertion at all and needed a genuine fixture (a vacuous-test bug caught in code review)
+- Filed #136 to track a separately-scoped gap found during review: `entity_types`/
+  `workflows`/`workflow_states`/`workflow_transitions` have no RLS policy at all
+
+### Phase snapshot
+
+| Track            | Status                                |
+| ---------------- | ------------------------------------- |
+| Hardening sprint | 🟡 2/10 — #121, #122 closed           |
+| Phase 3          | 🔴 Not started (blocked by hardening) |
+
+### Next
+
+#126, then #127.
+
+---
+
 ## 2026-06-24 — Post-review followup (PR #130)
 
 **Session type:** Documentation / tracking

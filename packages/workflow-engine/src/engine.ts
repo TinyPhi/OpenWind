@@ -268,28 +268,36 @@ export async function executeTransition(
     });
   }
 
-  // 10. Write outbox event (same transaction — outbox pattern)
-  const outboxPayload: WorkflowTransitionedEvent = {
-    eventType: "workflow.transitioned",
-    version: 1,
-    tenantId,
-    instanceId: request.instanceId,
-    entityTypeId: instance.entityTypeId,
-    workflowId: instance.workflowId,
-    fromState: instance.currentState,
-    toState: transition.toState,
-    triggeredBy,
-    actorId: request.actorId ?? null,
-    occurredAt: occurredAt.toISOString(),
-    depth: request.depth ?? 0,
-  };
+  // 10. Write outbox event (same transaction — outbox pattern).
+  // Skipped when triggeredBy === "automation": the automation `transition`
+  // action already recurses in-process with a bounded depth counter
+  // (packages/automation-engine/src/actions/transition.ts) — writing to the
+  // outbox too would fire every matching rule a second time via the async
+  // worker path, which also resets depth to 0 there (#120). User/API/system-
+  // triggered transitions have no in-process recursion, so they still need
+  // the outbox to reach automation at all.
+  if (triggeredBy !== "automation") {
+    const outboxPayload: WorkflowTransitionedEvent = {
+      eventType: "workflow.transitioned",
+      version: 1,
+      tenantId,
+      instanceId: request.instanceId,
+      entityTypeId: instance.entityTypeId,
+      workflowId: instance.workflowId,
+      fromState: instance.currentState,
+      toState: transition.toState,
+      triggeredBy,
+      actorId: request.actorId ?? null,
+      occurredAt: occurredAt.toISOString(),
+    };
 
-  await db.insert(outboxEvents).values({
-    tenantId,
-    eventType: "workflow.transitioned",
-    version: 1,
-    payload: outboxPayload,
-  });
+    await db.insert(outboxEvents).values({
+      tenantId,
+      eventType: "workflow.transitioned",
+      version: 1,
+      payload: outboxPayload,
+    });
+  }
 
   logger.info(
     {

@@ -94,6 +94,15 @@ export type UpdateEntityInput = {
   actorType?: "user" | "api_key" | "system" | undefined;
   /** Display name snapshot stored in event metadata for immutable history. */
   actorName?: string | undefined;
+  /**
+   * Automation-engine recursion depth (#120), set only by
+   * executeSetFieldAction when this update is itself driven by an automation
+   * rule. Root callers (API routes) must never set this. When present, the
+   * resulting entity.assigned outbox event carries `depth + 1` so
+   * apps/worker/src/automation-worker.ts can enforce MAX_DEPTH across the
+   * async outbox hop instead of resetting to 0.
+   */
+  depth?: number | undefined;
 };
 
 export type ListEntitiesInput = {
@@ -135,3 +144,42 @@ export type BulkSetStateResult = {
   updatedIds: string[];
   errors: Array<{ index: number; id: string; code: string }>;
 };
+
+// Domain events written to outbox on entity create/assignment.
+// Field names match EntityCreatedV1Schema / EntityAssignedV1Schema in
+// packages/automation-engine/src/event-schemas.ts so the outbox poller's
+// TriggerEventSchema.safeParse() succeeds without transformation. Defined
+// locally (not imported from automation-engine) because entity-engine may
+// only depend on db — automation-engine already depends on entity-engine, so
+// the reverse import would be a cycle.
+//
+// MUST MATCH packages/automation-engine/src/event-schemas.ts's
+// EntityCreatedV1Schema / EntityAssignedV1Schema — nothing enforces this at
+// compile time. If that schema gains a required field, update these
+// interfaces too, or entity.created/entity.assigned outbox rows will start
+// failing TriggerEventSchema.safeParse() in production and every rule
+// triggered by them will silently stop firing (see the drift-detection
+// assertion in apps/api/tests/isolation/entity-created-trigger.isolation.test.ts).
+export interface EntityCreatedEvent {
+  eventType: "entity.created";
+  version: 1;
+  tenantId: string;
+  instanceId: string;
+  entityTypeId: string;
+  fields: Record<string, unknown>;
+  createdBy: string | null;
+}
+
+export interface EntityAssignedEvent {
+  eventType: "entity.assigned";
+  version: 1;
+  tenantId: string;
+  instanceId: string;
+  entityTypeId: string;
+  assigneeId: string;
+  assignedBy: string | null;
+  // In-process recursion depth, set only when this update was driven by the
+  // automation engine's set_field action (#120) — see updateEntity's `depth`
+  // input. Absent means depth 0 (a root-triggered assignment).
+  depth?: number;
+}
