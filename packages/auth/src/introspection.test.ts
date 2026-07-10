@@ -136,4 +136,36 @@ describe("introspectToken", () => {
     // node:http.request should only be called once — second call hits cache
     expect(mockRequest).toHaveBeenCalledTimes(1);
   });
+
+  // #8: cache key switched from a 32-bit djb2 hash to SHA-256, so two
+  // distinct tokens can never collide onto the same cache entry.
+  it("caches distinct tokens independently, not sharing a bucket", async () => {
+    const bodyA = JSON.stringify({ active: true, sub: "user-a" });
+    const bodyB = JSON.stringify({ active: false, sub: "user-b" });
+
+    const resA = makeHttpResponse();
+    makeHttpRequest(resA);
+    const promiseA = introspectToken("token-a");
+    setTimeout(() => {
+      resA.emit("data", Buffer.from(bodyA));
+      resA.emit("end");
+    }, 1);
+    const resultA = await promiseA;
+
+    const resB = makeHttpResponse();
+    makeHttpRequest(resB);
+    const promiseB = introspectToken("token-b");
+    setTimeout(() => {
+      resB.emit("data", Buffer.from(bodyB));
+      resB.emit("end");
+    }, 1);
+    const resultB = await promiseB;
+
+    expect(resultA.active).toBe(true);
+    expect(resultA.sub).toBe("user-a");
+    expect(resultB.active).toBe(false);
+    expect(resultB.sub).toBe("user-b");
+    // Two distinct tokens -> two real network calls, no cache-key collision.
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
 });
