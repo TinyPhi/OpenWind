@@ -18,6 +18,17 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// middleware.ts -> tenant-status-cache.ts -> @platform/redis, whose module
+// scope does `import { env } from "@platform/config"` — that real import
+// isn't covered by the "@platform/config" mock above (pnpm workspace
+// resolution loads it as a separate module instance), so it fails Zod
+// validation against an empty test env before any test runs. Stub it out;
+// this suite only exercises the in-memory getCachedTenantStatus path.
+vi.mock("@platform/redis", () => ({
+  getRedis: vi.fn(),
+  closeRedis: vi.fn(),
+}));
+
 const mockVerifyJwt = vi.fn();
 const mockExtractAuthContext = vi.fn();
 vi.mock("./jwks.js", () => ({
