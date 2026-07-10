@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
+import { db, files, entityInstances, withTenantContext } from "@platform/db";
+import { and, eq } from "drizzle-orm";
 import { getDownloadUrl, FileError } from "@platform/files";
 import { factory } from "./factory.js";
+import { hasEntityReadAccess } from "../../lib/entity-access.js";
 
 const FileIdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -13,10 +15,47 @@ export const getDownloadUrlHandler = factory.createHandlers(
   zValidator("param", FileIdParamSchema),
   async (c) => {
     const { id: fileId } = c.req.valid("param");
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId, roles } = c.get("auth");
     const inline = c.req.query("inline") === "1";
 
     try {
+      // Files bound to an entity inherit that record's __accessUsers ACL —
+      // otherwise a user without record access could bypass it by hitting
+      // the download endpoint directly instead of going through the entity.
+      const [file] = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({ entityId: files.entityId })
+          .from(files)
+          .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
+          .limit(1),
+      );
+
+      if (file?.entityId) {
+        const [instance] = await withTenantContext(tenantId, (tx) =>
+          tx
+            .select({
+              createdBy: entityInstances.createdBy,
+              assignedTo: entityInstances.assignedTo,
+              fields: entityInstances.fields,
+            })
+            .from(entityInstances)
+            .where(
+              and(
+                eq(entityInstances.id, file.entityId as string),
+                eq(entityInstances.tenantId, tenantId),
+              ),
+            )
+            .limit(1),
+        );
+
+        if (!instance || !hasEntityReadAccess(instance, userId, roles)) {
+          return c.json(
+            { error: "FILE_NOT_FOUND", message: "File not found" },
+            404,
+          );
+        }
+      }
+
       const result = await getDownloadUrl(db, tenantId, fileId, inline);
       return c.json({ data: result });
     } catch (err: unknown) {

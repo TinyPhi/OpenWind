@@ -1,92 +1,76 @@
-## 2026-07-09 — API key auth broken by RLS enforcement (#121 side effect)
+## 2026-07-10 — Security audit finding #1: record-level read access not enforced
 
 ### Done
 
-- `packages/db/migrations/0031_api_key_lookup_function.sql` (new): adds
-  `resolve_api_key_by_hash(text)`, a narrowly-scoped `SECURITY DEFINER` SQL
-  function that bypasses RLS on `api_keys` for one exact-hash lookup, returning
-  only `id, tenant_id, scopes` (never `key_hash`). `REVOKE ALL FROM PUBLIC`,
-  `GRANT EXECUTE TO app_user` only. Passed a scoped `/security-review`
-  (checked: column leakage, search-path hijacking, enumeration via app_user,
-  injection, ownership/privilege escalation — no findings).
-- `packages/auth/src/middleware.ts`: `resolveApiKey` now calls
-  `resolve_api_key_by_hash` via `db.execute(sql\`...${keyHash}::text\`)`
-  instead of a direct `select().from(apiKeys)` (which RLS silently returns
-  zero rows for, since the tenant isn't known until after this lookup
-  succeeds — a chicken-and-egg problem the #121 RLS-role fix exposed). The
-  `last_used_at` write now runs inside `withTenantContext(row.tenant_id, ...)`
-  once the tenant is known, so it's a normal RLS-compliant write instead of a
-  silent `UPDATE 0`.
-- `packages/auth/src/middleware.test.ts`: updated the three existing API-key
-  tests to mock `db.execute` instead of `db.select`, and added `sql`/`update`
-  to the module mocks.
-- `apps/api/tests/isolation/api-key-auth.isolation.test.ts` (new): 7 tests
-  against real Postgres — `resolve_api_key_by_hash` resolves each tenant's own
-  key and never the other tenant's, returns nothing for an unknown hash, never
-  exposes `key_hash`; a full `requireAuth()` request authenticates end-to-end
-  with an API key, rejects unknown keys with 401, and records `last_used_at`
-  on the right tenant's row.
-- `packages/db/migrations/meta/_journal.json`: registered `0031`.
+- `apps/api/src/lib/entity-access.ts` (new): shared `hasEntityReadAccess(instance, userId, roles)`
+  helper — admin/agent always true; otherwise `createdBy`/`assignedTo` match, or
+  `__accessUsers[userId].level` is `read_comment`/`read_write`. Mirrors the existing
+  write-side check in `create-attachment.ts` (left untouched — different semantics,
+  only `read_write` grants write).
+- `apps/api/src/routes/entities/get.ts`: `GET /entities/:id` now runs
+  `hasEntityReadAccess` after fetching the instance; denies with 404 (not 403, matching
+  the existing cross-tenant convention). Previously any tenant member, any role, could
+  fetch any record's full fields by ID regardless of `__accessUsers`.
+- `apps/api/src/routes/entities/list-attachments.ts`: same check added to the existing
+  tenant-scoped instance lookup (extended its column selection to include
+  `createdBy`/`assignedTo`/`fields`).
+- `apps/api/src/routes/files/download.ts`: now looks up the file's bound entity (if
+  any) before calling `getDownloadUrl`, and runs the same check against that entity.
+  Files not bound to an entity (`entityId === null`) skip the check, unchanged.
+- Tests: `get.test.ts` +3 cases (denied/owner/granted-access), new
+  `list-attachments.test.ts` (5 cases), `files.test.ts` +4 cases. All follow the
+  Prove-It pattern — each denial case would fail on pre-fix code.
+- Fixed 2 pre-existing broken tests in `get.test.ts` as a side effect: the
+  `@platform/db` mock was missing `entityRelations`/`workflows` exports that
+  `getAncestorDepth` needs (called unconditionally on every request) — these two
+  tests were already in the established pre-existing-failure baseline from the
+  2026-07-09 sessions; not something this session broke.
+- Also fixed `apps/api/src/routes/files/files.test.ts`'s `@platform/db` mock, which
+  needed `files`/`entityInstances`/`withTenantContext` added for the download.ts change
+  (4 of its existing tests would otherwise 500).
 
 ### Why
 
-Found while setting up an authenticated request for a load-test script (the
-original ask: verify the system handles 30-40 concurrent users). Every API
-key request has returned 401 "Invalid API key" — for every tenant, always —
-since the #121 fix started actually enforcing `SET LOCAL ROLE app_user`.
-`api_keys`' `tenant_read` RLS policy requires `app.tenant_id` to already be
-set, but the whole point of this lookup is to discover which tenant a key
-belongs to. Confirmed directly against Postgres before writing any fix:
-`SET ROLE app_user; SELECT * FROM api_keys WHERE key_hash = '<valid>';` →
-0 rows. Same for the `last_used_at` UPDATE. This is a correctness regression,
-not a hypothetical — any integration using API keys (not browser/JWT logins)
-has been unable to authenticate since #121 shipped.
-
-The migration required explicit user authorization before applying (the
-auto-mode classifier correctly blocked `pnpm db:migrate` as an RLS-bypass
-change) — approved after a scoped `/security-review` found no issues.
+Surfaced by a parallel security audit (6 focused sub-audits: auth/session, tenant
+isolation, injection, file access, secrets/logging, API data exposure) run at the
+user's request to find security issues and data leaks. The file-access audit found
+`list-attachments.ts`/`download.ts` didn't enforce the same `__accessUsers` ACL that
+`create-attachment.ts`/`delete-attachment.ts` already do (write path gated, read path
+wasn't). Investigating that led to a broader finding: `get.ts` itself has zero
+access-level check — the base record read was tenant-wide for any role. User confirmed
+(via clarifying question) that broad-tenant-read was NOT intended; record-level access
+should be enforced consistently, not just on comment/attach/child-status actions.
 
 ### Verification
 
 - pnpm typecheck: PASS (41/41)
 - pnpm lint: PASS
-- pnpm test: PASS — `@platform/auth` 24/24 (incl. 3 updated API-key tests).
-  Root suite: same 14 pre-existing failures as the established baseline
-  (`git stash` comparison from the prior #124 session), unrelated to this
-  change.
-- pnpm test:isolation: PASS — 119/119 (13 files, up from 112/12 — added
-  `api-key-auth.isolation.test.ts`).
-- Manual end-to-end proof against the real running stack (`ow-backend`
-  rebuilt + restarted): a throwaway `sk_...` key returned 200 with real data
-  from `/modules` (was 401 before the fix), `last_used_at` was written, and
-  an unknown key still correctly returns 401. Test data cleaned up after.
-
-### Discovered but explicitly out of scope
-
-- **Migration tracker drift**: this dev DB's `drizzle.__drizzle_migrations`
-  table stops at id 24, but `meta/_journal.json` lists entries through 30 (now
-  31). Migrations 25-30 were applied to this dev DB by some means outside the
-  drizzle migrator (`pnpm db:migrate` itself fails with `relation ... already
-  exists` when run fresh, because it tries to redo an already-applied
-  migration whose hash doesn't match its tracked record). I applied 0031's SQL
-  directly via `psql` instead of fighting this drift, and deliberately did
-  NOT insert a matching tracker row (would misrepresent 25-30 as applied when
-  they aren't tracked). This should be looked at before it causes a real
-  `db:migrate` failure in another environment — possibly CI is unaffected if
-  it always starts from a fresh `platform_test`, but worth confirming.
+- pnpm test: PASS for auth/files/entity-engine/workflow-engine/automation-engine/etc.
+  `@platform/api` failures dropped from the established 14-test baseline to 12 — the
+  2 fixed were the get.test.ts mock-gap failures above, confirmed unrelated to this
+  session's other pre-existing failures (modules/view-configs/upload-flow/
+  quarantine-flow/zitadel-management/list-workflow-events/transitions-events — all
+  still present, all pre-existing per prior sessions' git-stash comparison).
+- pnpm test:isolation: PASS (119/119)
+- No live e2e check this time — entity/ticket routes are JWT-only by design and this
+  dev stack has no running Zitadel to mint real tokens (established in the prior
+  load-testing session). Relying on unit + isolation coverage instead.
 
 ### Next
 
-Per the load-readiness to-do list, in order:
-1. Now that an authenticated request path works again, actually run the
-   30-40 concurrent user load test (autocannon, confirmed available via
-   `npx`) that started this investigation.
-2. #128 (OpenBao/MinIO commented out of `docker-compose.yml`) — for real app
-   functionality; separate from the already-fixed test-script dependency bug.
-3. Investigate the migration tracker drift noted above.
+Remaining items from the 2026-07-09 security audit's to-do list, in order:
+1. **#2** CSV/XLSX export formula injection (`export-utils.ts`, `export-worker.ts`)
+   — Priority 1, not yet started.
+2. **#3** `ZITADEL_AUDIENCE` should be required, not silently skipped when unset.
+3. **#4** Zitadel error-body logging on failure paths (`zitadel-management.ts`).
+4. **#5** Tenant-status cache cross-instance invalidation.
+5. **#6/#7** Defense-in-depth: `automation-rules` routes via `withTenantContext`;
+   `entity-types` mutation statements missing a belt-and-suspenders tenant filter.
+6. **#8/#9/#10** Introspection cache hash, `users.ts` PII-exposure design confirmation,
+   follow-up audit pass on ~90 unreviewed route files.
 
 ### Open questions
 
-- None blocking. Flagged the migration tracker drift above rather than fixing
-  it now — it's a separate, pre-existing problem and risky to touch without
-  understanding how 25-30 got applied out-of-band.
+- None blocking. Confirm with product whether the `hasEntityReadAccess` semantics
+  (read_comment OR read_write grants view) match intent — currently anyone with ANY
+  granted access level can view the record, only read_write can attach/write.

@@ -3,17 +3,23 @@ import { entityInstances, files, withTenantContext } from "@platform/db";
 import { and, eq, ne } from "drizzle-orm";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { hasEntityReadAccess } from "../../lib/entity-access.js";
 
 export const listAttachmentsHandler = factory.createHandlers(
   requireAuth(),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId, roles } = c.get("auth");
 
     try {
       const [instance] = await withTenantContext(tenantId, (tx) =>
         tx
-          .select({ id: entityInstances.id })
+          .select({
+            id: entityInstances.id,
+            createdBy: entityInstances.createdBy,
+            assignedTo: entityInstances.assignedTo,
+            fields: entityInstances.fields,
+          })
           .from(entityInstances)
           .where(
             and(
@@ -24,7 +30,7 @@ export const listAttachmentsHandler = factory.createHandlers(
           .limit(1),
       );
 
-      if (!instance) {
+      if (!instance || !hasEntityReadAccess(instance, userId, roles)) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 

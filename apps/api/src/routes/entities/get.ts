@@ -9,6 +9,7 @@ import {
 } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { hasEntityReadAccess } from "../../lib/entity-access.js";
 
 async function getAncestorDepth(
   db: Parameters<Parameters<typeof withTenantContext>[1]>[0],
@@ -41,7 +42,7 @@ export const getEntityHandler = factory.createHandlers(
   requireAuth(),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId, roles } = c.get("auth");
 
     try {
       const [instance, parentId, childCount, ancestorDepth] =
@@ -53,6 +54,10 @@ export const getEntityHandler = factory.createHandlers(
             getAncestorDepth(tx, tenantId, id),
           ]),
         );
+
+      if (!hasEntityReadAccess(instance, userId, roles)) {
+        return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+      }
 
       let maxChildDepth = 0;
       if (instance.workflowId) {

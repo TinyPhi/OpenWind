@@ -10,16 +10,18 @@ const mockGetEntity = vi.fn();
 const mockGetParentId = vi.fn().mockResolvedValue(null);
 const mockCountActiveChildren = vi.fn().mockResolvedValue(0);
 
+let mockAuth: AuthContext = {
+  tenantId: "t-aaa",
+  userId: "u-bbb",
+  roles: ["agent"],
+  email: "test@example.com",
+};
+
 vi.mock("@platform/auth", () => ({
   requireAuth:
     () =>
     async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", {
-        tenantId: "t-aaa",
-        userId: "u-bbb",
-        roles: ["agent"],
-        email: "test@example.com",
-      });
+      c.set("auth", mockAuth);
       await next();
     },
   requireRole: () => async (_c: Context, next: Next) => {
@@ -27,9 +29,31 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+// getAncestorDepth (unconditionally called by the handler) walks
+// entity_relations via a raw select chain -- stub it to resolve no parent,
+// matching the flat (non-nested) fixtures these tests use.
+const mockAncestorSelect = vi.fn(() => ({
+  from: vi.fn(() => ({
+    where: vi.fn(() => ({
+      limit: vi.fn().mockResolvedValue([]),
+    })),
+  })),
+}));
+
 vi.mock("@platform/db", () => ({
   db: {},
-  withTenantContext: (tenantId, fn) => fn({}),
+  entityRelations: {
+    toInstanceId: "entity_relations.to_instance_id",
+    tenantId: "entity_relations.tenant_id",
+    fromInstanceId: "entity_relations.from_instance_id",
+    relationType: "entity_relations.relation_type",
+    deletedAt: "entity_relations.deleted_at",
+  },
+  workflows: {
+    id: "workflows.id",
+    maxChildDepth: "workflows.max_child_depth",
+  },
+  withTenantContext: (tenantId, fn) => fn({ select: mockAncestorSelect }),
 }));
 
 vi.mock("@platform/entity-engine", async (importOriginal) => {
@@ -74,7 +98,15 @@ const fakeInstance = {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("GET /entities/:id", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth = {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["agent"],
+      email: "test@example.com",
+    };
+  });
 
   it("returns 200 with the entity instance when found", async () => {
     mockGetEntity.mockResolvedValue(fakeInstance);
@@ -84,7 +116,11 @@ describe("GET /entities/:id", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data.id).toBe(INST_ID);
-    expect(mockGetEntity).toHaveBeenCalledWith({}, "t-aaa", INST_ID);
+    expect(mockGetEntity).toHaveBeenCalledWith(
+      { select: mockAncestorSelect },
+      "t-aaa",
+      INST_ID,
+    );
   });
 
   it("returns 404 when the entity does not exist", async () => {
@@ -114,5 +150,67 @@ describe("GET /entities/:id", () => {
     const json = await res.json();
 
     expect(json.data.deletedAt).toBeNull();
+  });
+
+  // ── record-level read access (__accessUsers ACL) ───────────────────────────
+
+  it("returns 404 for a non-privileged user with no relation to a restricted record", async () => {
+    mockAuth = {
+      tenantId: "t-aaa",
+      userId: "u-outsider",
+      roles: ["user"],
+      email: "outsider@example.com",
+    };
+    mockGetEntity.mockResolvedValue({
+      ...fakeInstance,
+      createdBy: "u-owner",
+      assignedTo: "u-other",
+      fields: { subject: "hello" },
+    });
+
+    const res = await makeApp().request(`/${INST_ID}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 200 for a non-privileged user who created the record", async () => {
+    mockAuth = {
+      tenantId: "t-aaa",
+      userId: "u-owner",
+      roles: ["user"],
+      email: "owner@example.com",
+    };
+    mockGetEntity.mockResolvedValue({
+      ...fakeInstance,
+      createdBy: "u-owner",
+      assignedTo: null,
+      fields: { subject: "hello" },
+    });
+
+    const res = await makeApp().request(`/${INST_ID}`);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 200 for a non-privileged user granted read_comment access via __accessUsers", async () => {
+    mockAuth = {
+      tenantId: "t-aaa",
+      userId: "u-granted",
+      roles: ["user"],
+      email: "granted@example.com",
+    };
+    mockGetEntity.mockResolvedValue({
+      ...fakeInstance,
+      createdBy: "u-owner",
+      assignedTo: null,
+      fields: {
+        subject: "hello",
+        __accessUsers: { "u-granted": { level: "read_comment" } },
+      },
+    });
+
+    const res = await makeApp().request(`/${INST_ID}`);
+
+    expect(res.status).toBe(200);
   });
 });
