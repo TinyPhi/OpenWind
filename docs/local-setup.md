@@ -380,6 +380,20 @@ they do NOT re-read `env_file` or `environment` changes. Always use:
 docker compose up -d --force-recreate ow-backend ow-frontend
 ```
 
+### Logged in fine, but every page is blank / `/api/*` requests return the HTML shell
+
+Login (Zitadel) working while the app itself shows nothing, with API calls in
+the browser's Network tab returning `200`/`304` and an HTML document instead of
+JSON, means Vite's dev server is falling back to `index.html` for `/api/*` —
+its proxy for `/api` isn't configured. `apps/admin-ui` always calls the
+relative path `/api/...`, which only works if the `ow-frontend` container has
+`VITE_API_PROXY_TARGET` set (see `docker-compose.yml`). Force-recreate it to
+pick up the fix:
+
+```bash
+docker compose up -d --force-recreate ow-frontend
+```
+
 ### All API requests return 401 after login
 
 The API container has a stale `ZITADEL_AUDIENCE` (project ID) from before

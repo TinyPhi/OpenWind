@@ -321,6 +321,12 @@ services:
       dockerfile: apps/admin-ui/Dockerfile.dev
     ports:
       - "${ADMIN_UI_HOST_PORT:-3001}:3001" # Vite dev server → http://localhost:3001
+    environment:
+      # admin-ui's API_URL is always the relative "/api" — this makes Vite's dev
+      # server proxy it to the backend over the Docker network. Without this,
+      # every /api/* request falls through to Vite's SPA fallback and silently
+      # returns index.html instead of JSON.
+      VITE_API_PROXY_TARGET: http://ow-backend:3000
     volumes:
       - ./apps/admin-ui/src:/app/apps/admin-ui/src
       - ./apps/admin-ui/index.html:/app/apps/admin-ui/index.html

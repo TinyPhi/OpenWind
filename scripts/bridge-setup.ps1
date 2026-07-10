@@ -17,7 +17,8 @@ $files = @(
     "setup.bat",
     "scripts/setup.ps1",
     "scripts/zitadel-compose-template.yml",
-    "scripts/bootstrap.ts"
+    "scripts/bootstrap.ts",
+    "docker-compose.yml"
 )
 
 Write-Host ""

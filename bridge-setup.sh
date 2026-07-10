@@ -19,6 +19,7 @@ FILES=(
   "scripts/setup.ps1"
   "scripts/zitadel-compose-template.yml"
   "scripts/bootstrap.ts"
+  "docker-compose.yml"
 )
 
 echo ""
