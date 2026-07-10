@@ -1,7 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { createAutomationRule } from "@platform/automation-engine";
 import type { TriggerType, ActionConfig } from "@platform/automation-engine";
 import { factory } from "./factory.js";
@@ -30,11 +30,13 @@ export const createAutomationRuleHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
     const input = c.req.valid("json");
     try {
-      const rule = await createAutomationRule(db, tenantId, {
-        ...input,
-        triggerType: input.triggerType as TriggerType,
-        actions: input.actions as ActionConfig[],
-      });
+      const rule = await withTenantContext(tenantId, (tx) =>
+        createAutomationRule(tx, tenantId, {
+          ...input,
+          triggerType: input.triggerType as TriggerType,
+          actions: input.actions as ActionConfig[],
+        }),
+      );
       return c.json({ data: rule }, 201);
     } catch (err) {
       return handleAutomationError(c, err);

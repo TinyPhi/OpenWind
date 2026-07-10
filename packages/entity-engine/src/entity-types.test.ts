@@ -6,6 +6,8 @@ import { EntityError } from "./errors.js";
 const mockInsertReturning = vi.fn();
 const mockUpdateReturning = vi.fn();
 const mockSelectResult = vi.fn();
+const mockUpdateWhere = vi.fn();
+const mockDeleteWhere = vi.fn();
 
 function makeQueryBuilder(finalResult: () => unknown[]) {
   const q: Record<string, unknown> = {};
@@ -25,10 +27,18 @@ const dbMock = {
   })),
   update: vi.fn(() => ({
     set: vi.fn(() => ({
-      where: vi.fn(() => ({ returning: mockUpdateReturning })),
+      where: (...args: unknown[]) => {
+        mockUpdateWhere(...args);
+        return { returning: mockUpdateReturning };
+      },
     })),
   })),
-  delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue([]) })),
+  delete: vi.fn(() => ({
+    where: (...args: unknown[]) => {
+      mockDeleteWhere(...args);
+      return Promise.resolve([]);
+    },
+  })),
 };
 
 vi.mock("@platform/db", () => ({
@@ -172,6 +182,24 @@ describe("updateEntityType", () => {
     expect(result.name).toBe("incident");
   });
 
+  it("repeats the tenant ownership condition on the UPDATE statement itself (#7 belt-and-suspenders)", async () => {
+    dbMock.select.mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
+    mockUpdateReturning.mockResolvedValue([fakeEntityType]);
+    await updateEntityType(dbMock as never, TENANT_ID, TYPE_ID, {
+      name: "incident",
+    });
+
+    expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
+    const whereArg = mockUpdateWhere.mock.calls[0]?.[0] as {
+      op: string;
+      args: unknown[];
+    };
+    expect(whereArg.op).toBe("and");
+    // and(eq(id, entityTypeId), or(isNull(tenantId), eq(tenantId, tenantId)))
+    expect(whereArg.args[0]).toMatchObject({ op: "eq", val: TYPE_ID });
+    expect(whereArg.args[1]).toMatchObject({ op: "or" });
+  });
+
   it("returns existing type unchanged when input is empty", async () => {
     dbMock.select.mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
     const result = await updateEntityType(
@@ -205,6 +233,22 @@ describe("deleteEntityType", () => {
       deleteEntityType(dbMock as never, TENANT_ID, TYPE_ID),
     ).resolves.toBeUndefined();
     expect(dbMock.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("repeats the tenant ownership condition on the DELETE statement itself (#7 belt-and-suspenders)", async () => {
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: TYPE_ID }]))
+      .mockReturnValue(makeQueryBuilder(() => [{ count: 0 }]));
+    await deleteEntityType(dbMock as never, TENANT_ID, TYPE_ID);
+
+    expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
+    const whereArg = mockDeleteWhere.mock.calls[0]?.[0] as {
+      op: string;
+      args: unknown[];
+    };
+    expect(whereArg.op).toBe("and");
+    expect(whereArg.args[0]).toMatchObject({ op: "eq", val: TYPE_ID });
+    expect(whereArg.args[1]).toMatchObject({ op: "or" });
   });
 
   it("throws ENTITY_TYPE_HAS_INSTANCES when instances exist", async () => {

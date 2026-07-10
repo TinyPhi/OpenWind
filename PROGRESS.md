@@ -1,67 +1,87 @@
-## 2026-07-10 — Security audit finding #5: tenant-status cache cross-instance invalidation
+## 2026-07-10 — Security audit findings #6 and #7 (defense-in-depth upgraded to active-bug fix)
 
 ### Done
 
-- `packages/auth/src/tenant-status-cache.ts`: `invalidateTenantStatusCache` now
-  publishes the tenantId on a new Redis pub/sub channel (`tenant-status:invalidate`)
-  after clearing the local cache, best-effort (guarded by `redis.status ===
-  "ready"` — a down Redis just falls back to the existing 30s TTL, no worse than
-  before). New `startTenantStatusInvalidationSubscriber()`/
-  `stopTenantStatusInvalidationSubscriber()` — a dedicated `getRedis().duplicate()`
-  connection (required: ioredis clients in subscribe mode can't run other
-  commands) that clears the local cache on message.
-- `packages/auth/src/index.ts`: exports the two new subscriber functions.
-- `packages/auth/package.json`: added `@platform/redis` as a dependency
-  (precedent: `entity-engine` already depends on it the same way for its
-  schema cache).
-- `apps/api/src/index.ts`: starts the subscriber at server boot, stops it
-  during graceful shutdown alongside the existing `closeRedis()` call.
-- `packages/auth/src/tenant-status-cache.test.ts` (new): 9 tests — baseline
-  get/set/TTL behavior (previously untested), publish-on-invalidate,
-  skip-publish-when-redis-down (no throw), subscriber idempotency, clean
-  shutdown, and a cross-instance simulation proving a second "process"
-  (a separately `vi.resetModules()`-loaded instance of the module, sharing a
-  fake in-memory pub/sub) has its local cache cleared by another instance's
-  invalidation call.
+**#6 — automation-rules routes were completely broken by RLS, not just missing a backstop:**
+
+- `apps/api/src/routes/automation-rules/{get,list,create,update,delete}.ts`:
+  all five now wrap their engine call in `withTenantContext(tenantId, tx =>
+  ...)` instead of passing the plain `db` client.
+- `apps/api/src/routes/automation-rules/automation-rules.test.ts`: updated the
+  `@platform/db` mock to include `withTenantContext: (tenantId, fn) => fn({})`
+  — existing assertions unchanged since the mock still hands back the same
+  `{}` tx.
+- `apps/api/tests/isolation/automation-rules.isolation.test.ts` (new): 8 tests
+  against real Postgres — proves list/get/create/update/delete all actually
+  work now (previously list/get always returned empty, create failed with an
+  RLS violation), and that tenant isolation holds (tenant B gets 404 on
+  tenant A's rule, can't see it in list, can't mutate/delete it).
+
+**#7 — entity-types mutations now repeat the tenant ownership condition on
+the mutation statement itself:**
+
+- `packages/entity-engine/src/entity-types.ts`: `updateEntityType` and
+  `deleteEntityType` already ran a `SELECT` proving ownership before mutating,
+  but the `UPDATE`/`DELETE` statements themselves only filtered by
+  `entityTypes.id` — no independent tenant guard. Added the same
+  `and(eq(id, entityTypeId), or(isNull(tenantId), eq(tenantId, tenantId)))`
+  condition directly to both mutation `WHERE` clauses.
+- `packages/entity-engine/src/entity-types.test.ts`: +2 tests asserting the
+  mutation statements actually receive that condition.
 
 ### Why
 
-Fifth item from the 2026-07-09 security audit. The module's own comment already
-named this gap: in a horizontally-scaled deployment, a suspended/deleted tenant
-could keep working against any API replica that hadn't naturally expired its
-30s-TTL local cache entry yet.
+Sixth and seventh items from the 2026-07-09 security audit, originally
+characterized as "defense-in-depth, no RLS backstop if these filters are ever
+refactored out." Investigating #6 upgraded its severity significantly: I
+tested directly against Postgres before writing any fix (`SELECT`/`INSERT` as
+`app_user` with no tenant GUC set) and confirmed `automation_rules`' RLS
+policy — which requires `app.tenant_id` — blocks these routes entirely today.
+Reads silently return nothing; creates fail outright with an RLS violation
+error. This has been broken since #121 started enforcing RLS for real, and
+went unnoticed because both the unit tests and (nonexistent, until now)
+isolation tests mock the DB/engine layer completely.
 
-### Explicitly not touched
-
-`packages/entity-engine/src/validation/schema-cache.ts` — a separate, CLAUDE.md-
-flagged off-limits item ("Schema cache / redis.keys() fix — deferred until load
-testing"), unrelated to this fix. Only referenced as a precedent for the
-existing `getRedis()` / `redis.status === "ready"` conventions already used
-elsewhere in the codebase.
+#7 remains a genuine defense-in-depth fix (no active bug) — `entity_types` has
+no RLS at all, and the pre-check SELECT already correctly gates access; this
+just closes a TOCTOU-style gap where the mutation itself trusted the earlier
+check rather than re-verifying independently.
 
 ### Verification
 
-- pnpm typecheck: PASS (41/41, after `pnpm install` linked the new
-  `@platform/auth → @platform/redis` workspace dependency)
-- pnpm lint: PASS (direct eslint run on touched files, clean)
-- pnpm test: PASS — `@platform/auth` 35/35 (up from 26, +9 new). Root
-  `@platform/api` failures unchanged at the established 12-test baseline.
-- pnpm test:isolation: PASS (119/119, genuine re-run — cache miss confirmed
-  since apps/api changed)
-- Live end-to-end verification against the running stack: rebuilt and
-  restarted `ow-backend`, confirmed clean startup with no errors,
-  `PUBSUB CHANNELS` on the real Redis container shows the subscriber
-  registered on `tenant-status:invalidate`, and a manual `PUBLISH` was
-  received (1 subscriber) with no errors in the API logs afterward.
+- pnpm typecheck: PASS (41/41)
+- pnpm lint: PASS (direct eslint run, clean after fixing one unused import)
+- pnpm test: PASS — `@platform/entity-engine` 172/172 (up from 170, +2 new,
+  no regressions to the 13 pre-existing files). `@platform/api` unit tests
+  +8 net new (automation-rules.test.ts unchanged, isolation suite grew).
+  Root failures unchanged at the established 12-test baseline.
+- pnpm test:isolation: PASS — 127/127 (14 files, up from 119/13 — added
+  automation-rules.isolation.test.ts).
+- Manual verification against real Postgres before the fix (confirmed the
+  bug): `SET ROLE app_user` + no tenant GUC → `SELECT` on a real row returns 0
+  rows; `INSERT` fails with "new row violates row-level security policy for
+  table automation_rules". After the fix: same commands with the GUC set (what
+  `withTenantContext` does) succeed. Rebuilt and restarted `ow-backend` —
+  clean boot, health check passes.
 
 ### Next
 
-Remaining items from the 2026-07-09 security audit's to-do list, in order:
-1. **#6/#7** Defense-in-depth: `automation-rules` routes via `withTenantContext`;
-   `entity-types` mutation statements missing a belt-and-suspenders tenant filter.
-2. **#8/#9/#10** Introspection cache hash, `users.ts` PII-exposure design
-   confirmation, follow-up audit pass on ~90 unreviewed route files.
+Remaining items from the 2026-07-09 security audit's to-do list:
+1. **#8** Introspection cache key: switch from 32-bit hash to SHA-256.
+2. **#9** Confirm with product whether `users.ts` returning all tenant members'
+   PII to `user`-role callers is intended (currently documented as deliberate).
+3. **#10** Follow-up audit pass on the ~90 route files not yet reviewed in
+   depth (admin routes, entity-type field routes, workflow states/transitions,
+   bulk/archive/restore).
+
+This closes out all of items #1-#7 from the original audit — the remaining
+three are minor hardening / a product decision / broader coverage, not active
+bugs.
 
 ### Open questions
 
-- None blocking.
+- None blocking. Given #6 turned out to be an active production bug rather
+  than pure hardening, worth asking: are there other routes using plain `db`
+  against an RLS-enabled table that haven't been audited yet? #10 (follow-up
+  audit pass) would catch this — consider prioritizing it above #8/#9 given
+  what #6 just revealed.
