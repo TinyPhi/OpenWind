@@ -1,44 +1,65 @@
-## 2026-07-10 — Security audit finding #4: Zitadel error-body logging
+## 2026-07-10 — Security audit finding #5: tenant-status cache cross-instance invalidation
 
 ### Done
 
-- `apps/api/src/lib/zitadel-management.ts`: removed `body: result.text` from
-  the three failure-path log calls that had it — token exchange
-  (`getAccessToken`), list project roles (`listProjectRoles`), and list org
-  users (`_fetchOrgUsers`). Each now logs `{ status: result.status }` only,
-  with a comment explaining why the raw body is never logged.
+- `packages/auth/src/tenant-status-cache.ts`: `invalidateTenantStatusCache` now
+  publishes the tenantId on a new Redis pub/sub channel (`tenant-status:invalidate`)
+  after clearing the local cache, best-effort (guarded by `redis.status ===
+  "ready"` — a down Redis just falls back to the existing 30s TTL, no worse than
+  before). New `startTenantStatusInvalidationSubscriber()`/
+  `stopTenantStatusInvalidationSubscriber()` — a dedicated `getRedis().duplicate()`
+  connection (required: ioredis clients in subscribe mode can't run other
+  commands) that clears the local cache on message.
+- `packages/auth/src/index.ts`: exports the two new subscriber functions.
+- `packages/auth/package.json`: added `@platform/redis` as a dependency
+  (precedent: `entity-engine` already depends on it the same way for its
+  schema cache).
+- `apps/api/src/index.ts`: starts the subscriber at server boot, stops it
+  during graceful shutdown alongside the existing `closeRedis()` call.
+- `packages/auth/src/tenant-status-cache.test.ts` (new): 9 tests — baseline
+  get/set/TTL behavior (previously untested), publish-on-invalidate,
+  skip-publish-when-redis-down (no throw), subscriber idempotency, clean
+  shutdown, and a cross-instance simulation proving a second "process"
+  (a separately `vi.resetModules()`-loaded instance of the module, sharing a
+  fake in-memory pub/sub) has its local cache cleared by another instance's
+  invalidation call.
 
 ### Why
 
-Fourth item from the 2026-07-09 security audit. These three sites logged the
-raw Zitadel HTTP response body verbatim on any non-2xx response — an unvetted
-external payload that could carry provider-specific diagnostic detail (or
-worse) into structured logs readable by anyone with log-aggregator access. An
-earlier "pre-pr-security-review" pass had already fixed the happy-path body
-logging in this file; these three failure-path spots were the ones it missed.
+Fifth item from the 2026-07-09 security audit. The module's own comment already
+named this gap: in a horizontally-scaled deployment, a suspended/deleted tenant
+could keep working against any API replica that hadn't naturally expired its
+30s-TTL local cache entry yet.
+
+### Explicitly not touched
+
+`packages/entity-engine/src/validation/schema-cache.ts` — a separate, CLAUDE.md-
+flagged off-limits item ("Schema cache / redis.keys() fix — deferred until load
+testing"), unrelated to this fix. Only referenced as a precedent for the
+existing `getRedis()` / `redis.status === "ready"` conventions already used
+elsewhere in the codebase.
 
 ### Verification
 
-- pnpm typecheck: PASS (41/41)
-- pnpm lint: PASS (direct eslint run, clean)
-- pnpm test: PASS — same established 12-test baseline in `@platform/api`, no
-  regressions. No new automated test added for this specific change: exercising
-  these three branches requires a full mocked crypto (RSA/EC key pair for JWT
-  signing) + `node:http`/`node:https` request/response cycle, disproportionate
-  effort for a one-line-per-site logging-hygiene fix. Verified instead by
-  direct diff review (each site is a mechanical `{status, body} → {status}`
-  change, trivial to eye-check) plus confirming the existing test suite for
-  this file still passes unchanged.
-- pnpm test:isolation: PASS (119/119, cache-hit — outside this change's
-  dependency graph)
+- pnpm typecheck: PASS (41/41, after `pnpm install` linked the new
+  `@platform/auth → @platform/redis` workspace dependency)
+- pnpm lint: PASS (direct eslint run on touched files, clean)
+- pnpm test: PASS — `@platform/auth` 35/35 (up from 26, +9 new). Root
+  `@platform/api` failures unchanged at the established 12-test baseline.
+- pnpm test:isolation: PASS (119/119, genuine re-run — cache miss confirmed
+  since apps/api changed)
+- Live end-to-end verification against the running stack: rebuilt and
+  restarted `ow-backend`, confirmed clean startup with no errors,
+  `PUBSUB CHANNELS` on the real Redis container shows the subscriber
+  registered on `tenant-status:invalidate`, and a manual `PUBLISH` was
+  received (1 subscriber) with no errors in the API logs afterward.
 
 ### Next
 
 Remaining items from the 2026-07-09 security audit's to-do list, in order:
-1. **#5** Tenant-status cache cross-instance invalidation.
-2. **#6/#7** Defense-in-depth: `automation-rules` routes via `withTenantContext`;
+1. **#6/#7** Defense-in-depth: `automation-rules` routes via `withTenantContext`;
    `entity-types` mutation statements missing a belt-and-suspenders tenant filter.
-3. **#8/#9/#10** Introspection cache hash, `users.ts` PII-exposure design
+2. **#8/#9/#10** Introspection cache hash, `users.ts` PII-exposure design
    confirmation, follow-up audit pass on ~90 unreviewed route files.
 
 ### Open questions
