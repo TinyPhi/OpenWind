@@ -316,6 +316,7 @@ describe("GET /entities/:id/events", () => {
       {},
       "t-aaa",
       INSTANCE_ID,
+      {},
     );
   });
 

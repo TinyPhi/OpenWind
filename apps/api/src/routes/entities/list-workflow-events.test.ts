@@ -46,6 +46,7 @@ vi.mock("@platform/db", () => ({
 
 vi.mock("../../lib/zitadel-management.js", () => ({
   listOrgUsers: () => Promise.resolve([]),
+  getUserById: () => Promise.resolve(null),
 }));
 
 vi.mock("@platform/workflow-engine", async (importOriginal) => {

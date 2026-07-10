@@ -317,6 +317,18 @@ export async function listProjectRoles(): Promise<string[]> {
 // security review — listOrgUsers previously had a "_default_" fallback cache
 // key that any org with a missing orgId shared).
 export async function listOrgUsers(orgId: string): Promise<OrgUser[]> {
+  // Runtime guard alongside the compile-time non-optional type — a caller
+  // that bypasses TypeScript (e.g. an untyped/JS call site) must still fail
+  // closed here rather than falling through to a cache lookup keyed on
+  // undefined/"" and an unrelated getAccessToken failure path.
+  if (!orgId) {
+    logger.warn(
+      {},
+      "listOrgUsers called without an orgId — refusing to fall through to an unfiltered query",
+    );
+    return [];
+  }
+
   const cacheKey = orgId;
   const now = Date.now();
   const cached = _usersCache.get(cacheKey);
