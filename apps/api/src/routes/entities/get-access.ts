@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { entityInstances, withTenantContext } from "@platform/db";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { hasEntityReadAccess } from "../../lib/entity-access.js";
 
 type AccessLevel = "read_only" | "read_comment" | "read_write";
 type AccessTag = "creator" | "assigned" | "mention" | "manual";
@@ -34,7 +35,7 @@ export const getAccessHandler = factory.createHandlers(
   requireAuth(),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId, roles } = c.get("auth");
 
     try {
       const [instance] = await withTenantContext(tenantId, (tx) =>
@@ -54,7 +55,7 @@ export const getAccessHandler = factory.createHandlers(
           .limit(1),
       );
 
-      if (!instance) {
+      if (!instance || !hasEntityReadAccess(instance, userId, roles)) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 
