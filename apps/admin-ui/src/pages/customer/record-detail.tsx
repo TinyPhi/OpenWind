@@ -1608,6 +1608,22 @@ export function CustomerRecordDetail(): React.ReactElement {
             : r,
         ),
       );
+      if (action === "approve") {
+        const requesterId = accessReqList.find(
+          (r) => r.id === reqId,
+        )?.requesterId;
+        if (requesterId) {
+          setAccessList((prev) => {
+            const existing = prev.find((e) => e.userId === requesterId);
+            if (existing) {
+              return prev.map((e) =>
+                e.userId === requesterId ? { ...e, level } : e,
+              );
+            }
+            return [...prev, { userId: requesterId, level, tag: "manual" }];
+          });
+        }
+      }
       setResolveModal(null);
     } catch {
       /* best-effort */
