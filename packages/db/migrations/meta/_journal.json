@@ -225,6 +225,13 @@
       "when": 1783417681000,
       "tag": "0031_api_key_lookup_function",
       "breakpoints": false
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783417682000,
+      "tag": "0032_tenants_zitadel_org_id",
+      "breakpoints": false
     }
   ]
 }
