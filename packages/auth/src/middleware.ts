@@ -143,6 +143,29 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         );
       }
 
+      // In production there is no DEV_TENANT_ID fallback (the Zod schema
+      // forbids it), so extractAuthContext's tenantId is just the raw
+      // Zitadel org id — never a valid `uuid`. Resolve the real tenant via
+      // the zitadel_org_id mapping and fail closed if none exists, rather
+      // than let a malformed tenantId reach any tenant-scoped query.
+      // See docs/specs/tenant-org-id-mapping.md.
+      if (env.NODE_ENV === "production") {
+        const mappedTenantId = auth.orgId
+          ? await lookupTenantIdByOrgId(auth.orgId, db)
+          : null;
+        if (!mappedTenantId) {
+          logger.warn(
+            { orgId: auth.orgId ?? "(missing)" },
+            "No tenant mapped to this Zitadel org — rejecting",
+          );
+          return c.json(
+            { error: "TENANT_NOT_FOUND", message: "Not found" },
+            404,
+          );
+        }
+        auth = { ...auth, tenantId: mappedTenantId };
+      }
+
       // If JWT is missing email or name (e.g. instance admins, tokens issued before
       // "include profile info" was enabled), enrich from the userinfo endpoint.
       if (!auth.email || auth.displayName === auth.userId) {
@@ -315,6 +338,25 @@ async function resolveTenantStatus(
   const status = row?.status ?? "deleted";
   setCachedTenantStatus(tenantId, status);
   return status;
+}
+
+/**
+ * Resolve a tenant's internal UUID from its mapped Zitadel org id. Returns
+ * null if no tenant is mapped to this org — callers must fail closed, never
+ * fall back to another tenant. See docs/specs/tenant-org-id-mapping.md.
+ */
+export async function lookupTenantIdByOrgId(
+  orgId: string,
+  dbHandle?: DbOrTx,
+): Promise<string | null> {
+  const activeDb = dbHandle ?? db;
+  const [row] = await activeDb
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(eq(tenants.zitadelOrgId, orgId))
+    .limit(1);
+
+  return row?.id ?? null;
 }
 
 async function resolveApiKey(
