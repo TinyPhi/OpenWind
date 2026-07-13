@@ -21,5 +21,7 @@ export function hasEntityReadAccess(
     (instance.fields as Record<string, unknown> | null)?.__accessUsers ?? {};
   const level = (accessUsers as Record<string, { level: string }>)[userId]
     ?.level;
-  return level === "read_comment" || level === "read_write";
+  return (
+    level === "read_only" || level === "read_comment" || level === "read_write"
+  );
 }
