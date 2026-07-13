@@ -30,7 +30,7 @@ const BASE_CLAIMS: Claims = {
   exp: Math.floor(Date.now() / 1000) + 3600,
   iat: Math.floor(Date.now() / 1000),
   email: "alice@example.com",
-  "urn:zitadel:iam:org:id": "tenant-abc",
+  "urn:zitadel:iam:user:resourceowner:id": "tenant-abc",
   "urn:zitadel:iam:org:project:roles": {
     agent: { "tenant-abc": "tenant-abc" },
     admin: { "tenant-abc": "tenant-abc" },
@@ -57,7 +57,7 @@ describe("extractAuthContext", () => {
   it("returns null when org id claim is missing", () => {
     const claims: Claims = {
       ...BASE_CLAIMS,
-      "urn:zitadel:iam:org:id": undefined,
+      "urn:zitadel:iam:user:resourceowner:id": undefined,
     };
     expect(extractAuthContext(claims)).toBeNull();
   });

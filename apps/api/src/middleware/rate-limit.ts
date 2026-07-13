@@ -66,7 +66,7 @@ function rateLimitKey(c: Parameters<MiddlewareHandler>[0]): string {
           "base64url",
         ).toString(),
       ) as Record<string, unknown>;
-      const org = payload["urn:zitadel:iam:org:id"];
+      const org = payload["urn:zitadel:iam:user:resourceowner:id"];
       if (typeof org === "string" && org) return org;
       const sub = payload["sub"];
       if (typeof sub === "string" && sub) return sub;

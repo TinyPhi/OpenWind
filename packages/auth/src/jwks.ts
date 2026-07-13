@@ -70,7 +70,7 @@ export function extractAuthContext(
   claims: JWTPayload & ZitadelClaims,
 ): AuthContext | null {
   const userId = claims.sub;
-  const orgId = claims["urn:zitadel:iam:org:id"];
+  const orgId = claims["urn:zitadel:iam:user:resourceowner:id"];
 
   // In dev, always use DEV_TENANT_ID so all users (admin + org members) hit
   // the same seeded tenant. Zitadel org UUIDs in the JWT would otherwise map

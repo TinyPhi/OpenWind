@@ -17,7 +17,7 @@ export const userManager = new UserManager({
   redirect_uri: window.location.origin + "/auth/callback",
   response_type: "code",
   scope:
-    "openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:id offline_access",
+    "openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:user:resourceowner offline_access",
   post_logout_redirect_uri: window.location.origin + "/login",
   userStore: new WebStorageStateStore({ store: window.localStorage }),
   automaticSilentRenew: false,
