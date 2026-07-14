@@ -46,42 +46,55 @@ beforeAll(async () => {
     allowCustomFields: true,
   });
 
-  const workflow = await createWorkflow(db, TENANT, {
+  const workflow = await createWorkflow(db, TENANT, "test-actor", {
     entityTypeId: entityType.id,
     name: `depth_workflow_${Date.now()}`,
     initialState: "open",
   });
   workflowId = workflow.id;
+  const caller = { userId: "test-actor", isGlobalAdmin: true };
 
-  await addWorkflowState(db, TENANT, workflowId, {
+  await addWorkflowState(db, TENANT, workflowId, caller, {
     name: "open",
     label: "Open",
     isTerminal: false,
     sortOrder: 0,
   });
-  await addWorkflowState(db, TENANT, workflowId, {
+  await addWorkflowState(db, TENANT, workflowId, caller, {
     name: "processing",
     label: "Processing",
     isTerminal: false,
     sortOrder: 1,
   });
-  await addWorkflowState(db, TENANT, workflowId, {
+  await addWorkflowState(db, TENANT, workflowId, caller, {
     name: "done",
     label: "Done",
     isTerminal: true,
     sortOrder: 2,
   });
 
-  const openToProcessing = await addWorkflowTransition(db, TENANT, workflowId, {
-    fromState: "open",
-    toState: "processing",
-  });
+  const openToProcessing = await addWorkflowTransition(
+    db,
+    TENANT,
+    workflowId,
+    caller,
+    {
+      fromState: "open",
+      toState: "processing",
+    },
+  );
   openToProcessingId = openToProcessing.id;
 
-  const processingToDone = await addWorkflowTransition(db, TENANT, workflowId, {
-    fromState: "processing",
-    toState: "done",
-  });
+  const processingToDone = await addWorkflowTransition(
+    db,
+    TENANT,
+    workflowId,
+    caller,
+    {
+      fromState: "processing",
+      toState: "done",
+    },
+  );
   processingToDoneId = processingToDone.id;
 
   // Auto-continue rule: whenever anything reaches "processing", immediately

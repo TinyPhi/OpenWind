@@ -1,5 +1,6 @@
 export * from "./errors.js";
 export * from "./types.js";
+export { isWorkflowAdmin, isWorkflowAdminListEditor } from "./authorization.js";
 export {
   executeTransition,
   getAvailableTransitions,
@@ -12,8 +13,10 @@ export {
   createWorkflow,
   updateWorkflow,
   getWorkflow,
+  getWorkflowByEntityTypeId,
   listWorkflows,
   listWorkflowsSummary,
+  listWorkflowSlugs,
   deleteWorkflow,
   addWorkflowState,
   updateWorkflowState,

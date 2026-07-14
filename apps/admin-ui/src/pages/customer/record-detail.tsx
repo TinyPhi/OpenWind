@@ -1028,6 +1028,10 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [allStates, setAllStates] = useState<WorkflowState[]>([]);
   const [transitions, setTransitions] = useState<Transition[]>([]);
   const [_maxChildDepth, setMaxChildDepth] = useState<number>(1);
+  const [workflowCreatedBy, setWorkflowCreatedBy] = useState<string | null>(
+    null,
+  );
+  const [workflowAssignedTo, setWorkflowAssignedTo] = useState<string[]>([]);
   const [currentState, setCurrentState] = useState("");
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -1168,8 +1172,18 @@ export function CustomerRecordDetail(): React.ReactElement {
         setOidcLoaded(true);
       });
   }, []);
+  // A workflow admin (this ticket's workflow creator, or in its assigned_to
+  // list) gets the same full access as a global admin/agent — ticket edit,
+  // access updates, sub-ticket creation, everything gated by isAdminOrAgent
+  // below. Matches the backend (assertRecordWorkflowAccess et al.).
+  const isWorkflowAdminOfParent =
+    currentUserId !== null &&
+    (currentUserId === workflowCreatedBy ||
+      workflowAssignedTo.includes(currentUserId));
   const isAdminOrAgent =
-    currentUserRoles.includes("admin") || currentUserRoles.includes("agent");
+    currentUserRoles.includes("admin") ||
+    currentUserRoles.includes("agent") ||
+    isWorkflowAdminOfParent;
 
   // Current user's access entry (null for admins/agents — they bypass access list)
   const myAccessEntry =
@@ -1274,6 +1288,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       (currentUserId === creatorId || currentUserId === record?.assignedTo));
   const canChangeAssignedTo =
     isAdminOrAgent || (currentUserId !== null && currentUserId === creatorId);
+
+  // isAdminOrAgent already includes workflow-admin status (see its definition).
+  const canCreateChild = isAdminOrAgent;
 
   async function handleAccessChange(): Promise<void> {
     if (!id || !accessChangeModal) return;
@@ -1857,6 +1874,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                   states: WorkflowState[];
                   transitions: Transition[];
                   maxChildDepth?: number;
+                  createdBy?: string | null;
+                  assignedTo?: string[] | null;
                 };
               }
             ).data
@@ -1866,6 +1885,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                   states?: WorkflowState[];
                   transitions?: Transition[];
                   maxChildDepth?: number;
+                  createdBy?: string | null;
+                  assignedTo?: string[] | null;
                 }>;
               }
             ).data ?? [])[0];
@@ -1875,9 +1896,13 @@ export function CustomerRecordDetail(): React.ReactElement {
           setMaxChildDepth(
             (wf as { maxChildDepth?: number }).maxChildDepth ?? 1,
           );
+          setWorkflowCreatedBy(wf.createdBy ?? null);
+          setWorkflowAssignedTo(wf.assignedTo ?? []);
         } else {
           setAllStates([]);
           setTransitions([]);
+          setWorkflowCreatedBy(null);
+          setWorkflowAssignedTo([]);
         }
       })
       .catch(() => {
@@ -3440,7 +3465,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <span className="rcd-sidebar-count">{children.length}</span>
                   )}
                 </span>
-                {isAdminOrAgent && !record.deletedAt && (
+                {canCreateChild && !record.deletedAt && (
                   <button
                     type="button"
                     className="rcd-sidebar-add"

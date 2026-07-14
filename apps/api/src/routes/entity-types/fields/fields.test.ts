@@ -87,8 +87,8 @@ function makeField(
 describe("PATCH /entity-types/:typeId/fields/:fieldId", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("is gated by requireRole('admin') — field config is schema-level, not per-record", () => {
-    expect(requireRoleCalls).toContainEqual(["admin"]);
+  it("is gated to admin/agent/user, with real access enforced per-workflow", () => {
+    expect(requireRoleCalls).toContainEqual(["admin", "agent", "user"]);
   });
 
   it("returns 200 with the updated field on a valid label change", async () => {

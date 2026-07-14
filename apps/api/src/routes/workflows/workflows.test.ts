@@ -108,6 +108,7 @@ describe("POST /workflows", () => {
     expect(mockCreate).toHaveBeenCalledWith(
       {},
       "t-aaa",
+      "u-bbb",
       expect.objectContaining({ name: "Support Ticket Workflow" }),
     );
   });
@@ -147,14 +148,26 @@ describe("GET /workflows", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data).toHaveLength(1);
-    expect(mockList).toHaveBeenCalledWith({}, "t-aaa", TYPE_ID, false);
+    expect(mockList).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      { userId: "u-bbb", isGlobalAdmin: true },
+      TYPE_ID,
+      false,
+    );
   });
 
   it("allows missing entityTypeId and returns 200", async () => {
     mockList.mockResolvedValue([fakeWorkflowFull]);
     const res = await makeApp().request("/");
     expect(res.status).toBe(200);
-    expect(mockList).toHaveBeenCalledWith({}, "t-aaa", undefined, false);
+    expect(mockList).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      { userId: "u-bbb", isGlobalAdmin: true },
+      undefined,
+      false,
+    );
   });
 });
 
@@ -190,7 +203,10 @@ describe("DELETE /workflows/:id", () => {
 
     const res = await makeApp().request(`/${WF_ID}`, { method: "DELETE" });
     expect(res.status).toBe(204);
-    expect(mockDelete).toHaveBeenCalledWith({}, "t-aaa", WF_ID);
+    expect(mockDelete).toHaveBeenCalledWith({}, "t-aaa", WF_ID, {
+      userId: "u-bbb",
+      isGlobalAdmin: true,
+    });
   });
 
   it("returns 409 when workflow has active instances", async () => {

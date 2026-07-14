@@ -9,6 +9,8 @@ import {
 } from "@platform/entity-engine";
 import { factory } from "../factory.js";
 import { handleEntityError } from "../../../lib/handle-entity-error.js";
+import { assertFieldWorkflowAccess } from "../../../lib/assert-field-workflow-access.js";
+import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
 
 const CreateFieldSchema = z.object({
   name: z
@@ -29,12 +31,14 @@ const CreateFieldSchema = z.object({
 
 export const createEntityFieldHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", CreateFieldSchema),
   async (c) => {
-    const typeId = c.req.param("typeId") ?? "";
+    const typeId = c.get("typeId");
     const input = c.req.valid("json");
-    const { tenantId } = c.get("auth");
+    const auth = c.get("auth");
+    const { tenantId } = auth;
+    const caller = toWorkflowCaller(auth);
 
     // ReDoS guard: zValidator uses synchronous safeParse so async superRefine
     // would not run there.  We check the pattern here after basic validation
@@ -66,8 +70,9 @@ export const createEntityFieldHandler = factory.createHandlers(
     }
 
     try {
-      const field = await withTenantContext(tenantId, (tx) =>
-        addEntityField(tx, tenantId, typeId, {
+      const field = await withTenantContext(tenantId, async (tx) => {
+        await assertFieldWorkflowAccess(tx, tenantId, typeId, caller);
+        return addEntityField(tx, tenantId, typeId, {
           entityTypeId: typeId,
           name: input.name,
           label: input.label,
@@ -79,8 +84,8 @@ export const createEntityFieldHandler = factory.createHandlers(
           sortOrder: input.sortOrder,
           sensitivity: input.sensitivity,
           createdAt: new Date(),
-        }),
-      );
+        });
+      });
       return c.json({ data: field }, 201);
     } catch (err) {
       return handleEntityError(c, err);

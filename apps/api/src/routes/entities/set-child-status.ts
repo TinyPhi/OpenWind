@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, withTenantContext } from "@platform/db";
 import { getParentId, updateEntity } from "@platform/entity-engine";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -44,6 +45,7 @@ export const setChildStatusHandler = factory.createHandlers(
               assignedTo: entityInstances.assignedTo,
               createdBy: entityInstances.createdBy,
               fields: entityInstances.fields,
+              workflowId: entityInstances.workflowId,
             })
             .from(entityInstances)
             .where(
@@ -61,10 +63,20 @@ export const setChildStatusHandler = factory.createHandlers(
         const userAccess = (accessUsers as Record<string, { level: string }>)[
           userId
         ];
-        const canAccess =
+        let canAccess =
           child?.createdBy === userId ||
           child?.assignedTo === userId ||
           userAccess?.level === "read_write";
+
+        if (!canAccess && child?.workflowId) {
+          const workflow = await withTenantContext(tenantId, (tx) =>
+            getWorkflow(tx, tenantId, child.workflowId as string, {
+              userId,
+              isGlobalAdmin: false,
+            }),
+          );
+          canAccess = isWorkflowAdmin(userId, workflow);
+        }
 
         if (!canAccess) {
           return c.json(

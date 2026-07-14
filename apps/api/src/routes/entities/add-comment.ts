@@ -12,6 +12,7 @@ import {
 } from "@platform/db";
 import { isNull } from "drizzle-orm";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 
 const MentionSchema = z.object({
@@ -65,11 +66,22 @@ export const addCommentHandler = factory.createHandlers(
       const userAccess = (accessUsers as Record<string, { level: string }>)[
         userId
       ];
-      const canComment =
+      let canComment =
         instance.createdBy === userId ||
         instance.assignedTo === userId ||
         userAccess?.level === "read_comment" ||
         userAccess?.level === "read_write";
+
+      if (!canComment && instance.workflowId) {
+        const workflow = await withTenantContext(tenantId, (tx) =>
+          getWorkflow(tx, tenantId, instance.workflowId as string, {
+            userId,
+            isGlobalAdmin: false,
+          }),
+        );
+        canComment = isWorkflowAdmin(userId, workflow);
+      }
+
       if (!canComment) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }

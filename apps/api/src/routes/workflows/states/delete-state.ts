@@ -3,17 +3,25 @@ import { withTenantContext } from "@platform/db";
 import { deleteWorkflowState } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
+import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
 
 export const deleteStateHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent", "user"),
   async (c) => {
     const workflowId = c.req.param("id") ?? "";
     const stateId = c.req.param("stateId") ?? "";
-    const { tenantId } = c.get("auth");
+    const auth = c.get("auth");
+    const { tenantId } = auth;
     try {
       await withTenantContext(tenantId, (tx) =>
-        deleteWorkflowState(tx, tenantId, workflowId, stateId),
+        deleteWorkflowState(
+          tx,
+          tenantId,
+          workflowId,
+          stateId,
+          toWorkflowCaller(auth),
+        ),
       );
       return c.body(null, 204);
     } catch (err) {

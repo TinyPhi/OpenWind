@@ -96,6 +96,7 @@ describe("POST /workflows/:id/transitions", () => {
       {},
       "t-aaa",
       WF_ID,
+      { userId: "u-bbb", isGlobalAdmin: true },
       expect.objectContaining({ fromState: "open", toState: "in_progress" }),
     );
   });
@@ -128,6 +129,7 @@ describe("POST /workflows/:id/transitions", () => {
       {},
       "t-aaa",
       WF_ID,
+      { userId: "u-bbb", isGlobalAdmin: true },
       expect.objectContaining({ allowedRoles: ["admin"] }),
     );
   });
@@ -183,6 +185,7 @@ describe("DELETE /workflows/:id/transitions/:transitionId", () => {
       "t-aaa",
       WF_ID,
       TRANS_ID,
+      { userId: "u-bbb", isGlobalAdmin: true },
     );
   });
 
