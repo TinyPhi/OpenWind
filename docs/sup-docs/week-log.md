@@ -5,7 +5,7 @@
 
 ---
 
-## 2026-07-09 — #139 (#120) merged; doc reconciliation
+## 2026-07-10 — close out #120 in docs (PR #139 merged 2026-07-09)
 
 **Session type:** Docs (following code merge)
 **Branch:** `docs/PLAT-120-checklist-update`
@@ -24,8 +24,9 @@
   in the next reconciliation, addressed below).
 - `CLAUDE.md`: marked #120 done in the hardening checklist; added a note that #120 (PR #139)
   merged ahead of #127, out of the queue's originally stated priority order (#127 was still
-  next based on the 2026-06-29 consulting review, but #120 was already in flight before #126
-  finished) — #127 remains the next item to pick up.
+  next based on the 2026-06-29 consulting review, but #126 and #120 were in the same review
+  session and merged the same day (2026-07-09), so #120 landed before #127 was picked up)
+  — #127 remains the next item to pick up.
 - `docs/reviews/2026-06-29-consulting-review.md`: struck #120 from the "Close remaining
   hardening items" action-list line, renumbered the remaining items.
 
