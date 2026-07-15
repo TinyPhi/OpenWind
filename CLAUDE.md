@@ -49,8 +49,9 @@ queue** per the 2026-06-29 consulting review §6 ("Immediate — before any pilo
 #126 is a core function currently dead, #127 is an audit/compliance side-door — both outrank
 the remaining items on pilot risk. #120/#123–#125/#128/#129 keep their original relative
 order behind them. **Actual merge order slipped**: #120 (PR #139) merged 2026-07-09, ahead of
-#127 — it was already in flight before #126 finished, so the stated priority order above
-wasn't strictly followed. #127 is still the next item to pick up.
+#127 — both #126 (PR #138) and #120 (PR #139) were in the same review session and merged the
+same day, so #120 landed before #127 was picked up rather than after, per the queue order
+documented in this section. #127 is still the next item to pick up.
 
 - [x] [#121](../../issues/121) RLS under real role: `withTenantContext` sets `app.tenant_id` GUC but never `SET LOCAL ROLE app_user`. Add `SET LOCAL ROLE app_user` or `ALTER TABLE … FORCE ROW LEVEL SECURITY` so RLS is enforced regardless of connection role. — ✅ Done, PR #135 (2026-07-08)
 - [x] [#122](../../issues/122) Isolation tests skipped: the three cross-tenant RLS tests are `.skip` because CI runs as superuser. Run CI isolation suite as `app_user` so the isolation guarantee is actually proven. (depends on #121) — ✅ Done, PR #135 (2026-07-08)
@@ -62,6 +63,10 @@ wasn't strictly followed. #127 is still the next item to pick up.
 - [ ] [#125](../../issues/125) `notify` action is a stub: `actions/notify.ts` only logs. Wire Novu delivery worker to close the notification loop.
 - [ ] [#128](../../issues/128) OpenBao + MinIO commented out of `docker-compose.yml`: the code expects them but `docker compose up` doesn't start them. Uncomment and reconcile with `.env.example`.
 - [ ] [#129](../../issues/129) Worker has no health endpoint: orchestrators cannot health-check `apps/worker`. Add an HTTP readiness probe.
+
+Related but not part of the original #120–#129 backlog: [#141](../../issues/141) `pnpm lint`
+is a repo-wide no-op (discovered during the #126 review round) — needs its own session to add
+real lint scripts to every `package.json`.
 
 **Delivery has guardrails (Claude Code only; plain git + CI unaffected).** Every change runs
 Plan → Code → Review → Ship: freeze + **you approve** an acceptance-criteria plan-lock

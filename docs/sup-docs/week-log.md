@@ -5,18 +5,20 @@
 
 ---
 
-## 2026-07-10 — #139 (#120) merged; doc reconciliation
+## 2026-07-09 — #139 (#120) merged; doc reconciliation
 
 **Session type:** Docs (following code merge)
 **Branch:** `docs/PLAT-120-checklist-update`
 
 ### Completed this session
 
-- PR #139 (`entity.assigned`/`workflow.transitioned` outbox double-trigger + depth-reset fix,
-  #120) confirmed merged to `main` (2026-07-09T11:09:01Z), including the full PR review-fix
-  round (positive-allowlist outbox routing, dead-letter `system.error` rows, depth-leak
-  fix in condition evaluation, vitest alias, test cleanup fixes) and PR #143 (Phase 3A
-  outbox/connector tracking issue).
+- PR #139 (`workflow.transitioned` outbox double-trigger + depth-reset fix, #120 — the
+  `entity.assigned` outbox event itself was introduced earlier by PR #138/#126; #139 only
+  added depth-carrying to that existing payload) confirmed merged to `main`
+  (2026-07-09T11:09:01Z), including the full PR review-fix round (positive-allowlist outbox
+  routing, dead-letter `system.error` rows, depth-leak fix in condition evaluation, vitest
+  alias, test cleanup fixes) and issue #143 (Phase 3A outbox/connector tracking issue, filed
+  during the #139 review — not a PR, still open).
 - PR #142 (docs reconciliation for #126) confirmed merged — approved by @PrabhuVijit with
   two non-blocking suggestions (expected week-log drift; a note to flag #120/#127 ordering
   in the next reconciliation, addressed below).
