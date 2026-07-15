@@ -2,3 +2,14 @@ packages:
   - "apps/*"
   - "packages/*"
   - "modules/*"
+
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
+
+# Moved from package.json's "pnpm.overrides" field for pnpm 11 (that field is no longer
+# read; see CLAUDE.md's Maintenance notes for why the esbuild pin must not be removed).
+overrides:
+  typescript: "^5.5.0"
+  esbuild: ">=0.28.1"
+  hono: ">=4.12.25"
