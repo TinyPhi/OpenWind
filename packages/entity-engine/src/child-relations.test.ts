@@ -10,6 +10,7 @@ function makeQ(result: () => unknown[]) {
   q["limit"] = chain;
   q["for"] = chain;
   q["select"] = chain;
+  q["orderBy"] = chain;
   q["then"] = (resolve: (v: unknown[]) => void) =>
     Promise.resolve(result()).then(resolve);
   return q;
@@ -18,6 +19,7 @@ function makeQ(result: () => unknown[]) {
 const mockInsertReturning = vi.fn();
 const mockUpdateWhere = vi.fn().mockResolvedValue([]);
 const mockSelectSeq: Array<() => unknown[]> = [];
+const mockInsertValues = vi.fn();
 let selectCallIndex = 0;
 
 function nextSelect() {
@@ -28,7 +30,10 @@ function nextSelect() {
 const dbMock = {
   select: vi.fn(() => nextSelect()),
   insert: vi.fn(() => ({
-    values: vi.fn(() => ({ returning: mockInsertReturning })),
+    values: vi.fn((payload: unknown) => {
+      mockInsertValues(payload);
+      return { returning: mockInsertReturning };
+    }),
   })),
   update: vi.fn(() => ({ set: vi.fn(() => ({ where: mockUpdateWhere })) })),
 };
@@ -53,6 +58,11 @@ vi.mock("@platform/db", () => ({
     currentState: "current_state",
     updatedAt: "updated_at",
   },
+  entityFields: {
+    id: "id",
+    entityTypeId: "entity_type_id",
+    tenantId: "tenant_id",
+  },
   workflows: {
     id: "id",
     maxChildDepth: "max_child_depth",
@@ -70,15 +80,26 @@ vi.mock("@platform/db", () => ({
     comment: "comment",
     metadata: "metadata",
   },
+  outboxEvents: {
+    id: "id",
+    tenantId: "tenant_id",
+    eventType: "event_type",
+    version: "version",
+    payload: "payload",
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
   and: vi.fn((...args) => ({ args, op: "and" })),
+  or: vi.fn((...args) => ({ args, op: "or" })),
   isNull: vi.fn((col) => ({ col, op: "isNull" })),
   count: vi.fn(() => "count(*)"),
   sql: vi.fn((s) => ({ raw: s })),
   inArray: vi.fn((col, vals) => ({ col, vals, op: "inArray" })),
+  notExists: vi.fn((sub) => ({ sub, op: "notExists" })),
+  asc: vi.fn((col) => ({ col, op: "asc" })),
+  gt: vi.fn((col, val) => ({ col, val, op: "gt" })),
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -151,6 +172,8 @@ describe("createChildRelation", () => {
     mockSelectSeq.push(() => []);
     // 4: countActiveChildren — 0 children
     mockSelectSeq.push(() => [{ n: 0 }]);
+    // 5: loadEntityFields (for the entity.created outbox payload, IMP-6)
+    mockSelectSeq.push(() => []);
     mockInsertReturning
       .mockResolvedValueOnce([fakeChild]) // entity_instances insert
       .mockResolvedValueOnce(fakeRelPair); // entity_relations insert
@@ -165,6 +188,35 @@ describe("createChildRelation", () => {
     expect(result.relations).toHaveLength(2);
     expect(result.relations[0]?.relationType).toBe("parent_of");
     expect(result.relations[1]?.relationType).toBe("child_of");
+  });
+
+  it("emits an entity.created outbox event for the child (IMP-6)", async () => {
+    mockSelectSeq.push(() => [fakeParent]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []); // ancestorDepth = 0
+    mockSelectSeq.push(() => [{ n: 0 }]); // countActiveChildren
+    mockSelectSeq.push(() => []); // loadEntityFields
+    mockInsertReturning
+      .mockResolvedValueOnce([fakeChild])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+    });
+
+    const outboxCall = mockInsertValues.mock.calls.find(
+      (call) =>
+        (call[0] as { eventType?: string })?.eventType === "entity.created",
+    );
+    expect(outboxCall).toBeDefined();
+    const payload = outboxCall?.[0] as {
+      eventType: string;
+      payload: { instanceId: string; entityTypeId: string };
+    };
+    expect(payload.payload.instanceId).toBe(CHILD_ID);
+    expect(payload.payload.entityTypeId).toBe("et-aaa");
   });
 
   it("throws ENTITY_NOT_FOUND when parent is archived (deleted_at set)", async () => {

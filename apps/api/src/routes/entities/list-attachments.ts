@@ -1,6 +1,6 @@
 import { requireAuth } from "@platform/auth";
 import { entityInstances, files, withTenantContext } from "@platform/db";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { hasEntityReadAccess } from "../../lib/entity-access.js";
@@ -50,7 +50,10 @@ export const listAttachmentsHandler = factory.createHandlers(
             and(
               eq(files.tenantId, tenantId),
               eq(files.entityId, id),
-              ne(files.scanStatus, "deleted"),
+              // M-5: infected files must never appear in the list (only
+              // clean and still-scanning files) — previously only "deleted"
+              // was excluded, so infected files were listed and downloadable.
+              inArray(files.scanStatus, ["clean", "pending"]),
             ),
           )
           .orderBy(files.createdAt),

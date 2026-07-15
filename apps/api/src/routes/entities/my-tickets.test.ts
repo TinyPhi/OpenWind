@@ -139,6 +139,7 @@ describe("GET /entities/my-tickets", () => {
       workflows: [],
       parentTickets: [],
       childTickets: [],
+      hasMore: false,
     });
     // Short-circuits — no further DB calls needed
     expect(mockWithTenantContext).toHaveBeenCalledTimes(1);

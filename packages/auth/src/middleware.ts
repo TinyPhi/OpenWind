@@ -329,11 +329,16 @@ async function resolveApiKey(
   // resolve_api_key_by_hash (migration 0031) is a narrowly-scoped
   // SECURITY DEFINER function that bypasses RLS for this one lookup-by-secret
   // and returns only id/tenant_id/scopes, never key_hash itself.
+  // L-2: explicit columns, not SELECT * — safe today (the function returns
+  // only id/tenant_id/scopes) but a future column added to the function's
+  // RETURNS TABLE shouldn't be silently received here.
   const result = await db.execute<{
     id: string;
     tenant_id: string;
     scopes: string[];
-  }>(sql`select * from resolve_api_key_by_hash(${keyHash}::text)`);
+  }>(
+    sql`select id, tenant_id, scopes from resolve_api_key_by_hash(${keyHash}::text)`,
+  );
   const row = result[0];
 
   if (!row) return null;

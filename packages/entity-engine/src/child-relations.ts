@@ -5,6 +5,7 @@ import {
   entityInstances,
   workflows,
   workflowEvents,
+  outboxEvents,
 } from "@platform/db";
 import {
   encodeCursor,
@@ -14,6 +15,8 @@ import {
 } from "./pagination.js";
 import { logger } from "@platform/logger";
 import { EntityError } from "./errors.js";
+import { buildEntityCreatedPayload, loadEntityFields } from "./engine.js";
+import { redactFields, buildSensitivityMap } from "./redact.js";
 import type {
   EntityInstance,
   EntityRelation,
@@ -262,6 +265,26 @@ export async function createChildRelation(
     actorId: createdBy ?? "system",
     comment: null,
     metadata: { type: "create", actorName: createdBy ?? null },
+  });
+
+  // Outbox event for entity.created automations (#126) — child tickets go
+  // through this path, not createEntity, so they need their own emission.
+  const allFields = await loadEntityFields(db, entityTypeId, tenantId);
+  const redactedFieldsForEvents = redactFields(
+    childInstance.fields as Record<string, unknown>,
+    buildSensitivityMap(allFields),
+  );
+  await db.insert(outboxEvents).values({
+    tenantId,
+    eventType: "entity.created",
+    version: 1,
+    payload: buildEntityCreatedPayload(
+      tenantId,
+      childInstance.id,
+      entityTypeId,
+      redactedFieldsForEvents,
+      childInstance.createdBy,
+    ),
   });
 
   // Insert both relation rows atomically

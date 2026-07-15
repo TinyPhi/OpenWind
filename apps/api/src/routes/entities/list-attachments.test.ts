@@ -58,10 +58,16 @@ vi.mock("@platform/db", () => ({
     }),
 }));
 
+const mockInArray = vi.fn((col: unknown, vals: unknown) => ({
+  col,
+  vals,
+  op: "inArray",
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...conds: unknown[]) => ({ op: "and", conds }),
   eq: (col: unknown, val: unknown) => ({ col, val, op: "eq" }),
-  ne: (col: unknown, val: unknown) => ({ col, val, op: "ne" }),
+  inArray: (col: unknown, vals: unknown) => mockInArray(col, vals),
 }));
 
 const { listAttachmentsHandler } = await import("./list-attachments.js");
@@ -118,6 +124,23 @@ describe("GET /entities/:id/attachments", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data).toHaveLength(1);
+  });
+
+  it("filters to clean/pending files only — infected files must never be listed (M-5)", async () => {
+    mockInstanceResult.push({
+      id: INST_ID,
+      createdBy: null,
+      assignedTo: null,
+      fields: {},
+    });
+    mockFilesResult.push(fakeFileRow);
+
+    await makeApp().request(`/${INST_ID}/attachments`);
+
+    expect(mockInArray).toHaveBeenCalledWith("files.scan_status", [
+      "clean",
+      "pending",
+    ]);
   });
 
   it("returns 404 for a non-privileged user with no relation to a restricted record", async () => {

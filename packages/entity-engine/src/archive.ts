@@ -74,6 +74,22 @@ export async function archiveEntity(
       ),
     );
 
+  // The archived root's own parent_of relation (from its parent, if any)
+  // has fromInstanceId = parent, which is outside allIds — the update above
+  // never touches it. Left undeleted, countActiveChildren on the parent
+  // keeps counting this archived root as an active child forever.
+  await db
+    .update(entityRelations)
+    .set({ deletedAt: archiveTs })
+    .where(
+      and(
+        eq(entityRelations.tenantId, tenantId),
+        eq(entityRelations.toInstanceId, instanceId),
+        eq(entityRelations.relationType, RELATION_PARENT_OF),
+        isNull(entityRelations.deletedAt),
+      ),
+    );
+
   logger.info(
     { tenantId, instanceId, descendantCount: descendantIds.length },
     "Entity archived with descendants",
