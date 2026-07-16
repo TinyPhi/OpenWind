@@ -75,6 +75,104 @@ No open items from this audit. Possible follow-ups if wanted:
   (bypassing JWT verification) rather than a true end-to-end request —
   correct and sufficient, but a real JWT-based e2e pass would close that gap.
 
+---
+
+## 2026-07-16 — chore #146: upgrade pnpm 9 -> 11 (fix CI security-scan)
+
+CI's Security scan job was failing repo-wide (confirmed identical failure on `main`, not
+caused by any in-flight PR): npm retired the legacy `/-/npm/v1/security/audits` endpoint
+(scheduled brownout completing 2026-07-15), and `pnpm audit` on any pnpm version through
+10.x still calls it, returning 410. Filed as [#146](../../issues/146).
+
+### Done
+
+- Bumped `packageManager`/`engines.pnpm` from `9.15.9` to `11.13.0` — confirmed via
+  pnpm's own docs that v11 switched `pnpm audit` to the new bulk advisory endpoint.
+- Migrated `package.json`'s `pnpm.overrides` (typescript/esbuild/hono pins) to
+  `pnpm-workspace.yaml`'s `overrides:` key — pnpm 11 silently stopped reading the old
+  field (`[WARN] The "pnpm" field in package.json is no longer read...`). Preserved the
+  esbuild `>=0.28.1` security pin (GHSA-gv7w-rqvm-qjhr) that CLAUDE.md says not to remove
+  — added both changes in the same edit so the pin was never absent from the tree.
+- Filled in pnpm 11's new `allowBuilds` prompt (`esbuild`, `msgpackr-extract` — both
+  legitimate native-build deps) in `pnpm-workspace.yaml` so `pnpm install` doesn't need an
+  interactive TTY prompt in CI.
+- Updated `CLAUDE.md`'s maintenance note to point at the new override location.
+- No `pnpm-lock.yaml` changes — same resolutions, only the CLI version changed.
+
+### Verification
+
+Ran twice: once in a throwaway worktree, once for real on this branch (the first run's
+plan-lock approval attached to the wrong branch since the guardrail hooks resolve against
+the primary checkout, not a worktree — redid the edits here instead). Both runs gave
+identical results (turbo cache-confirmed byte-identical on the second pass):
+
+- `pnpm audit --audit-level=high`: was `ERR_PNPM_AUDIT_BAD_RESPONSE` (410) — now exits 0,
+  7 vulnerabilities found (2 low, 5 moderate), none high/critical.
+- pnpm typecheck: PASS (40/40 tasks)
+- pnpm lint: PASS (13/13 tasks — matches the known #141 no-op state, unaffected)
+- pnpm test: 9/332 tests fail (4 files, all in `view-configs.test.ts`, 5s timeouts +
+  one status-code assertion). **Confirmed pre-existing**: ran the identical test file
+  against the unmodified `pnpm@9.15.9` checkout with the same ephemeral CI-matching
+  Postgres/Redis containers — byte-identical failure. Not a regression from this change;
+  looks like local sandbox I/O latency vs. GitHub Actions runners.
+- pnpm test:isolation: PASS (123/123)
+- Verified against ephemeral `postgres:16-alpine`/`redis:7-alpine` containers on
+  ports 5433/6380 matching `.github/workflows/ci.yml`'s security/test job env exactly
+  (not the long-lived `platform-postgres-1`/`platform-redis-1` dev containers, which have
+  different credentials and caused an unrelated auth failure on first attempt). Removed
+  after the run; left the pre-existing dev containers in their original (exited) state.
+
+### Next
+
+- Push branch, open PR referencing #146
+- Once merged, re-check PR #145's CI (unrelated docs PR, blocked by this same repo-wide
+  issue) — should go green without any change needed there once `main` has this fix
+
+### Open questions
+
+- None blocking.
+
+---
+
+## 2026-07-15 — PR #145 review round 2 (DOC-1 re-rejected, NEW-1/NEW-2 fixed)
+
+Rechecked @PrabhuVijit's second validation pass on PR #145 rather than taking either side
+on faith.
+
+### Done
+
+- **DOC-1 (re-verified, still rejected):** the reviewer repeated the claim that commit
+  `2369723`'s message ("closes #120 and #123") proves #123 was fixed. Checked PR #139's
+  actual commit list (`a72c66c4`, `821bbf44`, `286340a8` — `2369723` isn't among them),
+  confirmed `2369723` is orphaned (`.../pulls` and `.../branches-where-head` both empty, not
+  an ancestor of `main`), and confirmed in code that `automationQueue` in `queues.ts` still
+  has no `defaultJobOptions` and `automation-worker.ts:58` still defaults `attempts` to 1.
+  `gh issue view 123` confirms `OPEN`. Posted a stronger rebuttal on the PR citing the actual
+  commit list instead of just the merge-base check from round 1.
+- **NEW-1 (fixed):** the round-1 DOC-5 fix overcorrected the week-log session header from
+  `2026-07-10` to `2026-07-09`, creating duplicate/misordered `## 2026-07-09` headers.
+  Verified the reconciliation commit's real authored date (`2026-07-10T18:45:03Z` via
+  `gh pr view 145 --json commits`) and reverted, rewording the title per the reviewer's
+  suggestion.
+- **NEW-2 (fixed):** week-log still described the ordering-slip note as "#120 already in
+  flight before #126 finished," which now contradicted `CLAUDE.md`'s corrected wording.
+  Reworded to match ("same review session, merged the same day").
+- Committed as `7132eea`, pushed, replied on PR #145 with full evidence for both.
+
+### Verification
+
+- pnpm typecheck: N/A — docs-only
+- pnpm lint: N/A — docs-only
+- pnpm test: N/A — docs-only
+- pnpm test:isolation: N/A — docs-only
+
+### Next
+
+- Await @PrabhuVijit's response on PR #145 (DOC-1 rebuttal + NEW-1/NEW-2 fixes)
+- #127 — guard `setEntityState`/`bulkSetState` (audit/compliance side-door) — next hardening item
+- #123 remains genuinely open — real fix (retry config on `automationQueue`) still needed,
+  not just a doc update
+
 ### Open questions
 
 - None blocking.
