@@ -2,7 +2,7 @@ import { inArray } from "drizzle-orm";
 import { requireAuth } from "@platform/auth";
 import { tenantUsers, withTenantContext } from "@platform/db";
 import { getWorkflowEventLog } from "@platform/workflow-engine";
-import { listOrgUsers } from "../../lib/zitadel-management.js";
+import { listOrgUsers, getUserById } from "../../lib/zitadel-management.js";
 import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
@@ -67,7 +67,10 @@ export const listWorkflowEventsHandler = factory.createHandlers(
             dbRow?.displayName && dbRow.displayName !== u.userId
               ? dbRow.displayName
               : null;
-          const name = dbDisplayName ?? u.displayName;
+          // Prefer DB display name, then Zitadel display name (if it's not just the userId),
+          // then loginName (usually email), then raw email.
+          const zitadelName = u.displayName !== u.userId ? u.displayName : null;
+          const name = (dbDisplayName ?? zitadelName ?? u.loginName) || null;
           if (name) nameMap.set(u.userId, name);
         }
 
@@ -78,6 +81,21 @@ export const listWorkflowEventsHandler = factory.createHandlers(
             r.displayName && r.displayName !== r.userId ? r.displayName : null;
           const name = realName ?? r.email;
           if (name) nameMap.set(r.userId, name);
+        }
+
+        // Last resort: for any actor still unresolved (e.g. instance admin, cross-org user),
+        // fetch them individually from Zitadel's GetUserByID endpoint.
+        const stillMissing = [...userIds].filter((id) => !nameMap.has(id));
+        if (stillMissing.length > 0) {
+          await Promise.all(
+            stillMissing.map(async (uid) => {
+              const u = await getUserById(uid);
+              if (!u) return;
+              const zitadelName = u.displayName !== uid ? u.displayName : null;
+              const name = (zitadelName ?? u.loginName) || null;
+              if (name) nameMap.set(uid, name);
+            }),
+          );
         }
       }
 

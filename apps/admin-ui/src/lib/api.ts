@@ -1,18 +1,20 @@
-import { userManager } from "../authProvider.js";
+import { userManager, silentRefresh, waitForAuth } from "../authProvider.js";
 
 export const API_URL = "/api";
 
-export async function fetchWithAuth(
-  url: string,
-  options: RequestInit = {},
-): Promise<unknown> {
-  const user = await userManager.getUser();
-  const token = user?.access_token;
+function dispatchApiError(type: "auth" | "server", message: string): void {
+  window.dispatchEvent(
+    new CustomEvent("api:error", { detail: { type, message } }),
+  );
+}
 
+async function doFetch(
+  url: string,
+  options: RequestInit,
+  token: string | undefined,
+): Promise<Response> {
   const headers = new Headers(options.headers as HeadersInit | undefined);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (
     options.method &&
     options.method !== "GET" &&
@@ -23,26 +25,59 @@ export async function fetchWithAuth(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
-
-  let response: Response;
   try {
-    response = await fetch(url, {
-      ...options,
-      headers,
-      signal: controller.signal,
-    });
+    return await fetch(url, { ...options, headers, signal: controller.signal });
   } catch (err) {
     clearTimeout(timer);
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
     throw new Error(isTimeout ? "Request timed out after 8s" : "Network error");
+  } finally {
+    clearTimeout(timer);
   }
-  clearTimeout(timer);
+}
+
+export async function fetchWithAuth(
+  url: string,
+  options: RequestInit = {},
+): Promise<unknown> {
+  await waitForAuth();
+  const user = await userManager.getUser();
+  let token = user?.access_token;
+
+  let response = await doFetch(url, options, token);
+
+  // On 401, attempt a silent token refresh and retry once.
+  if (response.status === 401) {
+    const newToken = await silentRefresh();
+    if (newToken) {
+      token = newToken;
+      response = await doFetch(url, options, token);
+    }
+  }
 
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
+      error?: string;
     };
-    throw new Error(body.message ?? `Request failed: ${response.status}`);
+    const message =
+      body.message ?? body.error ?? `Request failed (${response.status})`;
+
+    if (response.status === 401) {
+      dispatchApiError(
+        "auth",
+        "Your session has expired. Please log in again.",
+      );
+      const err = new Error(message) as Error & { status: number };
+      err.status = 401;
+      throw err;
+    }
+    if (response.status >= 500) {
+      dispatchApiError("server", message);
+    }
+    const err = new Error(message) as Error & { status: number };
+    err.status = response.status;
+    throw err;
   }
 
   if (
@@ -55,6 +90,7 @@ export async function fetchWithAuth(
 }
 
 export async function fetchRawWithAuth(url: string): Promise<Response> {
+  await waitForAuth();
   const user = await userManager.getUser();
   const token = user?.access_token;
   const headers = new Headers();

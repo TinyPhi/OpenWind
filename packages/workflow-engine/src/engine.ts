@@ -410,6 +410,7 @@ export async function getWorkflowEventLog(
   db: DbOrTx,
   tenantId: string,
   instanceId: string,
+  opts?: { eventType?: "comment" | "history"; limit?: number },
 ): Promise<WorkflowEvent[]> {
   // RLS enforces tenantId — but verify the instance belongs to this tenant first
   const [instance] = await db
@@ -425,11 +426,24 @@ export async function getWorkflowEventLog(
 
   if (!instance) return [];
 
-  const events = await db
+  const typeFilter =
+    opts?.eventType === "comment"
+      ? sql`${workflowEvents.metadata}->>'type' = 'comment'`
+      : opts?.eventType === "history"
+        ? sql`(${workflowEvents.metadata}->>'type' IS NULL OR ${workflowEvents.metadata}->>'type' != 'comment')`
+        : undefined;
+
+  const baseWhere = typeFilter
+    ? and(eq(workflowEvents.instanceId, instanceId), typeFilter)
+    : eq(workflowEvents.instanceId, instanceId);
+
+  const query = db
     .select()
     .from(workflowEvents)
-    .where(eq(workflowEvents.instanceId, instanceId))
+    .where(baseWhere)
     .orderBy(workflowEvents.createdAt);
+
+  const events = opts?.limit ? await query.limit(opts.limit) : await query;
 
   return events.map((e) => ({
     id: e.id,

@@ -511,6 +511,31 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  modules/tender:
+    dependencies:
+      '@platform/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@platform/entity-engine':
+        specifier: workspace:*
+        version: link:../../packages/entity-engine
+      '@platform/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@platform/workflow-engine':
+        specifier: workspace:*
+        version: link:../../packages/workflow-engine
+    devDependencies:
+      '@platform/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: ^25.7.0
+        version: 25.7.0
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
   packages/ai:
     dependencies:
       '@anthropic-ai/sdk':
@@ -578,6 +603,9 @@ importers:
       '@platform/logger':
         specifier: workspace:*
         version: link:../logger
+      '@platform/redis':
+        specifier: workspace:*
+        version: link:../redis
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(postgres@3.4.9)
@@ -3492,7 +3520,7 @@ packages:
   git-raw-commits@4.0.0:
     resolution: {integrity: sha512-ICsMM1Wk8xSGMowkOmPrzo2Fgmfo4bMHLNX6ytHjajRJUqvHOw/TFapQ+QG75c3X/tTDDhOSRPGC52dDbNM8FQ==}
     engines: {node: '>=16'}
-    deprecated: This package is no longer maintained. For the JavaScript API, please use @conventional-changelog/git-client instead.
+    deprecated: Deprecated and no longer maintained. Use @conventional-changelog/git-client instead.
     hasBin: true
 
   glob-parent@6.0.2:

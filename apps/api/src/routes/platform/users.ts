@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import { requireAuth, requireRole } from "@platform/auth";
 import { db, tenantUsers, withTenantContext } from "@platform/db";
 import { eq } from "drizzle-orm";
-import { listOrgUsers } from "../../lib/zitadel-management.js";
+import {
+  listOrgUsers,
+  invalidateUserCache,
+} from "../../lib/zitadel-management.js";
 import type { AuthContext } from "@platform/auth";
 
 type AppVars = { Variables: { auth: AuthContext } };
@@ -12,13 +15,16 @@ export const usersRouter = new Hono<AppVars>();
 // GET /users — returns all org users alphabetically by display name.
 // Merges Zitadel org users (source of truth) with tenant_users DB records
 // (which hold locally-resolved display names for users who have logged in).
-// Accessible by admin and agent roles only — not customers (PII: emails + display names).
+// "user" role included: customers need this to resolve assignee display names on their records.
 usersRouter.get(
   "/",
   requireAuth(db),
-  requireRole("admin", "agent"),
+  requireRole("admin", "agent", "user"),
   async (c) => {
     const { tenantId, orgId } = c.get("auth");
+
+    // ?bust=1 clears the in-memory Zitadel user cache for fresh data
+    if (c.req.query("bust") === "1") invalidateUserCache();
 
     const [zitadelUsers, dbRows] = await Promise.all([
       orgId ? listOrgUsers(orgId) : Promise.resolve([]),
@@ -55,12 +61,14 @@ usersRouter.get(
       };
     });
 
-    // Also include DB users not returned by Zitadel (e.g. instance admin in default org)
+    // Also include DB users not returned by Zitadel (e.g. instance admin in default org).
+    // Skip ghost entries: service accounts or stale rows with no email and no real display name.
     for (const r of dbRows) {
       if (!zitadelByUserId.has(r.userId)) {
-        // displayName stored as userId means no real name — use email if available
         const realName =
           r.displayName && r.displayName !== r.userId ? r.displayName : null;
+        // If there's neither a real name nor an email this is a service account / stale entry — skip it
+        if (!realName && !r.email) continue;
         merged.push({
           userId: r.userId,
           email: r.email ?? "",

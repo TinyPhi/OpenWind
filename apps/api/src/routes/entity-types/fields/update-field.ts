@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
 import { updateEntityField } from "@platform/entity-engine";
 import { factory } from "../factory.js";
@@ -20,6 +20,9 @@ const UpdateFieldSchema = z
 
 export const updateEntityFieldHandler = factory.createHandlers(
   requireAuth(),
+  // Field config (including sensitivity, which drives PII redaction/analytics
+  // grants elsewhere) is schema-level, admin-only config — matches create-field.ts.
+  requireRole("admin"),
   zValidator("json", UpdateFieldSchema),
   async (c) => {
     const typeId = c.get("typeId");

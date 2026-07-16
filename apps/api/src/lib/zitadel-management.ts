@@ -231,6 +231,10 @@ async function getAccessToken(): Promise<string | null> {
 
     // Use internal Docker URL for the token exchange; send Host matching EXTERNALDOMAIN
     const tokenUrl = `${internalBase()}/oauth/v2/token`;
+    logger.info(
+      { tokenUrl, issuer, keyUserId: keyConfig.userId },
+      "getAccessToken: exchanging service account JWT",
+    );
     const result = await httpPost(
       tokenUrl,
       issuerHost(),
@@ -244,10 +248,9 @@ async function getAccessToken(): Promise<string | null> {
     );
 
     if (result.status < 200 || result.status >= 300) {
-      logger.error(
-        { status: result.status, body: result.text },
-        "Zitadel token exchange failed",
-      );
+      // Never log the raw response body -- it's an unvetted external payload
+      // that may carry provider-specific diagnostic detail we don't control.
+      logger.error({ status: result.status }, "Zitadel token exchange failed");
       return null;
     }
 
@@ -289,10 +292,8 @@ export async function listProjectRoles(): Promise<string[]> {
     );
 
     if (result.status < 200 || result.status >= 300) {
-      logger.error(
-        { status: result.status, body: result.text },
-        "Zitadel list roles failed",
-      );
+      // Never log the raw response body -- see comment in getAccessToken.
+      logger.error({ status: result.status }, "Zitadel list roles failed");
       return [];
     }
 
@@ -309,7 +310,25 @@ export async function listProjectRoles(): Promise<string[]> {
 
 // ── List org users ────────────────────────────────────────────────────────────
 
+// orgId is required (not optional) — callers must guard at the call site
+// (`orgId ? listOrgUsers(orgId) : Promise.resolve([])`) rather than this
+// function silently falling through to an unfiltered instance-wide query on a
+// missing orgId. Also guards against a shared cache entry across tenants (see
+// security review — listOrgUsers previously had a "_default_" fallback cache
+// key that any org with a missing orgId shared).
 export async function listOrgUsers(orgId: string): Promise<OrgUser[]> {
+  // Runtime guard alongside the compile-time non-optional type — a caller
+  // that bypasses TypeScript (e.g. an untyped/JS call site) must still fail
+  // closed here rather than falling through to a cache lookup keyed on
+  // undefined/"" and an unrelated getAccessToken failure path.
+  if (!orgId) {
+    logger.warn(
+      {},
+      "listOrgUsers called without an orgId — refusing to fall through to an unfiltered query",
+    );
+    return [];
+  }
+
   const cacheKey = orgId;
   const now = Date.now();
   const cached = _usersCache.get(cacheKey);
@@ -330,7 +349,13 @@ async function _fetchOrgUsers(
   cacheKey: string,
 ): Promise<OrgUser[]> {
   const token = await getAccessToken();
-  if (!token) return [];
+  if (!token) {
+    logger.warn(
+      { orgId },
+      "listOrgUsers: no service account token — check ZITADEL_SERVICE_ACCOUNT_KEY",
+    );
+    return [];
+  }
 
   try {
     // Use v2 UserService endpoint (gRPC-gateway) — returns active human users in the org
@@ -354,10 +379,8 @@ async function _fetchOrgUsers(
     );
 
     if (result.status < 200 || result.status >= 300) {
-      logger.warn(
-        { status: result.status, body: result.text },
-        "Zitadel list users failed",
-      );
+      // Never log the raw response body -- see comment in getAccessToken.
+      logger.warn({ status: result.status }, "Zitadel list users failed");
       return [];
     }
 
@@ -408,7 +431,7 @@ async function _fetchOrgUsers(
       })
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-    _usersCache.set(cacheKey, { users, expiresAt: now + CACHE_TTL_MS });
+    _usersCache.set(orgId, { users, expiresAt: now + CACHE_TTL_MS });
     return users;
   } catch (err) {
     logger.error({ err }, "Failed to list Zitadel org users");
@@ -418,8 +441,82 @@ async function _fetchOrgUsers(
   }
 }
 
+// ── Get single user by ID ─────────────────────────────────────────────────────
+
+const _userByIdCache = new Map<
+  string,
+  { user: OrgUser | null; expiresAt: number }
+>();
+
+export async function getUserById(userId: string): Promise<OrgUser | null> {
+  const now = Date.now();
+  const cached = _userByIdCache.get(userId);
+  if (cached && now < cached.expiresAt) return cached.user;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = `${internalBase()}/zitadel.user.v2.UserService/GetUserByID`;
+    const result = await httpPost(
+      url,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify({ userId }),
+    );
+
+    if (result.status < 200 || result.status >= 300) return null;
+
+    interface ZitadelGetUserResponse {
+      user?: {
+        userId: string;
+        preferredLoginName?: string;
+        loginNames?: string[];
+        human?: {
+          profile?: {
+            displayName?: string;
+            givenName?: string;
+            familyName?: string;
+          };
+          email?: { email?: string };
+        };
+      };
+    }
+
+    const data = JSON.parse(result.text) as ZitadelGetUserResponse;
+    const u = data.user;
+    if (!u) {
+      _userByIdCache.set(userId, { user: null, expiresAt: now + CACHE_TTL_MS });
+      return null;
+    }
+
+    const profile = u.human?.profile ?? {};
+    const nameParts = [profile.givenName, profile.familyName].filter(
+      (s): s is string => typeof s === "string" && s.length > 0,
+    );
+    const fullName = nameParts.length > 0 ? nameParts.join(" ") : undefined;
+    const displayName =
+      profile.displayName ?? fullName ?? u.preferredLoginName ?? u.userId;
+    const loginName = u.preferredLoginName ?? u.loginNames?.[0] ?? u.userId;
+    const orgUser: OrgUser = {
+      userId: u.userId,
+      email: u.human?.email?.email ?? "",
+      displayName,
+      loginName,
+    };
+    _userByIdCache.set(userId, {
+      user: orgUser,
+      expiresAt: now + CACHE_TTL_MS,
+    });
+    return orgUser;
+  } catch {
+    return null;
+  }
+}
+
 // ── Cache invalidation ────────────────────────────────────────────────────────
 
 export function invalidateUserCache(): void {
   _usersCache.clear();
+  _userByIdCache.clear();
 }

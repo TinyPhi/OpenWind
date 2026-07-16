@@ -18,7 +18,7 @@ const CreateEntitySchema = z.object({
 
 export const createEntityHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", CreateEntitySchema),
   async (c) => {
     const { tenantId, userId } = c.get("auth");

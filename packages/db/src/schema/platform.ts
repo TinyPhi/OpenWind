@@ -9,6 +9,7 @@ import {
   unique,
   boolean,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const tenants = pgTable("tenants", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -121,7 +122,7 @@ export const files = pgTable(
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     /** pending | clean | quarantined | scan_failed | deleted */
     scanStatus: text("scan_status").default("pending").notNull(),
-    uploadedBy: uuid("uploaded_by").notNull(),
+    uploadedBy: text("uploaded_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -135,6 +136,9 @@ export const files = pgTable(
       t.tenantId,
       t.entityId,
     ),
+    entityCleanScanIdx: index("files_entity_clean_scan_idx")
+      .on(t.tenantId, t.entityId, t.scanStatus)
+      .where(sql`scan_status = 'clean'`),
   }),
 );
 

@@ -1,7 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { searchEntities } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -21,12 +21,14 @@ export const searchEntitiesHandler = factory.createHandlers(
     const { type, q, limit, cursor } = c.req.valid("query");
 
     try {
-      const page = await searchEntities(db, tenantId, {
-        entityTypeId: type,
-        query: q,
-        limit,
-        cursor,
-      });
+      const page = await withTenantContext(tenantId, (tx) =>
+        searchEntities(tx, tenantId, {
+          entityTypeId: type,
+          query: q,
+          limit,
+          cursor,
+        }),
+      );
       return c.json({ data: page });
     } catch (err) {
       return handleEntityError(c, err);

@@ -44,6 +44,10 @@ const ListEntitiesQuerySchema = z.object({
     .enum(["true", "false"])
     .transform((v) => v === "true")
     .optional(),
+  rootOnly: z
+    .enum(["true", "false"])
+    .transform((v) => v === "true")
+    .optional(),
 });
 
 export const listEntitiesHandler = factory.createHandlers(
@@ -64,6 +68,7 @@ export const listEntitiesHandler = factory.createHandlers(
           ...rest,
           assignedTo,
           fieldFilters: fields,
+          rootOnly: rest.rootOnly,
         }),
       );
       return c.json({ data: page.data, nextCursor: page.nextCursor });

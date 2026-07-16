@@ -5,6 +5,8 @@ import {
   getSavedTheme,
   getSavedAccent,
   ACCENT_COLORS,
+  makeCustomAccent,
+  hslToHex,
   type ThemeMode,
   type AccentColor,
 } from "../lib/theme.js";
@@ -21,6 +23,12 @@ export function Settings(): React.ReactElement {
   function handleAccent(color: AccentColor): void {
     setAccent(color);
     applyAccent(color);
+  }
+
+  function handleCustomAccent(hex: string): void {
+    const custom = makeCustomAccent(hex);
+    setAccent(custom);
+    applyAccent(custom);
   }
 
   return (
@@ -131,6 +139,27 @@ export function Settings(): React.ReactElement {
                 }
               />
             ))}
+            <label
+              className={`color-swatch color-swatch-custom ${accent.id === "custom" ? "selected" : ""}`}
+              title="Custom color"
+              aria-label="Custom color"
+              style={
+                {
+                  "--swatch-color": `hsl(${accent.h}, ${accent.s}%, ${accent.l}%)`,
+                  background:
+                    accent.id === "custom"
+                      ? `hsl(${accent.h}, ${accent.s}%, ${accent.l}%)`
+                      : undefined,
+                } as React.CSSProperties
+              }
+            >
+              <input
+                type="color"
+                value={hslToHex(accent.h, accent.s, accent.l)}
+                onChange={(e) => handleCustomAccent(e.target.value)}
+                aria-label="Pick a custom accent color"
+              />
+            </label>
           </div>
           <div className="color-preview">
             <span className="color-preview-name">{accent.label}</span>
@@ -141,50 +170,6 @@ export function Settings(): React.ReactElement {
               }}
             />
           </div>
-        </div>
-      </section>
-
-      {/* Preview strip */}
-      <section className="data-panel settings-section">
-        <div className="settings-section-header">
-          <div className="settings-section-icon">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="2"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178Z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
-              />
-            </svg>
-          </div>
-          <div>
-            <h2 className="settings-section-title">Preview</h2>
-            <p className="settings-section-desc">
-              How your selected theme and color will look
-            </p>
-          </div>
-        </div>
-        <div className="preview-strip">
-          <button className="btn-primary-sm" style={{ marginRight: 8 }}>
-            Primary action
-          </button>
-          <span className="badge badge-primary">Active</span>
-          <span style={{ margin: "0 8px" }} />
-          <span className="badge badge-success">Installed</span>
-          <span style={{ margin: "0 8px" }} />
-          <span className="badge badge-warning">Pending</span>
-          <span style={{ margin: "0 8px" }} />
-          <code className="code-inline">entity.type</code>
         </div>
       </section>
     </div>

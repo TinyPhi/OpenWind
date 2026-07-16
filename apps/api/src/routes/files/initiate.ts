@@ -57,7 +57,7 @@ const InitiateUploadSchema = z.object({
 
 export const initiateUploadHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent", "member"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", InitiateUploadSchema),
   async (c) => {
     const input = c.req.valid("json");

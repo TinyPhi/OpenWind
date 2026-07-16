@@ -41,6 +41,49 @@ export function handleEntityError(c: Context, err: unknown): Response {
           },
           409,
         ) as Response;
+      case "ENTITY_HAS_ACTIVE_CHILDREN":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "Cannot archive: ticket has active children. Pass ?confirm=true to cascade.",
+          },
+          409,
+        ) as Response;
+      case "CHILD_ALREADY_HAS_PARENT":
+        return c.json(
+          { error: err.code, message: "Ticket already has a parent" },
+          409,
+        ) as Response;
+      case "CHILD_CYCLE_DETECTED":
+        return c.json(
+          { error: err.code, message: "Re-parenting would create a cycle" },
+          422,
+        ) as Response;
+      case "CHILD_DEPTH_EXCEEDED":
+        return c.json(
+          {
+            error: err.code,
+            message: "Re-parenting would exceed the maximum child depth",
+          },
+          422,
+        ) as Response;
+      case "CHILDREN_CAP_EXCEEDED":
+        return c.json(
+          {
+            error: err.code,
+            message: "Parent has reached the maximum number of children",
+          },
+          422,
+        ) as Response;
+      case "CHILDREN_DISABLED":
+        return c.json(
+          {
+            error: err.code,
+            message: "Child tickets are disabled for this workflow",
+          },
+          422,
+        ) as Response;
       case "SYSTEM_FIELD_IMMUTABLE":
         return c.json(
           { error: err.code, message: "System fields cannot be deleted" },

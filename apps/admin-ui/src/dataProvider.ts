@@ -1,5 +1,5 @@
 import type { DataProvider } from "@refinedev/core";
-import { userManager } from "./authProvider.js";
+import { userManager, silentRefresh, waitForAuth } from "./authProvider.js";
 
 const apiUrl = "/api";
 
@@ -11,30 +11,25 @@ function toRecord(v: unknown): Record<string, unknown> {
     : {};
 }
 
-async function fetchWithAuth(
-  url: string,
-  options: RequestInit = {},
-): Promise<unknown> {
-  const user = await userManager.getUser();
-  const token = user?.access_token;
+function dispatchApiError(type: "auth" | "server", message: string): void {
+  window.dispatchEvent(
+    new CustomEvent("api:error", { detail: { type, message } }),
+  );
+}
 
+async function doFetch(
+  url: string,
+  options: RequestInit,
+  token: string | undefined,
+): Promise<Response> {
   const headers = new Headers(options.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  let response: Response;
   try {
-    response = await fetch(url, {
-      ...options,
-      headers,
-      signal: controller.signal,
-    });
+    return await fetch(url, { ...options, headers, signal: controller.signal });
   } catch (err) {
-    clearTimeout(timer);
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
     throw {
       status: 0,
@@ -42,17 +37,49 @@ async function fetchWithAuth(
         ? `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`
         : "Network error",
     };
+  } finally {
+    clearTimeout(timer);
   }
-  clearTimeout(timer);
+}
+
+async function fetchWithAuth(
+  url: string,
+  options: RequestInit = {},
+): Promise<unknown> {
+  await waitForAuth();
+  const user = await userManager.getUser();
+  let token = user?.access_token;
+
+  let response = await doFetch(url, options, token);
+
+  // On 401, attempt silent token refresh and retry once.
+  if (response.status === 401) {
+    const newToken = await silentRefresh();
+    if (newToken) {
+      token = newToken;
+      response = await doFetch(url, options, token);
+    }
+  }
 
   if (!response.ok) {
     const errorData = toRecord(await response.json().catch(() => ({})));
+    const message =
+      typeof errorData["message"] === "string"
+        ? errorData["message"]
+        : response.statusText || "Request failed";
+
+    if (response.status === 401) {
+      dispatchApiError(
+        "auth",
+        "Your session has expired. Please log in again.",
+      );
+    } else if (response.status >= 500) {
+      dispatchApiError("server", message);
+    }
     throw {
       status: response.status,
-      message:
-        typeof errorData["message"] === "string"
-          ? errorData["message"]
-          : response.statusText || "Request failed",
+      message,
+      isAuthError: response.status === 401,
     };
   }
 

@@ -87,6 +87,7 @@ type MockDb = {
   insert: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   transaction: ReturnType<typeof vi.fn>;
+  execute: ReturnType<typeof vi.fn>;
 };
 
 /**
@@ -124,6 +125,8 @@ function makeDb(overrides: Partial<MockDb> = {}): MockDb {
         where: vi.fn().mockResolvedValue(undefined),
       }),
     }),
+    // Used inside transactions for `SELECT set_config('app.tenant_id', ...)`.
+    execute: vi.fn().mockResolvedValue(undefined),
     // Placeholder — replaced below once mockDb is in scope
     transaction: vi.fn(),
     ...overrides,

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db, viewConfigs } from "@platform/db";
+import { db, withTenantContext, viewConfigs } from "@platform/db";
 import { logger } from "@platform/logger";
 
 type Vars = { Variables: { auth: AuthContext } };
@@ -36,16 +36,18 @@ router.get(
     const { entityType } = c.req.valid("param");
 
     try {
-      const [row] = await db
-        .select()
-        .from(viewConfigs)
-        .where(
-          and(
-            eq(viewConfigs.tenantId, auth.tenantId),
-            eq(viewConfigs.entityTypeSlug, entityType),
-          ),
-        )
-        .limit(1);
+      const [row] = await withTenantContext(auth.tenantId, (tx) =>
+        tx
+          .select()
+          .from(viewConfigs)
+          .where(
+            and(
+              eq(viewConfigs.tenantId, auth.tenantId),
+              eq(viewConfigs.entityTypeSlug, entityType),
+            ),
+          )
+          .limit(1),
+      );
 
       if (!row) {
         return c.json(
@@ -80,49 +82,54 @@ router.patch(
     const body = c.req.valid("json");
 
     try {
-      // Fetch existing row first to merge
-      const [existing] = await db
-        .select()
-        .from(viewConfigs)
-        .where(
-          and(
-            eq(viewConfigs.tenantId, auth.tenantId),
-            eq(viewConfigs.entityTypeSlug, entityType),
-          ),
-        )
-        .limit(1);
+      const { row, isNew } = await withTenantContext(
+        auth.tenantId,
+        async (tx) => {
+          // Fetch existing row first to merge
+          const [existing] = await tx
+            .select()
+            .from(viewConfigs)
+            .where(
+              and(
+                eq(viewConfigs.tenantId, auth.tenantId),
+                eq(viewConfigs.entityTypeSlug, entityType),
+              ),
+            )
+            .limit(1);
 
-      const isNew = !existing;
+          const listColumns = (body.listColumns ??
+            existing?.listColumns ??
+            []) as string[];
+          const detailLayout = (body.detailLayout ??
+            existing?.detailLayout ??
+            []) as string[];
+          const formFieldOrder = (body.formFieldOrder ??
+            existing?.formFieldOrder ??
+            []) as string[];
 
-      const listColumns = (body.listColumns ??
-        existing?.listColumns ??
-        []) as string[];
-      const detailLayout = (body.detailLayout ??
-        existing?.detailLayout ??
-        []) as string[];
-      const formFieldOrder = (body.formFieldOrder ??
-        existing?.formFieldOrder ??
-        []) as string[];
+          const [updated] = await tx
+            .insert(viewConfigs)
+            .values({
+              tenantId: auth.tenantId,
+              entityTypeSlug: entityType,
+              listColumns,
+              detailLayout,
+              formFieldOrder,
+            })
+            .onConflictDoUpdate({
+              target: [viewConfigs.tenantId, viewConfigs.entityTypeSlug],
+              set: {
+                listColumns,
+                detailLayout,
+                formFieldOrder,
+                updatedAt: new Date(),
+              },
+            })
+            .returning();
 
-      const [row] = await db
-        .insert(viewConfigs)
-        .values({
-          tenantId: auth.tenantId,
-          entityTypeSlug: entityType,
-          listColumns,
-          detailLayout,
-          formFieldOrder,
-        })
-        .onConflictDoUpdate({
-          target: [viewConfigs.tenantId, viewConfigs.entityTypeSlug],
-          set: {
-            listColumns,
-            detailLayout,
-            formFieldOrder,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
+          return { row: updated, isNew: !existing };
+        },
+      );
 
       return c.json({ data: row }, isNew ? 201 : 200);
     } catch (err: unknown) {

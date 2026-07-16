@@ -6,8 +6,11 @@ function envJsPlugin(vars: Record<string, string | undefined>): Plugin {
   // ZITADEL_OIDC_CLIENT_SECRET is intentionally excluded — it must never reach the browser.
   // The SPA uses PKCE; the client secret is only needed for confidential server-side clients.
   const js = `window.__CONFIG__ = ${JSON.stringify({
-    ZITADEL_ISSUER: vars["ZITADEL_ISSUER"] ?? "",
-    ZITADEL_OIDC_CLIENT_ID: vars["ZITADEL_OIDC_CLIENT_ID"] ?? "",
+    ZITADEL_ISSUER: vars["ZITADEL_ISSUER"] ?? vars["VITE_ZITADEL_ISSUER"] ?? "",
+    ZITADEL_OIDC_CLIENT_ID:
+      vars["ZITADEL_OIDC_CLIENT_ID"] ??
+      vars["VITE_ZITADEL_OIDC_CLIENT_ID"] ??
+      "",
   })};`;
   return {
     name: "serve-env-js",

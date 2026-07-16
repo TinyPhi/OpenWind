@@ -1,6 +1,10 @@
 import { serve } from "@hono/node-server";
 import { logger } from "@platform/logger";
 import { closeRedis } from "@platform/redis";
+import {
+  startTenantStatusInvalidationSubscriber,
+  stopTenantStatusInvalidationSubscriber,
+} from "@platform/auth";
 import { createApp } from "./app.js";
 import { ModuleService } from "./services/module-service.js";
 
@@ -11,6 +15,7 @@ logger.info({ port }, "API server starting");
 
 const server = serve({ fetch: app.fetch, port }, () => {
   logger.info({ port }, "API server listening");
+  startTenantStatusInvalidationSubscriber();
   ModuleService.seedRegistry().catch((err: unknown) => {
     logger.error({ err }, "Failed to seed modules registry on startup");
   });
@@ -21,6 +26,7 @@ async function shutdown(): Promise<void> {
   await new Promise<void>((resolve, reject) =>
     server.close((err) => (err ? reject(err) : resolve())),
   );
+  await stopTenantStatusInvalidationSubscriber();
   await closeRedis();
   process.exit(0);
 }

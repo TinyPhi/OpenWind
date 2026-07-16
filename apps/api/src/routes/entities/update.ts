@@ -1,7 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, tenantUsers, withTenantContext } from "@platform/db";
 import { updateEntity } from "@platform/entity-engine";
 import { factory } from "./factory.js";
@@ -15,6 +15,7 @@ const UpdateEntitySchema = z.object({
 
 export const updateEntityHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   zValidator("json", UpdateEntitySchema),
   async (c) => {
     const id = c.req.param("id") ?? "";

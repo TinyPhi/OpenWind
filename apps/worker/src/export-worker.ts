@@ -57,22 +57,47 @@ function getS3(): S3Client {
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
 
-function renderCsv(headers: string[], rows: string[][]): Buffer {
-  return Buffer.from(stringify([headers, ...rows]), "utf-8");
+// A cell starting with any of these is interpreted as a formula by Excel/
+// LibreOffice/Google Sheets on open (CSV/XLSX formula injection). A leading
+// apostrophe is the standard mitigation -- it forces the cell to text.
+// Tradeoff: a legitimate value starting with "-" or "+" (e.g. a negative
+// number rendered as a string) also gets force-texted; accepted, since this
+// is the same blanket mitigation widely used elsewhere (e.g. GitHub/GitLab
+// CSV export) and correctness of a cosmetic number format is secondary to
+// not executing attacker-controlled formulas on the viewer's machine.
+const FORMULA_INJECTION_PREFIXES = ["=", "+", "-", "@", "\t", "\r"];
+
+export function sanitizeSpreadsheetCell(value: string): string {
+  if (FORMULA_INJECTION_PREFIXES.some((p) => value.startsWith(p))) {
+    return `'${value}`;
+  }
+  return value;
 }
 
-async function renderXlsx(
+function sanitizeRow(row: string[]): string[] {
+  return row.map(sanitizeSpreadsheetCell);
+}
+
+export function renderCsv(headers: string[], rows: string[][]): Buffer {
+  const safeHeaders = sanitizeRow(headers);
+  const safeRows = rows.map(sanitizeRow);
+  return Buffer.from(stringify([safeHeaders, ...safeRows]), "utf-8");
+}
+
+export async function renderXlsx(
   headers: string[],
   rows: string[][],
   sheetName: string,
 ): Promise<Buffer> {
+  const safeHeaders = sanitizeRow(headers);
+  const safeRows = rows.map(sanitizeRow);
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sheetName.slice(0, 31));
-  sheet.addRow(headers);
+  sheet.addRow(safeHeaders);
   const headerRow = sheet.getRow(1);
   headerRow.font = { bold: true };
   headerRow.commit();
-  for (const row of rows) {
+  for (const row of safeRows) {
     sheet.addRow(row);
   }
   const buf = await workbook.xlsx.writeBuffer();

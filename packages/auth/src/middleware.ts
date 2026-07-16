@@ -1,7 +1,8 @@
 import { createMiddleware } from "hono/factory";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import type { Context, Next, MiddlewareHandler } from "hono";
+import { env } from "@platform/config";
 import type { DbOrTx } from "@platform/db";
 import {
   db,
@@ -20,6 +21,28 @@ import {
 } from "./tenant-status-cache.js";
 
 type AuthVariables = { Variables: { auth: AuthContext } };
+
+// Calls /oidc/v1/userinfo with the user's own access token.
+// Returns enriched name/email when the JWT itself is missing profile claims
+// (e.g. instance admins, machine users, or tokens issued before token settings were updated).
+async function fetchUserInfo(
+  bearerToken: string,
+): Promise<{ name: string | null; email: string | null } | null> {
+  try {
+    const url = `${env.ZITADEL_ISSUER}/oidc/v1/userinfo`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, unknown>;
+    return {
+      name: typeof data["name"] === "string" ? data["name"] : null,
+      email: typeof data["email"] === "string" ? data["email"] : null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * requireAuth — validates Bearer JWT (Zitadel JWKS) or API key (sk_... prefix).
@@ -104,19 +127,33 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         return c.json({ error: "UNAUTHORIZED", message: "Invalid token" }, 401);
       }
 
-      const auth = extractAuthContext(claims);
+      let auth = extractAuthContext(claims);
       if (!auth) {
         logger.warn(
           {
             sub: claims.sub,
-            orgId: claims["urn:zitadel:iam:org:id"] ?? "(missing)",
+            orgId:
+              claims["urn:zitadel:iam:user:resourceowner:id"] ?? "(missing)",
           },
-          "JWT missing required claims — sub or urn:zitadel:iam:org:id not present",
+          "JWT missing required claims — sub or urn:zitadel:iam:user:resourceowner:id not present",
         );
         return c.json(
           { error: "UNAUTHORIZED", message: "Missing required claims" },
           401,
         );
+      }
+
+      // If JWT is missing email or name (e.g. instance admins, tokens issued before
+      // "include profile info" was enabled), enrich from the userinfo endpoint.
+      if (!auth.email || auth.displayName === auth.userId) {
+        const info = await fetchUserInfo(token);
+        if (info) {
+          auth = {
+            ...auth,
+            email: info.email ?? auth.email,
+            displayName: info.name ?? info.email ?? auth.displayName,
+          };
+        }
       }
 
       c.set("auth", auth);
@@ -140,34 +177,58 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
       // This must complete before the route handler runs so that
       // validateUserRefs() can find the user on their very first request
       // (fire-and-forget would race with the INSERT on a brand-new user).
-      // onConflictDoNothing hits the unique index and returns immediately on
-      // every subsequent request — the overhead is one index scan per JWT call.
       //
       // Why withTenantContext and not a plain db.insert()?
       // tenant_users has an RLS policy enforced via the `app.tenant_id` GUC
       // (see migration 0007).  Without withTenantContext setting that GUC,
       // the WITH CHECK clause evaluates to NULL and the INSERT is silently
-      // rejected by Postgres RLS.  The transaction overhead (~0.5 ms) is
-      // acceptable given this runs once per unique user per JWT expiry window.
-      // A lighter-weight set_config helper could reduce the overhead in future
-      // (tracked as a follow-up optimisation).
-      await withTenantContext(auth.tenantId, (tx) =>
-        tx
+      // rejected by Postgres RLS.
+      //
+      // (#124) Only insert/update when the row is missing or the profile
+      // actually changed — on the steady-state request (existing user, no
+      // profile change) this is a single indexed SELECT, not a write, so we
+      // avoid a HOT row rewrite on every authenticated request.
+      await withTenantContext(auth.tenantId, async (tx) => {
+        const [existing] = await tx
+          .select({
+            email: tenantUsers.email,
+            displayName: tenantUsers.displayName,
+          })
+          .from(tenantUsers)
+          .where(
+            and(
+              eq(tenantUsers.tenantId, auth.tenantId),
+              eq(tenantUsers.userId, auth.userId),
+            ),
+          )
+          .limit(1);
+
+        const nextEmail = auth.email || null;
+        const nextDisplayName = auth.displayName || null;
+
+        if (
+          existing?.email === nextEmail &&
+          existing.displayName === nextDisplayName
+        ) {
+          return;
+        }
+
+        await tx
           .insert(tenantUsers)
           .values({
             tenantId: auth.tenantId,
             userId: auth.userId,
-            email: auth.email || null,
-            displayName: auth.displayName || null,
+            email: nextEmail,
+            displayName: nextDisplayName,
           })
           .onConflictDoUpdate({
             target: [tenantUsers.tenantId, tenantUsers.userId],
             set: {
-              email: auth.email || null,
-              displayName: auth.displayName || null,
+              email: nextEmail,
+              displayName: nextDisplayName,
             },
-          }),
-      ).catch((err: unknown) => {
+          });
+      }).catch((err: unknown) => {
         logger.warn(
           { err, tenantId: auth.tenantId },
           "auth: failed to sync tenant user — user_ref validation may fail on this request",
@@ -262,29 +323,43 @@ async function resolveApiKey(
 ): Promise<AuthContext | null> {
   const keyHash = hashApiKey(rawKey);
 
-  const [row] = await db
-    .select()
-    .from(apiKeys)
-    .where(eq(apiKeys.keyHash, keyHash))
-    .limit(1);
+  // (#124-adjacent bug) api_keys has an RLS policy requiring app.tenant_id,
+  // but we don't know the tenant until AFTER this lookup succeeds — so it
+  // can't go through withTenantContext like every other tenant-scoped query.
+  // resolve_api_key_by_hash (migration 0031) is a narrowly-scoped
+  // SECURITY DEFINER function that bypasses RLS for this one lookup-by-secret
+  // and returns only id/tenant_id/scopes, never key_hash itself.
+  // L-2: explicit columns, not SELECT * — safe today (the function returns
+  // only id/tenant_id/scopes) but a future column added to the function's
+  // RETURNS TABLE shouldn't be silently received here.
+  const result = await db.execute<{
+    id: string;
+    tenant_id: string;
+    scopes: string[];
+  }>(
+    sql`select id, tenant_id, scopes from resolve_api_key_by_hash(${keyHash}::text)`,
+  );
+  const row = result[0];
 
   if (!row) return null;
 
-  // Best-effort: update last_used_at without blocking the request
-  void db
-    .update(apiKeys)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(apiKeys.id, row.id))
-    .catch((err: unknown) => {
-      logger.warn(
-        { error: String(err), keyId: row.id },
-        "Failed to update api_key last_used_at",
-      );
-    });
+  // Now that the tenant is known, this write goes through the normal
+  // RLS-compliant path. Best-effort: don't block the request on it.
+  void withTenantContext(row.tenant_id, (tx) =>
+    tx
+      .update(apiKeys)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(apiKeys.id, row.id)),
+  ).catch((err: unknown) => {
+    logger.warn(
+      { error: String(err), keyId: row.id },
+      "Failed to update api_key last_used_at",
+    );
+  });
 
   return {
     userId: `apikey:${row.id}`,
-    tenantId: row.tenantId,
+    tenantId: row.tenant_id,
     roles: row.scopes,
     email: "",
     displayName: `API Key ${row.id.slice(0, 8)}`,

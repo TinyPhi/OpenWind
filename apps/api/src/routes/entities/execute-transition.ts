@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
 import { executeTransition } from "@platform/workflow-engine";
 import type { TransitionRequest } from "@platform/workflow-engine";
@@ -16,6 +16,7 @@ const ExecuteTransitionSchema = z.object({
 
 export const executeTransitionHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   zValidator("json", ExecuteTransitionSchema),
   async (c) => {
     const instanceId = c.req.param("id") ?? "";

@@ -10,7 +10,7 @@ const FileIdParamSchema = z.object({ id: z.string().uuid() });
 
 export const confirmUploadHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent", "member"),
+  requireRole("admin", "agent", "user"),
   zValidator("param", FileIdParamSchema),
   async (c) => {
     const { id: fileId } = c.req.valid("param");

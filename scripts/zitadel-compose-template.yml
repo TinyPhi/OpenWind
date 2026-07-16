@@ -1,4 +1,4 @@
-name: zitadel
+name: __PROJECT_NAME__
 
 services:
   zitadel-db:
@@ -74,6 +74,7 @@ services:
     environment:
       ZITADEL_EXTERNALDOMAIN: "${ZITADEL_EXTERNAL_DOMAIN:-localhost}"
       ZITADEL_EXTERNALSECURE: "${ZITADEL_EXTERNALSECURE:-false}"
+      ZITADEL_ADMIN_PASSWORD: "${ZITADEL_ADMIN_PASSWORD}"
     networks:
       - openwind_zitadel
     depends_on:

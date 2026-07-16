@@ -1,5 +1,5 @@
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { getAutomationRule } from "@platform/automation-engine";
 import { factory } from "./factory.js";
 import { handleAutomationError } from "../../lib/handle-automation-error.js";
@@ -11,7 +11,9 @@ export const getAutomationRuleHandler = factory.createHandlers(
     const id = c.req.param("id") ?? "";
     const { tenantId } = c.get("auth");
     try {
-      const rule = await getAutomationRule(db, tenantId, id);
+      const rule = await withTenantContext(tenantId, (tx) =>
+        getAutomationRule(tx, tenantId, id),
+      );
       return c.json({ data: rule });
     } catch (err) {
       return handleAutomationError(c, err);

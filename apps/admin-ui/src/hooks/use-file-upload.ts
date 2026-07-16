@@ -1,0 +1,358 @@
+import { useState, useCallback, useEffect, useRef } from "react";
+import { fetchWithAuth, API_URL } from "../lib/api.js";
+
+export type ScanStatus = "pending" | "clean" | "quarantined" | "scan_failed";
+
+export type StagedFile = {
+  fileId: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  scanStatus: ScanStatus;
+  previewUrl?: string;
+  uploadProgress: number;
+};
+
+const EXT_MIME: Record<string, string> = {
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  doc: "application/msword",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppt: "application/vnd.ms-powerpoint",
+  pdf: "application/pdf",
+  txt: "text/plain",
+  csv: "text/csv",
+  json: "application/json",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  zip: "application/zip",
+};
+
+const ALLOWED_MIMES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "text/csv",
+  "application/json",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "application/zip",
+  "application/x-zip-compressed",
+]);
+
+// Document formats must be at least 1 KB — anything smaller is a cloud
+// placeholder stub (OneDrive/SharePoint Files-on-Demand) not the real file.
+const DOC_MIMES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/zip",
+  "application/x-zip-compressed",
+]);
+const MIN_DOC_BYTES = 1024;
+
+function getSizeLimit(mimeType: string): number {
+  if (mimeType.startsWith("image/")) return 10 * 1024 * 1024;
+  if (mimeType.startsWith("text/") || mimeType === "application/json")
+    return 5 * 1024 * 1024;
+  if (
+    mimeType === "application/zip" ||
+    mimeType === "application/x-zip-compressed"
+  )
+    return 100 * 1024 * 1024;
+  return 50 * 1024 * 1024;
+}
+
+async function compressImage(
+  file: File,
+): Promise<{ blob: Blob; mime: string }> {
+  if (file.type === "image/gif") return { blob: file, mime: file.type };
+  return new Promise((resolve) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX_DIM = 2048;
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      if (w > MAX_DIM || h > MAX_DIM) {
+        if (w > h) {
+          h = Math.round((h * MAX_DIM) / w);
+          w = MAX_DIM;
+        } else {
+          w = Math.round((w * MAX_DIM) / h);
+          h = MAX_DIM;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve({ blob: file, mime: file.type });
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) =>
+          resolve(
+            blob
+              ? { blob, mime: "image/jpeg" }
+              : { blob: file, mime: file.type },
+          ),
+        "image/jpeg",
+        0.85,
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve({ blob: file, mime: file.type });
+    };
+    img.src = objectUrl;
+  });
+}
+
+function xhrPut(
+  url: string,
+  blob: Blob,
+  mimeType: string,
+  onProgress: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable)
+        onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed: ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", mimeType);
+    xhr.send(blob);
+  });
+}
+
+export function useFileUpload({
+  entityId,
+  moduleSlug,
+}: {
+  entityId?: string;
+  moduleSlug: string;
+}): {
+  stagedFiles: StagedFile[];
+  addFiles: (files: File[]) => Promise<void>;
+  removeFile: (fileId: string) => void;
+  clearFiles: () => void;
+  pendingCount: number;
+  cleanFileIds: string[];
+} {
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
+  const pollTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
+
+  useEffect(() => {
+    return () => {
+      pollTimers.current.forEach((t) => clearTimeout(t));
+      setStagedFiles((prev) => {
+        prev.forEach((f) => {
+          if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+        });
+        return [];
+      });
+    };
+  }, []);
+
+  const updateFile = useCallback(
+    (fileId: string, updates: Partial<StagedFile>) => {
+      setStagedFiles((prev) =>
+        prev.map((f) => (f.fileId === fileId ? { ...f, ...updates } : f)),
+      );
+    },
+    [],
+  );
+
+  const schedulePoll = useCallback(
+    (fileId: string, delayMs: number) => {
+      const check = async (): Promise<void> => {
+        try {
+          const res = (await fetchWithAuth(
+            `${API_URL}/files/${fileId}/status`,
+          )) as {
+            data: { fileId: string; scanStatus: ScanStatus };
+          };
+          const status = res.data.scanStatus;
+          updateFile(fileId, { scanStatus: status });
+          if (status === "pending") {
+            const t = setTimeout(check, 3000);
+            pollTimers.current.set(fileId, t);
+          } else {
+            pollTimers.current.delete(fileId);
+          }
+        } catch {
+          const t = setTimeout(check, 5000);
+          pollTimers.current.set(fileId, t);
+        }
+      };
+      const t = setTimeout(check, delayMs);
+      pollTimers.current.set(fileId, t);
+    },
+    [updateFile],
+  );
+
+  const addFiles = useCallback(
+    async (rawFiles: File[]): Promise<void> => {
+      for (const file of rawFiles) {
+        const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+        const resolvedMime =
+          file.type !== "" ? file.type : (EXT_MIME[ext] ?? "");
+        if (!ALLOWED_MIMES.has(resolvedMime)) {
+          alert(`File type not supported: "${file.name}"`);
+          continue;
+        }
+        if (DOC_MIMES.has(resolvedMime) && file.size < MIN_DOC_BYTES) {
+          alert(
+            `"${file.name}" appears to be a cloud placeholder (${file.size} B) that hasn't been downloaded yet.\n\nIn File Explorer, right-click the file → "Always keep on this device", wait for it to download, then try again.`,
+          );
+          continue;
+        }
+        const limit = getSizeLimit(resolvedMime);
+        if (file.size > limit) {
+          alert(
+            `"${file.name}" exceeds the ${Math.round(limit / 1024 / 1024)} MB limit for this type.`,
+          );
+          continue;
+        }
+
+        // Build preview URL from original file (before compression)
+        const previewUrl = resolvedMime.startsWith("image/")
+          ? URL.createObjectURL(file)
+          : undefined;
+
+        // Compress images
+        let uploadBlob: Blob = file;
+        let uploadMime = resolvedMime;
+        if (resolvedMime.startsWith("image/")) {
+          const compressed = await compressImage(file);
+          uploadBlob = compressed.blob;
+          uploadMime = compressed.mime;
+        }
+
+        const tempId = `temp-${crypto.randomUUID()}`;
+        const newEntry: StagedFile = {
+          fileId: tempId,
+          originalName: file.name,
+          mimeType: uploadMime,
+          sizeBytes: uploadBlob.size,
+          scanStatus: "pending",
+          uploadProgress: 0,
+          ...(previewUrl !== undefined && { previewUrl }),
+        };
+        setStagedFiles((prev) => [...prev, newEntry]);
+
+        try {
+          const initRes = (await fetchWithAuth(`${API_URL}/files`, {
+            method: "POST",
+            body: JSON.stringify({
+              originalName: file.name,
+              mimeType: uploadMime,
+              sizeBytes: uploadBlob.size,
+              moduleSlug,
+              entityId,
+            }),
+          })) as { data: { fileId: string; uploadUrl: string } };
+
+          const { fileId, uploadUrl } = initRes.data;
+          setStagedFiles((prev) =>
+            prev.map((f) => (f.fileId === tempId ? { ...f, fileId } : f)),
+          );
+
+          await xhrPut(uploadUrl, uploadBlob, uploadMime, (pct) => {
+            setStagedFiles((prev) =>
+              prev.map((f) =>
+                f.fileId === fileId ? { ...f, uploadProgress: pct } : f,
+              ),
+            );
+          });
+
+          await fetchWithAuth(`${API_URL}/files/${fileId}/complete`, {
+            method: "POST",
+          });
+          schedulePoll(fileId, 2000);
+        } catch (err) {
+          if (previewUrl) URL.revokeObjectURL(previewUrl);
+          setStagedFiles((prev) => prev.filter((f) => f.fileId !== tempId));
+          alert(
+            `Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+          );
+        }
+      }
+    },
+    [entityId, moduleSlug, schedulePoll],
+  );
+
+  const removeFile = useCallback((fileId: string) => {
+    const timer = pollTimers.current.get(fileId);
+    if (timer) {
+      clearTimeout(timer);
+      pollTimers.current.delete(fileId);
+    }
+    setStagedFiles((prev) => {
+      const found = prev.find((f) => f.fileId === fileId);
+      if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl);
+      return prev.filter((f) => f.fileId !== fileId);
+    });
+    if (!fileId.startsWith("temp-")) {
+      void fetchWithAuth(`${API_URL}/files/${fileId}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    }
+  }, []);
+
+  const clearFiles = useCallback(() => {
+    pollTimers.current.forEach((t) => clearTimeout(t));
+    pollTimers.current.clear();
+    setStagedFiles((prev) => {
+      prev.forEach((f) => {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      });
+      return [];
+    });
+  }, []);
+
+  const pendingCount = stagedFiles.filter(
+    (f) => f.scanStatus === "pending",
+  ).length;
+  const cleanFileIds = stagedFiles
+    .filter((f) => f.scanStatus === "clean")
+    .map((f) => f.fileId);
+
+  return {
+    stagedFiles,
+    addFiles,
+    removeFile,
+    clearFiles,
+    pendingCount,
+    cleanFileIds,
+  };
+}

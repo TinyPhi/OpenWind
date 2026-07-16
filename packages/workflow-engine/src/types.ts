@@ -5,8 +5,12 @@ export interface WorkflowDefinition {
   name: string;
   initialState: string;
   isActive: boolean;
-  /** Zitadel user ID of the designated workflow admin. null = unassigned. */
-  assignedTo: string | null;
+  /** Zitadel user IDs of the designated workflow admins. Empty array = unassigned. */
+  assignedTo: string[];
+  /** Max parent→child chain depth. 0 = children disabled. Default 1. */
+  maxChildDepth: number;
+  /** Max direct children per parent. Default 10. */
+  maxChildrenPerParent: number;
   createdAt: Date;
 }
 
@@ -78,6 +82,10 @@ export interface TransitionRequest {
   idempotencyKey?: string;
   triggeredBy?: "user" | "automation" | "api" | "system";
   metadata?: Record<string, unknown>;
+  // Automation recursion depth this transition was triggered at. Stamped onto
+  // the outbox event so the automation worker resumes MAX_DEPTH counting from
+  // here instead of resetting to 0 — see issue #120.
+  depth?: number;
 }
 
 export interface WorkflowFull extends WorkflowDefinition {
@@ -93,7 +101,9 @@ export type CreateWorkflowInput = {
 
 export type UpdateWorkflowInput = {
   isActive?: boolean | undefined;
-  assignedTo?: string | null | undefined;
+  assignedTo?: string[] | undefined;
+  maxChildDepth?: number | null | undefined;
+  maxChildrenPerParent?: number | null | undefined;
 };
 
 export type CreateWorkflowStateInput = {
@@ -144,6 +154,7 @@ export interface WorkflowTransitionedEvent {
   triggeredBy: string;
   actorId: string | null;
   occurredAt: string;
+  depth?: number;
 }
 
 // Domain event written to outbox when an SLA timer breaches.

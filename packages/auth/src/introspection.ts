@@ -1,4 +1,5 @@
 import { request as nodeHttpRequest } from "node:http";
+import { createHash } from "node:crypto";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import type { IntrospectionResult } from "./types.js";
@@ -14,7 +15,7 @@ const CACHE_TTL_MS = 60_000;
 export async function introspectToken(
   token: string,
 ): Promise<IntrospectionResult> {
-  const key = simpleHash(token);
+  const key = hashToken(token);
   const now = Date.now();
 
   const cached = cache.get(key);
@@ -120,13 +121,10 @@ async function callIntrospectionEndpoint(
   return JSON.parse(result.text) as IntrospectionResult;
 }
 
-// djb2 hash — good enough for an in-process cache key
-function simpleHash(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) {
-    // djb2: h * 33 ^ c
-    h = ((h << 5) + h) ^ s.charCodeAt(i);
-    h = h >>> 0; // force unsigned 32-bit
-  }
-  return h.toString(16);
+// SHA-256 — a 32-bit djb2 hash previously used here has a large enough
+// collision space (~4 billion buckets) that two distinct tokens could hash to
+// the same cache key, returning the wrong token's introspection result
+// (active/inactive) for up to CACHE_TTL_MS. Cryptographic hash removes that.
+function hashToken(s: string): string {
+  return createHash("sha256").update(s).digest("hex");
 }

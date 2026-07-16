@@ -31,15 +31,27 @@ import { CustomerRecordDetail } from "./pages/customer/record-detail.js";
 import { Automations } from "./pages/automations/index.js";
 import { AutomationWizard } from "./pages/automations/wizard/wizard.js";
 import { RequireAdmin } from "./components/require-admin.js";
+import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import "./index.css";
 
 export function App(): React.ReactElement {
   return (
     <BrowserRouter>
+      <GlobalErrorBanner />
       <Refine
         authProvider={authProvider}
         dataProvider={dataProvider}
         routerProvider={routerProvider}
+        options={{
+          reactQuery: {
+            // Prevents Authenticated from unmounting children on background auth
+            // re-checks triggered by window focus. Token renewal is handled by
+            // automaticSilentRenew in oidc-client-ts — background checks are redundant.
+            clientConfig: {
+              defaultOptions: { queries: { refetchOnWindowFocus: false } },
+            },
+          },
+        }}
         resources={[
           {
             name: "dashboard",

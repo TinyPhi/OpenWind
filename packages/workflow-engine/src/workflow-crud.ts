@@ -32,7 +32,9 @@ function rowToWorkflow(r: typeof workflows.$inferSelect): WorkflowDefinition {
     name: r.name,
     initialState: r.initialState,
     isActive: r.isActive,
-    assignedTo: r.assignedTo as string | null,
+    assignedTo: (r.assignedTo as string[] | null) ?? [],
+    maxChildDepth: r.maxChildDepth,
+    maxChildrenPerParent: r.maxChildrenPerParent,
     createdAt: r.createdAt,
   };
 }
@@ -130,6 +132,30 @@ export async function getWorkflow(
   };
 }
 
+// Lightweight variant for callers that only need id/name/entityTypeId (e.g. slug
+// resolution) — skips the states/transitions/record-count joins list() does.
+export async function listWorkflowsSummary(
+  db: DbOrTx,
+  tenantId: string,
+  entityTypeId?: string,
+  activeOnly?: boolean,
+): Promise<WorkflowDefinition[]> {
+  const baseFilter = entityTypeId
+    ? and(eq(workflows.entityTypeId, entityTypeId), visibleTo(tenantId))
+    : visibleTo(tenantId);
+  const filter = activeOnly
+    ? and(baseFilter, eq(workflows.isActive, true))
+    : baseFilter;
+
+  const rows = await db
+    .select()
+    .from(workflows)
+    .where(filter)
+    .orderBy(asc(workflows.createdAt));
+
+  return rows.map(rowToWorkflow);
+}
+
 export async function listWorkflows(
   db: DbOrTx,
   tenantId: string,
@@ -221,6 +247,20 @@ export async function updateWorkflow(
   const updates: Partial<typeof workflows.$inferInsert> = {};
   if (input.isActive !== undefined) updates.isActive = input.isActive;
   if (input.assignedTo !== undefined) updates.assignedTo = input.assignedTo;
+  if (input.maxChildDepth !== undefined)
+    updates.maxChildDepth = input.maxChildDepth ?? 1;
+  if (input.maxChildrenPerParent !== undefined)
+    updates.maxChildrenPerParent = input.maxChildrenPerParent ?? 10;
+
+  if (Object.keys(updates).length === 0) {
+    const [current] = await db
+      .select()
+      .from(workflows)
+      .where(eq(workflows.id, workflowId))
+      .limit(1);
+    if (!current) throw new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId });
+    return rowToWorkflow(current);
+  }
 
   const [updated] = await db
     .update(workflows)

@@ -20,6 +20,9 @@ export const WorkflowTransitionedV1Schema = baseEvent.extend({
   triggeredBy: z.enum(["user", "automation", "api", "system"]),
   actorId: z.string().uuid().nullable(),
   occurredAt: z.string().datetime(),
+  // Automation recursion depth this transition was triggered at (see issue #120).
+  // Absent on events from direct user/API transitions, which start at depth 0.
+  depth: z.number().int().nonnegative().optional(),
 });
 
 export const WorkflowSlaBreachedV1Schema = baseEvent.extend({

@@ -1,7 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import {
   listRelations,
   DEFAULT_PAGE_SIZE,
@@ -31,12 +31,14 @@ export const listRelationsHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
 
     try {
-      const page = await listRelations(db, tenantId, instanceId, {
-        direction: query.direction,
-        relationType: query.relationType,
-        cursor: query.cursor,
-        limit: query.limit,
-      });
+      const page = await withTenantContext(tenantId, (tx) =>
+        listRelations(tx, tenantId, instanceId, {
+          direction: query.direction,
+          relationType: query.relationType,
+          cursor: query.cursor,
+          limit: query.limit,
+        }),
+      );
       return c.json({ data: page.data, nextCursor: page.nextCursor });
     } catch (err) {
       return handleEntityError(c, err);

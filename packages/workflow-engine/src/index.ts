@@ -13,6 +13,7 @@ export {
   updateWorkflow,
   getWorkflow,
   listWorkflows,
+  listWorkflowsSummary,
   deleteWorkflow,
   addWorkflowState,
   updateWorkflowState,

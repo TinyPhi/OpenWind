@@ -338,10 +338,24 @@ ${B}${C}  OpenWind — Zitadel Setup${R}
     name:            'OpenWind API Bot',
     accessTokenType: 'ACCESS_TOKEN_TYPE_BEARER',
   })
-  const machineData = assertOk(machineRes, 'Create machine user')
-  const machineUserId = machineData?.userId
-  if (!machineUserId) fail(`No userId in machine user response: ${machineRes.text}`)
-  ok(`Machine user created (ID: ${machineUserId})`)
+  let machineUserId
+  if (machineRes.status === 409) {
+    // User already exists from a previous bootstrap — look it up by username
+    info('Machine user already exists — looking up existing user…')
+    const listRes = await rawRequest('POST', '/management/v1/users/_search', {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    }, JSON.stringify({ queries: [{ userNameQuery: { userName: 'openwind-api-bot', method: 'TEXT_QUERY_METHOD_EQUALS' } }] }))
+    const listData = assertOk(listRes, 'Look up existing machine user')
+    machineUserId = listData?.result?.[0]?.id
+    if (!machineUserId) fail(`Could not find existing machine user: ${listRes.text}`)
+    ok(`Reusing existing machine user (ID: ${machineUserId})`)
+  } else {
+    const machineData = assertOk(machineRes, 'Create machine user')
+    machineUserId = machineData?.userId
+    if (!machineUserId) fail(`No userId in machine user response: ${machineRes.text}`)
+    ok(`Machine user created (ID: ${machineUserId})`)
+  }
   console.log()
 
   // 8. Grant IAM_OWNER at instance level so the machine user has full admin access
@@ -350,7 +364,7 @@ ${B}${C}  OpenWind — Zitadel Setup${R}
     userId: machineUserId,
     roles:  ['IAM_OWNER'],
   })
-  assertOk(memberRes, 'Grant IAM_OWNER')
+  if (memberRes.status !== 409) assertOk(memberRes, 'Grant IAM_OWNER')
   ok('IAM_OWNER granted')
   console.log()
 

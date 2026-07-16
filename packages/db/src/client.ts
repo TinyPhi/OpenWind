@@ -6,6 +6,7 @@ import * as schema from "./schema/index.js";
 const queryClient = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   idle_timeout: 30,
+  prepare: false, // pgbouncer transaction mode does not support server-side prepared statements
 });
 
 export const db = drizzle(queryClient, { schema });

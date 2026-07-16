@@ -77,6 +77,12 @@ logs.md
 # Local tunnel scripts
 db-bridge.bat
 
+# Bridge setup scripts — temporary local helpers that fetch this branch's own
+# setup files and auto-run them; never meant to be committed (see bridge-setup.sh)
+bridge-setup.sh
+bridge-setup.bat
+scripts/bridge-setup.ps1
+
 # Env profiles — prod.env has real credentials, never commit it
 envs/
 

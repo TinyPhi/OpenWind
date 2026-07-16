@@ -1,5 +1,5 @@
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { deleteRelation } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -12,7 +12,9 @@ export const deleteRelationHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
 
     try {
-      await deleteRelation(db, tenantId, relationId);
+      await withTenantContext(tenantId, (tx) =>
+        deleteRelation(tx, tenantId, relationId),
+      );
       return c.body(null, 204);
     } catch (err) {
       return handleEntityError(c, err);

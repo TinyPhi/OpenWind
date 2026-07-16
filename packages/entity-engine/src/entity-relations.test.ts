@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EntityError } from "./errors.js";
 
 // ── Mock @platform/db ─────────────────────────────────────────────────────────
 
@@ -18,12 +17,15 @@ function makeQueryBuilder(finalResult: () => unknown[]) {
   return q;
 }
 
+const mockUpdateSet = vi.fn(() => ({ where: vi.fn().mockResolvedValue([]) }));
+
 const dbMock = {
   select: vi.fn(() => makeQueryBuilder(mockSelectResult)),
   insert: vi.fn(() => ({
     values: vi.fn(() => ({ returning: mockInsertReturning })),
   })),
   delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue([]) })),
+  update: vi.fn(() => ({ set: mockUpdateSet })),
 };
 
 vi.mock("@platform/db", () => ({
@@ -49,6 +51,7 @@ vi.mock("drizzle-orm", () => ({
   isNull: vi.fn((col) => ({ col, op: "isNull" })),
   asc: vi.fn((col) => ({ col, op: "asc" })),
   gt: vi.fn((col, val) => ({ col, val, op: "gt" })),
+  sql: vi.fn((s) => ({ raw: s })),
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -210,7 +213,7 @@ describe("listRelations", () => {
 describe("deleteRelation", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("deletes the relation when it belongs to the tenant", async () => {
+  it("soft-deletes the relation (sets deleted_at) when it belongs to the tenant", async () => {
     dbMock.select.mockReturnValue(
       makeQueryBuilder(() => [{ id: RELATION_ID }]),
     );
@@ -219,7 +222,8 @@ describe("deleteRelation", () => {
       deleteRelation(dbMock as never, TENANT_ID, RELATION_ID),
     ).resolves.toBeUndefined();
 
-    expect(dbMock.delete).toHaveBeenCalledTimes(1);
+    expect(dbMock.update).toHaveBeenCalledTimes(1);
+    expect(dbMock.delete).not.toHaveBeenCalled();
   });
 
   it("throws RELATION_NOT_FOUND when relation does not exist or belongs to another tenant", async () => {
@@ -229,6 +233,6 @@ describe("deleteRelation", () => {
       deleteRelation(dbMock as never, TENANT_ID, "nonexistent"),
     ).rejects.toMatchObject({ code: "RELATION_NOT_FOUND" });
 
-    expect(dbMock.delete).not.toHaveBeenCalled();
+    expect(dbMock.update).not.toHaveBeenCalled();
   });
 });

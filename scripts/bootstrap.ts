@@ -218,7 +218,7 @@ function readEnvLocal(): Map<string, string> {
 function writeEnvVars(vars: Record<string, string>): void {
   const existing = readEnvLocal();
   for (const [k, v] of Object.entries(vars)) {
-    if (!v.startsWith("<existing")) existing.set(k, v);
+    if (!(v ?? "").startsWith("<existing")) existing.set(k, v ?? "");
   }
   const header = [
     "# Generated / managed by scripts/bootstrap.ts",
@@ -629,7 +629,7 @@ async function runZitadelSetup(
       "OIDC_GRANT_TYPE_REFRESH_TOKEN",
     ],
     appType: "OIDC_APP_TYPE_WEB",
-    authMethodType: "OIDC_AUTH_METHOD_TYPE_BASIC",
+    authMethodType: "OIDC_AUTH_METHOD_TYPE_NONE",
     postLogoutRedirectUris: [
       "http://localhost:3001",
       "http://localhost:3001/login",
@@ -670,9 +670,11 @@ async function runZitadelSetup(
         method: "POST",
         body: { name: APP_NAME, ...oidcPayload },
       },
-    )) as { appId: string; clientId: string; clientSecret: string };
+    )) as { appId: string; clientId: string; clientSecret?: string };
     oidcClientId = created.clientId;
-    oidcClientSecret = created.clientSecret;
+    // Public/PKCE apps (authMethodType NONE, used here) have no client secret —
+    // Zitadel omits the field entirely rather than returning an empty string.
+    oidcClientSecret = created.clientSecret ?? "";
     ok(`Created OIDC app "${APP_NAME}"`);
   }
 
@@ -829,8 +831,10 @@ async function createDemoUser(
   if (!userId) {
     // Create the human user.
     // The Management API v1 proto field is `initial_password` (→ `initialPassword` in JSON),
-    // NOT a nested `password` object. Using the correct field name creates the user in
-    // ACTIVE state immediately — no init-code activation screen on first login.
+    // NOT a nested `password` object (that field doesn't exist on CreateHumanUser — sending
+    // it is silently ignored, leaving the user with no password at all). Using the correct
+    // field name creates the user in ACTIVE state immediately — no init-code activation
+    // screen on first login.
     const created = (await zCall("/management/v1/users/human", pat, {
       method: "POST",
       body: {
@@ -853,6 +857,20 @@ async function createDemoUser(
     ok(`Created user ${opts.email}`);
   } else {
     ok(`User ${opts.email} already exists`);
+  }
+
+  // initialPassword still leaves passwordChangeRequired=true by default — explicitly
+  // clear it via the dedicated Set Password endpoint so demo accounts don't hit a
+  // forced "Change Password" screen on first login.
+  try {
+    await zCall(`/management/v1/users/${userId}/password`, pat, {
+      method: "POST",
+      body: { password: DEMO_PASSWORD, noChangeRequired: true },
+    });
+  } catch (e) {
+    warn(
+      `Could not clear passwordChangeRequired for ${opts.email}: ${String(e)}`,
+    );
   }
 
   // Grant project role

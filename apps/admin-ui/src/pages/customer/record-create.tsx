@@ -1,7 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
+import { useFileUpload } from "../../hooks/use-file-upload.js";
+import {
+  AttachmentUploadZone,
+  StagedFileChip,
+} from "../../components/file-attachment.js";
 
 type UserOption = {
   userId: string;
@@ -507,9 +512,21 @@ function FieldInput({
 export function CustomerRecordCreate(): React.ReactElement {
   const { typeSlug } = useParams<{ typeSlug: string }>();
   const navigate = useNavigate();
-  const { getTypeBySlug } = useEntityTypes();
-  const entityType = typeSlug ? getTypeBySlug(typeSlug) : undefined;
-  const entityTypeId = entityType?.id;
+  const location = useLocation();
+  const routeState = (location.state ?? {}) as {
+    workflowId?: string;
+    entityTypeId?: string;
+    returnTo?: string;
+  };
+  const { getTypeBySlug, getTypeById } = useEntityTypes();
+  // Prefer the explicit entityTypeId from router state (set by WorkflowRecords) —
+  // it is authoritative and avoids slug ambiguity when multiple entity types share
+  // the same slug. Fall back to slug matching for direct URL access.
+  const entityType =
+    (routeState.entityTypeId
+      ? getTypeById(routeState.entityTypeId)
+      : undefined) ?? (typeSlug ? getTypeBySlug(typeSlug) : undefined);
+  const entityTypeId = entityType?.id ?? routeState.entityTypeId;
 
   const [fields, setFields] = useState<EntityField[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowDef[]>([]);
@@ -521,6 +538,8 @@ export function CustomerRecordCreate(): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const { stagedFiles, addFiles, removeFile, pendingCount, cleanFileIds } =
+    useFileUpload({ moduleSlug: typeSlug ?? "unknown" });
 
   const selectedWorkflow = workflows.find((w) => w.id === workflowId);
   const availableStates = selectedWorkflow?.states ?? [];
@@ -546,6 +565,9 @@ export function CustomerRecordCreate(): React.ReactElement {
 
   useEffect(() => {
     if (!entityTypeId) return;
+    // cancelled prevents a stale response (from React Strict Mode's double-invoke
+    // or a rapid entityTypeId change) from overwriting state set by the current fetch.
+    let cancelled = false;
     Promise.all([
       fetchWithAuth(`${API_URL}/entity-types/${entityTypeId}/fields`),
       fetchWithAuth(
@@ -554,21 +576,30 @@ export function CustomerRecordCreate(): React.ReactElement {
       fetchWithAuth(`${API_URL}/users`),
     ])
       .then(([fieldsRes, wfRes, usersRes]) => {
-        const fs = (fieldsRes as { data: EntityField[] }).data.filter(
-          (f) => !f.isSystem,
-        );
+        if (cancelled) return;
+        const fs = (fieldsRes as { data: EntityField[] }).data;
         setFields(fs);
         const wfs = (wfRes as { data?: WorkflowDef[] }).data ?? [];
         setWorkflows(wfs);
-        if (wfs.length === 1 && wfs[0]) setWorkflowId(wfs[0].id);
-
+        const preselect = routeState.workflowId;
+        if (preselect && wfs.some((w) => w.id === preselect)) {
+          setWorkflowId(preselect);
+        } else if (wfs.length === 1 && wfs[0]) {
+          setWorkflowId(wfs[0].id);
+        }
         const usrs = (usersRes as { data?: UserOption[] }).data ?? [];
         setUsers(usrs);
       })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
-      )
-      .finally(() => setLoading(false));
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Failed to load");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [entityTypeId]);
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
@@ -589,7 +620,23 @@ export function CustomerRecordCreate(): React.ReactElement {
         body: JSON.stringify(payload),
       });
       const created = (res as { data: { id: string } }).data;
-      navigate(`/records/${typeSlug}/${created.id}`);
+      for (const fileId of cleanFileIds) {
+        try {
+          await fetchWithAuth(`${API_URL}/entities/${created.id}/attachments`, {
+            method: "POST",
+            body: JSON.stringify({ fileId }),
+          });
+        } catch {
+          // Record was created; a single attachment failing to bind
+          // shouldn't block navigation — it can be re-attached from the
+          // detail page.
+        }
+      }
+      if (routeState.returnTo) {
+        navigate(routeState.returnTo);
+      } else {
+        navigate(`/records/${typeSlug}/${created.id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create");
       setSaving(false);
@@ -605,9 +652,13 @@ export function CustomerRecordCreate(): React.ReactElement {
 
   return (
     <div className="portal-page">
-      <Link to={`/records/${typeSlug ?? ""}`} className="portal-back-link">
+      <button
+        type="button"
+        className="portal-back-link"
+        onClick={() => navigate(-1)}
+      >
         ← {entityType?.plural ?? "Records"}
-      </Link>
+      </button>
       <h1 className="portal-page-title">New {entityType?.name}</h1>
       <form
         onSubmit={(e) => void handleSubmit(e)}
@@ -676,17 +727,37 @@ export function CustomerRecordCreate(): React.ReactElement {
             No fields defined for this entity type.
           </p>
         )}
+        <div className="portal-field-group">
+          <label className="portal-field-label">Attachments</label>
+          {stagedFiles.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "6px",
+                marginBottom: "8px",
+              }}
+            >
+              {stagedFiles.map((f) => (
+                <StagedFileChip key={f.fileId} file={f} onRemove={removeFile} />
+              ))}
+            </div>
+          )}
+          <AttachmentUploadZone onFiles={(files) => addFiles(files)} />
+        </div>
         <div className="portal-form-actions">
-          <Link
-            to={`/records/${typeSlug ?? ""}`}
+          <button
+            type="button"
             className="portal-btn-secondary"
+            onClick={() => navigate(-1)}
           >
             Cancel
-          </Link>
+          </button>
           <button
             type="submit"
             className="portal-btn-primary"
-            disabled={saving}
+            disabled={saving || pendingCount > 0}
+            title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
           >
             {saving ? "Creating…" : `Create ${entityType?.name ?? "Record"}`}
           </button>

@@ -48,9 +48,15 @@ const UPLOAD_URL_EXPIRY_SECONDS = 900; // 15 min
 const DOWNLOAD_URL_EXPIRY_SECONDS = 3600; // 1 h
 const AV_SCAN_QUEUE = "av-scan";
 
-// ── S3 client (lazily initialised) ────────────────────────────────────────────
+// ── S3 clients ────────────────────────────────────────────────────────────────
+// Two clients are needed when S3_ENDPOINT is an internal Docker hostname:
+//   getS3()          — internal endpoint, used for PUT/DELETE/GetObject commands
+//   getS3ForSigning() — public endpoint (S3_PUBLIC_URL ?? S3_ENDPOINT), used only
+//                       for presigning so the signature embeds the browser-accessible
+//                       host. Rewriting the host after signing would break the HMAC.
 
 let _s3: S3Client | undefined;
+let _s3Signing: S3Client | undefined;
 
 function getS3(): S3Client {
   // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
@@ -62,10 +68,27 @@ function getS3(): S3Client {
         accessKeyId: env.S3_ACCESS_KEY,
         secretAccessKey: env.S3_SECRET_KEY,
       },
-      forcePathStyle: true, // required for MinIO
+      forcePathStyle: true,
     });
   }
   return _s3;
+}
+
+function getS3ForSigning(): S3Client {
+  const publicEndpoint = env.S3_PUBLIC_URL ?? env.S3_ENDPOINT;
+
+  if (_s3Signing === undefined || publicEndpoint !== env.S3_ENDPOINT) {
+    _s3Signing = new S3Client({
+      endpoint: publicEndpoint,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: env.S3_ACCESS_KEY,
+        secretAccessKey: env.S3_SECRET_KEY,
+      },
+      forcePathStyle: true,
+    });
+  }
+  return _s3Signing;
 }
 
 // ── Storage key helpers ───────────────────────────────────────────────────────
@@ -151,6 +174,9 @@ export async function initiateUpload(
   //    SELECT FOR UPDATE on the tenant row serialises concurrent uploads —
   //    two simultaneous calls cannot both read the same usedBytes and both pass.
   await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
+    );
     // Lock the tenant row for the duration of this transaction
     const [tenant] = await tx
       .select({ config: tenants.config })
@@ -196,7 +222,7 @@ export async function initiateUpload(
   const expiresAt = new Date(Date.now() + UPLOAD_URL_EXPIRY_SECONDS * 1000);
 
   const uploadUrl = await getSignedUrl(
-    getS3(),
+    getS3ForSigning(),
     new PutObjectCommand({
       Bucket: env.S3_BUCKET,
       Key: storageKey,
@@ -224,22 +250,47 @@ export async function confirmUpload(
   tenantId: string,
   fileId: string,
 ): Promise<void> {
-  const [file] = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
-    .limit(1);
+  let storageKeyForScan: string | undefined;
 
-  if (!file) throw new FileError("FILE_NOT_FOUND", { fileId });
-
-  // Idempotency: only enqueue if still pending
-  if (file.scanStatus !== "pending") {
-    logger.info(
-      { tenantId, fileId, scanStatus: file.scanStatus },
-      "files: confirmUpload called on non-pending file — skipping enqueue",
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
     );
-    return;
-  }
+
+    const [file] = await tx
+      .select()
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
+      .limit(1);
+
+    if (!file) throw new FileError("FILE_NOT_FOUND", { fileId });
+
+    // Idempotency: only enqueue if still pending
+    if (file.scanStatus !== "pending") {
+      logger.info(
+        { tenantId, fileId, scanStatus: file.scanStatus },
+        "files: confirmUpload called on non-pending file — skipping enqueue",
+      );
+      return;
+    }
+
+    // Dev shortcut: skip the queue and mark clean immediately when SKIP_AV_SCAN=true
+    if (env.SKIP_AV_SCAN) {
+      await tx
+        .update(files)
+        .set({ scanStatus: "clean", updatedAt: new Date() })
+        .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)));
+      logger.info(
+        { tenantId, fileId },
+        "files: SKIP_AV_SCAN=true — marked clean without scanning",
+      );
+      return;
+    }
+
+    storageKeyForScan = file.storageKey;
+  });
+
+  if (!storageKeyForScan) return;
 
   const queue = new Queue<{
     fileId: string;
@@ -250,7 +301,7 @@ export async function confirmUpload(
   try {
     await queue.add(
       "scan",
-      { fileId, tenantId, storageKey: file.storageKey },
+      { fileId, tenantId, storageKey: storageKeyForScan },
       {
         jobId: `av-scan-${fileId}`, // deduplication key — prevents double-enqueue; no colon (BullMQ disallows it)
         attempts: 5,
@@ -274,12 +325,18 @@ export async function getDownloadUrl(
   db: DbOrTx,
   tenantId: string,
   fileId: string,
+  inline = false,
 ): Promise<{ downloadUrl: string; downloadUrlExpiresAt: Date }> {
-  const [file] = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
-    .limit(1);
+  const [file] = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
+    );
+    return tx
+      .select()
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
+      .limit(1);
+  });
 
   if (!file) throw new FileError("FILE_NOT_FOUND", { fileId });
 
@@ -300,12 +357,13 @@ export async function getDownloadUrl(
   const expiresAt = new Date(Date.now() + DOWNLOAD_URL_EXPIRY_SECONDS * 1000);
 
   const downloadUrl = await getSignedUrl(
-    getS3(),
+    getS3ForSigning(),
     new GetObjectCommand({
       Bucket: env.S3_BUCKET,
       Key: file.storageKey,
-      // Force download prompt in the browser with the original filename
-      ResponseContentDisposition: `attachment; filename="${file.originalName}"`,
+      ResponseContentDisposition: inline
+        ? `inline; filename="${file.originalName}"`
+        : `attachment; filename="${file.originalName}"`,
     }),
     { expiresIn: DOWNLOAD_URL_EXPIRY_SECONDS },
   );
@@ -322,19 +380,31 @@ export async function deleteFile(
   tenantId: string,
   fileId: string,
 ): Promise<void> {
-  const [file] = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
-    .limit(1);
+  let storageKeyToDelete: string | undefined;
 
-  if (!file) throw new FileError("FILE_NOT_FOUND", { fileId });
-  if (file.scanStatus === "deleted") return; // already deleted — no-op
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
+    );
 
-  await db
-    .update(files)
-    .set({ scanStatus: "deleted", updatedAt: new Date() })
-    .where(eq(files.id, fileId));
+    const [file] = await tx
+      .select()
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
+      .limit(1);
+
+    if (!file) throw new FileError("FILE_NOT_FOUND", { fileId });
+    if (file.scanStatus === "deleted") return; // already deleted — no-op
+
+    await tx
+      .update(files)
+      .set({ scanStatus: "deleted", updatedAt: new Date() })
+      .where(eq(files.id, fileId));
+
+    storageKeyToDelete = file.storageKey;
+  });
+
+  if (!storageKeyToDelete) return;
 
   // Asynchronously delete the S3 object — fire-and-forget is intentional:
   // the row is already marked deleted; if S3 deletion fails, a separate
@@ -343,12 +413,12 @@ export async function deleteFile(
     .send(
       new DeleteObjectCommand({
         Bucket: env.S3_BUCKET,
-        Key: file.storageKey,
+        Key: storageKeyToDelete,
       }),
     )
     .catch((err: unknown) => {
       logger.warn(
-        { tenantId, fileId, storageKey: file.storageKey, err: String(err) },
+        { tenantId, fileId, storageKey: storageKeyToDelete, err: String(err) },
         "files: S3 object deletion failed — will be retried by cleanup job",
       );
     });

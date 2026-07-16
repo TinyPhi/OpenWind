@@ -18,6 +18,17 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// middleware.ts -> tenant-status-cache.ts -> @platform/redis, whose module
+// scope does `import { env } from "@platform/config"` — that real import
+// isn't covered by the "@platform/config" mock above (pnpm workspace
+// resolution loads it as a separate module instance), so it fails Zod
+// validation against an empty test env before any test runs. Stub it out;
+// this suite only exercises the in-memory getCachedTenantStatus path.
+vi.mock("@platform/redis", () => ({
+  getRedis: vi.fn(),
+  closeRedis: vi.fn(),
+}));
+
 const mockVerifyJwt = vi.fn();
 const mockExtractAuthContext = vi.fn();
 vi.mock("./jwks.js", () => ({
@@ -39,6 +50,15 @@ const mockModuleDbSelect = vi.fn(() => ({
   })),
 }));
 
+// Row tenant_users would return for the current test's SELECT-before-write
+// check (#124). Set per-test; undefined means "no existing row" (new user).
+let mockExistingTenantUser:
+  | { email: string | null; displayName: string | null }
+  | undefined;
+
+const mockTxInsertValues = vi.fn();
+const mockTxOnConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
+
 vi.mock("@platform/db", () => ({
   apiKeys: {
     id: "api_keys.id",
@@ -50,15 +70,46 @@ vi.mock("@platform/db", () => ({
   tenantUsers: {
     tenantId: "tenant_users.tenant_id",
     userId: "tenant_users.user_id",
+    email: "tenant_users.email",
+    displayName: "tenant_users.display_name",
   },
   db: { select: mockModuleDbSelect },
-  // withTenantContext is called fire-and-forget after JWT auth; mock it as a
-  // no-op so tests don't need a real db connection and don't throw 500s.
-  withTenantContext: vi.fn().mockResolvedValue(undefined),
+  // withTenantContext is called (awaited, not fire-and-forget) after JWT
+  // auth; mock it to run the callback against a fake tx that mimics the
+  // #124 select-then-conditionally-write flow.
+  withTenantContext: vi.fn((_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi
+              .fn()
+              .mockResolvedValue(
+                mockExistingTenantUser ? [mockExistingTenantUser] : [],
+              ),
+          })),
+        })),
+      })),
+      insert: vi.fn(() => ({
+        values: (v: unknown) => {
+          mockTxInsertValues(v);
+          return { onConflictDoUpdate: mockTxOnConflictDoUpdate };
+        },
+      })),
+      // Used by resolveApiKey's last_used_at write once the tenant is known.
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn().mockResolvedValue(undefined),
+        })),
+      })),
+    }),
+  ),
 }));
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
+  and: vi.fn((...conds) => ({ op: "and", conds })),
+  sql: (...args: unknown[]) => ({ sql: args }),
 }));
 
 const { requireAuth, requireRole, requireIntrospection } =
@@ -88,6 +139,7 @@ async function get(app: Hono, token?: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockExistingTenantUser = undefined;
 });
 
 // ── requireAuth ───────────────────────────────────────────────────────────────
@@ -126,15 +178,61 @@ describe("requireAuth", () => {
     expect(body).toEqual({ ok: true });
   });
 
+  // #124: the tenant_users sync must not write on every request — only
+  // insert for a brand-new user, or update when the synced fields drift.
+  describe("tenant_users sync (#124)", () => {
+    it("inserts the row when no tenant_user exists yet (new user)", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      mockExistingTenantUser = undefined;
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      expect(mockTxInsertValues).toHaveBeenCalledTimes(1);
+      expect(mockTxOnConflictDoUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips the write when the existing row already matches the JWT profile", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      mockExistingTenantUser = {
+        email: VALID_AUTH.email,
+        displayName: null,
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      expect(mockTxInsertValues).not.toHaveBeenCalled();
+      expect(mockTxOnConflictDoUpdate).not.toHaveBeenCalled();
+    });
+
+    it("writes the update when the existing row's profile has drifted", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      mockExistingTenantUser = {
+        email: "stale@example.com",
+        displayName: null,
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      expect(mockTxInsertValues).toHaveBeenCalledTimes(1);
+      expect(mockTxInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ email: VALID_AUTH.email }),
+      );
+      expect(mockTxOnConflictDoUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("returns 401 when API key is not found in db", async () => {
     const mockDb = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([]),
-          })),
-        })),
-      })),
+      execute: vi.fn().mockResolvedValue([]),
     };
 
     const app = makeApp([
@@ -145,36 +243,18 @@ describe("requireAuth", () => {
   });
 
   it("resolves auth from API key when key matches db row", async () => {
+    // (#124-adjacent) resolveApiKey now looks the key up via the
+    // resolve_api_key_by_hash SECURITY DEFINER function (execute), not a
+    // plain select, since api_keys' RLS policy can't be satisfied before the
+    // tenant is known. resolveTenantStatus's select still goes through the
+    // module-level db (mockModuleDbSelect), already wired for "active".
     const fakeRow = {
       id: "key-id-1",
-      tenantId: "tenant-abc",
+      tenant_id: "tenant-abc",
       scopes: ["read"],
     };
-    const mockDbSelect = vi
-      .fn()
-      // First call: resolveApiKey lookup
-      .mockReturnValueOnce({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([fakeRow]),
-          })),
-        })),
-      })
-      // Second call: resolveTenantStatus lookup
-      .mockReturnValueOnce({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([{ status: "active" }]),
-          })),
-        })),
-      });
     const mockDb = {
-      select: mockDbSelect,
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn().mockResolvedValue([]),
-        })),
-      })),
+      execute: vi.fn().mockResolvedValue([fakeRow]),
     };
 
     const app = makeApp([
@@ -255,22 +335,11 @@ describe("requireIntrospection", () => {
   it("skips introspection for API keys (sk_ prefix)", async () => {
     const fakeRow = {
       id: "key-id-1",
-      tenantId: "tenant-abc",
+      tenant_id: "tenant-abc",
       scopes: ["read"],
     };
     const mockDb = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue([fakeRow]),
-          })),
-        })),
-      })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn().mockResolvedValue([]),
-        })),
-      })),
+      execute: vi.fn().mockResolvedValue([fakeRow]),
     };
 
     const app = new Hono();

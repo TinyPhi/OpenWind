@@ -1,4 +1,4 @@
-import { eq, and, or, asc, gt, isNull } from "drizzle-orm";
+import { eq, and, or, asc, gt, isNull, sql } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import { entityRelations, entityInstances } from "@platform/db";
 import { logger } from "@platform/logger";
@@ -96,7 +96,10 @@ export async function listRelations(
   const limit = Math.min(input.limit ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
   const direction = input.direction ?? "both";
 
-  const conditions = [eq(entityRelations.tenantId, tenantId)];
+  const conditions = [
+    eq(entityRelations.tenantId, tenantId),
+    isNull(entityRelations.deletedAt),
+  ];
 
   if (direction === "from") {
     conditions.push(eq(entityRelations.fromInstanceId, instanceId));
@@ -162,9 +165,12 @@ export async function deleteRelation(
 
   if (!existing) throw new EntityError("RELATION_NOT_FOUND", { relationId });
 
-  await db.delete(entityRelations).where(eq(entityRelations.id, relationId));
+  await db
+    .update(entityRelations)
+    .set({ deletedAt: sql`now()` })
+    .where(eq(entityRelations.id, relationId));
 
-  logger.info({ tenantId, relationId }, "Entity relation deleted");
+  logger.info({ tenantId, relationId }, "Entity relation soft-deleted");
 }
 
 function rowToRelation(
@@ -177,5 +183,6 @@ function rowToRelation(
     toInstanceId: row.toInstanceId,
     relationType: row.relationType,
     createdAt: row.createdAt,
+    deletedAt: row.deletedAt,
   };
 }

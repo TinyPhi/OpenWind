@@ -1,7 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { createRelation } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -21,11 +21,13 @@ export const createRelationHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
 
     try {
-      const relation = await createRelation(db, tenantId, {
-        fromInstanceId,
-        toInstanceId: input.toInstanceId,
-        relationType: input.relationType,
-      });
+      const relation = await withTenantContext(tenantId, (tx) =>
+        createRelation(tx, tenantId, {
+          fromInstanceId,
+          toInstanceId: input.toInstanceId,
+          relationType: input.relationType,
+        }),
+      );
       return c.json({ data: relation }, 201);
     } catch (err) {
       return handleEntityError(c, err);

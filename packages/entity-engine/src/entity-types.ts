@@ -155,10 +155,19 @@ export async function updateEntityType(
 
   if (Object.keys(updates).length === 0) return rowToEntityType(existing);
 
+  // Belt-and-suspenders: repeat the ownership condition already proven by the
+  // SELECT above directly on the mutation statement itself. entity_types has
+  // no RLS, so this is the only guard against a cross-tenant mutation if the
+  // pre-check above is ever bypassed or refactored out.
   const [row] = await db
     .update(entityTypes)
     .set(updates)
-    .where(eq(entityTypes.id, entityTypeId))
+    .where(
+      and(
+        eq(entityTypes.id, entityTypeId),
+        or(isNull(entityTypes.tenantId), eq(entityTypes.tenantId, tenantId)),
+      ),
+    )
     .returning();
 
   if (!row) throw new EntityError("ENTITY_TYPE_NOT_FOUND", { entityTypeId });
@@ -199,7 +208,15 @@ export async function deleteEntityType(
     });
   }
 
-  await db.delete(entityTypes).where(eq(entityTypes.id, entityTypeId));
+  // Belt-and-suspenders: see comment in updateEntityType above.
+  await db
+    .delete(entityTypes)
+    .where(
+      and(
+        eq(entityTypes.id, entityTypeId),
+        or(isNull(entityTypes.tenantId), eq(entityTypes.tenantId, tenantId)),
+      ),
+    );
 
   logger.info({ tenantId, entityTypeId }, "Entity type deleted");
 }

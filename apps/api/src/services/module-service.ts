@@ -94,6 +94,15 @@ export class ModuleService {
         isSystem: false,
         minPlan: "standard",
       },
+      {
+        slug: "tender",
+        name: "Tender Management",
+        description:
+          "Tender lifecycle from draft through BOQ, isolated costing review, and submission",
+        version: "0.0.1",
+        isSystem: false,
+        minPlan: "standard",
+      },
     ];
 
     logger.info({}, "Seeding modules registry...");

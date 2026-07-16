@@ -43,6 +43,17 @@ type WorkflowState = {
   isTerminal: boolean;
 };
 
+function formatFieldValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if ("amount" in obj && "currency" in obj)
+      return `${String(obj.currency)} ${String(obj.amount)}`;
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
 function FieldInput({
   field,
   value,
@@ -703,8 +714,8 @@ export function EntityInstanceDetail(): React.ReactElement {
                               >
                                 <strong>{getFieldLabel(fieldName)}</strong>:
                                 changed from{" "}
-                                <em>{String(change["old"] ?? "—")}</em> to{" "}
-                                <em>{String(change["new"] ?? "—")}</em>
+                                <em>{formatFieldValue(change["old"])}</em> to{" "}
+                                <em>{formatFieldValue(change["new"])}</em>
                               </li>
                             ))}
                           </ul>

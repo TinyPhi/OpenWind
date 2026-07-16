@@ -58,9 +58,12 @@ const EnvSchema = z
     // matches localhost:8080 in the JWT, but we fetch keys via container hostname).
     ZITADEL_JWKS_URL: z.string().url().optional(),
     // Required — used by JWKS middleware to validate the JWT aud claim.
+    // .min(1): an empty string would otherwise pass z.string() and silently
+    // disable audience validation at runtime (jwks.ts) instead of failing
+    // closed here at boot.
     // ZITADEL_PROJECT_ID may fall back to this value in zitadel-management.ts.
-    ZITADEL_AUDIENCE: z.string(),
-    // Dev fallback: used as tenantId when urn:zitadel:iam:org:id is absent (instance admin login).
+    ZITADEL_AUDIENCE: z.string().min(1),
+    // Dev fallback: used as tenantId when urn:zitadel:iam:user:resourceowner:id is absent (instance admin login).
     // Must never be set in production — it bypasses tenant isolation for instance-admin logins.
     DEV_TENANT_ID: z.string().optional(),
     // Service account key JSON (raw JSON string from Zitadel console).
@@ -81,6 +84,10 @@ const EnvSchema = z
     CORS_ORIGIN: z.string().url().optional(),
     NOVU_API_KEY: z.string(),
     S3_ENDPOINT: z.string().url(),
+    // Public URL browsers use to reach MinIO. In Docker the internal endpoint is
+    // http://minio:9000 but presigned URLs must resolve from the browser, so set
+    // this to http://localhost:9000 (or the CDN/proxy URL in production).
+    S3_PUBLIC_URL: z.string().url().optional(),
     S3_BUCKET: z.string(),
     S3_ACCESS_KEY: z.string(),
     S3_SECRET_KEY: z.string(),
@@ -101,6 +108,11 @@ const EnvSchema = z
     // ClamAV — virus scanning for uploaded files (2A platform services)
     CLAMAV_HOST: z.string().default("localhost"),
     CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+    // Set to "true" in dev when ClamAV is not running — files skip the queue and are marked clean immediately
+    SKIP_AV_SCAN: z
+      .string()
+      .transform((v) => v === "true")
+      .default("false"),
     // OpenBao — Transit envelope encryption for connector credentials
     OPENBAO_ADDR: z.string().url(),
     OPENBAO_TRANSIT_KEY: z.string().default("platform-credentials"),

@@ -18,6 +18,25 @@ import { listTransitionsHandler } from "./list-transitions.js";
 import { listWorkflowEventsHandler } from "./list-workflow-events.js";
 import { listEventsHandler } from "./list-events.js";
 import { addCommentHandler } from "./add-comment.js";
+import { createChildHandler } from "./create-child.js";
+import { listChildrenHandler } from "./list-children.js";
+import { moveParentHandler } from "./move-parent.js";
+import { setChildStatusHandler } from "./set-child-status.js";
+import { archiveEntityHandler } from "./archive.js";
+import { restoreEntityHandler } from "./restore.js";
+import { getAccessHandler } from "./get-access.js";
+import { grantAccessHandler } from "./grant-access.js";
+import { revokeAccessHandler } from "./revoke-access.js";
+import { updateAccessHandler } from "./update-access.js";
+import { myTicketsHandler } from "./my-tickets.js";
+import { requestAccessHandler } from "./request-access.js";
+import { listAccessRequestsHandler } from "./list-access-requests.js";
+import { resolveAccessRequestHandler } from "./resolve-access-request.js";
+import { listAttachmentsHandler } from "./list-attachments.js";
+import { createAttachmentHandler } from "./create-attachment.js";
+import { deleteAttachmentHandler } from "./delete-attachment.js";
+import { addCommentAttachmentHandler } from "./add-comment-attachment.js";
+import { deleteCommentAttachmentHandler } from "./delete-comment-attachment.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -25,6 +44,7 @@ const router = new Hono<{ Variables: { auth: AuthContext } }>();
 router.get("/", ...listEntitiesHandler);
 router.post("/", ...createEntityHandler);
 router.get("/search", ...searchEntitiesHandler);
+router.get("/my-tickets", ...myTicketsHandler);
 
 // Bulk routes — rate-limited to 10 req/min at the gateway layer
 router.post("/bulk", ...bulkCreateHandler);
@@ -47,5 +67,34 @@ router.post("/:id/comments", ...addCommentHandler);
 router.post("/:id/relations", ...createRelationHandler);
 router.get("/:id/relations", ...listRelationsHandler);
 router.delete("/:id/relations/:relationId", ...deleteRelationHandler);
+
+router.post("/:id/children", ...createChildHandler);
+router.get("/:id/children", ...listChildrenHandler);
+router.patch("/:id/parent", ...moveParentHandler);
+router.patch("/:id/child-status", ...setChildStatusHandler);
+router.post("/:id/archive", ...archiveEntityHandler);
+router.post("/:id/restore", ...restoreEntityHandler);
+
+router.get("/:id/access", ...getAccessHandler);
+router.post("/:id/access", ...grantAccessHandler);
+router.patch("/:id/access/:userId", ...updateAccessHandler);
+router.delete("/:id/access/:userId", ...revokeAccessHandler);
+
+router.post("/:id/access-requests", ...requestAccessHandler);
+router.get("/:id/access-requests", ...listAccessRequestsHandler);
+router.patch("/:id/access-requests/:reqId", ...resolveAccessRequestHandler);
+
+router.get("/:id/attachments", ...listAttachmentsHandler);
+router.post("/:id/attachments", ...createAttachmentHandler);
+router.delete("/:id/attachments/:fileId", ...deleteAttachmentHandler);
+
+router.post(
+  "/:id/comments/:eventId/attachments",
+  ...addCommentAttachmentHandler,
+);
+router.delete(
+  "/:id/comments/:eventId/attachments/:fileId",
+  ...deleteCommentAttachmentHandler,
+);
 
 export { router as entitiesRouter };

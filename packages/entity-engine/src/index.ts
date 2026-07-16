@@ -56,6 +56,23 @@ export type {
   CreateRelationInput,
   ListRelationsInput,
 } from "./entity-relations.js";
+export {
+  createChildRelation,
+  moveChildRelation,
+  canUserReadInstance,
+  getParentId,
+  getAncestorDepth,
+  countActiveChildren,
+  listChildInstances,
+  RELATION_PARENT_OF,
+  RELATION_CHILD_OF,
+} from "./child-relations.js";
+export type {
+  CreateChildRelationInput,
+  MoveChildRelationInput,
+  ArchiveResult,
+} from "./types.js";
+export { archiveEntity, restoreEntity } from "./archive.js";
 export { searchEntities } from "./search.js";
 export {
   resolveLookupFields,

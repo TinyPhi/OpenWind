@@ -2,14 +2,16 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext, tenantUsers } from "@platform/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { updateWorkflow } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 
 const UpdateWorkflowSchema = z.object({
   isActive: z.boolean().optional(),
-  assignedTo: z.string().nullable().optional(),
+  assignedTo: z.array(z.string()).optional(),
+  maxChildDepth: z.number().int().min(0).max(10).nullable().optional(),
+  maxChildrenPerParent: z.number().int().min(1).max(100).nullable().optional(),
 });
 
 export const updateWorkflowHandler = factory.createHandlers(
@@ -21,23 +23,30 @@ export const updateWorkflowHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
     const input = c.req.valid("json");
 
-    // M2: verify assignedTo belongs to this tenant before writing
-    if (input.assignedTo !== null && input.assignedTo !== undefined) {
-      const [found] = await withTenantContext(tenantId, (tx) =>
+    // Verify every workflow-admin user id belongs to this tenant before writing.
+    // assignedTo here is the workflow-admins array (see migration
+    // 0025_workflow_admins_array.sql) — not a single assignee, so each id in
+    // the array must be checked individually via inArray, not eq.
+    if (input.assignedTo !== undefined && input.assignedTo.length > 0) {
+      const found = await withTenantContext(tenantId, (tx) =>
         tx
           .select({ userId: tenantUsers.userId })
           .from(tenantUsers)
           .where(
             and(
               eq(tenantUsers.tenantId, tenantId),
-              eq(tenantUsers.userId, input.assignedTo as string),
+              inArray(tenantUsers.userId, input.assignedTo as string[]),
             ),
-          )
-          .limit(1),
+          ),
       );
-      if (!found)
+      const foundIds = new Set(found.map((f) => f.userId));
+      const missing = input.assignedTo.filter((id) => !foundIds.has(id));
+      if (missing.length > 0)
         return c.json(
-          { error: "NOT_FOUND", message: "User not found in this tenant" },
+          {
+            error: "NOT_FOUND",
+            message: "One or more users not found in this tenant",
+          },
           404,
         );
     }

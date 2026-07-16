@@ -1,4 +1,5 @@
 import { UserManager, WebStorageStateStore } from "oidc-client-ts";
+import type { User } from "oidc-client-ts";
 import type { AuthProvider } from "@refinedev/core";
 
 declare const window: Window & {
@@ -31,12 +32,52 @@ export const userManager = new UserManager({
   redirect_uri: window.location.origin + "/auth/callback",
   response_type: "code",
   scope:
-    "openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:id offline_access",
+    "openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:user:resourceowner offline_access",
   post_logout_redirect_uri: window.location.origin + "/login",
   userStore: new WebStorageStateStore({ store: window.localStorage }),
-  automaticSilentRenew: false,
+  automaticSilentRenew: true,
   loadUserInfo: true,
 });
+
+// ── Auth-ready gate ───────────────────────────────────────────────────────────
+// Resolves as soon as a valid access_token is confirmed available.
+// — On page reload: resolves immediately (user already in localStorage).
+// — On initial login: resolves when signinCallback() fires the userLoaded event.
+// fetchWithAuth awaits this before reading the token so it never sends a
+// request with a missing Bearer header due to a post-callback race condition.
+
+let _authReadyResolve: (() => void) | undefined;
+const _authReady = new Promise<void>((resolve) => {
+  _authReadyResolve = resolve;
+});
+
+// Check localStorage immediately (page reload path).
+void userManager.getUser().then((u) => {
+  if (u && !u.expired) _authReadyResolve?.();
+});
+
+// Resolve whenever a user is stored (initial login path).
+userManager.events.addUserLoaded((_u: User) => {
+  _authReadyResolve?.();
+});
+
+// 3 s safety-valve: never block requests longer than this.
+const _authTimeout = new Promise<void>((r) => setTimeout(r, 3000));
+
+export function waitForAuth(): Promise<void> {
+  return Promise.race([_authReady, _authTimeout]);
+}
+
+// Attempt a silent token refresh using the stored refresh_token.
+// Returns the new access_token on success, null on failure.
+export async function silentRefresh(): Promise<string | null> {
+  try {
+    const user = await userManager.signinSilent();
+    return user?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const authProvider: AuthProvider = {
   login: async () => {
@@ -73,6 +114,11 @@ export const authProvider: AuthProvider = {
     const user = await userManager.getUser();
     if (user && !user.expired) {
       return { authenticated: true };
+    }
+    // Token expired — attempt silent refresh before giving up.
+    if (user?.refresh_token) {
+      const newToken = await silentRefresh();
+      if (newToken) return { authenticated: true };
     }
     return {
       authenticated: false,

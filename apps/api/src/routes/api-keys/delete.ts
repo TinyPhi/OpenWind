@@ -1,5 +1,5 @@
 import { requireAuth, requireRole, requireIntrospection } from "@platform/auth";
-import { db, apiKeys } from "@platform/db";
+import { withTenantContext, apiKeys } from "@platform/db";
 import { and, eq } from "drizzle-orm";
 import { factory } from "./factory.js";
 
@@ -15,10 +15,12 @@ export const deleteApiKeyHandler = factory.createHandlers(
     // tenant's key — if the key exists but belongs to a different tenant,
     // affected rows will be 0 and we return 404 (not 403), consistent with
     // the platform convention of not leaking resource existence across tenants.
-    const deleted = await db
-      .delete(apiKeys)
-      .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, tenantId)))
-      .returning({ id: apiKeys.id });
+    const deleted = await withTenantContext(tenantId, (tx) =>
+      tx
+        .delete(apiKeys)
+        .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, tenantId)))
+        .returning({ id: apiKeys.id }),
+    );
 
     if (deleted.length === 0) {
       return c.json({ error: "NOT_FOUND", message: "API key not found" }, 404);

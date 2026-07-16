@@ -16,6 +16,7 @@
     "@platform/config": "workspace:*",
     "@platform/db": "workspace:*",
     "@platform/logger": "workspace:*",
+    "@platform/redis": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.5.0",
     "jose": "^5.0.0"
