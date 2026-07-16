@@ -136,9 +136,13 @@ export function App(): React.ReactElement {
             <Route path="/workflows" element={<Workflows />} />
             <Route path="/workflows/new" element={<CreateWorkflow />} />
 
+            {/* Org member list — any authenticated user (admin, agent, or
+                customer); the API already allows the "user" role since
+                customers need it to resolve assignee display names. */}
+            <Route path="/users" element={<UsersPage />} />
+
             {/* Admin-only routes */}
             <Route element={<RequireAdmin />}>
-              <Route path="/users" element={<UsersPage />} />
               <Route path="/entity-types/:id" element={<EntityTypeDetail />} />
               <Route
                 path="/entity-types/:id/records/new"

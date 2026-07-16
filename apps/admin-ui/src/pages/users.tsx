@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
+import { userManager } from "../authProvider.js";
+
+function getRolesFromProfile(
+  profile: Record<string, unknown> | undefined,
+): string[] {
+  if (!profile) return [];
+  const rolesMap = (profile["urn:zitadel:iam:org:project:roles"] ??
+    {}) as Record<string, unknown>;
+  return Object.keys(rolesMap);
+}
 
 declare const window: Window & { __CONFIG__?: Record<string, string> };
 const ZITADEL_ISSUER =
@@ -50,6 +60,16 @@ export function UsersPage(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [roles, setRoles] = useState<string[]>([]);
+  const isAdmin = roles.includes("admin");
+
+  useEffect(() => {
+    void userManager.getUser().then((u) => {
+      setRoles(
+        getRolesFromProfile(u?.profile as Record<string, unknown> | undefined),
+      );
+    });
+  }, []);
 
   useEffect(() => {
     fetchWithAuth(`${API_URL}/users`)
@@ -151,11 +171,26 @@ export function UsersPage(): React.ReactElement {
       )}
 
       {!loading && !error && filtered.length > 0 && (
-        <div className="data-panel" style={{ overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div
+          className="data-panel"
+          style={{ overflowX: "auto", overflowY: "hidden" }}
+        >
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              whiteSpace: "nowrap",
+            }}
+          >
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                {["Name", "Email", "Login", "User ID", ""].map((h) => (
+                {[
+                  "Name",
+                  "Login",
+                  "Email",
+                  "User ID",
+                  ...(isAdmin ? [""] : []),
+                ].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -167,6 +202,7 @@ export function UsersPage(): React.ReactElement {
                       textTransform: "uppercase",
                       letterSpacing: "0.05em",
                       background: "var(--surface-secondary, var(--bg-subtle))",
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {h}
@@ -240,7 +276,7 @@ export function UsersPage(): React.ReactElement {
                         color: "var(--text-secondary)",
                       }}
                     >
-                      {u.email}
+                      {u.loginName}
                     </td>
                     <td
                       style={{
@@ -249,7 +285,7 @@ export function UsersPage(): React.ReactElement {
                         color: "var(--text-secondary)",
                       }}
                     >
-                      {u.loginName}
+                      {u.email}
                     </td>
                     <td
                       style={{
@@ -261,51 +297,53 @@ export function UsersPage(): React.ReactElement {
                     >
                       {u.userId}
                     </td>
-                    <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                      <a
-                        href={zitadelUserUrl(u.userId)}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Open in Zitadel"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          width: "28px",
-                          height: "28px",
-                          borderRadius: "6px",
-                          color: "var(--text-muted)",
-                          textDecoration: "none",
-                          transition: "background 0.15s, color 0.15s",
-                        }}
-                        onMouseEnter={(e) => {
-                          const el = e.currentTarget as HTMLAnchorElement;
-                          el.style.background = "var(--bg-subtle)";
-                          el.style.color = "var(--accent, #6366f1)";
-                        }}
-                        onMouseLeave={(e) => {
-                          const el = e.currentTarget as HTMLAnchorElement;
-                          el.style.background = "";
-                          el.style.color = "var(--text-muted)";
-                        }}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="14"
-                          height="14"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth="2"
+                    {isAdmin && (
+                      <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                        <a
+                          href={zitadelUserUrl(u.userId)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open in Zitadel"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: "28px",
+                            height: "28px",
+                            borderRadius: "6px",
+                            color: "var(--text-muted)",
+                            textDecoration: "none",
+                            transition: "background 0.15s, color 0.15s",
+                          }}
+                          onMouseEnter={(e) => {
+                            const el = e.currentTarget as HTMLAnchorElement;
+                            el.style.background = "var(--bg-subtle)";
+                            el.style.color = "var(--accent, #6366f1)";
+                          }}
+                          onMouseLeave={(e) => {
+                            const el = e.currentTarget as HTMLAnchorElement;
+                            el.style.background = "";
+                            el.style.color = "var(--text-muted)";
+                          }}
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-                          />
-                        </svg>
-                      </a>
-                    </td>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="14"
+                            height="14"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+                            />
+                          </svg>
+                        </a>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
