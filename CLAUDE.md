@@ -176,9 +176,11 @@ Full setup: `docs/local-setup.md`
 
 ## Maintenance notes
 
-**Dep bumps:** The `pnpm.overrides.esbuild` pin (`>=0.28.1`) is for GHSA-gv7w-rqvm-qjhr
+**Dep bumps:** The `esbuild` override pin (`>=0.28.1`) is for GHSA-gv7w-rqvm-qjhr
 (esbuild < 0.28.1, high severity). Do not remove it — tsx@4.x and vite@6.x both pull in the
-vulnerable version transitively.
+vulnerable version transitively. Lives in `pnpm-workspace.yaml`'s `overrides:` key (moved
+from `package.json`'s `pnpm.overrides` field when pnpm was upgraded to v11 — that field is
+no longer read).
 
 ---
 
