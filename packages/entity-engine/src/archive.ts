@@ -166,6 +166,23 @@ export async function restoreEntity(
       ),
     );
 
+  // The restored root's own inbound parent_of relation (fromInstanceId =
+  // parent, which is outside allIds) was severed by archiveEntity's own
+  // dedicated fix-up step and is never touched by the update above — mirror
+  // that same fix-up here, or restore-then-archive leaves the relation graph
+  // asymmetric (parent's countActiveChildren never sees this root again).
+  await db
+    .update(entityRelations)
+    .set({ deletedAt: null })
+    .where(
+      and(
+        eq(entityRelations.tenantId, tenantId),
+        eq(entityRelations.toInstanceId, instanceId),
+        eq(entityRelations.relationType, RELATION_PARENT_OF),
+        sql`${entityRelations.deletedAt} = ${archiveTs}`,
+      ),
+    );
+
   logger.info(
     { tenantId, instanceId, restoredCount: allIds.length },
     "Entity restored with descendants",

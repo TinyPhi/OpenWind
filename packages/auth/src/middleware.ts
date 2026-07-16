@@ -22,25 +22,67 @@ import {
 
 type AuthVariables = { Variables: { auth: AuthContext } };
 
+// In-process cache for fetchUserInfo, keyed by a hash of the bearer token
+// (never the raw token — mirrors introspection.ts's SHA-256 cache-key
+// pattern). Without this, an identity whose JWT never carries email/name
+// (e.g. an instance admin or pre-profile-scope token) triggered a fresh
+// Zitadel userinfo call on every single request indefinitely. The pending
+// map additionally dedups concurrent callers so a burst of requests from the
+// same claims-missing identity shares one in-flight fetch instead of firing
+// N of them.
+const USERINFO_CACHE_TTL_MS = 60_000;
+const _userInfoCache = new Map<
+  string,
+  { info: { name: string | null; email: string | null } | null; exp: number }
+>();
+const _userInfoPending = new Map<
+  string,
+  Promise<{ name: string | null; email: string | null } | null>
+>();
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
 // Calls /oidc/v1/userinfo with the user's own access token.
 // Returns enriched name/email when the JWT itself is missing profile claims
 // (e.g. instance admins, machine users, or tokens issued before token settings were updated).
 async function fetchUserInfo(
   bearerToken: string,
 ): Promise<{ name: string | null; email: string | null } | null> {
+  const key = hashToken(bearerToken);
+
+  const cached = _userInfoCache.get(key);
+  if (cached && Date.now() < cached.exp) return cached.info;
+
+  const pending = _userInfoPending.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    try {
+      const url = `${env.ZITADEL_ISSUER}/oidc/v1/userinfo`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${bearerToken}` },
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as Record<string, unknown>;
+      return {
+        name: typeof data["name"] === "string" ? data["name"] : null,
+        email: typeof data["email"] === "string" ? data["email"] : null,
+      };
+    } catch {
+      return null;
+    }
+  })().then((info) => {
+    _userInfoCache.set(key, { info, exp: Date.now() + USERINFO_CACHE_TTL_MS });
+    return info;
+  });
+
+  _userInfoPending.set(key, request);
   try {
-    const url = `${env.ZITADEL_ISSUER}/oidc/v1/userinfo`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${bearerToken}` },
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as Record<string, unknown>;
-    return {
-      name: typeof data["name"] === "string" ? data["name"] : null,
-      email: typeof data["email"] === "string" ? data["email"] : null,
-    };
-  } catch {
-    return null;
+    return await request;
+  } finally {
+    _userInfoPending.delete(key);
   }
 }
 

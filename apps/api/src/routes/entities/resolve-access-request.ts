@@ -108,9 +108,12 @@ export const resolveAccessRequestHandler = factory.createHandlers(
 
       // Both writes share one transaction so a resolved-but-ungranted request
       // can never persist on partial failure (was two separate
-      // withTenantContext calls).
-      await withTenantContext(tenantId, async (tx) => {
-        await tx
+      // withTenantContext calls). The UPDATE's own WHERE also re-checks
+      // status='pending' — the initial SELECT above can't prevent two
+      // concurrent resolves from both passing that check before either
+      // writes, so the atomicity has to live in this UPDATE's WHERE clause.
+      const wasResolved = await withTenantContext(tenantId, async (tx) => {
+        const [updated] = await tx
           .update(accessRequests)
           .set({
             status: action === "approve" ? "approved" : "rejected",
@@ -122,8 +125,12 @@ export const resolveAccessRequestHandler = factory.createHandlers(
             and(
               eq(accessRequests.id, reqId),
               eq(accessRequests.tenantId, tenantId),
+              eq(accessRequests.status, "pending"),
             ),
-          );
+          )
+          .returning({ id: accessRequests.id });
+
+        if (!updated) return false;
 
         if (action === "approve") {
           // Write the access grant into entity_instances.__accessUsers
@@ -151,7 +158,19 @@ export const resolveAccessRequestHandler = factory.createHandlers(
               ),
             );
         }
+
+        return true;
       });
+
+      if (!wasResolved) {
+        return c.json(
+          {
+            error: "ACCESS_REQUEST_ALREADY_RESOLVED",
+            message: "Request was already resolved by someone else",
+          },
+          422,
+        );
+      }
 
       if (action === "approve") {
         void emitAccessEvent(tenantId, id, userId, {
@@ -159,6 +178,12 @@ export const resolveAccessRequestHandler = factory.createHandlers(
           targetUserId: req.requesterId,
           level: grantedLevel,
           tag: "manual",
+        });
+      } else {
+        void emitAccessEvent(tenantId, id, userId, {
+          type: "access_reject",
+          targetUserId: req.requesterId,
+          level: req.requestedLevel,
         });
       }
 

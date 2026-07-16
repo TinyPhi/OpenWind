@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -438,5 +438,75 @@ describe("requireIntrospection", () => {
     // introspectToken should NOT have been called
     expect(mockIntrospectToken).not.toHaveBeenCalled();
     expect(res.status).toBe(200);
+  });
+});
+
+// ── fetchUserInfo caching (#16) ────────────────────────────────────────────────
+
+describe("fetchUserInfo caching", () => {
+  // email falsy or displayName === userId is the condition that triggers
+  // enrichment (see requireAuth's `!auth.email || auth.displayName === auth.userId`).
+  const NEEDS_ENRICHMENT_AUTH = {
+    userId: "user-999",
+    tenantId: "tenant-abc",
+    roles: ["agent"],
+    email: "",
+    displayName: "user-999",
+  };
+
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ name: "Real Name", email: "real@example.com" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("calls the userinfo endpoint once and reuses the cached result for a second request with the same token", async () => {
+    mockVerifyJwt.mockResolvedValue({ sub: "user-999" });
+    mockExtractAuthContext.mockReturnValue(NEEDS_ENRICHMENT_AUTH);
+
+    const app = makeApp([requireAuth()]);
+    const res1 = await get(app, "same-token");
+    const res2 = await get(app, "same-token");
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls the userinfo endpoint again for a different token", async () => {
+    mockVerifyJwt.mockResolvedValue({ sub: "user-999" });
+    mockExtractAuthContext.mockReturnValue(NEEDS_ENRICHMENT_AUTH);
+
+    const app = makeApp([requireAuth()]);
+    await get(app, "token-a");
+    await get(app, "token-b");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("dedups concurrent requests for the same token into a single userinfo call", async () => {
+    mockVerifyJwt.mockResolvedValue({ sub: "user-999" });
+    mockExtractAuthContext.mockReturnValue(NEEDS_ENRICHMENT_AUTH);
+
+    const app = makeApp([requireAuth()]);
+    const [res1, res2, res3] = await Promise.all([
+      get(app, "concurrent-token"),
+      get(app, "concurrent-token"),
+      get(app, "concurrent-token"),
+    ]);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    expect(res3.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
