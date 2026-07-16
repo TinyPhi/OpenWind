@@ -58,6 +58,7 @@ import {
 } from "./lookup-resolver.js";
 import { fireEntityAuditHook } from "./audit-hook.js";
 import type { AuditFieldSensitivity } from "./audit-hook.js";
+import { getParentId } from "./child-relations.js";
 import { redactFields, buildSensitivityMap } from "./redact.js";
 
 type EntityValidator = (
@@ -392,14 +393,23 @@ export async function updateEntity(
 
     // Step 2: merge and validate the full result (catches required-field clearing).
     // Skip for child tickets — they are intentionally created with minimal fields
-    // and do not satisfy the parent entity type's required fields.
+    // and do not satisfy the parent entity type's required fields. Determined
+    // from the actual entity_relations table, not a heuristic on field content
+    // (a `child_status` field on an unrelated entity type must not silently
+    // skip validation just because it happens to share that field name).
     const isChildTicket =
-      typeof (existing.fields as Record<string, unknown>).child_status ===
-      "string";
+      (await getParentId(db, tenantId, instanceId)) !== null;
     const merged = {
       ...(existing.fields as Record<string, unknown>),
       ...(partialResult.data as Record<string, unknown>),
     };
+    // validatedFields feeds formula computation and downstream processing.
+    // For non-child tickets this is the zod-parsed/coerced fullResult.data —
+    // using the raw `merged` here was a regression that silently fed
+    // pre-coercion values into applyFormulaFields for every entity type, not
+    // just child tickets. Child tickets have no "full" schema to validate
+    // against (see above), so merged is the only value available for them.
+    let validatedFields: Record<string, unknown> = merged;
     if (!isChildTicket) {
       const fullSchema = await getValidationSchema(
         db,
@@ -411,13 +421,14 @@ export async function updateEntity(
       if (!fullResult.success) {
         throw new ValidationError(transformZodErrors(fullResult.error));
       }
+      validatedFields = fullResult.data as Record<string, unknown>;
     }
 
     const entityType = await loadEntityType(db, existing.entityTypeId);
     if (!isChildTicket) {
       const crossErrors = runCrossFieldValidators(
         entityType.name,
-        merged,
+        validatedFields,
         "update",
       );
       if (crossErrors.length > 0) throw new ValidationError(crossErrors);
@@ -457,7 +468,10 @@ export async function updateEntity(
       if (allRefErrors.length > 0) throw new ValidationError(allRefErrors);
     }
 
-    const fieldsWithFormulas = await applyFormulaFields(allFields, merged);
+    const fieldsWithFormulas = await applyFormulaFields(
+      allFields,
+      validatedFields,
+    );
 
     const updates: Partial<typeof entityInstances.$inferInsert> = {
       fields: fieldsWithFormulas,
@@ -638,8 +652,7 @@ export async function updateEntity(
   // Fields not provided — updating assignedTo and/or currentState
   if (input.assignedTo !== undefined || input.currentState !== undefined) {
     const isChildTicket2 =
-      typeof (existing.fields as Record<string, unknown>).child_status ===
-      "string";
+      (await getParentId(db, tenantId, instanceId)) !== null;
     const updates: Partial<typeof entityInstances.$inferInsert> = {
       updatedAt: new Date(),
     };
@@ -865,6 +878,7 @@ export async function listEntities(
           .from(entityRelations)
           .where(
             and(
+              eq(entityRelations.tenantId, tenantId),
               eq(entityRelations.fromInstanceId, entityInstances.id),
               eq(entityRelations.relationType, "child_of"),
               isNull(entityRelations.deletedAt),

@@ -3,7 +3,6 @@ import {
   entityInstances,
   workflowEvents,
   withTenantContext,
-  db,
 } from "@platform/db";
 import { and, eq, sql } from "drizzle-orm";
 import { deleteFile } from "@platform/files";
@@ -123,8 +122,11 @@ export const deleteCommentAttachmentHandler = factory.createHandlers(
           ),
       );
 
-      // Soft-delete the file itself
-      await deleteFile(db, tenantId, fileId);
+      // Soft-delete the file itself — must go through the tenant-context tx
+      // (SET LOCAL ROLE app_user), not the raw db handle, so RLS still applies.
+      await withTenantContext(tenantId, (tx) =>
+        deleteFile(tx, tenantId, fileId),
+      );
 
       return c.body(null, 204);
     } catch (err) {

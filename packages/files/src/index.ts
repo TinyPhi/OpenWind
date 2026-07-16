@@ -48,6 +48,23 @@ const UPLOAD_URL_EXPIRY_SECONDS = 900; // 15 min
 const DOWNLOAD_URL_EXPIRY_SECONDS = 3600; // 1 h
 const AV_SCAN_QUEUE = "av-scan";
 
+// Mirrors apps/admin-ui/src/hooks/use-file-upload.ts's getSizeLimit — the
+// client enforces these per-mime-type caps for UX, but the server is the only
+// place they're actually load-bearing; without this, any caller bypassing the
+// client (or a modified client) could upload up to MAX_FILE_BYTES regardless
+// of mime type.
+function getMimeSizeLimit(mimeType: string): number {
+  if (mimeType.startsWith("image/")) return 10 * 1024 * 1024;
+  if (mimeType.startsWith("text/") || mimeType === "application/json")
+    return 5 * 1024 * 1024;
+  if (
+    mimeType === "application/zip" ||
+    mimeType === "application/x-zip-compressed"
+  )
+    return MAX_FILE_BYTES;
+  return 50 * 1024 * 1024;
+}
+
 // ── S3 clients ────────────────────────────────────────────────────────────────
 // Two clients are needed when S3_ENDPOINT is an internal Docker hostname:
 //   getS3()          — internal endpoint, used for PUT/DELETE/GetObject commands
@@ -151,11 +168,19 @@ export async function initiateUpload(
   mimeType: string,
   sizeBytes: number,
 ): Promise<InitiateUploadResult> {
-  // 1. Enforce per-file size limit (no DB round-trip needed)
+  // 1. Enforce per-file size limit (no DB round-trip needed) — both the flat
+  // ceiling and the per-mime-type cap the client also enforces client-side.
   if (sizeBytes > MAX_FILE_BYTES) {
     throw new FileError("FILE_TOO_LARGE", {
       sizeBytes,
       maxBytes: MAX_FILE_BYTES,
+    });
+  }
+  const mimeLimit = getMimeSizeLimit(mimeType);
+  if (sizeBytes > mimeLimit) {
+    throw new FileError("FILE_TOO_LARGE", {
+      sizeBytes,
+      maxBytes: mimeLimit,
     });
   }
 

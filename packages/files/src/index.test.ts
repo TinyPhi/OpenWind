@@ -219,6 +219,42 @@ describe("initiateUpload", () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 
+  it("throws FILE_TOO_LARGE for an image over its per-mime-type cap even though it's under the flat 100MB max", async () => {
+    const db = makeDb();
+    await expect(
+      initiateUpload(
+        db as never,
+        TENANT_ID,
+        USER_ID,
+        "helpdesk",
+        null,
+        "huge.png",
+        "image/png",
+        20 * 1024 * 1024, // 20 MB — under the flat 100MB cap, over the 10MB image cap
+      ),
+    ).rejects.toMatchObject({ code: "FILE_TOO_LARGE" });
+
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("allows an image under its per-mime-type cap", async () => {
+    const db = makeDb();
+    const result = await initiateUpload(
+      db as never,
+      TENANT_ID,
+      USER_ID,
+      "helpdesk",
+      null,
+      "small.png",
+      "image/png",
+      5 * 1024 * 1024, // 5 MB — under the 10MB image cap
+    );
+
+    expect(result.fileId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
   it("throws QUOTA_EXCEEDED when upload would exceed tenant quota", async () => {
     // First select: SELECT FOR UPDATE on tenants → quota = 1 MB
     // Second select: getTenantUsedBytes → used = 1 MB exactly

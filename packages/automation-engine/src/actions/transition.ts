@@ -21,10 +21,6 @@ export async function executeTransitionAction(
     instanceId,
     transitionId: config.transitionId,
     triggeredBy: "automation",
-    // Stamp the depth this transition is running at so the outbox-delivered
-    // copy of this event resumes MAX_DEPTH counting from depth + 1 instead of
-    // resetting to 0 — see issue #120.
-    depth: depth + 1,
     ...(config.comment !== undefined && { comment: config.comment }),
   });
 

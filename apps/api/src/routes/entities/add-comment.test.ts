@@ -47,24 +47,63 @@ let instanceRow: {
   fields: Record<string, unknown>;
 } | null = null;
 
+// fileId -> row, so tests can stub what the files-table lookup returns per id.
+let fileRows: Record<
+  string,
+  {
+    id: string;
+    tenantId: string;
+    entityId: string | null;
+    scanStatus: string;
+  }
+> = {};
+const fileBindUpdates: Array<{ fileId: string; entityId: string }> = [];
+
 const mockUpdateSet = vi
   .fn()
   .mockReturnValue({ where: () => Promise.resolve(undefined) });
 const grantedUpdates: unknown[] = [];
 
+const entityInstancesTable = {
+  id: "entity_instances.id",
+  tenantId: "entity_instances.tenant_id",
+};
+const filesTable = { id: "files.id", tenantId: "files.tenant_id" };
+
+let currentFromTable: unknown;
+let currentWhereFileId: string | undefined;
+
 const mockTx = {
   select: () => mockTx,
-  from: () => mockTx,
+  from: (table: unknown) => {
+    currentFromTable = table;
+    return mockTx;
+  },
+  // Real `eq`/`and` are no-op mocked to the string "sql" (see drizzle-orm
+  // mock above), so the fileId being queried can't be read off the where
+  // clause — tests instead set `currentWhereFileId` directly before making
+  // the request, matching the one fileId under test.
   where: () => mockTx,
-  // Instance lookup is the only `.limit(1)` call reached in these tests
-  // (tenantUsers lookup is skipped since dbUser resolution isn't exercised).
-  limit: () => Promise.resolve(instanceRow ? [instanceRow] : []),
+  limit: () => {
+    if (currentFromTable === filesTable) {
+      const row = currentWhereFileId ? fileRows[currentWhereFileId] : undefined;
+      return Promise.resolve(row ? [row] : []);
+    }
+    return Promise.resolve(instanceRow ? [instanceRow] : []);
+  },
   insert: () => mockTx,
   values: () => mockTx,
   returning: () =>
     Promise.resolve([{ id: "evt-1", metadata: { type: "comment" } }]),
-  update: () => ({
+  update: (table: unknown) => ({
     set: (arg: unknown) => {
+      if (table === filesTable && currentWhereFileId) {
+        fileBindUpdates.push({
+          fileId: currentWhereFileId,
+          entityId: (arg as { entityId: string }).entityId,
+        });
+        return { where: () => Promise.resolve(undefined) };
+      }
       grantedUpdates.push(arg);
       return mockUpdateSet(arg);
     },
@@ -73,12 +112,10 @@ const mockTx = {
 
 vi.mock("@platform/db", () => ({
   workflowEvents: {},
-  entityInstances: {
-    id: "entity_instances.id",
-    tenantId: "entity_instances.tenant_id",
-  },
+  entityInstances: entityInstancesTable,
   entityRelations: {},
   tenantUsers: {},
+  files: filesTable,
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(mockTx),
 }));
@@ -98,6 +135,10 @@ describe("POST /entities/:id/comments — mention access grants", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     grantedUpdates.length = 0;
+    fileRows = {};
+    fileBindUpdates.length = 0;
+    currentFromTable = undefined;
+    currentWhereFileId = undefined;
     instanceRow = {
       id: INST_ID,
       workflowId: "wf-1",
@@ -152,5 +193,132 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     expect(res.status).toBe(201);
     // One grant for the admin commenter (not assignee) + one for the mention.
     expect(grantedUpdates.length).toBe(2);
+  });
+
+  it("does not downgrade a commenter's existing read_write ACL entry to read_comment", async () => {
+    instanceRow!.assignedTo = "someone-else"; // commenter is not the assignee...
+    instanceRow!.fields = {
+      __accessUsers: { "u-bbb": { level: "read_write", tag: "manual" } },
+    }; // ...but already has an explicit read_write grant
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "just a comment" }),
+    });
+
+    expect(res.status).toBe(201);
+    // No grant write at all — the existing read_write entry must be left untouched.
+    expect(grantedUpdates.length).toBe(0);
+  });
+
+  it("still grants read_comment to a commenter with no existing ACL entry", async () => {
+    instanceRow!.assignedTo = "someone-else";
+    instanceRow!.fields = {};
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "just a comment" }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(grantedUpdates.length).toBe(1);
+  });
+});
+
+describe("POST /entities/:id/comments — fileIds binding", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    grantedUpdates.length = 0;
+    fileRows = {};
+    fileBindUpdates.length = 0;
+    currentFromTable = undefined;
+    currentWhereFileId = undefined;
+    instanceRow = {
+      id: INST_ID,
+      workflowId: "wf-1",
+      currentState: "open",
+      assignedTo: "u-bbb",
+      createdBy: "u-bbb",
+      fields: {},
+    };
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["user"],
+      email: "test@example.com",
+    };
+  });
+
+  const FILE_ID = "00000000-0000-0000-0000-0000000000f1";
+
+  it("binds an unbound, clean file to this entity before accepting the comment", async () => {
+    fileRows[FILE_ID] = {
+      id: FILE_ID,
+      tenantId: "t-aaa",
+      entityId: null,
+      scanStatus: "clean",
+    };
+    currentWhereFileId = FILE_ID;
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "see attached", fileIds: [FILE_ID] }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(fileBindUpdates).toEqual([{ fileId: FILE_ID, entityId: INST_ID }]);
+  });
+
+  it("rejects a fileId that does not exist / belongs to another tenant", async () => {
+    currentWhereFileId = FILE_ID; // fileRows has no entry — simulates not found
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "see attached", fileIds: [FILE_ID] }),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects a fileId already bound to a different entity", async () => {
+    fileRows[FILE_ID] = {
+      id: FILE_ID,
+      tenantId: "t-aaa",
+      entityId: "some-other-entity-id",
+      scanStatus: "clean",
+    };
+    currentWhereFileId = FILE_ID;
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "see attached", fileIds: [FILE_ID] }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(fileBindUpdates).toEqual([]);
+  });
+
+  it("rejects a fileId that hasn't cleared antivirus scanning yet", async () => {
+    fileRows[FILE_ID] = {
+      id: FILE_ID,
+      tenantId: "t-aaa",
+      entityId: null,
+      scanStatus: "pending",
+    };
+    currentWhereFileId = FILE_ID;
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "see attached", fileIds: [FILE_ID] }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(fileBindUpdates).toEqual([]);
   });
 });

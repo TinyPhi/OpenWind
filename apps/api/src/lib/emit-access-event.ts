@@ -6,7 +6,11 @@ import {
   withTenantContext,
 } from "@platform/db";
 
-type AccessEventType = "access_grant" | "access_update" | "access_revoke";
+type AccessEventType =
+  | "access_grant"
+  | "access_update"
+  | "access_revoke"
+  | "access_reject";
 
 interface AccessEventPayload {
   type: AccessEventType;

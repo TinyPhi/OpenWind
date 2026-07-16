@@ -259,6 +259,9 @@ describe("updateEntity", () => {
     vi.clearAllMocks();
     dbMock.select
       .mockReturnValueOnce(makeQueryBuilder(() => [fakeInstance]))
+      // isChildTicket check against entity_relations — empty means "not a
+      // child ticket", so the full-schema validation path below still runs.
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
       .mockReturnValueOnce(makeQueryBuilder(() => [fakeEntityType]))
       .mockReturnValue(makeQueryBuilder(() => []));
     mockGetValidationSchema.mockResolvedValue(
@@ -308,6 +311,68 @@ describe("updateEntity", () => {
         fields: { subject: "x" },
       }),
     ).rejects.toBeInstanceOf(EntityError);
+  });
+
+  it("feeds the zod-coerced fullResult.data to applyFormulaFields, not the raw merged object", async () => {
+    const partialSchema = makePassingSchema();
+    const fullSchema = {
+      safeParse: vi.fn(() => ({
+        success: true,
+        // coercedFlag only appears here — never in the raw merged object —
+        // so its presence in applyFormulaFields' input proves fullResult.data
+        // was used, not the pre-validation merge.
+        data: { subject: "Updated", coercedFlag: true },
+      })),
+    };
+    mockGetValidationSchema
+      .mockResolvedValueOnce(partialSchema)
+      .mockResolvedValueOnce(fullSchema);
+
+    await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+      fields: { subject: "Updated" },
+    });
+
+    expect(mockApplyFormulaFields).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ coercedFlag: true }),
+    );
+  });
+
+  it("still runs full validation for an entity type whose fields happen to include a child_status string (not an actual child ticket)", async () => {
+    // Previously isChildTicket was a heuristic on `fields.child_status` being
+    // a string — any unrelated entity type using that field name would
+    // silently skip full-schema/cross-field validation. Now it's a real
+    // entity_relations lookup, so this case must NOT skip validation.
+    const instanceWithChildStatusField = {
+      ...fakeInstance,
+      fields: { subject: "Test", child_status: "open" },
+    };
+    dbMock.select.mockReset();
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [instanceWithChildStatusField]),
+      )
+      // entity_relations child_of check — no real relation exists
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      .mockReturnValueOnce(makeQueryBuilder(() => [fakeEntityType]))
+      .mockReturnValue(makeQueryBuilder(() => []));
+    mockGetValidationSchema
+      .mockResolvedValueOnce(makePassingSchema())
+      .mockResolvedValueOnce(
+        makeFailingSchema([
+          {
+            path: ["required_field"],
+            code: "invalid_type",
+            message: "Required",
+          },
+        ]),
+      );
+
+    await expect(
+      updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+        fields: { subject: "Updated" },
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 });
 
