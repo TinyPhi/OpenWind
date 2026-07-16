@@ -361,6 +361,28 @@ describe("moveChildRelation", () => {
       }),
     ).rejects.toMatchObject({ code: "CHILD_CYCLE_DETECTED" });
   });
+
+  it("throws CHILD_CYCLE_DETECTED when newParentId equals childId (self-parent)", async () => {
+    mockSelectSeq.push(() => [{ id: CHILD_ID, deletedAt: null }]);
+    // old parent_of mirror
+    mockSelectSeq.push(() => [{ id: "old-rel-id" }]);
+    // lock "new parent" — same row as the child itself
+    mockSelectSeq.push(() => [
+      { id: CHILD_ID, workflowId: WORKFLOW_ID, deletedAt: null },
+    ]);
+    // loadWorkflowLimits
+    mockSelectSeq.push(() => [fakeLimits]);
+    // collectDescendantIds — child has no actual descendants; the self-parent
+    // case must be caught even though it never appears in this list
+    mockSelectSeq.push(() => []);
+
+    await expect(
+      moveChildRelation(dbMock as never, TENANT, {
+        childId: CHILD_ID,
+        newParentId: CHILD_ID,
+      }),
+    ).rejects.toMatchObject({ code: "CHILD_CYCLE_DETECTED" });
+  });
 });
 
 // ── canUserReadInstance ───────────────────────────────────────────────────────

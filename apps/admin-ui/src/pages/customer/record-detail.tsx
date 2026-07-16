@@ -1878,8 +1878,11 @@ export function CustomerRecordDetail(): React.ReactElement {
       return;
     }
 
+    // entityId proves to the backend that this caller has legitimate read
+    // access to a record in this workflow — required now that GET /workflows/:id
+    // restricts non-workflow-admin callers (see apps/api/src/routes/workflows/get.ts).
     const wfUrl = record?.workflowId
-      ? `${API_URL}/workflows/${record.workflowId}`
+      ? `${API_URL}/workflows/${record.workflowId}?${new URLSearchParams({ entityId: record.id }).toString()}`
       : `${API_URL}/workflows?${new URLSearchParams({ entityTypeId: effectiveEntityTypeId ?? "" }).toString()}`;
 
     fetchWithAuth(wfUrl)
