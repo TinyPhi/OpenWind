@@ -8,7 +8,6 @@ import {
 import { and, eq, isNull } from "drizzle-orm";
 import { entityRelations } from "@platform/db";
 import { deleteFile } from "@platform/files";
-import { db } from "@platform/db";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -79,7 +78,13 @@ export const deleteAttachmentHandler = factory.createHandlers(
         }
       }
 
-      await deleteFile(db, tenantId, fileId);
+      // deleteFile opens its own db.transaction() internally; passing the
+      // withTenantContext tx (not the raw db import) keeps that nested
+      // transaction under the same SET LOCAL ROLE app_user + tenant GUC as
+      // the outer one, so RLS still applies (M-3).
+      await withTenantContext(tenantId, (tx) =>
+        deleteFile(tx, tenantId, fileId),
+      );
 
       // Emit file_deleted history event (best-effort)
       let workflowId = instance.workflowId;

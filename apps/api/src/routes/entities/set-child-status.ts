@@ -1,10 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
-import { entityInstances, withTenantContext } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { getParentId, updateEntity } from "@platform/entity-engine";
-import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -12,15 +10,20 @@ const SetChildStatusSchema = z.object({
   status: z.enum(["open", "closed"]),
 });
 
+// Deliberate #127-class bypass: this mutates current_state directly
+// (no transition validation, no workflow_events row beyond updateEntity's
+// own, no automation trigger via workflow.transitioned) rather than going
+// through the workflow engine's executeTransition. Restricting to
+// admin/agent is the guard for that — previously any ticket owner/assignee
+// or read_write ACL holder could flip state through this side-door.
 export const setChildStatusHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent", "user"),
+  requireRole("admin", "agent"),
   zValidator("json", SetChildStatusSchema),
   async (c) => {
     const instanceId = c.req.param("id") ?? "";
     const { status } = c.req.valid("json");
-    const { tenantId, userId, roles } = c.get("auth");
-    const isPrivileged = roles.includes("admin") || roles.includes("agent");
+    const { tenantId, userId } = c.get("auth");
 
     try {
       // Verify this is actually a child ticket
@@ -36,54 +39,6 @@ export const setChildStatusHandler = factory.createHandlers(
           },
           422,
         );
-      }
-
-      if (!isPrivileged) {
-        const [child] = await withTenantContext(tenantId, (tx) =>
-          tx
-            .select({
-              assignedTo: entityInstances.assignedTo,
-              createdBy: entityInstances.createdBy,
-              fields: entityInstances.fields,
-              workflowId: entityInstances.workflowId,
-            })
-            .from(entityInstances)
-            .where(
-              and(
-                eq(entityInstances.id, instanceId),
-                eq(entityInstances.tenantId, tenantId),
-              ),
-            )
-            .limit(1),
-        );
-
-        const accessUsers =
-          (child?.fields as Record<string, unknown> | undefined)
-            ?.__accessUsers ?? {};
-        const userAccess = (accessUsers as Record<string, { level: string }>)[
-          userId
-        ];
-        let canAccess =
-          child?.createdBy === userId ||
-          child?.assignedTo === userId ||
-          userAccess?.level === "read_write";
-
-        if (!canAccess && child?.workflowId) {
-          const workflow = await withTenantContext(tenantId, (tx) =>
-            getWorkflow(tx, tenantId, child.workflowId as string, {
-              userId,
-              isGlobalAdmin: false,
-            }),
-          );
-          canAccess = isWorkflowAdmin(userId, workflow);
-        }
-
-        if (!canAccess) {
-          return c.json(
-            { error: "NOT_FOUND", message: "Record not found" },
-            404,
-          );
-        }
       }
 
       const instance = await withTenantContext(tenantId, (tx) =>

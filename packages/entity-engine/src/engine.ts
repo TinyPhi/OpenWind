@@ -67,7 +67,8 @@ type EntityValidator = (
 
 const crossFieldValidators = new Map<string, EntityValidator[]>();
 
-function buildEntityCreatedPayload(
+/** @internal exported for child-relations.ts — not part of the package's public API */
+export function buildEntityCreatedPayload(
   tenantId: string,
   instanceId: string,
   entityTypeId: string,
@@ -85,7 +86,7 @@ function buildEntityCreatedPayload(
   };
 }
 
-function buildEntityAssignedPayload(
+export function buildEntityAssignedPayload(
   tenantId: string,
   instanceId: string,
   entityTypeId: string,
@@ -113,7 +114,7 @@ function buildEntityAssignedPayload(
 // Previously computed ad hoc and inconsistently at each of the 6 call sites
 // (createEntity/updateEntity x2/bulkCreateEntities/bulkUpdateEntities x2) —
 // found during review, one call site dropped actorId entirely.
-function resolveAssignedBy(
+export function resolveAssignedBy(
   actorId: string | undefined,
   createdBy: string | null,
 ): string | null {
@@ -991,7 +992,8 @@ async function loadEntityType(
   };
 }
 
-async function loadEntityFields(
+/** @internal exported for child-relations.ts — not part of the package's public API */
+export async function loadEntityFields(
   db: DbOrTx,
   entityTypeId: string,
   tenantId: string,

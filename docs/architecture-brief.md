@@ -217,6 +217,24 @@ Customers can add custom fields to any entity type defined by a module, as long 
 
 Relations are defined as `entity_ref` fields. The Entity Engine maintains a `entity_relations` index table for fast reverse lookups (e.g., "give me all expenses associated with this project"). Cascade behavior on deletion is configurable per relation field.
 
+#### Child tickets (hierarchical sub-tasks)
+
+Any entity instance can have child instances — a special case of `entity_relations` using a dedicated `parent_of`/`child_of` relation type, with the child's own workflow state, assignee, and due date. This is how "break this ticket into sub-tasks" works across modules (used by both Helpdesk and the Tender module's costing/approval sub-tasks). Two limits are configurable per workflow: `max_child_depth` (how many levels of nesting are allowed; `0` disables children entirely) and `max_children_per_parent` (a fan-out cap). Both are enforced with a row lock on the parent at creation/move time to prevent races. Archiving a parent archives its active children in the same operation; the reverse relation edge is cleaned up on both sides so the parent's active-child count stays accurate.
+
+#### Record-level access control
+
+Beyond the tenant/role model, individual records support a finer-grained ACL for cases where a customer needs to share a specific ticket with someone who isn't its assignee — stored as a `__accessUsers` map inside the entity's own `fields` JSONB, with three levels: `read_only`, `read_comment`, `read_write`. Access is granted three ways:
+
+- **Directly** by an admin/agent (`grant`/`revoke`/`update` on the record's ACL)
+- **Automatically** for the record's creator and current assignee (always `read_write`)
+- **Via request** — a non-privileged user can request access to a record they don't own; the record's owner (or any admin/agent) approves or rejects the request, and the grant is applied atomically with the request's resolution so the two can never diverge
+
+A shared `hasEntityReadAccess` check (creator/assignee/ACL-level lookup, admin/agent bypass) gates every read endpoint that touches a specific record — the record itself, its comments, attachments, children, and event history all apply the same check, returning 404 (not 403) rather than leaking whether a record exists.
+
+#### File attachments
+
+Tickets and comments support file uploads via `@platform/files` — presigned S3-compatible URLs only, never a public bucket, gated by the same record-level access check above and a per-tenant storage quota.
+
 ### 4.2 Workflow Engine
 
 The Workflow Engine is the answer to: "How do things move, and who is allowed to move them?"
@@ -972,6 +990,7 @@ These modules are the platform. They have no customer-facing UI on their own.
 | `@modules/invoicing`      | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled                      |
 | `@modules/inventory`      | Item, Warehouse, Stock Movement     | Active → Low Stock → Out of Stock                          |
 | `@modules/procurement`    | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled                        |
+| `@modules/tender`         | Tender, Costing Task (child ticket) | Draft → Published → Bidding → Awarded/Closed               |
 
 ### 10.3 Sector packages (optional, industry-specific installs)
 

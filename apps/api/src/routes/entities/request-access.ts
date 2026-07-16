@@ -45,6 +45,12 @@ export const requestAccessHandler = factory.createHandlers(
       // Upsert: if a pending request already exists update the level,
       // otherwise insert fresh. Resolved (approved/rejected) requests are
       // left untouched — the unique partial index only covers pending rows.
+      // No .limit(1) here — the unique partial index guarantees at most one
+      // pending row per (tenant, instance, requester), but there can be any
+      // number of already-resolved rows from prior request/reject cycles.
+      // Limiting to 1 before filtering by status previously grabbed the
+      // oldest row regardless of status, silently missing the real pending
+      // row after a second rejection.
       const existing = await withTenantContext(tenantId, (tx) =>
         tx
           .select({ id: accessRequests.id, status: accessRequests.status })
@@ -55,9 +61,7 @@ export const requestAccessHandler = factory.createHandlers(
               eq(accessRequests.instanceId, id),
               eq(accessRequests.requesterId, requesterId),
             ),
-          )
-          .orderBy(accessRequests.createdAt)
-          .limit(1),
+          ),
       );
 
       const pendingRow = existing.find((r) => r.status === "pending");

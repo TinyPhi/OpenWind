@@ -93,6 +93,17 @@ Pre-built applications that install on top of the engines:
 | **Projects**       | Tasks, milestones, sprints, kanban, time tracking          |
 | **Invoicing**      | Invoices, quotes, payment links, recurring billing         |
 | **Procurement**    | Purchase orders, vendor management, approval chains        |
+| **Tender**         | Tender/bid tracking, costing sub-tasks, approval workflow  |
+
+### Ticket & record features
+
+Cross-cutting capabilities available to any entity-engine-backed module (helpdesk, tender, and others):
+
+- **Child tickets** — break a ticket into sub-tasks with their own workflow state, assignee, and due date. Depth and per-parent count are configurable per workflow (`max_child_depth` / `max_children_per_parent`); archiving a parent archives its children too.
+- **Access requests** — a non-privileged user can request read/comment/write access to a record they don't own; an admin, agent, or the record's owner can approve or reject the request, with a full history event either way.
+- **Attachments** — file uploads on tickets and comments, backed by presigned S3-compatible URLs (never a public bucket) and per-tenant storage quotas.
+- **My Tickets** — a user-scoped view combining a customer's own tickets, tickets they're mentioned/granted access on, and their children — with per-workflow counts.
+- **Multiple workflow admins** — a workflow can have more than one designated admin (`assigned_to` is a list, not a single user), each with settings access.
 
 ### Connectors
 
@@ -153,7 +164,7 @@ Full architecture documentation: [`docs/architecture-brief.md`](docs/architectur
 ### Prerequisites
 
 - [Node.js 22+](https://nodejs.org/)
-- [pnpm 9+](https://pnpm.io/installation) (`npm install -g pnpm`)
+- [pnpm 11+](https://pnpm.io/installation) (`npm install -g pnpm`)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
 
 ### Quick start — one command
@@ -264,7 +275,8 @@ OpenWind/
 │   ├── reimbursements/
 │   ├── projects/
 │   ├── invoicing/
-│   └── procurement/
+│   ├── procurement/
+│   └── tender/
 └── docs/
     ├── architecture-brief.md
     └── decisions/    # Architecture Decision Records

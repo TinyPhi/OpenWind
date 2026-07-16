@@ -50,6 +50,12 @@ export const resolveAccessRequestHandler = factory.createHandlers(
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 
+      // Deliberately more permissive than grant/revoke/update-access (which
+      // require admin/agent): a ticket owner reviewing requests on their own
+      // ticket is the expected path for this feature. The two are not meant
+      // to be symmetric — this route only ever grants access the requester
+      // explicitly asked for and the owner explicitly approved, whereas the
+      // direct ACL routes let a caller set arbitrary access unprompted.
       const isOwner =
         instance.createdBy === userId || instance.assignedTo === userId;
       const isRecordWorkflowAdmin = instance.workflowId
@@ -88,10 +94,23 @@ export const resolveAccessRequestHandler = factory.createHandlers(
         );
       }
 
+      if (req.status !== "pending") {
+        return c.json(
+          {
+            error: "ACCESS_REQUEST_ALREADY_RESOLVED",
+            message: `Request already ${req.status}`,
+          },
+          422,
+        );
+      }
+
       const grantedLevel = level ?? req.requestedLevel;
 
-      await withTenantContext(tenantId, (tx) =>
-        tx
+      // Both writes share one transaction so a resolved-but-ungranted request
+      // can never persist on partial failure (was two separate
+      // withTenantContext calls).
+      await withTenantContext(tenantId, async (tx) => {
+        await tx
           .update(accessRequests)
           .set({
             status: action === "approve" ? "approved" : "rejected",
@@ -99,13 +118,16 @@ export const resolveAccessRequestHandler = factory.createHandlers(
             resolvedAt: new Date(),
             updatedAt: new Date(),
           })
-          .where(eq(accessRequests.id, reqId)),
-      );
+          .where(
+            and(
+              eq(accessRequests.id, reqId),
+              eq(accessRequests.tenantId, tenantId),
+            ),
+          );
 
-      if (action === "approve") {
-        // Write the access grant into entity_instances.__accessUsers
-        await withTenantContext(tenantId, (tx) =>
-          tx
+        if (action === "approve") {
+          // Write the access grant into entity_instances.__accessUsers
+          await tx
             .update(entityInstances)
             .set({
               fields: sql`jsonb_set(
@@ -127,9 +149,11 @@ export const resolveAccessRequestHandler = factory.createHandlers(
                 eq(entityInstances.id, id),
                 eq(entityInstances.tenantId, tenantId),
               ),
-            ),
-        );
+            );
+        }
+      });
 
+      if (action === "approve") {
         void emitAccessEvent(tenantId, id, userId, {
           type: "access_grant",
           targetUserId: req.requesterId,

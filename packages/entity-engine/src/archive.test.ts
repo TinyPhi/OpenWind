@@ -107,8 +107,9 @@ describe("archiveEntity", () => {
     );
 
     expect(result).toMatchObject({ archived: true, count: 3 });
-    // Two update calls: one for instances, one for relations
-    expect(dbMock.update).toHaveBeenCalledTimes(2);
+    // Three update calls: instances, in-tree relations, and the archived
+    // root's own inbound parent_of relation (IMP-5).
+    expect(dbMock.update).toHaveBeenCalledTimes(3);
   });
 
   it("archives a ticket with no children without requiring confirm", async () => {
@@ -118,7 +119,26 @@ describe("archiveEntity", () => {
     const result = await archiveEntity(dbMock as never, TENANT, PARENT_ID);
 
     expect(result).toMatchObject({ archived: true, count: 1 });
-    expect(dbMock.update).toHaveBeenCalledTimes(2);
+    expect(dbMock.update).toHaveBeenCalledTimes(3);
+  });
+
+  it("soft-deletes the archived root's own inbound parent_of relation (IMP-5)", async () => {
+    // Reproduces the bug: without this third update, the parent's
+    // parent_of -> archivedRoot row survives, and countActiveChildren on
+    // the parent permanently counts the archived child as active.
+    mockSelectSeq.push(() => [{ id: PARENT_ID, deletedAt: null }]);
+    mockSelectSeq.push(() => []); // no descendants
+
+    await archiveEntity(dbMock as never, TENANT, PARENT_ID, true);
+
+    expect(dbMock.update).toHaveBeenCalledTimes(3);
+    const thirdCallArgs = mockUpdateWhere.mock.calls[2]?.[0] as {
+      args: unknown[];
+    };
+    const flatArgs = JSON.stringify(thirdCallArgs);
+    expect(flatArgs).toContain("to_instance_id");
+    expect(flatArgs).toContain(PARENT_ID);
+    expect(flatArgs).toContain("relation_type");
   });
 
   it("throws ENTITY_NOT_FOUND when ticket is already archived", async () => {

@@ -1,6 +1,6 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-09 (PR #138 merged; #126 closed — entity.created/entity.assigned outbox triggers now fire)
+**Last updated:** 2026-07-16 (PR #144 — child tickets, tender module (8th standard module), access-request flow, attachments, "My Tickets" view, multi-admin workflows, plus a pre-PR security hardening pass — see "Out-of-band feature work" under Phase 2 below)
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
 
@@ -70,6 +70,23 @@
 | @modules/hrms           | Employee, Department, Leave Request | Draft → Submitted → Approved/Rejected           | 001.sql     | ✅ Done |
 | @modules/invoicing      | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled           | 001.sql     | ✅ Done |
 | @modules/procurement    | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled             | 001.sql     | ✅ Done |
+| @modules/tender         | Tender, Costing Task (child ticket) | Draft → Published → Bidding → Awarded/Closed    | 001–004.sql | ✅ Done |
+
+### Phase 2 — out-of-band feature work (PR #144, 2026-07-16)
+
+Built after Phase 2 was marked 100% complete; not tracked against the original 2A–2D
+issue numbers since none of them anticipated this feature set. Recorded here so the
+tracker reflects ground truth rather than only the original plan.
+
+| Feature                                | Status  | Notes                                                                                                 |
+| -------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| Child tickets (hierarchical sub-tasks) | ✅ Done | `packages/entity-engine/src/child-relations.ts`; configurable depth/fan-out limits per workflow       |
+| Tender module (8th standard module)    | ✅ Done | See table above — uses child tickets for costing/approval sub-tasks                                   |
+| Access-request flow                    | ✅ Done | Request/list/resolve routes + `access_requests` table (migration 0028, grant fixed in 0032)           |
+| Ticket/comment attachments             | ✅ Done | Presigned S3-compatible uploads, gated by the same record-level access check                          |
+| "My Tickets" user-scoped view          | ✅ Done | `GET /entities/my-tickets` — owned + mentioned + child tickets, per-workflow counts                   |
+| Multiple workflow admins               | ✅ Done | `workflows.assigned_to` array (migration 0025)                                                        |
+| Pre-PR security hardening pass         | ✅ Done | 12 blockers + 2 low-severity findings from external review fixed — see PR #144 description for detail |
 
 ---
 

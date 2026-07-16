@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq, and, isNull, or, sql } from "drizzle-orm";
+import { eq, and, isNull, or, sql, desc } from "drizzle-orm";
 import { requireAuth } from "@platform/auth";
 import {
   withTenantContext,
@@ -8,8 +8,15 @@ import {
   entityRelations,
   workflows,
 } from "@platform/db";
+import { MAX_PAGE_SIZE } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+
+// M-1: hard cap on the primary query — this endpoint aggregates across
+// parents/children/workflow-summary rather than a single cursor-paginated
+// list, so a full cursor implementation is a larger change; this bounds the
+// worst case (a senior agent mass-mentioned tenant-wide) instead.
+const MY_TICKETS_LIMIT = MAX_PAGE_SIZE;
 
 type AccessReason = "creator" | "assigned" | "mention" | "manual";
 
@@ -67,7 +74,7 @@ export const myTicketsHandler = factory.createHandlers(
         workflowId ? eq(entityInstances.workflowId, workflowId) : undefined,
       );
 
-      const accessibleRows = await withTenantContext(tenantId, (tx) =>
+      const fetchedRows = await withTenantContext(tenantId, (tx) =>
         tx
           .select({
             id: entityInstances.id,
@@ -79,12 +86,19 @@ export const myTicketsHandler = factory.createHandlers(
             createdAt: entityInstances.createdAt,
           })
           .from(entityInstances)
-          .where(baseConditions),
+          .where(baseConditions)
+          .orderBy(desc(entityInstances.createdAt))
+          .limit(MY_TICKETS_LIMIT + 1),
       );
+
+      const hasMore = fetchedRows.length > MY_TICKETS_LIMIT;
+      const accessibleRows = hasMore
+        ? fetchedRows.slice(0, MY_TICKETS_LIMIT)
+        : fetchedRows;
 
       if (accessibleRows.length === 0) {
         return c.json({
-          data: { workflows: [], parentTickets: [], childTickets: [] },
+          data: { workflows: [], parentTickets: [], childTickets: [], hasMore },
         });
       }
 
@@ -173,9 +187,8 @@ export const myTicketsHandler = factory.createHandlers(
       const workflowCounts = new Map<string, number>();
 
       for (const row of accessibleRows) {
-        const accessMap = parseAccessMap(
-          (row.fields as Record<string, unknown>).__accessUsers,
-        );
+        const rawFields = row.fields as Record<string, unknown>;
+        const accessMap = parseAccessMap(rawFields.__accessUsers);
         const reason = deriveAccessReason(
           userId,
           row.createdBy,
@@ -183,6 +196,16 @@ export const myTicketsHandler = factory.createHandlers(
           accessMap,
         );
         const wfId = row.workflowId ?? "";
+
+        // M-2: __accessUsers is the full ACL map for the ticket (which other
+        // user IDs have access, at what level) — a side-channel this endpoint
+        // shouldn't expose by default. getAccessHandler is the explicitly
+        // gated route for that; strip it (and any other __-prefixed internal
+        // field) before returning.
+        const { __accessUsers: _accessUsers, ...publicFields } = rawFields;
+        const fields = Object.fromEntries(
+          Object.entries(publicFields).filter(([k]) => !k.startsWith("__")),
+        );
 
         if (childInstanceIds.has(row.id)) {
           // Child ticket
@@ -199,7 +222,7 @@ export const myTicketsHandler = factory.createHandlers(
             parentId,
             parentCurrentState,
             workflowId: wfId,
-            fields: row.fields,
+            fields,
             assignedTo: row.assignedTo,
             createdAt: row.createdAt.toISOString(),
             accessReason: reason === "creator" ? ("manual" as const) : reason,
@@ -210,7 +233,7 @@ export const myTicketsHandler = factory.createHandlers(
             id: row.id,
             workflowId: wfId,
             currentState: row.currentState,
-            fields: row.fields,
+            fields,
             assignedTo: row.assignedTo,
             createdAt: row.createdAt.toISOString(),
             accessReason: reason,
@@ -240,6 +263,7 @@ export const myTicketsHandler = factory.createHandlers(
           workflows: workflowSummaries,
           parentTickets,
           childTickets,
+          hasMore,
         },
       });
     } catch (err) {

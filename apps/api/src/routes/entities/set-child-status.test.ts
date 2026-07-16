@@ -19,9 +19,18 @@ vi.mock("@platform/auth", () => ({
       c.set("auth", currentAuth);
       await next();
     },
-  requireRole: () => async (_c: Context, next: Next) => {
-    await next();
-  },
+  requireRole:
+    (...allowed: string[]) =>
+    async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
+      const roles = c.get("auth").roles;
+      if (!allowed.some((r) => roles.includes(r))) {
+        return c.json(
+          { error: "FORBIDDEN", message: "Insufficient permissions" },
+          403,
+        );
+      }
+      await next();
+    },
 }));
 
 const mockGetParentId = vi.fn();
@@ -32,30 +41,10 @@ vi.mock("@platform/entity-engine", () => ({
   updateEntity: (...args: unknown[]) => mockUpdateEntity(...args),
 }));
 
-let childRow: {
-  assignedTo: string | null;
-  createdBy: string | null;
-  fields: Record<string, unknown>;
-} | null = null;
-
-const mockTx = {
-  select: () => mockTx,
-  from: () => mockTx,
-  where: () => mockTx,
-  limit: () => Promise.resolve(childRow ? [childRow] : []),
-};
-
 vi.mock("@platform/db", () => ({
   db: {},
-  entityInstances: {
-    id: "entity_instances.id",
-    tenantId: "entity_instances.tenant_id",
-    assignedTo: "entity_instances.assigned_to",
-    createdBy: "entity_instances.created_by",
-    fields: "entity_instances.fields",
-  },
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
-    fn(mockTx),
+    fn({}),
 }));
 
 const { setChildStatusHandler } = await import("./set-child-status.js");
@@ -76,7 +65,6 @@ const PARENT_ID = "00000000-0000-0000-0000-000000000001";
 describe("PATCH /entities/:id/child-status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    childRow = null;
     currentAuth = {
       tenantId: "t-aaa",
       userId: "u-bbb",
@@ -87,93 +75,45 @@ describe("PATCH /entities/:id/child-status", () => {
     mockUpdateEntity.mockResolvedValue({ id: INST_ID, currentState: "closed" });
   });
 
-  it("returns 404 for a non-privileged user with no relationship to the ticket", async () => {
-    childRow = {
-      assignedTo: "someone-else",
-      createdBy: "someone-else",
-      fields: {},
-    };
-
+  // H-3: this endpoint is a deliberate #127-class workflow-engine bypass
+  // (direct current_state mutation, no transition validation, no
+  // automation trigger). Restricted to admin/agent — the ticket
+  // owner/assignee/read_write-ACL side-door from the reviewed PR is gone.
+  it("rejects a plain user role even when they are the assignee/creator", async () => {
     const res = await makeApp().request(`/${INST_ID}/child-status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "closed" }),
     });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
     expect(mockUpdateEntity).not.toHaveBeenCalled();
   });
 
-  it("allows the assignee to change status", async () => {
-    childRow = { assignedTo: "u-bbb", createdBy: "someone-else", fields: {} };
-
-    const res = await makeApp().request(`/${INST_ID}/child-status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "closed" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(mockUpdateEntity).toHaveBeenCalled();
-  });
-
-  it("allows the creator to change status", async () => {
-    childRow = { assignedTo: "someone-else", createdBy: "u-bbb", fields: {} };
-
-    const res = await makeApp().request(`/${INST_ID}/child-status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "closed" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(mockUpdateEntity).toHaveBeenCalled();
-  });
-
-  it("allows a user with a read_write __accessUsers grant to change status", async () => {
-    childRow = {
-      assignedTo: "someone-else",
-      createdBy: "someone-else",
-      fields: { __accessUsers: { "u-bbb": { level: "read_write" } } },
-    };
-
-    const res = await makeApp().request(`/${INST_ID}/child-status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "closed" }),
-    });
-
-    expect(res.status).toBe(200);
-  });
-
-  it("rejects a read_comment-only grant — commenting access is not write access", async () => {
-    childRow = {
-      assignedTo: "someone-else",
-      createdBy: "someone-else",
-      fields: { __accessUsers: { "u-bbb": { level: "read_comment" } } },
-    };
-
-    const res = await makeApp().request(`/${INST_ID}/child-status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "closed" }),
-    });
-
-    expect(res.status).toBe(404);
-    expect(mockUpdateEntity).not.toHaveBeenCalled();
-  });
-
-  it("skips the ownership check for privileged roles", async () => {
+  it("allows admin to change status", async () => {
     currentAuth = {
       tenantId: "t-aaa",
       userId: "u-admin",
       roles: ["admin"],
       email: "admin@example.com",
     };
-    childRow = {
-      assignedTo: "someone-else",
-      createdBy: "someone-else",
-      fields: {},
+
+    const res = await makeApp().request(`/${INST_ID}/child-status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "closed" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateEntity).toHaveBeenCalled();
+  });
+
+  it("allows agent to change status", async () => {
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-agent",
+      roles: ["agent"],
+      email: "agent@example.com",
     };
 
     const res = await makeApp().request(`/${INST_ID}/child-status`, {
@@ -187,6 +127,12 @@ describe("PATCH /entities/:id/child-status", () => {
   });
 
   it("returns 422 when the instance is not a child ticket", async () => {
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-admin",
+      roles: ["admin"],
+      email: "admin@example.com",
+    };
     mockGetParentId.mockResolvedValue(null);
 
     const res = await makeApp().request(`/${INST_ID}/child-status`, {

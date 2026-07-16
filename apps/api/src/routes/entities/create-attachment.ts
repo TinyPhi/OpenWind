@@ -94,10 +94,11 @@ export const createAttachmentHandler = factory.createHandlers(
       }
 
       if (file.scanStatus !== "clean") {
+        // L-1: don't leak AV pipeline scanStatus enum values to the caller
         return c.json(
           {
             error: "FILE_NOT_READY",
-            message: `File is not ready: ${file.scanStatus}`,
+            message: "File is not yet available",
           },
           422,
         );

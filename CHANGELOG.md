@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — child tickets, tender module, access requests]
+
+### Added
+
+#### Ticket & record features
+
+- **Child tickets** — break any ticket into sub-tasks with their own workflow state, assignee, and due date. Depth (`max_child_depth`) and fan-out (`max_children_per_parent`) are configurable per workflow; archiving a parent cascades to its active children.
+- **Access requests** — a non-privileged user can request read/comment/write access to a record they don't own; an admin, agent, or the record's owner approves or rejects, with a full history event and the grant applied atomically with the resolution.
+- **Attachments** — file uploads on tickets and comments via presigned S3-compatible URLs, gated by the same record-level access check as the record itself.
+- **My Tickets** (`GET /entities/my-tickets`) — a user-scoped view combining a customer's own tickets, tickets they're mentioned/granted access on, and their children, with per-workflow counts.
+- **Multiple workflow admins** — `workflows.assigned_to` is now an array instead of a single user; the workflow detail page's settings access supports any number of designated admins.
+- **Cross-org / instance-admin actor resolution** — activity history now resolves display names for users outside the record's own org (via a single-user Zitadel lookup fallback), instead of showing a truncated ID.
+
+#### Modules
+
+- `tender` — 8th standard module: tender/bid entity type, costing and approval sub-tasks via the child-ticket mechanism, Draft → Published → Bidding → Awarded/Closed workflow.
+
+#### Database
+
+- Migration 0025 — `workflows.assigned_to` changed from `text` to `text[]`
+- Migration 0026 — soft-delete columns on `entity_relations`
+- Migration 0027 — `max_child_depth` / `max_children_per_parent` on `workflows`
+- Migration 0028 — `access_requests` table with RLS
+- Migration 0029 — `file_attachments` table with RLS
+- Migration 0030 — `files.uploaded_by` changed to `text` (Zitadel snowflake IDs)
+- Migration 0031 — `resolve_api_key_by_hash` SECURITY DEFINER function (API-key lookup under RLS)
+- Migration 0032 — `access_requests` `app_user` grant (was missing from 0028)
+- Migration 0033 — `CHECK` constraints on `max_child_depth` / `max_children_per_parent`
+
+### Fixed
+
+- Record-level ACL (`__accessUsers`) reads (`GET /:id/access`, child ticket listing) now consistently require the same read-access gate as the record's own `GET` route
+- `read_only` access level was silently ignored by the read-access check — users with that grant always got a 404
+- Several routes issued bare (non-`withTenantContext`) DB queries, silently returning empty results or throwing RLS violations under real-role enforcement (`automation-rules`, `api-keys`, `admin/audit`, `view-configs`, `entities/set-child-status`)
+- CSV/XLSX export sanitizes leading `=`/`+`/`-`/`@` characters to prevent formula injection into spreadsheet apps
+- JWT audience validation now fails closed instead of skipping the check when `ZITADEL_AUDIENCE` is unset
+- Automation recursion depth is now carried through the outbox payload, preventing `MAX_DEPTH` from being silently reset on outbox-routed automation loops
+- Auth middleware no longer force-writes `tenant_users` on every authenticated request (was an unconditional `onConflictDoUpdate`; now SELECT-then-conditional-write)
+
+---
+
 ## [Unreleased]
 
 ### Changed

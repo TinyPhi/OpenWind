@@ -31,6 +31,7 @@ export const updateAccessHandler = factory.createHandlers(
             assignedTo: entityInstances.assignedTo,
             createdBy: entityInstances.createdBy,
             workflowId: entityInstances.workflowId,
+            fields: entityInstances.fields,
           })
           .from(entityInstances)
           .where(
@@ -68,24 +69,39 @@ export const updateAccessHandler = factory.createHandlers(
         }
       }
 
-      // Update the level field inside __accessUsers[targetUserId]
-      // Guard against legacy array format — coerce to {} so path navigation works.
+      // This is an update, not a grant — the target user must already have
+      // an ACL entry. The 3-element jsonb_set path used previously
+      // (['__accessUsers', userId, 'level']) let Postgres auto-create the
+      // intermediate object when absent, producing a {level} entry with no
+      // `tag` that downstream readers (e.g. my-tickets.ts) silently misread.
+      const accessUsers =
+        (instance.fields as Record<string, unknown> | null)?.__accessUsers ??
+        {};
+      const existingEntry = (
+        accessUsers as Record<string, { level: string; tag?: string }>
+      )[targetUserId];
+
+      if (!existingEntry) {
+        return c.json(
+          {
+            error: "ACCESS_ENTRY_NOT_FOUND",
+            message: "User has no existing access grant to update",
+          },
+          404,
+        );
+      }
+
       await withTenantContext(tenantId, (tx) =>
         tx
           .update(entityInstances)
           .set({
             fields: sql`jsonb_set(
-              jsonb_set(
-                fields,
-                '{__accessUsers}',
-                CASE
-                  WHEN jsonb_typeof(COALESCE(fields->'__accessUsers', 'null'::jsonb)) = 'object'
-                  THEN fields->'__accessUsers'
-                  ELSE '{}'::jsonb
-                END
-              ),
-              ARRAY['__accessUsers', ${targetUserId}::text, 'level'],
-              to_jsonb(${level}::text)
+              fields,
+              ARRAY['__accessUsers', ${targetUserId}::text],
+              jsonb_build_object(
+                'level', to_jsonb(${level}::text),
+                'tag', to_jsonb(${existingEntry.tag ?? "manual"}::text)
+              )
             )`,
             // If downgrading from read_write (i.e. was assigned) — unassign
             ...(instance.assignedTo === targetUserId && level !== "read_write"
