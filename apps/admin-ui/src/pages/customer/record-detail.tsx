@@ -1052,6 +1052,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [attachUploading, setAttachUploading] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
 
   // Child tickets state
   const [children, setChildren] = useState<ChildInstance[]>([]);
@@ -1431,6 +1432,22 @@ export function CustomerRecordDetail(): React.ReactElement {
         }
       })
       .finally(() => setLoading(false));
+  }
+
+  async function refreshAll(): Promise<void> {
+    if (manualRefreshing) return;
+    setManualRefreshing(true);
+    try {
+      await Promise.all([
+        loadRecord(),
+        refreshComments(),
+        refreshAttachments(),
+        loadChildren(),
+        historyLoaded ? refreshHistory() : Promise.resolve(),
+      ]);
+    } finally {
+      setManualRefreshing(false);
+    }
   }
 
   async function requestRecordAccess(): Promise<void> {
@@ -2620,6 +2637,30 @@ export function CustomerRecordDetail(): React.ReactElement {
         </button>
         <span className="rcd-bc-sep">/</span>
         <span className="rcd-bc-current">{recordTitle}</span>
+        <button
+          type="button"
+          className="rcd-refresh-btn"
+          disabled={manualRefreshing}
+          title="Refresh"
+          onClick={() => void refreshAll()}
+        >
+          <svg
+            className={manualRefreshing ? "rcd-refresh-spin" : undefined}
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+          </svg>
+        </button>
       </div>
 
       {transError && (
