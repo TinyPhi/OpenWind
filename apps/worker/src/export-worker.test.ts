@@ -83,6 +83,18 @@ describe("sanitizeSpreadsheetCell", () => {
     );
   });
 
+  it("force-texts a value starting with a tab character", () => {
+    expect(sanitizeSpreadsheetCell("\tcmd|'/C calc'!A1")).toBe(
+      "'\tcmd|'/C calc'!A1",
+    );
+  });
+
+  it("force-texts a value starting with a carriage return", () => {
+    expect(sanitizeSpreadsheetCell("\rcmd|'/C calc'!A1")).toBe(
+      "'\rcmd|'/C calc'!A1",
+    );
+  });
+
   it("leaves an ordinary value untouched", () => {
     expect(sanitizeSpreadsheetCell("Fix the login bug")).toBe(
       "Fix the login bug",
