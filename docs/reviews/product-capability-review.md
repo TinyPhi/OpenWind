@@ -124,3 +124,21 @@ The flip side a buyer must hear: integrations, AI, and notification delivery —
 - Connector marketplace (per-tenant install) once 2-3 first-party connectors validate the SDK.
 
 _All claims above are grounded in the cited files; where the README or VISION/CLAUDE docs conflict with code, the code is the source of truth and the docs are flagged as stale._
+
+---
+
+## Addendum (2026-07-16) — capability shipped since this review
+
+The review above is a point-in-time snapshot from 2026-06-23 and is left unedited above.
+The following capabilities landed afterward and are now **Live**:
+
+| Feature                                                                                                                                       | Status   | Evidence                                                                                                                                          |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Child tickets** — hierarchical sub-tasks with own state/assignee/due date, per-workflow depth and fan-out limits, cascading archive         | **Live** | `packages/entity-engine/src/child-relations.ts`, `apps/api/src/routes/entities/{create-child,list-children,move-parent,set-child-status}.ts`      |
+| **Record-level access requests** — non-owner requests access, admin/agent/owner approves or rejects, grant applied atomically with resolution | **Live** | `apps/api/src/routes/entities/{request-access,list-access-requests,resolve-access-request}.ts`, `packages/db/migrations/0028_access_requests.sql` |
+| **Ticket/comment attachments** — presigned upload/download gated by the same record-level access check                                        | **Live** | `apps/api/src/routes/entities/{create-attachment,list-attachments,delete-attachment}.ts`                                                          |
+| **My Tickets** — user-scoped view combining owned/mentioned/child tickets with per-workflow counts                                            | **Live** | `apps/api/src/routes/entities/my-tickets.ts`                                                                                                      |
+| **Multiple workflow admins** — `workflows.assigned_to` is now an array, not a single user                                                     | **Live** | `packages/db/migrations/0025_workflow_admins_array.sql`                                                                                           |
+| **Tender module** — 8th standard module (tender/bid tracking, costing sub-tasks via child tickets, approval workflow)                         | **Live** | `modules/tender/`                                                                                                                                 |
+
+None of the "Absent"/"Scaffold" items from the 2026-06-23 table above (AI features, connectors, plugin system, notification delivery, escalation, parallel approval) changed status in this round — this addendum is scoped to the ticket/access-control feature set only.
