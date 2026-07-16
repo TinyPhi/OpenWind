@@ -2475,6 +2475,11 @@ select.form-input {
 .rcd-bc-link:hover { opacity: .75; }
 .rcd-bc-sep { color: var(--text-muted); }
 .rcd-bc-current { color: var(--text-secondary); font-weight: 500; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rcd-refresh-btn { display: inline-flex; align-items: center; justify-content: center; margin-left: auto; width: 24px; height: 24px; border-radius: 6px; background: none; border: none; color: var(--text-muted); cursor: pointer; transition: color .12s, background .12s; }
+.rcd-refresh-btn:hover:not(:disabled) { color: var(--accent-primary); background: var(--bg-tertiary); }
+.rcd-refresh-btn:disabled { cursor: default; opacity: .6; }
+.rcd-refresh-spin { animation: rcd-spin .8s linear infinite; }
+@keyframes rcd-spin { to { transform: rotate(360deg); } }
 
 /* shared */
 .rcd-id-chip { font-size: 10px; font-family: monospace; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 7px; color: var(--text-muted); letter-spacing: .2px; }
