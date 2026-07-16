@@ -435,9 +435,11 @@ export async function moveChildRelation(
     });
   }
 
-  // Cycle detection: newParentId must not be a descendant of childId
+  // Cycle detection: newParentId must not be childId itself, nor a descendant
+  // of childId (collectDescendantIds excludes the instance itself, so the
+  // self-parent case must be checked explicitly).
   const descendants = await collectDescendantIds(db, tenantId, childId);
-  if (descendants.includes(newParentId)) {
+  if (newParentId === childId || descendants.includes(newParentId)) {
     throw new EntityError("CHILD_CYCLE_DETECTED", {
       childId,
       newParentId,
