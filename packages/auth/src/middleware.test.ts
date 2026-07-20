@@ -297,10 +297,16 @@ describe("requireAuth", () => {
         orgId: "378675861571829762",
       });
 
-      const app = makeApp([requireAuth()]);
+      // Exposes the resolved auth context so the assertion below can confirm
+      // tenantId was actually remapped to the mocked tenant row's uuid, not
+      // just that the request happened to return 200.
+      const app = new Hono();
+      app.get("/test", requireAuth(), (c) => c.json(c.get("auth")));
       const res = await get(app, "valid.jwt");
 
       expect(res.status).toBe(200);
+      const body = (await res.json()) as { tenantId: string };
+      expect(body.tenantId).toBe("mapped-tenant-uuid");
     });
 
     it("rejects with 404 when the org has no mapped tenant", async () => {

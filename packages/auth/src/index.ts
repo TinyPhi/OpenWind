@@ -3,7 +3,6 @@ export {
   requireRole,
   requireIntrospection,
   hashApiKey,
-  lookupTenantIdByOrgId,
 } from "./middleware.js";
 export {
   invalidateTenantStatusCache,

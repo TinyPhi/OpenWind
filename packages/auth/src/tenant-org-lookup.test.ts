@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, tenants } from "@platform/db";
 import { lookupTenantIdByOrgId } from "./middleware.js";
@@ -14,6 +14,13 @@ const TENANT_A = "aaaaaaaa-1111-4000-a000-000000000091";
 const TENANT_B = "bbbbbbbb-1111-4000-b000-000000000092";
 
 describe("lookupTenantIdByOrgId", () => {
+  // Mirrors afterAll — a crashed prior run leaves these rows behind, which
+  // would PK-violate the insert below before any assertion ran.
+  beforeAll(async () => {
+    await db.delete(tenants).where(eq(tenants.id, TENANT_A));
+    await db.delete(tenants).where(eq(tenants.id, TENANT_B));
+  });
+
   afterAll(async () => {
     await db.delete(tenants).where(eq(tenants.id, TENANT_A));
     await db.delete(tenants).where(eq(tenants.id, TENANT_B));
