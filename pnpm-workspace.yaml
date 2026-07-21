@@ -13,3 +13,13 @@ overrides:
   typescript: "^5.5.0"
   esbuild: ">=0.28.1"
   hono: ">=4.12.25"
+  # GHSA-3jxr-9vmj-r5cp (brace-expansion DoS) and GHSA-52cp-r559-cp3m (js-yaml
+  # quadratic CPU) — both dev-only transitive deps (eslint/typescript-eslint/
+  # commitlint/exceljs chains), advisories published after PR #144 merged with
+  # an unchanged lockfile (pnpm audit checks live advisory data, not just the
+  # lockfile). brace-expansion is a tiny, API-stable glob-brace utility (a
+  # single expand() export unchanged across majors) — forcing every instance
+  # to the latest patched major is safe; per-major scoped overrides left
+  # some paths still resolving to a pre-patch version.
+  brace-expansion: ">=5.0.7"
+  js-yaml: ">=4.3.0"
