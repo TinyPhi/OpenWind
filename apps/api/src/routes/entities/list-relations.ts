@@ -10,10 +10,13 @@ import {
 } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
-// Same hasEntityReadAccess gate get.ts/list-children.ts apply to this exact
+// Same hasEntityAccess gate get.ts/list-children.ts apply to this exact
 // record — without it, any tenant member can enumerate a ticket's relation
-// graph (linked/parent/child record IDs) by guessing its ID.
-import { hasEntityReadAccess } from "../../lib/entity-access.js";
+// graph (linked/parent/child record IDs) by guessing its ID. Must be the
+// workflow-admin-aware hasEntityAccess (not the plain hasEntityReadAccess),
+// or a workflow admin who can GET/PATCH the record gets locked out of its
+// own relation graph.
+import { hasEntityAccess } from "../../lib/entity-access.js";
 
 const ListRelationsQuerySchema = z.object({
   direction: z.enum(["from", "to", "both"]).optional(),
@@ -40,7 +43,10 @@ export const listRelationsHandler = factory.createHandlers(
         getEntity(tx, tenantId, instanceId),
       );
 
-      if (!hasEntityReadAccess(instance, userId, roles)) {
+      const allowed = await withTenantContext(tenantId, (tx) =>
+        hasEntityAccess(tx, tenantId, instance, userId, roles),
+      );
+      if (!allowed) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 

@@ -5,10 +5,13 @@ import { getWorkflowEventLog } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
-// Same hasEntityReadAccess gate get.ts/list-children.ts apply to this exact
+// Same hasEntityAccess gate get.ts/list-children.ts apply to this exact
 // record — without it, any tenant member can read a ticket's full comment
-// thread and transition history by guessing its ID.
-import { hasEntityReadAccess } from "../../lib/entity-access.js";
+// thread and transition history by guessing its ID. Must be the
+// workflow-admin-aware hasEntityAccess (not the plain hasEntityReadAccess),
+// or a workflow admin who can GET/PATCH the record gets locked out of its
+// own event log.
+import { hasEntityAccess } from "../../lib/entity-access.js";
 
 export const listEventsHandler = factory.createHandlers(
   requireAuth(),
@@ -30,7 +33,10 @@ export const listEventsHandler = factory.createHandlers(
         getEntity(tx, tenantId, instanceId),
       );
 
-      if (!hasEntityReadAccess(instance, userId, roles)) {
+      const allowed = await withTenantContext(tenantId, (tx) =>
+        hasEntityAccess(tx, tenantId, instance, userId, roles),
+      );
+      if (!allowed) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 
