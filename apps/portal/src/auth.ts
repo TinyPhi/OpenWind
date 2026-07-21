@@ -28,6 +28,15 @@ export const userManager = new UserManager({
 // Falls back to localhost:3000 for local dev (no Docker).
 export const API_URL = cfg("API_URL", "http://localhost:3000");
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 export async function fetchWithAuth(
   url: string,
   options: RequestInit = {},
@@ -66,7 +75,10 @@ export async function fetchWithAuth(
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
     };
-    throw new Error(body.message ?? `Request failed: ${response.status}`);
+    throw new ApiError(
+      body.message ?? `Request failed: ${response.status}`,
+      response.status,
+    );
   }
 
   return response.json();

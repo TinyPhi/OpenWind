@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { fetchWithAuth, API_URL } from "../../auth.js";
+import { fetchWithAuth, ApiError, API_URL } from "../../auth.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 
 type EntityField = {
@@ -556,6 +556,10 @@ export function RecordDetail(): React.ReactElement {
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noAccess, setNoAccess] = useState(false);
+  const [accessRequestState, setAccessRequestState] = useState<
+    "idle" | "submitting" | "sent" | "error"
+  >("idle");
   const [activeTab, setActiveTab] = useState<"history" | "comments">("history");
 
   const [transitioning, setTransitioning] = useState<string | null>(null);
@@ -568,32 +572,61 @@ export function RecordDetail(): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  function loadRecord(): Promise<void> {
-    if (!entityTypeId || !id) return Promise.resolve();
-    return Promise.all([
-      fetchWithAuth(`${API_URL}/entity-types/${entityTypeId}/fields`),
-      fetchWithAuth(`${API_URL}/entities/${id}`),
-      fetchWithAuth(`${API_URL}/entities/${id}/transitions`),
-      fetchWithAuth(`${API_URL}/entities/${id}/transitions/history`).catch(
-        () => ({ data: [] }),
-      ),
-      fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
-    ])
-      .then(([fieldsRes, recRes, transRes, histRes, usersRes]) => {
-        setFields(
-          (fieldsRes as { data: EntityField[] }).data.filter(
-            (f) => !f.isSystem,
-          ),
-        );
-        setRecord((recRes as { data: EntityInstance }).data);
-        setTransitions((transRes as { data?: Transition[] }).data ?? []);
-        setHistory((histRes as { data?: WorkflowEvent[] }).data ?? []);
-        setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
-      })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
-      )
-      .finally(() => setLoading(false));
+  async function loadRecord(): Promise<void> {
+    if (!entityTypeId || !id) return;
+    setError(null);
+    setNoAccess(false);
+    try {
+      // The record fetch gets its own try/catch so a 404 here — and only
+      // here — means "no access to this record". A 404 from the parallel
+      // fields/transitions/history/users fetches below (e.g. the entity
+      // type was deleted mid-session) is a different failure and must not
+      // show the request-access screen (IMP-1, PR #152 review).
+      let recRes: unknown;
+      try {
+        recRes = await fetchWithAuth(`${API_URL}/entities/${id}`);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          setNoAccess(true);
+          return;
+        }
+        throw err;
+      }
+      setRecord((recRes as { data: EntityInstance }).data);
+
+      const [fieldsRes, transRes, histRes, usersRes] = await Promise.all([
+        fetchWithAuth(`${API_URL}/entity-types/${entityTypeId}/fields`),
+        fetchWithAuth(`${API_URL}/entities/${id}/transitions`),
+        fetchWithAuth(`${API_URL}/entities/${id}/transitions/history`).catch(
+          () => ({ data: [] }),
+        ),
+        fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
+      ]);
+      setFields(
+        (fieldsRes as { data: EntityField[] }).data.filter((f) => !f.isSystem),
+      );
+      setTransitions((transRes as { data?: Transition[] }).data ?? []);
+      setHistory((histRes as { data?: WorkflowEvent[] }).data ?? []);
+      setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function requestAccess(): Promise<void> {
+    if (!id) return;
+    setAccessRequestState("submitting");
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/access-requests`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setAccessRequestState("sent");
+    } catch {
+      setAccessRequestState("error");
+    }
   }
 
   async function refreshHistory(): Promise<void> {
@@ -672,6 +705,50 @@ export function RecordDetail(): React.ReactElement {
         <div className="spinner" />
       </div>
     );
+
+  if (noAccess) {
+    return (
+      <div className="portal-page">
+        <div className="rd-no-access">
+          <h2 className="rd-no-access-title">
+            You don't have access to this record
+          </h2>
+          <p className="rd-muted">
+            Ask an admin or agent to grant you access, or request it below.
+          </p>
+          {accessRequestState === "sent" ? (
+            <div className="portal-alert-success" style={{ marginTop: "12px" }}>
+              Access request sent — you'll be notified once it's reviewed.
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="portal-btn-primary"
+              style={{ marginTop: "12px" }}
+              disabled={accessRequestState === "submitting"}
+              onClick={() => void requestAccess()}
+            >
+              {accessRequestState === "submitting"
+                ? "Requesting…"
+                : "Request Access"}
+            </button>
+          )}
+          {accessRequestState === "error" && (
+            <div className="portal-alert-error" style={{ marginTop: "12px" }}>
+              Failed to send request. Try again.
+            </div>
+          )}
+        </div>
+        <Link
+          to={`/${typeSlug ?? ""}`}
+          className="rd-back"
+          style={{ marginTop: "16px", display: "inline-flex" }}
+        >
+          ← Back
+        </Link>
+      </div>
+    );
+  }
 
   if (error || !record) {
     return (
