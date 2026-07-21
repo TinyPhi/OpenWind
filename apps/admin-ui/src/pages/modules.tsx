@@ -440,9 +440,9 @@ export function Modules(): React.ReactElement {
           Module Templates
         </h2>
         <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0 }}>
-          Pre-built blueprints for common business workflows. Fork any template
+          Pre-built blueprints for common business workflows. Copy any template
           to create a named copy — entity types, fields, and state machine
-          included. Fork the same template multiple times with different names.
+          included. Copy the same template multiple times with different names.
         </p>
       </div>
 
@@ -852,7 +852,7 @@ export function Modules(): React.ReactElement {
                     openForkModal(previewTarget);
                   }}
                 >
-                  Fork Template
+                  Copy Template
                 </button>
               )}
             </div>
@@ -913,7 +913,7 @@ export function Modules(): React.ReactElement {
                     color: "var(--text-primary)",
                   }}
                 >
-                  Fork "{forkTarget.name}"
+                  Copy "{forkTarget.name}"
                 </div>
                 <div
                   style={{
@@ -1064,7 +1064,7 @@ export function Modules(): React.ReactElement {
                 disabled={forking || !forkName.trim() || nameConflict}
                 style={{ minWidth: "120px" }}
               >
-                {forking ? "Forking…" : "Fork Template"}
+                {forking ? "Copying…" : "Copy Template"}
               </button>
             </div>
           </div>
@@ -1329,7 +1329,7 @@ function ModuleCard({
                 boxShadow: `0 2px 8px ${accent}33`,
               }}
             >
-              Fork
+              Copy
             </button>
           )}
         </div>

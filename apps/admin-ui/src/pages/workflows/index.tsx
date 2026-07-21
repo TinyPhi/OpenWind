@@ -198,7 +198,7 @@ export function Workflows(): React.ReactElement {
           </div>
           <h4>No workflows yet</h4>
           <p>
-            Fork a template from the Templates page or create a blank workflow.
+            Copy a template from the Templates page or create a blank workflow.
           </p>
           <button
             className="btn-primary"
