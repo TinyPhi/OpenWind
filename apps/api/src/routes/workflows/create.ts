@@ -14,14 +14,14 @@ const CreateWorkflowSchema = z.object({
 
 export const createWorkflowHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", CreateWorkflowSchema),
   async (c) => {
     const input = c.req.valid("json");
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
     try {
       const workflow = await withTenantContext(tenantId, (tx) =>
-        createWorkflow(tx, tenantId, input),
+        createWorkflow(tx, tenantId, userId, input),
       );
       return c.json({ data: workflow }, 201);
     } catch (err) {

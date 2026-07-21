@@ -7,6 +7,7 @@ import {
   accessRequests,
   withTenantContext,
 } from "@platform/db";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
@@ -33,6 +34,7 @@ export const resolveAccessRequestHandler = factory.createHandlers(
             id: entityInstances.id,
             createdBy: entityInstances.createdBy,
             assignedTo: entityInstances.assignedTo,
+            workflowId: entityInstances.workflowId,
           })
           .from(entityInstances)
           .where(
@@ -56,7 +58,18 @@ export const resolveAccessRequestHandler = factory.createHandlers(
       // direct ACL routes let a caller set arbitrary access unprompted.
       const isOwner =
         instance.createdBy === userId || instance.assignedTo === userId;
-      if (!isOwner && !isAdminOrAgent) {
+      const isRecordWorkflowAdmin = instance.workflowId
+        ? isWorkflowAdmin(
+            userId,
+            await withTenantContext(tenantId, (tx) =>
+              getWorkflow(tx, tenantId, instance.workflowId as string, {
+                userId,
+                isGlobalAdmin: false,
+              }),
+            ),
+          )
+        : false;
+      if (!isOwner && !isAdminOrAgent && !isRecordWorkflowAdmin) {
         return c.json({ error: "FORBIDDEN", message: "Not found" }, 404);
       }
 

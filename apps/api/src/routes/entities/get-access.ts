@@ -3,7 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { entityInstances, withTenantContext } from "@platform/db";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
-import { hasEntityReadAccess } from "../../lib/entity-access.js";
+import { hasEntityAccess } from "../../lib/entity-access.js";
 
 type AccessLevel = "read_only" | "read_comment" | "read_write";
 type AccessTag = "creator" | "assigned" | "mention" | "manual";
@@ -38,24 +38,33 @@ export const getAccessHandler = factory.createHandlers(
     const { tenantId, userId, roles } = c.get("auth");
 
     try {
-      const [instance] = await withTenantContext(tenantId, (tx) =>
-        tx
-          .select({
-            fields: entityInstances.fields,
-            assignedTo: entityInstances.assignedTo,
-            createdBy: entityInstances.createdBy,
-          })
-          .from(entityInstances)
-          .where(
-            and(
-              eq(entityInstances.id, id),
-              eq(entityInstances.tenantId, tenantId),
-            ),
-          )
-          .limit(1),
+      const [instance, allowed] = await withTenantContext(
+        tenantId,
+        async (tx) => {
+          const [row] = await tx
+            .select({
+              fields: entityInstances.fields,
+              assignedTo: entityInstances.assignedTo,
+              createdBy: entityInstances.createdBy,
+              workflowId: entityInstances.workflowId,
+            })
+            .from(entityInstances)
+            .where(
+              and(
+                eq(entityInstances.id, id),
+                eq(entityInstances.tenantId, tenantId),
+              ),
+            )
+            .limit(1);
+          if (!row) return [undefined, false] as const;
+          return [
+            row,
+            await hasEntityAccess(tx, tenantId, row, userId, roles),
+          ] as const;
+        },
       );
 
-      if (!instance || !hasEntityReadAccess(instance, userId, roles)) {
+      if (!instance || !allowed) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 

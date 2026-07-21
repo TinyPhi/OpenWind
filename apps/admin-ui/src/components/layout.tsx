@@ -531,6 +531,28 @@ export function Layout({
                 {(sidebarOpen || mobileNavOpen) && <span>Templates</span>}
               </Link>
 
+              {/* Workflows — users can create & manage their own workflows */}
+              <Link
+                to="/workflows"
+                className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive("/workflows") ? "active" : ""}`}
+                title={!sidebarOpen ? "Workflows" : undefined}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="2"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061A1.125 1.125 0 013 16.811V8.69zM12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061a1.125 1.125 0 01-1.683-.977V8.69z"
+                  />
+                </svg>
+                {(sidebarOpen || mobileNavOpen) && <span>Workflows</span>}
+              </Link>
+
               <div className="nav-divider" />
               <Link
                 to="/settings"

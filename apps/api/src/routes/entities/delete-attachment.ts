@@ -8,6 +8,7 @@ import {
 import { and, eq, isNull } from "drizzle-orm";
 import { entityRelations } from "@platform/db";
 import { deleteFile } from "@platform/files";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -58,9 +59,23 @@ export const deleteAttachmentHandler = factory.createHandlers(
         return c.json({ error: "NOT_FOUND", message: "File not found" }, 404);
       }
 
-      // Only the uploader or admin/agent can delete
+      // Only the uploader, admin/agent, or an admin of this ticket's workflow
+      // can delete
       if (!isPrivileged && file.uploadedBy !== userId) {
-        return c.json({ error: "NOT_FOUND", message: "File not found" }, 404);
+        const canDelete = instance.workflowId
+          ? isWorkflowAdmin(
+              userId,
+              await withTenantContext(tenantId, (tx) =>
+                getWorkflow(tx, tenantId, instance.workflowId as string, {
+                  userId,
+                  isGlobalAdmin: false,
+                }),
+              ),
+            )
+          : false;
+        if (!canDelete) {
+          return c.json({ error: "NOT_FOUND", message: "File not found" }, 404);
+        }
       }
 
       // deleteFile opens its own db.transaction() internally; passing the

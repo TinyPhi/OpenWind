@@ -1,17 +1,19 @@
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, withTenantContext } from "@platform/db";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
 
 export const revokeAccessHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent"),
+  requireRole("admin", "agent", "user"),
   async (c) => {
     const id = c.req.param("id") ?? "";
     const targetUserId = c.req.param("userId") ?? "";
-    const { tenantId, userId: actorId } = c.get("auth");
+    const { tenantId, userId: actorId, roles } = c.get("auth");
+    const isPrivileged = roles.includes("admin") || roles.includes("agent");
 
     try {
       const [instance] = await withTenantContext(tenantId, (tx) =>
@@ -19,6 +21,8 @@ export const revokeAccessHandler = factory.createHandlers(
           .select({
             id: entityInstances.id,
             assignedTo: entityInstances.assignedTo,
+            createdBy: entityInstances.createdBy,
+            workflowId: entityInstances.workflowId,
           })
           .from(entityInstances)
           .where(
@@ -32,6 +36,28 @@ export const revokeAccessHandler = factory.createHandlers(
 
       if (!instance) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+      }
+
+      if (!isPrivileged) {
+        const isOwner =
+          instance.createdBy === actorId || instance.assignedTo === actorId;
+        const isRecordWorkflowAdmin = instance.workflowId
+          ? isWorkflowAdmin(
+              actorId,
+              await withTenantContext(tenantId, (tx) =>
+                getWorkflow(tx, tenantId, instance.workflowId as string, {
+                  userId: actorId,
+                  isGlobalAdmin: false,
+                }),
+              ),
+            )
+          : false;
+        if (!isOwner && !isRecordWorkflowAdmin) {
+          return c.json(
+            { error: "NOT_FOUND", message: "Record not found" },
+            404,
+          );
+        }
       }
 
       // Remove key from the __accessUsers object map using the - operator

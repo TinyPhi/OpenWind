@@ -59,6 +59,7 @@ export async function fetchWithAuth(
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
       error?: string;
+      meta?: Record<string, unknown>;
     };
     const message =
       body.message ?? body.error ?? `Request failed (${response.status})`;
@@ -68,15 +69,22 @@ export async function fetchWithAuth(
         "auth",
         "Your session has expired. Please log in again.",
       );
-      const err = new Error(message) as Error & { status: number };
+      const err = new Error(message) as Error & {
+        status: number;
+        meta?: Record<string, unknown>;
+      };
       err.status = 401;
       throw err;
     }
     if (response.status >= 500) {
       dispatchApiError("server", message);
     }
-    const err = new Error(message) as Error & { status: number };
+    const err = new Error(message) as Error & {
+      status: number;
+      meta?: Record<string, unknown> | undefined;
+    };
     err.status = response.status;
+    err.meta = body.meta;
     throw err;
   }
 

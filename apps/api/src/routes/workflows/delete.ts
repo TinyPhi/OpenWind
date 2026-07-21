@@ -3,16 +3,18 @@ import { withTenantContext } from "@platform/db";
 import { deleteWorkflow } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
+import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 
 export const deleteWorkflowHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent", "user"),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const auth = c.get("auth");
+    const { tenantId } = auth;
     try {
       await withTenantContext(tenantId, (tx) =>
-        deleteWorkflow(tx, tenantId, id),
+        deleteWorkflow(tx, tenantId, id, toWorkflowCaller(auth)),
       );
       return c.body(null, 204);
     } catch (err) {

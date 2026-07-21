@@ -40,7 +40,6 @@ export const setChildStatusHandler = factory.createHandlers(
           422,
         );
       }
-
       const instance = await withTenantContext(tenantId, (tx) =>
         updateEntity(tx, tenantId, instanceId, {
           currentState: status,

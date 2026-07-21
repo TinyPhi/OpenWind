@@ -5,7 +5,7 @@ import { db, files, entityInstances, withTenantContext } from "@platform/db";
 import { and, eq } from "drizzle-orm";
 import { getDownloadUrl, FileError } from "@platform/files";
 import { factory } from "./factory.js";
-import { hasEntityReadAccess } from "../../lib/entity-access.js";
+import { hasEntityAccess } from "../../lib/entity-access.js";
 
 const FileIdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -31,24 +31,33 @@ export const getDownloadUrlHandler = factory.createHandlers(
       );
 
       if (file?.entityId) {
-        const [instance] = await withTenantContext(tenantId, (tx) =>
-          tx
-            .select({
-              createdBy: entityInstances.createdBy,
-              assignedTo: entityInstances.assignedTo,
-              fields: entityInstances.fields,
-            })
-            .from(entityInstances)
-            .where(
-              and(
-                eq(entityInstances.id, file.entityId as string),
-                eq(entityInstances.tenantId, tenantId),
-              ),
-            )
-            .limit(1),
+        const [instance, allowed] = await withTenantContext(
+          tenantId,
+          async (tx) => {
+            const [row] = await tx
+              .select({
+                createdBy: entityInstances.createdBy,
+                assignedTo: entityInstances.assignedTo,
+                fields: entityInstances.fields,
+                workflowId: entityInstances.workflowId,
+              })
+              .from(entityInstances)
+              .where(
+                and(
+                  eq(entityInstances.id, file.entityId as string),
+                  eq(entityInstances.tenantId, tenantId),
+                ),
+              )
+              .limit(1);
+            if (!row) return [undefined, false] as const;
+            return [
+              row,
+              await hasEntityAccess(tx, tenantId, row, userId, roles),
+            ] as const;
+          },
         );
 
-        if (!instance || !hasEntityReadAccess(instance, userId, roles)) {
+        if (!instance || !allowed) {
           return c.json(
             { error: "FILE_NOT_FOUND", message: "File not found" },
             404,

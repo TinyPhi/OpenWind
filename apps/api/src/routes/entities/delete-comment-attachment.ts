@@ -7,6 +7,7 @@ import {
 } from "@platform/db";
 import { and, eq, sql } from "drizzle-orm";
 import { deleteFile } from "@platform/files";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -22,7 +23,10 @@ export const deleteCommentAttachmentHandler = factory.createHandlers(
     try {
       const [instance] = await withTenantContext(tenantId, (tx) =>
         tx
-          .select({ id: entityInstances.id })
+          .select({
+            id: entityInstances.id,
+            workflowId: entityInstances.workflowId,
+          })
           .from(entityInstances)
           .where(
             and(
@@ -66,12 +70,26 @@ export const deleteCommentAttachmentHandler = factory.createHandlers(
         );
       }
 
-      // Only the comment author or admin/agent can remove attachments
+      // Only the comment author, admin/agent, or an admin of this ticket's
+      // workflow can remove attachments
       if (!isPrivileged && event.actorId !== userId) {
-        return c.json(
-          { error: "NOT_FOUND", message: "Comment not found" },
-          404,
-        );
+        const canRemove = instance.workflowId
+          ? isWorkflowAdmin(
+              userId,
+              await withTenantContext(tenantId, (tx) =>
+                getWorkflow(tx, tenantId, instance.workflowId as string, {
+                  userId,
+                  isGlobalAdmin: false,
+                }),
+              ),
+            )
+          : false;
+        if (!canRemove) {
+          return c.json(
+            { error: "NOT_FOUND", message: "Comment not found" },
+            404,
+          );
+        }
       }
 
       const existingFileIds: string[] = Array.isArray(metadata.fileIds)

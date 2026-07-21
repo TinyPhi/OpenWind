@@ -21,7 +21,9 @@ export const workflows = pgTable("workflows", {
   name: text("name").notNull(),
   initialState: text("initial_state").notNull(),
   isActive: boolean("is_active").default(true).notNull(),
-  /** Zitadel user IDs of the designated workflow admins. NULL = unassigned. */
+  /** Zitadel user ID of the workflow's creator. Immutable after insert; always an implicit workflow admin. */
+  createdBy: text("created_by"),
+  /** Zitadel user IDs of the designated workflow admins (includes creator). NULL = unassigned. */
   assignedTo: text("assigned_to").array(),
   /** Max depth of parent→child chains. 0 = children disabled. Default 1. */
   maxChildDepth: integer("max_child_depth").default(1).notNull(),

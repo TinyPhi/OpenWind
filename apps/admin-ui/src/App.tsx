@@ -130,6 +130,12 @@ export function App(): React.ReactElement {
               element={<WorkflowDetail />}
             />
 
+            {/* Workflow list/create — any authenticated user; the API filters
+                the list to workflows they admin and any user can create one
+                (see docs/specs/workflow-ownership-admin.md) */}
+            <Route path="/workflows" element={<Workflows />} />
+            <Route path="/workflows/new" element={<CreateWorkflow />} />
+
             {/* Admin-only routes */}
             <Route element={<RequireAdmin />}>
               <Route path="/users" element={<UsersPage />} />
@@ -138,8 +144,6 @@ export function App(): React.ReactElement {
                 path="/entity-types/:id/records/new"
                 element={<EntityInstanceCreate />}
               />
-              <Route path="/workflows" element={<Workflows />} />
-              <Route path="/workflows/new" element={<CreateWorkflow />} />
             </Route>
 
             <Route path="/home" element={<Navigate to="/records" replace />} />
