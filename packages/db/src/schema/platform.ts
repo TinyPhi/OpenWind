@@ -16,6 +16,9 @@ export const tenants = pgTable("tenants", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   plan: text("plan").default("standard").notNull(),
+  // Maps this tenant to a Zitadel org (see docs/specs/tenant-org-id-mapping.md).
+  // Nullable — demo/dev tenants may have no real org yet.
+  zitadelOrgId: text("zitadel_org_id").unique(),
   // Lifecycle: provisioning → active → suspended → deleted → purged
   // text + CHECK (see migration 0001) so new states don't require ALTER TYPE
   status: text("status").default("active").notNull(),

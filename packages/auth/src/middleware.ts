@@ -143,6 +143,29 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         );
       }
 
+      // In production there is no DEV_TENANT_ID fallback (the Zod schema
+      // forbids it), so extractAuthContext's tenantId is just the raw
+      // Zitadel org id — never a valid `uuid`. Resolve the real tenant via
+      // the zitadel_org_id mapping and fail closed if none exists, rather
+      // than let a malformed tenantId reach any tenant-scoped query.
+      // See docs/specs/tenant-org-id-mapping.md.
+      if (env.NODE_ENV === "production") {
+        const mappedTenantId = auth.orgId
+          ? await lookupTenantIdByOrgId(auth.orgId, db)
+          : null;
+        if (!mappedTenantId) {
+          logger.warn(
+            { orgId: auth.orgId ?? "(missing)" },
+            "No tenant mapped to this Zitadel org — rejecting",
+          );
+          return c.json(
+            { error: "TENANT_NOT_FOUND", message: "Not found" },
+            404,
+          );
+        }
+        auth = { ...auth, tenantId: mappedTenantId };
+      }
+
       // If JWT is missing email or name (e.g. instance admins, tokens issued before
       // "include profile info" was enabled), enrich from the userinfo endpoint.
       if (!auth.email || auth.displayName === auth.userId) {
@@ -315,6 +338,60 @@ async function resolveTenantStatus(
   const status = row?.status ?? "deleted";
   setCachedTenantStatus(tenantId, status);
   return status;
+}
+
+// Org -> tenant mappings are effectively immutable once set (a tenant is
+// mapped to a Zitadel org once, at onboarding) — a short in-process TTL cache
+// avoids a DB round-trip on every JWT-authenticated request in production,
+// mirroring the pattern in tenant-status-cache.ts but without cross-instance
+// invalidation (no admin flow ever changes zitadel_org_id, so a replica
+// serving a stale entry for up to the TTL is harmless; a genuine remap can
+// wait out the TTL like any other cache).
+const ORG_TENANT_CACHE_TTL_MS = 5 * 60_000;
+const _orgTenantCache = new Map<
+  string,
+  { tenantId: string | null; exp: number }
+>();
+
+function getCachedOrgTenantId(orgId: string): string | null | undefined {
+  const entry = _orgTenantCache.get(orgId);
+  if (!entry) return undefined;
+  if (Date.now() > entry.exp) {
+    _orgTenantCache.delete(orgId);
+    return undefined;
+  }
+  return entry.tenantId;
+}
+
+function setCachedOrgTenantId(orgId: string, tenantId: string | null): void {
+  _orgTenantCache.set(orgId, {
+    tenantId,
+    exp: Date.now() + ORG_TENANT_CACHE_TTL_MS,
+  });
+}
+
+/**
+ * Resolve a tenant's internal UUID from its mapped Zitadel org id. Returns
+ * null if no tenant is mapped to this org — callers must fail closed, never
+ * fall back to another tenant. See docs/specs/tenant-org-id-mapping.md.
+ */
+export async function lookupTenantIdByOrgId(
+  orgId: string,
+  dbHandle?: DbOrTx,
+): Promise<string | null> {
+  const cached = getCachedOrgTenantId(orgId);
+  if (cached !== undefined) return cached;
+
+  const activeDb = dbHandle ?? db;
+  const [row] = await activeDb
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(eq(tenants.zitadelOrgId, orgId))
+    .limit(1);
+
+  const tenantId = row?.id ?? null;
+  setCachedOrgTenantId(orgId, tenantId);
+  return tenantId;
 }
 
 async function resolveApiKey(

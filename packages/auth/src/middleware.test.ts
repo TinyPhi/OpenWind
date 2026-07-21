@@ -3,6 +3,9 @@ import { Hono } from "hono";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
+// Mutable so individual tests can exercise the NODE_ENV=production branch
+// (org-id -> tenant mapping) without affecting the rest of the suite.
+let mockNodeEnv: string | undefined;
 vi.mock("@platform/config", () => ({
   env: {
     ZITADEL_ISSUER: "https://zitadel.example.com",
@@ -11,6 +14,9 @@ vi.mock("@platform/config", () => ({
       "https://zitadel.example.com/oauth/v2/introspect",
     ZITADEL_INTROSPECTION_CLIENT_ID: "client-id",
     ZITADEL_INTROSPECTION_CLIENT_SECRET: "client-secret",
+    get NODE_ENV() {
+      return mockNodeEnv;
+    },
   },
 }));
 
@@ -41,11 +47,17 @@ vi.mock("./introspection.js", () => ({
   introspectToken: (...args: unknown[]) => mockIntrospectToken(...args),
 }));
 
-// Module-level db fallback for resolveTenantStatus (JWT path passes no db handle).
+// Module-level db fallback for both resolveTenantStatus (status) and the new
+// lookupTenantIdByOrgId (id) — both go through db.select(...).from(tenants)
+// .where(...).limit(1), so one shared row shape covers either caller.
+// undefined = "no row" (org has no mapped tenant / tenant not found).
+let mockTenantRow: { id?: string; status?: string } | undefined = {
+  status: "active",
+};
 const mockModuleDbSelect = vi.fn(() => ({
   from: vi.fn(() => ({
     where: vi.fn(() => ({
-      limit: vi.fn().mockResolvedValue([{ status: "active" }]),
+      limit: vi.fn(() => Promise.resolve(mockTenantRow ? [mockTenantRow] : [])),
     })),
   })),
 }));
@@ -66,7 +78,11 @@ vi.mock("@platform/db", () => ({
     keyHash: "api_keys.key_hash",
     scopes: "api_keys.scopes",
   },
-  tenants: { id: "tenants.id", status: "tenants.status" },
+  tenants: {
+    id: "tenants.id",
+    status: "tenants.status",
+    zitadelOrgId: "tenants.zitadel_org_id",
+  },
   tenantUsers: {
     tenantId: "tenant_users.tenant_id",
     userId: "tenant_users.user_id",
@@ -140,6 +156,8 @@ async function get(app: Hono, token?: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockExistingTenantUser = undefined;
+  mockNodeEnv = undefined;
+  mockTenantRow = { status: "active" };
 });
 
 // ── requireAuth ───────────────────────────────────────────────────────────────
@@ -262,6 +280,69 @@ describe("requireAuth", () => {
     ]);
     const res = await get(app, "sk_validkey");
     expect(res.status).toBe(200);
+  });
+
+  // Zitadel org ids are never valid `uuid`s, so in production the JWT path
+  // must resolve the real tenant via the zitadel_org_id mapping rather than
+  // pass the org id straight through as tenantId. See
+  // docs/specs/tenant-org-id-mapping.md.
+  describe("production tenant resolution (org-id mapping)", () => {
+    it("resolves tenantId from the mapped tenant when NODE_ENV=production", async () => {
+      mockNodeEnv = "production";
+      mockTenantRow = { id: "mapped-tenant-uuid", status: "active" };
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        tenantId: "378675861571829762", // raw org id, not a uuid
+        orgId: "378675861571829762",
+      });
+
+      // Exposes the resolved auth context so the assertion below can confirm
+      // tenantId was actually remapped to the mocked tenant row's uuid, not
+      // just that the request happened to return 200.
+      const app = new Hono();
+      app.get("/test", requireAuth(), (c) => c.json(c.get("auth")));
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { tenantId: string };
+      expect(body.tenantId).toBe("mapped-tenant-uuid");
+    });
+
+    it("rejects with 404 when the org has no mapped tenant", async () => {
+      mockNodeEnv = "production";
+      mockTenantRow = undefined; // no tenant row matches this org
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        tenantId: "999999999999999999",
+        orgId: "999999999999999999",
+      });
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("TENANT_NOT_FOUND");
+    });
+
+    it("leaves tenantId untouched when NODE_ENV is not production", async () => {
+      mockNodeEnv = "test";
+      mockTenantRow = undefined; // would 404 if the lookup ran at all
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        orgId: "378675861571829762",
+      });
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      // Unaffected by mockTenantRow being unset — the org-lookup branch
+      // must not run outside production.
+      expect(res.status).toBe(200);
+    });
   });
 });
 
