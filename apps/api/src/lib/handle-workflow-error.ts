@@ -32,6 +32,22 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
   if (isWorkflowError(err)) {
     switch (err.code) {
       case "WORKFLOW_NOT_FOUND":
+        // createdBy is only present when the workflow exists but the caller
+        // lacks per-workflow access (see getWorkflow) — a deliberate,
+        // narrow exception to the "404 hides existence" rule so the UI can
+        // point the user at who to ask for access.
+        return c.json(
+          {
+            error: err.code,
+            message: "Not found",
+            meta:
+              err.meta?.["createdBy"] !== undefined
+                ? { createdBy: err.meta["createdBy"] }
+                : undefined,
+          },
+          404,
+        ) as Response;
+
       case "WORKFLOW_STATE_NOT_FOUND":
       case "WORKFLOW_TRANSITION_NOT_FOUND":
       case "INSTANCE_NOT_FOUND":
@@ -75,6 +91,26 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
             message: "You do not have permission to execute this transition",
           },
           403,
+        ) as Response;
+
+      case "WORKFLOW_ADMIN_LIST_FORBIDDEN":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "Only the workflow's creator or a global admin can manage its admin list",
+          },
+          403,
+        ) as Response;
+
+      case "WORKFLOW_ADMIN_REMOVE_CREATOR_FORBIDDEN":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "The workflow's creator cannot be removed from the admin list",
+          },
+          422,
         ) as Response;
 
       case "CONDITION_NOT_MET":

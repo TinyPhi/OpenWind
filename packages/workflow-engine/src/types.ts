@@ -5,7 +5,9 @@ export interface WorkflowDefinition {
   name: string;
   initialState: string;
   isActive: boolean;
-  /** Zitadel user IDs of the designated workflow admins. Empty array = unassigned. */
+  /** Zitadel user ID of the workflow's creator. Immutable; always an implicit workflow admin. */
+  createdBy: string | null;
+  /** Zitadel user IDs of the designated workflow admins (includes creator). Empty array = unassigned. */
   assignedTo: string[];
   /** Max parent→child chain depth. 0 = children disabled. Default 1. */
   maxChildDepth: number;
@@ -104,6 +106,13 @@ export type UpdateWorkflowInput = {
   assignedTo?: string[] | undefined;
   maxChildDepth?: number | null | undefined;
   maxChildrenPerParent?: number | null | undefined;
+};
+
+// Caller identity for per-workflow authorization checks (see authorization.ts).
+// isGlobalAdmin bypasses all per-workflow ownership checks.
+export type WorkflowCaller = {
+  userId: string;
+  isGlobalAdmin: boolean;
 };
 
 export type CreateWorkflowStateInput = {

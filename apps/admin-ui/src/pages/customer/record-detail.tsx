@@ -1028,6 +1028,10 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [allStates, setAllStates] = useState<WorkflowState[]>([]);
   const [transitions, setTransitions] = useState<Transition[]>([]);
   const [_maxChildDepth, setMaxChildDepth] = useState<number>(1);
+  const [workflowCreatedBy, setWorkflowCreatedBy] = useState<string | null>(
+    null,
+  );
+  const [workflowAssignedTo, setWorkflowAssignedTo] = useState<string[]>([]);
   const [currentState, setCurrentState] = useState("");
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -1048,6 +1052,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [attachUploading, setAttachUploading] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
 
   // Child tickets state
   const [children, setChildren] = useState<ChildInstance[]>([]);
@@ -1168,8 +1173,18 @@ export function CustomerRecordDetail(): React.ReactElement {
         setOidcLoaded(true);
       });
   }, []);
+  // A workflow admin (this ticket's workflow creator, or in its assigned_to
+  // list) gets the same full access as a global admin/agent — ticket edit,
+  // access updates, sub-ticket creation, everything gated by isAdminOrAgent
+  // below. Matches the backend (assertRecordWorkflowAccess et al.).
+  const isWorkflowAdminOfParent =
+    currentUserId !== null &&
+    (currentUserId === workflowCreatedBy ||
+      workflowAssignedTo.includes(currentUserId));
   const isAdminOrAgent =
-    currentUserRoles.includes("admin") || currentUserRoles.includes("agent");
+    currentUserRoles.includes("admin") ||
+    currentUserRoles.includes("agent") ||
+    isWorkflowAdminOfParent;
 
   // Current user's access entry (null for admins/agents — they bypass access list)
   const myAccessEntry =
@@ -1274,6 +1289,9 @@ export function CustomerRecordDetail(): React.ReactElement {
       (currentUserId === creatorId || currentUserId === record?.assignedTo));
   const canChangeAssignedTo =
     isAdminOrAgent || (currentUserId !== null && currentUserId === creatorId);
+
+  // isAdminOrAgent already includes workflow-admin status (see its definition).
+  const canCreateChild = isAdminOrAgent;
 
   async function handleAccessChange(): Promise<void> {
     if (!id || !accessChangeModal) return;
@@ -1414,6 +1432,22 @@ export function CustomerRecordDetail(): React.ReactElement {
         }
       })
       .finally(() => setLoading(false));
+  }
+
+  async function refreshAll(): Promise<void> {
+    if (manualRefreshing) return;
+    setManualRefreshing(true);
+    try {
+      await Promise.all([
+        loadRecord(),
+        refreshComments(),
+        refreshAttachments(),
+        loadChildren(),
+        historyLoaded ? refreshHistory() : Promise.resolve(),
+      ]);
+    } finally {
+      setManualRefreshing(false);
+    }
   }
 
   async function requestRecordAccess(): Promise<void> {
@@ -1844,8 +1878,11 @@ export function CustomerRecordDetail(): React.ReactElement {
       return;
     }
 
+    // entityId proves to the backend that this caller has legitimate read
+    // access to a record in this workflow — required now that GET /workflows/:id
+    // restricts non-workflow-admin callers (see apps/api/src/routes/workflows/get.ts).
     const wfUrl = record?.workflowId
-      ? `${API_URL}/workflows/${record.workflowId}`
+      ? `${API_URL}/workflows/${record.workflowId}?${new URLSearchParams({ entityId: record.id }).toString()}`
       : `${API_URL}/workflows?${new URLSearchParams({ entityTypeId: effectiveEntityTypeId ?? "" }).toString()}`;
 
     fetchWithAuth(wfUrl)
@@ -1857,6 +1894,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                   states: WorkflowState[];
                   transitions: Transition[];
                   maxChildDepth?: number;
+                  createdBy?: string | null;
+                  assignedTo?: string[] | null;
                 };
               }
             ).data
@@ -1866,6 +1905,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                   states?: WorkflowState[];
                   transitions?: Transition[];
                   maxChildDepth?: number;
+                  createdBy?: string | null;
+                  assignedTo?: string[] | null;
                 }>;
               }
             ).data ?? [])[0];
@@ -1875,9 +1916,13 @@ export function CustomerRecordDetail(): React.ReactElement {
           setMaxChildDepth(
             (wf as { maxChildDepth?: number }).maxChildDepth ?? 1,
           );
+          setWorkflowCreatedBy(wf.createdBy ?? null);
+          setWorkflowAssignedTo(wf.assignedTo ?? []);
         } else {
           setAllStates([]);
           setTransitions([]);
+          setWorkflowCreatedBy(null);
+          setWorkflowAssignedTo([]);
         }
       })
       .catch(() => {
@@ -2591,6 +2636,30 @@ export function CustomerRecordDetail(): React.ReactElement {
         </button>
         <span className="rcd-bc-sep">/</span>
         <span className="rcd-bc-current">{recordTitle}</span>
+        <button
+          type="button"
+          className="rcd-refresh-btn"
+          disabled={manualRefreshing}
+          title="Refresh"
+          onClick={() => void refreshAll()}
+        >
+          <svg
+            className={manualRefreshing ? "rcd-refresh-spin" : undefined}
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+          </svg>
+        </button>
       </div>
 
       {transError && (
@@ -3436,7 +3505,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <span className="rcd-sidebar-count">{children.length}</span>
                   )}
                 </span>
-                {isAdminOrAgent && !record.deletedAt && (
+                {canCreateChild && !record.deletedAt && (
                   <button
                     type="button"
                     className="rcd-sidebar-add"

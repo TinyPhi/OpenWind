@@ -692,19 +692,15 @@ export function WorkflowRecords(): React.ReactElement {
     setLoading(true);
     setError(null);
 
-    // Fetch a lightweight summary of all workflows, find the one whose
-    // slugified name matches — avoids pulling states/transitions/record
-    // counts for every workflow just to resolve one id from the slug.
-    fetchWithAuth(`${API_URL}/workflows?summary=true`)
+    // Resolve slug → id via the dedicated, ownership-unfiltered lookup — the
+    // ownership-filtered list/summary endpoints only include workflows the
+    // caller administers, which would 404 a plain ticket assignee here.
+    fetchWithAuth(`${API_URL}/workflows/slugs`)
       .then(async (listRes) => {
         const all =
           (
             listRes as {
-              data?: Array<{
-                id: string;
-                name: string;
-                entityTypeId: string;
-              }>;
+              data?: Array<{ id: string; name: string }>;
             }
           ).data ?? [];
 

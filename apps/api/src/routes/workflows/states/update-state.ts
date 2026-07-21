@@ -5,6 +5,7 @@ import { withTenantContext } from "@platform/db";
 import { updateWorkflowState } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
+import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
 
 const UpdateStateSchema = z.object({
   label: z.string().min(1).max(200).optional(),
@@ -16,16 +17,24 @@ const UpdateStateSchema = z.object({
 
 export const updateStateHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", UpdateStateSchema),
   async (c) => {
     const workflowId = c.req.param("id") ?? "";
     const stateId = c.req.param("stateId") ?? "";
     const input = c.req.valid("json");
-    const { tenantId } = c.get("auth");
+    const auth = c.get("auth");
+    const { tenantId } = auth;
     try {
       const state = await withTenantContext(tenantId, (tx) =>
-        updateWorkflowState(tx, tenantId, workflowId, stateId, input),
+        updateWorkflowState(
+          tx,
+          tenantId,
+          workflowId,
+          stateId,
+          toWorkflowCaller(auth),
+          input,
+        ),
       );
       return c.json({ data: state });
     } catch (err) {

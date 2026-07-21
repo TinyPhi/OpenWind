@@ -1,4 +1,4 @@
-import { eq, and, isNull, sql, count, inArray } from "drizzle-orm";
+import { eq, and, isNull, or, sql, count, inArray } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import {
   entityRelations,
@@ -121,9 +121,14 @@ async function collectDescendantIds(
   return result;
 }
 
-/** Load workflow limits for the given workflow ID. */
+/**
+ * Load workflow limits for the given workflow ID, scoped to this tenant (or
+ * a NULL-tenant system/template workflow — workflows has no RLS policy, see
+ * db-conventions.md, so this explicit filter is the only tenant guard here).
+ */
 async function loadWorkflowLimits(
   db: DbOrTx,
+  tenantId: string,
   workflowId: string,
 ): Promise<{ maxChildDepth: number; maxChildrenPerParent: number }> {
   const [wf] = await db
@@ -132,7 +137,12 @@ async function loadWorkflowLimits(
       maxChildrenPerParent: workflows.maxChildrenPerParent,
     })
     .from(workflows)
-    .where(eq(workflows.id, workflowId))
+    .where(
+      and(
+        eq(workflows.id, workflowId),
+        or(isNull(workflows.tenantId), eq(workflows.tenantId, tenantId)),
+      ),
+    )
     .limit(1);
   if (!wf) throw new EntityError("ENTITY_NOT_FOUND", { workflowId });
   return wf;
@@ -200,7 +210,7 @@ export async function createChildRelation(
       reason: "parent has no workflow",
     });
   }
-  const limits = await loadWorkflowLimits(db, parent.workflowId);
+  const limits = await loadWorkflowLimits(db, tenantId, parent.workflowId);
 
   if (limits.maxChildDepth === 0) {
     throw new EntityError("CHILDREN_DISABLED", {
@@ -427,7 +437,7 @@ export async function moveChildRelation(
     });
   }
 
-  const limits = await loadWorkflowLimits(db, newParent.workflowId);
+  const limits = await loadWorkflowLimits(db, tenantId, newParent.workflowId);
 
   if (limits.maxChildDepth === 0) {
     throw new EntityError("CHILDREN_DISABLED", {
@@ -435,9 +445,11 @@ export async function moveChildRelation(
     });
   }
 
-  // Cycle detection: newParentId must not be a descendant of childId
+  // Cycle detection: newParentId must not be childId itself, nor a descendant
+  // of childId (collectDescendantIds excludes the instance itself, so the
+  // self-parent case must be checked explicitly).
   const descendants = await collectDescendantIds(db, tenantId, childId);
-  if (descendants.includes(newParentId)) {
+  if (newParentId === childId || descendants.includes(newParentId)) {
     throw new EntityError("CHILD_CYCLE_DETECTED", {
       childId,
       newParentId,

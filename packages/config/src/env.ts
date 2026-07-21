@@ -141,6 +141,10 @@ const EnvSchema = z
   .refine((v) => v.NODE_ENV !== "production" || v.CORS_ORIGIN !== undefined, {
     message:
       "CORS_ORIGIN must be set in production to restrict allowed origins",
+  })
+  .refine((v) => !(v.NODE_ENV === "production" && v.SKIP_AV_SCAN), {
+    message:
+      "SKIP_AV_SCAN must not be true in production — it marks every upload clean without running antivirus scanning",
   });
 
 export const env = EnvSchema.parse(process.env);

@@ -39,7 +39,14 @@ import { connection } from "./queues.js";
 const EXPORT_ROW_LIMIT = 10_000;
 const DOWNLOAD_URL_TTL_SECONDS = 3_600; // 1 h
 
-// ── S3 client ─────────────────────────────────────────────────────────────────
+// ── S3 clients ────────────────────────────────────────────────────────────────
+// Two clients are needed when S3_ENDPOINT is an internal Docker hostname:
+//   getS3()          — internal endpoint, used for the PutObjectCommand upload
+//   getS3ForSigning() — public endpoint (S3_PUBLIC_URL ?? S3_ENDPOINT), used only
+//                       for presigning so the signature embeds the browser-accessible
+//                       host. Matches packages/files/src/index.ts's identical fix —
+//                       signing against the internal endpoint produced download URLs
+//                       unreachable from the browser wherever the two endpoints differ.
 
 let _s3: S3Client | undefined;
 function getS3(): S3Client {
@@ -53,6 +60,23 @@ function getS3(): S3Client {
     forcePathStyle: true,
   });
   return _s3;
+}
+
+let _s3Signing: S3Client | undefined;
+function getS3ForSigning(): S3Client {
+  const publicEndpoint = env.S3_PUBLIC_URL ?? env.S3_ENDPOINT;
+  if (_s3Signing === undefined || publicEndpoint !== env.S3_ENDPOINT) {
+    _s3Signing = new S3Client({
+      endpoint: publicEndpoint,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: env.S3_ACCESS_KEY,
+        secretAccessKey: env.S3_SECRET_KEY,
+      },
+      forcePathStyle: true,
+    });
+  }
+  return _s3Signing;
 }
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
@@ -178,7 +202,7 @@ export const exportWorker = new Worker<ExportJobPayload, ExportJobResult>(
     );
 
     const downloadUrl = await getSignedUrl(
-      getS3(),
+      getS3ForSigning(),
       new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: storageKey }),
       { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
     );

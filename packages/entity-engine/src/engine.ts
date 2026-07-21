@@ -58,6 +58,7 @@ import {
 } from "./lookup-resolver.js";
 import { fireEntityAuditHook } from "./audit-hook.js";
 import type { AuditFieldSensitivity } from "./audit-hook.js";
+import { getParentId } from "./child-relations.js";
 import { redactFields, buildSensitivityMap } from "./redact.js";
 
 type EntityValidator = (
@@ -392,14 +393,23 @@ export async function updateEntity(
 
     // Step 2: merge and validate the full result (catches required-field clearing).
     // Skip for child tickets — they are intentionally created with minimal fields
-    // and do not satisfy the parent entity type's required fields.
+    // and do not satisfy the parent entity type's required fields. Determined
+    // from the actual entity_relations table, not a heuristic on field content
+    // (a `child_status` field on an unrelated entity type must not silently
+    // skip validation just because it happens to share that field name).
     const isChildTicket =
-      typeof (existing.fields as Record<string, unknown>).child_status ===
-      "string";
+      (await getParentId(db, tenantId, instanceId)) !== null;
     const merged = {
       ...(existing.fields as Record<string, unknown>),
       ...(partialResult.data as Record<string, unknown>),
     };
+    // validatedFields feeds formula computation and downstream processing.
+    // For non-child tickets this is the zod-parsed/coerced fullResult.data —
+    // using the raw `merged` here was a regression that silently fed
+    // pre-coercion values into applyFormulaFields for every entity type, not
+    // just child tickets. Child tickets have no "full" schema to validate
+    // against (see above), so merged is the only value available for them.
+    let validatedFields: Record<string, unknown> = merged;
     if (!isChildTicket) {
       const fullSchema = await getValidationSchema(
         db,
@@ -411,13 +421,14 @@ export async function updateEntity(
       if (!fullResult.success) {
         throw new ValidationError(transformZodErrors(fullResult.error));
       }
+      validatedFields = fullResult.data as Record<string, unknown>;
     }
 
     const entityType = await loadEntityType(db, existing.entityTypeId);
     if (!isChildTicket) {
       const crossErrors = runCrossFieldValidators(
         entityType.name,
-        merged,
+        validatedFields,
         "update",
       );
       if (crossErrors.length > 0) throw new ValidationError(crossErrors);
@@ -457,7 +468,10 @@ export async function updateEntity(
       if (allRefErrors.length > 0) throw new ValidationError(allRefErrors);
     }
 
-    const fieldsWithFormulas = await applyFormulaFields(allFields, merged);
+    const fieldsWithFormulas = await applyFormulaFields(
+      allFields,
+      validatedFields,
+    );
 
     const updates: Partial<typeof entityInstances.$inferInsert> = {
       fields: fieldsWithFormulas,
@@ -638,8 +652,7 @@ export async function updateEntity(
   // Fields not provided — updating assignedTo and/or currentState
   if (input.assignedTo !== undefined || input.currentState !== undefined) {
     const isChildTicket2 =
-      typeof (existing.fields as Record<string, unknown>).child_status ===
-      "string";
+      (await getParentId(db, tenantId, instanceId)) !== null;
     const updates: Partial<typeof entityInstances.$inferInsert> = {
       updatedAt: new Date(),
     };
@@ -865,6 +878,7 @@ export async function listEntities(
           .from(entityRelations)
           .where(
             and(
+              eq(entityRelations.tenantId, tenantId),
               eq(entityRelations.fromInstanceId, entityInstances.id),
               eq(entityRelations.relationType, "child_of"),
               isNull(entityRelations.deletedAt),
@@ -1501,18 +1515,22 @@ export async function bulkSetState(
   db: DbOrTx,
   tenantId: string,
   items: Array<{ id: string; state: string }>,
+  actorId?: string,
 ): Promise<BulkSetStateResult> {
   if (items.length === 0) return { updatedIds: [], errors: [] };
 
   const ids = items.map((item) => item.id);
 
   // Load all matching instances in one query to verify tenant ownership.
-  // Also fetch entityTypeId and currentState for audit hooks.
+  // Also fetch entityTypeId, currentState and workflowId for audit hooks and
+  // the workflow_events/outbox writes below (#127 — this was previously a
+  // silent state side-door with no audit trail and no automation trigger).
   const existing = await db
     .select({
       id: entityInstances.id,
       entityTypeId: entityInstances.entityTypeId,
       currentState: entityInstances.currentState,
+      workflowId: entityInstances.workflowId,
     })
     .from(entityInstances)
     .where(
@@ -1548,6 +1566,14 @@ export async function bulkSetState(
   }
 
   const updatedIds: string[] = [];
+  const workflowEventRows: Array<typeof workflowEvents.$inferInsert> = [];
+  const outboxRows: Array<{
+    tenantId: string;
+    eventType: "workflow.transitioned";
+    version: 1;
+    payload: Record<string, unknown>;
+  }> = [];
+  const occurredAt = new Date();
 
   for (const [state, stateIds] of byState) {
     const rows = await db
@@ -1562,6 +1588,49 @@ export async function bulkSetState(
       .returning({ id: entityInstances.id });
 
     updatedIds.push(...rows.map((r) => r.id));
+
+    for (const row of rows) {
+      const prior = foundMap.get(row.id);
+      if (!prior?.workflowId || prior.currentState === state) {
+        continue;
+      }
+      workflowEventRows.push({
+        tenantId,
+        instanceId: row.id,
+        workflowId: prior.workflowId,
+        fromState: prior.currentState,
+        toState: state,
+        triggeredBy: "user",
+        actorId: actorId ?? null,
+        comment: `State set directly to ${state}`,
+        metadata: { type: "direct-set" },
+      });
+      outboxRows.push({
+        tenantId,
+        eventType: "workflow.transitioned",
+        version: 1,
+        payload: {
+          eventType: "workflow.transitioned",
+          version: 1,
+          tenantId,
+          instanceId: row.id,
+          entityTypeId: prior.entityTypeId,
+          workflowId: prior.workflowId,
+          fromState: prior.currentState,
+          toState: state,
+          triggeredBy: "user",
+          actorId: actorId ?? null,
+          occurredAt: occurredAt.toISOString(),
+        },
+      });
+    }
+  }
+
+  if (workflowEventRows.length > 0) {
+    await db.insert(workflowEvents).values(workflowEventRows);
+  }
+  if (outboxRows.length > 0) {
+    await db.insert(outboxEvents).values(outboxRows);
   }
 
   // Fire audit hooks for each successfully transitioned entity.
@@ -1619,12 +1688,14 @@ export async function setEntityState(
   tenantId: string,
   instanceId: string,
   state: string,
+  actorId?: string,
 ): Promise<EntityInstance> {
   const [existing] = await db
     .select({
       id: entityInstances.id,
       entityTypeId: entityInstances.entityTypeId,
       currentState: entityInstances.currentState,
+      workflowId: entityInstances.workflowId,
     })
     .from(entityInstances)
     .where(
@@ -1652,6 +1723,43 @@ export async function setEntityState(
   if (!row) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
 
   logger.info({ tenantId, instanceId, state }, "Entity state set");
+
+  // #127 — this direct state-set previously wrote no workflow_events row and
+  // no outbox event, making it a silent side-door around executeTransition's
+  // audit trail and automation triggers. Mirrors the existing accepted
+  // pattern for direct currentState writes in updateEntity() above.
+  if (existing.workflowId && existing.currentState !== state) {
+    await db.insert(workflowEvents).values({
+      tenantId,
+      instanceId,
+      workflowId: existing.workflowId,
+      fromState: existing.currentState,
+      toState: state,
+      triggeredBy: "user",
+      actorId: actorId ?? null,
+      comment: `State set directly to ${state}`,
+      metadata: { type: "direct-set" },
+    });
+
+    await db.insert(outboxEvents).values({
+      tenantId,
+      eventType: "workflow.transitioned",
+      version: 1,
+      payload: {
+        eventType: "workflow.transitioned",
+        version: 1,
+        tenantId,
+        instanceId,
+        entityTypeId: existing.entityTypeId,
+        workflowId: existing.workflowId,
+        fromState: existing.currentState,
+        toState: state,
+        triggeredBy: "user",
+        actorId: actorId ?? null,
+        occurredAt: new Date().toISOString(),
+      },
+    });
+  }
 
   const [entityType, allFields] = await Promise.all([
     loadEntityType(db, existing.entityTypeId),

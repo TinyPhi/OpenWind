@@ -2,7 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
-import { entityInstances, withTenantContext } from "@platform/db";
+import { entityInstances, tenantUsers, withTenantContext } from "@platform/db";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
@@ -40,6 +40,29 @@ export const grantAccessHandler = factory.createHandlers(
 
       if (!instance) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+      }
+
+      // Reject granting access to a userId that isn't actually a member of
+      // this tenant — the schema only validates that userId is a non-empty
+      // string, so without this check any caller-supplied ID would be
+      // written into __accessUsers unchecked.
+      const [targetUser] = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({ userId: tenantUsers.userId })
+          .from(tenantUsers)
+          .where(
+            and(
+              eq(tenantUsers.tenantId, tenantId),
+              eq(tenantUsers.userId, userId),
+            ),
+          )
+          .limit(1),
+      );
+      if (!targetUser) {
+        return c.json(
+          { error: "NOT_FOUND", message: "User not found in this tenant" },
+          404,
+        );
       }
 
       // Merge new entry into the __accessUsers object map.

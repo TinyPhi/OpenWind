@@ -3,6 +3,10 @@ import { z } from "zod";
 import { requireAuth } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
 import { listEntities, MAX_PAGE_SIZE } from "@platform/entity-engine";
+import {
+  getWorkflowByEntityTypeId,
+  isWorkflowAdmin,
+} from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -57,10 +61,22 @@ export const listEntitiesHandler = factory.createHandlers(
     const { tenantId, userId, roles } = c.get("auth");
     const query = c.req.valid("query");
 
-    const isPrivileged = roles.includes("admin") || roles.includes("agent");
+    let isPrivileged = roles.includes("admin") || roles.includes("agent");
 
     try {
       const { fields, ...rest } = query;
+
+      // A workflow admin (creator/assigned_to of the workflow that owns this
+      // entity type) gets the same unrestricted list access as admin/agent.
+      if (!isPrivileged) {
+        const workflow = await withTenantContext(tenantId, (tx) =>
+          getWorkflowByEntityTypeId(tx, tenantId, rest.entityTypeId),
+        );
+        if (workflow && isWorkflowAdmin(userId, workflow)) {
+          isPrivileged = true;
+        }
+      }
+
       // Non-privileged users are always scoped to their own records — query param cannot override
       const assignedTo = isPrivileged ? rest.assignedTo : userId;
       const page = await withTenantContext(tenantId, (tx) =>

@@ -3,7 +3,7 @@ import { entityInstances, files, withTenantContext } from "@platform/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
-import { hasEntityReadAccess } from "../../lib/entity-access.js";
+import { hasEntityAccess } from "../../lib/entity-access.js";
 
 export const listAttachmentsHandler = factory.createHandlers(
   requireAuth(),
@@ -12,25 +12,34 @@ export const listAttachmentsHandler = factory.createHandlers(
     const { tenantId, userId, roles } = c.get("auth");
 
     try {
-      const [instance] = await withTenantContext(tenantId, (tx) =>
-        tx
-          .select({
-            id: entityInstances.id,
-            createdBy: entityInstances.createdBy,
-            assignedTo: entityInstances.assignedTo,
-            fields: entityInstances.fields,
-          })
-          .from(entityInstances)
-          .where(
-            and(
-              eq(entityInstances.id, id),
-              eq(entityInstances.tenantId, tenantId),
-            ),
-          )
-          .limit(1),
+      const [instance, allowed] = await withTenantContext(
+        tenantId,
+        async (tx) => {
+          const [row] = await tx
+            .select({
+              id: entityInstances.id,
+              createdBy: entityInstances.createdBy,
+              assignedTo: entityInstances.assignedTo,
+              fields: entityInstances.fields,
+              workflowId: entityInstances.workflowId,
+            })
+            .from(entityInstances)
+            .where(
+              and(
+                eq(entityInstances.id, id),
+                eq(entityInstances.tenantId, tenantId),
+              ),
+            )
+            .limit(1);
+          if (!row) return [undefined, false] as const;
+          return [
+            row,
+            await hasEntityAccess(tx, tenantId, row, userId, roles),
+          ] as const;
+        },
       );
 
-      if (!instance || !hasEntityReadAccess(instance, userId, roles)) {
+      if (!instance || !allowed) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 

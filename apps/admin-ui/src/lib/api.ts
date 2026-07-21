@@ -59,6 +59,7 @@ export async function fetchWithAuth(
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
       error?: string;
+      meta?: Record<string, unknown>;
     };
     const message =
       body.message ?? body.error ?? `Request failed (${response.status})`;
@@ -68,15 +69,25 @@ export async function fetchWithAuth(
         "auth",
         "Your session has expired. Please log in again.",
       );
-      const err = new Error(message) as Error & { status: number };
+      const err = new Error(message) as Error & {
+        status: number;
+        meta?: Record<string, unknown>;
+        isAuthError: boolean;
+      };
       err.status = 401;
+      // authProvider.ts's onError checks `isAuthError` to trigger auto-logout.
+      err.isAuthError = true;
       throw err;
     }
     if (response.status >= 500) {
       dispatchApiError("server", message);
     }
-    const err = new Error(message) as Error & { status: number };
+    const err = new Error(message) as Error & {
+      status: number;
+      meta?: Record<string, unknown> | undefined;
+    };
     err.status = response.status;
+    err.meta = body.meta;
     throw err;
   }
 
@@ -92,8 +103,22 @@ export async function fetchWithAuth(
 export async function fetchRawWithAuth(url: string): Promise<Response> {
   await waitForAuth();
   const user = await userManager.getUser();
-  const token = user?.access_token;
+  let token = user?.access_token;
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(url, { headers });
+  let response = await fetch(url, { headers });
+
+  // On 401, attempt a silent token refresh and retry once — matches
+  // fetchWithAuth's retry behavior, previously missing here.
+  if (response.status === 401) {
+    const newToken = await silentRefresh();
+    if (newToken) {
+      token = newToken;
+      const retryHeaders = new Headers();
+      retryHeaders.set("Authorization", `Bearer ${token}`);
+      response = await fetch(url, { headers: retryHeaders });
+    }
+  }
+
+  return response;
 }

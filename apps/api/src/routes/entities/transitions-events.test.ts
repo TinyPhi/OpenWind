@@ -3,11 +3,31 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as WorkflowEngine from "@platform/workflow-engine";
+import type * as EntityEngine from "@platform/entity-engine";
 
 const mockExecuteTransition = vi.fn();
 const mockGetAvailableTransitions = vi.fn();
 const mockGetWorkflowEventLog = vi.fn();
 const mockWithTenantContext = vi.fn();
+// Read-access gate check (list-transitions.ts/list-events.ts) — resolves to
+// an instance the "admin" role auth context always passes regardless of
+// createdBy/assignedTo, so existing scenarios below don't need to know about
+// ownership. Individual tests override with mockRejectedValueOnce to
+// exercise the not-found/cross-tenant path.
+const mockGetEntityForAccess = vi.fn().mockResolvedValue({
+  id: "irrelevant",
+  createdBy: null,
+  assignedTo: null,
+  fields: {},
+});
+
+vi.mock("@platform/entity-engine", async (importOriginal) => {
+  const real = await importOriginal<typeof EntityEngine>();
+  return {
+    ...real,
+    getEntity: (...args: unknown[]) => mockGetEntityForAccess(...args),
+  };
+});
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -328,5 +348,17 @@ describe("GET /entities/:id/events", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data).toEqual([]);
+  });
+
+  it("returns 404 without calling getWorkflowEventLog when the instance is not found (read-access gate)", async () => {
+    const { EntityError } = await import("@platform/entity-engine");
+    mockGetEntityForAccess.mockRejectedValueOnce(
+      new EntityError("ENTITY_NOT_FOUND", { instanceId: INSTANCE_ID }),
+    );
+
+    const res = await makeApp().request(`/${INSTANCE_ID}/events`);
+
+    expect(res.status).toBe(404);
+    expect(mockGetWorkflowEventLog).not.toHaveBeenCalled();
   });
 });

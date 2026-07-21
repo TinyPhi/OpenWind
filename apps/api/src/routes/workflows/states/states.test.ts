@@ -89,6 +89,7 @@ describe("POST /workflows/:id/states", () => {
       {},
       "t-aaa",
       WF_ID,
+      { userId: "u-bbb", isGlobalAdmin: true },
       expect.objectContaining({ name: "open", label: "Open" }),
     );
   });

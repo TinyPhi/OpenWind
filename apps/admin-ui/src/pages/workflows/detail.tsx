@@ -25,8 +25,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useOne } from "@refinedev/core";
-import { useParams, Link, useNavigate, Navigate } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
 // BrowserRouter. This shim intercepts history.pushState/replaceState to provide
@@ -122,6 +121,7 @@ type WorkflowFull = {
   entityTypeId: string;
   initialState: string;
   isActive: boolean;
+  createdBy: string | null;
   assignedTo: string[] | null;
   createdAt: string;
   states: WorkflowState[];
@@ -1081,27 +1081,50 @@ export function WorkflowDetail(): React.ReactElement {
   const navigate = useNavigate();
   useEntityTypes();
 
-  // Resolve slug → UUID once on mount
+  // Resolve slug → UUID once on mount. Uses the dedicated, ownership-unfiltered
+  // /workflows/slugs endpoint — the main list is filtered to workflows the
+  // caller admins, which would strand a since-removed admin on an infinite
+  // spinner (id never resolves, so the detail fetch never runs).
   const [id, setId] = useState<string | null>(null);
+  const [slugNotFound, setSlugNotFound] = useState(false);
   useEffect(() => {
     if (!workflowSlug) return;
-    fetchWithAuth(`${API_URL}/workflows`)
+    fetchWithAuth(`${API_URL}/workflows/slugs`)
       .then((res) => {
         const all =
           (res as { data?: Array<{ id: string; name: string }> }).data ?? [];
         const match = all.find((w) => toWorkflowSlug(w.name) === workflowSlug);
         if (match) setId(match.id);
+        else setSlugNotFound(true);
       })
-      .catch(() => {
-        /* leave id null — useOne will show not-found */
-      });
+      .catch(() => setSlugNotFound(true));
   }, [workflowSlug]);
 
-  const { data, isLoading, refetch } = useOne<WorkflowFull>({
-    resource: "workflows",
-    id: id ?? "missing",
-    queryOptions: { enabled: !!id },
-  });
+  const [data, setData] = useState<{ data: WorkflowFull } | undefined>(
+    undefined,
+  );
+  const [isLoading, setIsLoading] = useState(true);
+
+  // GET /workflows/:id is open to any tenant member (states/transitions
+  // aren't sensitive, and ticket assignees need them to work with their
+  // records) — this settings page enforces the real "workflow admin only"
+  // gate itself, client-side, further down using workflow.createdBy/assignedTo.
+  const refetch = useCallback(async (): Promise<void> => {
+    if (!id) return;
+    setIsLoading(true);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/workflows/${id}`);
+      setData(res as { data: WorkflowFull });
+    } catch {
+      setData(undefined);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
 
   const [fields, setFields] = useState<EntityField[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState(false);
@@ -1263,13 +1286,22 @@ export function WorkflowDetail(): React.ReactElement {
 
   async function handleAssign(userIds: string[]): Promise<void> {
     if (!id) return;
+    // The creator can never be removed from the list except by a global
+    // admin — the MultiUserPicker lets any current chip be unchecked, so
+    // re-insert the creator here rather than let a doomed 422 round-trip.
+    const creatorId = workflow?.createdBy;
+    const nextIds =
+      !isAdmin && creatorId && !userIds.includes(creatorId)
+        ? [...userIds, creatorId]
+        : userIds;
+
     setSavingAssign(true);
     try {
       await fetchWithAuth(`${API_URL}/workflows/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ assignedTo: userIds }),
+        body: JSON.stringify({ assignedTo: nextIds }),
       });
-      setAssignedTo(userIds);
+      setAssignedTo(nextIds);
       void refetch();
     } catch {
       // ignore — keep current assignment
@@ -1597,16 +1629,7 @@ export function WorkflowDetail(): React.ReactElement {
 
   const workflow = data?.data;
 
-  if (isLoading) {
-    return (
-      <div className="loading-center">
-        <div className="spinner" />
-        <span className="loader-text">Loading workflow…</span>
-      </div>
-    );
-  }
-
-  if (!workflow) {
+  if (slugNotFound || (!isLoading && !workflow)) {
     return (
       <div className="empty-state">
         <h4>Workflow not found</h4>
@@ -1621,15 +1644,113 @@ export function WorkflowDetail(): React.ReactElement {
     );
   }
 
-  // Access check: only admin role or the assigned workflow admin can view this page
-  const isAdmin = currentUserRoles.includes("admin");
-  const isWorkflowAdmin =
-    currentUserId !== null &&
-    (workflow.assignedTo?.length ?? 0) > 0 &&
-    (workflow.assignedTo?.includes(currentUserId) ?? false);
-  if (currentUserId !== null && !isAdmin && !isWorkflowAdmin) {
-    return <Navigate to="/dashboard" replace />;
+  if (isLoading || !workflow) {
+    return (
+      <div className="loading-center">
+        <div className="spinner" />
+        <span className="loader-text">Loading workflow…</span>
+      </div>
+    );
   }
+
+  const isAdmin = currentUserRoles.includes("admin");
+
+  // GET /workflows/:id is open to any tenant member (ticket assignees need
+  // states/transitions to work with their records), so this admin-only
+  // settings page enforces its own gate here, client-side, using the
+  // createdBy/assignedTo the fetch already returned.
+  const canManageWorkflow =
+    isAdmin ||
+    (currentUserId !== null &&
+      (currentUserId === workflow.createdBy ||
+        (workflow.assignedTo?.includes(currentUserId) ?? false)));
+
+  if (!canManageWorkflow) {
+    const creator = workflow.createdBy
+      ? orgUsers.find((u) => u.userId === workflow.createdBy)
+      : undefined;
+    const creatorName = creator?.displayName ?? workflow.createdBy;
+
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "60vh",
+        }}
+      >
+        <div
+          className="data-panel"
+          style={{
+            maxWidth: "440px",
+            width: "100%",
+            padding: "32px",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "50%",
+              background: "hsla(0,84%,60%,.1)",
+              color: "var(--danger)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+            }}
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+          </div>
+          <h3 style={{ marginBottom: "8px" }}>No access to this workflow</h3>
+          <p
+            style={{
+              fontSize: "13px",
+              color: "var(--text-secondary)",
+              lineHeight: 1.6,
+              marginBottom: "20px",
+            }}
+          >
+            {creatorName ? (
+              <>
+                You're not an admin of this workflow. Contact{" "}
+                <strong style={{ color: "var(--text-primary)" }}>
+                  {creatorName}
+                </strong>
+                , its creator, to request access.
+              </>
+            ) : (
+              "You're not an admin of this workflow. Contact a workflow admin to request access."
+            )}
+          </p>
+          <Link to="/workflows" className="btn btn-secondary">
+            ← Back to Workflows
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Only the creator or a global admin can edit the admin list itself
+  // (add/remove entries); other admins can manage the workflow but not this
+  // list. The creator can never remove themselves — only a global admin can.
+  const isAdminListEditor =
+    isAdmin || (currentUserId !== null && currentUserId === workflow.createdBy);
 
   const sortedStates = [...workflow.states].sort(
     (a, b) => a.sortOrder - b.sortOrder,
@@ -2087,7 +2208,7 @@ export function WorkflowDetail(): React.ReactElement {
                   transitions={workflow.transitions}
                   initialState={workflow.initialState}
                   workflowId={id ?? ""}
-                  isAdmin={isAdmin}
+                  isAdmin={canManageWorkflow}
                   onSave={handleCanvasSave}
                   onDirtyChange={setCanvasDirty}
                 />
@@ -2120,14 +2241,12 @@ export function WorkflowDetail(): React.ReactElement {
             label="States"
             count={workflow.states.length}
             action={
-              isAdmin ? (
-                <button
-                  className="btn-primary btn-sm"
-                  onClick={() => setShowAddState(true)}
-                >
-                  + Add State
-                </button>
-              ) : undefined
+              <button
+                className="btn-primary btn-sm"
+                onClick={() => setShowAddState(true)}
+              >
+                + Add State
+              </button>
             }
           />
           <div className="table-scroll">
@@ -2196,88 +2315,86 @@ export function WorkflowDetail(): React.ReactElement {
                       {state.sortOrder}
                     </td>
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      {isAdmin && (
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "6px",
-                            justifyContent: "flex-end",
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "6px",
+                          justifyContent: "flex-end",
+                        }}
+                      >
+                        <button
+                          className="icon-btn icon-btn-edit"
+                          onClick={() => {
+                            setEditingState(state);
+                            setStateForm({
+                              name: state.name,
+                              label: state.label,
+                              color: state.color ?? "#6366f1",
+                              isTerminal: state.isTerminal,
+                              slaHours:
+                                state.slaHours !== null
+                                  ? String(state.slaHours)
+                                  : "",
+                              sortOrder: String(state.sortOrder),
+                            });
+                            setStateError(null);
                           }}
+                          title="Edit state"
                         >
-                          <button
-                            className="icon-btn icon-btn-edit"
-                            onClick={() => {
-                              setEditingState(state);
-                              setStateForm({
-                                name: state.name,
-                                label: state.label,
-                                color: state.color ?? "#6366f1",
-                                isTerminal: state.isTerminal,
-                                slaHours:
-                                  state.slaHours !== null
-                                    ? String(state.slaHours)
-                                    : "",
-                                sortOrder: String(state.sortOrder),
-                              });
-                              setStateError(null);
-                            }}
-                            title="Edit state"
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           >
-                            <svg
-                              width="13"
-                              height="13"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        {state.name !== workflow.initialState ? (
+                          <button
+                            className="icon-btn icon-btn-delete"
+                            disabled={deletingStateId === state.id}
+                            onClick={() =>
+                              setConfirmDelete({
+                                message: `Delete state "${state.label}"?`,
+                                onConfirm: () => {
+                                  setConfirmDelete(null);
+                                  void handleDeleteState(state.id);
+                                },
+                              })
+                            }
+                            title="Delete state"
+                          >
+                            {deletingStateId === state.id ? (
+                              <span style={{ fontSize: "11px" }}>…</span>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                                <path d="M10 11v6M14 11v6" />
+                              </svg>
+                            )}
                           </button>
-                          {state.name !== workflow.initialState ? (
-                            <button
-                              className="icon-btn icon-btn-delete"
-                              disabled={deletingStateId === state.id}
-                              onClick={() =>
-                                setConfirmDelete({
-                                  message: `Delete state "${state.label}"?`,
-                                  onConfirm: () => {
-                                    setConfirmDelete(null);
-                                    void handleDeleteState(state.id);
-                                  },
-                                })
-                              }
-                              title="Delete state"
-                            >
-                              {deletingStateId === state.id ? (
-                                <span style={{ fontSize: "11px" }}>…</span>
-                              ) : (
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                  <path d="M10 11v6M14 11v6" />
-                                </svg>
-                              )}
-                            </button>
-                          ) : (
-                            <span
-                              style={{ display: "inline-block", width: "30px" }}
-                            />
-                          )}
-                        </div>
-                      )}
+                        ) : (
+                          <span
+                            style={{ display: "inline-block", width: "30px" }}
+                          />
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -2302,14 +2419,12 @@ export function WorkflowDetail(): React.ReactElement {
             label="Transitions"
             count={workflow.transitions.length}
             action={
-              isAdmin ? (
-                <button
-                  className="btn-primary btn-sm"
-                  onClick={() => setShowAddTransition(true)}
-                >
-                  + Add Transition
-                </button>
-              ) : undefined
+              <button
+                className="btn-primary btn-sm"
+                onClick={() => setShowAddTransition(true)}
+              >
+                + Add Transition
+              </button>
             }
           />
           {workflow.transitions.length === 0 ? (
@@ -2418,29 +2533,59 @@ export function WorkflowDetail(): React.ReactElement {
                         )}
                       </td>
                       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        {isAdmin && (
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "6px",
-                              justifyContent: "flex-end",
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "6px",
+                            justifyContent: "flex-end",
+                          }}
+                        >
+                          <button
+                            className="icon-btn icon-btn-edit"
+                            onClick={() => {
+                              setEditingTransition(t);
+                              setTransForm({
+                                fromState: t.fromState,
+                                toState: t.toState,
+                                label: t.label,
+                                allowedRoles: [...t.allowedRoles],
+                                requiresComment: t.requiresComment,
+                              });
+                              setTransError(null);
                             }}
+                            title="Edit transition"
                           >
-                            <button
-                              className="icon-btn icon-btn-edit"
-                              onClick={() => {
-                                setEditingTransition(t);
-                                setTransForm({
-                                  fromState: t.fromState,
-                                  toState: t.toState,
-                                  label: t.label,
-                                  allowedRoles: [...t.allowedRoles],
-                                  requiresComment: t.requiresComment,
-                                });
-                                setTransError(null);
-                              }}
-                              title="Edit transition"
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
                             >
+                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
+                          <button
+                            className="icon-btn icon-btn-delete"
+                            disabled={deletingTransId === t.id}
+                            onClick={() =>
+                              setConfirmDelete({
+                                message: `Delete transition "${t.label || `${t.fromState} → ${t.toState}`}"?`,
+                                onConfirm: () => {
+                                  setConfirmDelete(null);
+                                  void handleDeleteTransition(t.id);
+                                },
+                              })
+                            }
+                            title="Delete transition"
+                          >
+                            {deletingTransId === t.id ? (
+                              <span style={{ fontSize: "11px" }}>…</span>
+                            ) : (
                               <svg
                                 width="13"
                                 height="13"
@@ -2451,45 +2596,13 @@ export function WorkflowDetail(): React.ReactElement {
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                               >
-                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                                <path d="M10 11v6M14 11v6" />
                               </svg>
-                            </button>
-                            <button
-                              className="icon-btn icon-btn-delete"
-                              disabled={deletingTransId === t.id}
-                              onClick={() =>
-                                setConfirmDelete({
-                                  message: `Delete transition "${t.label || `${t.fromState} → ${t.toState}`}"?`,
-                                  onConfirm: () => {
-                                    setConfirmDelete(null);
-                                    void handleDeleteTransition(t.id);
-                                  },
-                                })
-                              }
-                              title="Delete transition"
-                            >
-                              {deletingTransId === t.id ? (
-                                <span style={{ fontSize: "11px" }}>…</span>
-                              ) : (
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                  <path d="M10 11v6M14 11v6" />
-                                </svg>
-                              )}
-                            </button>
-                          </div>
-                        )}
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -2515,14 +2628,12 @@ export function WorkflowDetail(): React.ReactElement {
             label="Fields"
             count={fields.length}
             action={
-              isAdmin ? (
-                <button
-                  className="btn-primary btn-sm"
-                  onClick={() => setShowAddField(true)}
-                >
-                  + Add Field
-                </button>
-              ) : undefined
+              <button
+                className="btn-primary btn-sm"
+                onClick={() => setShowAddField(true)}
+              >
+                + Add Field
+              </button>
             }
           />
           {fieldsLoading ? (
@@ -2566,7 +2677,7 @@ export function WorkflowDetail(): React.ReactElement {
                           <SortableFieldRow
                             key={f.id}
                             field={f}
-                            dragDisabled={!isAdmin}
+                            dragDisabled={!canManageWorkflow}
                           >
                             <td>
                               <div>
@@ -2601,28 +2712,58 @@ export function WorkflowDetail(): React.ReactElement {
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {isAdmin && (
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    gap: "6px",
-                                    justifyContent: "flex-end",
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "6px",
+                                  justifyContent: "flex-end",
+                                }}
+                              >
+                                <button
+                                  className="icon-btn icon-btn-edit"
+                                  onClick={() => {
+                                    setEditingField(f);
+                                    setFieldForm({
+                                      name: f.name,
+                                      label: f.label,
+                                      fieldType: f.fieldType,
+                                      isRequired: f.isRequired,
+                                    });
+                                    setFieldError(null);
                                   }}
+                                  title="Edit field"
                                 >
-                                  <button
-                                    className="icon-btn icon-btn-edit"
-                                    onClick={() => {
-                                      setEditingField(f);
-                                      setFieldForm({
-                                        name: f.name,
-                                        label: f.label,
-                                        fieldType: f.fieldType,
-                                        isRequired: f.isRequired,
-                                      });
-                                      setFieldError(null);
-                                    }}
-                                    title="Edit field"
+                                  <svg
+                                    width="13"
+                                    height="13"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
                                   >
+                                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  </svg>
+                                </button>
+                                <button
+                                  className="icon-btn icon-btn-delete"
+                                  disabled={deletingFieldId === f.id}
+                                  onClick={() =>
+                                    setConfirmDelete({
+                                      message: `Delete field "${f.label}"?`,
+                                      onConfirm: () => {
+                                        setConfirmDelete(null);
+                                        void handleDeleteField(f.id);
+                                      },
+                                    })
+                                  }
+                                  title="Delete field"
+                                >
+                                  {deletingFieldId === f.id ? (
+                                    <span style={{ fontSize: "11px" }}>…</span>
+                                  ) : (
                                     <svg
                                       width="13"
                                       height="13"
@@ -2633,47 +2774,13 @@ export function WorkflowDetail(): React.ReactElement {
                                       strokeLinecap="round"
                                       strokeLinejoin="round"
                                     >
-                                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                      <polyline points="3 6 5 6 21 6" />
+                                      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                                      <path d="M10 11v6M14 11v6" />
                                     </svg>
-                                  </button>
-                                  <button
-                                    className="icon-btn icon-btn-delete"
-                                    disabled={deletingFieldId === f.id}
-                                    onClick={() =>
-                                      setConfirmDelete({
-                                        message: `Delete field "${f.label}"?`,
-                                        onConfirm: () => {
-                                          setConfirmDelete(null);
-                                          void handleDeleteField(f.id);
-                                        },
-                                      })
-                                    }
-                                    title="Delete field"
-                                  >
-                                    {deletingFieldId === f.id ? (
-                                      <span style={{ fontSize: "11px" }}>
-                                        …
-                                      </span>
-                                    ) : (
-                                      <svg
-                                        width="13"
-                                        height="13"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                      >
-                                        <polyline points="3 6 5 6 21 6" />
-                                        <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                        <path d="M10 11v6M14 11v6" />
-                                      </svg>
-                                    )}
-                                  </button>
-                                </div>
-                              )}
+                                  )}
+                                </button>
+                              </div>
                             </td>
                           </SortableFieldRow>
                         ))}
@@ -2701,6 +2808,203 @@ export function WorkflowDetail(): React.ReactElement {
             marginBottom: "20px",
           }}
         >
+          {/* Admin assignment — full width, above the two-column grid */}
+          <div
+            className="data-panel wfd-settings-panel"
+            style={{ marginBottom: "20px" }}
+          >
+            <SectionHeader label="Workflow Admins" />
+            <p
+              style={{
+                fontSize: "13px",
+                color: "var(--text-secondary)",
+                marginBottom: "14px",
+                lineHeight: 1.5,
+              }}
+            >
+              Admins have full access over this workflow — they can manage
+              states, transitions, and fields.
+              {!isAdminListEditor &&
+                " Only the creator or a global admin can add or remove admins."}
+            </p>
+
+            {/* Admin pills */}
+            {assignedTo.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "8px",
+                  marginBottom: "14px",
+                }}
+              >
+                {assignedTo.map((userId) => {
+                  const u = orgUsers.find((o) => o.userId === userId);
+                  const displayName = u?.displayName ?? userId;
+                  const initials = displayName
+                    .split(" ")
+                    .slice(0, 2)
+                    .map((p) => p[0] ?? "")
+                    .join("")
+                    .toUpperCase();
+                  const isCreator = userId === workflow.createdBy;
+                  // Creator is only removable by a global admin (never by
+                  // themselves, never by a fellow non-creator admin).
+                  const canRemove =
+                    isAdminListEditor && !(isCreator && !isAdmin);
+
+                  return (
+                    <div
+                      key={userId}
+                      title={u?.email ?? u?.loginName ?? userId}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        padding: "6px 8px 6px 6px",
+                        background: "var(--bg-tertiary)",
+                        border: "1px solid var(--border-color)",
+                        borderRadius: "999px",
+                        maxWidth: "100%",
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: "24px",
+                          height: "24px",
+                          borderRadius: "50%",
+                          background: "var(--accent-primary)",
+                          color: "#fff",
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {initials}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          color: "var(--text-primary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: "160px",
+                        }}
+                      >
+                        {displayName}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          color: isCreator
+                            ? "var(--text-secondary)"
+                            : "var(--accent-primary)",
+                          background: isCreator
+                            ? "var(--bg-secondary)"
+                            : "hsla(250,84%,60%,.1)",
+                          border: isCreator
+                            ? "1px solid var(--border-color)"
+                            : "1px solid hsla(250,84%,60%,.2)",
+                          borderRadius: "999px",
+                          padding: "2px 8px",
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isCreator ? "Creator" : "Admin"}
+                      </span>
+                      {canRemove && (
+                        <button
+                          type="button"
+                          disabled={savingAssign}
+                          onClick={() =>
+                            void handleAssign(
+                              assignedTo.filter((id) => id !== userId),
+                            )
+                          }
+                          title={
+                            isCreator
+                              ? "Remove creator (global admin only)"
+                              : "Remove admin"
+                          }
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "50%",
+                            background: "none",
+                            border: "none",
+                            cursor: savingAssign ? "not-allowed" : "pointer",
+                            color: "var(--text-muted)",
+                            flexShrink: 0,
+                            opacity: savingAssign ? 0.5 : 1,
+                            transition: "background 0.12s, color 0.12s",
+                          }}
+                          onMouseEnter={(e) => {
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.background = "hsla(0,84%,60%,.12)";
+                            (e.currentTarget as HTMLButtonElement).style.color =
+                              "var(--danger)";
+                          }}
+                          onMouseLeave={(e) => {
+                            (
+                              e.currentTarget as HTMLButtonElement
+                            ).style.background = "none";
+                            (e.currentTarget as HTMLButtonElement).style.color =
+                              "var(--text-muted)";
+                          }}
+                        >
+                          <svg
+                            width="11"
+                            height="11"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                          >
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {isAdminListEditor && (
+              <>
+                <MultiUserPicker
+                  users={orgUsers}
+                  value={assignedTo}
+                  onChange={(uids) => void handleAssign(uids)}
+                  placeholder="Add workflow admins…"
+                  disabled={savingAssign}
+                />
+                {savingAssign && (
+                  <p
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-muted)",
+                      marginTop: "8px",
+                    }}
+                  >
+                    Saving…
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
           <div
             style={{
               display: "grid",
@@ -2972,9 +3276,9 @@ export function WorkflowDetail(): React.ReactElement {
                 </button>
               </div>
 
-              {/* Admin assignment */}
+              {/* Activate / Deactivate */}
               <div className="data-panel wfd-settings-panel">
-                <SectionHeader label="Workflow Admins" />
+                <SectionHeader label="Workflow Status" />
                 <p
                   style={{
                     fontSize: "13px",
@@ -2983,221 +3287,29 @@ export function WorkflowDetail(): React.ReactElement {
                     lineHeight: 1.5,
                   }}
                 >
-                  Assigned users have full admin access over this workflow —
-                  they can manage states, transitions, and fields.
+                  {workflow.isActive
+                    ? "This workflow is currently active. Deactivating it will prevent new records from being created."
+                    : "This workflow is inactive. Activate it to allow new records to be created."}
                 </p>
-
-                {/* Selected admin cards */}
-                {assignedTo.length > 0 && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "8px",
-                      marginBottom: "12px",
-                    }}
-                  >
-                    {orgUsers
-                      .filter((u) => assignedTo.includes(u.userId))
-                      .map((u) => {
-                        const initials = u.displayName
-                          .split(" ")
-                          .slice(0, 2)
-                          .map((p) => p[0] ?? "")
-                          .join("")
-                          .toUpperCase();
-                        return (
-                          <div
-                            key={u.userId}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "12px",
-                              padding: "10px 12px",
-                              background: "var(--bg-tertiary)",
-                              border: "1px solid var(--border-color)",
-                              borderRadius: "var(--radius-sm)",
-                            }}
-                          >
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                width: "36px",
-                                height: "36px",
-                                borderRadius: "50%",
-                                background: "var(--accent-primary)",
-                                color: "#fff",
-                                fontSize: "13px",
-                                fontWeight: 700,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {initials}
-                            </span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div
-                                style={{
-                                  fontSize: "13px",
-                                  fontWeight: 600,
-                                  color: "var(--text-primary)",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {u.displayName}
-                              </div>
-                              <div
-                                style={{
-                                  fontSize: "11px",
-                                  color: "var(--text-muted)",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  marginTop: "1px",
-                                }}
-                              >
-                                {u.email || u.loginName}
-                              </div>
-                            </div>
-                            <span
-                              style={{
-                                fontSize: "10px",
-                                fontWeight: 700,
-                                color: "var(--accent-primary)",
-                                background: "hsla(250,84%,60%,.1)",
-                                border: "1px solid hsla(250,84%,60%,.2)",
-                                borderRadius: "20px",
-                                padding: "2px 8px",
-                                whiteSpace: "nowrap",
-                                flexShrink: 0,
-                              }}
-                            >
-                              Admin
-                            </span>
-                            <button
-                              type="button"
-                              disabled={savingAssign}
-                              onClick={() =>
-                                void handleAssign(
-                                  assignedTo.filter((id) => id !== u.userId),
-                                )
-                              }
-                              title="Remove admin"
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                width: "26px",
-                                height: "26px",
-                                borderRadius: "6px",
-                                background: "none",
-                                border: "1px solid var(--border-color)",
-                                cursor: savingAssign
-                                  ? "not-allowed"
-                                  : "pointer",
-                                color: "var(--text-muted)",
-                                flexShrink: 0,
-                                opacity: savingAssign ? 0.5 : 1,
-                                transition: "background 0.12s, color 0.12s",
-                              }}
-                              onMouseEnter={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.background = "hsla(0,84%,60%,.08)";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.color = "var(--danger)";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.borderColor = "var(--danger)";
-                              }}
-                              onMouseLeave={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.background = "none";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.color = "var(--text-muted)";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.borderColor = "var(--border-color)";
-                              }}
-                            >
-                              <svg
-                                width="12"
-                                height="12"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                              >
-                                <path d="M18 6L6 18M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </div>
-                        );
-                      })}
-                  </div>
-                )}
-
-                <MultiUserPicker
-                  users={orgUsers}
-                  value={assignedTo}
-                  onChange={(uids) => void handleAssign(uids)}
-                  placeholder="Add workflow admins…"
-                  disabled={savingAssign}
-                />
-                {savingAssign && (
-                  <p
-                    style={{
-                      fontSize: "12px",
-                      color: "var(--text-muted)",
-                      marginTop: "8px",
-                    }}
-                  >
-                    Saving…
-                  </p>
-                )}
+                <button
+                  className={
+                    workflow.isActive ? "btn btn-secondary" : "btn-primary"
+                  }
+                  onClick={() => void handleToggleActive()}
+                  disabled={togglingActive}
+                  style={{ minWidth: "130px" }}
+                >
+                  {togglingActive
+                    ? "Saving…"
+                    : workflow.isActive
+                      ? "Deactivate Workflow"
+                      : "Activate Workflow"}
+                </button>
               </div>
 
-              {/* Activate / Deactivate */}
-              {isAdmin && (
-                <div className="data-panel wfd-settings-panel">
-                  <SectionHeader label="Workflow Status" />
-                  <p
-                    style={{
-                      fontSize: "13px",
-                      color: "var(--text-secondary)",
-                      marginBottom: "14px",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {workflow.isActive
-                      ? "This workflow is currently active. Deactivating it will prevent new records from being created."
-                      : "This workflow is inactive. Activate it to allow new records to be created."}
-                  </p>
-                  <button
-                    className={
-                      workflow.isActive ? "btn btn-secondary" : "btn-primary"
-                    }
-                    onClick={() => void handleToggleActive()}
-                    disabled={togglingActive}
-                    style={{ minWidth: "130px" }}
-                  >
-                    {togglingActive
-                      ? "Saving…"
-                      : workflow.isActive
-                        ? "Deactivate Workflow"
-                        : "Activate Workflow"}
-                  </button>
-                </div>
-              )}
-
-              {/* Danger zone */}
-              {isAdmin && (
+              {/* Danger zone — deletion is restricted to the creator or a
+                  global admin (matches the backend's deleteWorkflow gate) */}
+              {isAdminListEditor && (
                 <div
                   className="data-panel wfd-settings-panel"
                   style={{

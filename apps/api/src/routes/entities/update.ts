@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, tenantUsers, withTenantContext } from "@platform/db";
 import { updateEntity } from "@platform/entity-engine";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -24,13 +25,16 @@ export const updateEntityHandler = factory.createHandlers(
 
     const isAdminOrAgent = roles.includes("admin") || roles.includes("agent");
 
-    // Non-admin/agent users may only edit records they own (assignee or creator)
+    // Non-admin/agent users may only edit records they own (assignee or
+    // creator), or where they're an admin (creator/assigned_to) of the
+    // record's workflow — matches the "full workflow access" model.
     if (!isAdminOrAgent) {
       const [row] = await withTenantContext(tenantId, (tx) =>
         tx
           .select({
             assignedTo: entityInstances.assignedTo,
             createdBy: entityInstances.createdBy,
+            workflowId: entityInstances.workflowId,
           })
           .from(entityInstances)
           .where(
@@ -42,7 +46,23 @@ export const updateEntityHandler = factory.createHandlers(
           .limit(1),
       );
 
-      if (row?.assignedTo !== userId && row?.createdBy !== userId) {
+      const isOwner = row?.assignedTo === userId || row?.createdBy === userId;
+      const isRecordWorkflowAdmin = row?.workflowId
+        ? await withTenantContext(tenantId, async (tx) => {
+            const workflow = await getWorkflow(
+              tx,
+              tenantId,
+              row.workflowId as string,
+              {
+                userId,
+                isGlobalAdmin: false,
+              },
+            );
+            return isWorkflowAdmin(userId, workflow);
+          })
+        : false;
+
+      if (!isOwner && !isRecordWorkflowAdmin) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
     }

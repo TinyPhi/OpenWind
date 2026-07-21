@@ -181,7 +181,28 @@ describe("restoreEntity", () => {
     const result = await restoreEntity(dbMock as never, TENANT, PARENT_ID);
 
     expect(result).toMatchObject({ restored: true, count: 3 });
-    expect(dbMock.update).toHaveBeenCalledTimes(2);
+    // Three update calls: instances, in-tree relations, and the restored
+    // root's own inbound parent_of relation (mirrors archiveEntity's IMP-5 fix).
+    expect(dbMock.update).toHaveBeenCalledTimes(3);
+  });
+
+  it("restores the archived root's own inbound parent_of relation, not just in-tree relations", async () => {
+    // Reproduces the bug: without the third update, restoring a mid-tree
+    // node left its parent's parent_of -> restoredRoot row still soft-deleted,
+    // making the relation graph asymmetric after archive-then-restore.
+    mockSelectSeq.push(() => [{ id: CHILD_A, deletedAt: ARCHIVE_TS }]);
+    mockSelectSeq.push(() => []); // no batch descendants of CHILD_A
+
+    await restoreEntity(dbMock as never, TENANT, CHILD_A);
+
+    expect(dbMock.update).toHaveBeenCalledTimes(3);
+    const thirdCallArgs = mockUpdateWhere.mock.calls[2]?.[0] as {
+      args: unknown[];
+    };
+    const flatArgs = JSON.stringify(thirdCallArgs);
+    expect(flatArgs).toContain("to_instance_id");
+    expect(flatArgs).toContain(CHILD_A);
+    expect(flatArgs).toContain("relation_type");
   });
 
   it("does not restore descendants archived at a different time", async () => {
