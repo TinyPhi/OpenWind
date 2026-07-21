@@ -8,6 +8,7 @@ import {
   withTenantContext,
 } from "@platform/db";
 import { and, eq, sql } from "drizzle-orm";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -28,7 +29,10 @@ export const addCommentAttachmentHandler = factory.createHandlers(
     try {
       const [instance] = await withTenantContext(tenantId, (tx) =>
         tx
-          .select({ id: entityInstances.id })
+          .select({
+            id: entityInstances.id,
+            workflowId: entityInstances.workflowId,
+          })
           .from(entityInstances)
           .where(
             and(
@@ -72,12 +76,26 @@ export const addCommentAttachmentHandler = factory.createHandlers(
         );
       }
 
-      // Only the comment author or admin/agent can attach files
+      // Only the comment author, admin/agent, or an admin of this ticket's
+      // workflow can attach files
       if (!isPrivileged && event.actorId !== userId) {
-        return c.json(
-          { error: "NOT_FOUND", message: "Comment not found" },
-          404,
-        );
+        const canAttach = instance.workflowId
+          ? isWorkflowAdmin(
+              userId,
+              await withTenantContext(tenantId, (tx) =>
+                getWorkflow(tx, tenantId, instance.workflowId as string, {
+                  userId,
+                  isGlobalAdmin: false,
+                }),
+              ),
+            )
+          : false;
+        if (!canAttach) {
+          return c.json(
+            { error: "NOT_FOUND", message: "Comment not found" },
+            404,
+          );
+        }
       }
 
       const [file] = await withTenantContext(tenantId, (tx) =>
@@ -93,11 +111,9 @@ export const addCommentAttachmentHandler = factory.createHandlers(
       }
 
       if (file.scanStatus !== "clean") {
+        // L-1: don't leak AV pipeline scanStatus enum values to the caller
         return c.json(
-          {
-            error: "FILE_NOT_READY",
-            message: `File is not ready: ${file.scanStatus}`,
-          },
+          { error: "FILE_NOT_READY", message: "File is not yet available" },
           422,
         );
       }

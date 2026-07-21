@@ -5,6 +5,7 @@ import { withTenantContext } from "@platform/db";
 import { listWorkflows, listWorkflowsSummary } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
+import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 
 const ListWorkflowsQuerySchema = z.object({
   entityTypeId: z.string().uuid().optional(),
@@ -24,12 +25,14 @@ export const listWorkflowsHandler = factory.createHandlers(
   zValidator("query", ListWorkflowsQuerySchema),
   async (c) => {
     const { entityTypeId, activeOnly, summary } = c.req.valid("query");
-    const { tenantId } = c.get("auth");
+    const auth = c.get("auth");
+    const { tenantId } = auth;
+    const caller = toWorkflowCaller(auth);
     try {
       const workflows = await withTenantContext(tenantId, (tx) =>
         summary
-          ? listWorkflowsSummary(tx, tenantId, entityTypeId, activeOnly)
-          : listWorkflows(tx, tenantId, entityTypeId, activeOnly),
+          ? listWorkflowsSummary(tx, tenantId, caller, entityTypeId, activeOnly)
+          : listWorkflows(tx, tenantId, caller, entityTypeId, activeOnly),
       );
       return c.json({ data: workflows });
     } catch (err) {

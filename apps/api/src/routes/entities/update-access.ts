@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, withTenantContext } from "@platform/db";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
@@ -13,13 +14,14 @@ const UpdateAccessSchema = z.object({
 
 export const updateAccessHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", UpdateAccessSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
     const targetUserId = c.req.param("userId") ?? "";
-    const { tenantId, userId: actorId } = c.get("auth");
+    const { tenantId, userId: actorId, roles } = c.get("auth");
     const { level } = c.req.valid("json");
+    const isPrivileged = roles.includes("admin") || roles.includes("agent");
 
     try {
       const [instance] = await withTenantContext(tenantId, (tx) =>
@@ -28,6 +30,8 @@ export const updateAccessHandler = factory.createHandlers(
             id: entityInstances.id,
             assignedTo: entityInstances.assignedTo,
             fields: entityInstances.fields,
+            createdBy: entityInstances.createdBy,
+            workflowId: entityInstances.workflowId,
           })
           .from(entityInstances)
           .where(
@@ -41,6 +45,28 @@ export const updateAccessHandler = factory.createHandlers(
 
       if (!instance) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+      }
+
+      if (!isPrivileged) {
+        const isOwner =
+          instance.createdBy === actorId || instance.assignedTo === actorId;
+        const isRecordWorkflowAdmin = instance.workflowId
+          ? isWorkflowAdmin(
+              actorId,
+              await withTenantContext(tenantId, (tx) =>
+                getWorkflow(tx, tenantId, instance.workflowId as string, {
+                  userId: actorId,
+                  isGlobalAdmin: false,
+                }),
+              ),
+            )
+          : false;
+        if (!isOwner && !isRecordWorkflowAdmin) {
+          return c.json(
+            { error: "NOT_FOUND", message: "Record not found" },
+            404,
+          );
+        }
       }
 
       // This is an update, not a grant — the target user must already have
@@ -65,6 +91,8 @@ export const updateAccessHandler = factory.createHandlers(
         );
       }
 
+      // Update the level field inside __accessUsers[targetUserId]
+      // Guard against legacy array format — coerce to {} so path navigation works.
       await withTenantContext(tenantId, (tx) =>
         tx
           .update(entityInstances)

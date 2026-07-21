@@ -9,6 +9,7 @@ import {
 } from "@platform/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { entityRelations } from "@platform/db";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 
@@ -57,10 +58,20 @@ export const createAttachmentHandler = factory.createHandlers(
         const userAccess = (accessUsers as Record<string, { level: string }>)[
           userId
         ];
-        const canAttach =
+        let canAttach =
           instance.createdBy === userId ||
           instance.assignedTo === userId ||
           userAccess?.level === "read_write";
+
+        if (!canAttach && instance.workflowId) {
+          const workflow = await withTenantContext(tenantId, (tx) =>
+            getWorkflow(tx, tenantId, instance.workflowId as string, {
+              userId,
+              isGlobalAdmin: false,
+            }),
+          );
+          canAttach = isWorkflowAdmin(userId, workflow);
+        }
 
         if (!canAttach) {
           return c.json(

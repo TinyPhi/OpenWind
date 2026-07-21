@@ -3,10 +3,20 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as WorkflowEngine from "@platform/workflow-engine";
+import type * as EntityEngine from "@platform/entity-engine";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockGetWorkflowEventLog = vi.fn();
+// Read-access gate check (#127-adjacent IDOR fix) — resolves to an instance
+// the "admin" role auth context always passes. Overridden per-test to
+// exercise the not-found/cross-tenant path.
+const mockGetEntityForAccess = vi.fn().mockResolvedValue({
+  id: "irrelevant",
+  createdBy: null,
+  assignedTo: null,
+  fields: {},
+});
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -55,6 +65,14 @@ vi.mock("@platform/workflow-engine", async (importOriginal) => {
     ...real,
     getWorkflowEventLog: (...args: unknown[]) =>
       mockGetWorkflowEventLog(...args),
+  };
+});
+
+vi.mock("@platform/entity-engine", async (importOriginal) => {
+  const real = await importOriginal<typeof EntityEngine>();
+  return {
+    ...real,
+    getEntity: (...args: unknown[]) => mockGetEntityForAccess(...args),
   };
 });
 
@@ -144,16 +162,22 @@ describe("GET /entities/:id/transitions/history", () => {
     expect(json.data).toEqual([]);
   });
 
-  it("returns 200 with empty array when instance belongs to another tenant (RLS)", async () => {
-    // getWorkflowEventLog returns [] when instance is not found (RLS/404-as-empty)
-    mockGetWorkflowEventLog.mockResolvedValue([]);
+  it("returns 404 when instance belongs to another tenant (RLS)", async () => {
+    // getEntity throws ENTITY_NOT_FOUND for a cross-tenant instance (RLS
+    // scopes the underlying query to tenantId) — the read-access gate added
+    // for the list-events.ts/list-relations.ts IDOR pattern now catches this
+    // before getWorkflowEventLog is ever called, instead of silently
+    // returning an empty array that leaked "this ID exists, no events".
+    const { EntityError } = await import("@platform/entity-engine");
+    mockGetEntityForAccess.mockRejectedValueOnce(
+      new EntityError("ENTITY_NOT_FOUND", { instanceId: INST_ID }),
+    );
 
     const res = await makeApp().request(`/${INST_ID}/transitions/history`, {
       method: "GET",
     });
 
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual([]);
+    expect(res.status).toBe(404);
+    expect(mockGetWorkflowEventLog).not.toHaveBeenCalled();
   });
 });

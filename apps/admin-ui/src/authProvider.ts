@@ -70,13 +70,25 @@ export function waitForAuth(): Promise<void> {
 
 // Attempt a silent token refresh using the stored refresh_token.
 // Returns the new access_token on success, null on failure.
-export async function silentRefresh(): Promise<string | null> {
-  try {
-    const user = await userManager.signinSilent();
-    return user?.access_token ?? null;
-  } catch {
-    return null;
-  }
+//
+// Single-flight: concurrent 401s (e.g. several in-flight requests all racing
+// at token expiry) previously each fired their own independent signinSilent()
+// call — N parallel calls racing on the same localStorage write. All callers
+// arriving while a refresh is already in progress now share that one promise.
+let _pendingRefresh: Promise<string | null> | undefined;
+
+export function silentRefresh(): Promise<string | null> {
+  if (_pendingRefresh) return _pendingRefresh;
+
+  _pendingRefresh = userManager
+    .signinSilent()
+    .then((user) => user?.access_token ?? null)
+    .catch(() => null)
+    .finally(() => {
+      _pendingRefresh = undefined;
+    });
+
+  return _pendingRefresh;
 }
 
 export const authProvider: AuthProvider = {

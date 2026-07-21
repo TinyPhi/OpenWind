@@ -5,6 +5,7 @@ import { withTenantContext } from "@platform/db";
 import { addWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
+import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
 
 const CreateTransitionSchema = z.object({
   fromState: z.string().min(1).max(100),
@@ -18,23 +19,30 @@ const CreateTransitionSchema = z.object({
 
 export const createTransitionHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", CreateTransitionSchema),
   async (c) => {
     const workflowId = c.req.param("id") ?? "";
     const input = c.req.valid("json");
-    const { tenantId } = c.get("auth");
+    const auth = c.get("auth");
+    const { tenantId } = auth;
     try {
       const transition = await withTenantContext(tenantId, (tx) =>
-        addWorkflowTransition(tx, tenantId, workflowId, {
-          fromState: input.fromState,
-          toState: input.toState,
-          label: input.label,
-          allowedRoles: input.allowedRoles,
-          conditions: input.conditions as never,
-          requiresComment: input.requiresComment,
-          requiresFields: input.requiresFields,
-        }),
+        addWorkflowTransition(
+          tx,
+          tenantId,
+          workflowId,
+          toWorkflowCaller(auth),
+          {
+            fromState: input.fromState,
+            toState: input.toState,
+            label: input.label,
+            allowedRoles: input.allowedRoles,
+            conditions: input.conditions as never,
+            requiresComment: input.requiresComment,
+            requiresFields: input.requiresFields,
+          },
+        ),
       );
       return c.json({ data: transition }, 201);
     } catch (err) {

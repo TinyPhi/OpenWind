@@ -1,7 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { initiateUpload } from "@platform/files";
 import { factory } from "./factory.js";
 
@@ -63,15 +63,17 @@ export const initiateUploadHandler = factory.createHandlers(
     const input = c.req.valid("json");
     const { tenantId, userId } = c.get("auth");
 
-    const result = await initiateUpload(
-      db,
-      tenantId,
-      userId,
-      input.moduleSlug,
-      input.entityId ?? null,
-      input.originalName,
-      input.mimeType,
-      input.sizeBytes,
+    const result = await withTenantContext(tenantId, (tx) =>
+      initiateUpload(
+        tx,
+        tenantId,
+        userId,
+        input.moduleSlug,
+        input.entityId ?? null,
+        input.originalName,
+        input.mimeType,
+        input.sizeBytes,
+      ),
     );
 
     return c.json({ data: result }, 201);

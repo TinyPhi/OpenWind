@@ -9,7 +9,7 @@ import {
 } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
-import { hasEntityReadAccess } from "../../lib/entity-access.js";
+import { hasEntityAccess } from "../../lib/entity-access.js";
 
 async function getAncestorDepth(
   db: Parameters<Parameters<typeof withTenantContext>[1]>[0],
@@ -55,7 +55,10 @@ export const getEntityHandler = factory.createHandlers(
           ]),
         );
 
-      if (!hasEntityReadAccess(instance, userId, roles)) {
+      const allowed = await withTenantContext(tenantId, (tx) =>
+        hasEntityAccess(tx, tenantId, instance, userId, roles),
+      );
+      if (!allowed) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 

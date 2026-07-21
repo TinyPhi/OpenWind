@@ -6,27 +6,27 @@ import { userManager } from "../authProvider.js";
 // ── Admin nav items ──────────────────────────────────────────────────────────
 
 // Nav shown to super-admins only
-const SUPER_ADMIN_NAV_EXTRA = [
-  {
-    route: "/users",
-    label: "Users",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth="2"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
-        />
-      </svg>
-    ),
-  },
-];
+const USERS_NAV = {
+  route: "/users",
+  label: "Users",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
+      />
+    </svg>
+  ),
+};
+
+const SUPER_ADMIN_NAV_EXTRA = [USERS_NAV];
 
 const ADMIN_NAV = [
   {
@@ -266,21 +266,6 @@ export function Layout({
         </button>
         <div className="logo-icon">W</div>
         <div className="logo-text">OpenWind</div>
-        {isCustomer && (
-          <span
-            style={{
-              fontSize: "11px",
-              padding: "2px 8px",
-              borderRadius: "4px",
-              background: "hsla(250,84%,60%,.15)",
-              color: "var(--accent-primary)",
-              fontWeight: 600,
-              marginLeft: "4px",
-            }}
-          >
-            Portal
-          </span>
-        )}
       </div>
 
       <div
@@ -529,6 +514,40 @@ export function Layout({
                   />
                 </svg>
                 {(sidebarOpen || mobileNavOpen) && <span>Templates</span>}
+              </Link>
+
+              {/* Workflows — users can create & manage their own workflows */}
+              <Link
+                to="/workflows"
+                className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive("/workflows") ? "active" : ""}`}
+                title={!sidebarOpen ? "Workflows" : undefined}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="2"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061A1.125 1.125 0 013 16.811V8.69zM12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061a1.125 1.125 0 01-1.683-.977V8.69z"
+                  />
+                </svg>
+                {(sidebarOpen || mobileNavOpen) && <span>Workflows</span>}
+              </Link>
+
+              {/* Users — org member list (read-only for customers, no admin actions) */}
+              <Link
+                to={USERS_NAV.route}
+                className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive(USERS_NAV.route) ? "active" : ""}`}
+                title={!sidebarOpen ? USERS_NAV.label : undefined}
+              >
+                {USERS_NAV.icon}
+                {(sidebarOpen || mobileNavOpen) && (
+                  <span>{USERS_NAV.label}</span>
+                )}
               </Link>
 
               <div className="nav-divider" />

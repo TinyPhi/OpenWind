@@ -2,12 +2,13 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
-import { workflowStates, workflowTransitions } from "@platform/db";
+import { workflows, workflowStates, workflowTransitions } from "@platform/db";
 import { and, eq, inArray } from "drizzle-orm";
-import { getWorkflow } from "@platform/workflow-engine";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
+import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 
 const NEW_PREFIX = "__new_";
 
@@ -38,16 +39,56 @@ export const CanvasSaveSchema = z.object({
 
 export const canvasSaveHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", CanvasSaveSchema),
   async (c) => {
     const workflowId = c.req.param("id") ?? "";
     const input = c.req.valid("json");
-    const { tenantId } = c.get("auth");
+    const auth = c.get("auth");
+    const { tenantId } = auth;
+    const caller = toWorkflowCaller(auth);
 
     try {
+      // Explicit forbidden-vs-not-found split: same-tenant callers who aren't
+      // this workflow's admin get 403 (matches the pre-existing role-gate
+      // contract this route had), while a workflow in another tenant (or one
+      // that doesn't exist) still 404s via getWorkflow below.
+      if (!caller.isGlobalAdmin) {
+        const [row] = await withTenantContext(tenantId, (tx) =>
+          tx
+            .select({
+              id: workflows.id,
+              createdBy: workflows.createdBy,
+              assignedTo: workflows.assignedTo,
+            })
+            .from(workflows)
+            .where(
+              and(
+                eq(workflows.id, workflowId),
+                eq(workflows.tenantId, tenantId),
+              ),
+            )
+            .limit(1),
+        );
+        if (
+          row &&
+          !isWorkflowAdmin(caller.userId, {
+            createdBy: row.createdBy ?? null,
+            assignedTo: row.assignedTo ?? [],
+          })
+        ) {
+          return c.json(
+            {
+              error: "FORBIDDEN",
+              message: "You do not have permission to edit this workflow",
+            },
+            403,
+          );
+        }
+      }
+
       const updated = await withTenantContext(tenantId, async (tx) => {
-        const current = await getWorkflow(tx, tenantId, workflowId);
+        const current = await getWorkflow(tx, tenantId, workflowId, caller);
 
         const currentStateIds = new Set(current.states.map((s) => s.id));
         const currentTransitionIds = new Set(
@@ -208,7 +249,7 @@ export const canvasSaveHandler = factory.createHandlers(
           "Canvas save applied",
         );
 
-        return getWorkflow(tx, tenantId, workflowId);
+        return getWorkflow(tx, tenantId, workflowId, caller);
       });
 
       return c.json({ data: updated });

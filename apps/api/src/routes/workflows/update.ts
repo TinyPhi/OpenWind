@@ -6,6 +6,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { updateWorkflow } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
+import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 
 const UpdateWorkflowSchema = z.object({
   isActive: z.boolean().optional(),
@@ -16,11 +17,12 @@ const UpdateWorkflowSchema = z.object({
 
 export const updateWorkflowHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", UpdateWorkflowSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const auth = c.get("auth");
+    const { tenantId } = auth;
     const input = c.req.valid("json");
 
     // Verify every workflow-admin user id belongs to this tenant before writing.
@@ -53,7 +55,7 @@ export const updateWorkflowHandler = factory.createHandlers(
 
     try {
       const workflow = await withTenantContext(tenantId, (tx) =>
-        updateWorkflow(tx, tenantId, id, input),
+        updateWorkflow(tx, tenantId, id, toWorkflowCaller(auth), input),
       );
       return c.json({ data: workflow });
     } catch (err) {

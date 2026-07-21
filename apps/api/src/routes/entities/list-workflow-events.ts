@@ -1,11 +1,17 @@
 import { inArray } from "drizzle-orm";
 import { requireAuth } from "@platform/auth";
 import { tenantUsers, withTenantContext } from "@platform/db";
+import { getEntity, EntityError } from "@platform/entity-engine";
 import { getWorkflowEventLog } from "@platform/workflow-engine";
 import { listOrgUsers, getUserById } from "../../lib/zitadel-management.js";
 import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
+import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
+// Same hasEntityReadAccess gate get.ts/list-events.ts apply to this exact
+// record — without it, any tenant member can read a ticket's full transition
+// history (with resolved actor names) by guessing its ID.
+import { hasEntityReadAccess } from "../../lib/entity-access.js";
 
 function resolveDisplayName(
   userId: string,
@@ -18,9 +24,17 @@ export const listWorkflowEventsHandler = factory.createHandlers(
   requireAuth(),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId, orgId } = c.get("auth");
+    const { tenantId, userId, roles, orgId } = c.get("auth");
 
     try {
+      const instance = await withTenantContext(tenantId, (tx) =>
+        getEntity(tx, tenantId, id),
+      );
+
+      if (!hasEntityReadAccess(instance, userId, roles)) {
+        return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+      }
+
       const events = await withTenantContext(tenantId, (tx) =>
         getWorkflowEventLog(tx, tenantId, id),
       );
@@ -149,6 +163,9 @@ export const listWorkflowEventsHandler = factory.createHandlers(
 
       return c.json({ data: enriched });
     } catch (err) {
+      if (err instanceof EntityError) {
+        return handleEntityError(c, err);
+      }
       return handleWorkflowError(c, err);
     }
   },

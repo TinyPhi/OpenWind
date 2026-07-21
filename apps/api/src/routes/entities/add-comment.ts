@@ -8,10 +8,12 @@ import {
   entityInstances,
   entityRelations,
   tenantUsers,
+  files,
   withTenantContext,
 } from "@platform/db";
 import { isNull } from "drizzle-orm";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 
 const MentionSchema = z.object({
@@ -65,11 +67,22 @@ export const addCommentHandler = factory.createHandlers(
       const userAccess = (accessUsers as Record<string, { level: string }>)[
         userId
       ];
-      const canComment =
+      let canComment =
         instance.createdBy === userId ||
         instance.assignedTo === userId ||
         userAccess?.level === "read_comment" ||
         userAccess?.level === "read_write";
+
+      if (!canComment && instance.workflowId) {
+        const workflow = await withTenantContext(tenantId, (tx) =>
+          getWorkflow(tx, tenantId, instance.workflowId as string, {
+            userId,
+            isGlobalAdmin: false,
+          }),
+        );
+        canComment = isWorkflowAdmin(userId, workflow);
+      }
+
       if (!canComment) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
@@ -114,6 +127,51 @@ export const addCommentHandler = factory.createHandlers(
         { error: "BAD_REQUEST", message: "Record has no workflow" },
         400,
       );
+    }
+
+    // Validate + bind every fileId before it can be written into comment
+    // metadata — otherwise an unbound file's entityId stays null, and
+    // files/download.ts's hasEntityAccess gate is `if (file.entityId)`,
+    // meaning any same-tenant user could fetch a download URL for it by ID,
+    // bypassing this record's own access control. Mirrors create-attachment.ts.
+    if (fileIds.length > 0) {
+      for (const fileId of fileIds) {
+        const [file] = await withTenantContext(tenantId, (tx) =>
+          tx
+            .select()
+            .from(files)
+            .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
+            .limit(1),
+        );
+
+        if (!file || file.scanStatus === "deleted") {
+          return c.json({ error: "NOT_FOUND", message: "File not found" }, 404);
+        }
+        if (file.scanStatus !== "clean") {
+          // L-1: don't leak AV pipeline scanStatus enum values to the caller
+          return c.json(
+            { error: "FILE_NOT_READY", message: "File is not yet available" },
+            422,
+          );
+        }
+        if (file.entityId !== null && file.entityId !== id) {
+          return c.json(
+            {
+              error: "FILE_BELONGS_TO_OTHER_ENTITY",
+              message: "File is attached to a different record",
+            },
+            409,
+          );
+        }
+        if (file.entityId === null) {
+          await withTenantContext(tenantId, (tx) =>
+            tx
+              .update(files)
+              .set({ entityId: id, updatedAt: new Date() })
+              .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId))),
+          );
+        }
+      }
     }
 
     // Resolve actor name
@@ -178,7 +236,16 @@ export const addCommentHandler = factory.createHandlers(
     try {
       const usersToGrant: Array<{ userId: string; level: string }> = [];
 
-      if (userId !== instance.assignedTo) {
+      // Only grant read_comment to the commenter if they have no existing
+      // ACL entry at all — a commenter with an existing entry (e.g.
+      // read_write from being assigned or explicitly granted) must never be
+      // silently downgraded just for posting a comment.
+      const existingAccessUsers =
+        (instance.fields as Record<string, unknown>).__accessUsers ?? {};
+      const existingSelfEntry = (
+        existingAccessUsers as Record<string, { level: string }>
+      )[userId];
+      if (userId !== instance.assignedTo && !existingSelfEntry) {
         usersToGrant.push({ userId, level: "read_comment" });
       }
       // Only admins/agents may grant access to a third party via @mention —

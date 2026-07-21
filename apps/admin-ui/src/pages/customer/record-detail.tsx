@@ -1012,6 +1012,10 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noAccess, setNoAccess] = useState(false);
+  const [accessRequestState, setAccessRequestState] = useState<
+    "idle" | "submitting" | "sent" | "error"
+  >("idle");
   const [transitioning, setTransitioning] = useState<string | null>(null);
   const [stateModal, setStateModal] = useState<Transition | null>(null);
   const [comment, setComment] = useState("");
@@ -1024,6 +1028,10 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [allStates, setAllStates] = useState<WorkflowState[]>([]);
   const [transitions, setTransitions] = useState<Transition[]>([]);
   const [_maxChildDepth, setMaxChildDepth] = useState<number>(1);
+  const [workflowCreatedBy, setWorkflowCreatedBy] = useState<string | null>(
+    null,
+  );
+  const [workflowAssignedTo, setWorkflowAssignedTo] = useState<string[]>([]);
   const [currentState, setCurrentState] = useState("");
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -1044,6 +1052,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [attachUploading, setAttachUploading] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
 
   // Child tickets state
   const [children, setChildren] = useState<ChildInstance[]>([]);
@@ -1164,8 +1173,18 @@ export function CustomerRecordDetail(): React.ReactElement {
         setOidcLoaded(true);
       });
   }, []);
+  // A workflow admin (this ticket's workflow creator, or in its assigned_to
+  // list) gets the same full access as a global admin/agent — ticket edit,
+  // access updates, sub-ticket creation, everything gated by isAdminOrAgent
+  // below. Matches the backend (assertRecordWorkflowAccess et al.).
+  const isWorkflowAdminOfParent =
+    currentUserId !== null &&
+    (currentUserId === workflowCreatedBy ||
+      workflowAssignedTo.includes(currentUserId));
   const isAdminOrAgent =
-    currentUserRoles.includes("admin") || currentUserRoles.includes("agent");
+    currentUserRoles.includes("admin") ||
+    currentUserRoles.includes("agent") ||
+    isWorkflowAdminOfParent;
 
   // Current user's access entry (null for admins/agents — they bypass access list)
   const myAccessEntry =
@@ -1271,6 +1290,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   const canChangeAssignedTo =
     isAdminOrAgent || (currentUserId !== null && currentUserId === creatorId);
 
+  // isAdminOrAgent already includes workflow-admin status (see its definition).
+  const canCreateChild = isAdminOrAgent;
+
   async function handleAccessChange(): Promise<void> {
     if (!id || !accessChangeModal) return;
     setAccessChangeSaving(true);
@@ -1352,12 +1374,19 @@ export function CustomerRecordDetail(): React.ReactElement {
 
   function loadRecord(): Promise<void> {
     if (!id) return Promise.resolve();
+    setError(null);
+    setNoAccess(false);
     // Fetch the record first — its own entityTypeId is authoritative, unlike
     // the slug-derived guess (which can resolve to the wrong entity type if
     // two share a slug). Fetching fields off the record's real entityTypeId,
     // sequentially rather than as a reactive dependency, avoids a setRecord(null)
     // → effectiveEntityTypeId flips back to the guess → re-fires effect loop.
+    let recordFetchFailed = false;
     return fetchWithAuth(`${API_URL}/entities/${id}`)
+      .catch((err: unknown) => {
+        recordFetchFailed = true;
+        throw err;
+      })
       .then((recRes) => {
         const rec = (recRes as { data: EntityInstance }).data;
         return Promise.all([
@@ -1394,10 +1423,45 @@ export function CustomerRecordDetail(): React.ReactElement {
         });
         setAccessList((accessRes as { data?: AccessEntry[] }).data ?? []);
       })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
-      )
+      .catch((err: unknown) => {
+        const status = (err as { status?: number } | undefined)?.status;
+        if (recordFetchFailed && status === 404) {
+          setNoAccess(true);
+        } else {
+          setError(err instanceof Error ? err.message : "Failed to load");
+        }
+      })
       .finally(() => setLoading(false));
+  }
+
+  async function refreshAll(): Promise<void> {
+    if (manualRefreshing) return;
+    setManualRefreshing(true);
+    try {
+      await Promise.all([
+        loadRecord(),
+        refreshComments(),
+        refreshAttachments(),
+        loadChildren(),
+        historyLoaded ? refreshHistory() : Promise.resolve(),
+      ]);
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
+
+  async function requestRecordAccess(): Promise<void> {
+    if (!id) return;
+    setAccessRequestState("submitting");
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/access-requests`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setAccessRequestState("sent");
+    } catch {
+      setAccessRequestState("error");
+    }
   }
 
   async function loadComments(): Promise<void> {
@@ -1578,6 +1642,22 @@ export function CustomerRecordDetail(): React.ReactElement {
             : r,
         ),
       );
+      if (action === "approve") {
+        const requesterId = accessReqList.find(
+          (r) => r.id === reqId,
+        )?.requesterId;
+        if (requesterId) {
+          setAccessList((prev) => {
+            const existing = prev.find((e) => e.userId === requesterId);
+            if (existing) {
+              return prev.map((e) =>
+                e.userId === requesterId ? { ...e, level } : e,
+              );
+            }
+            return [...prev, { userId: requesterId, level, tag: "manual" }];
+          });
+        }
+      }
       setResolveModal(null);
     } catch {
       /* best-effort */
@@ -1798,8 +1878,11 @@ export function CustomerRecordDetail(): React.ReactElement {
       return;
     }
 
+    // entityId proves to the backend that this caller has legitimate read
+    // access to a record in this workflow — required now that GET /workflows/:id
+    // restricts non-workflow-admin callers (see apps/api/src/routes/workflows/get.ts).
     const wfUrl = record?.workflowId
-      ? `${API_URL}/workflows/${record.workflowId}`
+      ? `${API_URL}/workflows/${record.workflowId}?${new URLSearchParams({ entityId: record.id }).toString()}`
       : `${API_URL}/workflows?${new URLSearchParams({ entityTypeId: effectiveEntityTypeId ?? "" }).toString()}`;
 
     fetchWithAuth(wfUrl)
@@ -1811,6 +1894,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                   states: WorkflowState[];
                   transitions: Transition[];
                   maxChildDepth?: number;
+                  createdBy?: string | null;
+                  assignedTo?: string[] | null;
                 };
               }
             ).data
@@ -1820,6 +1905,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                   states?: WorkflowState[];
                   transitions?: Transition[];
                   maxChildDepth?: number;
+                  createdBy?: string | null;
+                  assignedTo?: string[] | null;
                 }>;
               }
             ).data ?? [])[0];
@@ -1829,9 +1916,13 @@ export function CustomerRecordDetail(): React.ReactElement {
           setMaxChildDepth(
             (wf as { maxChildDepth?: number }).maxChildDepth ?? 1,
           );
+          setWorkflowCreatedBy(wf.createdBy ?? null);
+          setWorkflowAssignedTo(wf.assignedTo ?? []);
         } else {
           setAllStates([]);
           setTransitions([]);
+          setWorkflowCreatedBy(null);
+          setWorkflowAssignedTo([]);
         }
       })
       .catch(() => {
@@ -1917,6 +2008,54 @@ export function CustomerRecordDetail(): React.ReactElement {
       </div>
     );
 
+  if (noAccess) {
+    return (
+      <div className="rcd-page">
+        <div className="rd-no-access">
+          <h2 className="rd-no-access-title">
+            You don't have access to this record
+          </h2>
+          <p className="rd-muted">
+            Ask an admin or agent to grant you access, or request it below.
+          </p>
+          {accessRequestState === "sent" ? (
+            <div className="portal-alert-success" style={{ marginTop: "12px" }}>
+              Access request sent — you'll be notified once it's reviewed.
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="portal-btn-primary"
+              style={{ marginTop: "12px" }}
+              disabled={accessRequestState === "submitting"}
+              onClick={() => void requestRecordAccess()}
+            >
+              {accessRequestState === "submitting"
+                ? "Requesting…"
+                : "Request Access"}
+            </button>
+          )}
+          {accessRequestState === "error" && (
+            <div className="portal-alert-error" style={{ marginTop: "12px" }}>
+              Failed to send request. Try again.
+            </div>
+          )}
+        </div>
+        {/* navigate(-1) exits the app / goes nowhere useful for a direct-URL
+            or bookmarked entry point with no back-stack (G-1, PR #152
+            review) — link to the record list instead, matching the
+            portal's equivalent no-access screen. */}
+        <Link
+          to={`/records/${typeSlug ?? ""}`}
+          className="portal-back-link"
+          style={{ marginTop: "16px", display: "inline-block" }}
+        >
+          ← Back
+        </Link>
+      </div>
+    );
+  }
+
   if (error || !record) {
     return (
       <div className="rcd-page">
@@ -1948,7 +2087,6 @@ export function CustomerRecordDetail(): React.ReactElement {
     (a, b) =>
       new Date(a.triggeredAt).getTime() - new Date(b.triggeredAt).getTime(),
   );
-
   // Build a proper comment tree: each node knows its direct children
   const sortedComments = [...commentEvents].sort(
     (a, b) =>
@@ -2497,6 +2635,30 @@ export function CustomerRecordDetail(): React.ReactElement {
         </button>
         <span className="rcd-bc-sep">/</span>
         <span className="rcd-bc-current">{recordTitle}</span>
+        <button
+          type="button"
+          className="rcd-refresh-btn"
+          disabled={manualRefreshing}
+          title="Refresh"
+          onClick={() => void refreshAll()}
+        >
+          <svg
+            className={manualRefreshing ? "rcd-refresh-spin" : undefined}
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+          </svg>
+        </button>
       </div>
 
       {transError && (
@@ -3342,7 +3504,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <span className="rcd-sidebar-count">{children.length}</span>
                   )}
                 </span>
-                {isAdminOrAgent && !record.deletedAt && (
+                {canCreateChild && !record.deletedAt && (
                   <button
                     type="button"
                     className="rcd-sidebar-add"
