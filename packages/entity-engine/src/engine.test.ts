@@ -21,12 +21,14 @@ function makeQueryBuilder(finalResult: () => unknown[]) {
   return q;
 }
 
+const mockInsertValues = vi.fn(() => ({
+  returning: mockInsertReturning,
+}));
+
 const dbMock = {
   select: vi.fn(() => makeQueryBuilder(mockSelectFromWhereLimitResult)),
-  insert: vi.fn(() => ({
-    values: vi.fn(() => ({
-      returning: mockInsertReturning,
-    })),
+  insert: vi.fn((table: unknown) => ({
+    values: (rows: unknown) => mockInsertValues(table, rows),
   })),
   update: vi.fn(() => ({
     set: vi.fn(() => ({
@@ -61,6 +63,7 @@ vi.mock("@platform/db", () => ({
   },
   entityRelations: {},
   outboxEvents: {},
+  workflowEvents: {},
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -113,6 +116,7 @@ const {
   deleteEntity,
   listEntities,
   setEntityState,
+  bulkSetState,
   addEntityField,
 } = await import("./engine.js");
 
@@ -451,6 +455,157 @@ describe("setEntityState", () => {
       setEntityState(dbMock as never, TENANT_ID, INSTANCE_ID, "open"),
     ).rejects.toBeInstanceOf(EntityError);
     expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  // #127 — setEntityState was a silent state side-door: it wrote current_state
+  // directly with no workflow_events row and no outbox event, so the change
+  // never appeared in the workflow audit trail and never triggered automations.
+  it("writes a workflow_events row and a workflow.transitioned outbox event when the entity has a workflow (#127)", async () => {
+    dbMock.select.mockReturnValue(
+      makeQueryBuilder(() => [
+        {
+          id: INSTANCE_ID,
+          entityTypeId: ENTITY_TYPE_ID,
+          currentState: "open",
+          workflowId: "wf-1",
+        },
+      ]),
+    );
+    mockUpdateReturning.mockResolvedValue([
+      { ...fakeInstance, currentState: "closed", workflowId: "wf-1" },
+    ]);
+
+    await setEntityState(
+      dbMock as never,
+      TENANT_ID,
+      INSTANCE_ID,
+      "closed",
+      "actor-1",
+    );
+
+    const insertedTables = mockInsertValues.mock.calls.map(([table]) => table);
+    const dbModule = await import("@platform/db");
+    expect(insertedTables).toContain(dbModule.workflowEvents);
+    expect(insertedTables).toContain(dbModule.outboxEvents);
+
+    const workflowEventCall = mockInsertValues.mock.calls.find(
+      ([table]) => table === dbModule.workflowEvents,
+    );
+    expect(workflowEventCall?.[1]).toMatchObject({
+      tenantId: TENANT_ID,
+      instanceId: INSTANCE_ID,
+      workflowId: "wf-1",
+      fromState: "open",
+      toState: "closed",
+      actorId: "actor-1",
+    });
+
+    const outboxCall = mockInsertValues.mock.calls.find(
+      ([table]) => table === dbModule.outboxEvents,
+    );
+    expect(outboxCall?.[1]).toMatchObject({
+      tenantId: TENANT_ID,
+      eventType: "workflow.transitioned",
+      payload: expect.objectContaining({
+        eventType: "workflow.transitioned",
+        instanceId: INSTANCE_ID,
+        fromState: "open",
+        toState: "closed",
+        actorId: "actor-1",
+      }),
+    });
+  });
+
+  it("does not write workflow_events/outbox when the entity has no workflowId", async () => {
+    dbMock.select.mockReturnValue(
+      makeQueryBuilder(() => [
+        {
+          id: INSTANCE_ID,
+          entityTypeId: ENTITY_TYPE_ID,
+          currentState: "open",
+          workflowId: null,
+        },
+      ]),
+    );
+    mockUpdateReturning.mockResolvedValue([
+      { ...fakeInstance, currentState: "closed", workflowId: null },
+    ]);
+
+    await setEntityState(dbMock as never, TENANT_ID, INSTANCE_ID, "closed");
+
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+});
+
+describe("bulkSetState", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // #127 — bulkSetState had the identical unguarded side-door as setEntityState.
+  it("writes a workflow_events row and outbox event per changed instance with a workflow (#127)", async () => {
+    dbMock.select.mockReturnValue(
+      makeQueryBuilder(() => [
+        {
+          id: INSTANCE_ID,
+          entityTypeId: ENTITY_TYPE_ID,
+          currentState: "open",
+          workflowId: "wf-1",
+        },
+      ]),
+    );
+    mockUpdateReturning.mockResolvedValue([{ id: INSTANCE_ID }]);
+
+    const result = await bulkSetState(
+      dbMock as never,
+      TENANT_ID,
+      [{ id: INSTANCE_ID, state: "closed" }],
+      "actor-1",
+    );
+
+    expect(result.updatedIds).toEqual([INSTANCE_ID]);
+
+    const dbModule = await import("@platform/db");
+    const insertedTables = mockInsertValues.mock.calls.map(([table]) => table);
+    expect(insertedTables).toContain(dbModule.workflowEvents);
+    expect(insertedTables).toContain(dbModule.outboxEvents);
+
+    const workflowEventCall = mockInsertValues.mock.calls.find(
+      ([table]) => table === dbModule.workflowEvents,
+    );
+    expect(workflowEventCall?.[1]).toEqual([
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        instanceId: INSTANCE_ID,
+        workflowId: "wf-1",
+        fromState: "open",
+        toState: "closed",
+        actorId: "actor-1",
+      }),
+    ]);
+  });
+
+  it("skips instances with no workflowId or an unchanged state", async () => {
+    dbMock.select.mockReturnValue(
+      makeQueryBuilder(() => [
+        {
+          id: INSTANCE_ID,
+          entityTypeId: ENTITY_TYPE_ID,
+          currentState: "open",
+          workflowId: null,
+        },
+      ]),
+    );
+    mockUpdateReturning.mockResolvedValue([{ id: INSTANCE_ID }]);
+
+    await bulkSetState(
+      dbMock as never,
+      TENANT_ID,
+      [{ id: INSTANCE_ID, state: "closed" }],
+      "actor-1",
+    );
+
+    expect(mockInsertValues).not.toHaveBeenCalled();
   });
 });
 

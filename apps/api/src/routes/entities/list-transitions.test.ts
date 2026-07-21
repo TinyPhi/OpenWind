@@ -3,10 +3,19 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as WorkflowEngine from "@platform/workflow-engine";
+import type * as EntityEngine from "@platform/entity-engine";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockGetAvailableTransitions = vi.fn();
+// Read-access gate check — resolves to an instance the "admin" role auth
+// context always passes. Overridden per-test for the not-found path.
+const mockGetEntityForAccess = vi.fn().mockResolvedValue({
+  id: "irrelevant",
+  createdBy: null,
+  assignedTo: null,
+  fields: {},
+});
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -36,6 +45,14 @@ vi.mock("@platform/workflow-engine", async (importOriginal) => {
     ...real,
     getAvailableTransitions: (...args: unknown[]) =>
       mockGetAvailableTransitions(...args),
+  };
+});
+
+vi.mock("@platform/entity-engine", async (importOriginal) => {
+  const real = await importOriginal<typeof EntityEngine>();
+  return {
+    ...real,
+    getEntity: (...args: unknown[]) => mockGetEntityForAccess(...args),
   };
 });
 
@@ -126,5 +143,19 @@ describe("GET /entities/:id/transitions", () => {
       INST_ID,
       ["admin"],
     );
+  });
+
+  it("returns 404 without calling getAvailableTransitions when the instance is not found (read-access gate)", async () => {
+    const { EntityError } = await import("@platform/entity-engine");
+    mockGetEntityForAccess.mockRejectedValueOnce(
+      new EntityError("ENTITY_NOT_FOUND", { instanceId: INST_ID }),
+    );
+
+    const res = await makeApp().request(`/${INST_ID}/transitions`, {
+      method: "GET",
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockGetAvailableTransitions).not.toHaveBeenCalled();
   });
 });

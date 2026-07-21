@@ -23,12 +23,12 @@ export const bulkSetStateHandler = factory.createHandlers(
   requireRole("admin", "agent"),
   zValidator("json", BulkSetStateSchema),
   async (c) => {
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
     const { items } = c.req.valid("json");
 
     try {
       const result = await withTenantContext(tenantId, (tx) =>
-        bulkSetState(tx, tenantId, items),
+        bulkSetState(tx, tenantId, items, userId),
       );
       return c.json({ data: result });
     } catch (err) {
