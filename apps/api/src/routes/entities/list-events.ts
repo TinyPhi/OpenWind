@@ -7,7 +7,10 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 // Same hasEntityAccess gate get.ts/list-children.ts apply to this exact
 // record — without it, any tenant member can read a ticket's full comment
-// thread and transition history by guessing its ID.
+// thread and transition history by guessing its ID. Must be the
+// workflow-admin-aware hasEntityAccess (not the plain hasEntityReadAccess),
+// or a workflow admin who can GET/PATCH the record gets locked out of its
+// own event log.
 import { hasEntityAccess } from "../../lib/entity-access.js";
 
 export const listEventsHandler = factory.createHandlers(

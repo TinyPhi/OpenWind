@@ -12,7 +12,10 @@ import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 // Same hasEntityAccess gate get.ts/list-children.ts apply to this exact
 // record — without it, any tenant member can enumerate a ticket's relation
-// graph (linked/parent/child record IDs) by guessing its ID.
+// graph (linked/parent/child record IDs) by guessing its ID. Must be the
+// workflow-admin-aware hasEntityAccess (not the plain hasEntityReadAccess),
+// or a workflow admin who can GET/PATCH the record gets locked out of its
+// own relation graph.
 import { hasEntityAccess } from "../../lib/entity-access.js";
 
 const ListRelationsQuerySchema = z.object({
