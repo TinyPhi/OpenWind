@@ -71,6 +71,54 @@
 
 ---
 
+## 2026-07-21 — PR #155 merged; #127 closed + IDOR gaps + per-workflow ownership
+
+**Session type:** PR review + doc cleanup
+**PRs merged this session:** #151, #152, #153, #154, #155
+
+### Completed this session
+
+- PR #151 (`fix(auth,api): map Zitadel org ids to tenants; accept read_only ACL level`) — reviewed
+  and approved (@TusharSharma991). Org→tenant UUID lookup production fix, `zitadel_org_id` column,
+  `read_only` ACL level treated as sufficient for entity reads.
+- PR #152 (`feat(admin-ui,portal): request-access UI on record detail`) — CHANGES_REQUESTED
+  (IMP-1: portal noAccess check fired on any 404, not just the record fetch); fix validated and
+  approved.
+- PRs #153, #154 — merged (confirmed by user; no review sessions this session).
+- PR #155 (`feat(workflow-engine,api,admin-ui): per-workflow ownership/admin model + #127/IDOR fixes`)
+  — thorough review posted as CHANGES_REQUESTED with 2 blockers:
+  - BLOCKER-1: four IDOR-fix routes used `hasEntityReadAccess` instead of `hasEntityAccess`,
+    locking workflow admins out of record events/relations/transitions.
+  - BLOCKER-2: migration `0033_workflow_created_by` out of order in `_journal.json` (appended
+    after already-applied 0034); renumbered to 0035.
+    Fix commit `0793254` addressed both blockers + tightened `grant-access.ts` test (G-3). Approved
+    and merged to main (2026-07-21T15:01Z).
+
+### Hardening checklist delta
+
+| Issue                                                     | Status     | PR   |
+| --------------------------------------------------------- | ---------- | ---- |
+| #127 `setEntityState`/`bulkSetState` unguarded            | ✅ Closed  | #155 |
+| IDOR on list-events/relations/transitions/workflow-events | ✅ Fixed   | #155 |
+| Per-workflow `created_by`/`assigned_to` ownership model   | ✅ Shipped | #155 |
+
+### Phase snapshot
+
+| Track                 | Status                                                                        |
+| --------------------- | ----------------------------------------------------------------------------- |
+| Pre-Phase 3 hardening | #121, #122, #126, #120, #123, #124, #127 closed. #125, #128, #129, #141 open. |
+
+### Next
+
+- #125 — wire Novu delivery worker (notify action is a stub)
+- #128 — uncomment OpenBao + MinIO in `docker-compose.yml`
+- #129 — worker HTTP readiness probe
+- #141 — `pnpm lint` no-op fix (real lint scripts per package)
+- #136 — RLS policies for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`
+- PR #155 G-1/G-2 follow-up: dead `createdBy` forwarding in `handle-workflow-error.ts`; `list-slugs.ts` disclosure acknowledgement
+
+---
+
 ## 2026-07-10 — close out #120 in docs (PR #139 merged 2026-07-09)
 
 **Session type:** Docs (following code merge)

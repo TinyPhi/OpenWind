@@ -1,7 +1,10 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-22 (doc reconciliation — #127 closed via PR #155; surfaced PRs
-#144/#151/#152/#155 as shipped-but-unclassified work, see "Unclassified work" section below)
+**Last updated:** 2026-07-22 (doc reconciliation — PR #155 merged 2026-07-21: #127 closed,
+setEntityState/bulkSetState guarded, IDOR gaps on list-events/relations/transitions/
+workflow-events closed, per-workflow ownership/admin model shipped; this reconciliation also
+surfaced PRs #144/#151/#152/#155 as shipped-but-unclassified work, see "Unclassified work"
+section below)
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
 
@@ -9,11 +12,11 @@
 
 ## Summary scorecard
 
-| Phase                           | Tracks              | Done            | % Complete | Gate                                             |
-| ------------------------------- | ------------------- | --------------- | ---------- | ------------------------------------------------ |
-| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                        |
-| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **100%**   | Pre-Phase 3 hardening items #120–#129 all closed |
-| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace                      |
+| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                                |
+| ------------------------------- | ------------------- | --------------- | ---------- | --------------------------------------------------------------------------------------------------- |
+| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                           |
+| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **~85%**   | Pre-Phase 3 hardening: #121, #122, #126, #120, #123, #124, #127 closed; #125, #128, #129, #141 open |
+| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace                                                                         |
 
 ---
 
