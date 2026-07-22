@@ -1515,18 +1515,22 @@ export async function bulkSetState(
   db: DbOrTx,
   tenantId: string,
   items: Array<{ id: string; state: string }>,
+  actorId?: string,
 ): Promise<BulkSetStateResult> {
   if (items.length === 0) return { updatedIds: [], errors: [] };
 
   const ids = items.map((item) => item.id);
 
   // Load all matching instances in one query to verify tenant ownership.
-  // Also fetch entityTypeId and currentState for audit hooks.
+  // Also fetch entityTypeId, currentState and workflowId for audit hooks and
+  // the workflow_events/outbox writes below (#127 — this was previously a
+  // silent state side-door with no audit trail and no automation trigger).
   const existing = await db
     .select({
       id: entityInstances.id,
       entityTypeId: entityInstances.entityTypeId,
       currentState: entityInstances.currentState,
+      workflowId: entityInstances.workflowId,
     })
     .from(entityInstances)
     .where(
@@ -1562,6 +1566,14 @@ export async function bulkSetState(
   }
 
   const updatedIds: string[] = [];
+  const workflowEventRows: Array<typeof workflowEvents.$inferInsert> = [];
+  const outboxRows: Array<{
+    tenantId: string;
+    eventType: "workflow.transitioned";
+    version: 1;
+    payload: Record<string, unknown>;
+  }> = [];
+  const occurredAt = new Date();
 
   for (const [state, stateIds] of byState) {
     const rows = await db
@@ -1576,6 +1588,49 @@ export async function bulkSetState(
       .returning({ id: entityInstances.id });
 
     updatedIds.push(...rows.map((r) => r.id));
+
+    for (const row of rows) {
+      const prior = foundMap.get(row.id);
+      if (!prior?.workflowId || prior.currentState === state) {
+        continue;
+      }
+      workflowEventRows.push({
+        tenantId,
+        instanceId: row.id,
+        workflowId: prior.workflowId,
+        fromState: prior.currentState,
+        toState: state,
+        triggeredBy: "user",
+        actorId: actorId ?? null,
+        comment: `State set directly to ${state}`,
+        metadata: { type: "direct-set" },
+      });
+      outboxRows.push({
+        tenantId,
+        eventType: "workflow.transitioned",
+        version: 1,
+        payload: {
+          eventType: "workflow.transitioned",
+          version: 1,
+          tenantId,
+          instanceId: row.id,
+          entityTypeId: prior.entityTypeId,
+          workflowId: prior.workflowId,
+          fromState: prior.currentState,
+          toState: state,
+          triggeredBy: "user",
+          actorId: actorId ?? null,
+          occurredAt: occurredAt.toISOString(),
+        },
+      });
+    }
+  }
+
+  if (workflowEventRows.length > 0) {
+    await db.insert(workflowEvents).values(workflowEventRows);
+  }
+  if (outboxRows.length > 0) {
+    await db.insert(outboxEvents).values(outboxRows);
   }
 
   // Fire audit hooks for each successfully transitioned entity.
@@ -1633,12 +1688,14 @@ export async function setEntityState(
   tenantId: string,
   instanceId: string,
   state: string,
+  actorId?: string,
 ): Promise<EntityInstance> {
   const [existing] = await db
     .select({
       id: entityInstances.id,
       entityTypeId: entityInstances.entityTypeId,
       currentState: entityInstances.currentState,
+      workflowId: entityInstances.workflowId,
     })
     .from(entityInstances)
     .where(
@@ -1666,6 +1723,43 @@ export async function setEntityState(
   if (!row) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
 
   logger.info({ tenantId, instanceId, state }, "Entity state set");
+
+  // #127 — this direct state-set previously wrote no workflow_events row and
+  // no outbox event, making it a silent side-door around executeTransition's
+  // audit trail and automation triggers. Mirrors the existing accepted
+  // pattern for direct currentState writes in updateEntity() above.
+  if (existing.workflowId && existing.currentState !== state) {
+    await db.insert(workflowEvents).values({
+      tenantId,
+      instanceId,
+      workflowId: existing.workflowId,
+      fromState: existing.currentState,
+      toState: state,
+      triggeredBy: "user",
+      actorId: actorId ?? null,
+      comment: `State set directly to ${state}`,
+      metadata: { type: "direct-set" },
+    });
+
+    await db.insert(outboxEvents).values({
+      tenantId,
+      eventType: "workflow.transitioned",
+      version: 1,
+      payload: {
+        eventType: "workflow.transitioned",
+        version: 1,
+        tenantId,
+        instanceId,
+        entityTypeId: existing.entityTypeId,
+        workflowId: existing.workflowId,
+        fromState: existing.currentState,
+        toState: state,
+        triggeredBy: "user",
+        actorId: actorId ?? null,
+        occurredAt: new Date().toISOString(),
+      },
+    });
+  }
 
   const [entityType, allFields] = await Promise.all([
     loadEntityType(db, existing.entityTypeId),

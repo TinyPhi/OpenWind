@@ -16,12 +16,12 @@ export const setEntityStateHandler = factory.createHandlers(
   zValidator("json", SetStateSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
     const { state } = c.req.valid("json");
 
     try {
       const instance = await withTenantContext(tenantId, (tx) =>
-        setEntityState(tx, tenantId, id, state),
+        setEntityState(tx, tenantId, id, state, userId),
       );
       return c.json({ data: instance });
     } catch (err) {

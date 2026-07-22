@@ -88,6 +88,7 @@ describe("POST /entities/:id/state", () => {
       "t-aaa",
       INST_ID,
       "closed",
+      "u-bbb",
     );
   });
 

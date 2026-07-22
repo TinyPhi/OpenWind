@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db, files, entityInstances, withTenantContext } from "@platform/db";
+import { files, entityInstances, withTenantContext } from "@platform/db";
 import { and, eq } from "drizzle-orm";
 import { getDownloadUrl, FileError } from "@platform/files";
 import { factory } from "./factory.js";
@@ -65,7 +65,9 @@ export const getDownloadUrlHandler = factory.createHandlers(
         }
       }
 
-      const result = await getDownloadUrl(db, tenantId, fileId, inline);
+      const result = await withTenantContext(tenantId, (tx) =>
+        getDownloadUrl(tx, tenantId, fileId, inline),
+      );
       return c.json({ data: result });
     } catch (err: unknown) {
       if (err instanceof FileError) {

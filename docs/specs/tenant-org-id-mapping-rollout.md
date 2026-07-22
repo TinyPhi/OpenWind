@@ -13,7 +13,7 @@ not something a fresh self-hosted install would reuse.
 ## 0. Prerequisites (should already be true after this branch merges)
 
 - [ ] Server has pulled the branch containing this fix and rebuilt `ow-backend`
-- [ ] Migration `0032_tenants_zitadel_org_id.sql` has been applied
+- [ ] Migration `0034_tenants_zitadel_org_id.sql` has been applied
       (`docker compose exec ow-backend pnpm db:migrate`, same procedure as
       prior migrations on this server)
 

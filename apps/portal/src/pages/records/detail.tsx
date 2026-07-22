@@ -577,7 +577,21 @@ export function RecordDetail(): React.ReactElement {
     setError(null);
     setNoAccess(false);
     try {
-      const recRes = await fetchWithAuth(`${API_URL}/entities/${id}`);
+      // The record fetch gets its own try/catch so a 404 here — and only
+      // here — means "no access to this record". A 404 from the parallel
+      // fields/transitions/history/users fetches below (e.g. the entity
+      // type was deleted mid-session) is a different failure and must not
+      // show the request-access screen (IMP-1, PR #152 review).
+      let recRes: unknown;
+      try {
+        recRes = await fetchWithAuth(`${API_URL}/entities/${id}`);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          setNoAccess(true);
+          return;
+        }
+        throw err;
+      }
       setRecord((recRes as { data: EntityInstance }).data);
 
       const [fieldsRes, transRes, histRes, usersRes] = await Promise.all([
@@ -595,11 +609,7 @@ export function RecordDetail(): React.ReactElement {
       setHistory((histRes as { data?: WorkflowEvent[] }).data ?? []);
       setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        setNoAccess(true);
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to load");
-      }
+      setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
       setLoading(false);
     }

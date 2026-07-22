@@ -2041,21 +2041,17 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           )}
         </div>
-        <button
-          type="button"
+        {/* navigate(-1) exits the app / goes nowhere useful for a direct-URL
+            or bookmarked entry point with no back-stack (G-1, PR #152
+            review) — link to the record list instead, matching the
+            portal's equivalent no-access screen. */}
+        <Link
+          to={`/records/${typeSlug ?? ""}`}
           className="portal-back-link"
-          style={{
-            marginTop: "16px",
-            display: "inline-block",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-          onClick={() => navigate(-1)}
+          style={{ marginTop: "16px", display: "inline-block" }}
         >
           ← Back
-        </button>
+        </Link>
       </div>
     );
   }
@@ -2091,7 +2087,6 @@ export function CustomerRecordDetail(): React.ReactElement {
     (a, b) =>
       new Date(a.triggeredAt).getTime() - new Date(b.triggeredAt).getTime(),
   );
-
   // Build a proper comment tree: each node knows its direct children
   const sortedComments = [...commentEvents].sort(
     (a, b) =>

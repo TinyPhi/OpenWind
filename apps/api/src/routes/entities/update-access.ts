@@ -91,6 +91,8 @@ export const updateAccessHandler = factory.createHandlers(
         );
       }
 
+      // Update the level field inside __accessUsers[targetUserId]
+      // Guard against legacy array format — coerce to {} so path navigation works.
       await withTenantContext(tenantId, (tx) =>
         tx
           .update(entityInstances)
