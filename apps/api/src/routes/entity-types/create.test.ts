@@ -7,9 +7,15 @@ import type * as EntityEngine from "@platform/entity-engine";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 // requireRole is the REAL implementation (not mocked) — this test exists to
-// prove the entity-types create route is admin-only, matching its
-// update.ts/delete.ts siblings, after a privilege-escalation gap let "agent"
-// and "user" roles create org-level entity-type schemas.
+// prove entity-type creation stays open to every authenticated tenant role
+// (admin, agent, user/customer), unlike its update.ts/delete.ts siblings.
+// This is intentional, not a gap: POST /entity-types is step 1 of the
+// self-service "any user can create their own workflow" flow (see
+// docs/specs/workflow-ownership-admin.md, R4) — the admin-ui's Workflows nav
+// and "New Workflow" button are shown to every role unconditionally, and
+// CreateWorkflow.tsx calls this endpoint before POST /workflows. Locking this
+// route to admin-only (as a prior session briefly did) breaks that flow for
+// every non-admin user.
 
 const mockCreateEntityType = vi.fn();
 
@@ -85,8 +91,9 @@ describe("POST /entity-types", () => {
     expect(mockCreateEntityType).toHaveBeenCalled();
   });
 
-  it("returns 403 for an agent caller (admin-only, matches update.ts/delete.ts)", async () => {
+  it("returns 201 for an agent caller (open to self-service workflow creation)", async () => {
     currentRoles = ["agent"];
+    mockCreateEntityType.mockResolvedValue(fakeEntityType);
 
     const res = await makeApp().request("/entity-types", {
       method: "POST",
@@ -94,12 +101,13 @@ describe("POST /entity-types", () => {
       body: JSON.stringify({ name: "ticket", plural: "Tickets" }),
     });
 
-    expect(res.status).toBe(403);
-    expect(mockCreateEntityType).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(mockCreateEntityType).toHaveBeenCalled();
   });
 
-  it("returns 403 for a user/customer caller", async () => {
+  it("returns 201 for a user/customer caller (any user can create their own workflow)", async () => {
     currentRoles = ["user"];
+    mockCreateEntityType.mockResolvedValue(fakeEntityType);
 
     const res = await makeApp().request("/entity-types", {
       method: "POST",
@@ -107,7 +115,7 @@ describe("POST /entity-types", () => {
       body: JSON.stringify({ name: "ticket", plural: "Tickets" }),
     });
 
-    expect(res.status).toBe(403);
-    expect(mockCreateEntityType).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(mockCreateEntityType).toHaveBeenCalled();
   });
 });
