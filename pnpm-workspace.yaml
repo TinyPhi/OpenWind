@@ -19,3 +19,6 @@ overrides:
   "brace-expansion@5": "5.0.7"
   # js-yaml quadratic CPU via merge-key chains
   "js-yaml@4": "4.3.0"
+  # GHSA-4c8g-83qw-93j6 + GHSA-v2hh-gcrm-f6hx: fast-uri host confusion (IDN canonicalization
+  # failure, literal backslash authority delimiter) — pulled in via commitlint's ajv dep
+  "fast-uri": ">=3.1.4"
