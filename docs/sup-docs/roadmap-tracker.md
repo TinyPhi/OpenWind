@@ -1,6 +1,10 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-21 (PR #155 merged; #127 closed — setEntityState/bulkSetState guarded; IDOR gaps on list-events/relations/transitions/workflow-events closed; per-workflow ownership/admin model shipped)
+**Last updated:** 2026-07-22 (doc reconciliation — PR #155 merged 2026-07-21: #127 closed,
+setEntityState/bulkSetState guarded, IDOR gaps on list-events/relations/transitions/
+workflow-events closed, per-workflow ownership/admin model shipped; this reconciliation also
+surfaced PRs #144/#151/#152/#155 as shipped-but-unclassified work, see "Unclassified work"
+section below)
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
 
@@ -70,6 +74,45 @@
 | @modules/hrms           | Employee, Department, Leave Request | Draft → Submitted → Approved/Rejected           | 001.sql     | ✅ Done |
 | @modules/invoicing      | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled           | 001.sql     | ✅ Done |
 | @modules/procurement    | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled             | 001.sql     | ✅ Done |
+
+---
+
+## Unclassified work — shipped 2026-07-16 to 2026-07-21, not yet phase-tracked
+
+Flagged during the 2026-07-22 doc reconciliation. Four PRs merged real, tested functionality
+that doesn't fit anywhere in the Phase 1/2/3 structure above:
+
+| PR   | Merged     | What it added                                                                          | Spec doc                                                         |
+| ---- | ---------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| #144 | 2026-07-16 | Child tickets; new `modules/tender` vertical; access-request/grant flow; security pass | `docs/specs/child-tickets.md`, `docs/specs/tender-management.md` |
+| #151 | 2026-07-21 | Zitadel org-id → tenant mapping; `read_only` ACL level                                 | `docs/specs/tenant-org-id-mapping.md` (+ tasks/rollout)          |
+| #152 | 2026-07-21 | Request-access UI on record detail (replaces bare 404)                                 | —                                                                |
+| #155 | 2026-07-21 | Per-workflow ownership/admin model; #144 follow-ups; closes #127                       | related: `docs/specs/user-scoped-records-view.md`                |
+
+This wasn't cowboy work — each feature has a real spec doc, and two have their own
+acceptance-criteria task files — but it landed outside the `openwind-loop` (no plan-lock, no
+PROGRESS.md entries for the feature work itself) and outside this tracker, so none of it has
+been reconciled against the documented module list or Phase 3 tracks until now.
+
+**Not classified here on purpose** — this needs a human call, not a retroactive decision baked
+into the tracker:
+
+- Is `tender` an 8th standard module (alongside the 7 below), or out-of-scope/one-off? It
+  doesn't appear in `architecture-brief.md`'s 8-module map either (which lists _inventory_,
+  not _tender_).
+- The per-workflow ownership/admin model (PR #155) is a second authorization path alongside
+  RBAC — this is the kind of decision `CLAUDE.md` reserves for a human-written ADR, and none
+  exists yet.
+- `tender-management.md` self-flags that workflow transition guards don't consult per-instance
+  access grants (`__accessUsers`) — logged there as an accepted v1 limitation, not yet decided
+  on formally.
+
+Code-level review of this batch (2026-07-22) found it solid on security fundamentals: RLS +
+explicit tenant filters present on all new tables, 404-not-403 followed consistently, the
+org-id mapping fails closed, and no IDOR was found in the access-request/grant/revoke flow.
+One correctness gap surfaced: `setEntityState`/`bulkSetState` (closing #127) don't validate
+the target state against `workflow_states`, unlike `updateEntity` — not yet filed as its own
+issue.
 
 ---
 
