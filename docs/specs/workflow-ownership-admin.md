@@ -21,14 +21,14 @@ theirs). Ownership is expressed as data (`workflows.created_by`/`assigned_to[]`)
 
 ## §C Constraints
 
-| constraint   | value                                                                                                                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | ----------------------------------- |
-| stack        | `packages/workflow-engine` (predicate + workflow-definition CRUD guard), `apps/api/src/lib/entity-access.ts` (record-level composition), ~20 route handlers under `apps/api/src/routes/`    |
-| pattern ref  | ADR-006 (per-workflow ownership/admin model) for the authorization decision; ADR-002 (workflow engine) for the FSM this sits alongside                                                      |
-| roles        | Only `agent`/`admin` are real global roles (same as every other module) — ownership is additive to RBAC, never a replacement or a new role string                                           |
-| composition  | Must widen access, never narrow it: `roles.includes("admin"/"agent")` is always checked first; ownership is an `                                                                            |     | `fallback, never an`&&` restriction |
-| out of scope | Transition-time gating (`executeTransition` stays role-only — ADR-006 Resolved WA-01); direct-grant parity in `grant-access.ts` (tracked as a separate follow-up issue, ADR-006 WA-03)      |
-| isolation    | `workflows`/`workflow_states`/`workflow_transitions`/`entity_types` have no RLS (issue #136) — ownership checks (`assertWorkflowOwned`/`visibleTo`) are the _only_ isolation boundary today |
+| constraint   | value                                                                                                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| stack        | `packages/workflow-engine` (predicate + workflow-definition CRUD guard), `apps/api/src/lib/entity-access.ts` (record-level composition), ~20 route handlers under `apps/api/src/routes/`                |
+| pattern ref  | ADR-006 (per-workflow ownership/admin model) for the authorization decision; ADR-002 (workflow engine) for the FSM this sits alongside                                                                  |
+| roles        | Only `agent`/`admin` are real global roles (same as every other module) — ownership is additive to RBAC, never a replacement or a new role string                                                       |
+| composition  | Must widen access, never narrow it: `roles.includes("admin"/"agent")` is always checked first; ownership is an additive fallback (logical OR), never an AND restriction on an already-privileged caller |
+| out of scope | Transition-time gating (`executeTransition` stays role-only — ADR-006 Resolved WA-01); direct-grant parity in `grant-access.ts` (tracked as a separate follow-up issue, ADR-006 WA-03)                  |
+| isolation    | `workflows`/`workflow_states`/`workflow_transitions`/`entity_types` have no RLS (issue #136) — ownership checks (`assertWorkflowOwned`/`visibleTo`) are the _only_ isolation boundary today             |
 
 ## §I Interfaces
 
