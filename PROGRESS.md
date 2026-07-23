@@ -1,3 +1,82 @@
+## 2026-07-22 — Doc reconciliation: PRs #144/#151/#152/#155 surfaced, #127 closed out
+
+### Done
+
+- Comprehensive project review after pulling 23 new commits on `main` (up to PR #155):
+  vision-alignment check against `architecture-brief.md`/ADRs, a security/architecture pass on
+  the new surface (access requests, child tickets, `modules/tender`, tenant-org-id mapping),
+  and a local health check (typecheck/lint/test).
+- **Confirmed `CLAUDE.md`/`roadmap-tracker.md`/`week-log.md` had gone stale**: none reflected
+  PR #144 (2026-07-16 — child tickets, `modules/tender`, access requests, security hardening)
+  or PRs #151/#152/#155 (2026-07-21 — tenant-org-id mapping, request-access UI, per-workflow
+  ownership model, closes #127). This work landed outside the `openwind-loop` process (no
+  plan-lock, no PROGRESS.md entries for the feature work itself), which is why the tracking
+  files never picked it up.
+- **Verified #127 is genuinely closed** (not just claimed by the PR title): read
+  `packages/entity-engine/src/engine.ts` directly — both `setEntityState` and `bulkSetState`
+  now insert a `workflow_events` row and a `workflow.transitioned` outbox event when the state
+  changes. Marked `[x]` in `CLAUDE.md`.
+- **Security review of the new surface** (delegated to a sub-agent, findings verified against
+  the actual diffs): access-request/grant/revoke routes filter `tenant_id` explicitly and via
+  RLS, return 404 not 403 cross-tenant, and `resolve-access-request` re-checks
+  `status = 'pending'` inside the update (closes a double-approval race); org-id → tenant
+  mapping fails closed and the dev-fallback is Zod-blocked from production; the new
+  `read_only` ACL level only ever widens read paths; `modules/tender` genuinely respects the
+  zero-TypeScript module rule. No IDOR or escalation path found.
+- **New finding, filed as a to-do (not fixed this session)**: `setEntityState`/`bulkSetState`
+  accept any string ≤100 chars as a state value with no check against that workflow's
+  `workflow_states` — unlike `updateEntity`, which validates. Low exploitability (admin/agent
+  route-gated), but can silently break SLA timers/automation matching on an undefined state.
+- Reconciled `CLAUDE.md` + `roadmap-tracker.md` + `week-log.md`: marked #127 done, added a new
+  "landed but unclassified" section documenting the four PRs and cross-referencing their specs
+  (`docs/specs/child-tickets.md`, `tender-management.md`, `tenant-org-id-mapping.md`,
+  `user-scoped-records-view.md`), and explicitly flagged two decisions for human/ADR sign-off
+  rather than deciding them in the docs: (1) whether `tender` is a sanctioned 8th module
+  (`architecture-brief.md`'s 8-module map lists *inventory*, not *tender*), and (2) an ADR for
+  PR #155's new per-workflow ownership/admin authorization model, which sits alongside RBAC
+  with no ADR today. `tender-management.md` itself already flags that transition guards don't
+  consult per-instance access grants — an accepted v1 limitation, not newly discovered here.
+- Re-confirmed `#141` (`pnpm lint` no-op) still live: `turbo run lint` only executes `build`
+  tasks; zero `package.json` files define a real `lint` script.
+- Re-checked `#149`: title claims "9 pre-existing failures," but the issue body lists 4 and
+  `view-configs.test.ts` has exactly 4 `it()` blocks — flagged as likely stale/wrong count, not
+  corrected in the issue itself this session.
+
+### Why
+
+Twelve days of merged, spec'd, security-sound feature work had zero trace in the three files
+this project uses as its source of truth for "what's done and what's next." Left alone, that
+gap compounds — Phase 3 planning was the next thing on deck, and it would have started against
+an inaccurate picture of current scope. Fixing the record now, while it's still cheap, was
+higher priority than starting any new code change.
+
+### Verification
+
+- pnpm typecheck: N/A — docs-only
+- pnpm lint: N/A — docs-only
+- pnpm test: N/A — docs-only
+- pnpm test:isolation: N/A — docs-only
+
+### Next
+
+- Human decision: `tender` module scope (ADR or explicit rejection) + ADR for the per-workflow
+  ownership/access-grant authorization model
+- File + fix: `setEntityState`/`bulkSetState` missing state-value validation against
+  `workflow_states`
+- Reconcile `#149`'s stated failure count against its own body/the test file
+- Remaining open hardening items: #125 (notify stub), #128 (OpenBao/MinIO in
+  docker-compose), #129 (worker health endpoint), #136 (RLS on entity_types/workflows/
+  workflow_states/workflow_transitions), #141 (lint no-op), #143 (Phase 3A connector/outbox gap)
+- Small open housekeeping: #148 (corepack integrity hash), #150 (`PROGRESS.md`
+  gitignore-claim contradiction), #116/#117 (async-export ADR + week-log backfill for #93–#100)
+
+### Open questions
+
+- Should `tender` be folded into the standard module list, spun out as a separate track, or
+  reconsidered? Owner decision required.
+
+---
+
 ## 2026-07-10 — Security audit findings #8 and #9 (closes the full 2026-07-09 audit)
 
 ### Done

@@ -5,6 +5,72 @@
 
 ---
 
+## 2026-07-22 — Doc reconciliation: PRs #144/#151/#152/#155 surfaced, #127 closed out
+
+**Session type:** Docs (comprehensive project review)
+**Branch:** `docs/PLAT-127-tracker-reconciliation`
+
+### Completed this session
+
+- Pulled 23 new commits on `main` (up to PR #155) and ran a full review: vision-alignment
+  check against `architecture-brief.md`/ADRs, a security/architecture pass on the new surface,
+  and a local health check (typecheck/lint/test).
+- Found `CLAUDE.md`, `roadmap-tracker.md`, and `week-log.md` had not been updated for PR #144
+  (2026-07-16: child tickets, a new `modules/tender` vertical, access requests, security
+  hardening) or PRs #151/#152/#155 (2026-07-21: tenant-org-id mapping, request-access UI,
+  per-workflow ownership model + closing #127). This work was authored outside the
+  `openwind-loop` process — no plan-lock, no PROGRESS.md entries for the feature work itself
+  (only a later security-audit pass on top of it got logged) — which is why these three files
+  went silent on it.
+- Verified directly in code (not just the PR title) that **#127 is genuinely closed**:
+  `setEntityState`/`bulkSetState` (`packages/entity-engine/src/engine.ts`) now both insert a
+  `workflow_events` row and a `workflow.transitioned` outbox event when the state changes.
+  Marked closed in `CLAUDE.md`.
+- Security/architecture review of the new surface (access-request/grant/revoke flow,
+  child-ticket routes, tenant-org-id mapping, `modules/tender`) found no IDOR or escalation
+  path: RLS + explicit tenant filters present, 404-not-403 followed, org-id mapping fails
+  closed, the new `read_only` ACL only widens read paths, and `modules/tender` genuinely
+  respects the zero-TypeScript rule.
+- New finding, not yet filed: `setEntityState`/`bulkSetState` don't validate the target state
+  against `workflow_states` (unlike `updateEntity`) — noted in `CLAUDE.md` and the tracker, not
+  fixed this session.
+- Flagged two decisions for human/ADR sign-off rather than deciding them in the docs: (1) is
+  `tender` a sanctioned 8th module, and (2) an ADR for the new per-workflow ownership/admin
+  authorization model introduced by PR #155.
+- Re-confirmed **#141** (`pnpm lint` no-op) is still live: `turbo run lint` only executes
+  `build` tasks; zero packages have a real `lint` script.
+- Re-checked **#149**: its title claims "9 pre-existing failures," but the issue body lists 4
+  and `view-configs.test.ts` itself has exactly 4 `it()` blocks — the count looks stale/wrong;
+  flagged, not corrected in the issue itself this session.
+- Added the new shipped-but-unclassified work as its own section in `roadmap-tracker.md`
+  (cross-referencing the specs behind it) rather than slotting it into an existing phase.
+
+### Phase snapshot
+
+| Track                                                         | Status                                                                        |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Pre-Phase 3 hardening                                         | #121, #122, #126, #127, #120, #123, #124 closed. #125, #128, #129 open.       |
+| Unclassified (child tickets/tender/access-requests/ownership) | Shipped on `main`; pending ADR + phase classification — human decision needed |
+| Phase 3                                                       | Not started                                                                   |
+
+### Next
+
+- Human decision: tender module scope (ADR or explicit rejection) + ADR for the per-workflow
+  ownership/access-grant authorization model
+- File + fix: `setEntityState`/`bulkSetState` missing state-value validation
+- Reconcile `#149`'s stated failure count against its own body/the test file
+- Remaining open hardening items: #125, #128, #129, #136, #141, #143
+- Small open housekeeping: #148 (corepack integrity hash), #150 (`PROGRESS.md`
+  gitignore-claim contradiction), #116/#117 (export-pattern ADR + week-log backfill)
+
+### Open questions
+
+- Should `tender` be folded into the standard module list (`architecture-brief.md`'s 8-module
+  map currently lists _inventory_, not _tender_), or treated as one-off/reconsidered? Owner
+  decision required — not made in this session.
+
+---
+
 ## 2026-07-21 — PR #155 merged; #127 closed + IDOR gaps + per-workflow ownership
 
 **Session type:** PR review + doc cleanup
