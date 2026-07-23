@@ -125,7 +125,7 @@ services:
       BAO_TOKEN: dev-root-token
     entrypoint: >
       /bin/sh -c "
-        bao secrets enable transit &&
+        bao secrets enable transit 2>/dev/null || true &&
         bao write -f transit/keys/platform-credentials derived=true &&
         echo 'OpenBao Transit key created with derivation enabled'
       "
