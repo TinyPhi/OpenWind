@@ -84,6 +84,16 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
           409,
         ) as Response;
 
+      case "ENTITY_TYPE_ALREADY_GOVERNED":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "This entity type already has a workflow — a second workflow cannot be created for the same entity type",
+          },
+          409,
+        ) as Response;
+
       case "TRANSITION_FORBIDDEN":
         return c.json(
           {
