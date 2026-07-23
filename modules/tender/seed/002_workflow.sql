@@ -2,12 +2,10 @@
 
 -- Insert workflow record
 -- Idempotency keyed on entity_type_id, not name: a tenant may rename this
--- workflow after install (installModule's workflowName option), and PR #172
--- (issue #168) adds a UNIQUE(tenant_id, entity_type_id) constraint on
--- workflows (migration 0036) — keying on the literal seed name would attempt
--- a second INSERT for the same entity type after a rename and hit that
--- constraint once #172 lands. The NOT EXISTS guard below is correct with or
--- without that migration; this note is about the eventual DB backstop.
+-- workflow after install (installModule's workflowName option), and
+-- workflows(tenant_id, entity_type_id) is UNIQUE (migration 0036, issue #168)
+-- — keying on the literal seed name would attempt a second INSERT for the
+-- same entity type after a rename and hit that constraint.
 -- Name is seeded via {WORKFLOW_NAME} (the module's registry display name),
 -- not a hardcoded literal — issue #170: a hardcoded name meant
 -- installModule's workflowName rename option could never find this row via
