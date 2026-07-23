@@ -8,7 +8,11 @@ export const logger = pino(
     redact: ["password", "token", "secret", "authorization", "cookie"],
   },
   isDev
-    ? pino.transport({ target: "pino-pretty", options: { colorize: true } })
+    ? // pino's own types alias pino.transport()'s return as `type ThreadStream = any`
+      (pino.transport({
+        target: "pino-pretty",
+        options: { colorize: true },
+      }) as pino.DestinationStream)
     : undefined,
 );
 

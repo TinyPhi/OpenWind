@@ -44,7 +44,6 @@ export default defineConfig({
       DATABASE_URL:
         // Allow CI job env to override the local default — vitest env block
         // would otherwise win over the runner's process.env, breaking CI auth.
-        // eslint-disable-next-line no-restricted-syntax
         process.env["DATABASE_URL"] ??
         "postgresql://platform:platform_dev_password@localhost:5432/platform_test",
       DATABASE_POOL_MIN: "1",

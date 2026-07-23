@@ -29,7 +29,6 @@ const TIMEOUT_MS = 100;
 
 function tryLoadIvm(): IsolateModule | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require("isolated-vm") as IsolateModule;
   } catch {
     return null;

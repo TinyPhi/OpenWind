@@ -57,8 +57,8 @@ describe("resolveLookupFields", () => {
   it("returns values unchanged when no lookup fields are present", async () => {
     const db = makeDb([], []);
     const values = { title: "hello" };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFields(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       FROM_ID,
@@ -75,8 +75,8 @@ describe("resolveLookupFields", () => {
       [{ fields: { subject: "Bug: login fails" } }],
     );
     const values = { title: "hello" };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFields(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       FROM_ID,
@@ -90,8 +90,8 @@ describe("resolveLookupFields", () => {
   it("sets lookup field to null when no relation exists", async () => {
     const db = makeDb([], []);
     const values = { title: "hello" };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFields(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       FROM_ID,
@@ -106,8 +106,8 @@ describe("resolveLookupFields", () => {
       [{ toInstanceId: TO_ID }],
       [{ fields: { other_field: "value" } }],
     );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFields(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       FROM_ID,
@@ -124,8 +124,8 @@ describe("resolveLookupFields", () => {
       config: { relationType: 123 }, // invalid — not a string
     };
     const db = makeDb([], []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFields(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       FROM_ID,
@@ -143,8 +143,8 @@ describe("resolveLookupFields", () => {
       [{ toInstanceId: TO_ID }],
       [{ fields: { subject: "top-level value" } }],
     );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFields(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       FROM_ID,
@@ -163,8 +163,8 @@ describe("resolveLookupFieldsBatch", () => {
   it("returns map unchanged when no lookup fields are present", async () => {
     const db = makeBatchDb([], []);
     const instances = [{ id: FROM_ID, fields: { title: "a" } }];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFieldsBatch(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       instances,
@@ -176,8 +176,8 @@ describe("resolveLookupFieldsBatch", () => {
 
   it("returns empty map when instances list is empty", async () => {
     const db = makeBatchDb([], []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFieldsBatch(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       [],
@@ -209,8 +209,8 @@ describe("resolveLookupFieldsBatch", () => {
       { id: ID_B, fields: { title: "b" } },
     ];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFieldsBatch(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       instances,
@@ -234,8 +234,8 @@ describe("resolveLookupFieldsBatch", () => {
     );
 
     const instances = [{ id: FROM_ID, fields: {} }];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await resolveLookupFieldsBatch(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       db as any,
       TENANT,
       instances,
