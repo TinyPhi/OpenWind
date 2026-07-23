@@ -253,6 +253,13 @@
       "when": 1783417685000,
       "tag": "0035_workflow_created_by",
       "breakpoints": false
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783417686000,
+      "tag": "0036_workflows_entity_type_unique",
+      "breakpoints": false
     }
   ]
 }

@@ -1,3 +1,80 @@
+## 2026-07-23 — #168 fixed: workflow entity-type ownership (shadow-workflow escalation)
+
+### Done
+
+- Closes #168 (found during ADR-006's adversarial review, PR #169): `POST /workflows` let any
+  tenant member create a second workflow against an entity type another workflow already
+  governed — no DB constraint, no app-level check, and `getWorkflowByEntityTypeId`'s unordered
+  `SELECT ... LIMIT 1` made which workflow "won" for listing/field-mutation authorization
+  undefined.
+- **Migration `0036_workflows_entity_type_unique.sql`**: `UNIQUE(tenant_id, entity_type_id)` on
+  `workflows`, added via the Drizzle schema (`packages/db/src/schema/workflow-engine.ts`) plus a
+  hand-written migration + manually-added `_journal.json` entry (this repo writes migrations by
+  hand per `db-conventions.md`, not via `drizzle-kit generate` — confirmed the hard way: an
+  initial hand-written-but-unregistered migration file silently never applied, since Drizzle's
+  runtime migrator only applies files listed in the journal).
+- **`createWorkflow`**: switched to `.onConflictDoNothing()` (matching the existing
+  `provisionTenant` slug-race pattern in `tenant-lifecycle.ts`) + throws a new
+  `WorkflowError("ENTITY_TYPE_ALREADY_GOVERNED")`, mapped to HTTP 409 in **two** places —
+  `apps/api/src/middleware/error-handler.ts` (global handler) and
+  `apps/api/src/lib/handle-workflow-error.ts` (used directly by `create.ts`, the one actually
+  exercised — found by checking, not assuming, which mapper every workflow route calls).
+- `getWorkflowByEntityTypeId` adds `ORDER BY created_at` before `LIMIT 1` (defense-in-depth).
+- **`POST /workflows` restricted to `admin`/`agent`** (removed `user`) after a design discussion:
+  the unique constraint means first-created-wins-permanently, so leaving creation open to any
+  tenant member would let a non-privileged caller race to squat a freshly-created entity type
+  before its intended owner claims it — recoverable only by a tenant admin deleting the empty
+  squatter. Researched how Salesforce/ServiceNow/Jira gate automation-definition creation (a
+  coarse admin-tier permission, separate entirely from record-level ownership) before deciding;
+  `user`-role delegation is unaffected — still works via `assignedTo[]` exactly as designed
+  (admin/agent creates, then adds the intended owner to the admin list).
+- Isolation tests added to `apps/api/tests/isolation/workflow-engine.isolation.test.ts`: function-level
+  (`createWorkflow` rejects a same-tenant duplicate, succeeds for a different tenant) and
+  HTTP-level (403 for `user`-role, 409 for an `agent` racing an already-governed entity type, and
+  confirms exactly one workflow row survives).
+- **Adversarial review** (fresh-context subagent, every finding independently re-verified against
+  the code/by running real reproductions before accepting): confirmed the fix's own correctness,
+  but also found two real issues that got fixed in the same PR rather than deferred — (1)
+  `modules/helpdesk`/`modules/tender`'s seed SQL idempotency guards keyed on literal workflow
+  `name` instead of `entity_type_id`, and (2) initially believed this caused a live regression via
+  `installModule`'s `workflowName` rename option — **that specific claim was wrong** and I
+  corrected it after actually running the install→uninstall→reinstall sequence against a live DB:
+  the rename mechanism never touches these particular workflows (traced exactly which workflow it
+  targets — see below). Kept the seed-file fix anyway since keying on `entity_type_id` is the
+  correct invariant regardless, just described accurately as a robustness improvement, not a
+  regression fix.
+- **Two unrelated, pre-existing bugs surfaced during that verification, filed rather than fixed**:
+  **#170** — `installModule`'s `workflowName` rename option is dead for `tender` (and any module
+  without a `{WORKFLOW_NAME}`-templated seed file) — it matches by the module's registry display
+  name, which `tender`'s hardcoded-literal seed SQL never produces, so the rename silently no-ops.
+  **#171** — `modules/helpdesk/seed/001_seed.sql` is a redundant, non-idempotent duplicate of
+  `001_entity_types.sql`+`002_workflow.sql` (a separate `'Support Ticket'` entity type/workflow
+  pair, zero dedup guard) — every uninstall→reinstall cycle piles up orphaned duplicates; doesn't
+  trip the new unique constraint only because each duplicate gets a fresh `entity_type_id`.
+
+### Verification
+
+- pnpm typecheck: PASS (full repo)
+- pnpm lint: PASS (full repo, forced)
+- pnpm test: PASS (464/464, up from 458 pre-session — 6 new tests)
+- pnpm test:isolation: PASS (161/161) — real Postgres, throwaway containers matching CI, torn
+  down after
+- Directly verified (not just unit-tested) the install→uninstall→reinstall sequence against a
+  live DB for the `workflowName` custom-rename scenario, both before and after the seed-file fix
+  — this is what caught the incorrect regression claim above
+
+### Next
+
+- #170, #171 — filed, not fixed, no urgency assigned beyond "pre-existing, orthogonal to #168"
+- #167 (`grant-access.ts` consistency), #136/ADR-007 (RLS design) — still open from the ADR-006
+  session
+- Then: remaining pre-Phase-3 hardening queue — #125 (notify stub), #128 (docker-compose
+  OpenBao/MinIO), #129 (worker health endpoint)
+
+### Open questions
+
+- None blocking.
+
 ## 2026-07-23 — #141: pnpm lint wired up (was a repo-wide no-op)
 
 ### Done
