@@ -41,6 +41,7 @@ const WORKFLOW_STATUS: Record<string, number> = {
   WORKFLOW_TRANSITION_NOT_FOUND: 404,
   WORKFLOW_HAS_ACTIVE_INSTANCES: 409,
   WORKFLOW_STATE_IN_USE: 409,
+  ENTITY_TYPE_ALREADY_GOVERNED: 409,
 };
 
 const WORKFLOW_MESSAGES: Record<string, string> = {
@@ -60,6 +61,8 @@ const WORKFLOW_MESSAGES: Record<string, string> = {
     "Cannot delete a workflow that has active instances",
   WORKFLOW_STATE_IN_USE:
     "Cannot delete a state that is referenced by existing transitions or instances",
+  ENTITY_TYPE_ALREADY_GOVERNED:
+    "This entity type already has a workflow — a second workflow cannot be created for the same entity type",
 };
 
 const ENTITY_STATUS: Record<string, number> = {

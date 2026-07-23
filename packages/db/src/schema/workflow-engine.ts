@@ -12,29 +12,42 @@ import {
 import { sql } from "drizzle-orm";
 import { entityInstances, entityTypes } from "./entity-engine.js";
 
-export const workflows = pgTable("workflows", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id"),
-  entityTypeId: uuid("entity_type_id")
-    .notNull()
-    .references(() => entityTypes.id),
-  name: text("name").notNull(),
-  initialState: text("initial_state").notNull(),
-  isActive: boolean("is_active").default(true).notNull(),
-  /** Zitadel user ID of the workflow's creator. Immutable after insert; always an implicit workflow admin. */
-  createdBy: text("created_by"),
-  /** Zitadel user IDs of the designated workflow admins (includes creator). NULL = unassigned. */
-  assignedTo: text("assigned_to").array(),
-  /** Max depth of parent→child chains. 0 = children disabled. Default 1. */
-  maxChildDepth: integer("max_child_depth").default(1).notNull(),
-  /** Max number of direct children per parent ticket. Default 10. */
-  maxChildrenPerParent: integer("max_children_per_parent")
-    .default(10)
-    .notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const workflows = pgTable(
+  "workflows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id"),
+    entityTypeId: uuid("entity_type_id")
+      .notNull()
+      .references(() => entityTypes.id),
+    name: text("name").notNull(),
+    initialState: text("initial_state").notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    /** Zitadel user ID of the workflow's creator. Immutable after insert; always an implicit workflow admin. */
+    createdBy: text("created_by"),
+    /** Zitadel user IDs of the designated workflow admins (includes creator). NULL = unassigned. */
+    assignedTo: text("assigned_to").array(),
+    /** Max depth of parent→child chains. 0 = children disabled. Default 1. */
+    maxChildDepth: integer("max_child_depth").default(1).notNull(),
+    /** Max number of direct children per parent ticket. Default 10. */
+    maxChildrenPerParent: integer("max_children_per_parent")
+      .default(10)
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    // Closes issue #168: a tenant can have at most one workflow per entity
+    // type. entityTypeId can never change after creation (no such field in
+    // UpdateWorkflowInput), so createWorkflow is the only path that could
+    // create a duplicate — this makes the 1:1 assumption the rest of the
+    // code already relies on (getWorkflowByEntityTypeId) a real guarantee.
+    tenantEntityTypeUnique: uniqueIndex(
+      "workflows_tenant_entity_type_unique",
+    ).on(t.tenantId, t.entityTypeId),
+  }),
+);
 
 export const workflowStates = pgTable("workflow_states", {
   id: uuid("id").primaryKey().defaultRandom(),
