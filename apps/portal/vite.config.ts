@@ -4,14 +4,12 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, "../../", "");
 
-  /* eslint-disable no-restricted-syntax */
   const zitadelIssuer = env["ZITADEL_ISSUER"] ?? process.env["ZITADEL_ISSUER"];
   const zitadelClientId =
     env["ZITADEL_OIDC_CLIENT_ID"] ?? process.env["ZITADEL_OIDC_CLIENT_ID"];
   const zitadelClientSecret =
     env["ZITADEL_OIDC_CLIENT_SECRET"] ??
     process.env["ZITADEL_OIDC_CLIENT_SECRET"];
-  /* eslint-enable no-restricted-syntax */
 
   return {
     plugins: [react()],

@@ -169,7 +169,20 @@ export default [
   // ─── Security: no direct process.env ─────────────────────────────────────
   {
     files: ["apps/**/*.ts", "packages/**/*.ts", "modules/**/*.ts"],
-    ignores: ["packages/config/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
+    ignores: [
+      "packages/config/**/*.ts",
+      // logger is foundational infra like config — it cannot import
+      // @platform/config without forcing every consumer (tests, scripts,
+      // minimal contexts) through the full app env schema (S3/Zitadel/Novu/
+      // Anthropic/OpenBao, ~20 required vars) just to construct a logger.
+      "packages/logger/**/*.ts",
+      "**/*.test.ts",
+      "**/*.spec.ts",
+      // build/test tooling configs, not application code
+      "**/vite.config.ts",
+      "**/vitest.config.ts",
+      "**/drizzle.config.ts",
+    ],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -220,7 +233,7 @@ export default [
   // vitest, not tsc). Disabling type-checked rules avoids "file not in project"
   // errors while still linting test code for obvious mistakes.
   {
-    files: ["**/*.test.ts", "**/*.spec.ts", "tests/**/*.ts", "**/vitest.config.ts", "**/vite.config.ts"],
+    files: ["**/*.test.ts", "**/*.spec.ts", "tests/**/*.ts", "**/vitest.config.ts", "**/vite.config.ts", "**/drizzle.config.ts"],
     languageOptions: {
       parserOptions: {
         project: false,

@@ -113,7 +113,7 @@ function rowToInstance(
     tenantId: row.tenantId,
     workflowId: row.workflowId ?? null,
     currentState: row.currentState,
-    fields: (row.fields as Record<string, unknown>) ?? {},
+    fields: row.fields as Record<string, unknown>,
     createdBy: row.createdBy ?? null,
     assignedTo: row.assignedTo ?? null,
     createdAt: row.createdAt,
