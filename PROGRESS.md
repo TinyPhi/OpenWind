@@ -1,3 +1,67 @@
+## 2026-07-23 — #141: pnpm lint wired up (was a repo-wide no-op)
+
+### Done
+
+- Added real `lint`/`lint:fix` scripts (`eslint . --max-warnings=0` / `eslint . --fix`) to all
+  28 workspace `package.json` files (`apps/*`, `packages/*` except `packages/tsconfig` which has
+  no `.ts` sources, `modules/*`). Previously `turbo run lint` matched zero packages and silently
+  exited 0 — the real `eslint.config.js` (strict rules, import-boundary enforcement) was never
+  actually invoked by `pnpm lint` in CI or locally.
+- Wiring it up surfaced real violations in 3 packages, all fixed:
+  - `packages/logger/src/logger.ts` — cast `pino.transport()`'s result to
+    `pino.DestinationStream` (pino's own types alias the return as `type ThreadStream = any`,
+    tripping `no-unsafe-argument`).
+  - `packages/db/drizzle.config.ts` — parse error (not covered by any tsconfig `include`).
+  - `packages/entity-engine` — unused `EntityError` import in `entity-fields.test.ts`; 10
+    off-by-one `eslint-disable-next-line` comments in `lookup-resolver.test.ts` (sitting 2 lines
+    above the `db as any` they were meant to cover, so they silenced nothing and left a real
+    `no-explicit-any` warning — moved each directly above its target line); a stale
+    `eslint-disable` for `no-require-imports` in `formula-evaluator.ts` (that rule is never
+    enabled — only `js.configs.recommended` is spread, not typescript-eslint's recommended set);
+    an unreachable `?? {}` fallback in `search.ts` on `row.fields` (column is
+    `jsonb(...).notNull()` in the Drizzle schema, so it can never be null — `no-unnecessary-condition`
+    correctly flagged the dead code).
+- **`eslint.config.js` change (flagged for approval, approved)**: added `packages/logger` to the
+  same "no direct `process.env`" ignore list as `packages/config` — it's foundational infra;
+  routing it through `@platform/config`'s `env` would force every consumer (tests, scripts,
+  minimal contexts) through ~20 unrelated required vars (S3/Zitadel/Novu/Anthropic/OpenBao) just
+  to construct a logger. Also added `**/vite.config.ts`, `**/vitest.config.ts`,
+  `**/drizzle.config.ts` to the same ignore list (build/test tooling configs, not application
+  code) and `**/drizzle.config.ts` to the existing `parserOptions: project:false` glob. This
+  surfaced 3 now-stale `eslint-disable` comments guarding `process.env` reads that were already
+  legitimate (`apps/portal/vite.config.ts`, `apps/api/vitest.config.ts`,
+  `packages/auth/vitest.config.ts`) — removed all three.
+
+### Verification
+
+- pnpm typecheck: PASS (41/41 packages)
+- pnpm lint: PASS (41/41 packages, `turbo run lint --force` to bypass stale cache)
+- pnpm test: PASS. First pass (no DB) showed 2 failures — `@platform/auth`
+  (`tenant-org-lookup.test.ts`) and `@platform/api` — both `ECONNREFUSED :5432`, and OrbStack
+  initially failed to start a VM (`orb start` timed out). Re-ran `orb start` and it came up;
+  found `platform-postgres-1`/`platform-redis-1` (this repo's normal dev containers, stopped,
+  2 months old) — left them untouched to avoid touching any local dev data, and instead spun up
+  throwaway `postgres:16-alpine` (port 5433) + `redis:7-alpine` (port 6379, matching CI's
+  hardcoded value in `apps/api/vitest.config.ts` since only `DATABASE_URL` there reads
+  `process.env`) mirroring `.github/workflows/ci.yml` exactly, ran `pnpm db:migrate` against it,
+  then re-ran both packages: `@platform/auth` 44/44, `@platform/api` 458/458 — both fully green
+  with a real DB. Both throwaway containers removed after.
+- pnpm test:isolation: PASS (22 test files, 155/155) — same throwaway DB, `CI=1 pnpm
+  test:isolation`. 2 assertions inside `ssrf-pii.isolation.test.ts` self-skip ("DB not available
+  or setup failed") independent of this — they need the `app_user` role/grants set up
+  separately, unrelated to lint wiring.
+
+### Next
+
+Per CLAUDE.md's hardening checklist, remaining open items: #125 (notify action stub), #128
+(OpenBao/MinIO commented out of docker-compose), #129 (worker health endpoint), #136 (RLS for
+entity_types/workflows/workflow_states/workflow_transitions, filed during PR #135 review).
+
+### Open questions
+
+- None blocking. The `eslint.config.js` process.env exemptions were surfaced to the human and
+  approved as part of this session's plan-lock before implementation.
+
 ## 2026-07-22 — Doc reconciliation: PRs #144/#151/#152/#155 surfaced, #127 closed out
 
 ### Done

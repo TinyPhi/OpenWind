@@ -8,6 +8,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
     "db:migrate": "tsx src/run-migrations.ts",
     "db:migrate:create": "drizzle-kit generate",
     "db:seed": "tsx src/seed.ts",

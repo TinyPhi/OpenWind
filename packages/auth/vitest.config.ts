@@ -8,7 +8,6 @@ export default defineConfig({
     // "@platform/db", which overrides these regardless.
     env: {
       DATABASE_URL:
-        // eslint-disable-next-line no-restricted-syntax
         process.env["DATABASE_URL"] ??
         "postgresql://platform:platform_dev_password@localhost:5432/platform_test",
       DATABASE_POOL_MIN: "1",
