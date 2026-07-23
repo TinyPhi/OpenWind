@@ -8,15 +8,13 @@ name: openwind
 #   pgbouncer  — Connection pooler (transaction mode, required for RLS)
 #   redis      — Queue backend (BullMQ) + application cache
 #   zitadel    — Identity provider (OIDC/OAuth2/SAML)
+#   openbao    — Secrets manager (Transit envelope encryption for connector credentials)
+#   minio      — S3-compatible object storage (file uploads/presigned URLs)
 #   api        — Hono API server (port 3000)
 #   admin-ui   — React app with Vite HMR (port 3001) — admin + portal in one app, RBAC-controlled
 #
 # All users (admin, agent, customer) log in at http://localhost:3001.
 # The app reads the role from the JWT and renders the appropriate view.
-#
-# Commented out (not integrated yet — uncomment when needed):
-#   openbao    — Secrets manager (enable when packages/auth uses Transit encryption)
-#   minio      — S3-compatible object storage (enable when packages/files is wired in)
 #
 # Optional services (require explicit profile):
 #   --profile notifications  → novu-api, novu-worker, novu-web, novu-mongo
@@ -96,43 +94,42 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── OpenBao (secrets manager) — NOT IN USE YET ────────────────────────────
-  # Uncomment when packages/auth or packages/files starts using OpenBao Transit.
-  # openbao:
-  #   container_name: ow-secrets
-  #   image: openbao/openbao:latest
-  #   restart: unless-stopped
-  #   command: server -dev -dev-root-token-id=dev-root-token
-  #   environment:
-  #     BAO_DEV_ROOT_TOKEN_ID: dev-root-token
-  #     BAO_ADDR: http://0.0.0.0:8200
-  #     BAO_LOG_LEVEL: warn
-  #   ports:
-  #     - "8200:8200"
-  #   cap_add:
-  #     - IPC_LOCK
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/v1/sys/health"]
-  #     interval: 5s
-  #     timeout: 3s
-  #     retries: 10
-  #
-  # openbao-init:
-  #   container_name: ow-secrets-init
-  #   image: openbao/openbao:latest
-  #   depends_on:
-  #     openbao:
-  #       condition: service_healthy
-  #   environment:
-  #     BAO_ADDR: http://openbao:8200
-  #     BAO_TOKEN: dev-root-token
-  #   entrypoint: >
-  #     /bin/sh -c "
-  #       bao secrets enable transit &&
-  #       bao write -f transit/keys/platform-credentials derived=true &&
-  #       echo 'OpenBao Transit key created with derivation enabled'
-  #     "
-  #   restart: "no"
+  # ── OpenBao (secrets manager) ──────────────────────────────────────────────
+  openbao:
+    container_name: ow-secrets
+    image: openbao/openbao:latest
+    restart: unless-stopped
+    command: server -dev -dev-root-token-id=dev-root-token
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: dev-root-token
+      BAO_ADDR: http://0.0.0.0:8200
+      BAO_LOG_LEVEL: warn
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  openbao-init:
+    container_name: ow-secrets-init
+    image: openbao/openbao:latest
+    depends_on:
+      openbao:
+        condition: service_healthy
+    environment:
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: dev-root-token
+    entrypoint: >
+      /bin/sh -c "
+        bao secrets enable transit &&
+        bao write -f transit/keys/platform-credentials derived=true &&
+        echo 'OpenBao Transit key created with derivation enabled'
+      "
+    restart: "no"
 
   # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
@@ -296,7 +293,7 @@ services:
       # (http://zitadel:8080) so local dev continues to work with no extra config.
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
-      # OPENBAO_ADDR: http://openbao:8200  # uncomment when openbao service is enabled
+      OPENBAO_ADDR: http://openbao:8200
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_URL: http://localhost:9000
     restart: unless-stopped
@@ -309,6 +306,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      openbao:
         condition: service_healthy
 
   # ── Admin UI (React + Refine) ──────────────────────────────────────────────

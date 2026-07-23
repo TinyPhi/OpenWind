@@ -97,6 +97,10 @@ export async function createWorkflow(
   createdBy: string,
   input: CreateWorkflowInput,
 ): Promise<WorkflowDefinition> {
+  // ON CONFLICT DO NOTHING (not a pre-check SELECT) — atomic against the
+  // workflows_tenant_entity_type_unique constraint, no TOCTOU race under
+  // concurrent creation. Matches the pattern in tenant-lifecycle.ts's
+  // provisionTenant slug race. See issue #168 / ADR-006 Known gap #3.
   const [row] = await db
     .insert(workflows)
     .values({
@@ -107,9 +111,14 @@ export async function createWorkflow(
       createdBy,
       assignedTo: [createdBy],
     })
+    .onConflictDoNothing()
     .returning();
 
-  if (!row) throw new WorkflowError("WORKFLOW_NOT_FOUND");
+  if (!row) {
+    throw new WorkflowError("ENTITY_TYPE_ALREADY_GOVERNED", {
+      entityTypeId: input.entityTypeId,
+    });
+  }
 
   logger.info({ tenantId, workflowId: row.id, createdBy }, "Workflow created");
   return rowToWorkflow(row);
@@ -123,6 +132,9 @@ export async function getWorkflowByEntityTypeId(
   tenantId: string,
   entityTypeId: string,
 ): Promise<WorkflowDefinition | null> {
+  // workflows_tenant_entity_type_unique (migration 0036) prevents more than
+  // one row matching this filter going forward, but ORDER BY keeps this
+  // deterministic rather than relying on that constraint alone (issue #168).
   const [row] = await db
     .select()
     .from(workflows)
@@ -132,6 +144,7 @@ export async function getWorkflowByEntityTypeId(
         eq(workflows.tenantId, tenantId),
       ),
     )
+    .orderBy(asc(workflows.createdAt))
     .limit(1);
   return row ? rowToWorkflow(row) : null;
 }
