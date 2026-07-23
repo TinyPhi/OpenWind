@@ -22,7 +22,7 @@ vi.mock("drizzle-orm", () => {
   return { eq: eqFn, and: andFn, sql: sqlFn };
 });
 
-const mockAuth: AuthContext = {
+let currentAuth: AuthContext = {
   tenantId: "t-aaa",
   userId: "u-admin",
   roles: ["admin"],
@@ -33,12 +33,17 @@ vi.mock("@platform/auth", () => ({
   requireAuth:
     () =>
     async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", mockAuth);
+      c.set("auth", currentAuth);
       await next();
     },
   requireRole: () => async (_c: Context, next: Next) => {
     await next();
   },
+}));
+
+vi.mock("@platform/workflow-engine", () => ({
+  getWorkflow: vi.fn(),
+  isWorkflowAdmin: vi.fn(() => false),
 }));
 
 const mockEmitAccessEvent = vi.fn();
@@ -64,6 +69,7 @@ const tenantUsersTable = {
 const INST_ID = "00000000-0000-0000-0000-000000000002";
 
 let instanceExists: boolean;
+let instanceWorkflowId: string | null;
 let tenantUserExists: boolean;
 let currentFromTable: unknown;
 let expectedTargetUserId: string;
@@ -84,7 +90,9 @@ const mockTx = {
         lastTenantUsersUserIdQueried === expectedTargetUserId;
       return Promise.resolve(found ? [{ userId: expectedTargetUserId }] : []);
     }
-    return Promise.resolve(instanceExists ? [{ id: INST_ID }] : []);
+    return Promise.resolve(
+      instanceExists ? [{ id: INST_ID, workflowId: instanceWorkflowId }] : [],
+    );
   },
   update: () => ({
     set: () => ({ where: () => Promise.resolve(undefined) }),
@@ -99,6 +107,8 @@ vi.mock("@platform/db", () => ({
 }));
 
 const { grantAccessHandler } = await import("./grant-access.js");
+const { isWorkflowAdmin, getWorkflow } =
+  await import("@platform/workflow-engine");
 
 function makeApp() {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
@@ -109,11 +119,19 @@ function makeApp() {
 describe("POST /entities/:id/access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-admin",
+      roles: ["admin"],
+      email: "admin@example.com",
+    };
     currentFromTable = undefined;
     instanceExists = true;
+    instanceWorkflowId = null;
     tenantUserExists = true;
     expectedTargetUserId = "target-user";
     lastTenantUsersUserIdQueried = undefined;
+    vi.mocked(isWorkflowAdmin).mockReturnValue(false);
   });
 
   it("grants access to a userId that is an actual tenant member", async () => {
@@ -154,7 +172,7 @@ describe("POST /entities/:id/access", () => {
     });
 
     expect(lastTenantUsersUserIdQueried).toBe("target-user");
-    expect(lastTenantUsersUserIdQueried).not.toBe(mockAuth.userId);
+    expect(lastTenantUsersUserIdQueried).not.toBe(currentAuth.userId);
     expect(res.status).toBe(201);
   });
 
@@ -169,5 +187,102 @@ describe("POST /entities/:id/access", () => {
 
     expect(res.status).toBe(404);
     expect(mockEmitAccessEvent).not.toHaveBeenCalled();
+  });
+
+  describe("workflow-admin direct grant (issue #167)", () => {
+    it("allows a workflow admin (role user, not tenant admin/agent) to grant access", async () => {
+      currentAuth = {
+        tenantId: "t-aaa",
+        userId: "u-workflow-admin",
+        roles: ["user"],
+        email: "wa@example.com",
+      };
+      instanceWorkflowId = "wf-1";
+      vi.mocked(isWorkflowAdmin).mockReturnValue(true);
+
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "target-user", level: "read_write" }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(mockEmitAccessEvent).toHaveBeenCalledTimes(1);
+      // Must check the ACTOR (caller), never the grant's target userId — a
+      // mock that ignores its arguments would still pass this test if that
+      // were swapped, which is why this asserts the exact call, not just
+      // that isWorkflowAdmin was called. getWorkflow is unimplemented
+      // (vi.fn()), so its resolved value is undefined — only the first
+      // argument (the actor id) is meaningful to assert here.
+      expect(vi.mocked(isWorkflowAdmin).mock.calls[0]?.[0]).toBe(
+        "u-workflow-admin",
+      );
+      // getWorkflow must be looked up with the ACTOR's tenant/userId, not
+      // the grant target's — same argument-mixup guard as above.
+      expect(getWorkflow).toHaveBeenCalledWith(mockTx, "t-aaa", "wf-1", {
+        userId: "u-workflow-admin",
+        isGlobalAdmin: false,
+      });
+    });
+
+    it("returns 404 for a plain user role that is not owner or workflow admin", async () => {
+      currentAuth = {
+        tenantId: "t-aaa",
+        userId: "u-random",
+        roles: ["user"],
+        email: "random@example.com",
+      };
+      instanceWorkflowId = "wf-1";
+      vi.mocked(isWorkflowAdmin).mockReturnValue(false);
+
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "target-user", level: "read_write" }),
+      });
+
+      expect(res.status).toBe(404);
+      expect(mockEmitAccessEvent).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 for a plain user role when the record has no bound workflow", async () => {
+      currentAuth = {
+        tenantId: "t-aaa",
+        userId: "u-random",
+        roles: ["user"],
+        email: "random@example.com",
+      };
+      instanceWorkflowId = null;
+
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "target-user", level: "read_write" }),
+      });
+
+      expect(res.status).toBe(404);
+      expect(mockEmitAccessEvent).not.toHaveBeenCalled();
+      // No workflow bound → isWorkflowAdmin should never even be consulted.
+      expect(isWorkflowAdmin).not.toHaveBeenCalled();
+    });
+
+    it("agent role is privileged and never consults isWorkflowAdmin", async () => {
+      currentAuth = {
+        tenantId: "t-aaa",
+        userId: "u-agent",
+        roles: ["agent"],
+        email: "agent@example.com",
+      };
+      instanceWorkflowId = "wf-1";
+
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "target-user", level: "read_write" }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(isWorkflowAdmin).not.toHaveBeenCalled();
+    });
   });
 });
