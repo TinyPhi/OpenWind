@@ -74,6 +74,15 @@
   #143/#125 confirmed informally assigned to Bikash Barnwal (via chat, not GitHub's `assignees`
   field, which this repo has never used). Local-only `open-issues-tracker.md` created (gitignored
   by request) to track this without committing individual names into shared docs.
+- **#117** (week-log/roadmap-tracker never updated for #93–#100) — investigated and closed.
+  `gh pr view 115` showed `closingIssuesReferences: []`: PR #115's title named all five issues
+  but its body never used `Closes #N` syntax, so only #93/#94/#98 auto-closed; #99 and #100
+  had sat open for over a month despite the code being genuinely shipped (verified directly —
+  `addState`/`updateState`/`deleteState`/`deleteTransition` in `workflow-canvas.tsx`, the
+  `PUT /workflows/:id/canvas` endpoint and its `canvas.test.ts`/`canvas.isolation.test.ts`
+  coverage). Closed both with an explanatory comment citing the code and this log. This entry
+  (above, retitled) and the `roadmap-tracker.md` 2D row now cite all five issue numbers
+  explicitly, satisfying #117's literal acceptance criteria — #117 itself closed as a result.
 
 ### Phase snapshot
 
@@ -443,10 +452,17 @@ Start hardening sprint at #121 (RLS role fix).
 
 ---
 
-## 2026-06-18 — Track 2D export API + workflow canvas — PR #115 merged (issue #93, #98)
+## 2026-06-18 — Track 2D export API + workflow canvas — PR #115 merged (issues #93, #94, #98, #99, #100)
 
 **Session type:** Feature implementation + review cycle (4 rounds)
 **Branch:** `feat/93-98-export-api-workflow-canvas` → PR #115 merged
+
+Covers all 5 issues from this track: #93 (export API), #94 (export UI), #98 (workflow
+canvas), #99 (canvas edit ops — add/rename/delete state, delete transition), #100 (atomic
+canvas save endpoint + dirty-state/`beforeunload` guard). PR #115's title named all five but
+its body never used `Closes #N` syntax, so GitHub only auto-closed #93/#94/#98 — #99/#100
+sat open until caught and closed on 2026-07-24 (see that entry below) despite the code
+having shipped here.
 
 ### Completed this session
 
