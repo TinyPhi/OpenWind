@@ -1,7 +1,13 @@
 # Phase Development Timeline — AI-First Team
 
-**Team model:** Small AI-first team. Claude Code handles implementation; humans drive architecture decisions, reviews, and product judgment.
-**Pacing assumption:** ~5 active engineering days per week. Phase 1 set the baseline velocity.
+**Team model:** Small AI-first team. Claude Code handles implementation; humans drive architecture
+decisions, reviews, and product judgment.
+**For current phase/track status:** see [roadmap-tracker.md](roadmap-tracker.md) — this file no
+longer tracks dates or % complete. Its original week-by-week projection (written 2026-05-22)
+was blown by Week 8 (Phase 2 hardening ran ~7 weeks past the projected exit, and Phase 3's
+projected 2026-07-07 start has not happened as of 2026-07-24 — Phase 3 remains "not started,
+planning required" per `CLAUDE.md`). Kept here only for the parts that are still true: the
+velocity baseline, the operating model, and the config-first test.
 
 ---
 
@@ -16,110 +22,10 @@
 | Engine lines shipped | ~4,000 (entity + workflow + automation engines) |
 | Test coverage        | ≥80% core, full isolation suite                 |
 
-**Key insight:** Config-first architecture front-loaded the hard work into Phase 1. Phase 2 modules are seed SQL + UI wiring — expected velocity is higher per feature shipped, lower risk per change.
-
----
-
-## Projected timeline
-
-```
-Week 1-2   May 13–24    Phase 1 complete ✅
-Week 3     May 25–31    Phase 2 kick-off: triage carry-overs, start 2A
-Week 4-5   Jun 1–14     2A platform services + 2B module system
-Week 6-7   Jun 15–28    2B module seeds (7 modules) + 2C portal/UI
-Week 8     Jun 29–Jul 5 2D no-code builders, Phase 2 exit testing
-           Jul 6        Pilot customer onboarding gate (pen test required)
-Week 9+    Jul 7+       Phase 3 begins
-```
-
-> Dates are projections. Adjust in [week-log.md](week-log.md) as actuals come in.
-
----
-
-## Phase 1 — Foundation
-
-**Duration:** 2026-05-13 to 2026-05-21 (actual)
-**Team:** abmish (auth/security), PrabhuVijit (engines)
-
-```
-Week 1 (May 13–18)
-  ├─ Scaffold + ADRs + issue backlog
-  ├─ 1A: Infrastructure, tenancy, secrets, OpenBao
-  ├─ 1B: Zitadel JWT, RBAC, API keys
-  └─ 1C: Entity engine (CRUD, bulk, search, isolation)
-
-Week 2 (May 19–21)
-  ├─ 1D: Workflow engine (executeTransition, SLA, idempotency)
-  ├─ 1E: Automation engine (outbox, rule executor, circuit breaker)
-  └─ Security hardening sprint (ReDoS, cross-tenant, API key hardening)
-```
-
-**Exit criteria met:** ✅ All 5 tracks closed, security review passed, RLS isolation tests green.
-
----
-
-## Phase 2 — First Customer-Ready Apps
-
-**Target:** 2026-05-25 to ~2026-07-05 (6 weeks)
-**Exit gate:** Penetration test passes, pilot customer onboarding approved.
-
-```
-Week 3 (May 25–31)  — Platform foundation
-  ├─ Triage: close or defer open carry-overs (#2, #3, #4, #5, #62, #64, #65)
-  ├─ 2A start: @platform/notifications (Novu), @platform/files (S3)
-  └─ 2A: audit log table + append-only read API
-
-Week 4 (Jun 1–7)   — Platform services complete, module system
-  ├─ 2A finish: view_configs, saved views, OpenAPI spec
-  ├─ 2B start: modules table, module install/uninstall, seed runner
-  └─ 2B: feature flags + admin module management UI
-
-Week 5 (Jun 8–14)  — Module seeds (7 modules)
-  ├─ Helpdesk seed (Ticket, Comment, Article + SLA workflow)
-  ├─ Reimbursements seed (Expense Claim, multi-level approval)
-  ├─ CRM seed (Contact, Company, Deal, pipeline workflow)
-  ├─ Projects seed (Project, Task, kanban workflow)
-  └─ HRMS seed (Employee, Leave Request, approval workflow)
-
-Week 6 (Jun 15–21) — Portal + agent UI
-  ├─ 2C: Config-driven entity list view (reads view_configs)
-  ├─ 2C: Config-driven entity detail view + form
-  ├─ 2C: Workflow action buttons (getAvailableTransitions)
-  └─ Invoicing + Procurement seeds
-
-Week 7 (Jun 22–28) — No-code builders
-  ├─ 2D: Automation builder UI (CRUD automation_rules)
-  ├─ 2D: Workflow editor UI (CRUD workflows/states/transitions)
-  └─ 2D: Metabase embed (read-only analytics views)
-
-Week 8 (Jun 29–Jul 5) — Exit testing
-  ├─ Penetration test (tenant isolation — mandatory)
-  ├─ Full e2e test pass on all 5 priority modules
-  └─ Pilot onboarding runbook written
-```
-
-**Module priority for pilot:** Helpdesk > Reimbursements > CRM (in that order).
-
----
-
-## Phase 3 — Scale & Extensibility
-
-**Target start:** 2026-07-07 (post-pilot onboarding)
-**Duration:** 8–12 weeks depending on AI layer scope
-
-```
-3A — Integration layer (2-3 weeks)
-  └─ Connector runtime, webhook gateway, marketplace scaffold
-
-3B — Plugin system (2-3 weeks)
-  └─ Module Federation, slot registry, lifecycle service
-
-3C — AI layer (2-3 weeks)  ← highest value, likely to expand
-  └─ Automation generation, workflow suggestion, RAG, usage metering
-
-3D — Observability + compliance (ongoing, starts early)
-  └─ OTel, Prometheus, GDPR tooling, audit query UI
-```
+**Key insight:** Config-first architecture front-loaded the hard work into Phase 1. Phase 2
+modules are seed SQL + UI wiring — this held: module seed work was consistently lower-risk per
+change than engine work, though total elapsed time for Phase 2 (including hardening) ran far
+longer than the original projection below ever assumed.
 
 ---
 
@@ -127,7 +33,7 @@ Week 8 (Jun 29–Jul 5) — Exit testing
 
 **Each feature track follows this pattern:**
 
-1. **Spec session** (~30 min): describe the track, reference the ADR and existing code, identify edge cases
+1. **Spec session**: describe the track, reference the ADR and existing code, identify edge cases
 2. **Generation pass**: Claude Code implements with tests in one session
 3. **Review pass**: human reviews output, security check, `gh pr create`
 4. **`/ultrareview` pass**: multi-agent cloud review on the PR before merge
@@ -141,4 +47,25 @@ Week 8 (Jun 29–Jul 5) — Exit testing
 - Phase exit decisions (don't advance phases without explicit sign-off)
 
 **Totem: the config-first test**
-Before shipping any new module feature, ask: did this require any TypeScript changes outside of `packages/*` or `apps/*`? If yes, something has gone wrong. Seed SQL only.
+Before shipping any new module feature, ask: did this require any TypeScript changes outside of
+`packages/*` or `apps/*`? If yes, something has gone wrong. Seed SQL only.
+
+---
+
+## Original projection (2026-05-22, superseded — kept for historical comparison only)
+
+Written the day after Phase 1 closed. Projected Phase 2 as a 6-week, calendar-dated plan and
+Phase 3 as starting 2026-07-07. Neither held: Phase 2's hardening tail alone ran through
+2026-07-24, and Phase 3 has not started. Not maintained since — do not use for current status.
+
+```
+Week 1-2   May 13–24    Phase 1 complete ✅
+Week 3-8   May 25–Jul 5 Phase 2 (projected — actual ran substantially longer, see below)
+           Jul 6        Pilot customer onboarding gate (pen test required) — projected, not actual
+Week 9+    Jul 7+       Phase 3 begins — projected, not actual (still not started as of 2026-07-24)
+```
+
+**What actually took the extra time:** a pre-Phase-3 hardening backlog (issues #120–#129, plus
+follow-ons #136/#141/#143/#160/#167/#168/#170/#171) that wasn't anticipated in the original
+projection — surfaced by an external consulting review partway through Phase 2, not scoped up
+front. See [roadmap-tracker.md](roadmap-tracker.md) for what's still open.
