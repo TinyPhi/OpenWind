@@ -185,15 +185,17 @@ names swapped per table).
    -- same shape for `workflows` (tenant_workflow_read / tenant_workflow_write)
    ```
 
-2. **`workflow_states`, `workflow_transitions`:** add the column, backfill, then a two-step `NOT
-NULL` (add a `NOT VALID` check constraint, validate it, then set the column constraint — this
-   is the standard low-lock-contention pattern used by GitLab and Citus for adding `NOT NULL` to a
-   live table: `VALIDATE CONSTRAINT` takes `SHARE UPDATE EXCLUSIVE`, which doesn't block concurrent
-   reads or writes, unlike a direct `ALTER COLUMN SET NOT NULL`'s `ACCESS EXCLUSIVE` scan; once
-   validated, the final `SET NOT NULL` is instant since PG12 because it reuses the validated
-   check). Both statements run fine inside this migration's single transaction — only
-   `CONCURRENTLY` is incompatible with that (per `0029_file_attachments.sql`'s note on why this
-   repo's drizzle-orm/postgres-js migrator can't use it):
+2. **`workflow_states`, `workflow_transitions`:** add the column, backfill, then a plain `SET NOT
+NULL` — **not** the `NOT VALID`/`VALIDATE CONSTRAINT` low-lock pattern the original version of
+   this ADR specified. That pattern is standard practice for adding `NOT NULL` to a live table on
+   plain Postgres (GitLab/Citus use it), but it doesn't help here: this repo's migration runner
+   (`drizzle-orm/postgres-js`'s `PgDialect.migrate`) wraps _every pending migration_ into one
+   `session.transaction(...)` call, not one transaction per file. The `ADD COLUMN` statement below
+   already takes an `ACCESS EXCLUSIVE` lock that Postgres holds for the rest of that transaction
+   regardless — `VALIDATE CONSTRAINT`'s weaker `SHARE UPDATE EXCLUSIVE` requirement buys nothing
+   once a stronger lock is already held, and the extra constraint create/drop only adds work under
+   that same lock. Found via adversarial review after the initial implementation; corrected here
+   and in the shipped migration (`packages/db/migrations/0037_rls_workflow_config_tables.sql`):
 
    ```sql
    ALTER TABLE workflow_states ADD COLUMN tenant_id UUID;
@@ -201,12 +203,7 @@ NULL` (add a `NOT VALID` check constraint, validate it, then set the column cons
    UPDATE workflow_states ws SET tenant_id = w.tenant_id
      FROM workflows w WHERE w.id = ws.workflow_id;
 
-   ALTER TABLE workflow_states
-     ADD CONSTRAINT workflow_states_tenant_id_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
-   ALTER TABLE workflow_states
-     VALIDATE CONSTRAINT workflow_states_tenant_id_not_null;
    ALTER TABLE workflow_states ALTER COLUMN tenant_id SET NOT NULL;
-   ALTER TABLE workflow_states DROP CONSTRAINT workflow_states_tenant_id_not_null;
 
    CREATE INDEX workflow_states_tenant_idx ON workflow_states (tenant_id);
    ALTER TABLE workflow_states ENABLE ROW LEVEL SECURITY;
@@ -285,8 +282,13 @@ should stay small in production too — but this is dev evidence, not a producti
 Open Questions). `packages/db/migrations/0024_entity_instances_search_vector.sql` establishes this
 repo's convention for exactly this situation: accept row-level locking for a live-data backfill at
 pilot scale, with an explicit maintenance-window fallback if a table turns out larger than
-expected. This ADR follows that convention for the `UPDATE` backfill step; the `SET NOT NULL` step
-doesn't need it at all, per the low-lock pattern in the Implementation specification above.
+expected.
+
+This ADR follows that convention for the `UPDATE` backfill step. The `SET NOT NULL` step gets
+no special exemption from this — per the correction in the Implementation specification above,
+it runs under the same already-held `ACCESS EXCLUSIVE` lock as the rest of the migration batch,
+not a lighter one. The maintenance-window fallback below is really about the `UPDATE` backfill's
+row-level lock duration at scale, not about protecting `SET NOT NULL` specifically.
 
 ---
 
