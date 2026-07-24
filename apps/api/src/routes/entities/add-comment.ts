@@ -1,4 +1,4 @@
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { logger } from "@platform/logger";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
