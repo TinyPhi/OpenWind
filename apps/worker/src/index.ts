@@ -8,12 +8,14 @@ import { stopAvScanWorker } from "./av-scan.js";
 import { scheduleFileCleanup, stopFileCleanupWorker } from "./file-cleanup.js";
 import { stopTenantPurgeWorker } from "./tenant-purge.js";
 import { stopExportWorker } from "./export-worker.js";
+import { startHealthServer, stopHealthServer } from "./health-server.js";
 
 logger.info({}, "Worker process starting");
 
 // Pollers (interval-based, must be explicitly started and stopped)
 startOutboxPoller();
 startSlaScheduler();
+startHealthServer();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
 void scheduleFileCleanup();
@@ -32,6 +34,7 @@ async function shutdown(): Promise<void> {
     stopFileCleanupWorker(),
     stopTenantPurgeWorker(),
     stopExportWorker(),
+    stopHealthServer(),
     closeRedis(),
   ]);
   process.exit(0);

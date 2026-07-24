@@ -10,7 +10,12 @@ import { logger } from "@platform/logger";
 
 // maxRetriesPerRequest must be null for BullMQ worker connections;
 // without it a transient Redis blip throws MaxRetriesPerRequestError and drops jobs.
-const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
+// Exported (not just local) so health-server.ts can include this connection's
+// status in /healthz — it's independent from queues.ts's shared connection,
+// and automation processing is the worker's most Redis-dependent path (#129).
+export const connection = new Redis(env.REDIS_URL, {
+  maxRetriesPerRequest: null,
+});
 
 interface AutomationJobData {
   outboxEventId: string;
