@@ -1,6 +1,10 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-16 (PR #144 — child tickets, tender module (8th standard module), access-request flow, attachments, "My Tickets" view, multi-admin workflows, plus a pre-PR security hardening pass — see "Out-of-band feature work" under Phase 2 below)
+**Last updated:** 2026-07-24 (`workflow` branch — workflow builder UX pass, cascading-rename fix,
+template naming/validation bugfixes, template visibility governance (new, ad-hoc, not on the
+tracked Phase 3 backlog), and the Docs guardrail-pipeline stage — see week-log.md 2026-07-24 for
+detail. No phase/track status change; #127 remains the next Phase 3 hardening item.)
+**Previously:** 2026-07-16 (PR #144 — child tickets, tender module (8th standard module), access-request flow, attachments, "My Tickets" view, multi-admin workflows, plus a pre-PR security hardening pass — see "Out-of-band feature work" under Phase 2 below)
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
 

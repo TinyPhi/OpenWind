@@ -281,6 +281,13 @@
       "when": 1783417689000,
       "tag": "0039_notifications_mention_access_type",
       "breakpoints": false
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783417690000,
+      "tag": "0040_module_visibility",
+      "breakpoints": false
     }
   ]
 }

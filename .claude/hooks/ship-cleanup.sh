@@ -28,7 +28,7 @@ let head = "";
 try { head = cp.execSync("git rev-parse HEAD", { cwd: repo }).toString().trim(); } catch (e) {}
 const committed = marker && marker.head_sha && head && head !== marker.head_sha;
 if (committed) {
-  for (const f of ["ship-ready.json", "claimed-done", "pass-approved.json"]) {
+  for (const f of ["ship-ready.json", "claimed-done", "pass-approved.json", "docs-updated.json"]) {
     try { fs.unlinkSync(repo + "/.claude/state/" + f); } catch (e) {}
   }
 }
