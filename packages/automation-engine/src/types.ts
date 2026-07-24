@@ -7,6 +7,12 @@ export type TriggerType =
   | "field.changed"
   | "entity.created"
   | "entity.assigned"
+  | "comment.mentioned"
+  | "comment.mention_access_granted"
+  | "comment.replied"
+  | "access.granted"
+  | "access.revoked"
+  | "system.error"
   | "schedule.cron"
   | "connector.event";
 

@@ -83,6 +83,18 @@ const EnvSchema = z
     // In development/test the API accepts all http://localhost:* origins.
     CORS_ORIGIN: z.string().url().optional(),
     NOVU_API_KEY: z.string(),
+    // In-app notification hub (docs/specs/in-app-notification-hub.md).
+    // Single hardcoded admin recipient for system.error notifications — role
+    // membership isn't queryable from our DB today (roles are JWT-only
+    // claims from Zitadel), so this is a deliberate placeholder until proper
+    // admin-role resolution is built. Editable at any time; optional so a
+    // tenant without one configured just gets no system.error recipients.
+    SYSTEM_ADMIN_USER_ID: z.string().optional(),
+    // Outbound handoff seam to the externally-owned email/SMS/WhatsApp
+    // service. Contract is unresolved as of this feature — when unset, the
+    // outbound worker logs and marks the notification 'sent' as a no-op
+    // rather than retrying forever against a service that doesn't exist yet.
+    NOTIFICATION_SERVICE_URL: z.string().url().optional(),
     S3_ENDPOINT: z.string().url(),
     // Public URL browsers use to reach MinIO. In Docker the internal endpoint is
     // http://minio:9000 but presigned URLs must resolve from the browser, so set

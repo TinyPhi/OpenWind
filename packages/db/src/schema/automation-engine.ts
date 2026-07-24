@@ -66,10 +66,23 @@ export const outboxEvents = pgTable(
       .defaultNow()
       .notNull(),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    /**
+     * Independent delivery-claim column for the notification worker (Phase 2
+     * of in-app-notification-hub) — kept separate from `deliveredAt` (the
+     * automation engine's claim column) so the two consumers never race for
+     * the same row. See 0036_notifications.sql.
+     */
+    notifiedDeliveredAt: timestamp("notified_delivered_at", {
+      withTimezone: true,
+    }),
   },
   (t) => ({
     undeliveredIdx: index("outbox_events_undelivered_idx").on(
       t.deliveredAt,
+      t.createdAt,
+    ),
+    notifiedUndeliveredIdx: index("outbox_events_notified_undelivered_idx").on(
+      t.notifiedDeliveredAt,
       t.createdAt,
     ),
   }),

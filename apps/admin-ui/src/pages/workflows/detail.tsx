@@ -2031,6 +2031,8 @@ export function WorkflowDetail(): React.ReactElement {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
+              appearance: "none",
+              WebkitAppearance: "none",
               padding: "12px 20px",
               fontSize: "13px",
               fontWeight: activeTab === tab.id ? 700 : 500,
@@ -2649,21 +2651,21 @@ export function WorkflowDetail(): React.ReactElement {
             </div>
           ) : (
             <div className="table-scroll">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: "28px" }}></th>
-                    <th>Field</th>
-                    <th className="wfd-table-hide-xs">Type</th>
-                    <th className="wfd-table-hide-xs">Required</th>
-                    <th style={{ width: "80px" }}></th>
-                  </tr>
-                </thead>
-                <DndContext
-                  sensors={fieldSensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={(e) => void handleFieldDragEnd(e)}
-                >
+              <DndContext
+                sensors={fieldSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={(e) => void handleFieldDragEnd(e)}
+              >
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "28px" }}></th>
+                      <th>Field</th>
+                      <th className="wfd-table-hide-xs">Type</th>
+                      <th className="wfd-table-hide-xs">Required</th>
+                      <th style={{ width: "80px" }}></th>
+                    </tr>
+                  </thead>
                   <SortableContext
                     items={[...fields]
                       .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -2786,8 +2788,8 @@ export function WorkflowDetail(): React.ReactElement {
                         ))}
                     </tbody>
                   </SortableContext>
-                </DndContext>
-              </table>
+                </table>
+              </DndContext>
             </div>
           )}
         </div>
@@ -2840,7 +2842,10 @@ export function WorkflowDetail(): React.ReactElement {
               >
                 {assignedTo.map((userId) => {
                   const u = orgUsers.find((o) => o.userId === userId);
-                  const displayName = u?.displayName ?? userId;
+                  // `displayName`/`userId` are expected to be strings, but
+                  // user data can be malformed upstream (missing profile
+                  // fields) — coerce so a bad row can't blank the whole page.
+                  const displayName = String(u?.displayName ?? userId);
                   const initials = displayName
                     .split(" ")
                     .slice(0, 2)

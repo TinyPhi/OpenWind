@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useList } from "@refinedev/core";
 import { Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { isRenderableIcon } from "../../lib/icon.js";
 
 type EntityType = {
   id: string;
@@ -139,7 +140,7 @@ export function EntityTypes(): React.ReactElement {
                         gap: "10px",
                       }}
                     >
-                      {type.icon ? (
+                      {isRenderableIcon(type.icon) ? (
                         <span style={{ fontSize: "18px", lineHeight: 1 }}>
                           {type.icon}
                         </span>

@@ -16,3 +16,10 @@ export type {
 } from "./types.js";
 export { verifyJwt, extractAuthContext } from "./jwks.js";
 export { introspectToken } from "./introspection.js";
+export {
+  listProjectRoles,
+  listOrgUsers,
+  getUserById,
+  invalidateUserCache,
+} from "./zitadel-management.js";
+export type { OrgUser } from "./zitadel-management.js";

@@ -8,7 +8,8 @@ Load this file for architectural reference when working near Phase 2 code.
 
 **Phase 2 delivered:** Helpdesk, reimbursements, CRM, and 4 other modules live as
 seed SQL config. Platform services (files, notifications, audit, view_configs) fully
-shipped. Admin UI + customer portal with visual workflow builder and automation wizard.
+shipped. Single admin-ui app (agent/admin + customer views, RBAC-controlled internally)
+with visual workflow builder and automation wizard.
 
 ---
 
@@ -70,14 +71,14 @@ Template IDs are defined in Novu (not TypeScript). No platform DB table for temp
 
 ## UI layer (2C/2D)
 
-### Admin UI (`apps/admin-ui`)
+### Admin UI (`apps/admin-ui`, port 3001)
 
 Refine + shadcn/ui. Reads `view_configs` to render generic entity list/detail/form views.
-One generic `<EntityList>`, `<EntityDetail>`, `<EntityForm>` component serves all module entities.
-
-### Customer portal (`apps/portal`)
-
-Same pattern as admin UI but for end-users. Role-gated views based on JWT claims.
+One generic `<EntityList>`, `<EntityDetail>`, `<EntityForm>` component serves all module
+entities. Single app serves both agent/admin and customer users — role-gated views based
+on JWT claims, not a separate deployment. There is no separate customer portal app;
+`apps/portal` still exists on disk but is stale/unused (see docker-compose.yml's comment
+on the admin-ui service).
 
 ### No-code builders (2D)
 
@@ -91,7 +92,7 @@ Same pattern as admin UI but for end-users. Role-gated views based on JWT claims
 
 1. **2A** platform services (blocks 2C — UI needs notifications + files)
 2. **2B** module seeds for helpdesk, reimbursements, CRM (pilot modules)
-3. **2C** portal + agent UI (generic views)
+3. **2C** customer + agent views within the single admin-ui app (generic views)
 4. **2D** no-code builders (can ship after pilot onboarding)
 
 Pilot customer gate: penetration test (tenant isolation) must pass first.

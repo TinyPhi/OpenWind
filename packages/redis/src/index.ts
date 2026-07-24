@@ -4,6 +4,13 @@ import { logger } from "@platform/logger";
 
 export type { Redis };
 
+// Shared pub/sub channel: apps/worker's notification worker (a separate
+// process from apps/api) publishes here after writing a notification, and
+// apps/api's websocket layer subscribes to forward it to any open connection
+// for that (tenantId, userId). Living here since both apps already depend on
+// @platform/redis — avoids a one-off constant duplicated in two apps.
+export const NOTIFICATION_PUSH_CHANNEL = "notification:push";
+
 let _client: Redis | null = null;
 
 /**
