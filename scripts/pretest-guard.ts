@@ -6,14 +6,20 @@
  * services are provided by the CI job itself, not docker compose).
  *
  * Usage: tsx scripts/pretest-guard.ts <service1> <service2> ...
+ *
+ * Uses execFileSync (argv array, no shell) rather than execSync with a
+ * string-interpolated command — CodeQL flagged the latter as indirect
+ * command-line injection (js/indirect-command-line-injection): forwarding
+ * process.argv into a shell string lets special characters in an argument
+ * change the invocation's meaning. execFileSync passes each argument through
+ * verbatim with no shell interpretation.
  */
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 if (!process.env.CI) {
-  execSync(
-    `tsx scripts/check-docker-services.ts ${process.argv.slice(2).join(" ")}`,
-    {
-      stdio: "inherit",
-    },
+  execFileSync(
+    "tsx",
+    ["scripts/check-docker-services.ts", ...process.argv.slice(2)],
+    { stdio: "inherit" },
   );
 }
