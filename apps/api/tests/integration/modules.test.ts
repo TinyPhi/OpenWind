@@ -159,13 +159,15 @@ describe("Module System Integration Tests", () => {
     expect(ticketFields.map((f) => f.name)).toContain("priority");
     expect(ticketFields.map((f) => f.name)).toContain("category");
 
-    // Verify workflow created
+    // Verify workflow created — name comes from {WORKFLOW_NAME} (the
+    // module's registry display name, "Helpdesk"), not a hardcoded literal
+    // (issue #171 — 002_workflow.sql used to hardcode "ticket_workflow").
     const wfs = await db
       .select()
       .from(workflows)
       .where(eq(workflows.tenantId, TEST_TENANT_ID));
-    expect(wfs.map((w) => w.name)).toContain("ticket_workflow");
-    const wf = wfs.find((w) => w.name === "ticket_workflow")!;
+    expect(wfs.map((w) => w.name)).toContain("Helpdesk");
+    const wf = wfs.find((w) => w.name === "Helpdesk")!;
 
     // Verify workflow states created
     const states = await db
@@ -231,6 +233,40 @@ describe("Module System Integration Tests", () => {
     };
     const helpdesk = listJson.find((m) => m.slug === "helpdesk");
     expect(helpdesk?.installed).toBe(false);
+  });
+
+  // #171 — reinstalling used to accumulate orphaned "Support Ticket" entity
+  // types/workflows every cycle (001_seed.sql had no idempotency guard at
+  // all). With that file removed, a full install -> uninstall -> reinstall
+  // cycle must produce exactly one entity type per distinct name for the
+  // module, not one-per-cycle.
+  it("install -> uninstall -> reinstall produces exactly one entity type per distinct name (#171 regression)", async () => {
+    await app.request("/modules/helpdesk/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    const types = await db
+      .select()
+      .from(entityTypes)
+      .where(eq(entityTypes.tenantId, TEST_TENANT_ID));
+    const namesCount = new Map<string, number>();
+    for (const t of types) {
+      namesCount.set(t.name, (namesCount.get(t.name) ?? 0) + 1);
+    }
+    for (const [name, count] of namesCount) {
+      expect(count, `expected exactly one entity type named "${name}"`).toBe(1);
+    }
+    expect(types.map((t) => t.name).sort()).toEqual(
+      ["article", "comment", "ticket"].sort(),
+    );
+
+    const wfs = await db
+      .select()
+      .from(workflows)
+      .where(eq(workflows.tenantId, TEST_TENANT_ID));
+    expect(wfs).toHaveLength(1);
   });
 });
 
@@ -319,11 +355,13 @@ describe("installModule — workflowName rename (issue #170)", () => {
       .select()
       .from(workflows)
       .where(eq(workflows.tenantId, HELPDESK_TENANT_ID));
-    // helpdesk seeds two workflows (001_seed.sql's "Support Ticket" pair,
-    // separately tracked as #171, plus 001_entity_types.sql/002_workflow.sql's
-    // "ticket" pair) — only the one matching the module's registry display
-    // name ("Helpdesk", seeded via {WORKFLOW_NAME} in 001_seed.sql) is the
-    // one the exact-name match (and therefore the rename) targets.
+    // helpdesk seeds exactly one workflow (001_entity_types.sql/002_workflow.sql's
+    // "ticket" pair) since issue #171 removed the vestigial second seed
+    // pipeline (001_seed.sql) that used to also seed a "Support Ticket"
+    // entity type + workflow. 002_workflow.sql now seeds its name via
+    // {WORKFLOW_NAME} (matching #170's convention), so the exact-name match
+    // (and therefore the rename) still targets it directly.
+    expect(wfs).toHaveLength(1);
     const renamed = wfs.filter((w) => w.name === "Custom Helpdesk Flow");
     expect(renamed).toHaveLength(1);
   });
