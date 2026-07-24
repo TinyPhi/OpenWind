@@ -3,11 +3,16 @@
 -- Insert workflow record
 -- Idempotency keyed on entity_type_id, not name: a tenant may rename this
 -- workflow after install (installModule's workflowName option), and
--- workflows(tenant_id, entity_type_id) is now UNIQUE (migration 0036,
--- issue #168) — keying on the literal seed name would attempt a second
--- INSERT for the same entity type after a rename and hit that constraint.
+-- workflows(tenant_id, entity_type_id) is UNIQUE (migration 0036, issue #168)
+-- — keying on the literal seed name would attempt a second INSERT for the
+-- same entity type after a rename and hit that constraint.
+-- Name is seeded via {WORKFLOW_NAME} (the module's registry display name),
+-- not a hardcoded literal — issue #170: a hardcoded name meant
+-- installModule's workflowName rename option could never find this row via
+-- its exact-name match, since seed SQL and the rename lookup used different
+-- strings.
 INSERT INTO workflows (id, tenant_id, entity_type_id, name, initial_state)
-SELECT gen_random_uuid(), '{TENANT_ID}', (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}'), 'tender_workflow', 'draft'
+SELECT gen_random_uuid(), '{TENANT_ID}', (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}'), '{WORKFLOW_NAME}', 'draft'
 WHERE NOT EXISTS (
   SELECT 1 FROM workflows
   WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}')
