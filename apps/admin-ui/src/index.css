@@ -60,10 +60,10 @@
 
 /* ── Light theme ──────────────────────────────────────────────────────── */
 [data-theme="light"] {
-  --bg-primary: hsl(220, 20%, 97%);
-  --bg-secondary: hsl(220, 18%, 93%);
-  --bg-tertiary: hsl(220, 16%, 88%);
-  --bg-card: hsla(0, 0%, 100%, 0.85);
+  --bg-primary: hsl(0, 0%, 100%);
+  --bg-secondary: hsl(220, 20%, 97%);
+  --bg-tertiary: hsl(220, 16%, 93%);
+  --bg-card: hsl(0, 0%, 100%);
 
   --text-primary: hsl(225, 25%, 10%);
   --text-secondary: hsl(225, 12%, 38%);
@@ -1476,6 +1476,53 @@ h1, h2, h3, h4, h5, h6 {
 }
 .wfl-search-clear:hover { color: var(--text-primary); }
 
+/* Stats overview strip */
+.wfl-overview-strip {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.wfl-overview-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--border-color);
+}
+.wfl-overview-stat:last-child { border-right: none; }
+.wfl-overview-num {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.wfl-overview-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+}
+
+/* Active / Inactive group labels */
+.wfl-group-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+  margin: 20px 4px 10px;
+}
+.wfl-group-label:first-of-type { margin-top: 0; }
+.wfl-group-label-inactive { opacity: .7; }
+
 /* Empty state */
 .wfl-empty {
   display: flex;
@@ -1515,7 +1562,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  background: var(--bg-secondary);
+  background: var(--bg-card);
   box-shadow: var(--shadow-sm);
 }
 
@@ -1530,7 +1577,8 @@ h1, h2, h3, h4, h5, h6 {
   outline: none;
   text-decoration: none;
   color: inherit;
-  min-height: 72px;
+  min-height: 104px;
+  padding: 12px 0;
 }
 .wfl-row:last-child { border-bottom: none; }
 .wfl-row:hover, .wfl-row:focus-visible { background: var(--bg-tertiary); }
@@ -1547,26 +1595,26 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Circle icon */
 .wfl-row-icon {
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin: 0 14px 0 16px;
+  margin: 0 18px 0 20px;
   border: 1px solid transparent;
 }
 
 /* Name + meta block */
 .wfl-row-info {
   min-width: 0;
-  flex: 0 0 220px;
+  flex: 0 0 240px;
   margin-right: 16px;
 }
 .wfl-row-name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1591,22 +1639,22 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 8px;
 }
 .wfl-flow-node {
-  width: 11px;
-  height: 11px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
-  border: 2px solid;
+  border: 2.5px solid;
   flex-shrink: 0;
   position: relative;
 }
 .wfl-flow-node-terminal {
-  width: 13px;
-  height: 13px;
-  border-width: 2px;
-  box-shadow: 0 0 0 2px var(--bg-secondary);
+  width: 18px;
+  height: 18px;
+  border-width: 2.5px;
+  box-shadow: 0 0 0 2px var(--bg-card);
 }
 .wfl-flow-connector {
-  height: 2px;
-  min-width: 12px;
+  height: 2.5px;
+  min-width: 18px;
   flex: 1;
   max-width: 32px;
   background: var(--border-color);
@@ -1689,11 +1737,31 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-muted);
   border-color: hsla(225, 12%, 40%, .2);
 }
+.wfl-status-setup {
+  background: hsla(38, 90%, 50%, .12);
+  color: hsl(38, 80%, 42%);
+  border-color: hsla(38, 90%, 50%, .28);
+}
 .wfl-status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+}
+
+/* Record count — small chip instead of plain muted text, so it reads as a
+   real signal (how much is riding on this workflow) rather than an aside. */
+.wfl-record-count-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: hsla(250, 84%, 60%, .1);
+  color: var(--accent-primary);
+  border: 1px solid hsla(250, 84%, 60%, .22);
+  flex-shrink: 0;
 }
 
 /* ── Responsive ── */
@@ -1988,7 +2056,6 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 680px;
 }
 
 .settings-section {
@@ -2001,6 +2068,32 @@ h1, h2, h3, h4, h5, h6 {
   gap: 14px;
   margin-bottom: 28px;
 }
+
+/* The header is a <button> so the whole card can be folded — reset button
+   chrome while keeping the existing flex layout above. */
+.settings-section-header-toggle {
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-bottom: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-section-header-text {
+  flex: 1;
+  min-width: 0;
+}
+.settings-section-chevron {
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--text-muted);
+  transition: transform .15s;
+}
+.settings-section-chevron-open { transform: rotate(180deg); }
+.settings-section-body { margin-top: 28px; }
 
 .settings-section-icon {
   display: flex;
@@ -2178,6 +2271,54 @@ h1, h2, h3, h4, h5, h6 {
   height: 16px;
   border-radius: 50%;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Simple pill toggle switch (Templates visibility, etc.) */
+.settings-toggle {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+.settings-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.settings-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  transition: background .15s, border-color .15s;
+}
+.settings-toggle-track::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .2);
+  transition: transform .15s;
+}
+.settings-toggle input:checked + .settings-toggle-track {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+.settings-toggle input:checked + .settings-toggle-track::before {
+  transform: translateX(18px);
+  background: #fff;
+}
+.settings-toggle input:disabled + .settings-toggle-track {
+  opacity: .5;
+  cursor: not-allowed;
 }
 
 /* Preview strip */
@@ -2462,6 +2603,7 @@ select.form-input {
   min-height: calc(100vh - 56px);
   overflow-y: auto;
   padding-bottom: 32px;
+  background: var(--bg-secondary);
 }
 
 /* breadcrumb nav strip */
@@ -2482,7 +2624,7 @@ select.form-input {
 @keyframes rcd-spin { to { transform: rotate(360deg); } }
 
 /* shared */
-.rcd-id-chip { font-size: 10px; font-family: monospace; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 7px; color: var(--text-muted); letter-spacing: .2px; }
+.rcd-id-chip { font-size: 10px; font-family: monospace; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 7px; color: var(--text-muted); letter-spacing: .2px; }
 .rcd-state-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 600; background: hsla(250,84%,60%,.1); color: var(--accent-primary); border: 1px solid hsla(250,84%,60%,.25); white-space: nowrap; }
 .rcd-state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .rcd-muted { color: var(--text-muted); }
@@ -2524,10 +2666,10 @@ select.form-input {
 }
 
 .rcd-sidebar-section {
-  background: var(--bg-secondary);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 14px;
-  box-shadow: 0 2px 12px rgba(0,0,0,.25);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
   flex: 1;
   min-height: 0;
@@ -2967,13 +3109,12 @@ select.form-input {
   padding: 12px 12px 10px;
   border-radius: 10px;
   border: 1.5px solid var(--border-color);
-  background: var(--bg-primary);
-  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  background: var(--bg-card);
+  transition: border-color var(--transition-fast);
   cursor: pointer;
   min-height: 86px;
   gap: 6px;
 }
-.rcd-child-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,.18); }
 .rcd-child-card-closed { opacity: .5; }
 
 /* Title + ID row */
@@ -3144,11 +3285,11 @@ select.form-input {
 
 /* Base card */
 .rcd-card {
-  background: var(--bg-secondary);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 14px;
+  box-shadow: var(--shadow-sm);
   /* no overflow:hidden here — would clip absolutely-positioned children (dropdowns) */
-  box-shadow: 0 2px 12px rgba(0,0,0,.25);
 }
 /* clip only the rounded corners visually without hiding dropdowns */
 .rcd-detail-card { overflow: visible; }
@@ -3300,7 +3441,7 @@ select.form-input {
 
 /* Root-level comment node */
 .rcd-comment-root {
-  background: var(--bg-tertiary);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 10px;
   margin-bottom: 10px;
@@ -3396,7 +3537,7 @@ select.form-input {
   display: flex; align-items: center; gap: 0;
   padding: 0 20px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
+  background: var(--bg-card);
   border-radius: 14px 14px 0 0;
   flex-shrink: 0;
 }
@@ -3437,7 +3578,7 @@ select.form-input {
 .rcd-composer-dock {
   flex-shrink: 0;
   border-top: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
+  background: var(--bg-card);
   border-radius: 0 0 14px 14px;
   /* overflow: hidden removed — it was clipping the @mention dropdown */
   position: relative;
@@ -3453,7 +3594,7 @@ select.form-input {
   display: flex; gap: 11px;
   padding: 10px 14px;
   border-radius: 8px;
-  background: var(--bg-tertiary);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   margin-bottom: 6px;
 }
@@ -3487,12 +3628,12 @@ select.form-input {
 .rcd-tl-icon-update { background: hsla(210,80%,55%,.12); color: hsl(210,80%,65%); border: 1px solid hsla(210,80%,55%,.25); }
 .rcd-tl-icon-transition { background: hsla(250,84%,60%,.12); color: var(--accent-primary); border: 1px solid hsla(250,84%,60%,.25); }
 .rcd-tl-icon-comment { background: hsla(38,90%,50%,.12); color: hsl(38,90%,55%); border: 1px solid hsla(38,90%,50%,.25); }
-.rcd-tl-state { font-size: 11px; font-family: monospace; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; padding: 1px 6px; color: var(--text-secondary); }
+.rcd-tl-state { font-size: 11px; font-family: monospace; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 4px; padding: 1px 6px; color: var(--text-secondary); }
 .rcd-tl-state-to { border-color: hsla(250,84%,60%,.3); background: hsla(250,84%,60%,.08); color: var(--accent-primary); }
 .rcd-tl-changes { margin: 6px 0 0 4px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .rcd-tl-changes li { font-size: 12px; color: var(--text-secondary); display: flex; gap: 4px; align-items: baseline; flex-wrap: wrap; }
 .rcd-tl-changes li strong { color: var(--text-primary); }
-.rcd-tl-comment { font-size: 12.5px; color: var(--text-secondary); font-style: italic; padding: 5px 10px; background: var(--bg-tertiary); border-left: 2px solid var(--border-color); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.rcd-tl-comment { font-size: 12.5px; color: var(--text-secondary); font-style: italic; padding: 5px 10px; background: var(--bg-secondary); border-left: 2px solid var(--border-color); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 
 /* Responsive */
 @media (max-width: 900px) {
@@ -3673,7 +3814,7 @@ select.form-input {
 .portal-bool-badge.yes { background: var(--success-light); color: var(--success); }
 .portal-bool-badge.no { background: var(--surface-2); color: var(--text-2); }
 .portal-enum-badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
-.portal-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: inherit; font-size: 13.5px; color: var(--text); background: var(--surface); transition: border-color .15s, box-shadow .15s; outline: none; }
+.portal-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: inherit; font-size: 13.5px; color: var(--text); background: var(--bg-card); transition: border-color .15s, box-shadow .15s; outline: none; }
 .portal-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
 .portal-textarea { resize: vertical; min-height: 80px; }
 .portal-field-label { display: block; font-size: 12.5px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
@@ -3841,7 +3982,7 @@ select.form-input {
 .rcd-tab-active { color: var(--accent-primary) !important; border-bottom-color: var(--accent-primary); }
 .rcd-tab-count {
   font-size: 10px; font-weight: 700; line-height: 1;
-  background: var(--bg-tertiary); border: 1px solid var(--border-color);
+  background: var(--bg-secondary); border: 1px solid var(--border-color);
   border-radius: 10px; padding: 1px 6px; color: var(--text-secondary);
 }
 .rcd-tab-active .rcd-tab-count { background: hsla(250,84%,60%,.12); border-color: hsla(250,84%,60%,.25); color: var(--accent-primary); }
@@ -3868,7 +4009,7 @@ select.form-input {
 .cmt-input-wrap { position: relative; }
 .cmt-textarea {
   width: 100%; resize: vertical; min-height: 72px;
-  background: var(--bg-secondary); border: 1px solid var(--border-color);
+  background: var(--bg-card); border: 1px solid var(--border-color);
   border-radius: var(--radius-sm); padding: 9px 12px;
   font-size: 13px; color: var(--text-primary); font-family: inherit;
   transition: border-color .15s;

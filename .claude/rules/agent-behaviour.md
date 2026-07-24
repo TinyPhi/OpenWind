@@ -49,18 +49,19 @@ docker compose up -d && pnpm test:e2e
 
 ## Delivery flow (guardrails, not barricades)
 
-Every change moves through four stages. The hooks are **guardrails** — best-effort speed bumps that
+Every change moves through five stages. The hooks are **guardrails** — best-effort speed bumps that
 catch honest mistakes and make the disciplined path the default. They are **not a security boundary**:
 a determined agent can bypass them, so the real enforcement is CI + required human PR review + branch
 protection. The stages live **inside existing skills** — there is no new skill to learn. Full
 reference: `.claude/README.md`; completion contract: `.claude/references/definition-of-done.md`.
 
-| Stage      | Run it with                                                                              | Gate (hook)                                                                           |
-| ---------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| **Plan**   | `/spec-tasks` or the `openwind-loop` pick step → freezes `plan.json`, **you approve it** | —                                                                                     |
-| **Code**   | normal editing                                                                           | `edit-gate` blocks `apps/`·`packages/`·`modules/` edits without an approved plan-lock |
-| **Review** | `/review` (+ `/security-review`) → `write-review.sh` writes `review.json`                | review needs plan+code+tests                                                          |
-| **Ship**   | the loop's **commit procedure** (exit condition → marker → commit → PR)                  | `commit-gate` blocks `git commit` without a fresh marker + matching review            |
+| Stage      | Run it with                                                                                                                                   | Gate (hook)                                                                                       |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Plan**   | `/spec-tasks` or the `openwind-loop` pick step → freezes `plan.json`, **you approve it**                                                      | —                                                                                                 |
+| **Code**   | normal editing                                                                                                                                | `edit-gate` blocks `apps/`·`packages/`·`modules/` edits without an approved plan-lock             |
+| **Review** | `/review` (+ `/security-review`) → `write-review.sh` writes `review.json`                                                                     | review needs plan+code+tests                                                                      |
+| **Docs**   | update `docs/**`/`CLAUDE.md`/`README.md`/`.claude/**/*.md` → `write-docs-marker.sh --touched`, or `--skip "<reason>"` if genuinely none apply | `commit-gate` needs a docs marker matching the diff (touched or explicitly skipped)               |
+| **Ship**   | the loop's **commit procedure** (exit condition → marker → commit → PR)                                                                       | `commit-gate` blocks `git commit` without a fresh marker + matching review + matching docs marker |
 
 The human approves twice: type `approve-plan` (start) and `approve-ship` (end) in chat. The
 `approval-gate` hook fires on your prompt rather than agent output, which makes _accidental_
@@ -107,8 +108,9 @@ and are logged to `.claude/state/bypass.log`.
 2. `/spec-tasks` — turn spec into ordered task list **and freeze the plan-lock (you approve it)** — _Plan gate_
 3. Implement with tests in same pass — never implementation without tests. All edits first, no mid-review — _Code gate: needs the approved plan_
 4. `/review` (+ `/security-review` for auth/tables/routes/files/secrets) → `write-review.sh` — _Review gate: needs plan+code+tests_
-5. Commit procedure (exit condition → marker → `git commit` → push → PR) — never a bare `git commit` — _Ship gate_
-6. `/ultrareview` before merge; update `docs/sup-docs/week-log.md` and `docs/sup-docs/roadmap-tracker.md`
+5. Update `docs/sup-docs/week-log.md` / `roadmap-tracker.md` / any other doc this change touches → `write-docs-marker.sh --touched`, or `--skip "<reason>"` if this diff genuinely has no doc surface — _Docs gate: needs a marker matching the diff_
+6. Commit procedure (exit condition → marker → `git commit` → push → PR) — never a bare `git commit` — _Ship gate_
+7. `/ultrareview` before merge
 
 See the **Delivery flow** section above and `.claude/README.md` for the guardrails that guide each step.
 

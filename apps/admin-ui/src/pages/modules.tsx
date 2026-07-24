@@ -1096,14 +1096,14 @@ function ModuleCard({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: "var(--bg-card)",
+        background: `color-mix(in srgb, ${accent} 8%, var(--bg-card))`,
         border: `1px solid ${hovered ? accent + "55" : "var(--border-color)"}`,
         borderRadius: "var(--radius-md)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
         transition: "border-color .15s, box-shadow .15s",
-        boxShadow: hovered ? `0 4px 20px ${accent}22` : "none",
+        boxShadow: hovered ? `0 4px 20px ${accent}22` : "var(--shadow-sm)",
         position: "relative",
       }}
     >
