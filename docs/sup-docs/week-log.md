@@ -5,6 +5,62 @@
 
 ---
 
+## 2026-07-24 — Docs/config hygiene bundle: #193, #203, #204 closed
+
+**Session type:** Docs + config (mechanical fixes, no code)
+**Branch:** `chore/PLAT-193-docs-config-hygiene`
+**Spec:** `docs/specs/docs-config-hygiene-193-203-204.md`
+
+### Completed this session
+
+- **#203** — `architecture-brief.md`'s module map was stale: it referenced a `@platform/search`
+  package that doesn't exist under `packages/`, and listed `inventory` (never built) instead of
+  `tender` (the platform's actual, shipped 8th module). Removed the dead package reference,
+  swapped `inventory` → `tender`, and added a `Category` column citing ADR-005 (`core` for the
+  original 7, `optional` for `tender`).
+- **#204** — `docs/local-setup.md` didn't mention OpenBao or MinIO at all despite both being real,
+  uncommented `docker-compose.yml` services. Added a full section: env vars, first-run init
+  steps, and the PR #178 idempotent-retry gotcha (`openbao-init`'s "transit engine already
+  enabled" message on repeat `docker compose up` is expected, not a failure). Root `SETUP.md`
+  duplicated and was staler than `docs/local-setup.md`; since `README.md` links the root path
+  directly, turned it into a one-line pointer rather than deleting it outright.
+- **#193** — all 10 non-core `docker-compose.yml` images were pinned to floating `:latest`.
+  Pulled each fresh and pinned to its actual resolved digest (a freeze, not an upgrade) —
+  `openbao`/`openbao-init` share one digest as required. Found along the way that the three
+  `novu-*` images have already drifted apart upstream (api/worker rebuilt 2026-07-08, web not
+  since 2025-03-21) — pinned each to its real current state and documented the drift in
+  `local-setup.md` rather than forcing an artificial match. Added a bump policy note (deliberate,
+  own commit, never silent).
+- Went through this repo's full Plan → Code → Review flow for all three: spec written and
+  stress-tested (`/spec-review` found two blockers — T4's wording risked upgrading instead of
+  freezing versions, and the two `openbao` lines had no parity requirement — both fixed before
+  implementation), plan-lock drafted and human-approved, implementation verified against every
+  acceptance criterion (grep checks, `docker compose config`, `docker compose pull`, README link
+  check), `pnpm typecheck`/`lint` confirmed green. `pnpm test` has one pre-existing failure
+  (`@platform/auth`, missing `platform_test` DB) confirmed via `git stash` to exist identically
+  on the base commit — not a regression from this change.
+- `docs/sup-docs/roadmap-tracker.md` deliberately **not** touched this session: it's already
+  substantially owned by in-flight PR #189, which predates and doesn't cover these three issues —
+  editing it here would risk an avoidable merge conflict for no scorecard benefit (none of
+  #193/#203/#204 are phase-tracked items).
+
+### Verification
+
+- pnpm typecheck: PASS
+- pnpm lint: PASS
+- pnpm test: 1 pre-existing, unrelated failure (`@platform/auth` — missing `platform_test` DB),
+  confirmed pre-existing via `git stash` comparison against the base commit
+- pnpm test:isolation: N/A — blocked by the same missing DB, and not triggered anyway (no new
+  tables/routes in this diff)
+
+### Next
+
+- Open the PR for `chore/PLAT-193-docs-config-hygiene`, closing #193/#203/#204.
+- Once PR #189 merges, its roadmap-tracker.md rewrite will still need a follow-up mention of
+  these three closures if the scorecard is meant to reflect every closed issue.
+
+---
+
 ## 2026-07-22 — Doc reconciliation: PRs #144/#151/#152/#155 surfaced, #127 closed out
 
 **Session type:** Docs (comprehensive project review)
