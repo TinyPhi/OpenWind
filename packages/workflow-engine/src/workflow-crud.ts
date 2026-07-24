@@ -493,7 +493,50 @@ export async function updateWorkflowState(
 ): Promise<WorkflowState> {
   await assertWorkflowOwned(db, tenantId, workflowId, caller);
 
+  const [current] = await db
+    .select()
+    .from(workflowStates)
+    .where(
+      and(
+        eq(workflowStates.id, stateId),
+        eq(workflowStates.workflowId, workflowId),
+      ),
+    )
+    .limit(1);
+  if (!current)
+    throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", { stateId });
+
+  const newName =
+    input.name !== undefined && input.name !== current.name
+      ? input.name
+      : undefined;
+  const renaming = newName !== undefined;
+
+  // Renaming a state's internal name requires cascading the change into every
+  // workflow_transitions row (fromState/toState), the workflow's initialState,
+  // AND every entity_instances row currently sitting in this state — all of
+  // those columns store the name string directly, not the state's row id.
+  // Missing the entity_instances cascade would leave in-flight tickets with a
+  // currentState that no longer matches anything, silently stuck (their
+  // currentState would never again equal any transition's fromState).
+  if (newName !== undefined) {
+    const [duplicate] = await db
+      .select({ id: workflowStates.id })
+      .from(workflowStates)
+      .where(
+        and(
+          eq(workflowStates.workflowId, workflowId),
+          eq(workflowStates.name, newName),
+        ),
+      )
+      .limit(1);
+    if (duplicate) {
+      throw new WorkflowError("WORKFLOW_STATE_NAME_TAKEN", { name: newName });
+    }
+  }
+
   const updates: Partial<typeof workflowStates.$inferInsert> = {};
+  if (newName !== undefined) updates.name = newName;
   if (input.label !== undefined) updates.label = input.label;
   if (input.color !== undefined) updates.color = input.color;
   if (input.isTerminal !== undefined) updates.isTerminal = input.isTerminal;
@@ -512,6 +555,48 @@ export async function updateWorkflowState(
     .returning();
 
   if (!row) throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", { stateId });
+
+  if (renaming) {
+    const oldName = current.name;
+    const finalName = row.name;
+    await db
+      .update(workflowTransitions)
+      .set({ fromState: finalName })
+      .where(
+        and(
+          eq(workflowTransitions.workflowId, workflowId),
+          eq(workflowTransitions.fromState, oldName),
+        ),
+      );
+    await db
+      .update(workflowTransitions)
+      .set({ toState: finalName })
+      .where(
+        and(
+          eq(workflowTransitions.workflowId, workflowId),
+          eq(workflowTransitions.toState, oldName),
+        ),
+      );
+    await db
+      .update(workflows)
+      .set({ initialState: finalName })
+      .where(
+        and(eq(workflows.id, workflowId), eq(workflows.initialState, oldName)),
+      );
+    await db
+      .update(entityInstances)
+      .set({ currentState: finalName })
+      .where(
+        and(
+          eq(entityInstances.workflowId, workflowId),
+          eq(entityInstances.currentState, oldName),
+        ),
+      );
+    logger.info(
+      { tenantId, workflowId, stateId, oldName, newName: finalName },
+      "Workflow state renamed — cascaded to transitions/initialState/entity_instances",
+    );
+  }
 
   logger.info({ tenantId, workflowId, stateId }, "Workflow state updated");
   return rowToState(row);

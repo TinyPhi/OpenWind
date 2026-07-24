@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import {
   requireAuth,

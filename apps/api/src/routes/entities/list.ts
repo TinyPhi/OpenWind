@@ -1,4 +1,4 @@
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth } from "@platform/auth";
 import { withTenantContext } from "@platform/db";

@@ -125,6 +125,7 @@ export type CreateWorkflowStateInput = {
 };
 
 export type UpdateWorkflowStateInput = {
+  name?: string | undefined;
   label?: string | undefined;
   color?: string | undefined;
   isTerminal?: boolean | undefined;
