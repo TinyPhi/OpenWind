@@ -15,6 +15,7 @@ import { isNull } from "drizzle-orm";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
+import { handleEntityError } from "../../lib/handle-entity-error.js";
 
 const MentionSchema = z.object({
   userId: z.string().min(1),
@@ -74,13 +75,17 @@ export const addCommentHandler = factory.createHandlers(
         userAccess?.level === "read_write";
 
       if (!canComment && instance.workflowId) {
-        const workflow = await withTenantContext(tenantId, (tx) =>
-          getWorkflow(tx, tenantId, instance.workflowId as string, {
-            userId,
-            isGlobalAdmin: false,
-          }),
-        );
-        canComment = isWorkflowAdmin(userId, workflow);
+        try {
+          const workflow = await withTenantContext(tenantId, (tx) =>
+            getWorkflow(tx, tenantId, instance.workflowId as string, {
+              userId,
+              isGlobalAdmin: false,
+            }),
+          );
+          canComment = isWorkflowAdmin(userId, workflow);
+        } catch (err) {
+          return handleEntityError(c, err);
+        }
       }
 
       if (!canComment) {
