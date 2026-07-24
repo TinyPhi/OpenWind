@@ -8,6 +8,8 @@ import {
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
+import { isRenderableIcon } from "../../lib/icon.js";
+import { humanizeWorkflowName } from "../../lib/format.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1077,8 +1079,10 @@ export function WorkflowRecords(): React.ReactElement {
     ? states.find((s) => s.name === pendingDrop.toStateName)
     : null;
 
-  const displayName = entityType?.plural ?? workflowName;
-  const displayIcon = entityType?.icon ?? null;
+  const displayName = entityType?.plural ?? humanizeWorkflowName(workflowName);
+  const displayIcon = isRenderableIcon(entityType?.icon)
+    ? entityType?.icon
+    : null;
 
   return (
     <div className="kb-page">

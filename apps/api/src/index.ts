@@ -7,6 +7,10 @@ import {
 } from "@platform/auth";
 import { createApp } from "./app.js";
 import { ModuleService } from "./services/module-service.js";
+import {
+  attachNotificationWebSocket,
+  stopNotificationWebSocket,
+} from "./websocket/notifications.js";
 
 const app = createApp();
 const port = 3000;
@@ -21,12 +25,15 @@ const server = serve({ fetch: app.fetch, port }, () => {
   });
 });
 
+attachNotificationWebSocket(server);
+
 async function shutdown(): Promise<void> {
   logger.info({}, "API server shutting down");
   await new Promise<void>((resolve, reject) =>
     server.close((err) => (err ? reject(err) : resolve())),
   );
   await stopTenantStatusInvalidationSubscriber();
+  await stopNotificationWebSocket();
   await closeRedis();
   process.exit(0);
 }

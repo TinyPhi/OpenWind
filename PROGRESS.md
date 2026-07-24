@@ -1,3 +1,400 @@
+## 2026-07-23 — in-app-notification-hub / end-to-end pipeline smoke test attempt
+
+### What I found before testing anything
+
+The currently-running `ow-backend`/`ow-frontend` containers (up 5h, this repo's real dev
+stack) are configured against a **real external hosted Zitadel** (`owzitadel.rokkalabs.com`
+per `.env.local`'s active `ZITADEL_URL`/`ZITADEL_ISSUER`), not a local one. The repo also has
+stopped `zitadel`/`zitadel-db` containers from a prior local-dev setup, but they're for a
+*different*, currently-unused local config (the commented-out `# local` values in
+`.env.local`) — starting them doesn't give a token the running backend would accept. Getting
+a real browser-login JWT against the actual hosted Zitadel requires real credentials/browser
+interaction I don't have safe access to attempt here. I started the local `zitadel`/
+`zitadel-db` containers briefly to check this, confirmed the mismatch, then **stopped them
+again** — environment left exactly as found (`docker ps` diffed before/after, identical).
+
+### What I could and did verify — the real pipeline, no mocks
+
+Since full HTTP+auth+browser e2e wasn't safely attainable, verified the actual highest-risk,
+previously-unverified piece instead: **does the real worker pipeline (Phase 2's code, not a
+mock) actually work against live Postgres + Redis?**
+
+- Spun up fresh ephemeral `postgres:16-alpine` + `redis:7-alpine` (ports 5434/6381, isolated
+  from every other container on this host), ran all migrations for real.
+- Wrote a throwaway script (deleted after the run, never committed) that:
+  1. Called the **real** `createEntityType`/`createEntity` (`@platform/entity-engine`) —
+     not a hand-crafted outbox row — with an `assignedTo` set, exactly how the real API route
+     would trigger this.
+  2. Started the **real** `notification-poller.ts` (fast-polled at 500ms for the test only).
+  3. Waited for the **real** `notification-worker.ts` to process it.
+  4. Queried the real `notifications`/`notification_recipients` tables directly.
+  5. Subscribed to the real `NOTIFICATION_PUSH_CHANNEL` via a real dedicated Redis
+     subscriber connection (the same pattern `apps/api`'s websocket layer uses).
+- **Result: all of it worked, unmodified, on the first meaningful run** (one test-script bug
+  along the way — see below, not a pipeline bug):
+  - Real `entity.assigned` outbox event written by `createEntity`.
+  - Real poller claimed it via `notified_delivered_at` within one poll cycle.
+  - Real worker resolved the recipient, wrote a real `notifications` row + one
+    `notification_recipients` row for the assignee.
+  - **Unprompted proof of R17** (deleted/unresolvable actor → placeholder): the actor
+    (`e2e-actor`) was never in `tenant_users`, and the notification correctly rendered
+    `"A user assigned you a ticket"` — this wasn't something the test script asserted for,
+    it just happened to be true because the actor genuinely didn't exist, and the fallback
+    fired exactly as designed.
+  - Real link built correctly: `/records/<slugified-entity-type-name>/<instanceId>`.
+  - Real outbound worker ran, correctly logged "no `NOTIFICATION_SERVICE_URL` configured —
+    treating as a no-op" (harmless — it did attempt one real, read-only service-account token
+    exchange against the hosted Zitadel via the already-configured credentials in `.env.local`,
+    since `getUserById` doesn't know it's in a test), and marked `outboundStatus: 'sent'`.
+  - Real Redis pub/sub push message received with the exact expected shape.
+- **One bug caught in the test script itself, not the product code**: my first query for the
+  outbox row's claim column used `.limit(1)` filtered only by `tenantId`, which non-
+  deterministically could grab the *other* outbox row `createEntity` also writes
+  (`entity.created` — correctly never claimed by the notification poller, since it's not one
+  of the 6 trigger types). Fixed by also filtering `eventType = 'entity.assigned'`; re-ran,
+  confirmed `notified_delivered_at` was in fact set.
+- Cleaned up: deleted the throwaway script, removed both ephemeral containers.
+
+### Still not verified (being honest about the actual remaining gap)
+
+- The websocket handshake's JWT verification (`apps/api/src/websocket/notifications.ts`) —
+  needs a real, valid Zitadel-issued access token, which requires either real hosted-Zitadel
+  login credentials or a local Zitadel instance actually wired to the running backend. Neither
+  was safely available this session.
+- `apps/api`'s Redis-subscriber-side forwarding (receiving the push and routing to a live
+  browser WebSocket connection) — the *publish* side is now proven real; the *subscribe +
+  forward* side in `apps/api` still rests on code-review confidence, not an observed run.
+- The UI (T8) itself, in a browser.
+
+### Verification
+
+- This was a manual, one-off verification run — not a repeatable automated test, and
+  deliberately not added to the permanent suite (throwaway script, deleted).
+- No regressions: this session made no source changes, only ran existing code against
+  ephemeral infra.
+
+### Next
+
+The realistic path to closing the two remaining gaps above is either (a) getting real
+hosted-Zitadel demo credentials safely into this environment, or (b) standing up the
+commented-out local Zitadel config end-to-end (register the OIDC client + demo users against
+the *local* `zitadel` container, then point a throwaway env override at it) — neither attempted
+here since both are bigger asks than "attempt a smoke test." Recommend deciding which path
+before treating this feature as fully shipped.
+
+---
+
+## 2026-07-23 — in-app-notification-hub / T8 (UI) + repo cleanup (portal removed)
+
+### Done — repo cleanup (unrelated to the notification hub, requested mid-session)
+
+- User confirmed there is no separate customer portal — `apps/admin-ui` (port 3001) serves
+  both admin/agent and customer users via internal RBAC. This contradicted `CLAUDE.md`,
+  `.claude/context/phase-2-primer.md`, and `.claude/skills/pre-pr-review/SKILL.md`, all fixed.
+- **Deleted `apps/portal`** entirely (confirmed stale — `docker-compose.yml` already had a
+  comment saying "admin + portal in one app"; no code anywhere imports `@platform/portal`).
+  Removed via `git rm` (tracked files) + `rm -rf` (leftover untracked `dist`/`node_modules`/
+  `.turbo`). `pnpm install` re-run to regenerate the lockfile — 29 workspace projects, down
+  from 30.
+- **Flagged, not fixed**: `.github/workflows/ci.yml`'s build matrix (`app: [api, worker,
+  admin-ui, portal]`) still references `portal` — I can't edit that file (CLAUDE.md
+  off-limits). CI will fail building a directory that no longer exists until the user removes
+  that matrix entry.
+- Explicitly did **not** rename `admin-ui` → `frontend` — user decided to keep the existing
+  name after I scoped out what the rename would touch.
+
+### Done — T8: notification bell/popup UI (`apps/admin-ui` only — no portal to also build for)
+
+- `apps/admin-ui/src/lib/notifications-client.ts`: `listNotifications` (keyset cursor),
+  `markNotificationRead`, `markAllNotificationsRead` (thin wrappers over the T7 API), plus
+  `subscribeToNotifications` — a reconnecting-with-backoff WebSocket client. JWT passed as a
+  `?token=` query param (browsers can't set custom WS handshake headers); token pulled fresh
+  from `userManager.getUser()` on every (re)connect attempt, not cached, so a token refresh
+  is picked up automatically on the next reconnect.
+- `apps/admin-ui/src/components/notification-bell.tsx`: bell icon + unread badge + dropdown
+  (latest 10, load-more, mark-all-read, click-to-navigate via `react-router`'s `useNavigate`,
+  urgent red styling for `system.error`). Wired into `components/layout.tsx`'s shared topnav,
+  next to the existing profile menu — same inline-style + `var(--...)` CSS-variable
+  conventions already used there, no new design system introduced.
+  **Known simplification**: the unread badge count is derived only from the currently-loaded
+  page (latest 10 + whatever's been loaded via "load more" this session) plus live pushes,
+  not a dedicated server-side unread-count query — T7 didn't build one. Reasonable for an
+  active session (new unread items always arrive via push while the tab is open) but will
+  undercount a user's true backlog on a fresh page load if they have more than 10 unread
+  from before this session. Flagging as a real gap, not a silent shortcut.
+- `apps/admin-ui/vite.config.ts`: added a `/ws` dev-proxy entry (`ws: true`) alongside the
+  existing `/api` one — required for the websocket to reach `apps/api` through
+  `docker-compose.yml`'s actual dev setup (`VITE_API_PROXY_TARGET`, confirmed this is the real
+  running path, not the separate static-`serve` production Dockerfile, which has no reverse
+  proxy for either route and appears to expect an external layer not present in this repo).
+- New test: `apps/admin-ui/src/lib/notifications-client.test.ts` (4 tests, mocking
+  `fetchWithAuth` — matches this codebase's existing `.test.ts`-only convention; no
+  `.test.tsx`/React-render tests exist anywhere in `apps/admin-ui` yet, so didn't introduce
+  that pattern unilaterally for just this one component).
+
+### Verification
+
+- `pnpm typecheck` (full monorepo, all 40 packages via turbo): PASS
+- `pnpm --filter @platform/admin-ui test`: PASS, 50/50 (46 pre-existing + 4 new)
+- No live end-to-end check of the websocket against a running `docker compose` stack this
+  session (would need the full stack up, including a real Zitadel token) — carrying forward
+  as the same open flag from Phase 2's PROGRESS entry, now doubly true since the UI side is
+  built too.
+
+### Next
+
+This completes all of T1–T11 from `docs/specs/in-app-notification-hub-tasks.md`. Remaining
+before this is truly done, not just "coded":
+1. A real end-to-end smoke test against `docker compose up` (login, trigger a notification,
+   see it arrive live, mark read, reload and see it persisted) — nothing this session verified
+   the full stack wired together, only isolated layers (DB isolation tests, unit tests,
+   typecheck).
+2. `/security-review` on the Zitadel-client relocation (`packages/auth/src/
+   zitadel-management.ts`) and the new websocket auth path (JWT-via-query-param).
+3. A conscious decision on `executeNotifyAction`'s retry-can-double-fire limitation (T10).
+4. The user needs to remove `portal` from `.github/workflows/ci.yml`'s build matrix.
+5. Unread-badge-count simplification noted above — decide if a dedicated count endpoint is
+   worth adding.
+
+### Open questions
+
+- None blocking, but items 1–3 above are real "is this actually done" gates, not nice-to-haves
+  — recommend not marking this feature shipped until at least the end-to-end smoke test runs.
+
+---
+
+## 2026-07-23 — in-app-notification-hub / Phase 3 (T9–T11 done, T8 UI not started)
+
+### Done
+
+- **T9 — system-logs viewer** (`apps/api/src/routes/admin/system-logs.ts`): `GET
+  /admin/system-logs`, admin-only, keyset-paginated over `notifications WHERE type =
+  'system.error'`. Deliberately minimal per spec — a raw list, not a log/observability
+  product.
+- **T10 — retired the `executeNotifyAction` stub**
+  (`packages/automation-engine/src/actions/notify.ts`): now async, writes directly into the
+  same `notifications`/`notification_recipients` tables the 6 system triggers use (same
+  read/unread UX, same websocket push via the outbound queue's jobId, same outbound handoff),
+  instead of only logging. Content comes from the automation rule's own `payload` config
+  (title/body/link), not a hardcoded template — a tenant-authored rule is already
+  admin-configured content, unlike the 6 fixed system triggers. New `automation.notify`
+  notification type required extending `notifications`' CHECK constraint (migration
+  `0037_notifications_automation_type.sql`). `executor.ts`'s `notify` case now `await`s the
+  action and passes the existing `redis` connection through (same one already threaded in for
+  the circuit breaker) so it can enqueue the outbound job.
+  **Known, documented limitation**: this notification's id is a fresh `randomUUID()`, not
+  derived from a stable outbox-event id like the 6 system triggers — so unlike those, a BullMQ
+  retry of the whole automation job could fire this action twice. Not fixed now (lower-value
+  for a Phase 3, already-a-stub action); flagged in the code comment and here.
+- **T11 — isolation tests** (`apps/api/tests/isolation/notifications.isolation.test.ts`):
+  cross-tenant RLS on both new tables, `WITH CHECK` rejecting a mismatched `tenant_id`, and —
+  importantly — the unique-constraint idempotency guarantee (R1/R16) verified as a real DB
+  rejection, not just asserted in a mock. **Actually run against a live stack**, not just
+  typechecked: spun up ephemeral `postgres:16-alpine` + `redis:7-alpine` on ports 5433/6380
+  (avoiding the already-bound 5432/6432 from other running containers, left untouched),
+  applied all migrations for real, ran both the new file and the **full existing isolation
+  suite** to confirm nothing regressed, then tore the containers down.
+
+### Verification
+
+- pnpm typecheck (`@platform/db`, `@platform/auth`, `@platform/automation-engine`,
+  `@platform/worker`, `api`): PASS
+- pnpm lint: N/A — issue #141, still a repo-wide no-op
+- pnpm test: `@platform/auth` 46/46, `@platform/automation-engine` 57/57 (up from 52 — 5 new in
+  `notify.test.ts`), `@platform/worker` 58/58 (unchanged this round)
+- pnpm test:isolation: **PASS, 162/162** (up from 155 — 7 new), run for real against the
+  ephemeral stack described above, not skipped/deferred this time
+- Confirmed via the isolation run itself that the new async `notify` action doesn't break the
+  existing helpdesk-seed automation rule path (log line: "Automation: notify action has no
+  recipientId configured — skipping" — expected, that seed rule's config has no `recipientId`)
+
+### Next
+
+T8 — the notification bell/popup UI in `apps/admin-ui` (and `apps/portal` if in scope) —
+websocket client, unread badge, latest-10 + load-more list, mark-all-read, urgent styling for
+`system.error`, click-to-navigate. Not started. This is the largest remaining piece and spans
+a different stack (React/frontend) from everything done so far — stopping here to check in
+before starting it, per the phased plan.
+
+### Open questions
+
+- None blocking. Carrying forward the two Phase 2 flags (Zitadel-client relocation deserves a
+  `/security-review` look; the websocket+Redis cross-process wiring still has no live
+  end-to-end check, only unit-level and now DB-isolation-level verification).
+- New from this round: the `executeNotifyAction` double-fire-on-retry limitation (see T10
+  above) — worth a conscious decision (fix now vs. accept) before this ships, not a silent gap.
+
+---
+
+## 2026-07-23 — in-app-notification-hub / Phase 2
+
+### Done
+
+Delivery engine: outbox events become in-app notifications, delivered live over websocket,
+with a de-duped, retried handoff to the (still externally undecided) outbound service.
+
+- **Design blocker resolved mid-session** (see conversation, not just this file): role
+  membership (e.g. "who is a tenant admin") isn't queryable from our DB — it's a Zitadel
+  JWT-only claim. Resolved per user direction: `system.error` recipients come from a single
+  hardcoded `SYSTEM_ADMIN_USER_ID` config value (`packages/config/src/env.ts`), editable at
+  any time, not a real role query. Real role-based resolution is deferred, not built.
+- **Structural fix this required**: `apps/api/src/lib/zitadel-management.ts` (token handling,
+  `getUserById`, `listOrgUsers`) moved to `packages/auth/src/zitadel-management.ts` so
+  `apps/worker` (a separate app, can't import from `apps/api` per the dependency rule) can
+  resolve a recipient's email for the outbound handoff. `apps/api`'s old path is now a
+  re-export shim — its 4 existing call sites and their test mocks are unchanged. Added `phone`
+  parsing to `OrgUser`/`getUserById` while touching this file (Zitadel's `human.phone.phone`
+  was never read before) — unused today (sms/whatsapp are both `false`) but ready for later.
+  Moved `zitadel-management.test.ts` alongside the real implementation.
+- **T4 — in-app notifier** (`apps/worker/src/notification-poller.ts`,
+  `notification-worker.ts`, `notification-recipients.ts`, `notification-templates.ts`):
+  - Poller claims outbox rows via the new `notified_delivered_at` column (from Phase 1),
+    completely independent of the automation engine's `delivered_at` claim — no race.
+  - `resolveRecipients`: per-trigger-type resolution as a live snapshot at processing time
+    (not cached from event-creation time) — entity.assigned → assignee; comment.mentioned →
+    explicitly mentioned users only; access.granted/revoked → target user; workflow.sla_breached
+    → `workflows.createdBy` + `assignedTo` (workflow admins, resolved fresh); system.error →
+    the configured admin, gated on actual tenant membership. Self-suppression (actor never
+    notified about their own action) applied uniformly in one `finalize()` helper.
+  - **Idempotency fix caught before it shipped**: the notification's `id` is deterministically
+    the outbox event's own id, not a fresh random UUID — a naive random-UUID-per-attempt would
+    have defeated the `(notification_id, user_id)` unique constraint entirely on a BullMQ retry
+    (each retry would insert under a new id). `onConflictDoNothing()` on both inserts makes a
+    retry a true no-op.
+  - Templates hardcoded per trigger type (`notification-templates.ts`); link building
+    replicates `apps/admin-ui/src/entity-type-context.tsx`'s `toTypeSlug` exactly (no stored
+    slug column exists — the frontend derives one from `entity_types.name`, so the backend
+    must derive the same value or links 404).
+  - Live push is Redis pub/sub (`NOTIFICATION_PUSH_CHANNEL`, `packages/redis`), not an
+    in-process call — **also a design gap the original spec didn't separate out**:
+    apps/worker and apps/api are different processes/containers, so the worker can't reach
+    apps/api's in-memory websocket connections directly. This channel is what the "single
+    instance is fine for now, multi-instance fan-out deferred" note in the spec actually
+    needed from day one, just for a different reason (cross-process, not cross-replica).
+- **T5 — websocket layer** (`apps/api/src/websocket/notifications.ts`): embedded in
+  `apps/api` via `server.on("upgrade", ...)` on the existing `@hono/node-server` instance — no
+  new container/port. JWT passed as a `?token=` query param (browsers can't set custom
+  WebSocket handshake headers). Connections keyed by `(tenantId, userId)` together per the
+  spec's invariant. Subscribes to the Redis push channel above and forwards to matching local
+  connections; `broadcastReadState` (used by the mark-read routes) re-broadcasts to a user's
+  other open tabs — same mechanism, no separate code path.
+- **T6 — outbound handoff** (`apps/worker/src/notification-outbound-worker.ts`):
+  `dispatchOutbound` is the sole function touching the external service — POSTs to
+  `NOTIFICATION_SERVICE_URL` if configured (unset = logged no-op, not a failure, since the
+  service doesn't exist yet); channel flags hardcoded `{email: true, sms: false, whatsapp:
+  false}` per user direction. De-dupe via an atomic `pending` → `attempted` claim on
+  `notifications.outbound_status` (conditional UPDATE, 0 rows = already handled, skip). 3
+  attempts/exponential backoff matches the automation-queue convention. Permanent failure (all
+  attempts exhausted) writes a `system.error` outbox event rather than only logging — which
+  flows through the same notification hub to notify tenant admins, not a separate path.
+- **T7 — API** (`apps/api/src/routes/notifications/`): `GET /notifications` (keyset
+  pagination by `(created_at, id)`, never offset — stable under concurrent inserts),
+  `POST /notifications/:id/read` (idempotent — `COALESCE` keeps the original read time rather
+  than 404ing on an already-read notification), `POST /notifications/mark-all-read` (single
+  bulk UPDATE, not a loop).
+- New env vars: `SYSTEM_ADMIN_USER_ID`, `NOTIFICATION_SERVICE_URL` (both optional).
+- New deps: `ws`/`@types/ws` (apps/api), `@platform/auth` (apps/worker, for the moved Zitadel
+  client), `zod` (packages/auth, needed by the moved file).
+
+### Verification
+
+- pnpm typecheck (`@platform/db`, `@platform/auth`, `@platform/automation-engine`,
+  `@platform/worker`, `api`): PASS
+- pnpm lint: N/A — issue #141, still a repo-wide no-op
+- pnpm test: `@platform/auth` 46/46, `@platform/automation-engine` 52/52, `@platform/worker`
+  58/58 (up from 45 — 13 new: `notification-recipients.test.ts`,
+  `notification-templates.test.ts`), `api` src/ unit tests 285/285 (all pre-existing, confirms
+  the zitadel-management move broke nothing)
+- pnpm test:isolation: NOT RUN — same Docker/OrbStack gap as Phase 1; deferred to T11 (Phase 3)
+- Websocket layer and outbound HTTP call have no live-service integration test in this
+  session (would need the Docker stack + a running counterpart) — covered by typecheck +
+  unit tests on the pure logic (recipient resolution, templates, de-dupe claim SQL shape)
+  only. Flagging as a real gap to close before this is considered done, not just a nice-to-have.
+
+### Next
+
+Phase 3 (T8–T11): notification bell/popup UI (admin-ui + portal), minimal system-logs page,
+retire the `executeNotifyAction` stub in `packages/automation-engine` to route through this
+system, isolation tests (cross-tenant RLS on the new tables, idempotency under simulated
+redelivery, self-suppression per trigger type). Per the loop instructions, stopping here.
+
+### Open questions
+
+- None blocking, but two things worth a deliberate look before shipping, not just noting:
+  1. The Zitadel-client relocation (`packages/auth/src/zitadel-management.ts`) is exactly the
+     kind of change `/security-review` should see — it didn't change behavior, but it moved a
+     service-account-JWT-signing, external-API-calling module to a new package boundary.
+  2. No end-to-end verification yet that the websocket handshake's JWT-from-query-param
+     approach and the Redis pub/sub cross-process push actually work together against a real
+     running stack — only unit-level pieces were verified this session.
+
+---
+
+## 2026-07-23 — in-app-notification-hub / Phase 1
+
+### Done
+
+- T1: Migration `0036_notifications.sql` — `notifications` + `notification_recipients` tables,
+  RLS policies, tenant + keyset-pagination indexes, unique `(notification_id, user_id)` idempotency
+  index, `outbound_status` de-dupe column, `app_user` grants. Also added a second, independent
+  delivery-claim column `notified_delivered_at` on the existing `outbox_events` table (not in the
+  original task list — see "Design deviation" below) with its own index. Journal updated
+  (`packages/db/migrations/meta/_journal.json`). New Drizzle schema
+  `packages/db/src/schema/notifications.ts`, exported from `schema/index.ts`.
+- T2: New outbox event schemas + `TriggerType`s in `packages/automation-engine/src/event-schemas.ts`
+  and `types.ts` — `comment.mentioned`, `access.granted`, `access.revoked`, `system.error`. Actor/user
+  ids use plain `z.string()` (not `.uuid()`), matching the rest of the codebase's TEXT user-id
+  columns (Zitadel sub claims aren't guaranteed UUIDs — see migration 0021).
+- T3: Wired outbox writes —
+  - `apps/api/src/routes/entities/add-comment.ts`: writes a `comment.mentioned` outbox event when
+    `mentions.length > 0`.
+  - `apps/api/src/lib/emit-access-event.ts`: writes `access.granted`/`access.revoked` outbox events
+    for `access_grant`/`access_revoke` payload types only (`access_update`/`access_reject` have no
+    corresponding event schema yet — out of scope per spec). This is the single choke point already
+    shared by `grant-access.ts`, `revoke-access.ts`, `resolve-access-request.ts`, `update-access.ts`,
+    so all four routes get outbox wiring through one change.
+- Tests: updated `add-comment.test.ts`'s `@platform/db` mock (missing `outboxEvents` export caused a
+  500). New `apps/api/src/lib/emit-access-event.test.ts` (no prior test file existed) covering
+  granted/revoked outbox writes, the update/reject no-op, and the no-resolvable-workflow early return.
+
+### Design deviation (flagged to human during session, not unilaterally decided)
+
+The spec assumed Worker #1 (in-app notifier, Phase 2) would consume `outbox_events` directly. But
+`apps/worker/src/outbox-poller.ts` already claims rows for the automation engine via `delivered_at` —
+a single-consumer claim, not a broadcast. A second consumer sharing that column would race it (the
+exact `workflow.sla_scheduled` failure mode documented in that file's own comments). Added a second
+nullable column, `notified_delivered_at`, so the notification worker can independently claim rows
+without touching the automation engine's claim column. Small additive change to an existing shared
+table; explained to the user in-session before implementing.
+
+### Verification
+
+- pnpm typecheck (`@platform/db`, `@platform/automation-engine`, `api`): PASS
+- pnpm lint: N/A — issue #141, `pnpm lint` is a repo-wide no-op today (no per-package lint scripts)
+- pnpm test (automation-engine): PASS (52/52)
+- pnpm test (api, scoped to touched files — add-comment, emit-access-event, grant-access,
+  resolve-access-request): PASS (19/19)
+- pnpm test:isolation: NOT RUN — Docker/OrbStack stack not up in this environment (`docker ps` shows
+  only unrelated containers from other projects, left untouched). Isolation tests for the two new
+  tables are T11 (Phase 3), not part of Phase 1's scope.
+- Full `pnpm test` run showed unrelated pre-existing failures (modules/view-configs/upload-flow
+  integration tests) — these require the DB/Redis stack too and are unconnected to this change.
+
+### Next
+
+Phase 2 (T4–T7): in-app notifier worker (recipient resolution, idempotent writes, templates),
+websocket layer in `apps/api` (keyed by `(tenant_id, user_id)`), outbound-handoff worker (attempt
+marker, 3 retries/backoff, `system.error` on permanent failure), notification API
+(`GET /notifications`, mark-read, mark-all-read). Per the loop instructions, stopping here — Phase 2
+not started.
+
+### Open questions
+
+- None blocking. The `notified_delivered_at` column addition should be called out again when this
+  goes through `/review` given it touches an existing shared table outside this feature's own tables.
+
+---
+
 ## 2026-07-10 — Security audit findings #8 and #9 (closes the full 2026-07-09 audit)
 
 ### Done

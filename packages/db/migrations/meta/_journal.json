@@ -253,6 +253,34 @@
       "when": 1783417685000,
       "tag": "0035_workflow_created_by",
       "breakpoints": false
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783417686000,
+      "tag": "0036_notifications",
+      "breakpoints": false
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783417687000,
+      "tag": "0037_notifications_automation_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783417688000,
+      "tag": "0038_notifications_comment_replied_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1783417689000,
+      "tag": "0039_notifications_mention_access_type",
+      "breakpoints": false
     }
   ]
 }

@@ -38,6 +38,12 @@ vi.mock("../../lib/zitadel-management.js", () => ({
   listOrgUsers: vi.fn().mockResolvedValue([]),
 }));
 
+const mockIsWorkflowAdmin = false;
+vi.mock("@platform/workflow-engine", () => ({
+  getWorkflow: vi.fn().mockResolvedValue({}),
+  isWorkflowAdmin: () => mockIsWorkflowAdmin,
+}));
+
 let instanceRow: {
   id: string;
   workflowId: string | null;
@@ -69,9 +75,14 @@ const entityInstancesTable = {
   tenantId: "entity_instances.tenant_id",
 };
 const filesTable = { id: "files.id", tenantId: "files.tenant_id" };
+const outboxEventsTable = { id: "outbox_events.id" };
+const workflowEventsTable = { id: "workflow_events.id" };
 
 let currentFromTable: unknown;
 let currentWhereFileId: string | undefined;
+let currentInsertTable: unknown;
+const outboxInserts: Array<{ eventType: string; payload: unknown }> = [];
+let parentCommentActorId: string | null = null;
 
 const mockTx = {
   select: () => mockTx,
@@ -89,10 +100,24 @@ const mockTx = {
       const row = currentWhereFileId ? fileRows[currentWhereFileId] : undefined;
       return Promise.resolve(row ? [row] : []);
     }
+    if (currentFromTable === workflowEventsTable) {
+      return Promise.resolve(
+        parentCommentActorId ? [{ actorId: parentCommentActorId }] : [],
+      );
+    }
     return Promise.resolve(instanceRow ? [instanceRow] : []);
   },
-  insert: () => mockTx,
-  values: () => mockTx,
+  insert: (table: unknown) => {
+    currentInsertTable = table;
+    return mockTx;
+  },
+  values: (arg: unknown) => {
+    if (currentInsertTable === outboxEventsTable) {
+      const payload = arg as { eventType: string };
+      outboxInserts.push({ eventType: payload.eventType, payload });
+    }
+    return mockTx;
+  },
   returning: () =>
     Promise.resolve([{ id: "evt-1", metadata: { type: "comment" } }]),
   update: (table: unknown) => ({
@@ -111,11 +136,12 @@ const mockTx = {
 };
 
 vi.mock("@platform/db", () => ({
-  workflowEvents: {},
+  workflowEvents: workflowEventsTable,
   entityInstances: entityInstancesTable,
   entityRelations: {},
   tenantUsers: {},
   files: filesTable,
+  outboxEvents: outboxEventsTable,
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(mockTx),
 }));
@@ -139,6 +165,9 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     fileBindUpdates.length = 0;
     currentFromTable = undefined;
     currentWhereFileId = undefined;
+    currentInsertTable = undefined;
+    outboxInserts.length = 0;
+    parentCommentActorId = null;
     instanceRow = {
       id: INST_ID,
       workflowId: "wf-1",
@@ -155,7 +184,13 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     };
   });
 
-  it("does not grant access to a mentioned user when the commenter is unprivileged", async () => {
+  it("does not grant access to a mentioned user when the commenter is unprivileged and not the owner", async () => {
+    instanceRow!.assignedTo = "someone-else";
+    instanceRow!.createdBy = "someone-else";
+    instanceRow!.fields = {
+      __accessUsers: { "u-bbb": { level: "read_comment" } },
+    };
+
     const res = await makeApp().request(`/${INST_ID}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -166,10 +201,30 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     });
 
     expect(res.status).toBe(201);
-    const grantedUserIds = grantedUpdates.length; // one update per grant.userId call
-    // Only the commenter's own self-grant (if not already assignee) may run;
-    // the mentioned OTHER_USER_ID must never receive an access grant here.
-    expect(grantedUserIds).toBe(0); // commenter is already assignedTo, no self-grant needed either
+    // Commenter already has an ACL entry (no self-grant), and lacks grant
+    // authority (not admin/agent, not creator/assignee) — the mentioned
+    // OTHER_USER_ID must never receive an access grant here.
+    expect(grantedUpdates.length).toBe(0);
+  });
+
+  it("allows the creator/assignee (owner), even without admin/agent role, to grant access to a mentioned user — mirrors revoke-access.ts's authority", async () => {
+    // Default beforeEach instanceRow already has u-bbb as both assignedTo and
+    // createdBy, and currentAuth is role "user" (not admin/agent) — this is
+    // exactly the owner-without-global-role scenario revoke-access.ts allows.
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_only" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).toContain("comment.mention_access_granted");
+    expect(eventTypes).not.toContain("comment.mentioned");
+    expect(grantedUpdates.length).toBe(1); // grant for the mentioned user (commenter is already assignee, no self-grant)
   });
 
   it("allows an admin/agent commenter to grant access to a mentioned user", async () => {
@@ -193,6 +248,110 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     expect(res.status).toBe(201);
     // One grant for the admin commenter (not assignee) + one for the mention.
     expect(grantedUpdates.length).toBe(2);
+  });
+
+  it("mentioning a user with no prior access fires comment.mention_access_granted, not comment.mentioned", async () => {
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-admin",
+      roles: ["admin"],
+      email: "admin@example.com",
+    };
+    instanceRow!.assignedTo = "someone-else";
+    instanceRow!.fields = {}; // OTHER_USER_ID has no existing access
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_comment" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).toContain("comment.mention_access_granted");
+    expect(eventTypes).not.toContain("comment.mentioned");
+    const grantEvent = outboxInserts.find(
+      (o) => o.eventType === "comment.mention_access_granted",
+    );
+    const grantPayload = grantEvent?.payload as {
+      payload: { mentionedUserIds: string[] };
+    };
+    expect(grantPayload.payload.mentionedUserIds).toEqual([OTHER_USER_ID]);
+  });
+
+  it("mentioning a user who already has access fires comment.mentioned, not comment.mention_access_granted", async () => {
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-admin",
+      roles: ["admin"],
+      email: "admin@example.com",
+    };
+    instanceRow!.assignedTo = "someone-else";
+    instanceRow!.fields = {
+      __accessUsers: { [OTHER_USER_ID]: { level: "read_comment" } },
+    };
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_comment" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).toContain("comment.mentioned");
+    expect(eventTypes).not.toContain("comment.mention_access_granted");
+  });
+
+  it("mentioning a user with no prior access as an unprivileged, non-owner commenter fires comment.mentioned (no access is actually granted)", async () => {
+    instanceRow!.assignedTo = "someone-else";
+    instanceRow!.createdBy = "someone-else";
+    instanceRow!.fields = {
+      __accessUsers: { "u-bbb": { level: "read_comment" } },
+    }; // commenter has plain access, not owner; OTHER_USER_ID has no existing access
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_comment" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).toContain("comment.mentioned");
+    expect(eventTypes).not.toContain("comment.mention_access_granted");
+  });
+
+  it("replying to a comment fires comment.replied targeting the parent comment's author", async () => {
+    parentCommentActorId = "u-parent-author";
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "replying",
+        replyTo: "00000000-0000-0000-0000-0000000000aa",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const replyEvent = outboxInserts.find(
+      (o) => o.eventType === "comment.replied",
+    );
+    expect(replyEvent).toBeDefined();
+    const replyPayload = replyEvent?.payload as {
+      payload: { targetUserId: string };
+    };
+    expect(replyPayload.payload.targetUserId).toBe("u-parent-author");
   });
 
   it("does not downgrade a commenter's existing read_write ACL entry to read_comment", async () => {
@@ -235,6 +394,9 @@ describe("POST /entities/:id/comments — fileIds binding", () => {
     fileBindUpdates.length = 0;
     currentFromTable = undefined;
     currentWhereFileId = undefined;
+    currentInsertTable = undefined;
+    outboxInserts.length = 0;
+    parentCommentActorId = null;
     instanceRow = {
       id: INST_ID,
       workflowId: "wf-1",

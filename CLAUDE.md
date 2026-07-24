@@ -91,8 +91,10 @@ enforcement is CI + required human PR review + branch protection. See
 apps/
   api/          Hono API server
   worker/       BullMQ background workers
-  admin-ui/     Refine + shadcn/ui (agent/admin views)
-  portal/       Customer-facing React portal
+  admin-ui/     Refine + shadcn/ui — single app serving both agent/admin and customer
+                users (port 3001), RBAC-controlled internally. There is no separate
+                portal app — `apps/portal` on disk is stale/unused, kept only pending
+                cleanup (see docker-compose.yml's comment on the admin-ui service).
 packages/
   db/           Drizzle schema, migrations, client
   entity-engine/

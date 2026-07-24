@@ -4,6 +4,7 @@ import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import type { SavedView } from "../../lib/types.js";
 import { useExport } from "../../lib/use-export.js";
+import { isRenderableIcon } from "../../lib/icon.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -898,8 +899,8 @@ export function CustomerRecordList(): React.ReactElement {
       <div className="kb-topbar">
         <div className="kb-topbar-left">
           <h1 className="kb-heading">
-            {entityType?.icon && (
-              <span className="kb-heading-icon">{entityType.icon}</span>
+            {isRenderableIcon(entityType?.icon) && (
+              <span className="kb-heading-icon">{entityType?.icon}</span>
             )}
             {entityType?.plural ?? "Records"}
           </h1>

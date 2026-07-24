@@ -56,3 +56,27 @@ export const tenantPurgeQueue = new Queue("tenant-purge", { connection });
 // Export queue — generates CSV/xlsx/PDF for large entity list exports (> 5 000 rows).
 // API enqueues via apps/api/src/lib/export-queue.ts using the same queue name.
 export const exportQueue = new Queue("export", { connection });
+
+// In-app notification hub (docs/specs/in-app-notification-hub.md).
+// "notify" is distinct from @platform/notifications' "notifications" queue —
+// that one is the pre-existing Novu template-based delivery path; this one is
+// the new in-app notifier (recipient resolution + notifications/
+// notification_recipients rows + live websocket push).
+export const notifyQueue = new Queue("notify", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});
+
+// Outbound handoff — the single seam to the externally-owned email/SMS/
+// WhatsApp service (contract TBD). 3 attempts/exponential backoff matches the
+// automation queue convention (issue #123).
+export const notifyOutboundQueue = new Queue("notify-outbound", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});

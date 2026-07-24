@@ -9,6 +9,7 @@ import {
   entityRelations,
   tenantUsers,
   files,
+  outboxEvents,
   withTenantContext,
 } from "@platform/db";
 import { isNull } from "drizzle-orm";
@@ -18,7 +19,13 @@ import { factory } from "./factory.js";
 
 const MentionSchema = z.object({
   userId: z.string().min(1),
-  level: z.enum(["read_only", "read_comment"]).default("read_comment"),
+  // read_write included: the frontend preserves an already-mentioned user's
+  // existing access level (e.g. the assignee already has read_write) rather
+  // than downgrading them, so a mention entry can legitimately carry any of
+  // the three levels, not just the two a *fresh* mention-grant would use.
+  level: z
+    .enum(["read_only", "read_comment", "read_write"])
+    .default("read_comment"),
 });
 
 const AddCommentSchema = z.object({
@@ -206,6 +213,62 @@ export const addCommentHandler = factory.createHandlers(
 
     const mentionUserIds = mentions.map((m) => m.userId);
 
+    // Who may grant access to a third party via @mention — mirrors exactly
+    // who revoke-access.ts already trusts to manage this record's access
+    // (admin/agent role, OR the creator/assignee, OR a workflow admin), so a
+    // user allowed to revoke access is also allowed to re-grant it via
+    // mention. Without this, a creator/assignee logged in without the global
+    // admin/agent role could revoke access but never re-grant it — the
+    // mention would silently fall into the plain "mentioned" bucket instead
+    // of actually granting access.
+    const isOwner =
+      instance.createdBy === userId || instance.assignedTo === userId;
+    let isRecordWorkflowAdmin = false;
+    if (
+      mentionUserIds.length > 0 &&
+      !isPrivileged &&
+      !isOwner &&
+      instance.workflowId
+    ) {
+      const workflow = await withTenantContext(tenantId, (tx) =>
+        getWorkflow(tx, tenantId, instance.workflowId as string, {
+          userId,
+          isGlobalAdmin: false,
+        }),
+      );
+      isRecordWorkflowAdmin = isWorkflowAdmin(userId, workflow);
+    }
+    const canGrantAccess = isPrivileged || isOwner || isRecordWorkflowAdmin;
+
+    // Classify mentions once, up front, and reuse for both notification
+    // routing (below) and the actual access grant (further down) — a mention
+    // that grants brand-new access gets a distinct notification from a plain
+    // mention of someone who already had access; a mismatch between these two
+    // classifications would mean a user gets told "you have access" when they
+    // don't, or vice versa.
+    const existingAccessUsers =
+      (instance.fields as Record<string, unknown>).__accessUsers ?? {};
+    const existingAccessMap = existingAccessUsers as Record<
+      string,
+      { level: string }
+    >;
+    const assignedTo = instance.assignedTo;
+    const createdBy = instance.createdBy;
+    const hasExistingAccess = (uid: string): boolean =>
+      Boolean(existingAccessMap[uid]) ||
+      assignedTo === uid ||
+      createdBy === uid;
+    // A mention from a user without grant authority never grants access, so
+    // those mentions always fall into the plain "mentioned" bucket, never
+    // "granted access" — bypassing grant-access.ts's/revoke-access.ts's own
+    // authority checks via @mention is not allowed.
+    const mentionsGettingNewAccess = canGrantAccess
+      ? mentionUserIds.filter((uid) => !hasExistingAccess(uid))
+      : [];
+    const mentionsAlreadyHavingAccess = mentionUserIds.filter(
+      (uid) => !mentionsGettingNewAccess.includes(uid),
+    );
+
     const [event] = await withTenantContext(tenantId, (tx) =>
       tx
         .insert(workflowEvents)
@@ -230,6 +293,78 @@ export const addCommentHandler = factory.createHandlers(
         .returning(),
     );
 
+    if (mentionsAlreadyHavingAccess.length > 0) {
+      await withTenantContext(tenantId, (tx) =>
+        tx.insert(outboxEvents).values({
+          tenantId,
+          eventType: "comment.mentioned",
+          version: 1,
+          payload: {
+            eventType: "comment.mentioned",
+            version: 1,
+            tenantId,
+            instanceId: id,
+            actorId: userId,
+            mentionedUserIds: mentionsAlreadyHavingAccess,
+          },
+        }),
+      );
+    }
+
+    if (mentionsGettingNewAccess.length > 0) {
+      await withTenantContext(tenantId, (tx) =>
+        tx.insert(outboxEvents).values({
+          tenantId,
+          eventType: "comment.mention_access_granted",
+          version: 1,
+          payload: {
+            eventType: "comment.mention_access_granted",
+            version: 1,
+            tenantId,
+            instanceId: id,
+            actorId: userId,
+            mentionedUserIds: mentionsGettingNewAccess,
+          },
+        }),
+      );
+    }
+
+    // Reply notification: notify the parent comment's author, distinct from
+    // an explicit @mention. workflow_events.actor_id is the commenter — read
+    // directly rather than from metadata, no parsing needed.
+    if (replyTo) {
+      const [parentComment] = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({ actorId: workflowEvents.actorId })
+          .from(workflowEvents)
+          .where(
+            and(
+              eq(workflowEvents.id, replyTo),
+              eq(workflowEvents.tenantId, tenantId),
+            ),
+          )
+          .limit(1),
+      );
+
+      if (parentComment?.actorId) {
+        await withTenantContext(tenantId, (tx) =>
+          tx.insert(outboxEvents).values({
+            tenantId,
+            eventType: "comment.replied",
+            version: 1,
+            payload: {
+              eventType: "comment.replied",
+              version: 1,
+              tenantId,
+              instanceId: id,
+              actorId: userId,
+              targetUserId: parentComment.actorId,
+            },
+          }),
+        );
+      }
+    }
+
     // Add commenter + mentioned users to __accessUsers using double-nested jsonb_set
     // (same pattern as update-access.ts which is proven to work).
     // We write per-user using ARRAY path so each write is surgical and independent.
@@ -239,20 +374,18 @@ export const addCommentHandler = factory.createHandlers(
       // Only grant read_comment to the commenter if they have no existing
       // ACL entry at all — a commenter with an existing entry (e.g.
       // read_write from being assigned or explicitly granted) must never be
-      // silently downgraded just for posting a comment.
-      const existingAccessUsers =
-        (instance.fields as Record<string, unknown>).__accessUsers ?? {};
-      const existingSelfEntry = (
-        existingAccessUsers as Record<string, { level: string }>
-      )[userId];
+      // silently downgraded just for posting a comment. Reuses
+      // existingAccessMap computed above (for the mention notification split)
+      // rather than re-reading instance.fields a second time.
+      const existingSelfEntry = existingAccessMap[userId];
       if (userId !== instance.assignedTo && !existingSelfEntry) {
         usersToGrant.push({ userId, level: "read_comment" });
       }
-      // Only admins/agents may grant access to a third party via @mention —
-      // otherwise any commenter with mere read_comment access could mention an
-      // arbitrary user ID and hand them access, bypassing grant-access.ts's
-      // requireRole("admin", "agent") gate on the equivalent mutation.
-      if (isPrivileged) {
+      // Only users with grant authority (see canGrantAccess above) may grant
+      // access to a third party via @mention — otherwise any commenter with
+      // mere read_comment access could mention an arbitrary user ID and hand
+      // them access, bypassing grant-access.ts's own authority check.
+      if (canGrantAccess) {
         for (const mention of mentions) {
           if (!usersToGrant.some((u) => u.userId === mention.userId)) {
             usersToGrant.push({ userId: mention.userId, level: mention.level });

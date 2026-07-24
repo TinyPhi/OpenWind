@@ -3869,65 +3869,72 @@ export function CustomerRecordDetail(): React.ReactElement {
                         >
                           {badgeLabel}
                         </span>
-                        {/* Edit access button — hidden for creator */}
-                        {isAdminOrAgent && !record.deletedAt && !isCreator && (
-                          <button
-                            type="button"
-                            title="Change access"
-                            onClick={() => {
-                              setAccessChangeModal({
-                                userId: u.userId,
-                                displayName: name,
-                                currentLevel: u.level,
-                                isAssigned,
-                                isCreator,
-                              });
-                              setAccessChangeSelection(u.level);
-                            }}
-                            style={{
-                              flexShrink: 0,
-                              background: "none",
-                              border: "1px solid transparent",
-                              borderRadius: "5px",
-                              cursor: "pointer",
-                              padding: "3px 5px",
-                              color: "var(--text-muted, #9ca3af)",
-                              fontSize: "14px",
-                              lineHeight: 1,
-                            }}
-                            onMouseEnter={(e) => {
-                              (
-                                e.currentTarget as HTMLButtonElement
-                              ).style.color = "#ef4444";
-                              (
-                                e.currentTarget as HTMLButtonElement
-                              ).style.borderColor = "#fca5a5";
-                            }}
-                            onMouseLeave={(e) => {
-                              (
-                                e.currentTarget as HTMLButtonElement
-                              ).style.color = "var(--text-muted, #9ca3af)";
-                              (
-                                e.currentTarget as HTMLButtonElement
-                              ).style.borderColor = "transparent";
-                            }}
-                          >
-                            <svg
-                              width="12"
-                              height="12"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
+                        {/* Edit access button — hidden for creator and assignee:
+                            both are virtual entries synthesized by get-access.ts
+                            (always read_write, no real __accessUsers row), so
+                            update-access.ts/revoke-access.ts 404 on them —
+                            there's nothing to update or revoke. */}
+                        {isAdminOrAgent &&
+                          !record.deletedAt &&
+                          !isCreator &&
+                          !isAssigned && (
+                            <button
+                              type="button"
+                              title="Change access"
+                              onClick={() => {
+                                setAccessChangeModal({
+                                  userId: u.userId,
+                                  displayName: name,
+                                  currentLevel: u.level,
+                                  isAssigned,
+                                  isCreator,
+                                });
+                                setAccessChangeSelection(u.level);
+                              }}
+                              style={{
+                                flexShrink: 0,
+                                background: "none",
+                                border: "1px solid transparent",
+                                borderRadius: "5px",
+                                cursor: "pointer",
+                                padding: "3px 5px",
+                                color: "var(--text-muted, #9ca3af)",
+                                fontSize: "14px",
+                                lineHeight: 1,
+                              }}
+                              onMouseEnter={(e) => {
+                                (
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.color = "#ef4444";
+                                (
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.borderColor = "#fca5a5";
+                              }}
+                              onMouseLeave={(e) => {
+                                (
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.color = "var(--text-muted, #9ca3af)";
+                                (
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.borderColor = "transparent";
+                              }}
                             >
-                              <line x1="18" y1="6" x2="6" y2="18" />
-                              <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
-                          </button>
-                        )}
+                              <svg
+                                width="12"
+                                height="12"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <line x1="18" y1="6" x2="6" y2="18" />
+                                <line x1="6" y1="6" x2="18" y2="18" />
+                              </svg>
+                            </button>
+                          )}
                       </div>
                     );
                   })}

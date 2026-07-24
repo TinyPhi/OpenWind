@@ -25,16 +25,16 @@
 /* ── Dark theme (default) ─────────────────────────────────────────────── */
 :root,
 [data-theme="dark"] {
-  --bg-primary: hsl(225, 25%, 5%);
-  --bg-secondary: hsl(225, 22%, 8%);
-  --bg-tertiary: hsl(225, 20%, 12%);
-  --bg-card: hsla(225, 20%, 10%, 0.7);
+  --bg-primary: hsl(222, 16%, 14%);
+  --bg-secondary: hsl(222, 15%, 18%);
+  --bg-tertiary: hsl(222, 14%, 23%);
+  --bg-card: hsla(222, 15%, 20%, 0.7);
 
-  --text-primary: hsl(0, 0%, 96%);
-  --text-secondary: hsl(225, 12%, 70%);
-  --text-muted: hsl(225, 10%, 48%);
+  --text-primary: hsl(0, 0%, 94%);
+  --text-secondary: hsl(222, 10%, 74%);
+  --text-muted: hsl(222, 8%, 56%);
 
-  --border-color: hsla(225, 15%, 20%, 0.5);
+  --border-color: hsla(222, 12%, 40%, 0.35);
   --border-focus: hsla(250, 84%, 66%, 0.4);
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -46,7 +46,7 @@
   --surface:      var(--bg-secondary);
   --surface-2:    var(--bg-tertiary);
   --border:       var(--border-color);
-  --border-subtle:hsla(225, 15%, 20%, 0.3);
+  --border-subtle:hsla(222, 12%, 40%, 0.22);
   --text:         var(--text-primary);
   --text-2:       var(--text-secondary);
   --text-3:       var(--text-muted);
@@ -60,10 +60,10 @@
 
 /* ── Light theme ──────────────────────────────────────────────────────── */
 [data-theme="light"] {
-  --bg-primary: hsl(220, 20%, 97%);
-  --bg-secondary: hsl(220, 18%, 93%);
-  --bg-tertiary: hsl(220, 16%, 88%);
-  --bg-card: hsla(0, 0%, 100%, 0.85);
+  --bg-primary: hsl(0, 0%, 100%);
+  --bg-secondary: hsl(220, 20%, 97%);
+  --bg-tertiary: hsl(220, 16%, 93%);
+  --bg-card: hsla(0, 0%, 100%, 0.9);
 
   --text-primary: hsl(225, 25%, 10%);
   --text-secondary: hsl(225, 12%, 38%);
@@ -244,9 +244,11 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   justify-content: center;
   font-family: var(--font-heading);
+  font-size: 13px;
   font-weight: 800;
+  letter-spacing: -0.5px;
   color: white;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 12px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.35);
 }
 
 .logo-text {
@@ -254,9 +256,7 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
   font-family: var(--font-heading);
   letter-spacing: -0.4px;
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -292,6 +292,7 @@ h1, h2, h3, h4, h5, h6 {
 .menu-item:hover {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
+  border-radius: var(--radius-md);
 }
 
 .menu-item:hover svg {
@@ -300,14 +301,15 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .menu-item.active {
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
+  background-color: var(--accent-primary);
+  color: #fff;
   border-left: 3px solid var(--accent-primary);
+  border-radius: var(--radius-md);
   padding-left: 13px; /* balance the border */
 }
 
 .menu-item.active svg {
-  stroke: var(--accent-primary);
+  stroke: #fff;
 }
 
 /* Nav divider between main items and Settings */
@@ -383,11 +385,11 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .header-avatar {
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid var(--border-color);
+  border: 1.5px solid var(--border-color);
 }
 
 .header-logout-btn {
@@ -420,8 +422,10 @@ h1, h2, h3, h4, h5, h6 {
 
 .main-content {
   flex: 1;
+  min-width: 0;
   padding: 32px;
   overflow-y: auto;
+  overflow-x: hidden;
   background-color: var(--bg-primary);
   animation: fadeIn 0.3s ease-out;
 }
@@ -1012,8 +1016,8 @@ h1, h2, h3, h4, h5, h6 {
   border-bottom: none;
 }
 
-.data-table tbody tr:hover td {
-  background-color: hsla(225, 20%, 12%, 0.6);
+.data-table tbody tr.table-row-clickable:hover td {
+  background-color: var(--bg-tertiary);
 }
 
 .table-row-clickable {

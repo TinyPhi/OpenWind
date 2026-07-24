@@ -139,6 +139,12 @@ services:
     container_name: ow-cache
     image: redis:7-alpine
     restart: unless-stopped
+    # Exposed to the host so apps/worker (not itself a compose service — it's
+    # normally run via `pnpm --filter worker dev` on the host during local dev,
+    # see .env.local's REDIS_URL) can actually reach it. Without this the host
+    # process gets ECONNREFUSED on localhost:6379.
+    ports:
+      - "6379:6379"
     command: >
       redis-server
         --maxmemory 512mb
