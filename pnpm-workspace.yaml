@@ -22,3 +22,6 @@ overrides:
   # GHSA-4c8g-83qw-93j6 + GHSA-v2hh-gcrm-f6hx: fast-uri host confusion (IDN canonicalization
   # failure, literal backslash authority delimiter) — pulled in via commitlint's ajv dep
   "fast-uri": ">=3.1.4"
+  # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
+  # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths
+  postcss: ">=8.5.18"
