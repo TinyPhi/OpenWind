@@ -77,6 +77,7 @@ beforeAll(async () => {
   const [stateA] = await db
     .insert(workflowStates)
     .values({
+      tenantId: TENANT_A,
       workflowId: workflowIdA,
       name: "open",
       label: "Open",
@@ -87,6 +88,7 @@ beforeAll(async () => {
   openStateIdA = stateA.id;
 
   await db.insert(workflowStates).values({
+    tenantId: TENANT_B,
     workflowId: workflowIdB,
     name: "open",
     label: "Open",

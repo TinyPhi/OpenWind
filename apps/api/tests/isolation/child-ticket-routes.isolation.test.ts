@@ -64,8 +64,15 @@ beforeAll(async () => {
     .returning({ id: workflows.id });
 
   await db.insert(workflowStates).values([
-    { workflowId: workflow!.id, name: "open", label: "Open", sortOrder: 0 },
     {
+      tenantId: TENANT,
+      workflowId: workflow!.id,
+      name: "open",
+      label: "Open",
+      sortOrder: 0,
+    },
+    {
+      tenantId: TENANT,
       workflowId: workflow!.id,
       name: "closed",
       label: "Closed",

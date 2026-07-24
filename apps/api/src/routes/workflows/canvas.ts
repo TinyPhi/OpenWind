@@ -145,6 +145,7 @@ export const canvasSaveHandler = factory.createHandlers(
             .where(
               and(
                 eq(workflowTransitions.workflowId, workflowId),
+                eq(workflowTransitions.tenantId, tenantId),
                 inArray(workflowTransitions.id, deletedTransitionIds),
               ),
             );
@@ -156,6 +157,7 @@ export const canvasSaveHandler = factory.createHandlers(
             .where(
               and(
                 eq(workflowStates.workflowId, workflowId),
+                eq(workflowStates.tenantId, tenantId),
                 inArray(workflowStates.id, deletedStateIds),
               ),
             );
@@ -164,6 +166,7 @@ export const canvasSaveHandler = factory.createHandlers(
         if (newStates.length > 0) {
           await tx.insert(workflowStates).values(
             newStates.map((s) => ({
+              tenantId,
               workflowId,
               name: s.name,
               label: s.label,
@@ -192,6 +195,7 @@ export const canvasSaveHandler = factory.createHandlers(
                 and(
                   eq(workflowStates.id, s.id),
                   eq(workflowStates.workflowId, workflowId),
+                  eq(workflowStates.tenantId, tenantId),
                 ),
               ),
           ),
@@ -200,6 +204,7 @@ export const canvasSaveHandler = factory.createHandlers(
         if (newTransitions.length > 0) {
           await tx.insert(workflowTransitions).values(
             newTransitions.map((t) => ({
+              tenantId,
               workflowId,
               fromState: t.fromState,
               toState: t.toState,
@@ -232,6 +237,7 @@ export const canvasSaveHandler = factory.createHandlers(
                 and(
                   eq(workflowTransitions.id, t.id),
                   eq(workflowTransitions.workflowId, workflowId),
+                  eq(workflowTransitions.tenantId, tenantId),
                 ),
               ),
           ),

@@ -12,11 +12,11 @@ section below)
 
 ## Summary scorecard
 
-| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                                |
-| ------------------------------- | ------------------- | --------------- | ---------- | --------------------------------------------------------------------------------------------------- |
-| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                           |
-| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **~85%**   | Pre-Phase 3 hardening: #121, #122, #126, #120, #123, #124, #127 closed; #125, #128, #129, #141 open |
-| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace                                                                         |
+| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                                                                                                                                                                                                             |
+| ------------------------------- | ------------------- | --------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                                                                                                                                                                                                        |
+| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **~85%**   | Pre-Phase 3 hardening: #121, #122, #126, #120, #123, #124, #127 closed; #125, #128, #129, #141 open. Related, not part of the original #120–#129 backlog: #136 (RLS for entity_types/workflows/workflow_states/workflow_transitions — ADR-007, migration 0037) closed 2026-07-24 |
+| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace                                                                                                                                                                                                                                                      |
 
 ---
 
