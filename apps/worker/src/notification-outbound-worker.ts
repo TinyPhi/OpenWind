@@ -11,6 +11,7 @@ import { getUserById } from "@platform/auth";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import { connection } from "./queues.js";
+import { getNotificationOutboundToken } from "./notification-outbound-auth.js";
 
 interface OutboundJobData {
   notificationId: string;
@@ -45,9 +46,27 @@ async function dispatchOutbound(payload: OutboundPayload): Promise<void> {
     return;
   }
 
+  const token = await getNotificationOutboundToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  } else {
+    // Dispatch anyway — a misconfigured/missing key shouldn't silently no-op
+    // this call the way NOTIFICATION_SERVICE_URL being unset does. The
+    // outbound service will reject an unauthenticated call, and that
+    // rejection flows through the exact same retry/system.error path as any
+    // other outbound failure — no special-casing needed here.
+    logger.warn(
+      { notificationId: payload.notificationId },
+      "Notification outbound: dispatching without an auth token — NOTIFICATION_ZITADEL_KEY_JSON/NOTIFICATION_ZITADEL_AUDIENCE not configured",
+    );
+  }
+
   const res = await fetch(env.NOTIFICATION_SERVICE_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(payload),
   });
 

@@ -95,6 +95,20 @@ const EnvSchema = z
     // outbound worker logs and marks the notification 'sent' as a no-op
     // rather than retrying forever against a service that doesn't exist yet.
     NOTIFICATION_SERVICE_URL: z.string().url().optional(),
+    // S2S auth for the outbound handoff (docs/notification-outbound-contract.md's
+    // auth section) — a DEDICATED Zitadel machine user/key, deliberately
+    // separate from ZITADEL_SERVICE_ACCOUNT_KEY/ZITADEL_KEY_JSON (which
+    // authenticate as openwind-api-bot for Zitadel's own management API).
+    // Never share this key with the outbound service — it only ever mints
+    // tokens on our side; the outbound service verifies them via Zitadel's
+    // public JWKS, it never needs the private key itself.
+    NOTIFICATION_ZITADEL_KEY_JSON: z.string().optional(),
+    // The dedicated Zitadel project ID the M2M token's `aud` claim must
+    // contain (requested via scope urn:zitadel:iam:org:project:id:<id>:aud).
+    // A project separate from the main app project, deliberately, so a
+    // human end-user's own access token can never satisfy the outbound
+    // service's audience check (see docs/notification-outbound-contract.md).
+    NOTIFICATION_ZITADEL_AUDIENCE: z.string().optional(),
     S3_ENDPOINT: z.string().url(),
     // Public URL browsers use to reach MinIO. In Docker the internal endpoint is
     // http://minio:9000 but presigned URLs must resolve from the browser, so set
