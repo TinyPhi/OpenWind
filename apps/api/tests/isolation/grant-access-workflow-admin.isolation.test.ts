@@ -84,8 +84,23 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT));
-  await db.delete(entityInstances).where(eq(entityInstances.tenantId, TENANT));
+  // grant-access.ts fires `void emitAccessEvent(...)` without awaiting it, so its
+  // async workflow_events insert can still be in flight here, landing after this
+  // delete and blocking the entity_instances delete below with a 23503 FK
+  // violation. Retry a few times rather than making the route await it — the
+  // fire-and-forget behavior is intentional (route response must not block on it).
+  for (let attempt = 1; ; attempt++) {
+    await db.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT));
+    try {
+      await db
+        .delete(entityInstances)
+        .where(eq(entityInstances.tenantId, TENANT));
+      break;
+    } catch (err) {
+      if (attempt >= 5) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+    }
+  }
   await db
     .delete(workflowStates)
     .where(eq(workflowStates.workflowId, workflowId));
