@@ -42,8 +42,15 @@ function sendToConnections(
   message: unknown,
   exclude?: WebSocket,
 ): void {
-  const set = connections.get(connectionKey(tenantId, userId));
-  if (!set) return;
+  const key = connectionKey(tenantId, userId);
+  const set = connections.get(key);
+  if (!set) {
+    logger.warn(
+      { tenantId, userId, openKeys: Array.from(connections.keys()) },
+      "Notification websocket: push received but no matching open connection",
+    );
+    return;
+  }
   const data = JSON.stringify(message);
   for (const ws of set) {
     if (ws === exclude) continue;
@@ -145,6 +152,10 @@ export function attachNotificationWebSocket(
 
       wss.handleUpgrade(req, socket, head, (ws) => {
         addConnection(auth.tenantId, auth.userId, ws);
+        logger.info(
+          { tenantId: auth.tenantId, userId: auth.userId },
+          "Notification websocket: connection registered",
+        );
         ws.on("close", () => removeConnection(auth.tenantId, auth.userId, ws));
         ws.on("error", () => removeConnection(auth.tenantId, auth.userId, ws));
       });
