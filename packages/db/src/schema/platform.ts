@@ -8,6 +8,7 @@ import {
   index,
   unique,
   boolean,
+  integer,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -192,6 +193,29 @@ export const adminAuditLog = pgTable(
     ),
   }),
 );
+
+/**
+ * platformSettings — single-row global platform config (see
+ * 0041_platform_settings.sql). No tenant_id/RLS, deliberately: this is a
+ * platform-operator concern (like modules.isVisible), not per-tenant.
+ * Always read/write id=1; the DB-level CHECK enforces there's only one row.
+ */
+export const platformSettings = pgTable("platform_settings", {
+  id: integer("id").primaryKey().default(1),
+  /**
+   * Kill switch for the notification outbound handoff (email/SMS/WhatsApp
+   * via the external delivery service, currently unreliable/not live). When
+   * false, notify.ts and notification-worker.ts skip enqueueing new
+   * notify-outbound jobs; in-app delivery is unaffected either way.
+   */
+  outboundNotificationsEnabled: boolean("outbound_notifications_enabled")
+    .default(true)
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedBy: text("updated_by"),
+});
 
 export const connectorCredentials = pgTable(
   "connector_credentials",

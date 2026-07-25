@@ -5,6 +5,54 @@
 
 ---
 
+## 2026-07-25 — global outbound-notifications kill switch
+
+**Session type:** New feature (not on the tracked #120–#129 backlog)
+**Branch:** `tushar` (merged `notification` + `workflow` branches in first)
+
+### Completed this session
+
+- Merged `notification` (fast-forward) and `workflow` (clean 3-way merge, no
+  conflicts) branches into `tushar`; pushed to origin.
+- **Global outbound-notifications kill switch**
+  (`docs/specs/outbound-notifications-kill-switch.md`): a single
+  platform-wide toggle, admin-only, on the Settings page, to stop the
+  outbound email/SMS/WhatsApp handoff without touching in-app delivery.
+  Deliberately **not per-tenant** — the failure mode (external delivery
+  service down/misbehaving) affects every tenant identically.
+  - New single-row `platform_settings` table (migration `0041`), no
+    tenant_id/RLS — a platform-operator concern, same pattern as
+    `modules.isVisible`.
+  - `isOutboundNotificationsEnabled()` fails **closed** (disabled) on any DB
+    error or missing row — the switch exists specifically to stop outbound
+    traffic during an incident, so erring toward "don't send" is safer.
+  - `GET`/`PATCH /admin/platform-settings`, admin-role-gated.
+  - Both outbound-enqueue call sites gated:
+    `packages/automation-engine/src/actions/notify.ts` and
+    `apps/worker/src/notification-worker.ts`.
+  - Settings-page toggle, same optimistic-update-with-revert pattern as the
+    existing module-visibility toggle.
+
+### Verification
+
+- pnpm typecheck: PASS (packages/db, automation-engine, worker, api, admin-ui)
+- pnpm test: PASS for all touched suites (notify.test.ts,
+  notification-worker.test.ts, notifications isolation tests). Full
+  `apps/api` suite has 4 pre-existing failures unrelated to this feature
+  (file quarantine/AV-scan and module-seed tests) — not introduced by this
+  change, not touched by its scope.
+- pnpm lint: N/A — repo-wide no-op per #141.
+- Migrations applied to both the `platform` dev DB and the `platform_test`
+  DB used by `apps/api`'s test suite.
+
+### Open questions
+
+- None blocking. The 4 pre-existing `apps/api` test failures (quarantine/
+  upload/modules seed) are worth a follow-up session — not caused by this
+  work but discovered while re-verifying the full suite.
+
+---
+
 ## 2026-07-24 — workflow builder UX pass + template visibility governance + Docs guardrail stage
 
 **Session type:** UI/UX polish + one new feature (not on the tracked #120–#129 backlog)

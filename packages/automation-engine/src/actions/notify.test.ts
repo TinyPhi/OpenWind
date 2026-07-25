@@ -12,9 +12,11 @@ const dbMock = {
   }),
 };
 
+let outboundEnabled = true;
 vi.mock("@platform/db", () => ({
   notifications: "notifications_table",
   notificationRecipients: "notification_recipients_table",
+  isOutboundNotificationsEnabled: () => Promise.resolve(outboundEnabled),
 }));
 
 const mockLoggerWarn = vi.fn();
@@ -39,6 +41,7 @@ describe("executeNotifyAction", () => {
   beforeEach(() => {
     insertedRows.length = 0;
     mockQueueAdd.mockClear();
+    outboundEnabled = true;
   });
 
   it("skips and warns when no recipientId is configured", async () => {
@@ -105,5 +108,19 @@ describe("executeNotifyAction", () => {
     } as never);
 
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("does not enqueue an outbound job when the global kill switch is disabled, but still delivers in-app", async () => {
+    outboundEnabled = false;
+    await executeNotifyAction(
+      dbMock as never,
+      "t-1",
+      EVENT,
+      { recipientId: "u-target" } as never,
+      {} as never,
+    );
+
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(insertedRows).toHaveLength(2);
   });
 });

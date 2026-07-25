@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@platform/config": "workspace:*",
+    "@platform/logger": "workspace:*",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.0"

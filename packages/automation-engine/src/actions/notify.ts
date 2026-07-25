@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { Redis } from "ioredis";
 import { Queue } from "bullmq";
 import type { DbOrTx } from "@platform/db";
-import { notifications, notificationRecipients } from "@platform/db";
+import {
+  notifications,
+  notificationRecipients,
+  isOutboundNotificationsEnabled,
+} from "@platform/db";
 import { logger } from "@platform/logger";
 import type { TriggerEvent } from "../event-schemas.js";
 import type { NotifyConfig } from "../types.js";
@@ -66,18 +70,29 @@ export async function executeNotifyAction(
   });
 
   if (redis) {
-    // Same outbound queue apps/worker's notificationOutboundWorker already
-    // consumes — jobId dedupes at the queue level if this exact call somehow
-    // ran twice with the same notificationId.
-    const queue = new Queue("notify-outbound", { connection: redis });
-    await queue
-      .add("dispatch", { notificationId, tenantId }, { jobId: notificationId })
-      .catch((err: unknown) => {
-        logger.error(
-          { err, tenantId, notificationId },
-          "Automation: failed to enqueue outbound handoff for notify action",
-        );
-      });
+    if (await isOutboundNotificationsEnabled()) {
+      // Same outbound queue apps/worker's notificationOutboundWorker already
+      // consumes — jobId dedupes at the queue level if this exact call somehow
+      // ran twice with the same notificationId.
+      const queue = new Queue("notify-outbound", { connection: redis });
+      await queue
+        .add(
+          "dispatch",
+          { notificationId, tenantId },
+          { jobId: notificationId },
+        )
+        .catch((err: unknown) => {
+          logger.error(
+            { err, tenantId, notificationId },
+            "Automation: failed to enqueue outbound handoff for notify action",
+          );
+        });
+    } else {
+      logger.info(
+        { tenantId, notificationId },
+        "Automation: outbound handoff skipped — global kill switch is disabled",
+      );
+    }
   }
 
   logger.info(

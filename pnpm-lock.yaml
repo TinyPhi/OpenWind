@@ -712,6 +712,9 @@ importers:
       '@platform/config':
         specifier: workspace:*
         version: link:../config
+      '@platform/logger':
+        specifier: workspace:*
+        version: link:../logger
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
