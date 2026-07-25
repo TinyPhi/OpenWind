@@ -12,6 +12,8 @@ allowBuilds:
 overrides:
   typescript: "^5.5.0"
   esbuild: ">=0.28.1"
+  # Source of truth for the minimum hono version across the workspace (#182) — package.json
+  # "hono" specifiers in individual apps/packages should match this floor, not drift below it.
   hono: ">=4.12.25"
   # GHSA-3jxr-9vmj-r5cp + GHSA-52cp-r559-cp3m + GHSA-mh99-v99m-4gvg (#206): brace-expansion
   # DoS via unbounded expansion length. The per-major-line pins this override used to have

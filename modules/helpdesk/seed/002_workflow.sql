@@ -6,8 +6,14 @@
 -- workflows(tenant_id, entity_type_id) is now UNIQUE (migration 0036,
 -- issue #168) — keying on the literal seed name would attempt a second
 -- INSERT for the same entity type after a rename and hit that constraint.
+-- Name is seeded via {WORKFLOW_NAME} (the module's registry display name),
+-- not a hardcoded literal — issue #171: after 001_seed.sql (helpdesk's
+-- other, non-idempotent seed pipeline) was removed, this became the ONLY
+-- workflow this module seeds, so it must carry the exact-name-match rename
+-- convention from issue #170, the same way every other module's primary
+-- workflow file already does.
 INSERT INTO workflows (id, tenant_id, entity_type_id, name, initial_state)
-SELECT gen_random_uuid(), '{TENANT_ID}', (SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), 'ticket_workflow', 'open'
+SELECT gen_random_uuid(), '{TENANT_ID}', (SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{WORKFLOW_NAME}', 'open'
 WHERE NOT EXISTS (
   SELECT 1 FROM workflows
   WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}')
