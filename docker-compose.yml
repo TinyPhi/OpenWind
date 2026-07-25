@@ -315,6 +315,18 @@ services:
       OPENBAO_ADDR: http://openbao:8200
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_URL: http://localhost:9000
+    # The host's primary DNS resolver has been observed timing out
+    # intermittently on external lookups (e.g. the ZITADEL_URL host), which
+    # Docker's embedded DNS (127.0.0.11) inherits and fails faster on than
+    # the OS does — surfaces as JWKSTimeout -> spurious 401s after login.
+    # Keep Docker's embedded resolver first (it resolves sibling container
+    # names like redis/postgres/pgbouncer) and fall back to public resolvers
+    # only for external lookups — listing only 1.1.1.1/8.8.8.8 here broke
+    # in-network service name resolution entirely.
+    dns:
+      - 127.0.0.11
+      - 1.1.1.1
+      - 8.8.8.8
     restart: unless-stopped
     networks:
       - default
