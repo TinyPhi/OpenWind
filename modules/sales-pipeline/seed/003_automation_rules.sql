@@ -182,7 +182,7 @@ SELECT
         'transitionId', (
           SELECT wt.id FROM workflow_transitions wt
           JOIN workflows w ON w.id = wt.workflow_id
-          WHERE w.name = 'sales_pipeline_workflow' AND w.tenant_id = '{TENANT_ID}'
+          WHERE w.entity_type_id = (SELECT id FROM entity_types WHERE name = 'sales_enquiry' AND tenant_id = '{TENANT_ID}') AND w.tenant_id = '{TENANT_ID}'
             AND wt.from_state = 'quotation_sent_to_customer' AND wt.to_state = 'customer_followup'
         ),
         'comment', 'Auto-moved: no customer response within SLA'

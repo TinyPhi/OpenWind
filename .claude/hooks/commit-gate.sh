@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # commit-gate.sh — PreToolUse(Bash)
-# Hard-blocks `git commit` unless BOTH are fresh for this branch:
-#   - ship-ready.json   (staged_tree_sha matches `git diff --staged`, age <= 60m)
-#   - review.json       (diff_sha matches `git diff HEAD` — review covers the committed code)
-# Realises the "Ship stage needs a passing Review + marker". Exit 2 = block.
+# Hard-blocks `git commit` unless ALL of these are fresh for this branch:
+#   - ship-ready.json    (staged_tree_sha matches `git diff --staged`, age <= 60m)
+#   - review.json        (diff_sha matches `git diff HEAD` — review covers the committed code)
+#   - docs-updated.json  (diff_sha matches `git diff HEAD` — docs kept in sync, or an explicit skip reason)
+# Realises the "Ship stage needs a passing Review + Docs + marker". Exit 2 = block.
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"
 export REPO
 exec node -e '
@@ -58,6 +59,12 @@ if (!review) fails.push("no review record (run /review before committing)");
 else if (review.branch !== branch) fails.push("review is for branch " + review.branch);
 else if (review.diff_sha !== sha("diff HEAD")) fails.push("code changed since the last review; re-run /review against the final diff");
 else if (review.dod_met !== true) fails.push("Definition-of-Done not affirmatively met (dod_met must be true): " + (review.dod_unmet || []).join(", "));
+// Docs — every commit either touches docs or explicitly justifies why not, so docs
+// never silently drift out of sync with the code landing alongside them.
+const docs = readJSON("docs-updated.json");
+if (!docs) fails.push("no docs marker (run write-docs-marker.sh --touched, or --skip \"<reason>\", before committing)");
+else if (docs.branch !== branch) fails.push("docs marker is for branch " + docs.branch);
+else if (docs.diff_sha !== sha("diff HEAD")) fails.push("code changed since the docs marker was written; re-run write-docs-marker.sh against the final diff");
 // Human pass-approval (the second checkpoint) - only the approval-gate (a human typing
 // "approve-ship") writes pass-approved.json - so the agent should not casually self-approve
 // (best-effort guardrail, not a hard guarantee). Skipped only when
@@ -71,7 +78,7 @@ if (process.env.OPENWIND_AUTOPASS !== "1") {
 if (fails.length === 0) process.exit(0);
 process.stderr.write(
   "COMMIT GATE - blocked git commit on " + branch + "\n- " + fails.join("\n- ") + "\n" +
-  "Complete the pipeline: finish all edits -> /review (writes review.json) -> write-ship-marker.sh -> commit.\n" +
+  "Complete the pipeline: finish all edits -> /review (writes review.json) -> write-docs-marker.sh -> write-ship-marker.sh -> commit.\n" +
   "Bootstrap/hotfix bypass (logged): SHIP_BYPASS=1 git commit ...\n"
 );
 process.exit(2);

@@ -4,7 +4,7 @@
  * GET  /preferences/notifications  — current user's channel preferences
  * PATCH /preferences/notifications  — update current user's preferences
  */
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth } from "@platform/auth";
 import { db } from "@platform/db";

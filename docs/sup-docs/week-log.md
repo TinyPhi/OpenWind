@@ -5,6 +5,74 @@
 
 ---
 
+## 2026-07-24 — workflow builder UX pass + template visibility governance + Docs guardrail stage
+
+**Session type:** UI/UX polish + one new feature (not on the tracked #120–#129 backlog)
+**Branch:** `workflow`
+
+### Completed this session
+
+- **Cascading rename restored, with a real fix over the earlier version**: renaming a Step's
+  internal name in the workflow builder cascades into `workflow_transitions.fromState`/`toState`,
+  `workflows.initialState`, **and now `entity_instances.currentState`** — the earlier version of
+  this feature missed the last one, which would have silently stranded in-flight tickets on a
+  stale state name. New engine-level test coverage added (`workflow-crud.test.ts` — did not exist
+  before).
+- **Workflow builder terminology**: Steps/Actions/Details to Collect plain-language pass applied
+  to `apps/admin-ui/src/pages/workflows/index.tsx` (the workflow list) — the detail page had
+  already been rewritten in an earlier session; the list page was missed and still said "state
+  machine definitions."
+- **Fixed a real naming bug**: `sales-pipeline`/`nsi-amendment`/`tender`/`helpdesk` seed SQL
+  hardcoded `workflows.name` to a raw snake_case slug (used as an internal lookup key across
+  seed statements), so the UI displayed e.g. `sales_pipeline_workflow` verbatim instead of a
+  human-readable name. Fixed by switching to the existing `{WORKFLOW_NAME}` substitution token
+  and re-keying internal lookups on `entity_type_id` instead of `name`.
+- **Fixed app-wide validation error messages**: `@hono/zod-validator`'s default (no-hook)
+  behavior returns the raw `ZodError` object as `body.error`; the frontend's
+  `new Error(body.error)` stringified that to the literal text `"[object Object]"` for every
+  validation failure across the entire app, not just one route. Added
+  `apps/api/src/lib/validator.ts`, a typed wrapper that formats a readable message + fields
+  array, rewired across all 58 route files' imports.
+- **Removed Email/URL from the Detail Type dropdown** — neither was ever a real backend field
+  type (`packages/entity-engine/src/field-types.ts`), so selecting either always failed
+  validation silently.
+- **UI polish pass** across `/records`, `/records/:type/records` (kanban board), the record
+  detail page, `/modules`, `/workflows`, and `/settings`: fixed washed-out grey card
+  surfaces (a page-background-vs-card-background contrast bug — introduced a `--bg-card` /
+  `--bg-secondary` layering convention used consistently going forward), added consistent card
+  shadows, fixed-height kanban columns with internal scroll, fixed-height record cards with
+  buttons pinned to the bottom, added search to `/records`, redesigned the `/workflows` list
+  (stats overview strip, active/inactive grouping, per-workflow entity icons, larger rows).
+- **New feature — template visibility governance** (not part of the tracked backlog, direct
+  ask): `modules.is_visible` (migration `0040_module_visibility.sql`), a global platform-wide
+  toggle. `GET /modules` (Templates page) is always filtered to visible-only for every role,
+  including admin — `GET /modules?includeHidden=true` (admin-only, used by the new Settings
+  page management card) sees hidden ones too, so admin can re-enable them. 7 new route tests.
+  This platform has no separate `superadmin` tier — `admin` is the top role — the feature was
+  built once for `superadmin` and corrected to `admin` mid-session.
+- **Guardrail tooling**: added a **Docs** stage to the Plan → Code → Review → Docs → Ship
+  pipeline. New `write-docs-marker.sh` hook (`--touched` or `--skip "<reason>"`), wired into
+  `commit-gate.sh` (blocks `git commit` without a docs marker matching the current diff, same
+  binding pattern as the existing review marker), `ship-cleanup.sh` (one-shot cleanup),
+  `.claude/README.md`, `agent-behaviour.md`, `definition-of-done.md`, and `CLAUDE.md` updated
+  to document it. This week-log entry + the Docs stage addition are themselves the marker's
+  first real use.
+
+### Phase snapshot
+
+No change to Phase 3 hardening backlog status this session — this was direct UI/UX work +
+one ad-hoc feature request, not #120–#129 progress. #127 is still the next hardening item.
+
+### Next
+
+- Pick up #127 (`setEntityState`/`bulkSetState` unguarded state side-doors) — still next in
+  the hardening queue, untouched this session.
+- The workflow ID-based-linking spec (`docs/specs/workflow-id-based-linking.md`) remains
+  drafted but not implemented — paused earlier this session in favor of the smaller
+  cascading-rename fix; revisit if step-deletion/reordering becomes a near-term priority.
+
+---
+
 ## 2026-07-10 — close out #120 in docs (PR #139 merged 2026-07-09)
 
 **Session type:** Docs (following code merge)

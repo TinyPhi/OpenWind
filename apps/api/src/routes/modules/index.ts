@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";
@@ -24,14 +24,24 @@ const InstallBodySchema = z.object({
     .optional(),
 });
 
+const VisibilityBodySchema = z.object({
+  isVisible: z.boolean(),
+});
+
 // Require authentication for all module routes
 router.use("*", requireAuth(db));
 
-// List modules status for the current tenant
+// List modules status for the current tenant. By default, always filtered to
+// globally-visible templates — including for admin, so the Templates page
+// reflects what's actually enabled for everyone. Pass ?includeHidden=true
+// (admin only) to also see hidden templates — used by the Settings page's
+// visibility-management view, not by the regular Templates page.
 router.get("/", async (c) => {
   const auth = c.get("auth");
+  const includeHidden =
+    c.req.query("includeHidden") === "true" && auth.roles.includes("admin");
   try {
-    const list = await ModuleService.listModules(auth.tenantId);
+    const list = await ModuleService.listModules(auth.tenantId, includeHidden);
     return c.json({ data: list });
   } catch (err: unknown) {
     logger.error({ err, tenantId: auth.tenantId }, "listModules failed");
@@ -103,7 +113,7 @@ router.post("/seed", requireAuth(db), requireRole("admin"), async (c) => {
   const auth = c.get("auth");
   try {
     await ModuleService.seedRegistry();
-    const list = await ModuleService.listModules(auth.tenantId);
+    const list = await ModuleService.listModules(auth.tenantId, true);
     return c.json({ data: { seeded: list.length } }, 201);
   } catch (err: unknown) {
     logger.error({ err }, "seedRegistry failed");
@@ -113,5 +123,33 @@ router.post("/seed", requireAuth(db), requireRole("admin"), async (c) => {
     );
   }
 });
+
+// Toggle a template's global, platform-wide visibility (admin only — the
+// platform's top role, no separate superadmin tier). When hidden, the
+// template disappears from every tenant's Templates page for non-admin
+// roles (agent/user).
+router.patch(
+  "/:slug/visibility",
+  requireRole("admin"),
+  zValidator("param", SlugParamSchema),
+  zValidator("json", VisibilityBodySchema),
+  async (c) => {
+    const { slug } = c.req.valid("param");
+    const { isVisible } = c.req.valid("json");
+    try {
+      await ModuleService.setVisibility(slug, isVisible);
+      return c.json({ data: { slug, isVisible } });
+    } catch (err: unknown) {
+      logger.error({ err, slug }, "setVisibility failed");
+      return c.json(
+        {
+          error: "VISIBILITY_UPDATE_FAILED",
+          message: "Failed to update module visibility",
+        },
+        500,
+      );
+    }
+  },
+);
 
 export { router as modulesRouter };

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { requireAuth, requireRole } from "@platform/auth";
 import { db } from "@platform/db";
 import { deleteFile, FileError } from "@platform/files";

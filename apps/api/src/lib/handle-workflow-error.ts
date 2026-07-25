@@ -84,6 +84,16 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
           409,
         ) as Response;
 
+      case "WORKFLOW_STATE_NAME_TAKEN":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "Another step in this workflow already uses that internal name",
+          },
+          409,
+        ) as Response;
+
       case "TRANSITION_FORBIDDEN":
         return c.json(
           {

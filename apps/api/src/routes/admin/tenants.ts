@@ -7,7 +7,7 @@
  * round-trip needed for reads.
  */
 
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
 import { requireAuth, requireRole, requireIntrospection } from "@platform/auth";
