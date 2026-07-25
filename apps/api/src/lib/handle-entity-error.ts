@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { EntityError, ValidationError } from "@platform/entity-engine";
+import type { WorkflowError } from "@platform/workflow-engine";
 import { logger } from "@platform/logger";
 
 function isValidationError(err: unknown): err is ValidationError {
@@ -8,6 +9,10 @@ function isValidationError(err: unknown): err is ValidationError {
 
 function isEntityError(err: unknown): err is EntityError {
   return err instanceof Error && err.name === "EntityError";
+}
+
+function isWorkflowError(err: unknown): err is WorkflowError {
+  return err instanceof Error && err.name === "WorkflowError";
 }
 
 export function handleEntityError(c: Context, err: unknown): Response {
@@ -100,6 +105,15 @@ export function handleEntityError(c: Context, err: unknown): Response {
       default:
         break;
     }
+  }
+
+  // The entity's workflow can be deleted between the instance fetch and the
+  // getWorkflow() lookup used for the workflow-admin access check (#184) — the
+  // record itself still exists, so 404 (not 403, not 500) per the platform's
+  // 404-not-403 rule. Other WorkflowError codes fall through to the generic 500
+  // below, same as before this case was added.
+  if (isWorkflowError(err) && err.code === "WORKFLOW_NOT_FOUND") {
+    return c.json({ error: err.code, message: "Not found" }, 404) as Response;
   }
 
   logger.error({ err }, "Unhandled error in entity route");

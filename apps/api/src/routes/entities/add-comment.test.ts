@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
+import type * as WorkflowEngine from "@platform/workflow-engine";
 
 // ── Strategy: real drizzle-orm operators (no-op mocked) since add-comment.ts
 // builds several distinct queries (instance lookup, tenant_users lookup,
@@ -37,6 +38,15 @@ vi.mock("@platform/auth", () => ({
 vi.mock("../../lib/zitadel-management.js", () => ({
   listOrgUsers: vi.fn().mockResolvedValue([]),
 }));
+
+vi.mock("@platform/workflow-engine", async (importOriginal) => {
+  const real = await importOriginal<typeof WorkflowEngine>();
+  return {
+    ...real,
+    getWorkflow: vi.fn(),
+    isWorkflowAdmin: vi.fn(() => false),
+  };
+});
 
 let instanceRow: {
   id: string;
@@ -121,6 +131,7 @@ vi.mock("@platform/db", () => ({
 }));
 
 const { addCommentHandler } = await import("./add-comment.js");
+const { getWorkflow } = await import("@platform/workflow-engine");
 
 function makeApp() {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
@@ -320,5 +331,47 @@ describe("POST /entities/:id/comments — fileIds binding", () => {
 
     expect(res.status).toBe(422);
     expect(fileBindUpdates).toEqual([]);
+  });
+});
+
+describe("POST /entities/:id/comments — workflow lookup errors (#184)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    grantedUpdates.length = 0;
+    fileRows = {};
+    fileBindUpdates.length = 0;
+    currentFromTable = undefined;
+    currentWhereFileId = undefined;
+    // Not the assignee/creator and no accessUsers entry, so canComment falls
+    // through to the getWorkflow-based workflow-admin check.
+    instanceRow = {
+      id: INST_ID,
+      workflowId: "wf-deleted",
+      currentState: "open",
+      assignedTo: "someone-else",
+      createdBy: "someone-else",
+      fields: {},
+    };
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["user"],
+      email: "test@example.com",
+    };
+  });
+
+  it("returns 404, not 500, when the record's workflow was deleted before the workflow-admin check", async () => {
+    const { WorkflowError } = await import("@platform/workflow-engine");
+    vi.mocked(getWorkflow).mockRejectedValue(
+      new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId: "wf-deleted" }),
+    );
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "just a comment" }),
+    });
+
+    expect(res.status).toBe(404);
   });
 });

@@ -47,20 +47,28 @@ export const updateEntityHandler = factory.createHandlers(
       );
 
       const isOwner = row?.assignedTo === userId || row?.createdBy === userId;
-      const isRecordWorkflowAdmin = row?.workflowId
-        ? await withTenantContext(tenantId, async (tx) => {
-            const workflow = await getWorkflow(
-              tx,
-              tenantId,
-              row.workflowId as string,
-              {
-                userId,
-                isGlobalAdmin: false,
-              },
-            );
-            return isWorkflowAdmin(userId, workflow);
-          })
-        : false;
+      let isRecordWorkflowAdmin = false;
+      if (row?.workflowId) {
+        try {
+          isRecordWorkflowAdmin = await withTenantContext(
+            tenantId,
+            async (tx) => {
+              const workflow = await getWorkflow(
+                tx,
+                tenantId,
+                row.workflowId as string,
+                {
+                  userId,
+                  isGlobalAdmin: false,
+                },
+              );
+              return isWorkflowAdmin(userId, workflow);
+            },
+          );
+        } catch (err) {
+          return handleEntityError(c, err);
+        }
+      }
 
       if (!isOwner && !isRecordWorkflowAdmin) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
