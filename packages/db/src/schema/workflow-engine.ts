@@ -49,32 +49,51 @@ export const workflows = pgTable(
   }),
 );
 
-export const workflowStates = pgTable("workflow_states", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workflowId: uuid("workflow_id")
-    .notNull()
-    .references(() => workflows.id),
-  name: text("name").notNull(),
-  label: text("label").notNull(),
-  color: text("color").default("#888780"),
-  isTerminal: boolean("is_terminal").default(false).notNull(),
-  slaHours: integer("sla_hours"),
-  sortOrder: integer("sort_order").default(0).notNull(),
-});
+export const workflowStates = pgTable(
+  "workflow_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Denormalized from workflows.tenant_id — see ADR-007. Always concrete: a
+     * workflow's tenantId is never NULL (createWorkflow requires it), so its
+     * states/transitions never need the NULL-tenant/system-template shape
+     * entity_types/workflows use. */
+    tenantId: uuid("tenant_id").notNull(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id),
+    name: text("name").notNull(),
+    label: text("label").notNull(),
+    color: text("color").default("#888780"),
+    isTerminal: boolean("is_terminal").default(false).notNull(),
+    slaHours: integer("sla_hours"),
+    sortOrder: integer("sort_order").default(0).notNull(),
+  },
+  (t) => ({
+    tenantIdx: index("workflow_states_tenant_idx").on(t.tenantId),
+  }),
+);
 
-export const workflowTransitions = pgTable("workflow_transitions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workflowId: uuid("workflow_id")
-    .notNull()
-    .references(() => workflows.id),
-  fromState: text("from_state").notNull(),
-  toState: text("to_state").notNull(),
-  label: text("label"),
-  allowedRoles: text("allowed_roles").array().default([]).notNull(),
-  conditions: jsonb("conditions"),
-  requiresComment: boolean("requires_comment").default(false).notNull(),
-  requiresFields: text("requires_fields").array().default([]).notNull(),
-});
+export const workflowTransitions = pgTable(
+  "workflow_transitions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Denormalized from workflows.tenant_id — see ADR-007. */
+    tenantId: uuid("tenant_id").notNull(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id),
+    fromState: text("from_state").notNull(),
+    toState: text("to_state").notNull(),
+    label: text("label"),
+    allowedRoles: text("allowed_roles").array().default([]).notNull(),
+    conditions: jsonb("conditions"),
+    requiresComment: boolean("requires_comment").default(false).notNull(),
+    requiresFields: text("requires_fields").array().default([]).notNull(),
+  },
+  (t) => ({
+    tenantIdx: index("workflow_transitions_tenant_idx").on(t.tenantId),
+  }),
+);
 
 export const workflowEvents = pgTable(
   "workflow_events",

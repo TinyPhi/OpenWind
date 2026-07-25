@@ -1,10 +1,10 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-24 (reconciliation — 8 PRs merged 2026-07-23/24 closing #128, #129, #141,
+**Last updated:** 2026-07-25 (reconciliation — 8 PRs merged 2026-07-23/24 closing #128, #129, #141,
 #160, #167, #168, #170, plus ADR-005 and ADR-006 accepted, resolving both open questions the
 2026-07-22 reconciliation left for a human. Only **#125** remains open from the original
-pre-Phase-3 hardening backlog. Three PRs open awaiting review: #181 (#136/ADR-007 RLS), #186
-(#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).)
+pre-Phase-3 hardening backlog. #181 (#136/ADR-007 RLS) merged 2026-07-25. Two PRs open awaiting
+review: #186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).)
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
 
@@ -12,11 +12,11 @@ pre-Phase-3 hardening backlog. Three PRs open awaiting review: #181 (#136/ADR-00
 
 ## Summary scorecard
 
-| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                                             |
-| ------------------------------- | ------------------- | --------------- | ---------- | ---------------------------------------------------------------------------------------------------------------- |
-| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                                        |
-| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **~95%**   | Pre-Phase 3 hardening: only **#125** (notify→Novu) fully open; #136/ADR-007 RLS in review (PR #181) — see below. |
-| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace — not started, needs human planning sign-off per `CLAUDE.md`                         |
+| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                                                      |
+| ------------------------------- | ------------------- | --------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                                                 |
+| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **~95%**   | Pre-Phase 3 hardening: only **#125** (notify→Novu) remains open; #136/ADR-007 RLS closed via PR #181 (merged 2026-07-25). |
+| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace — not started, needs human planning sign-off per `CLAUDE.md`                                  |
 
 ---
 
@@ -90,7 +90,7 @@ from the 2026-07-22 reconciliation. Its own follow-up items:
 - **Deferred, tracked:** transition guards not consulting per-instance `__accessUsers` grants — an
   accepted v1 limitation per `docs/specs/tender-management.md`, not yet its own issue.
 - **RLS for the four workflow-config tables** — spun out as its own ADR-007 (accepted 2026-07-24,
-  PR #181 open, not yet merged) rather than folded into ADR-006.
+  merged via PR #181 on 2026-07-25) rather than folded into ADR-006.
 
 ---
 
@@ -110,10 +110,10 @@ severity ranking. As of 2026-07-24:
 | [#120](../../issues/120)     | Automation double-trigger (depth resets on outbox path)             | ✅ Closed                                                                                                   |
 | [#123](../../issues/123)     | Automation queue has no retries                                     | ✅ Closed                                                                                                   |
 | [#124](../../issues/124)     | Auth middleware writes on every request                             | ✅ Closed                                                                                                   |
-| [#128](../../issues/128)     | OpenBao + MinIO commented out of docker-compose                     | ✅ Closed — PR #173 (2026-07-23), idempotency follow-up PR #188 (2026-07-24)                                |
+| [#128](../../issues/128)     | OpenBao + MinIO commented out of docker-compose                     | ✅ Closed — PR #173 (2026-07-23), idempotency follow-up PR #178 (2026-07-24)                                |
 | [#129](../../issues/129)     | Worker has no health endpoint                                       | ✅ Closed — PR #175 (2026-07-24)                                                                            |
 | [#141](../../issues/141)     | `pnpm lint` is a repo-wide no-op                                    | ✅ Closed — PR #166                                                                                         |
-| [#136](../../issues/136)     | RLS for entity_types/workflows/workflow_states/workflow_transitions | ADR-007 accepted; **PR #181 open, not yet merged**                                                          |
+| [#136](../../issues/136)     | RLS for entity_types/workflows/workflow_states/workflow_transitions | ✅ Closed — ADR-007 accepted, merged via PR #181 (2026-07-25)                                               |
 | **[#125](../../issues/125)** | **`notify` action is a stub — Novu never wired up**                 | **Only item still fully open** — needs a real outbox-pattern delivery worker, bigger than originally scoped |
 
 ### Found since the 2026-06-29 consulting review, now also closed or in review
@@ -168,4 +168,5 @@ version GC, defer until 2D workflow editor — 2D shipped 2026-07-22, revisit), 
 4. Run session-start checks:
    - `gh issue list --state open --label phase:2` — hardening sprint (must close before 3A starts)
    - `gh issue list --state open --label phase:3` — Phase 3 feature tracks
-   - `gh pr list --state open` — anything awaiting review/merge (as of 2026-07-24: #181, #186, #188)
+   - `gh pr list --state open` — anything awaiting review/merge (as of 2026-07-25: #186, #188, #189,
+     #205 — #181/#190 merged 2026-07-25)

@@ -19,19 +19,19 @@ WITH
     RETURNING id
   ),
   _states AS (
-    INSERT INTO workflow_states (id, workflow_id, name, label, color, is_terminal, sort_order)
-    SELECT gen_random_uuid(), wf.id, 'lead',        'Lead',        '#6366f1', false, 0 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'qualified',   'Qualified',   '#3b82f6', false, 1 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'proposal',    'Proposal',    '#f59e0b', false, 2 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'negotiation', 'Negotiation', '#8b5cf6', false, 3 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'won',         'Won',         '#10b981', true,  4 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'lost',        'Lost',        '#ef4444', true,  5 FROM wf
+    INSERT INTO workflow_states (id, workflow_id, tenant_id, name, label, color, is_terminal, sort_order)
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'lead',        'Lead',        '#6366f1', false, 0 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'qualified',   'Qualified',   '#3b82f6', false, 1 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'proposal',    'Proposal',    '#f59e0b', false, 2 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'negotiation', 'Negotiation', '#8b5cf6', false, 3 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'won',         'Won',         '#10b981', true,  4 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'lost',        'Lost',        '#ef4444', true,  5 FROM wf
   )
-INSERT INTO workflow_transitions (id, workflow_id, from_state, to_state, label, allowed_roles, requires_comment, requires_fields)
-SELECT gen_random_uuid(), wf.id, 'lead',        'qualified',   'Qualify',           ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'qualified',   'proposal',    'Send Proposal',     ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'proposal',    'negotiation', 'Start Negotiation', ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'negotiation', 'won',         'Close Won',         ARRAY['admin','agent'], true,  ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'negotiation', 'lost',        'Close Lost',        ARRAY['admin','agent'], true,  ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'proposal',    'lost',        'Reject Proposal',   ARRAY['admin','agent'], true,  ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'qualified',   'lost',        'Disqualify',        ARRAY['admin','agent'], true,  ARRAY[]::text[] FROM wf;
+INSERT INTO workflow_transitions (id, workflow_id, tenant_id, from_state, to_state, label, allowed_roles, requires_comment, requires_fields)
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'lead',        'qualified',   'Qualify',           ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'qualified',   'proposal',    'Send Proposal',     ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'proposal',    'negotiation', 'Start Negotiation', ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'negotiation', 'won',         'Close Won',         ARRAY['admin','agent'], true,  ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'negotiation', 'lost',        'Close Lost',        ARRAY['admin','agent'], true,  ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'proposal',    'lost',        'Reject Proposal',   ARRAY['admin','agent'], true,  ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'qualified',   'lost',        'Disqualify',        ARRAY['admin','agent'], true,  ARRAY[]::text[] FROM wf;

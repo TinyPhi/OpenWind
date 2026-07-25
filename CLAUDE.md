@@ -21,6 +21,9 @@ Reference docs (read before starting work in a new area):
 - `docs/decisions/ADR-001-multitenancy.md` — tenancy model and RLS
 - `docs/decisions/ADR-002-workflow-engine.md` — state machine design
 - `docs/decisions/ADR-003-field-validation.md` — entity validation
+- `docs/decisions/ADR-007-rls-workflow-config-tables.md` — RLS for entity_types/workflows/
+  workflow_states/workflow_transitions; read before touching RLS policies on these four tables
+  or `apps/worker/src/tenant-purge.ts`'s workflow-state/transition deletion path
 - `docs/sup-docs/roadmap-tracker.md` — phase progress and track status
 - `docs/sup-docs/week-log.md` — running velocity log (update each session)
 
