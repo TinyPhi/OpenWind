@@ -281,10 +281,11 @@ export class ModuleService {
           );
 
         if (candidates.length > 1) {
-          // Ambiguous — module seeded multiple workflows (e.g. helpdesk's
-          // legacy 001_seed.sql alongside its newer files, #171). Refuse to
-          // guess which one the caller meant; log instead of silently
-          // renaming the wrong one.
+          // Ambiguous — module seeded multiple workflows for the same
+          // tenant (this was previously reachable for helpdesk, which had
+          // a vestigial second seed pipeline alongside its primary one until
+          // issue #171 removed it). Refuse to guess which one the caller
+          // meant; log instead of silently renaming the wrong one.
           logger.warn(
             {
               tenantId,
