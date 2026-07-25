@@ -58,6 +58,7 @@
 - Open the PR for `chore/PLAT-193-docs-config-hygiene`, closing #193/#203/#204.
 - Once PR #189 merges, its roadmap-tracker.md rewrite will still need a follow-up mention of
   these three closures if the scorecard is meant to reflect every closed issue.
+
 ## 2026-07-24 — Hardening backlog closeout: #167/#160/#170/#129/#176 closed, RLS/ADR-007 + nit-bug batches in review, docs audit
 
 **Session type:** Mixed (parallel backlog work + guardrail infra fix + full docs audit)
