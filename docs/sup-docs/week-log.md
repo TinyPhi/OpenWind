@@ -58,6 +58,50 @@
 - Open the PR for `chore/PLAT-193-docs-config-hygiene`, closing #193/#203/#204.
 - Once PR #189 merges, its roadmap-tracker.md rewrite will still need a follow-up mention of
   these three closures if the scorecard is meant to reflect every closed issue.
+## 2026-07-24 — ADR-007 accepted and implemented: RLS for workflow config tables (#136)
+
+**Session type:** Feature (ADR-driven hardening)
+**Branch:** `feat/PLAT-136-rls-workflow-config-tables`
+
+### Completed this session
+
+- Drafted, adversarially reviewed (three rounds), and got human sign-off on ADR-007, then
+  implemented it: migration 0037 adds RLS to `entity_types`/`workflows` (nullable-tenant,
+  `entity_fields`-shape) and `workflow_states`/`workflow_transitions` (new `tenant_id NOT NULL`
+  column, backfilled, `entity_instances`-shape) — closing the last four tables in the platform
+  without a database-level tenant isolation backstop.
+- Updated every module's seed SQL (9 files) to supply `tenant_id` for the newly-`NOT NULL`
+  columns — without this, every module install would have started failing the moment the
+  migration shipped.
+- Found and fixed an unrelated pre-existing bug while writing the regression test for
+  `tenant-purge.ts`: `admin_audit_log`'s CHECK constraint never allowed the
+  `purge.completed`/`purge.failed` actions the purge worker writes, so every real tenant purge
+  has been silently failing that audit-trail write in production (migration 0038).
+- A second adversarial review (code-level, post-implementation) caught that the `NOT
+VALID`/`VALIDATE CONSTRAINT` low-lock migration technique doesn't work in this repo — the
+  drizzle-orm postgres-js migrator batches every pending migration into one transaction, so the
+  `ADD COLUMN` lock is already held for the whole batch regardless. Simplified both migrations
+  back to a direct `SET NOT NULL`. Also added explicit `tenant_id` filters (defense-in-depth,
+  alongside RLS) to several `workflow-crud.ts`/`engine.ts`/`canvas.ts`/`tenant-purge.ts` query
+  sites that had relied on RLS alone.
+- `/security-review` run: no high-confidence findings.
+- `docs/decisions/ADR-007-rls-workflow-config-tables.md` still asserts the disproven low-lock
+  claim in its Implementation specification — needs a human correction (agents don't edit
+  accepted ADRs).
+
+### Verification
+
+- `pnpm typecheck` / `pnpm lint`: PASS (41/41 packages)
+- `pnpm test`: PASS (473 tests, up from 472 pre-existing — new symmetric write-block test)
+- `pnpm test:isolation`: PASS (170 tests, up from 169) — new `apps/worker/tests/isolation/`
+  capability added (didn't exist before this session)
+
+### Next
+
+- #125, #128, #129 remain open in the pre-Phase-3 hardening backlog (unrelated to this session)
+- Human correction needed on ADR-007's Implementation specification (low-lock claim)
+- Production row counts for `workflow_states`/`workflow_transitions` still unconfirmed before
+  this migration runs against a real environment (ADR-007 Open Question OQ-1)
 
 ---
 

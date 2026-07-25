@@ -260,6 +260,20 @@
       "when": 1783417686000,
       "tag": "0036_workflows_entity_type_unique",
       "breakpoints": false
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783417687000,
+      "tag": "0037_rls_workflow_config_tables",
+      "breakpoints": false
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783417688000,
+      "tag": "0038_audit_log_purge_actions",
+      "breakpoints": false
     }
   ]
 }
