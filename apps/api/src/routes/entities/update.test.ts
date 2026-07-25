@@ -3,21 +3,24 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as EntityEngine from "@platform/entity-engine";
+import type * as WorkflowEngine from "@platform/workflow-engine";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockUpdateEntity = vi.fn();
 
+let currentAuth: AuthContext = {
+  tenantId: "t-aaa",
+  userId: "u-bbb",
+  roles: ["admin"],
+  email: "test@example.com",
+};
+
 vi.mock("@platform/auth", () => ({
   requireAuth:
     () =>
     async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", {
-        tenantId: "t-aaa",
-        userId: "u-bbb",
-        roles: ["admin"],
-        email: "test@example.com",
-      });
+      c.set("auth", currentAuth);
       await next();
     },
   requireRole: () => async (_c: Context, next: Next) => {
@@ -25,11 +28,20 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+// Row returned by the non-admin/agent ownership lookup in update.ts (only
+// consulted when the auth role isn't admin/agent — most tests here run as
+// admin and never touch this).
+let ownershipRow: {
+  assignedTo: string | null;
+  createdBy: string | null;
+  workflowId: string | null;
+} | null = null;
+
 const mockTx = {
   select: () => mockTx,
   from: () => mockTx,
   where: () => mockTx,
-  limit: () => Promise.resolve([]),
+  limit: () => Promise.resolve(ownershipRow ? [ownershipRow] : []),
 };
 
 const mockDb = {
@@ -42,6 +54,7 @@ const mockDb = {
 vi.mock("@platform/db", () => ({
   db: mockDb,
   tenantUsers: {},
+  entityInstances: {},
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(mockTx),
 }));
@@ -54,7 +67,17 @@ vi.mock("@platform/entity-engine", async (importOriginal) => {
   };
 });
 
+vi.mock("@platform/workflow-engine", async (importOriginal) => {
+  const real = await importOriginal<typeof WorkflowEngine>();
+  return {
+    ...real,
+    getWorkflow: vi.fn(),
+    isWorkflowAdmin: vi.fn(() => false),
+  };
+});
+
 const { updateEntityHandler } = await import("./update.js");
+const { getWorkflow } = await import("@platform/workflow-engine");
 
 // ── Test app ──────────────────────────────────────────────────────────────────
 
@@ -87,7 +110,16 @@ function makeInstance(fields: Record<string, unknown> = {}) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("PATCH /entities/:id", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["admin"],
+      email: "test@example.com",
+    };
+    ownershipRow = null;
+  });
 
   it("returns 200 with the updated instance when validation passes", async () => {
     mockUpdateEntity.mockResolvedValue(makeInstance({ subject: "updated" }));
@@ -169,5 +201,32 @@ describe("PATCH /entities/:id", () => {
       INST_ID,
       expect.objectContaining({ assignedTo: null }),
     );
+  });
+
+  it("returns 404, not 500, when the record's workflow was deleted before the workflow-admin check (#184)", async () => {
+    const { WorkflowError } = await import("@platform/workflow-engine");
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-random",
+      roles: ["user"],
+      email: "random@example.com",
+    };
+    ownershipRow = {
+      assignedTo: null,
+      createdBy: null,
+      workflowId: "wf-deleted",
+    };
+    vi.mocked(getWorkflow).mockRejectedValue(
+      new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId: "wf-deleted" }),
+    );
+
+    const res = await makeApp().request(`/${INST_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: { subject: "x" } }),
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockUpdateEntity).not.toHaveBeenCalled();
   });
 });

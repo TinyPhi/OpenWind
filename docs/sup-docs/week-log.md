@@ -58,6 +58,131 @@
 - Open the PR for `chore/PLAT-193-docs-config-hygiene`, closing #193/#203/#204.
 - Once PR #189 merges, its roadmap-tracker.md rewrite will still need a follow-up mention of
   these three closures if the scorecard is meant to reflect every closed issue.
+## 2026-07-24 — Hardening backlog closeout: #167/#160/#170/#129/#176 closed, RLS/ADR-007 + nit-bug batches in review, docs audit
+
+**Session type:** Mixed (parallel backlog work + guardrail infra fix + full docs audit)
+**Branches:** `fix/PLAT-167-grant-access-consistency`, `fix/PLAT-160-state-validation`,
+`fix/PLAT-176-hook-worktree-per-branch-state`, `chore/PLAT-128-openbao-init-idempotent`,
+`chore/PLAT-batch2-nit-fixes`, `docs/PLAT-*` (this cleanup)
+
+### Completed this session
+
+- **#167** (`grant-access.ts` should accept workflow-admin callers) — closed via PR #179. Ported
+  the `isPrivileged || isRecordWorkflowAdmin` pattern already used by the three sibling ACL
+  routes; deliberately no `isOwner` path (direct-grant stays admin/workflow-admin-only per
+  `resolve-access-request.ts`'s own rationale). Adversarial review found no issues in the core
+  logic; strengthened unit-test call-argument assertions per its one suggestion.
+- **#160** (`setEntityState`/`bulkSetState` don't validate target state) — closed via PR #180.
+  Mirrors `updateEntity`'s existing `workflow_states` check, including the child-ticket
+  fixed-state-list branch. Adversarial review caught two real bugs before ship: a duplicate-id
+  index-collapse bug in `bulkSetState`'s error reporting, and a missing child-ticket check
+  (children inherit their parent's `workflowId`, so without this they'd validate against the
+  parent's full workflow instead of the fixed open/in-progress/closed set) — both fixed.
+- **#176** (guardrail hooks: shared state clobbers across branches, `edit-gate` silently bypasses
+  worktrees) — closed via PR #177. New `.claude/hooks/lib/context.js`; state now keyed per-branch
+  (`.claude/state/<kind>/<branch-slug>.json`); `edit-gate`/`commit-gate`/`ship-cleanup` resolve
+  the actual worktree a tool call targets instead of the hook's own inherited cwd;
+  `approval-gate`/`verify-stop` (no anchor available from a chat prompt or Stop event) scan all
+  linked worktrees and report ambiguity rather than guessing. Caught and fixed a real bug during
+  verification: a raw-vs-trimmed hash mismatch between `write-ship-marker.sh` and
+  `commit-gate.sh`/`approval-gate.sh` that would have made every real `approve-ship` fail.
+- **#128 follow-up** (openbao-init idempotency, flagged in PR #173's review) — closed via a
+  standalone PR, verified live against two consecutive `docker compose up` runs.
+- **#170** (`installModule` rename dead for non-templated seeds), **#129** (worker health
+  endpoint) — both already closed 2026-07-24 via PRs #174/#175 (see below, same day, prior
+  session block); reconciled into this backlog view.
+- **ADR-005** (core/optional module category, tender ratification) and **ADR-006** (per-workflow
+  ownership/admin model) — both accepted 2026-07-23/24, resolving the two open questions the
+  2026-07-22 reconciliation explicitly left for a human: `tender` is now the platform's 8th
+  module (optional category, `modules.category` column itself not yet built — tracked as #165),
+  and the per-workflow ownership model is permanent, accepted policy.
+- **ADR-007** (RLS for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`) —
+  accepted; implementation in PR #181 (open, not yet merged — CI green, awaiting a fresh review
+  since the one approval it got was auto-dismissed by a post-approval merge + 1-line fixture fix).
+- **Nit-bug batches** — PR #186 (#182–185, from reviews of PRs #175/#177/#179/#180) and PR #188
+  (#187, #171, #150, #148, #110) bundled and shipped, matching this repo's established pattern of
+  batching small independent fixes into one PR. #171 turned out non-trivial: deleting helpdesk's
+  vestigial `001_seed.sql` required also templating `002_workflow.sql`'s workflow name via
+  `{WORKFLOW_NAME}` (matching #170's convention) so the install-rename fast path kept working,
+  which cascaded into fixing a test that hardcoded the literal `"ticket_workflow"` string. Both
+  PRs open, CI green, awaiting review.
+- **Full docs audit** — read and cross-checked every file in `docs/` (excluding `decisions/` and
+  `specs/`) against actual current repo state via 4 parallel review passes. Acted on this session:
+  deleted `analysis-2026-05-22.md` and `first-loop-task.md` (fully superseded, confirmed via
+  `gh issue view` that every carry-over issue they discuss is closed); tightened
+  `phase-timeline.md` (kept the still-true velocity baseline and operating model, cut the
+  now-wrong dated projections, restored the Phase 1 carry-over decision table into this doc
+  rather than losing it); reconciled this doc (`roadmap-tracker.md`) against the backlog above;
+  consolidated all 4 `docs/reviews/*` files into
+  [`docs/reviews/pending-review-findings.md`](../reviews/pending-review-findings.md) — only
+  still-open findings kept, deduplicated across sources, each noting whether it already has a
+  tracked issue (most of the CTO/consulting-review security findings do; most of the
+  ux-adoption-review's product findings never got filed at all, which the audit flags as the
+  likely reason they saw zero progress since 2026-06-23). **Not acted on this session** (see
+  "Next"): `architecture-brief.md`'s phantom `@platform/search` package and never-built
+  `inventory` module (omits `tender`); `local-setup.md` missing OpenBao/MinIO entirely (added to
+  `docker-compose.yml` after the doc was last touched) and a duplicate, more-stale root
+  `SETUP.md`.
+- **Assignment clarity:** #161/#162/#163/#165 confirmed informally assigned to Tushar Sharma;
+  #143/#125 confirmed informally assigned to Bikash Barnwal (via chat, not GitHub's `assignees`
+  field, which this repo has never used). Local-only `open-issues-tracker.md` created (gitignored
+  by request) to track this without committing individual names into shared docs.
+- **#117** (week-log/roadmap-tracker never updated for #93–#100) — investigated and closed.
+  `gh pr view 115` showed `closingIssuesReferences: []`: PR #115's title named all five issues
+  but its body never used `Closes #N` syntax, so only #93/#94/#98 auto-closed; #99 and #100
+  had sat open for over a month despite the code being genuinely shipped (verified directly —
+  `addState`/`updateState`/`deleteState`/`deleteTransition` in `workflow-canvas.tsx`, the
+  `PUT /workflows/:id/canvas` endpoint and its `canvas.test.ts`/`canvas.isolation.test.ts`
+  coverage). Closed both with an explanatory comment citing the code and this log. This entry
+  (above, retitled) and the `roadmap-tracker.md` 2D row now cite all five issue numbers
+  explicitly, satisfying #117's literal acceptance criteria — #117 itself closed as a result.
+
+### Phase snapshot
+
+| Track                                                    | Status                                                                          |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Pre-Phase 3 hardening                                    | Only **#125** (notify→Novu) still fully open. #136/ADR-007 in review (PR #181). |
+| Nit-bug batches (#182–185, #187/#171/#150/#148/#110)     | Both PRs (#186, #188) open, CI green, awaiting review                           |
+| Unclassified work (child tickets/tender/ownership model) | Resolved — ADR-005 and ADR-006 both accepted 2026-07-23/24                      |
+| Phase 3                                                  | Not started, needs human planning sign-off per `CLAUDE.md`                      |
+
+### Next
+
+- Merge #181, #186, #188 (all CI green, awaiting review)
+- #143 and #125 — assigned to Bikash Barnwal, not this session's queue
+- #161/#162/#163/#165 — assigned to Tushar Sharma, not this session's queue
+- Finish the docs audit follow-through: `architecture-brief.md` module-map fix (drop
+  `@platform/search`/`inventory`, add `tender`), `local-setup.md` OpenBao/MinIO gap + `SETUP.md`
+  duplication
+- #165 — implement ADR-005's `modules.category` column + auto-provisioning (Tushar)
+
+### Open questions
+
+- None blocking — both prior open questions (tender scope, ownership-model ADR) resolved this
+  session via ADR-005/ADR-006.
+
+---
+
+## 2026-07-23 — Tail of prior hardening sprint: #141, #168, #128, ADR-005 accepted
+
+**Session type:** Backlog (pre-existing work, reconciled into this log after the fact — see
+`open-issues-tracker.md`'s note on informal `@username` assignments for why this wasn't logged
+in real time)
+
+### Completed
+
+- **#141** (`pnpm lint` repo-wide no-op) — closed via PR #166.
+- **#168** (shadow-workflow entity-type-ownership escalation, found during ADR-006 review) —
+  closed via PR #172: `UNIQUE(tenant_id, entity_type_id)` migration on `workflows`, atomic
+  `onConflictDoNothing()` handling, admin/agent-only role restriction on workflow creation.
+- **#128** (OpenBao + MinIO commented out of `docker-compose.yml`) — closed via PR #173.
+- **ADR-005** (core vs. optional module classification, tender ratification) — accepted.
+
+### Next
+
+- See 2026-07-24 entry above — this tail fed directly into that session's larger closeout.
+
+---
 
 ## 2026-07-24 — ADR-007 accepted and implemented: RLS for workflow config tables (#136)
 
@@ -427,10 +552,17 @@ Start hardening sprint at #121 (RLS role fix).
 
 ---
 
-## 2026-06-18 — Track 2D export API + workflow canvas — PR #115 merged (issue #93, #98)
+## 2026-06-18 — Track 2D export API + workflow canvas — PR #115 merged (issues #93, #94, #98, #99, #100)
 
 **Session type:** Feature implementation + review cycle (4 rounds)
 **Branch:** `feat/93-98-export-api-workflow-canvas` → PR #115 merged
+
+Covers all 5 issues from this track: #93 (export API), #94 (export UI), #98 (workflow
+canvas), #99 (canvas edit ops — add/rename/delete state, delete transition), #100 (atomic
+canvas save endpoint + dirty-state/`beforeunload` guard). PR #115's title named all five but
+its body never used `Closes #N` syntax, so GitHub only auto-closed #93/#94/#98 — #99/#100
+sat open until caught and closed on 2026-07-24 (see that entry below) despite the code
+having shipped here.
 
 ### Completed this session
 

@@ -68,6 +68,14 @@ type EntityValidator = (
 
 const crossFieldValidators = new Map<string, EntityValidator[]>();
 
+// Child tickets inherit their parent's workflowId, so they're validated against this
+// fixed set rather than the parent's full workflow_states (#185).
+const CHILD_TICKET_STATES: readonly string[] = [
+  "open",
+  "in-progress",
+  "closed",
+];
+
 /** @internal exported for child-relations.ts — not part of the package's public API */
 export function buildEntityCreatedPayload(
   tenantId: string,
@@ -481,14 +489,13 @@ export async function updateEntity(
       updates.assignedTo = input.assignedTo;
     }
     if (input.currentState !== undefined && input.currentState !== null) {
-      const childTicketStates = ["open", "in-progress", "closed"];
       if (isChildTicket) {
-        if (!childTicketStates.includes(input.currentState)) {
+        if (!CHILD_TICKET_STATES.includes(input.currentState)) {
           throw new ValidationError([
             {
               field: "currentState",
               code: "invalid",
-              message: `Child ticket state must be one of: ${childTicketStates.join(", ")}`,
+              message: `Child ticket state must be one of: ${CHILD_TICKET_STATES.join(", ")}`,
             },
           ]);
         }
@@ -660,14 +667,13 @@ export async function updateEntity(
       updates.assignedTo = input.assignedTo;
     }
     if (input.currentState !== undefined && input.currentState !== null) {
-      const childTicketStates = ["open", "in-progress", "closed"];
       if (isChildTicket2) {
-        if (!childTicketStates.includes(input.currentState)) {
+        if (!CHILD_TICKET_STATES.includes(input.currentState)) {
           throw new ValidationError([
             {
               field: "currentState",
               code: "invalid",
-              message: `Child ticket state must be one of: ${childTicketStates.join(", ")}`,
+              message: `Child ticket state must be one of: ${CHILD_TICKET_STATES.join(", ")}`,
             },
           ]);
         }
@@ -1589,7 +1595,6 @@ export async function bulkSetState(
         )
     ).map((r) => r.fromInstanceId),
   );
-  const childTicketStates = ["open", "in-progress", "closed"];
 
   // Validate each item's target state against ITS OWN bound workflow's
   // workflow_states, not a single flat set across the whole batch: items in
@@ -1624,7 +1629,7 @@ export async function bulkSetState(
   const stateValidatedItems: Array<{ id: string; state: string }> = [];
   for (const item of validItems) {
     if (childIds.has(item.id)) {
-      if (!childTicketStates.includes(item.state)) {
+      if (!CHILD_TICKET_STATES.includes(item.state)) {
         errors.push({
           index: item.originalIndex,
           id: item.id,
@@ -1809,14 +1814,13 @@ export async function setEntityState(
   // (children inherit their parent's workflowId, so without this check they'd
   // validate against the PARENT's full workflow states instead).
   const isChildTicket = (await getParentId(db, tenantId, instanceId)) !== null;
-  const childTicketStates = ["open", "in-progress", "closed"];
   if (isChildTicket) {
-    if (!childTicketStates.includes(state)) {
+    if (!CHILD_TICKET_STATES.includes(state)) {
       throw new ValidationError([
         {
           field: "state",
           code: "invalid",
-          message: `Child ticket state must be one of: ${childTicketStates.join(", ")}`,
+          message: `Child ticket state must be one of: ${CHILD_TICKET_STATES.join(", ")}`,
         },
       ]);
     }
