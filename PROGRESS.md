@@ -1,3 +1,55 @@
+## 2026-07-24 — Docs/config hygiene bundle (#193/#203/#204) + postcss audit fix (#206)
+
+### Done
+
+- **PR #205** (`chore/PLAT-193-docs-config-hygiene`, commit `cf173ce`) — bundled 3 mechanical
+  fixes: architecture-brief.md's stale `@platform/search`/`inventory` refs (#203, swapped to
+  `tender` + ADR-005 category column), local-setup.md's missing OpenBao/MinIO docs + stale root
+  SETUP.md (#204, now a pointer), and all 10 non-core docker-compose.yml images pinned off
+  `:latest` to their actual resolved digests (#193 — found and documented that the three
+  `novu-*` images have already drifted apart upstream). Went through full spec → spec-review →
+  plan-lock (amended once to add a week-log.md entry) → implement → /review → ship-approve →
+  commit → push → PR. **Status: PR open, awaiting CI/review — NOT yet merged.**
+- CI on PR #205 failed on "Security scan" — traced to a newly-published high-severity advisory
+  (GHSA-r28c-9q8g-f849, postcss path traversal) unrelated to that PR's diff (confirmed via
+  `git stash` + local `pnpm audit` reproduction; every other open PR's earlier CI run was green,
+  ours ran after the advisory was likely published). Filed **issue #206**.
+- **Fix for #206** (`chore/PLAT-206-postcss-audit-override`, commit `e0b9114`) — added
+  `postcss: ">=8.5.18"` to `pnpm-workspace.yaml`'s `overrides:` (same pattern as the existing
+  esbuild/hono/etc entries), regenerated the lockfile. Verified `pnpm audit --audit-level=high`
+  exits 0 post-fix, typecheck/lint green. Branch **pushed to origin, but the PR could not be
+  opened** — GitHub's create-PR API (`gh pr create`, REST fallback, and the web UI) all errored
+  repeatedly (~19:26–19:31 UTC on 2026-07-24). Confirmed not content-related (tried plain
+  titles/bodies/draft mode) and not a broader outage (read APIs worked, status.github.com green).
+  User confirmed the web UI also failed and asked to retry in the morning.
+
+### Verification
+
+- pnpm typecheck: PASS (both branches)
+- pnpm lint: PASS (both branches)
+- pnpm test: 1 pre-existing failure (`@platform/auth`, missing local `platform_test` DB) on
+  both branches — confirmed via `git stash` comparison against `main` to be unrelated/pre-existing
+- pnpm test:isolation: N/A — not run (needs full DB stack; no new tables/routes in either diff)
+
+### Next
+
+- **First thing next session:** retry opening the PR for `chore/PLAT-206-postcss-audit-override`
+  (branch + commit already pushed, nothing else to redo) — either `gh pr create` or the web UI
+  link: https://github.com/TinyPhi/OpenWind/pull/new/chore/PLAT-206-postcss-audit-override.
+  Suggested body text is in the chat transcript.
+- Once #206's PR is open and merged, PR #205's Security scan should be re-run/re-checked — it
+  needs a rebase or the check needs re-triggering to pick up the fix.
+- PR #205 itself still needs human review + merge (closes #193/#203/#204 on merge).
+- `docs/sup-docs/roadmap-tracker.md` was deliberately not touched by either branch — still owned
+  by in-flight PR #189.
+
+### Open questions
+
+- None blocking. Whether `roadmap-tracker.md` should get a #193/#203/#204 mention after #189
+  merges is a minor open item, not urgent.
+
+---
+
 ## 2026-07-23 — ADR-006 drafted (per-workflow ownership/admin model), adversarially reviewed
 
 ### Done
