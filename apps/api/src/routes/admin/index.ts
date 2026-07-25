@@ -7,6 +7,10 @@ import {
   updateViewConfigHandler,
 } from "./view-configs.js";
 import {
+  getPlatformSettingsHandler,
+  updatePlatformSettingsHandler,
+} from "./platform-settings.js";
+import {
   listTenantsHandlers,
   createTenantHandlers,
   getTenantHandlers,
@@ -21,6 +25,8 @@ router.get("/audit", ...getAuditLogHandler);
 router.get("/system-logs", ...getSystemLogsHandler);
 router.get("/view-configs/:entityType", ...getViewConfigHandler);
 router.patch("/view-configs/:entityType", ...updateViewConfigHandler);
+router.get("/platform-settings", ...getPlatformSettingsHandler);
+router.patch("/platform-settings", ...updatePlatformSettingsHandler);
 
 // Tenant lifecycle
 router.get("/tenants", ...listTenantsHandlers);
