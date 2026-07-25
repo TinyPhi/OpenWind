@@ -126,6 +126,7 @@ export async function executeTransition(
       and(
         eq(workflowTransitions.workflowId, instance.workflowId),
         eq(workflowTransitions.id, request.transitionId),
+        eq(workflowTransitions.tenantId, tenantId),
       ),
     )
     .limit(1);
@@ -377,6 +378,7 @@ export async function getAvailableTransitions(
       and(
         eq(workflowTransitions.workflowId, instance.workflowId),
         eq(workflowTransitions.fromState, instance.currentState),
+        eq(workflowTransitions.tenantId, tenantId),
       ),
     );
 
@@ -503,6 +505,7 @@ async function scheduleSlaIfNeeded(
       and(
         eq(workflowStates.workflowId, workflowId),
         eq(workflowStates.name, stateName),
+        eq(workflowStates.tenantId, tenantId),
       ),
     )
     .limit(1);

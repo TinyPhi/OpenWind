@@ -97,8 +97,15 @@ beforeAll(async () => {
 
   // States for A
   await db.insert(workflowStates).values([
-    { workflowId: workflowIdA, name: "open", label: "Open", sortOrder: 0 },
     {
+      tenantId: TENANT_A,
+      workflowId: workflowIdA,
+      name: "open",
+      label: "Open",
+      sortOrder: 0,
+    },
+    {
+      tenantId: TENANT_A,
       workflowId: workflowIdA,
       name: "closed",
       label: "Closed",
@@ -109,8 +116,15 @@ beforeAll(async () => {
 
   // States for B
   await db.insert(workflowStates).values([
-    { workflowId: workflowIdB, name: "open", label: "Open", sortOrder: 0 },
     {
+      tenantId: TENANT_B,
+      workflowId: workflowIdB,
+      name: "open",
+      label: "Open",
+      sortOrder: 0,
+    },
+    {
+      tenantId: TENANT_B,
       workflowId: workflowIdB,
       name: "closed",
       label: "Closed",
@@ -123,6 +137,7 @@ beforeAll(async () => {
   const [tA] = await db
     .insert(workflowTransitions)
     .values({
+      tenantId: TENANT_A,
       workflowId: workflowIdA,
       fromState: "open",
       toState: "closed",
@@ -139,6 +154,7 @@ beforeAll(async () => {
   const [tB] = await db
     .insert(workflowTransitions)
     .values({
+      tenantId: TENANT_B,
       workflowId: workflowIdB,
       fromState: "open",
       toState: "closed",

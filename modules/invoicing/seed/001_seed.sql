@@ -19,20 +19,20 @@ WITH
     RETURNING id
   ),
   _states AS (
-    INSERT INTO workflow_states (id, workflow_id, name, label, color, is_terminal, sort_order)
-    SELECT gen_random_uuid(), wf.id, 'draft',     'Draft',     '#6b7280', false, 0 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'sent',      'Sent',      '#3b82f6', false, 1 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'viewed',    'Viewed',    '#8b5cf6', false, 2 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'paid',      'Paid',      '#10b981', true,  3 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'overdue',   'Overdue',   '#ef4444', false, 4 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'cancelled', 'Cancelled', '#6b7280', true,  5 FROM wf
+    INSERT INTO workflow_states (id, workflow_id, tenant_id, name, label, color, is_terminal, sort_order)
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'draft',     'Draft',     '#6b7280', false, 0 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'sent',      'Sent',      '#3b82f6', false, 1 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'viewed',    'Viewed',    '#8b5cf6', false, 2 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'paid',      'Paid',      '#10b981', true,  3 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'overdue',   'Overdue',   '#ef4444', false, 4 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'cancelled', 'Cancelled', '#6b7280', true,  5 FROM wf
   )
-INSERT INTO workflow_transitions (id, workflow_id, from_state, to_state, label, allowed_roles, requires_comment, requires_fields)
-SELECT gen_random_uuid(), wf.id, 'draft',   'sent',      'Send Invoice',   ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'sent',    'viewed',    'Mark Viewed',    ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'sent',    'paid',      'Record Payment', ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'viewed',  'paid',      'Record Payment', ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'sent',    'overdue',   'Mark Overdue',   ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'viewed',  'overdue',   'Mark Overdue',   ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'overdue', 'paid',      'Record Payment', ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'draft',   'cancelled', 'Cancel',         ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf;
+INSERT INTO workflow_transitions (id, workflow_id, tenant_id, from_state, to_state, label, allowed_roles, requires_comment, requires_fields)
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'draft',   'sent',      'Send Invoice',   ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'sent',    'viewed',    'Mark Viewed',    ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'sent',    'paid',      'Record Payment', ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'viewed',  'paid',      'Record Payment', ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'sent',    'overdue',   'Mark Overdue',   ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'viewed',  'overdue',   'Mark Overdue',   ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'overdue', 'paid',      'Record Payment', ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'draft',   'cancelled', 'Cancel',         ARRAY['admin','agent'], false, ARRAY[]::text[] FROM wf;

@@ -69,6 +69,7 @@ beforeAll(async () => {
   workflowId = workflow.id;
 
   await db.insert(workflowStates).values({
+    tenantId: TENANT,
     workflowId: workflow.id,
     name: "open",
     label: "Open",
