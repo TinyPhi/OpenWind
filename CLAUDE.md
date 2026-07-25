@@ -138,8 +138,23 @@ Cross-module communication: event bus, entity engine relations API, or tRPC only
 
 ## Commands
 
+**Everything containerized — nothing runs on the host.** `docker compose up -d` starts the
+complete stack (Postgres, Redis, MinIO, OpenBao, Zitadel, Novu, `ow-backend`, `ow-frontend`,
+and `ow-worker`) — this is the standard way to run the app, in dev and on servers alike.
+`ow-worker` runs `apps/worker` (outbox poller, automation execution, SLA scheduler,
+notifications, file cleanup, AV scan) as its own container, same as `ow-backend`/`ow-frontend`.
+This was discovered missing on the first server deployment (2026-07-25) — a plain `docker
+compose up -d` had never included it, so BullMQ jobs queued but nothing ever consumed them.
+`pnpm dev` (turbo, host-mode hot reload) still works for fast local iteration, but it runs
+services directly on the host — it is not what CI or servers do, and using it as your only
+local dev flow is how gaps like the missing worker container go unnoticed until production.
+Prefer `docker compose up -d` unless you specifically need host-mode hot reload for a
+tight edit-test loop.
+
 ```bash
-pnpm dev              # start all services with hot reload
+docker compose up -d  # start the full stack — Postgres, Redis, MinIO, OpenBao, Zitadel,
+                       # Novu, ow-backend, ow-frontend, ow-worker
+pnpm dev              # host-mode hot reload (fast iteration only — see note above)
 pnpm test             # unit + integration tests
 pnpm test:isolation   # RLS isolation tests  (requires Docker/OrbStack stack)
 pnpm test:e2e         # end-to-end API tests (requires Docker/OrbStack stack)
@@ -147,7 +162,6 @@ pnpm typecheck        # TypeScript check all packages
 pnpm lint             # ESLint, max-warnings=0
 pnpm db:migrate       # run pending migrations
 pnpm db:seed          # seed development data
-docker compose up -d  # start Postgres, Redis, MinIO, OpenBao, Zitadel, Novu
 ```
 
 macOS: use OrbStack (not Docker Desktop). Windows: run isolation/e2e in CI or WSL2.
