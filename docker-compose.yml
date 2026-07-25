@@ -328,6 +328,45 @@ services:
       minio:
         condition: service_healthy
 
+  # ── Worker (BullMQ background jobs — outbox poller, automation, SLA,
+  # notifications, file cleanup, AV scan) ─────────────────────────────────────
+  # Separate deployable from ow-backend by design (CLAUDE.md repository layout):
+  # apps/api serves HTTP + the notification websocket's live push, but the
+  # actual outbox polling / automation execution / notification-row creation
+  # that feeds that push runs here. Without this service, BullMQ jobs queue up
+  # but are never consumed — notifications silently never get created.
+  ow-worker:
+    container_name: ow-worker
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      DATABASE_URL: postgres://app_user:app_user_dev_password@pgbouncer:5432/platform
+      MIGRATION_DATABASE_URL: postgresql://migration_user:migration_user_dev_password@postgres:5432/platform
+      REDIS_URL: redis://redis:6379
+      ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
+      ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_URL: http://localhost:9000
+    dns:
+      - 127.0.0.11
+      - 1.1.1.1
+      - 8.8.8.8
+    restart: unless-stopped
+    networks:
+      - default
+      - openwind_zitadel
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
   # ── Admin UI (React + Refine) ──────────────────────────────────────────────
   # Dev mode: Vite dev server with HMR. Source files are mounted as volumes so
   # any change on the host is picked up instantly — no rebuild needed.
