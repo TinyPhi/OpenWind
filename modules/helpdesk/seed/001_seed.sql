@@ -19,20 +19,20 @@ WITH
     RETURNING id
   ),
   _states AS (
-    INSERT INTO workflow_states (id, workflow_id, name, label, color, is_terminal, sort_order)
-    SELECT gen_random_uuid(), wf.id, 'new',                  'New',                  '#6366f1', false, 0 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'open',                 'Open',                 '#3b82f6', false, 1 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'in_progress',          'In Progress',          '#f59e0b', false, 2 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'waiting_for_customer', 'Waiting for Customer', '#8b5cf6', false, 3 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'resolved',             'Resolved',             '#10b981', false, 4 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'closed',               'Closed',               '#6b7280', true,  5 FROM wf
+    INSERT INTO workflow_states (id, workflow_id, tenant_id, name, label, color, is_terminal, sort_order)
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'new',                  'New',                  '#6366f1', false, 0 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'open',                 'Open',                 '#3b82f6', false, 1 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'in_progress',          'In Progress',          '#f59e0b', false, 2 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'waiting_for_customer', 'Waiting for Customer', '#8b5cf6', false, 3 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'resolved',             'Resolved',             '#10b981', false, 4 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'closed',               'Closed',               '#6b7280', true,  5 FROM wf
   )
-INSERT INTO workflow_transitions (id, workflow_id, from_state, to_state, label, allowed_roles, requires_comment, requires_fields)
-SELECT gen_random_uuid(), wf.id, 'new',                  'open',                 'Assign',         ARRAY['admin','agent'],        false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'open',                 'in_progress',          'Start Working',  ARRAY['admin','agent'],        false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'in_progress',          'waiting_for_customer', 'Need More Info', ARRAY['admin','agent'],        true,  ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'waiting_for_customer', 'in_progress',          'Responded',      ARRAY['admin','agent','user'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'in_progress',          'resolved',             'Mark Resolved',  ARRAY['admin','agent'],        true,  ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'resolved',             'closed',               'Close Ticket',   ARRAY['admin','agent','user'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'resolved',             'in_progress',          'Reopen',         ARRAY['admin','agent','user'], true,  ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'open',                 'resolved',             'Quick Resolve',  ARRAY['admin','agent'],        true,  ARRAY[]::text[] FROM wf;
+INSERT INTO workflow_transitions (id, workflow_id, tenant_id, from_state, to_state, label, allowed_roles, requires_comment, requires_fields)
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'new',                  'open',                 'Assign',         ARRAY['admin','agent'],        false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'open',                 'in_progress',          'Start Working',  ARRAY['admin','agent'],        false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'in_progress',          'waiting_for_customer', 'Need More Info', ARRAY['admin','agent'],        true,  ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'waiting_for_customer', 'in_progress',          'Responded',      ARRAY['admin','agent','user'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'in_progress',          'resolved',             'Mark Resolved',  ARRAY['admin','agent'],        true,  ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'resolved',             'closed',               'Close Ticket',   ARRAY['admin','agent','user'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'resolved',             'in_progress',          'Reopen',         ARRAY['admin','agent','user'], true,  ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'open',                 'resolved',             'Quick Resolve',  ARRAY['admin','agent'],        true,  ARRAY[]::text[] FROM wf;

@@ -19,16 +19,16 @@ WITH
     RETURNING id
   ),
   _states AS (
-    INSERT INTO workflow_states (id, workflow_id, name, label, color, is_terminal, sort_order)
-    SELECT gen_random_uuid(), wf.id, 'draft',     'Draft',     '#6b7280', false, 0 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'submitted', 'Submitted', '#6366f1', false, 1 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'approved',  'Approved',  '#10b981', false, 2 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'paid',      'Paid',      '#3b82f6', true,  3 FROM wf UNION ALL
-    SELECT gen_random_uuid(), wf.id, 'rejected',  'Rejected',  '#ef4444', true,  4 FROM wf
+    INSERT INTO workflow_states (id, workflow_id, tenant_id, name, label, color, is_terminal, sort_order)
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'draft',     'Draft',     '#6b7280', false, 0 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'submitted', 'Submitted', '#6366f1', false, 1 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'approved',  'Approved',  '#10b981', false, 2 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'paid',      'Paid',      '#3b82f6', true,  3 FROM wf UNION ALL
+    SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'rejected',  'Rejected',  '#ef4444', true,  4 FROM wf
   )
-INSERT INTO workflow_transitions (id, workflow_id, from_state, to_state, label, allowed_roles, requires_comment, requires_fields)
-SELECT gen_random_uuid(), wf.id, 'draft',     'submitted', 'Submit',       ARRAY['admin','agent','user'], false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'submitted', 'approved',  'Approve',      ARRAY['admin'],                false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'submitted', 'rejected',  'Reject',       ARRAY['admin'],                true,  ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'approved',  'paid',      'Mark Paid',    ARRAY['admin'],                false, ARRAY[]::text[] FROM wf UNION ALL
-SELECT gen_random_uuid(), wf.id, 'submitted', 'draft',     'Return Draft', ARRAY['admin','user'],         true,  ARRAY[]::text[] FROM wf;
+INSERT INTO workflow_transitions (id, workflow_id, tenant_id, from_state, to_state, label, allowed_roles, requires_comment, requires_fields)
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'draft',     'submitted', 'Submit',       ARRAY['admin','agent','user'], false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'submitted', 'approved',  'Approve',      ARRAY['admin'],                false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'submitted', 'rejected',  'Reject',       ARRAY['admin'],                true,  ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'approved',  'paid',      'Mark Paid',    ARRAY['admin'],                false, ARRAY[]::text[] FROM wf UNION ALL
+SELECT gen_random_uuid(), wf.id, '{TENANT_ID}', 'submitted', 'draft',     'Return Draft', ARRAY['admin','user'],         true,  ARRAY[]::text[] FROM wf;
