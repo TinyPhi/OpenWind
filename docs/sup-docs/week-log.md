@@ -58,6 +58,7 @@
 - Open the PR for `chore/PLAT-193-docs-config-hygiene`, closing #193/#203/#204.
 - Once PR #189 merges, its roadmap-tracker.md rewrite will still need a follow-up mention of
   these three closures if the scorecard is meant to reflect every closed issue.
+
 ## 2026-07-24 — ADR-007 accepted and implemented: RLS for workflow config tables (#136)
 
 **Session type:** Feature (ADR-driven hardening)
