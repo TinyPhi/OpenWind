@@ -1,12 +1,14 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { eq, and, isNull, or, sql, desc } from "drizzle-orm";
+import { eq, and, isNull, or, sql, desc, inArray, asc } from "drizzle-orm";
 import { requireAuth } from "@platform/auth";
 import {
   withTenantContext,
   entityInstances,
   entityRelations,
   workflows,
+  workflowStates,
+  workflowTransitions,
 } from "@platform/db";
 import { MAX_PAGE_SIZE } from "@platform/entity-engine";
 import { factory } from "./factory.js";
@@ -161,25 +163,71 @@ export const myTicketsHandler = factory.createHandlers(
         }
       }
 
-      // ── Step 4: collect unique workflowIds and fetch workflow names ────────
+      // ── Step 4: collect unique workflowIds and fetch workflow metadata ─────
+      // Includes entityTypeId + states/transition counts, not just id/name, so
+      // the records page can render the same card (icon, state chips) for a
+      // plain "user" caller as it does for admins — the card previously only
+      // had a title and count because this endpoint returned bare id/name.
       const wfIds = [
         ...new Set(accessibleRows.map((r) => r.workflowId).filter(Boolean)),
       ] as string[];
-      const workflowRows =
+      const [workflowRows, stateRows, transitionRows] =
         wfIds.length > 0
-          ? await withTenantContext(tenantId, (tx) =>
-              tx
-                .select({ id: workflows.id, name: workflows.name })
-                .from(workflows)
-                .where(
-                  sql`${workflows.id} = ANY(ARRAY[${sql.join(
-                    wfIds.map((id) => sql`${id}::uuid`),
-                    sql`, `,
-                  )}])`,
-                ),
-            )
-          : [];
-      const workflowMeta = new Map(workflowRows.map((w) => [w.id, w.name]));
+          ? await Promise.all([
+              withTenantContext(tenantId, (tx) =>
+                tx
+                  .select({
+                    id: workflows.id,
+                    name: workflows.name,
+                    entityTypeId: workflows.entityTypeId,
+                  })
+                  .from(workflows)
+                  .where(inArray(workflows.id, wfIds)),
+              ),
+              withTenantContext(tenantId, (tx) =>
+                tx
+                  .select({
+                    workflowId: workflowStates.workflowId,
+                    name: workflowStates.name,
+                    label: workflowStates.label,
+                    color: workflowStates.color,
+                    isTerminal: workflowStates.isTerminal,
+                  })
+                  .from(workflowStates)
+                  .where(inArray(workflowStates.workflowId, wfIds))
+                  .orderBy(
+                    asc(workflowStates.sortOrder),
+                    asc(workflowStates.id),
+                  ),
+              ),
+              withTenantContext(tenantId, (tx) =>
+                tx
+                  .select({ workflowId: workflowTransitions.workflowId })
+                  .from(workflowTransitions)
+                  .where(inArray(workflowTransitions.workflowId, wfIds)),
+              ),
+            ])
+          : [[], [], []];
+      const workflowMeta = new Map(
+        workflowRows.map((w) => [
+          w.id,
+          { name: w.name, entityTypeId: w.entityTypeId },
+        ]),
+      );
+      const statesByWorkflow = new Map<string, (typeof stateRows)[number][]>();
+      for (const s of stateRows) {
+        if (!statesByWorkflow.has(s.workflowId)) {
+          statesByWorkflow.set(s.workflowId, []);
+        }
+        statesByWorkflow.get(s.workflowId)?.push(s);
+      }
+      const transitionCountByWorkflow = new Map<string, number>();
+      for (const t of transitionRows) {
+        transitionCountByWorkflow.set(
+          t.workflowId,
+          (transitionCountByWorkflow.get(t.workflowId) ?? 0) + 1,
+        );
+      }
 
       // ── Step 5: split into parents and children, compute access reasons ────
       const parentTickets = [];
@@ -248,12 +296,16 @@ export const myTicketsHandler = factory.createHandlers(
       // ── Step 6: build workflow summary ─────────────────────────────────────
       const workflowSummaries = [...workflowCounts.entries()]
         .map(([wfId, count]) => {
-          const name = workflowMeta.get(wfId) ?? wfId;
+          const meta = workflowMeta.get(wfId);
+          const name = meta?.name ?? wfId;
           return {
             workflowId: wfId,
             workflowName: name,
             workflowSlug: toWorkflowSlug(name),
+            entityTypeId: meta?.entityTypeId ?? "",
             accessibleTicketCount: count,
+            states: statesByWorkflow.get(wfId) ?? [],
+            transitionCount: transitionCountByWorkflow.get(wfId) ?? 0,
           };
         })
         .sort((a, b) => a.workflowName.localeCompare(b.workflowName));
