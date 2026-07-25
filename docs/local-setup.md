@@ -264,14 +264,41 @@ new ones.
 
 ### This repo's containers (`docker-compose.yml`)
 
-| Container    | Internal port | Host port | URL                            |
-| ------------ | ------------- | --------- | ------------------------------ |
-| ow-database  | 5432          | —         | Internal only                  |
-| ow-pgbouncer | 5432          | 6432      | `localhost:6432`               |
-| ow-cache     | 6379          | —         | Internal only                  |
-| ow-backend   | 3000          | —         | Internal only (proxied)        |
-| ow-frontend  | 3001          | 3001      | `http://localhost:3001`        |
-| ow-bootstrap | —             | —         | One-shot, `profile: bootstrap` |
+| Container       | Internal port | Host port  | URL                                                              |
+| --------------- | ------------- | ---------- | ---------------------------------------------------------------- |
+| ow-database     | 5432          | —          | Internal only                                                    |
+| ow-pgbouncer    | 5432          | 6432       | `localhost:6432`                                                 |
+| ow-cache        | 6379          | —          | Internal only                                                    |
+| ow-backend      | 3000          | —          | Internal only (proxied)                                          |
+| ow-frontend     | 3001          | 3001       | `http://localhost:3001`                                          |
+| ow-bootstrap    | —             | —          | One-shot, `profile: bootstrap`                                   |
+| ow-secrets      | 8200          | 8200       | `http://localhost:8200`                                          |
+| ow-secrets-init | —             | —          | One-shot, initializes OpenBao (idempotent — see below)           |
+| ow-storage      | 9000, 9001    | 9000, 9001 | `http://localhost:9000` (API), `http://localhost:9001` (console) |
+| ow-storage-init | —             | —          | One-shot, creates the `platform-files` bucket (idempotent)       |
+
+OpenBao and MinIO start automatically with `docker compose up -d` — no profile
+required, unlike the optional services below.
+
+**OpenBao** (`@platform/secrets` backing store) runs in `-dev` mode: an
+in-memory, non-persistent secrets engine meant for local development only.
+Its root token is the hardcoded `dev-root-token` (see `docker-compose.yml`).
+Because storage is in-memory, recreating the `openbao` container (not just
+restarting it) wipes any secrets written during the session — expected in
+dev, never a bug to chase.
+
+`ow-secrets-init` runs `bao secrets enable transit` on every `docker compose
+up`. On a second or later run that engine is already enabled from the first
+run, so the command exits non-zero — the init script tolerates that specific
+failure and still exits `0` (idempotency fix, PR #178, follow-up to #128/#173).
+**If you see a "transit engine already enabled" message in
+`ow-secrets-init`'s logs, that's expected — not a failure to debug.**
+
+**MinIO** (`@platform/files` backing store) exposes the S3 API on `:9000` and
+a web console on `:9001`. Dev credentials (hardcoded in `docker-compose.yml`):
+`platform_access_key` / `platform_secret_key_dev_only`. `ow-storage-init` runs
+`mc mb --ignore-existing` to create the `platform-files` bucket, so it's
+already safe to re-run.
 
 ### The Zitadel compose project (`../zitadel/docker-compose.yml`)
 
@@ -292,6 +319,26 @@ Start with `docker compose --profile <name> up -d`:
 | --------------- | --------------------------------------------------------------------- |
 | `notifications` | Novu API, worker, web UI, MongoDB                                     |
 | `tools`         | MailHog (email trap port 8025), BullBoard (queue dashboard port 3099) |
+
+### Image version pinning policy
+
+Every non-core image in `docker-compose.yml` is pinned to a specific digest, not `:latest` —
+a floating tag can silently change local-dev/CI behavior between one `docker compose up` and
+the next with no corresponding commit to explain why something broke. Postgres and Redis were
+already pinned to a tag (`postgres:16-alpine` / `redis:7-alpine`); the rest are pinned by digest
+because most of these images don't publish a stable named version tag (`mailhog/mailhog` and
+`deadly0/bull-board` have never published anything besides `:latest` on their registries).
+
+**Bump policy: version bumps happen deliberately, in their own commit** — never silently
+alongside an unrelated change. To bump one: `docker compose pull <service>`, resolve the new
+digest with `docker inspect --format='{{index .RepoDigests 0}}' <image>:latest`, update the
+`image:` line, and note why in the commit message.
+
+**Known drift (not introduced by pinning, just made visible by it):** the three `novu-*` images
+are not on a matched release line upstream — `novu-api`/`novu-worker`'s `:latest` were both built
+2026-07-08, but `novu-web`'s hadn't moved since 2025-03-21 as of the pin date. Pinning captured
+what was actually running rather than forcing an artificial sync; if Novu compatibility issues
+ever surface, this is the first place to look.
 
 ---
 
