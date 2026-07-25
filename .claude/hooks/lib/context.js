@@ -68,6 +68,9 @@ function repoRootFromAnchor(anchor, fallback) {
   } catch (e) {
     return fallback;
   }
+  // Deliberately never stat `.git` ourselves here — in a worktree it's a file, not a
+  // directory (a pointer back to the main repo's worktrees dir), so resolving the
+  // toplevel is left to the `git` binary, which already handles both cases correctly.
   const root = sh("git rev-parse --show-toplevel", dir);
   return root || fallback;
 }
