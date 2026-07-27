@@ -142,6 +142,57 @@ type uuid: ""` — the RLS policy's `app.tenant_id` GUC was unset/stale, and
 
 ---
 
+## 2026-07-27 (later still) — ClamAV was never actually deployed anywhere
+
+**Session type:** Infra gap fix, found while re-testing the worker fix above
+
+### Completed this session
+
+- After the `withTenantContext` fix (previous entry) deployed cleanly, the
+  next upload attempt still failed — `av-scan: job failed` with
+  `AggregateError` (a connection failure) on every retry. Root cause:
+  **`docker-compose.yml` never had a ClamAV service at all** —
+  `CLAMAV_HOST` defaults to `localhost`, which inside the worker container
+  resolves to nothing. `SKIP_AV_SCAN=true` was briefly considered as a
+  quick unblock, but `packages/config/src/env.ts` has a deliberate
+  production guard (`.refine(...)`) that refuses to boot if
+  `SKIP_AV_SCAN=true` and `NODE_ENV=production` — written specifically to
+  stop antivirus scanning from being silently disabled in production.
+  Since the server's containers do run with `NODE_ENV=production`, that
+  path was a dead end anyway, and disabling AV scanning for uploaded ticket
+  attachments isn't something to route around lightly.
+- Added a real `clamav` service (`clamav/clamav:stable`) to
+  `docker-compose.yml`, wired `ow-worker` to depend on it
+  (`condition: service_healthy`) and point `CLAMAV_HOST`/`CLAMAV_PORT` at
+  it. Confirmed server has 62GB RAM / 51GB available / 16 cores — plenty of
+  headroom for ClamAV's ~1GB footprint. `start_period: 300s` on its
+  healthcheck since first boot downloads the virus signature DB
+  (freshclam), which can take a few minutes.
+- This closes a gap that predates the S3→disk migration entirely — AV
+  scanning was designed into the system (`av-scan.ts`, the `scanStatus`
+  state machine, the download gate) but never actually had a scanner to
+  talk to in this deployment, on either the server or (via `SKIP_AV_SCAN`)
+  local dev.
+
+### Verification
+
+- `docker compose config --quiet`: PASS (compose file is syntactically
+  valid with the new service)
+- Pending: deploy to server, confirm ClamAV container reaches healthy,
+  confirm a fresh upload reaches `scanStatus: "clean"` end-to-end
+
+### Next
+
+- Deploy: `git pull` + rebuild `ow-worker` (no other service needs
+  rebuilding) on the server, wait for `ow-clamav` to report healthy
+  (can take a few minutes on first boot), re-test upload.
+
+### Open questions
+
+- None blocking.
+
+---
+
 ## 2026-07-25 — global outbound-notifications kill switch
 
 **Session type:** New feature (not on the tracked #120–#129 backlog)
