@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { Readable } from "node:stream";
 import { zValidator } from "../../lib/validator.js";
 import { requireAuth, requireRole } from "@platform/auth";
 import { files, entityInstances, withTenantContext } from "@platform/db";
 import { and, eq } from "drizzle-orm";
-import { getDownloadUrl, FileError } from "@platform/files";
+import { getFileStream, FileError } from "@platform/files";
 import { factory } from "./factory.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 
@@ -66,9 +67,16 @@ export const getDownloadUrlHandler = factory.createHandlers(
       }
 
       const result = await withTenantContext(tenantId, (tx) =>
-        getDownloadUrl(tx, tenantId, fileId, inline),
+        getFileStream(tx, tenantId, fileId),
       );
-      return c.json({ data: result });
+
+      c.header("Content-Type", result.mimeType);
+      c.header("Content-Length", String(result.sizeBytes));
+      c.header(
+        "Content-Disposition",
+        `${inline ? "inline" : "attachment"}; filename="${result.originalName}"`,
+      );
+      return c.body(Readable.toWeb(result.stream) as ReadableStream);
     } catch (err: unknown) {
       if (err instanceof FileError) {
         switch (err.code) {

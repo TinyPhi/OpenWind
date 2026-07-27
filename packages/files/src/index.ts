@@ -1,33 +1,26 @@
 /**
  * @platform/files
  *
- * Tenant-scoped file storage with presigned S3 URLs and async AV scanning.
+ * Tenant-scoped file storage on local disk, with async AV scanning.
  *
  * Upload flow:
- *  1. POST /files  → initiateUpload  → presigned POST URL + fileId
- *  2. Client uploads directly to S3 (S3 enforces size limit via content-length-range)
- *  3. POST /files/:id/complete  → confirmUpload  → enqueues AV scan BullMQ job
- *  4. Worker scans and transitions: pending → clean | quarantined | scan_failed
+ *  1. POST /files  → saveUpload  → writes bytes to disk, inserts row, enqueues AV scan
+ *  2. Worker scans and transitions: pending → clean | quarantined | scan_failed
  *
  * Access:
- *  - GET /files/:id  → getDownloadUrl  → presigned GET URL (clean files only)
- *  - DELETE /files/:id  → deleteFile  → soft delete + async S3 removal
+ *  - GET /files/:id  → getFileStream  → readable stream (clean files only)
+ *  - DELETE /files/:id  → deleteFile  → soft delete + disk removal
  *
  * Quota:
- *  - Enforced per-tenant at initiateUpload via SELECT FOR UPDATE on tenants row
+ *  - Enforced per-tenant at saveUpload via SELECT FOR UPDATE on tenants row
  *  - Soft-deleted files release quota immediately
  *  - Pending files abandoned >24h release quota when purged by the cleanup job
  */
 
 import { randomUUID } from "node:crypto";
-import {
-  S3Client,
-  DeleteObjectCommand,
-  DeleteObjectsCommand,
-  GetObjectCommand,
-  PutObjectCommand,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
 import { Queue } from "bullmq";
 import type { Redis } from "ioredis";
 import { eq, and, sql, ne } from "drizzle-orm";
@@ -44,8 +37,6 @@ export type { FileErrorCode } from "./errors.js";
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
 const DEFAULT_QUOTA_MB = 5120; // 5 GB
-const UPLOAD_URL_EXPIRY_SECONDS = 900; // 15 min
-const DOWNLOAD_URL_EXPIRY_SECONDS = 3600; // 1 h
 const AV_SCAN_QUEUE = "av-scan";
 
 // Mirrors apps/admin-ui/src/hooks/use-file-upload.ts's getSizeLimit — the
@@ -65,50 +56,7 @@ function getMimeSizeLimit(mimeType: string): number {
   return 50 * 1024 * 1024;
 }
 
-// ── S3 clients ────────────────────────────────────────────────────────────────
-// Two clients are needed when S3_ENDPOINT is an internal Docker hostname:
-//   getS3()          — internal endpoint, used for PUT/DELETE/GetObject commands
-//   getS3ForSigning() — public endpoint (S3_PUBLIC_URL ?? S3_ENDPOINT), used only
-//                       for presigning so the signature embeds the browser-accessible
-//                       host. Rewriting the host after signing would break the HMAC.
-
-let _s3: S3Client | undefined;
-let _s3Signing: S3Client | undefined;
-
-function getS3(): S3Client {
-  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-  if (_s3 === undefined) {
-    _s3 = new S3Client({
-      endpoint: env.S3_ENDPOINT,
-      region: "us-east-1",
-      credentials: {
-        accessKeyId: env.S3_ACCESS_KEY,
-        secretAccessKey: env.S3_SECRET_KEY,
-      },
-      forcePathStyle: true,
-    });
-  }
-  return _s3;
-}
-
-function getS3ForSigning(): S3Client {
-  const publicEndpoint = env.S3_PUBLIC_URL ?? env.S3_ENDPOINT;
-
-  if (_s3Signing === undefined || publicEndpoint !== env.S3_ENDPOINT) {
-    _s3Signing = new S3Client({
-      endpoint: publicEndpoint,
-      region: "us-east-1",
-      credentials: {
-        accessKeyId: env.S3_ACCESS_KEY,
-        secretAccessKey: env.S3_SECRET_KEY,
-      },
-      forcePathStyle: true,
-    });
-  }
-  return _s3Signing;
-}
-
-// ── Storage key helpers ───────────────────────────────────────────────────────
+// ── Storage key / path helpers ────────────────────────────────────────────────
 
 function buildStorageKey(
   tenantId: string,
@@ -122,6 +70,29 @@ function buildStorageKey(
   const ext = filename.includes(".") ? (filename.split(".").pop() ?? "") : "";
   const safeName = ext ? `${fileId}.${ext}` : fileId;
   return `${tenantId}/${moduleSlug}/${entitySegment}/${safeName}`;
+}
+
+/** Resolves a storage key (relative, DB-stored) to an absolute on-disk path. */
+export function resolveStoragePath(storageKey: string): string {
+  return path.join(env.FILES_STORAGE_PATH, storageKey);
+}
+
+/**
+ * Write bytes to `absPath` durably: write to a sibling temp file, then
+ * rename into place. A reader can never observe a partially-written file at
+ * `absPath` — either the old file (or nothing) is there, or the complete
+ * new one is.
+ */
+async function writeFileAtomic(absPath: string, data: Buffer): Promise<void> {
+  const tmpPath = `${absPath}.tmp-${randomUUID()}`;
+  try {
+    await fsp.mkdir(path.dirname(absPath), { recursive: true });
+    await fsp.writeFile(tmpPath, data);
+    await fsp.rename(tmpPath, absPath);
+  } catch (err) {
+    await fsp.unlink(tmpPath).catch(() => undefined);
+    throw new FileError("STORAGE_WRITE_FAILED", { err: String(err) });
+  }
 }
 
 // ── Quota helpers ─────────────────────────────────────────────────────────────
@@ -142,34 +113,36 @@ async function getTenantUsedBytes(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export type InitiateUploadResult = {
+export type SaveUploadResult = {
   fileId: string;
-  uploadUrl: string;
-  uploadUrlExpiresAt: Date;
+  scanStatus: string;
 };
 
 /**
- * Reserve a file slot, check quota, and issue a presigned S3 PUT URL.
+ * Validate size/quota, write the file to disk, insert its row, and enqueue
+ * the AV scan job — all within one call, since the upload route now
+ * receives the full multipart body in a single request.
  *
- * The fileId is generated client-side with `randomUUID()` before the INSERT,
- * eliminating the two-step "insert with placeholder key then update" pattern.
- *
- * Quota enforcement is atomic: `SELECT ... FOR UPDATE` on the tenant row
- * serialises concurrent initiateUpload calls so two simultaneous uploads
- * cannot both pass the same quota check.
+ * The fileId is generated before the write so the final storageKey/path is
+ * known up front. Quota enforcement is atomic: `SELECT ... FOR UPDATE` on
+ * the tenant row serialises concurrent saveUpload calls so two simultaneous
+ * uploads cannot both pass the same quota check.
  */
-export async function initiateUpload(
+export async function saveUpload(
   db: DbOrTx,
+  redis: Redis,
   tenantId: string,
   uploadedBy: string,
   moduleSlug: string,
   entityId: string | null,
   filename: string,
   mimeType: string,
-  sizeBytes: number,
-): Promise<InitiateUploadResult> {
-  // 1. Enforce per-file size limit (no DB round-trip needed) — both the flat
-  // ceiling and the per-mime-type cap the client also enforces client-side.
+  bytes: Buffer,
+): Promise<SaveUploadResult> {
+  const sizeBytes = bytes.byteLength;
+
+  // 1. Enforce per-file size limit — both the flat ceiling and the
+  // per-mime-type cap the client also enforces client-side.
   if (sizeBytes > MAX_FILE_BYTES) {
     throw new FileError("FILE_TOO_LARGE", {
       sizeBytes,
@@ -184,8 +157,7 @@ export async function initiateUpload(
     });
   }
 
-  // 2. Pre-generate fileId so the final storageKey is known before the INSERT.
-  //    This avoids the old two-step INSERT (with placeholder key) + UPDATE pattern.
+  // 2. Pre-generate fileId so the final storageKey is known before writing.
   const fileId = randomUUID();
   const storageKey = buildStorageKey(
     tenantId,
@@ -242,80 +214,28 @@ export async function initiateUpload(
     });
   });
 
-  // 4. Issue presigned PUT URL with exact content-length enforcement.
-  //    S3 presigned PUT requires the client to send exactly Content-Length = sizeBytes.
-  const expiresAt = new Date(Date.now() + UPLOAD_URL_EXPIRY_SECONDS * 1000);
+  // 4. Write bytes to disk only after the row is committed — if the write
+  // fails, the row still exists as "pending" and never transitions past it
+  // (no download is ever served for a non-"clean" file).
+  await writeFileAtomic(resolveStoragePath(storageKey), bytes);
 
-  const uploadUrl = await getSignedUrl(
-    getS3ForSigning(),
-    new PutObjectCommand({
-      Bucket: env.S3_BUCKET,
-      Key: storageKey,
-      ContentType: mimeType,
-      ContentLength: sizeBytes,
-    }),
-    { expiresIn: UPLOAD_URL_EXPIRY_SECONDS },
-  );
-
-  logger.info(
-    { tenantId, fileId, moduleSlug, sizeBytes },
-    "files: upload initiated",
-  );
-
-  return { fileId, uploadUrl, uploadUrlExpiresAt: expiresAt };
-}
-
-/**
- * Signal that the S3 upload is complete and enqueue the AV scan job.
- * Idempotent — calling twice for the same fileId does not enqueue a second job.
- */
-export async function confirmUpload(
-  db: DbOrTx,
-  redis: Redis,
-  tenantId: string,
-  fileId: string,
-): Promise<void> {
-  let storageKeyForScan: string | undefined;
-
-  await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
-    );
-
-    const [file] = await tx
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
-      .limit(1);
-
-    if (!file) throw new FileError("FILE_NOT_FOUND", { fileId });
-
-    // Idempotency: only enqueue if still pending
-    if (file.scanStatus !== "pending") {
-      logger.info(
-        { tenantId, fileId, scanStatus: file.scanStatus },
-        "files: confirmUpload called on non-pending file — skipping enqueue",
+  // 5. Enqueue the AV scan job (dev shortcut: SKIP_AV_SCAN marks clean immediately).
+  if (env.SKIP_AV_SCAN) {
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
       );
-      return;
-    }
-
-    // Dev shortcut: skip the queue and mark clean immediately when SKIP_AV_SCAN=true
-    if (env.SKIP_AV_SCAN) {
       await tx
         .update(files)
         .set({ scanStatus: "clean", updatedAt: new Date() })
         .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)));
-      logger.info(
-        { tenantId, fileId },
-        "files: SKIP_AV_SCAN=true — marked clean without scanning",
-      );
-      return;
-    }
-
-    storageKeyForScan = file.storageKey;
-  });
-
-  if (!storageKeyForScan) return;
+    });
+    logger.info(
+      { tenantId, fileId },
+      "files: SKIP_AV_SCAN=true — marked clean without scanning",
+    );
+    return { fileId, scanStatus: "clean" };
+  }
 
   const queue = new Queue<{
     fileId: string;
@@ -326,7 +246,7 @@ export async function confirmUpload(
   try {
     await queue.add(
       "scan",
-      { fileId, tenantId, storageKey: storageKeyForScan },
+      { fileId, tenantId, storageKey },
       {
         jobId: `av-scan-${fileId}`, // deduplication key — prevents double-enqueue; no colon (BullMQ disallows it)
         attempts: 5,
@@ -339,19 +259,30 @@ export async function confirmUpload(
     await queue.close();
   }
 
-  logger.info({ tenantId, fileId }, "files: av scan enqueued");
+  logger.info(
+    { tenantId, fileId, moduleSlug, sizeBytes },
+    "files: upload saved, av scan enqueued",
+  );
+
+  return { fileId, scanStatus: "pending" };
 }
 
+export type FileStreamResult = {
+  stream: fs.ReadStream;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
 /**
- * Issue a presigned GET URL for a clean file.
+ * Open a readable stream for a clean file.
  * Throws for pending, quarantined, scan_failed, or deleted files.
  */
-export async function getDownloadUrl(
+export async function getFileStream(
   db: DbOrTx,
   tenantId: string,
   fileId: string,
-  inline = false,
-): Promise<{ downloadUrl: string; downloadUrlExpiresAt: Date }> {
+): Promise<FileStreamResult> {
   const [file] = await db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
@@ -379,26 +310,28 @@ export async function getDownloadUrl(
   }
 
   // scanStatus === "clean"
-  const expiresAt = new Date(Date.now() + DOWNLOAD_URL_EXPIRY_SECONDS * 1000);
+  const absPath = resolveStoragePath(file.storageKey);
+  let stream: fs.ReadStream;
+  try {
+    stream = fs.createReadStream(absPath);
+  } catch (err) {
+    throw new FileError("STORAGE_READ_FAILED", {
+      fileId,
+      err: String(err),
+    });
+  }
 
-  const downloadUrl = await getSignedUrl(
-    getS3ForSigning(),
-    new GetObjectCommand({
-      Bucket: env.S3_BUCKET,
-      Key: file.storageKey,
-      ResponseContentDisposition: inline
-        ? `inline; filename="${file.originalName}"`
-        : `attachment; filename="${file.originalName}"`,
-    }),
-    { expiresIn: DOWNLOAD_URL_EXPIRY_SECONDS },
-  );
-
-  return { downloadUrl, downloadUrlExpiresAt: expiresAt };
+  return {
+    stream,
+    originalName: file.originalName,
+    mimeType: file.mimeType,
+    sizeBytes: file.sizeBytes,
+  };
 }
 
 /**
- * Soft-delete a file: sets scan_status to 'deleted' and asynchronously
- * removes the S3 object. Quota is released immediately.
+ * Soft-delete a file: sets scan_status to 'deleted' and removes the bytes
+ * from disk. Quota is released immediately.
  */
 export async function deleteFile(
   db: DbOrTx,
@@ -431,20 +364,12 @@ export async function deleteFile(
 
   if (!storageKeyToDelete) return;
 
-  // Asynchronously delete the S3 object — fire-and-forget is intentional:
-  // the row is already marked deleted; if S3 deletion fails, a separate
-  // cleanup job will retry. We do not block the response on S3.
-  void getS3()
-    .send(
-      new DeleteObjectCommand({
-        Bucket: env.S3_BUCKET,
-        Key: storageKeyToDelete,
-      }),
-    )
+  await fsp
+    .unlink(resolveStoragePath(storageKeyToDelete))
     .catch((err: unknown) => {
       logger.warn(
         { tenantId, fileId, storageKey: storageKeyToDelete, err: String(err) },
-        "files: S3 object deletion failed — will be retried by cleanup job",
+        "files: on-disk file deletion failed",
       );
     });
 
@@ -452,37 +377,18 @@ export async function deleteFile(
 }
 
 /**
- * Batch-delete S3 objects by storage key.
+ * Recursively remove a tenant's entire storage directory.
  * Used by the tenant-purge worker for GDPR hard-deletion.
- * Processes in chunks of 1000 (S3 DeleteObjects limit).
- * Errors per-chunk are caught and logged but do not propagate —
- * the caller should treat S3 failures as a storage-leak warning, not fatal.
  */
-export async function deleteTenantFiles(storageKeys: string[]): Promise<void> {
-  if (storageKeys.length === 0) return;
-  const s3 = getS3();
-  const CHUNK = 1000;
-  for (let i = 0; i < storageKeys.length; i += CHUNK) {
-    const chunk = storageKeys.slice(i, i + CHUNK);
-    await s3
-      .send(
-        new DeleteObjectsCommand({
-          Bucket: env.S3_BUCKET,
-          Delete: {
-            Objects: chunk.map((Key) => ({ Key })),
-            Quiet: true,
-          },
-        }),
-      )
-      .catch((err: unknown) => {
-        logger.warn(
-          { count: chunk.length, err: String(err) },
-          "files: batch S3 deletion failed — storage may leak",
-        );
-      });
-  }
-  logger.info(
-    { count: storageKeys.length },
-    "files: tenant S3 objects deleted",
-  );
+export async function deleteTenantFiles(tenantId: string): Promise<void> {
+  const tenantDir = resolveStoragePath(tenantId);
+  await fsp
+    .rm(tenantDir, { recursive: true, force: true })
+    .catch((err: unknown) => {
+      logger.warn(
+        { tenantId, err: String(err) },
+        "files: tenant directory deletion failed — storage may leak",
+      );
+    });
+  logger.info({ tenantId }, "files: tenant files deleted");
 }

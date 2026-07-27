@@ -78,7 +78,7 @@ export function Login(): React.ReactElement {
         <div className="lp-topbar-inner">
           {/* Brand */}
           <div className="lp-brand">
-            <div className="lp-brand-logo">W</div>
+            <div className="lp-brand-logo">OW</div>
             <span className="lp-brand-name">OpenWind</span>
           </div>
 
@@ -103,7 +103,7 @@ export function Login(): React.ReactElement {
         <div className="lp-card">
           {/* Card header */}
           <div className="lp-card-head">
-            <div className="lp-card-logo">W</div>
+            <div className="lp-card-logo">OW</div>
             <h1 className="lp-card-title">Sign in to OpenWind</h1>
             <p className="lp-card-desc">
               Your modular workflow platform. Access modules, configure
@@ -142,7 +142,7 @@ export function Login(): React.ReactElement {
                     <polyline points="10 17 15 12 10 7" />
                     <line x1="15" y1="12" x2="3" y2="12" />
                   </svg>
-                  Sign in with Zitadel
+                  Sign In
                 </>
               )}
             </button>
@@ -165,13 +165,6 @@ export function Login(): React.ReactElement {
             Access is secured and session-scoped to your organisation
           </div>
         </div>
-
-        <p className="lp-help">
-          Need access?{" "}
-          <a href="mailto:support@openwind.io" className="lp-help-link">
-            Contact your admin
-          </a>
-        </p>
       </main>
 
       {/* ── Footer ── */}

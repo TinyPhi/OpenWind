@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
+import { userManager, waitForAuth, silentRefresh } from "../authProvider.js";
 
 export type ScanStatus = "pending" | "clean" | "quarantined" | "scan_failed";
 
@@ -129,12 +130,19 @@ async function compressImage(
   });
 }
 
-function xhrPut(
+type UploadResult = { fileId: string; scanStatus: string };
+
+/**
+ * Upload the multipart form via XHR (not fetch) so we get real progress
+ * events — fetch has no upload progress API. Retries once on 401 with a
+ * refreshed token, mirroring fetchWithAuth's retry behavior.
+ */
+function xhrUploadMultipart(
   url: string,
-  blob: Blob,
-  mimeType: string,
+  form: FormData,
+  token: string | undefined,
   onProgress: (pct: number) => void,
-): Promise<void> {
+): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.upload.onprogress = (e) => {
@@ -142,13 +150,45 @@ function xhrPut(
         onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`Upload failed: ${xhr.status}`));
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(
+            (JSON.parse(xhr.responseText) as { data: UploadResult }).data,
+          );
+        } catch {
+          reject(new Error("Upload succeeded but response was invalid"));
+        }
+        return;
+      }
+      if (xhr.status === 401) {
+        void silentRefresh().then((newToken) => {
+          if (!newToken) {
+            reject(new Error("Session expired"));
+            return;
+          }
+          xhrUploadMultipart(url, form, newToken, onProgress).then(
+            resolve,
+            reject,
+          );
+        });
+        return;
+      }
+      let message = `Upload failed: ${xhr.status}`;
+      try {
+        const body = JSON.parse(xhr.responseText) as {
+          message?: string;
+          error?: string;
+        };
+        message = body.message ?? body.error ?? message;
+      } catch {
+        /* keep default message */
+      }
+      reject(new Error(message));
     };
     xhr.onerror = () => reject(new Error("Network error during upload"));
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", mimeType);
-    xhr.send(blob);
+    xhr.open("POST", url);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.send(form);
   });
 }
 
@@ -271,33 +311,33 @@ export function useFileUpload({
         setStagedFiles((prev) => [...prev, newEntry]);
 
         try {
-          const initRes = (await fetchWithAuth(`${API_URL}/files`, {
-            method: "POST",
-            body: JSON.stringify({
-              originalName: file.name,
-              mimeType: uploadMime,
-              sizeBytes: uploadBlob.size,
-              moduleSlug,
-              entityId,
-            }),
-          })) as { data: { fileId: string; uploadUrl: string } };
+          await waitForAuth();
+          const user = await userManager.getUser();
 
-          const { fileId, uploadUrl } = initRes.data;
-          setStagedFiles((prev) =>
-            prev.map((f) => (f.fileId === tempId ? { ...f, fileId } : f)),
+          const form = new FormData();
+          form.set("file", uploadBlob, file.name);
+          form.set("moduleSlug", moduleSlug);
+          if (entityId) form.set("entityId", entityId);
+
+          const result = await xhrUploadMultipart(
+            `${API_URL}/files`,
+            form,
+            user?.access_token,
+            (pct) => {
+              setStagedFiles((prev) =>
+                prev.map((f) =>
+                  f.fileId === tempId ? { ...f, uploadProgress: pct } : f,
+                ),
+              );
+            },
           );
 
-          await xhrPut(uploadUrl, uploadBlob, uploadMime, (pct) => {
-            setStagedFiles((prev) =>
-              prev.map((f) =>
-                f.fileId === fileId ? { ...f, uploadProgress: pct } : f,
-              ),
-            );
-          });
-
-          await fetchWithAuth(`${API_URL}/files/${fileId}/complete`, {
-            method: "POST",
-          });
+          const { fileId } = result;
+          setStagedFiles((prev) =>
+            prev.map((f) =>
+              f.fileId === tempId ? { ...f, fileId, uploadProgress: 100 } : f,
+            ),
+          );
           schedulePoll(fileId, 2000);
         } catch (err) {
           if (previewUrl) URL.revokeObjectURL(previewUrl);

@@ -23,6 +23,12 @@ packages/*/src/**/*.d.ts.map
 # Local Docker overrides
 docker-compose.override.yml
 
+# Local file storage (see docs/specs/local-disk-file-storage.md) — default
+# location is ../openwind-files (a sibling of this repo, so normally outside
+# it entirely); this entry is just a defensive backstop in case
+# FILES_STORAGE_PATH_HOST is ever pointed inside the repo instead.
+/openwind-files/
+
 # Server deployment files — hosted config for rokkalabs.com, not for open-source
 .env.server
 docker-compose.server.yml

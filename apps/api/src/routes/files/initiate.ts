@@ -1,8 +1,8 @@
-import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
-import { initiateUpload } from "@platform/files";
+import { saveUpload, FileError } from "@platform/files";
+import { connection } from "../../lib/redis.js";
 import { factory } from "./factory.js";
 
 /**
@@ -37,20 +37,9 @@ const ALLOWED_MIME_TYPES = new Set([
   "application/x-zip-compressed",
 ]);
 
-const InitiateUploadSchema = z.object({
-  originalName: z.string().min(1).max(255),
-  mimeType: z
-    .string()
-    .min(1)
-    .max(255)
-    .refine((v) => ALLOWED_MIME_TYPES.has(v), {
-      message: "MIME type is not in the allowed list",
-    }),
-  sizeBytes: z
-    .number()
-    .int()
-    .min(1)
-    .max(100 * 1024 * 1024),
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
+const UploadFieldsSchema = z.object({
   moduleSlug: z.string().min(1).max(100),
   entityId: z.string().uuid().optional(),
 });
@@ -58,24 +47,92 @@ const InitiateUploadSchema = z.object({
 export const initiateUploadHandler = factory.createHandlers(
   requireAuth(),
   requireRole("admin", "agent", "user"),
-  zValidator("json", InitiateUploadSchema),
   async (c) => {
-    const input = c.req.valid("json");
     const { tenantId, userId } = c.get("auth");
 
-    const result = await withTenantContext(tenantId, (tx) =>
-      initiateUpload(
-        tx,
-        tenantId,
-        userId,
-        input.moduleSlug,
-        input.entityId ?? null,
-        input.originalName,
-        input.mimeType,
-        input.sizeBytes,
-      ),
-    );
+    const body = await c.req.parseBody();
+    const filePart = body["file"];
+    if (!(filePart instanceof File)) {
+      return c.json(
+        { error: "VALIDATION_ERROR", message: "file field is required" },
+        400,
+      );
+    }
 
-    return c.json({ data: result }, 201);
+    const rawEntityId = body["entityId"];
+    const fields = UploadFieldsSchema.safeParse({
+      moduleSlug: body["moduleSlug"],
+      entityId:
+        typeof rawEntityId === "string" && rawEntityId !== ""
+          ? rawEntityId
+          : undefined,
+    });
+    if (!fields.success) {
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          message: "Invalid upload fields",
+          fields: fields.error.flatten().fieldErrors,
+        },
+        422,
+      );
+    }
+
+    if (!ALLOWED_MIME_TYPES.has(filePart.type)) {
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          message: "MIME type is not in the allowed list",
+        },
+        422,
+      );
+    }
+    if (filePart.size < 1 || filePart.size > MAX_FILE_BYTES) {
+      return c.json(
+        { error: "FILE_TOO_LARGE", message: "File size out of allowed range" },
+        422,
+      );
+    }
+    if (filePart.name.length < 1 || filePart.name.length > 255) {
+      return c.json(
+        { error: "VALIDATION_ERROR", message: "Invalid file name" },
+        422,
+      );
+    }
+
+    const bytes = Buffer.from(await filePart.arrayBuffer());
+
+    try {
+      const result = await withTenantContext(tenantId, (tx) =>
+        saveUpload(
+          tx,
+          connection,
+          tenantId,
+          userId,
+          fields.data.moduleSlug,
+          fields.data.entityId ?? null,
+          filePart.name,
+          filePart.type,
+          bytes,
+        ),
+      );
+      return c.json({ data: result }, 201);
+    } catch (err: unknown) {
+      if (err instanceof FileError) {
+        switch (err.code) {
+          case "FILE_TOO_LARGE":
+            return c.json(
+              { error: err.code, message: "File exceeds the allowed size" },
+              422,
+            );
+          case "QUOTA_EXCEEDED":
+            return c.json(
+              { error: err.code, message: "Storage quota exceeded" },
+              422,
+            );
+        }
+      }
+      throw err;
+    }
   },
 );

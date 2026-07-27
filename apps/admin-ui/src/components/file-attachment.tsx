@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
-import { fetchWithAuth, API_URL } from "../lib/api.js";
+import { fetchRawWithAuth, API_URL } from "../lib/api.js";
 import type { StagedFile } from "../hooks/use-file-upload.js";
 
 /* ── Types ─────────────────────────────────────────────────────── */
@@ -15,6 +15,22 @@ export type AttachmentFile = {
 };
 
 /* ── Helpers ───────────────────────────────────────────────────── */
+
+/**
+ * GET /files/:id now streams bytes directly (no more presigned S3 URL), and
+ * requires the Authorization header — which plain <img>/<embed> src
+ * attributes can't send. Fetch the bytes as a Blob and hand back an object
+ * URL instead; callers must revoke it when done.
+ */
+async function fetchFileBlob(fileId: string, inline?: boolean): Promise<Blob> {
+  const res = await fetchRawWithAuth(
+    `${API_URL}/files/${fileId}${inline ? "?inline=1" : ""}`,
+  );
+  if (!res.ok) {
+    throw new Error(`Download failed (${res.status})`);
+  }
+  return res.blob();
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -311,10 +327,7 @@ export function FileCard({
 
   async function triggerDownload(): Promise<void> {
     try {
-      const res = (await fetchWithAuth(`${API_URL}/files/${file.id}`)) as {
-        data: { downloadUrl: string };
-      };
-      const blob = await fetch(res.data.downloadUrl).then((r) => r.blob());
+      const blob = await fetchFileBlob(file.id);
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objUrl;
@@ -555,12 +568,7 @@ export function FileChip({
           onClick={() => {
             void (async () => {
               try {
-                const res = (await fetchWithAuth(
-                  `${API_URL}/files/${file.id}`,
-                )) as { data: { downloadUrl: string } };
-                const blob = await fetch(res.data.downloadUrl).then((r) =>
-                  r.blob(),
-                );
+                const blob = await fetchFileBlob(file.id);
                 const objUrl = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = objUrl;
@@ -742,31 +750,36 @@ export function FilePreviewModal({
     file.mimeType.startsWith("text/") || file.mimeType === "application/json";
 
   React.useEffect(() => {
-    const ctrl = new AbortController();
+    // A property on a ref object (rather than a bare `let`) so TS doesn't
+    // narrow it to a stale literal across the `await` boundaries below —
+    // it's genuinely mutated by the cleanup function after those awaits.
+    const state = { cancelled: false };
+    let objUrl: string | undefined;
     async function load(): Promise<void> {
       try {
-        const res = (await fetchWithAuth(
-          `${API_URL}/files/${file.id}?inline=1`,
-        )) as {
-          data: { downloadUrl: string };
-        };
-        if (ctrl.signal.aborted) return;
-        setDownloadUrl(res.data.downloadUrl);
+        const blob = await fetchFileBlob(file.id, true);
+        if (state.cancelled) return;
+        objUrl = URL.createObjectURL(blob);
+        setDownloadUrl(objUrl);
 
         if (isText) {
-          const r = await fetch(res.data.downloadUrl, { signal: ctrl.signal });
-          const text = await r.text();
+          const text = await blob.text();
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- TS narrows `state.cancelled` to a stale literal here; the cleanup function genuinely flips it after this await resolves.
+          if (state.cancelled) return;
           setTextContent(text.slice(0, 50_000));
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load file");
+        if (!state.cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load file");
+        }
       } finally {
-        setLoading(false);
+        if (!state.cancelled) setLoading(false);
       }
     }
     void load();
     return () => {
-      ctrl.abort();
+      state.cancelled = true;
+      if (objUrl) URL.revokeObjectURL(objUrl);
     };
   }, [file.id, isText]);
 
@@ -782,16 +795,12 @@ export function FilePreviewModal({
               className="fa-modal-download"
               title="Download"
               onClick={() => {
-                void fetch(downloadUrl)
-                  .then((r) => r.blob())
-                  .then((blob) => {
-                    const objUrl = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = objUrl;
-                    a.download = file.originalName;
-                    a.click();
-                    setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
-                  });
+                // downloadUrl is already a blob: object URL from the effect
+                // above — no need to re-fetch, just trigger a save-as.
+                const a = document.createElement("a");
+                a.href = downloadUrl;
+                a.download = file.originalName;
+                a.click();
               }}
             >
               <svg

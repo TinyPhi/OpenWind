@@ -117,6 +117,11 @@ const EnvSchema = z
     S3_BUCKET: z.string(),
     S3_ACCESS_KEY: z.string(),
     S3_SECRET_KEY: z.string(),
+    // Local-disk file storage (replaces presigned S3 URLs — see
+    // docs/specs/local-disk-file-storage.md). In-container path only; the
+    // host-side bind-mount source is FILES_STORAGE_PATH_HOST, a
+    // docker-compose-only var never read by application code.
+    FILES_STORAGE_PATH: z.string().default("/data/files"),
     ANTHROPIC_API_KEY: z.string(),
     // SSRF protection — comma-separated extra CIDR ranges to block on outbound webhooks
     // (hardcoded RFC 1918 / loopback / link-local ranges are always blocked regardless)

@@ -18,8 +18,12 @@ async function doFetch(
   if (
     options.method &&
     options.method !== "GET" &&
-    !headers.has("Content-Type")
+    !headers.has("Content-Type") &&
+    !(options.body instanceof FormData)
   ) {
+    // FormData bodies must NOT get an explicit Content-Type — the browser
+    // sets multipart/form-data with the correct boundary itself; overriding
+    // it here would break multipart parsing on the server.
     headers.set("Content-Type", "application/json");
   }
 
