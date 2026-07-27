@@ -55,26 +55,36 @@ function scanWithClamav(absPath: string): Promise<"clean" | "infected"> {
       reject(err);
     };
 
+    // Created in paused mode — no listeners attached yet, so it can't start
+    // flowing (and writing to the socket) until we explicitly let it below.
     const fileStream = fs.createReadStream(absPath, { highWaterMark: 8192 });
-
-    socket.connect(env.CLAMAV_PORT, env.CLAMAV_HOST, () => {
-      // INSTREAM: zINSTREAM\0, then chunks as 4-byte big-endian length + data, then 4 zero bytes
-      socket.write("zINSTREAM\0");
-    });
-
+    fileStream.pause();
     fileStream.on("error", fail);
 
-    fileStream.on("data", (chunk: Buffer) => {
-      const len = Buffer.alloc(4);
-      len.writeUInt32BE(chunk.length, 0);
-      socket.write(len);
-      socket.write(chunk);
-    });
+    socket.connect(env.CLAMAV_PORT, env.CLAMAV_HOST, () => {
+      // INSTREAM: zINSTREAM\0, then chunks as 4-byte big-endian length + data, then 4 zero bytes.
+      // The header MUST reach ClamAV before any chunk does — only start
+      // consuming the file stream once the header write has been queued,
+      // otherwise (if the disk read completes before the TCP handshake)
+      // chunks can be written to the socket ahead of the header, which
+      // ClamAV rejects by closing the connection (surfaces as write EPIPE
+      // on our next write, since it's now writing into a closed socket).
+      socket.write("zINSTREAM\0");
 
-    fileStream.on("end", () => {
-      const terminator = Buffer.alloc(4);
-      terminator.writeUInt32BE(0, 0);
-      socket.write(terminator);
+      fileStream.on("data", (chunk: Buffer) => {
+        const len = Buffer.alloc(4);
+        len.writeUInt32BE(chunk.length, 0);
+        socket.write(len);
+        socket.write(chunk);
+      });
+
+      fileStream.on("end", () => {
+        const terminator = Buffer.alloc(4);
+        terminator.writeUInt32BE(0, 0);
+        socket.write(terminator);
+      });
+
+      fileStream.resume();
     });
 
     socket.on("data", (chunk) => {

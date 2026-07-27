@@ -86,10 +86,12 @@ vi.mock("./queues.js", () => ({
   connection: {},
 }));
 
-// Fake readable file stream — a plain EventEmitter with a no-op destroy(),
-// driven manually per-test via emit("data"/"end"/"error").
+// Fake readable file stream — a plain EventEmitter with no-op destroy()/
+// pause()/resume(), driven manually per-test via emit("data"/"end"/"error").
 class FakeFileStream extends EventEmitter {
   destroy = vi.fn();
+  pause = vi.fn();
+  resume = vi.fn();
 }
 let lastFileStream: FakeFileStream | undefined;
 
