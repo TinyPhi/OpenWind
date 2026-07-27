@@ -18,7 +18,7 @@ import fs from "node:fs";
 import net from "node:net";
 import { Worker } from "bullmq";
 import { eq, and } from "drizzle-orm";
-import { db, files, outboxEvents } from "@platform/db";
+import { files, outboxEvents, withTenantContext } from "@platform/db";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import { sendNotification } from "@platform/notifications";
@@ -115,15 +115,17 @@ export const avScanWorker = new Worker<AvScanJob>(
 
     // Idempotency: skip if no longer pending.
     // Also fetch uploadedBy so we can notify the uploader on quarantine.
-    const [file] = await db
-      .select({
-        id: files.id,
-        scanStatus: files.scanStatus,
-        uploadedBy: files.uploadedBy,
-      })
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
-      .limit(1);
+    const [file] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .select({
+          id: files.id,
+          scanStatus: files.scanStatus,
+          uploadedBy: files.uploadedBy,
+        })
+        .from(files)
+        .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
+        .limit(1),
+    );
 
     if (!file) {
       logger.warn(
@@ -145,20 +147,24 @@ export const avScanWorker = new Worker<AvScanJob>(
     const verdict = await scanWithClamav(resolveStoragePath(storageKey));
 
     if (verdict === "clean") {
-      await db
-        .update(files)
-        .set({ scanStatus: "clean", updatedAt: new Date() })
-        .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)));
+      await withTenantContext(tenantId, (tx) =>
+        tx
+          .update(files)
+          .set({ scanStatus: "clean", updatedAt: new Date() })
+          .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId))),
+      );
 
       logger.info({ tenantId, fileId }, "av-scan: file is clean");
       return;
     }
 
     // Infected → quarantine
-    await db
-      .update(files)
-      .set({ scanStatus: "quarantined", updatedAt: new Date() })
-      .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)));
+    await withTenantContext(tenantId, (tx) =>
+      tx
+        .update(files)
+        .set({ scanStatus: "quarantined", updatedAt: new Date() })
+        .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId))),
+    );
 
     logger.warn(
       { tenantId, fileId, storageKey },
@@ -210,26 +216,28 @@ avScanWorker.on("failed", (job, err) => {
     // Write scan_failed status and emit system.error outbox event
     void (async () => {
       try {
-        await db
-          .update(files)
-          .set({ scanStatus: "scan_failed", updatedAt: new Date() })
-          .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)));
+        await withTenantContext(tenantId, async (tx) => {
+          await tx
+            .update(files)
+            .set({ scanStatus: "scan_failed", updatedAt: new Date() })
+            .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)));
 
-        await db.insert(outboxEvents).values({
-          tenantId,
-          eventType: "system.error",
-          version: 1,
-          payload: {
-            source: "av-scan-worker",
-            fileId,
-            error: String(err),
-            attemptsMade: job.attemptsMade,
-          },
-          // system.error isn't an automation trigger (outbox-poller.ts's
-          // allowlist excludes it) and has no other consumer — dead-letter by
-          // design at write time, rather than leaving delivered_at NULL forever
-          // (which would make it look like an undelivered row nothing ever picks up).
-          deliveredAt: new Date(),
+          await tx.insert(outboxEvents).values({
+            tenantId,
+            eventType: "system.error",
+            version: 1,
+            payload: {
+              source: "av-scan-worker",
+              fileId,
+              error: String(err),
+              attemptsMade: job.attemptsMade,
+            },
+            // system.error isn't an automation trigger (outbox-poller.ts's
+            // allowlist excludes it) and has no other consumer — dead-letter by
+            // design at write time, rather than leaving delivered_at NULL forever
+            // (which would make it look like an undelivered row nothing ever picks up).
+            deliveredAt: new Date(),
+          });
         });
       } catch (writeErr) {
         logger.error(

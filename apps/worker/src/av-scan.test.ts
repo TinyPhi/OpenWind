@@ -45,12 +45,19 @@ const mockDbInsert = vi
   .mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
 const mockDbSelect = vi.fn();
 
+const mockTx = {
+  select: (...args: unknown[]) => mockDbSelect(...args),
+  update: (...args: unknown[]) => mockDbUpdate(...args),
+  insert: (...args: unknown[]) => mockDbInsert(...args),
+};
+
 vi.mock("@platform/db", () => ({
-  db: {
-    select: (...args: unknown[]) => mockDbSelect(...args),
-    update: (...args: unknown[]) => mockDbUpdate(...args),
-    insert: (...args: unknown[]) => mockDbInsert(...args),
-  },
+  db: mockTx,
+  // withTenantContext just runs the callback against the same mocked tx —
+  // the RLS/set_config side effects it performs against a real DB aren't
+  // relevant to these unit tests, only that callers actually go through it.
+  withTenantContext: (_tenantId: string, fn: (tx: typeof mockTx) => unknown) =>
+    fn(mockTx),
   files: { id: "id", tenantId: "tenantId", scanStatus: "scanStatus" },
   outboxEvents: {},
   tenants: {},
