@@ -70,7 +70,7 @@ export const outboxEvents = pgTable(
      * Independent delivery-claim column for the notification worker (Phase 2
      * of in-app-notification-hub) — kept separate from `deliveredAt` (the
      * automation engine's claim column) so the two consumers never race for
-     * the same row. See 0036_notifications.sql.
+     * the same row. See 0040_notifications.sql.
      */
     notifiedDeliveredAt: timestamp("notified_delivered_at", {
       withTimezone: true,
