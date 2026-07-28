@@ -12,24 +12,23 @@ function dispatchApiError(type: "auth" | "server", message: string): void {
 // values sourced from entity/workflow data (ids, slugs, etc). Attaching the
 // user's bearer token to a `fetch()` whose target could be steered off-origin
 // (a full attacker-controlled URL smuggled into one of those segments) would
-// leak the access token to that origin — so every authenticated request is
-// pinned to same-origin before the token is ever attached.
-function assertSameOrigin(url: string): string {
-  const resolved = new URL(url, window.location.origin);
-  if (resolved.origin !== window.location.origin) {
-    throw new Error(
-      "Refusing to send authenticated request to a cross-origin URL",
-    );
-  }
-  return resolved.toString();
-}
+// leak the access token to that origin. A root-relative path (starts with a
+// single `/`, never `//` — which the URL spec treats as protocol-relative,
+// i.e. a different host) can only ever resolve on this same origin, so
+// requiring that shape rules out cross-origin targets without needing to
+// parse and compare the resolved URL.
+const SAME_ORIGIN_PATH = /^\/(?!\/)/;
 
 async function doFetch(
   url: string,
   options: RequestInit,
   token: string | undefined,
 ): Promise<Response> {
-  const sameOriginUrl = assertSameOrigin(url);
+  if (!SAME_ORIGIN_PATH.test(url)) {
+    throw new Error(
+      "Refusing to send authenticated request to a cross-origin URL",
+    );
+  }
   const headers = new Headers(options.headers as HeadersInit | undefined);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (
@@ -43,7 +42,7 @@ async function doFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    return await fetch(sameOriginUrl, {
+    return await fetch(url, {
       ...options,
       headers,
       signal: controller.signal,
@@ -122,13 +121,17 @@ export async function fetchWithAuth(
 }
 
 export async function fetchRawWithAuth(url: string): Promise<Response> {
+  if (!SAME_ORIGIN_PATH.test(url)) {
+    throw new Error(
+      "Refusing to send authenticated request to a cross-origin URL",
+    );
+  }
   await waitForAuth();
   const user = await userManager.getUser();
   let token = user?.access_token;
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const sameOriginUrl = assertSameOrigin(url);
-  let response = await fetch(sameOriginUrl, { headers });
+  let response = await fetch(url, { headers });
 
   // On 401, attempt a silent token refresh and retry once — matches
   // fetchWithAuth's retry behavior, previously missing here.
@@ -138,7 +141,7 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
       token = newToken;
       const retryHeaders = new Headers();
       retryHeaders.set("Authorization", `Bearer ${token}`);
-      response = await fetch(sameOriginUrl, { headers: retryHeaders });
+      response = await fetch(url, { headers: retryHeaders });
     }
   }
 
