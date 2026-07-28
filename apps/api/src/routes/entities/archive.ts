@@ -5,6 +5,7 @@ import { withTenantContext } from "@platform/db";
 import { archiveEntity } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { cancelAllPendingAlertsForInstance } from "../../lib/cascade-cancel-alerts.js";
 
 const ArchiveQuerySchema = z.object({
   confirm: z
@@ -26,6 +27,7 @@ export const archiveEntityHandler = factory.createHandlers(
       const result = await withTenantContext(tenantId, (tx) =>
         archiveEntity(tx, tenantId, instanceId, confirm),
       );
+      void cancelAllPendingAlertsForInstance(tenantId, instanceId);
       return c.json({ data: result });
     } catch (err) {
       return handleEntityError(c, err);

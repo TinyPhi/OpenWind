@@ -31,6 +31,39 @@ export function hasEntityReadAccess(
 }
 
 /**
+ * Explicit ticket access list — createdBy + assignedTo + __accessUsers keys,
+ * unioned with the given creator id. Deliberately excludes org-wide
+ * admin/agent role access (hasEntityReadAccess's role check): a "notify
+ * everyone with access" ticket alert should reach the people actually tied to
+ * this ticket, not every admin/agent in the tenant. See docs/specs/ticket-alerts.md §R4.
+ */
+export function explicitAccessListUserIds(
+  instance: {
+    createdBy: string | null;
+    assignedTo: string | null;
+    fields: unknown;
+  },
+  unionUserId: string,
+): string[] {
+  const ids = new Set<string>();
+  if (instance.createdBy) ids.add(instance.createdBy);
+  if (instance.assignedTo) ids.add(instance.assignedTo);
+
+  const accessUsers =
+    (instance.fields as Record<string, unknown> | null)?.__accessUsers ?? {};
+  if (Array.isArray(accessUsers)) {
+    for (const uid of accessUsers as string[]) ids.add(uid);
+  } else if (typeof accessUsers === "object") {
+    for (const uid of Object.keys(accessUsers as Record<string, unknown>)) {
+      ids.add(uid);
+    }
+  }
+
+  ids.add(unionUserId);
+  return Array.from(ids);
+}
+
+/**
  * Full record-level access check: hasEntityReadAccess plus "is the caller an
  * admin (creator or assigned_to) of this record's workflow" — a workflow
  * admin gets full access to every record in their workflow, not just ones
