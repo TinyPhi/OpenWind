@@ -164,6 +164,7 @@ echo "human pass-approval + full gate chain:"
 printf 'export const _h = 1;\n' >"$TMP"
 git add "$TMP"
 printf '%s' '{"dod_met":true}' | "$H/write-review.sh" - --allow-no-tests >/dev/null 2>&1
+"$H/write-docs-marker.sh" --skip "hook test fixture, no doc surface" >/dev/null 2>&1
 "$H/write-ship-marker.sh" >/dev/null 2>&1
 no_pass=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" 2>&1)
 printf '%s' "$no_pass" | grep -q "no human pass-approval"
