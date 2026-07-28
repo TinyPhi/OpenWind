@@ -137,6 +137,43 @@ export const entityRelations = pgTable(
   }),
 );
 
+export const ticketAlerts = pgTable(
+  "ticket_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    instanceId: uuid("instance_id")
+      .notNull()
+      .references(() => entityInstances.id),
+    createdBy: text("created_by").notNull(),
+    note: text("note").notNull(),
+    fireAt: timestamp("fire_at", { withTimezone: true }).notNull(),
+    scope: text("scope").$type<"me" | "all">().notNull(),
+    recipientsSnapshot: jsonb("recipients_snapshot").$type<string[]>(),
+    status: text("status")
+      .$type<"pending" | "fired" | "cancelled">()
+      .notNull()
+      .default("pending"),
+    firedAt: timestamp("fired_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantInstanceIdx: index("ticket_alerts_tenant_instance_idx").on(
+      t.tenantId,
+      t.instanceId,
+    ),
+    tenantCreatedByIdx: index("ticket_alerts_tenant_created_by_idx").on(
+      t.tenantId,
+      t.createdBy,
+    ),
+  }),
+);
+
 export const accessRequests = pgTable(
   "access_requests",
   {

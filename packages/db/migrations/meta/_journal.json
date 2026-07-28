@@ -295,6 +295,20 @@
       "when": 1783417691000,
       "tag": "0041_platform_settings",
       "breakpoints": false
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1783417692000,
+      "tag": "0042_ticket_alerts",
+      "breakpoints": false
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1783417693000,
+      "tag": "0043_notifications_ticket_alert_type",
+      "breakpoints": false
     }
   ]
 }
