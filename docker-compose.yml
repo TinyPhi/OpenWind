@@ -367,6 +367,7 @@ services:
       REDIS_URL: redis://redis:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
+      OPENBAO_ADDR: http://openbao:8200
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_URL: http://localhost:9000
     dns:
@@ -383,6 +384,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      openbao:
         condition: service_healthy
 
   # ── Admin UI (React + Refine) ──────────────────────────────────────────────
