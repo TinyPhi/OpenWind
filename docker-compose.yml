@@ -140,6 +140,11 @@ services:
     container_name: ow-cache
     image: redis:7-alpine
     restart: unless-stopped
+    # No host port mapping: apps/worker runs as a container on this deployment
+    # (fully containerized, no host-side `pnpm dev` process reaching in), and
+    # ow-backend/worker reach redis over the Docker network by service name.
+    # A host mapping here also collides with other projects' redis containers
+    # sharing this host on the default 6379 port.
     command: >
       redis-server
         --maxmemory 512mb
@@ -315,6 +320,60 @@ services:
       OPENBAO_ADDR: http://openbao:8200
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_URL: http://localhost:9000
+    # The host's primary DNS resolver has been observed timing out
+    # intermittently on external lookups (e.g. the ZITADEL_URL host), which
+    # Docker's embedded DNS (127.0.0.11) inherits and fails faster on than
+    # the OS does — surfaces as JWKSTimeout -> spurious 401s after login.
+    # Keep Docker's embedded resolver first (it resolves sibling container
+    # names like redis/postgres/pgbouncer) and fall back to public resolvers
+    # only for external lookups — listing only 1.1.1.1/8.8.8.8 here broke
+    # in-network service name resolution entirely.
+    dns:
+      - 127.0.0.11
+      - 1.1.1.1
+      - 8.8.8.8
+    restart: unless-stopped
+    networks:
+      - default
+      - openwind_zitadel
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      openbao:
+        condition: service_healthy
+
+  # ── Worker (BullMQ background jobs — outbox poller, automation, SLA,
+  # notifications, file cleanup, AV scan) ─────────────────────────────────────
+  # Separate deployable from ow-backend by design (CLAUDE.md repository layout):
+  # apps/api serves HTTP + the notification websocket's live push, but the
+  # actual outbox polling / automation execution / notification-row creation
+  # that feeds that push runs here. Without this service, BullMQ jobs queue up
+  # but are never consumed — notifications silently never get created.
+  ow-worker:
+    container_name: ow-worker
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      DATABASE_URL: postgres://app_user:app_user_dev_password@pgbouncer:5432/platform
+      MIGRATION_DATABASE_URL: postgresql://migration_user:migration_user_dev_password@postgres:5432/platform
+      REDIS_URL: redis://redis:6379
+      ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
+      ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
+      OPENBAO_ADDR: http://openbao:8200
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_URL: http://localhost:9000
+    dns:
+      - 127.0.0.11
+      - 1.1.1.1
+      - 8.8.8.8
     restart: unless-stopped
     networks:
       - default
