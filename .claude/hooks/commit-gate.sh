@@ -65,7 +65,7 @@ else if (review.diff_sha !== sha("diff HEAD")) fails.push("code changed since th
 else if (review.dod_met !== true) fails.push("Definition-of-Done not affirmatively met (dod_met must be true): " + (review.dod_unmet || []).join(", "));
 // Docs — every commit either touches docs or explicitly justifies why not, so docs
 // never silently drift out of sync with the code landing alongside them.
-const docs = readJSON("docs-updated.json");
+const docs = ctx.readJSON(ctx.statePath(repo, "docs-updated", branch));
 if (!docs) fails.push("no docs marker (run write-docs-marker.sh --touched, or --skip \"<reason>\", before committing)");
 else if (docs.branch !== branch) fails.push("docs marker is for branch " + docs.branch);
 else if (docs.diff_sha !== sha("diff HEAD")) fails.push("code changed since the docs marker was written; re-run write-docs-marker.sh against the final diff");
