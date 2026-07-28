@@ -1,4 +1,4 @@
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { requireAuth } from "@platform/auth";
 import { withTenantAndUserContext, savedViews } from "@platform/db";
 import { eq, and } from "drizzle-orm";

@@ -23,6 +23,8 @@ vi.mock("drizzle-orm", () => {
     isNull: noop,
     sql: sqlFn,
     inArray: noop,
+    asc: noop,
+    desc: noop,
   };
 });
 
@@ -57,7 +59,17 @@ vi.mock("@platform/db", () => {
       "deletedAt",
       "createdAt",
     ]),
-    workflows: tbl(["id", "name", "tenantId"]),
+    workflows: tbl(["id", "name", "tenantId", "entityTypeId"]),
+    workflowStates: tbl([
+      "id",
+      "workflowId",
+      "name",
+      "label",
+      "color",
+      "isTerminal",
+      "sortOrder",
+    ]),
+    workflowTransitions: tbl(["id", "workflowId"]),
   };
 });
 
@@ -305,6 +317,47 @@ describe("GET /entities/my-tickets", () => {
     const { data } = await (await makeApp().request("/my-tickets")).json();
     // creator tag is remapped to "manual" for child tickets in the spec
     expect(data.childTickets[0].accessReason).toBe("manual");
+  });
+
+  it("workflow rollup includes entityTypeId, states, and transitionCount for card rendering", async () => {
+    // Query order for a single-workflow, no-children case: accessibleRows,
+    // childRelations, then the three parallel workflow-metadata queries
+    // (workflowRows, stateRows, transitionRows) added so a plain "user"
+    // caller's records-page card can render the same icon/state chips an
+    // admin's card gets — previously my-tickets only returned bare id/name.
+    mockWithTenantContext
+      .mockResolvedValueOnce([makeRow({ id: "a", createdBy: USER })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: WF_ID, name: "Expense Claims", entityTypeId: "et-001" },
+      ])
+      .mockResolvedValueOnce([
+        {
+          workflowId: WF_ID,
+          name: "open",
+          label: "Open",
+          color: "#0ea5e9",
+          isTerminal: false,
+        },
+        {
+          workflowId: WF_ID,
+          name: "closed",
+          label: "Closed",
+          color: null,
+          isTerminal: true,
+        },
+      ])
+      .mockResolvedValueOnce([{ workflowId: WF_ID }, { workflowId: WF_ID }]);
+
+    const { data } = await (await makeApp().request("/my-tickets")).json();
+    expect(data.workflows).toHaveLength(1);
+    expect(data.workflows[0].entityTypeId).toBe("et-001");
+    expect(data.workflows[0].states).toHaveLength(2);
+    expect(data.workflows[0].states[0]).toMatchObject({
+      name: "open",
+      label: "Open",
+    });
+    expect(data.workflows[0].transitionCount).toBe(2);
   });
 
   it("workflow slug is derived from workflow name", async () => {

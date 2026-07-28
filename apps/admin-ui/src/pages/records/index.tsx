@@ -34,7 +34,15 @@ type MyTicketWorkflow = {
   workflowId: string;
   workflowName: string;
   workflowSlug: string;
+  entityTypeId: string;
   accessibleTicketCount: number;
+  states: {
+    name: string;
+    label: string;
+    color: string | null;
+    isTerminal: boolean;
+  }[];
+  transitionCount: number;
 };
 
 type MyTicketParent = {
@@ -381,14 +389,14 @@ export function AdminRecords(): React.ReactElement {
         <WorkflowCardGrid
           items={searchedMyWorkflows.map((wf, i) => ({
             id: wf.workflowId,
-            name: wf.workflowName,
-            entityTypeId: "",
+            name: humanizeWorkflowName(wf.workflowName),
+            entityTypeId: wf.entityTypeId,
             slug: wf.workflowSlug,
             gradient: CARD_GRADIENTS[i % CARD_GRADIENTS.length] ?? "",
             count: wf.accessibleTicketCount,
             countLabel: "ticket",
-            states: [],
-            transitionCount: 0,
+            states: wf.states,
+            transitionCount: wf.transitionCount,
             etMap,
             ...(activeFilter !== "all" && { filterParam: activeFilter }),
           }))}

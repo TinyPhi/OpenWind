@@ -1,6 +1,6 @@
 import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, withTenantContext } from "@platform/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
@@ -15,6 +15,15 @@ import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 // workflow-admin status still needs to read *their own ticket's* workflow for
 // states/transitions, so an optional ?entityId= proves that — caller must
 // have read access to that entity AND the entity's workflowId must match.
+//
+// The kanban board (workflow-records.tsx) has no single entityId to prove —
+// it renders the whole board of records the caller can see. Without a
+// fallback, any plain "user"/"agent" caller who isn't a workflow admin got a
+// 404 fetching the board's own workflow definition, even though they legitimately
+// own tickets in it. Fall back to the same three-vector check my-tickets.ts
+// uses (created_by / assigned_to / __accessUsers ACL key) against ANY instance
+// in this workflow — proves the caller has a real stake in the workflow
+// without requiring them to name one specific record up front.
 export const getWorkflowHandler = factory.createHandlers(
   requireAuth(),
   requireRole("admin", "agent", "user"),
@@ -52,6 +61,27 @@ export const getWorkflowHandler = factory.createHandlers(
         authorized =
           instance?.workflowId === id &&
           hasEntityReadAccess(instance, userId, roles);
+      }
+
+      if (!authorized) {
+        const [own] = await withTenantContext(tenantId, (tx) =>
+          tx
+            .select({ id: entityInstances.id })
+            .from(entityInstances)
+            .where(
+              and(
+                eq(entityInstances.workflowId, id),
+                eq(entityInstances.tenantId, tenantId),
+                or(
+                  eq(entityInstances.createdBy, userId),
+                  eq(entityInstances.assignedTo, userId),
+                  sql`${entityInstances.fields}->'__accessUsers' ? ${userId}`,
+                ),
+              ),
+            )
+            .limit(1),
+        );
+        authorized = !!own;
       }
 
       if (!authorized) {

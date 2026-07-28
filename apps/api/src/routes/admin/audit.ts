@@ -5,7 +5,7 @@
  * date range (from/to), and cursor-based pagination (cursor = last row id;
  * limit max 100).
  */
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";

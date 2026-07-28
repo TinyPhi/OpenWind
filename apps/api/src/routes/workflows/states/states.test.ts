@@ -147,6 +147,52 @@ describe("PATCH /workflows/:id/states/:stateId", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("passes a renamed internal name through to updateWorkflowState", async () => {
+    mockUpdateState.mockResolvedValue({ ...fakeState, name: "in_progress" });
+
+    const res = await makeApp().request(`/${WF_ID}/states/${STATE_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "in_progress", label: "In Progress" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateState).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      WF_ID,
+      STATE_ID,
+      { userId: "u-bbb", isGlobalAdmin: true },
+      expect.objectContaining({ name: "in_progress", label: "In Progress" }),
+    );
+  });
+
+  it("returns 400 when the renamed name is not snake_case", async () => {
+    const res = await makeApp().request(`/${WF_ID}/states/${STATE_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "In Progress" }),
+    });
+    expect(res.status).toBe(400);
+    expect(mockUpdateState).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when renaming to a name already used by another step in this workflow", async () => {
+    const { WorkflowError } = await import("@platform/workflow-engine");
+    mockUpdateState.mockRejectedValue(
+      new WorkflowError("WORKFLOW_STATE_NAME_TAKEN", { name: "resolved" }),
+    );
+
+    const res = await makeApp().request(`/${WF_ID}/states/${STATE_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "resolved" }),
+    });
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toBe("WORKFLOW_STATE_NAME_TAKEN");
+  });
 });
 
 describe("DELETE /workflows/:id/states/:stateId", () => {

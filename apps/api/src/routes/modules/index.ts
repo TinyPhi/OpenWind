@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";

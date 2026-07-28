@@ -4,7 +4,7 @@
  * GET  /admin/view-configs/:entityType  — returns current config or module default
  * PATCH /admin/view-configs/:entityType — upsert (tenant-scoped)
  */
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext, viewConfigs } from "@platform/db";
