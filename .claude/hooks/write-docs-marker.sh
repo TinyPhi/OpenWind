@@ -12,16 +12,16 @@ REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:
 export REPO
 export LIBDIR="${CLAUDE_PROJECT_DIR:-$REPO}/.claude/hooks/lib"
 exec node -e '
-const fs=require("fs"), cp=require("child_process"), crypto=require("crypto");
+const fs=require("fs"), cp=require("child_process");
 const ctx=require(process.env.LIBDIR+"/context.js");
 const repo=process.env.REPO;
 ctx.ensureStateDir(repo,"docs-updated");
 const args=process.argv.slice(1);
 function sh(c){try{return cp.execSync(c,{cwd:repo}).toString();}catch(e){return "";}}
 const branch=ctx.branchOf(repo);
-const diff=sh("git diff HEAD");
-if(!diff.trim()){console.error("Cannot write docs marker: git diff HEAD is empty - nothing to document.");process.exit(1);}
-const diffSha=crypto.createHash("sha256").update(diff).digest("hex");
+const diffBuf=ctx.shBuf("git diff HEAD",repo);
+if(!diffBuf.toString().trim()){console.error("Cannot write docs marker: git diff HEAD is empty - nothing to document.");process.exit(1);}
+const diffSha=ctx.sha256(diffBuf);
 const changed=sh("git diff HEAD --name-only").split("\n").filter(Boolean);
 const isDocFile=f=>/(^|\/)docs\//i.test(f) || /^CLAUDE\.md$/i.test(f) || /^README\.md$/i.test(f) || /^\.claude\/.*\.md$/i.test(f);
 const touchedDocs=changed.filter(isDocFile);
