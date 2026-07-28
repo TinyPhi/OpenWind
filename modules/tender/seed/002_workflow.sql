@@ -17,6 +17,22 @@ WHERE NOT EXISTS (
   SELECT 1 FROM workflows
   WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}')
     AND tenant_id = '{TENANT_ID}'
+);
+
+-- Clean up existing states/transitions for this workflow to ensure idempotency
+DELETE FROM workflow_transitions WHERE workflow_id = (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}');
+DELETE FROM workflow_states WHERE workflow_id = (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}');
+
+-- Insert workflow states
+INSERT INTO workflow_states (id, workflow_id, tenant_id, name, label, color, is_terminal, sla_hours, sort_order)
+VALUES
+  (gen_random_uuid(), (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'draft', 'Draft', '#6b7280', false, NULL, 1),
+  (gen_random_uuid(), (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'boq_preparation', 'BOQ Preparation', '#3b82f6', false, NULL, 2),
+  (gen_random_uuid(), (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'pending_costing_review', 'Pending Costing Review', '#f59e0b', false, NULL, 3),
+  (gen_random_uuid(), (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'costing_approved', 'Costing Approved', '#10b981', false, NULL, 4),
+  (gen_random_uuid(), (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'document_preparation', 'Document Preparation', '#8b5cf6', false, NULL, 5),
+  (gen_random_uuid(), (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'pending_submission_review', 'Pending Submission Review', '#f59e0b', false, NULL, 6),
+  (gen_random_uuid(), (SELECT id FROM workflows WHERE entity_type_id = (SELECT id FROM entity_types WHERE name = 'tender' AND tenant_id = '{TENANT_ID}') AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'submitted', 'Submitted', '#059669', true, NULL, 7);
 
 -- Insert workflow transitions
 INSERT INTO workflow_transitions (id, workflow_id, tenant_id, from_state, to_state, label, allowed_roles, conditions, requires_comment, requires_fields)
