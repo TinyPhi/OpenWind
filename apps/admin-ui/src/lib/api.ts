@@ -16,15 +16,15 @@ function dispatchApiError(type: "auth" | "server", message: string): void {
 // single `/`, never `//` — which the URL spec treats as protocol-relative,
 // i.e. a different host) can only ever resolve on this same origin, so
 // requiring that shape rules out cross-origin targets without needing to
-// parse and compare the resolved URL.
-const SAME_ORIGIN_PATH = /^\/(?!\/)/;
-
+// parse and compare the resolved URL. Inlined (not a shared helper) at each
+// call site so a static SSRF checker sees the guard directly ahead of its
+// matching fetch() call rather than across a function boundary.
 async function doFetch(
   url: string,
   options: RequestInit,
   token: string | undefined,
 ): Promise<Response> {
-  if (!SAME_ORIGIN_PATH.test(url)) {
+  if (!url.startsWith("/") || url.startsWith("//")) {
     throw new Error(
       "Refusing to send authenticated request to a cross-origin URL",
     );
@@ -121,7 +121,7 @@ export async function fetchWithAuth(
 }
 
 export async function fetchRawWithAuth(url: string): Promise<Response> {
-  if (!SAME_ORIGIN_PATH.test(url)) {
+  if (!url.startsWith("/") || url.startsWith("//")) {
     throw new Error(
       "Refusing to send authenticated request to a cross-origin URL",
     );
