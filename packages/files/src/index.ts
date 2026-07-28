@@ -72,9 +72,23 @@ function buildStorageKey(
   return `${tenantId}/${moduleSlug}/${entitySegment}/${safeName}`;
 }
 
-/** Resolves a storage key (relative, DB-stored) to an absolute on-disk path. */
+/**
+ * Resolves a storage key (relative, DB-stored) to an absolute on-disk path.
+ *
+ * Defense-in-depth: moduleSlug is regex-validated at the API boundary
+ * (apps/api/src/routes/files/initiate.ts) to reject path separators and
+ * ".." segments, but this second check ensures that even a future caller
+ * that skips that validation (or a stored storageKey from before the
+ * boundary check existed) can never resolve outside FILES_STORAGE_PATH —
+ * path.join alone does not clamp ".." segments to a base directory.
+ */
 export function resolveStoragePath(storageKey: string): string {
-  return path.join(env.FILES_STORAGE_PATH, storageKey);
+  const root = path.resolve(env.FILES_STORAGE_PATH);
+  const resolved = path.resolve(root, storageKey);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new FileError("STORAGE_PATH_ESCAPE", { storageKey });
+  }
+  return resolved;
 }
 
 /**

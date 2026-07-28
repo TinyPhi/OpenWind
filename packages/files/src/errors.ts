@@ -8,7 +8,8 @@ export type FileErrorCode =
   | "SCAN_FAILED"
   | "PROVIDER_ERROR"
   | "STORAGE_WRITE_FAILED"
-  | "STORAGE_READ_FAILED";
+  | "STORAGE_READ_FAILED"
+  | "STORAGE_PATH_ESCAPE";
 
 export class FileError extends Error {
   constructor(

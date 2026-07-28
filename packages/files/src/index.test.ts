@@ -60,8 +60,14 @@ vi.mock("@platform/db", () => ({
   },
 }));
 
-const { saveUpload, getFileStream, deleteFile, deleteTenantFiles } =
-  await import("./index.js");
+const {
+  saveUpload,
+  getFileStream,
+  deleteFile,
+  deleteTenantFiles,
+  resolveStoragePath,
+  FileError,
+} = await import("./index.js");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -509,5 +515,44 @@ describe("deleteTenantFiles", () => {
 
   it("does not throw when the tenant directory doesn't exist", async () => {
     await expect(deleteTenantFiles("no-such-tenant")).resolves.toBeUndefined();
+  });
+});
+
+// ── resolveStoragePath ────────────────────────────────────────────────────────
+
+describe("resolveStoragePath", () => {
+  it("resolves a well-formed storage key inside the storage root", () => {
+    const resolved = resolveStoragePath(
+      `${TENANT_ID}/helpdesk/unattached/${FILE_ID}.pdf`,
+    );
+    expect(resolved.startsWith(path.resolve(STORAGE_ROOT))).toBe(true);
+  });
+
+  it("throws STORAGE_PATH_ESCAPE for a storageKey traversing above the storage root", () => {
+    expect(() =>
+      resolveStoragePath(
+        `${TENANT_ID}/../../../../../../tmp/pwned/${FILE_ID}.pdf`,
+      ),
+    ).toThrow(FileError);
+    try {
+      resolveStoragePath(`${TENANT_ID}/../../../../../../tmp/pwned`);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(FileError);
+      expect((err as InstanceType<typeof FileError>).code).toBe(
+        "STORAGE_PATH_ESCAPE",
+      );
+    }
+  });
+
+  it("throws STORAGE_PATH_ESCAPE when a malicious moduleSlug segment escapes the root", () => {
+    // Mirrors the real attack this defends against: buildStorageKey embeds
+    // moduleSlug verbatim, so a malicious moduleSlug alone (no ".." needed in
+    // other segments) is enough to escape the storage root.
+    expect(() =>
+      resolveStoragePath(
+        `${TENANT_ID}/../../../../../../tmp/pwned/unattached/${FILE_ID}.pdf`,
+      ),
+    ).toThrow(FileError);
   });
 });

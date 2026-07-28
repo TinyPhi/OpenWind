@@ -200,6 +200,28 @@ describe("POST /files", () => {
     expect(res.status).toBe(422);
   });
 
+  it("returns 422 for a moduleSlug containing path traversal segments", async () => {
+    const app = buildApp();
+    const res = await app.request("/files", {
+      method: "POST",
+      body: makeUploadForm({ moduleSlug: "../../../../../../tmp/pwned" }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(saveUpload).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 for a moduleSlug containing a path separator", async () => {
+    const app = buildApp();
+    const res = await app.request("/files", {
+      method: "POST",
+      body: makeUploadForm({ moduleSlug: "hrms/../../etc" }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(saveUpload).not.toHaveBeenCalled();
+  });
+
   it("returns 422 when file exceeds 100 MB (route-level size check)", async () => {
     // Constructing a real 100MB+ File in a test is wasteful; instead confirm
     // saveUpload's FILE_TOO_LARGE error maps to 422 (the size check itself is
