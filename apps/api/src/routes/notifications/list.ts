@@ -1,4 +1,3 @@
-import { zValidator } from "@hono/zod-validator";
 import { requireAuth } from "@platform/auth";
 import {
   withTenantAndUserContext,
@@ -6,6 +5,7 @@ import {
   notificationRecipients,
 } from "@platform/db";
 import { eq, and, or, lt, desc } from "drizzle-orm";
+import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { ListNotificationsQuerySchema } from "./schemas.js";
 
