@@ -16,7 +16,8 @@ packages/*/src/**/*.d.ts.map
 # Turbo
 .turbo/
 
-# Environment — .env is committed (no secrets, just COMPOSE_ENV_FILES pointer)
+# Environment
+.env
 .env.local
 .env.*.local
 

@@ -20,6 +20,7 @@ interface OutboundJobData {
 
 interface OutboundPayload {
   notificationId: string;
+  tenantId: string;
   title: string;
   body: string;
   link: string | null;
@@ -139,6 +140,7 @@ export const notificationOutboundWorker = new Worker<OutboundJobData>(
 
     await dispatchOutbound({
       notificationId,
+      tenantId,
       title: notification.title,
       body: notification.body,
       link: notification.link,
