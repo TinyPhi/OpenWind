@@ -30,7 +30,7 @@ async function tick(): Promise<void> {
       // Claims against notified_delivered_at, a column independent of
       // outbox-poller.ts's delivered_at — the automation engine and the
       // notification hub are two separate consumers of the same outbox and
-      // must not race each other's claim (see 0036_notifications.sql).
+      // must not race each other's claim (see 0040_notifications.sql).
       const rows = await tx.execute<{
         id: string;
         tenant_id: string;
