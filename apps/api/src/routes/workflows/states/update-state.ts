@@ -1,4 +1,4 @@
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
@@ -8,6 +8,12 @@ import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
 
 const UpdateStateSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-z_][a-z0-9_]*$/, "must be snake_case")
+    .optional(),
   label: z.string().min(1).max(200).optional(),
   color: z.string().optional(),
   isTerminal: z.boolean().optional(),

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { humanizeWorkflowName } from "../../lib/format.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import type { EntityType } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { resolveCardIcon } from "../../lib/icon.js";
-import { humanizeWorkflowName } from "../../lib/format.js";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -35,7 +35,15 @@ type MyTicketWorkflow = {
   workflowId: string;
   workflowName: string;
   workflowSlug: string;
+  entityTypeId: string;
   accessibleTicketCount: number;
+  states: {
+    name: string;
+    label: string;
+    color: string | null;
+    isTerminal: boolean;
+  }[];
+  transitionCount: number;
 };
 
 type MyTicketParent = {
@@ -340,13 +348,13 @@ export function AdminRecords(): React.ReactElement {
           items={visibleMyWorkflows.map((wf, i) => ({
             id: wf.workflowId,
             name: humanizeWorkflowName(wf.workflowName),
-            entityTypeId: "",
+            entityTypeId: wf.entityTypeId,
             slug: wf.workflowSlug,
             gradient: CARD_GRADIENTS[i % CARD_GRADIENTS.length] ?? "",
             count: wf.accessibleTicketCount,
             countLabel: "ticket",
-            states: [],
-            transitionCount: 0,
+            states: wf.states,
+            transitionCount: wf.transitionCount,
             etMap,
             ...(activeFilter !== "all" && { filterParam: activeFilter }),
           }))}

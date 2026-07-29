@@ -9,13 +9,19 @@ import type * as WorkflowEngine from "@platform/workflow-engine";
 const mockGetWorkflow = vi.fn();
 
 let currentAuth: AuthContext;
-// Row returned for the entityId-proof lookup (entityInstances select). null = no row found.
-let entityRow: {
-  createdBy: string | null;
-  assignedTo: string | null;
-  fields: unknown;
-  workflowId: string | null;
-} | null;
+// Queue of rows consumed, in call order, by successive entityInstances
+// queries within a single request: the ?entityId= proof lookup runs first
+// (only when entityId is present), then the "does the caller own any record
+// in this workflow" fallback lookup runs if still unauthorized. Each test
+// pushes exactly the results its own request will trigger, in order.
+let dbResultQueue: Array<
+  Array<{
+    createdBy: string | null;
+    assignedTo: string | null;
+    fields: unknown;
+    workflowId: string | null;
+  }>
+>;
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -43,7 +49,7 @@ vi.mock("@platform/db", () => ({
     tx["select"] = () => tx;
     tx["from"] = () => tx;
     tx["where"] = () => tx;
-    tx["limit"] = () => Promise.resolve(entityRow ? [entityRow] : []);
+    tx["limit"] = () => Promise.resolve(dbResultQueue.shift() ?? []);
     return fn(tx);
   },
 }));
@@ -96,7 +102,7 @@ function makeApp() {
 describe("GET /workflows/:id", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    entityRow = null;
+    dbResultQueue = [];
     currentAuth = {
       tenantId: "tenant-aaa",
       userId: "user-bbb",
@@ -135,9 +141,10 @@ describe("GET /workflows/:id", () => {
     expect(res.status).toBe(200);
   });
 
-  it("blocks a plain tenant member with no relation to the workflow and no entityId proof — 404, not 403", async () => {
+  it("blocks a plain tenant member with no relation to the workflow, no entityId proof, and no owned records — 404, not 403", async () => {
     currentAuth.roles = ["user"];
     mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
+    dbResultQueue = [[]]; // "any owned record in this workflow" fallback query
 
     const res = await makeApp().request(`/${WF_ID}`);
 
@@ -146,9 +153,10 @@ describe("GET /workflows/:id", () => {
     expect(body.error).toBe("WORKFLOW_NOT_FOUND");
   });
 
-  it("blocks a plain tenant member even with an agent role (agent is not a workflow-admin bypass)", async () => {
+  it("blocks a plain tenant member even with an agent role and no owned records (agent is not a blanket workflow-admin bypass)", async () => {
     currentAuth.roles = ["agent"];
     mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
+    dbResultQueue = [[]];
 
     const res = await makeApp().request(`/${WF_ID}`);
 
@@ -158,52 +166,112 @@ describe("GET /workflows/:id", () => {
   it("allows a non-workflow-admin caller who proves read access to a record in this workflow via ?entityId=", async () => {
     currentAuth.roles = ["user"];
     mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
-    entityRow = {
-      createdBy: "user-bbb",
-      assignedTo: null,
-      fields: {},
-      workflowId: WF_ID,
-    };
+    dbResultQueue = [
+      [
+        {
+          createdBy: "user-bbb",
+          assignedTo: null,
+          fields: {},
+          workflowId: WF_ID,
+        },
+      ],
+    ];
 
     const res = await makeApp().request(`/${WF_ID}?entityId=e-001`);
 
     expect(res.status).toBe(200);
   });
 
-  it("rejects ?entityId= when the entity's workflowId does not match the requested workflow", async () => {
+  it("rejects ?entityId= when the entity's workflowId does not match the requested workflow, and caller owns no record here either", async () => {
     currentAuth.roles = ["user"];
     mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
-    entityRow = {
-      createdBy: "user-bbb",
-      assignedTo: null,
-      fields: {},
-      workflowId: "some-other-workflow",
-    };
+    dbResultQueue = [
+      [
+        {
+          createdBy: "user-bbb",
+          assignedTo: null,
+          fields: {},
+          workflowId: "some-other-workflow",
+        },
+      ],
+      [], // fallback "own any record in this workflow" query
+    ];
 
     const res = await makeApp().request(`/${WF_ID}?entityId=e-001`);
 
     expect(res.status).toBe(404);
   });
 
-  it("rejects ?entityId= when the caller has no read access to that entity", async () => {
+  it("rejects ?entityId= when the caller has no read access to that entity, and owns no record here either", async () => {
     currentAuth.roles = ["user"];
     mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
-    entityRow = {
-      createdBy: "someone-else",
-      assignedTo: null,
-      fields: {},
-      workflowId: WF_ID,
-    };
+    dbResultQueue = [
+      [
+        {
+          createdBy: "someone-else",
+          assignedTo: null,
+          fields: {},
+          workflowId: WF_ID,
+        },
+      ],
+      [], // fallback query
+    ];
 
     const res = await makeApp().request(`/${WF_ID}?entityId=e-001`);
 
     expect(res.status).toBe(404);
   });
 
-  it("rejects ?entityId= pointing at a non-existent/cross-tenant entity", async () => {
+  it("allows the caller via the fallback when ?entityId= doesn't prove access but they own a different record in the same workflow", async () => {
     currentAuth.roles = ["user"];
     mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
-    entityRow = null;
+    dbResultQueue = [
+      [
+        {
+          createdBy: "someone-else",
+          assignedTo: null,
+          fields: {},
+          workflowId: WF_ID,
+        },
+      ],
+      [
+        {
+          createdBy: "user-bbb",
+          assignedTo: null,
+          fields: {},
+          workflowId: WF_ID,
+        },
+      ],
+    ];
+
+    const res = await makeApp().request(`/${WF_ID}?entityId=e-001`);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("allows a plain tenant member with no entityId (kanban board fetch) who owns a record in this workflow", async () => {
+    currentAuth.roles = ["user"];
+    mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
+    dbResultQueue = [
+      [
+        {
+          createdBy: "user-bbb",
+          assignedTo: null,
+          fields: {},
+          workflowId: WF_ID,
+        },
+      ],
+    ];
+
+    const res = await makeApp().request(`/${WF_ID}`);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects ?entityId= pointing at a non-existent/cross-tenant entity, with no owned records either", async () => {
+    currentAuth.roles = ["user"];
+    mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
+    dbResultQueue = [[], []];
 
     const res = await makeApp().request(`/${WF_ID}?entityId=e-999`);
 
