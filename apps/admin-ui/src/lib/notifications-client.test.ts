@@ -45,6 +45,15 @@ describe("markNotificationRead", () => {
       { method: "POST" },
     );
   });
+
+  it("percent-encodes the id so a WebSocket-injected path traversal cannot reach other endpoints", async () => {
+    mockFetchWithAuth.mockResolvedValue({});
+    await markNotificationRead("../../admin/reset");
+    expect(mockFetchWithAuth).toHaveBeenCalledWith(
+      "/api/notifications/..%2F..%2Fadmin%2Freset/read",
+      { method: "POST" },
+    );
+  });
 });
 
 describe("markAllNotificationsRead", () => {
