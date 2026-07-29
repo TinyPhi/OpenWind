@@ -276,6 +276,13 @@
       "breakpoints": false
     },
     {
+      "idx": 39,
+      "version": "7",
+      "when": 1783417689000,
+      "tag": "0039_module_visibility",
+      "breakpoints": false
+    },
+    {
       "idx": 40,
       "version": "7",
       "when": 1783417689000,

@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { useList } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
+import { useEntityTypes } from "../../entity-type-context.js";
+import { resolveCardIcon } from "../../lib/icon.js";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -82,6 +84,7 @@ function MiniFlow({
 
 export function Workflows(): React.ReactElement {
   const { data, isLoading } = useList<Workflow>({ resource: "workflows" });
+  const { getTypeById } = useEntityTypes();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
 
@@ -93,6 +96,132 @@ export function Workflows(): React.ReactElement {
     : allWorkflows;
 
   const activeCount = allWorkflows.filter((w) => w.isActive !== false).length;
+  const activeWorkflows = workflows.filter((w) => w.isActive !== false);
+  const inactiveWorkflows = workflows.filter((w) => w.isActive === false);
+  const accentById = new Map(
+    workflows.map((w, i) => [
+      w.id,
+      ACCENT_PALETTE[i % ACCENT_PALETTE.length] ?? "#6366f1",
+    ]),
+  );
+
+  const totalSteps = allWorkflows.reduce(
+    (sum, w) => sum + (w.states?.length ?? 0),
+    0,
+  );
+  const totalActions = allWorkflows.reduce(
+    (sum, w) => sum + (w.transitions?.length ?? 0),
+    0,
+  );
+  const totalRecords = allWorkflows.reduce(
+    (sum, w) => sum + (w.recordCount ?? 0),
+    0,
+  );
+
+  function renderRow(wf: Workflow): React.ReactElement {
+    const accent = accentById.get(wf.id) ?? "#6366f1";
+    const states = wf.states ?? [];
+    const transitions = wf.transitions ?? [];
+    const isActive = wf.isActive !== false;
+    const recordCount = wf.recordCount ?? 0;
+    const entityType = getTypeById(wf.entityTypeId);
+    const needsSetup = states.length > 0 && transitions.length === 0;
+
+    return (
+      <div
+        key={wf.id}
+        className="wfl-row"
+        style={{ "--row-accent": accent } as React.CSSProperties}
+        onClick={() => navigate(`/workflows/${toWorkflowSlug(wf.name)}`)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ")
+            navigate(`/workflows/${toWorkflowSlug(wf.name)}`);
+        }}
+      >
+        {/* 3px left accent */}
+        <div className="wfl-row-bar" />
+
+        {/* Circle icon — this workflow's actual entity-type icon */}
+        <div
+          className="wfl-row-icon"
+          style={{
+            background: `${accent}1a`,
+            borderColor: `${accent}30`,
+            fontSize: "24px",
+          }}
+        >
+          {resolveCardIcon(entityType?.icon)}
+        </div>
+
+        {/* Name + sub */}
+        <div className="wfl-row-info">
+          <div className="wfl-row-name">{wf.name}</div>
+          <div className="wfl-row-sub">
+            <span
+              className={`wfl-status-badge ${isActive ? "wfl-status-active" : "wfl-status-inactive"}`}
+            >
+              <span className="wfl-status-dot" />
+              {isActive ? "Active" : "Inactive"}
+            </span>
+            {recordCount > 0 && (
+              <span className="wfl-record-count-badge">
+                {recordCount} record{recordCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            {needsSetup && (
+              <span className="wfl-status-badge wfl-status-setup">
+                <span className="wfl-status-dot" />
+                Needs setup
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Mini flow */}
+        {states.length > 0 && (
+          <MiniFlow
+            states={states}
+            initialState={wf.initialState}
+            accent={accent}
+          />
+        )}
+
+        {/* Right: counts + date + chevron */}
+        <div className="wfl-row-right">
+          <div className="wfl-row-stats">
+            <span className="wfl-row-counts">
+              {states.length} step{states.length !== 1 ? "s" : ""} ·{" "}
+              {transitions.length} action
+              {transitions.length !== 1 ? "s" : ""}
+            </span>
+            <span className="wfl-row-date">
+              {new Date(wf.createdAt).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </span>
+          </div>
+          <div className="wfl-row-chevron">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -110,8 +239,8 @@ export function Workflows(): React.ReactElement {
         <div>
           <h2 className="page-title">Workflows</h2>
           <p className="page-subtitle">
-            State machine definitions — each governs states, transitions, SLA
-            timers, and role-based access guards.
+            Design how tickets move from step to step — the steps, the actions
+            between them, and who's allowed to do what.
           </p>
         </div>
         <div className="wfl-header-actions">
@@ -141,6 +270,28 @@ export function Workflows(): React.ReactElement {
           </button>
         </div>
       </div>
+
+      {/* ── Stats overview strip ── */}
+      {allWorkflows.length > 0 && (
+        <div className="wfl-overview-strip">
+          <div className="wfl-overview-stat">
+            <span className="wfl-overview-num">{allWorkflows.length}</span>
+            <span className="wfl-overview-label">Workflows</span>
+          </div>
+          <div className="wfl-overview-stat">
+            <span className="wfl-overview-num">{totalSteps}</span>
+            <span className="wfl-overview-label">Steps</span>
+          </div>
+          <div className="wfl-overview-stat">
+            <span className="wfl-overview-num">{totalActions}</span>
+            <span className="wfl-overview-label">Actions</span>
+          </div>
+          <div className="wfl-overview-stat">
+            <span className="wfl-overview-num">{totalRecords}</span>
+            <span className="wfl-overview-label">Records</span>
+          </div>
+        </div>
+      )}
 
       {/* ── Search bar ── */}
       {allWorkflows.length > 0 && (
@@ -219,120 +370,28 @@ export function Workflows(): React.ReactElement {
       )}
 
       {/* ── List ── */}
-      {workflows.length > 0 && (
-        <div className="wfl-list">
-          {workflows.map((wf, i) => {
-            const accent =
-              ACCENT_PALETTE[i % ACCENT_PALETTE.length] ?? "#6366f1";
-            const states = wf.states ?? [];
-            const transitions = wf.transitions ?? [];
-            const isActive = wf.isActive !== false;
-            const recordCount = wf.recordCount ?? 0;
+      {activeWorkflows.length > 0 && (
+        <>
+          {inactiveWorkflows.length > 0 && (
+            <div className="wfl-group-label">
+              Active ({activeWorkflows.length})
+            </div>
+          )}
+          <div className="wfl-list">
+            {activeWorkflows.map((wf) => renderRow(wf))}
+          </div>
+        </>
+      )}
 
-            return (
-              <div
-                key={wf.id}
-                className="wfl-row"
-                style={{ "--row-accent": accent } as React.CSSProperties}
-                onClick={() =>
-                  navigate(`/workflows/${toWorkflowSlug(wf.name)}`)
-                }
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ")
-                    navigate(`/workflows/${toWorkflowSlug(wf.name)}`);
-                }}
-              >
-                {/* 3px left accent */}
-                <div className="wfl-row-bar" />
-
-                {/* Circle icon */}
-                <div
-                  className="wfl-row-icon"
-                  style={{
-                    background: `${accent}1a`,
-                    borderColor: `${accent}30`,
-                    color: accent,
-                  }}
-                >
-                  <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M3 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061A1.125 1.125 0 013 16.811V8.69z" />
-                    <path d="M12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061a1.125 1.125 0 01-1.683-.977V8.69z" />
-                  </svg>
-                </div>
-
-                {/* Name + sub */}
-                <div className="wfl-row-info">
-                  <div className="wfl-row-name">{wf.name}</div>
-                  <div className="wfl-row-sub">
-                    <span
-                      className={`wfl-status-badge ${isActive ? "wfl-status-active" : "wfl-status-inactive"}`}
-                    >
-                      <span className="wfl-status-dot" />
-                      {isActive ? "Active" : "Inactive"}
-                    </span>
-                    {recordCount > 0 && (
-                      <span
-                        style={{ fontSize: "11px", color: "var(--text-muted)" }}
-                      >
-                        {recordCount} record{recordCount !== 1 ? "s" : ""}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Mini flow */}
-                {states.length > 0 && (
-                  <MiniFlow
-                    states={states}
-                    initialState={wf.initialState}
-                    accent={accent}
-                  />
-                )}
-
-                {/* Right: counts + date + chevron */}
-                <div className="wfl-row-right">
-                  <div className="wfl-row-stats">
-                    <span className="wfl-row-counts">
-                      {states.length} states · {transitions.length} transitions
-                    </span>
-                    <span className="wfl-row-date">
-                      {new Date(wf.createdAt).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </span>
-                  </div>
-                  <div className="wfl-row-chevron">
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {inactiveWorkflows.length > 0 && (
+        <>
+          <div className="wfl-group-label wfl-group-label-inactive">
+            Inactive ({inactiveWorkflows.length})
+          </div>
+          <div className="wfl-list">
+            {inactiveWorkflows.map((wf) => renderRow(wf))}
+          </div>
+        </>
       )}
     </div>
   );

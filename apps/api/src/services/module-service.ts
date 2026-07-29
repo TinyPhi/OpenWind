@@ -137,6 +137,7 @@ export class ModuleService {
    */
   static async listModules(
     tenantId: string,
+    includeHidden: boolean,
   ): Promise<Record<string, unknown>[]> {
     const [tenant] = await db
       .select()
@@ -158,10 +159,41 @@ export class ModuleService {
       ? (installedList as string[])
       : [];
 
-    return allModules.map((m) => ({
+    // Default view (Templates page, everyone including admin) only shows
+    // globally-visible templates. `includeHidden` is only ever true when the
+    // route layer has already verified the caller is admin AND explicitly
+    // asked to see hidden ones too (the Settings management view) — plain
+    // browsing never bypasses the filter, admin included.
+    const visibleModules = includeHidden
+      ? allModules
+      : allModules.filter((m) => m.isVisible);
+
+    return visibleModules.map((m) => ({
       ...m,
       installed: installed.includes(m.slug),
     }));
+  }
+
+  /**
+   * setVisibility - Global, platform-wide toggle for whether a template
+   * appears in every tenant's Templates page. Admin-only at the route
+   * layer; this method has no role check of its own.
+   */
+  static async setVisibility(slug: string, isVisible: boolean): Promise<void> {
+    if (!SLUG_RE.test(slug)) {
+      throw new Error(`Invalid module slug: ${slug}`);
+    }
+    const [updated] = await db
+      .update(modules)
+      .set({ isVisible })
+      .where(eq(modules.slug, slug))
+      .returning({ id: modules.id });
+
+    if (!updated) {
+      throw new Error(`Module not found: ${slug}`);
+    }
+
+    logger.info({ slug, isVisible }, "Module visibility updated");
   }
 
   /**

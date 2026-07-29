@@ -34,6 +34,7 @@ const committed = marker && marker.head_sha && head && head !== marker.head_sha;
 if (committed) {
   try { fs.unlinkSync(ctx.statePath(repo, "ship-ready", branch)); } catch (e) {}
   try { fs.unlinkSync(ctx.statePath(repo, "pass-approved", branch)); } catch (e) {}
+  try { fs.unlinkSync(ctx.statePath(repo, "docs-updated", branch)); } catch (e) {}
   try { fs.unlinkSync(ctx.stateDir(repo, "claimed-done") + "/" + ctx.slug(branch)); } catch (e) {}
 }
 process.exit(0);

@@ -513,6 +513,13 @@ function KanbanColumn({
   return (
     <div
       className={`kb-col kb-col--${dropState}`}
+      style={
+        state?.color
+          ? {
+              background: `color-mix(in srgb, ${state.color} 8%, var(--bg-secondary))`,
+            }
+          : undefined
+      }
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -1636,6 +1643,7 @@ export function WorkflowRecords(): React.ReactElement {
           border: 1px solid var(--border-color);
           border-radius: var(--radius-md);
           transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+          min-height: 50vh;
           max-height: calc(100vh - 185px);
         }
         .kb-col--valid {
@@ -1773,12 +1781,13 @@ export function WorkflowRecords(): React.ReactElement {
 
         .kb-card {
           background: var(--bg-card);
-          border: 1px solid var(--border-color);
+          border: 1px solid var(--border-subtle);
           border-radius: var(--radius-sm);
           padding: 11px 12px;
           cursor: grab;
           user-select: none;
           -webkit-user-drag: element;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
           transition:
             box-shadow var(--transition-fast),
             transform var(--transition-fast),
