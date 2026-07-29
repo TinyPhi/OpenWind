@@ -3,6 +3,7 @@ import {
   entityInstances,
   entityRelations,
   workflowEvents,
+  outboxEvents,
   withTenantContext,
 } from "@platform/db";
 
@@ -95,6 +96,34 @@ export async function emitAccessEvent(
         metadata: payload,
       }),
     );
+
+    // Only access_grant/access_revoke map to a notification trigger type today
+    // (docs/specs/in-app-notification-hub.md) — access_update/access_reject
+    // have no corresponding event schema yet, out of scope for this feature.
+    const notificationEventType =
+      payload.type === "access_grant"
+        ? ("access.granted" as const)
+        : payload.type === "access_revoke"
+          ? ("access.revoked" as const)
+          : null;
+
+    if (notificationEventType) {
+      await withTenantContext(tenantId, (tx) =>
+        tx.insert(outboxEvents).values({
+          tenantId,
+          eventType: notificationEventType,
+          version: 1,
+          payload: {
+            eventType: notificationEventType,
+            version: 1,
+            tenantId,
+            instanceId,
+            actorId,
+            targetUserId: payload.targetUserId,
+          },
+        }),
+      );
+    }
   } catch {
     // Best-effort — never block the main operation
   }

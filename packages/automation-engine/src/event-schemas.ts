@@ -51,11 +51,61 @@ export const EntityAssignedV1Schema = baseEvent.extend({
   assignedBy: z.string().uuid().nullable(),
 });
 
+export const CommentMentionedV1Schema = baseEvent.extend({
+  eventType: z.literal("comment.mentioned"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  mentionedUserIds: z.array(z.string()).min(1),
+});
+
+// Distinct from CommentMentionedV1Schema: fires only for mentioned users who
+// had no prior access and were granted brand-new access by this mention (see
+// add-comment.ts) — a different, more specific message than a plain mention.
+export const CommentMentionAccessGrantedV1Schema = baseEvent.extend({
+  eventType: z.literal("comment.mention_access_granted"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  mentionedUserIds: z.array(z.string()).min(1),
+});
+
+export const CommentRepliedV1Schema = baseEvent.extend({
+  eventType: z.literal("comment.replied"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  targetUserId: z.string(),
+});
+
+export const AccessGrantedV1Schema = baseEvent.extend({
+  eventType: z.literal("access.granted"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  targetUserId: z.string(),
+});
+
+export const AccessRevokedV1Schema = baseEvent.extend({
+  eventType: z.literal("access.revoked"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  targetUserId: z.string(),
+});
+
+export const SystemErrorV1Schema = baseEvent.extend({
+  eventType: z.literal("system.error"),
+  context: z.record(z.unknown()),
+  reason: z.string(),
+});
+
 export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   WorkflowTransitionedV1Schema,
   WorkflowSlaBreachedV1Schema,
   EntityCreatedV1Schema,
   EntityAssignedV1Schema,
+  CommentMentionedV1Schema,
+  CommentMentionAccessGrantedV1Schema,
+  CommentRepliedV1Schema,
+  AccessGrantedV1Schema,
+  AccessRevokedV1Schema,
+  SystemErrorV1Schema,
 ]);
 
 // Extracts just `depth` from an outbox payload before the full TriggerEventSchema
@@ -71,4 +121,12 @@ export type WorkflowTransitionedV1 = z.infer<
 export type WorkflowSlaBreachedV1 = z.infer<typeof WorkflowSlaBreachedV1Schema>;
 export type EntityCreatedV1 = z.infer<typeof EntityCreatedV1Schema>;
 export type EntityAssignedV1 = z.infer<typeof EntityAssignedV1Schema>;
+export type CommentMentionedV1 = z.infer<typeof CommentMentionedV1Schema>;
+export type CommentMentionAccessGrantedV1 = z.infer<
+  typeof CommentMentionAccessGrantedV1Schema
+>;
+export type CommentRepliedV1 = z.infer<typeof CommentRepliedV1Schema>;
+export type AccessGrantedV1 = z.infer<typeof AccessGrantedV1Schema>;
+export type AccessRevokedV1 = z.infer<typeof AccessRevokedV1Schema>;
+export type SystemErrorV1 = z.infer<typeof SystemErrorV1Schema>;
 export type TriggerEvent = z.infer<typeof TriggerEventSchema>;

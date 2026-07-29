@@ -2036,6 +2036,8 @@ export function WorkflowDetail(): React.ReactElement {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
+              appearance: "none",
+              WebkitAppearance: "none",
               padding: "12px 20px",
               fontSize: "13px",
               fontWeight: activeTab === tab.id ? 700 : 500,
@@ -2847,7 +2849,10 @@ export function WorkflowDetail(): React.ReactElement {
               >
                 {assignedTo.map((userId) => {
                   const u = orgUsers.find((o) => o.userId === userId);
-                  const displayName = u?.displayName ?? userId;
+                  // `displayName`/`userId` are expected to be strings, but
+                  // user data can be malformed upstream (missing profile
+                  // fields) — coerce so a bad row can't blank the whole page.
+                  const displayName = String(u?.displayName ?? userId);
                   const initials = displayName
                     .split(" ")
                     .slice(0, 2)

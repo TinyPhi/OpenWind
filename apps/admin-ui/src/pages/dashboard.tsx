@@ -67,6 +67,15 @@ function getTodayLabel(): string {
   });
 }
 
+// `color` is always an `hsl(h, s%, l%)` literal from WORKFLOW_COLORS / KpiCard
+// callers — this turns it into an `hsla(...)` with the given alpha so it can
+// be used as a translucent fill (string-concat like `${color}33` is invalid
+// on hsl() values, only on hex).
+function withAlpha(color: string, alpha: number): string {
+  const match = /^hsl\(([^)]+)\)$/.exec(color);
+  return match ? `hsla(${match[1]}, ${alpha})` : color;
+}
+
 function recordTitle(rec: EntityRecord): string {
   const f = rec.fields ?? {};
   const v = f.subject ?? f.title ?? f.name;
@@ -160,8 +169,8 @@ function KpiCard({
     <div
       onClick={onClick}
       style={{
-        background: "var(--bg-card)",
-        border: "1px solid var(--border-color)",
+        background: withAlpha(color, 0.1),
+        border: `1px solid ${withAlpha(color, 0.25)}`,
         borderRadius: "var(--radius-md)",
         padding: "20px 22px",
         cursor: onClick ? "pointer" : "default",
@@ -180,31 +189,21 @@ function KpiCard({
         }
       }}
       onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.borderColor =
-          "var(--border-color)";
+        (e.currentTarget as HTMLDivElement).style.borderColor = withAlpha(
+          color,
+          0.25,
+        );
         (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
       }}
     >
-      {/* left accent strip */}
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: "3px",
-          background: color,
-          borderRadius: "var(--radius-md) 0 0 var(--radius-md)",
-        }}
-      />
       {/* icon */}
       <div
         style={{
           width: "44px",
           height: "44px",
           borderRadius: "10px",
-          background: `${color}18`,
-          border: `1px solid ${color}33`,
+          background: withAlpha(color, 0.16),
+          border: `1px solid ${withAlpha(color, 0.3)}`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -823,13 +822,20 @@ export function Dashboard(): React.ReactElement {
         className="dash-body"
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 320px",
+          gridTemplateColumns: "minmax(0, 1fr) 320px",
           gap: "14px",
           alignItems: "start",
         }}
       >
         {/* ── Left column ─────────────────────────────────────────── */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "14px",
+            minWidth: 0,
+          }}
+        >
           {/* Workflow performance panel */}
           <div
             className="data-panel"

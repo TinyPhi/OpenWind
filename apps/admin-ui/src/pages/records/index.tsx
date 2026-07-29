@@ -5,6 +5,7 @@ import { humanizeWorkflowName } from "../../lib/format.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import type { EntityType } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
+import { resolveCardIcon } from "../../lib/icon.js";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -284,7 +285,7 @@ export function AdminRecords(): React.ReactElement {
           <WorkflowCardGrid
             items={filteredWorkflows.map((wf, i) => ({
               id: wf.id,
-              name: wf.name,
+              name: humanizeWorkflowName(wf.name),
               entityTypeId: wf.entityTypeId,
               slug: toWorkflowSlug(wf.name),
               gradient: CARD_GRADIENTS[i % CARD_GRADIENTS.length] ?? "",
@@ -513,7 +514,7 @@ function WorkflowCardGrid({
                 </div>
               )}
               <div style={{ fontSize: "32px", marginBottom: "8px" }}>
-                {et?.icon ?? "📋"}
+                {resolveCardIcon(et?.icon)}
               </div>
               <div
                 style={{

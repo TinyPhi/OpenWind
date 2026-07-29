@@ -31,6 +31,7 @@ import { CustomerRecordDetail } from "./pages/customer/record-detail.js";
 import { Automations } from "./pages/automations/index.js";
 import { AutomationWizard } from "./pages/automations/wizard/wizard.js";
 import { RequireAdmin } from "./components/require-admin.js";
+import { SystemLogsPage } from "./pages/system-logs.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import "./index.css";
 
@@ -148,6 +149,7 @@ export function App(): React.ReactElement {
                 path="/entity-types/:id/records/new"
                 element={<EntityInstanceCreate />}
               />
+              <Route path="/admin/system-logs" element={<SystemLogsPage />} />
             </Route>
 
             <Route path="/home" element={<Navigate to="/records" replace />} />

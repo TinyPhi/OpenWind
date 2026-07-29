@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useOne } from "@refinedev/core";
 import { useParams, Link } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { isRenderableIcon } from "../../lib/icon.js";
 
 type EntityType = {
   id: string;
@@ -374,7 +375,7 @@ export function EntityTypeDetail(): React.ReactElement {
       </div>
 
       <div className="detail-header">
-        {entityType.icon ? (
+        {isRenderableIcon(entityType.icon) ? (
           <span className="detail-icon">{entityType.icon}</span>
         ) : (
           <div className="detail-icon-placeholder">

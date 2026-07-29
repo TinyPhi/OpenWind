@@ -49,6 +49,15 @@ export default defineConfig(({ mode }) => {
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/api/, ""),
               },
+              // Notification hub's live push (docs/specs/in-app-notification-hub.md,
+              // T5) — same backend, needs `ws: true` since this is an upgrade, not a
+              // plain HTTP proxy. No path rewrite: apps/api serves this route as-is
+              // at /ws/notifications, unlike /api which strips its prefix.
+              "/ws": {
+                target: env["VITE_API_PROXY_TARGET"],
+                ws: true,
+                changeOrigin: true,
+              },
             },
           }
         : {}),

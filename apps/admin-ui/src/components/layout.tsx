@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useLogout, useGetIdentity } from "@refinedev/core";
 import { Link, useLocation } from "react-router-dom";
 import { userManager } from "../authProvider.js";
+import { NotificationBell } from "./notification-bell.js";
 
 // ── Admin nav items ──────────────────────────────────────────────────────────
 
@@ -26,7 +27,29 @@ const USERS_NAV = {
   ),
 };
 
-const SUPER_ADMIN_NAV_EXTRA = [USERS_NAV];
+// Backend requires the "admin" role (requireRole("admin") in
+// apps/api/src/routes/admin/system-logs.ts) — agents don't see this entry.
+const SYSTEM_LOGS_NAV = {
+  route: "/admin/system-logs",
+  label: "System Logs",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+      />
+    </svg>
+  ),
+};
+
+const SUPER_ADMIN_NAV_EXTRA = [USERS_NAV, SYSTEM_LOGS_NAV];
 
 const ADMIN_NAV = [
   {
@@ -264,186 +287,196 @@ export function Layout({
           <span />
           <span />
         </button>
-        <div className="logo-icon">W</div>
+        <div className="logo-icon">OW</div>
         <div className="logo-text">OpenWind</div>
       </div>
 
       <div
-        className="header-user"
-        ref={profileRef}
-        style={{ position: "relative" }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+        }}
       >
-        <button
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            padding: "5px 12px 5px 5px",
-            background: "var(--bg-tertiary)",
-            border: "1px solid var(--border-color)",
-            borderRadius: "20px",
-            cursor: "pointer",
-            transition: "box-shadow .15s",
-            maxWidth: "200px",
-          }}
-          onClick={() => setProfileOpen((o) => !o)}
-          aria-label="Open profile"
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.boxShadow =
-              "var(--shadow-sm)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
-          }}
+        <NotificationBell />
+        <div
+          className="header-user"
+          ref={profileRef}
+          style={{ position: "relative" }}
         >
-          <img
-            src={
-              identity?.avatar ??
-              `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&fontSize=38&fontWeight=700&chars=2`
-            }
-            alt="Avatar"
-            className="header-avatar"
-            style={{ flexShrink: 0 }}
-          />
-          <span
+          <button
             style={{
-              fontSize: "13px",
-              fontWeight: 500,
-              color: "var(--text-primary)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {name}
-          </span>
-        </button>
-
-        {profileOpen && (
-          <div
-            style={{
-              position: "absolute",
-              top: "calc(100% + 10px)",
-              right: 0,
-              width: "240px",
-              background: "var(--bg-secondary)",
+              display: "flex",
+              alignItems: "center",
+              gap: "7px",
+              padding: "3px 10px 3px 3px",
+              background: "transparent",
               border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-md)",
-              boxShadow: "var(--shadow-lg)",
-              zIndex: 200,
-              overflow: "hidden",
-              animation: "popup-in .12s ease",
+              borderRadius: "18px",
+              cursor: "pointer",
+              transition: "background .15s, border-color .15s",
+              maxWidth: "180px",
+            }}
+            onClick={() => setProfileOpen((o) => !o)}
+            aria-label="Open profile"
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background =
+                "var(--bg-tertiary)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background =
+                "transparent";
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                padding: "16px",
-              }}
-            >
-              <img
-                src={
-                  identity?.avatar ??
-                  `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&fontSize=38&fontWeight=700&chars=2`
-                }
-                alt="Avatar"
-                style={{
-                  width: "42px",
-                  height: "42px",
-                  borderRadius: "50%",
-                  flexShrink: 0,
-                }}
-              />
-              <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    color: "var(--text-primary)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {name}
-                </div>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "var(--text-muted)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {email}
-                </div>
-                <div
-                  style={{
-                    fontSize: "11px",
-                    color: "var(--accent-primary)",
-                    fontWeight: 500,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                    marginTop: "2px",
-                  }}
-                >
-                  {roleLabel}
-                </div>
-              </div>
-            </div>
-            <div
-              style={{
-                height: "1px",
-                background: "var(--border-color)",
-                margin: "0 16px",
-              }}
+            <img
+              src={
+                identity?.avatar ??
+                `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&fontSize=38&fontWeight=700&chars=2`
+              }
+              alt="Avatar"
+              className="header-avatar"
+              style={{ flexShrink: 0 }}
             />
-            <button
-              onClick={handleLogout}
+            <span
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                width: "100%",
-                padding: "12px 16px",
                 fontSize: "13px",
                 fontWeight: 500,
-                color: "var(--danger)",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  "hsla(350,80%,60%,.1)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  "none";
+                color: "var(--text-primary)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-                stroke="currentColor"
-                width="16"
-                height="16"
+              {name}
+            </span>
+          </button>
+
+          {profileOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 10px)",
+                right: 0,
+                width: "240px",
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "var(--radius-md)",
+                boxShadow: "var(--shadow-lg)",
+                zIndex: 200,
+                overflow: "hidden",
+                animation: "popup-in .12s ease",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "16px",
+                }}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+                <img
+                  src={
+                    identity?.avatar ??
+                    `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&fontSize=38&fontWeight=700&chars=2`
+                  }
+                  alt="Avatar"
+                  style={{
+                    width: "42px",
+                    height: "42px",
+                    borderRadius: "50%",
+                    flexShrink: 0,
+                  }}
                 />
-              </svg>
-              Sign out
-            </button>
-          </div>
-        )}
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "var(--text-primary)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-muted)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {email}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--accent-primary)",
+                      fontWeight: 500,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {roleLabel}
+                  </div>
+                </div>
+              </div>
+              <div
+                style={{
+                  height: "1px",
+                  background: "var(--border-color)",
+                  margin: "0 16px",
+                }}
+              />
+              <button
+                onClick={handleLogout}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  width: "100%",
+                  padding: "12px 16px",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: "var(--danger)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "hsla(350,80%,60%,.1)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "none";
+                }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="2"
+                  stroke="currentColor"
+                  width="16"
+                  height="16"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+                  />
+                </svg>
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

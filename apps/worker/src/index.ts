@@ -9,6 +9,12 @@ import { scheduleFileCleanup, stopFileCleanupWorker } from "./file-cleanup.js";
 import { stopTenantPurgeWorker } from "./tenant-purge.js";
 import { stopExportWorker } from "./export-worker.js";
 import { startHealthServer, stopHealthServer } from "./health-server.js";
+import {
+  startNotificationPoller,
+  stopNotificationPoller,
+} from "./notification-poller.js";
+import { stopNotificationWorker } from "./notification-worker.js";
+import { stopNotificationOutboundWorker } from "./notification-outbound-worker.js";
 
 logger.info({}, "Worker process starting");
 
@@ -16,18 +22,21 @@ logger.info({}, "Worker process starting");
 startOutboxPoller();
 startSlaScheduler();
 startHealthServer();
+startNotificationPoller();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
 void scheduleFileCleanup();
 
-// automationWorker, slaBreacher, avScanWorker, fileCleanupWorker all
-// start processing on import above.
+// automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
+// notificationWorker, notificationOutboundWorker all start processing on
+// import above.
 
 async function shutdown(): Promise<void> {
   logger.info({}, "Worker shutting down");
   await Promise.all([
     stopOutboxPoller(),
     stopSlaScheduler(),
+    stopNotificationPoller(),
     stopAutomationWorker(),
     slaBreacher.close(),
     stopAvScanWorker(),
@@ -35,6 +44,8 @@ async function shutdown(): Promise<void> {
     stopTenantPurgeWorker(),
     stopExportWorker(),
     stopHealthServer(),
+    stopNotificationWorker(),
+    stopNotificationOutboundWorker(),
     closeRedis(),
   ]);
   process.exit(0);

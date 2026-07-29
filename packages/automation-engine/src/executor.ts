@@ -198,7 +198,7 @@ async function runAction(
   try {
     switch (action.type) {
       case "notify":
-        executeNotifyAction(db, tenantId, event, action.config);
+        await executeNotifyAction(db, tenantId, event, action.config, redis);
         break;
       case "set_field":
         await executeSetFieldAction(db, tenantId, event, action.config, depth);
