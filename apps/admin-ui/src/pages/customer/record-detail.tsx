@@ -1695,23 +1695,45 @@ export function CustomerRecordDetail(): React.ReactElement {
     setEditingAlertId(null);
   }
 
-  async function loadAlerts(): Promise<void> {
+  async function loadAlerts(options: { silent?: boolean } = {}): Promise<void> {
     if (!id) return;
-    setAlertsLoading(true);
-    setAlertsError(null);
+    if (!options.silent) {
+      setAlertsLoading(true);
+      setAlertsError(null);
+    }
     try {
       const res = (await fetchWithAuth(`${API_URL}/entities/${id}/alerts`)) as {
         data: TicketAlert[];
       };
       setAlerts(res.data);
     } catch (err) {
-      setAlertsError(
-        err instanceof Error ? err.message : "Failed to load alerts",
-      );
+      // A silent background refresh failing (e.g. a transient network blip)
+      // shouldn't blank the modal with an error over data the user can
+      // already see — only surface it for the explicit/foreground load.
+      if (!options.silent) {
+        setAlertsError(
+          err instanceof Error ? err.message : "Failed to load alerts",
+        );
+      }
     } finally {
-      setAlertsLoading(false);
+      if (!options.silent) setAlertsLoading(false);
     }
   }
+
+  // The Alerts modal has no live-push subscription of its own — the
+  // notification bell's websocket client (notifications-client.ts) is a
+  // single-subscriber singleton already claimed by notification-bell.tsx;
+  // subscribing again here would silently steal its handler. Polling while
+  // the modal is open is the safe way to keep this list from going stale
+  // (e.g. showing "pending" after the alert has actually fired) without
+  // touching that shared singleton.
+  useEffect(() => {
+    if (!alertsModalOpen) return;
+    const interval = setInterval(() => {
+      void loadAlerts({ silent: true });
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [alertsModalOpen, id]);
 
   function openAlertsModal(): void {
     setKebabMenuOpen(false);

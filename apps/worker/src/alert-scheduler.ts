@@ -7,10 +7,13 @@
  * poll loop. SLA timer latency/throughput must never depend on alert volume,
  * and vice versa.
  *
- * The job ID is deterministic: `alert:{alertId}` (see
- * apps/api/src/lib/ticket-alerts-queue.ts). This lets the API cancel or
- * reschedule a job by computing its ID from the alert record, without a
- * separate lookup table — same trick as sla-scheduler.ts's `sla:{outboxEventId}`.
+ * The job ID is deterministic: `alert-{alertId}` (see
+ * apps/api/src/lib/ticket-alerts-queue.ts) — a dash, not a colon, since
+ * BullMQ rejects custom job ids containing ":" ("Custom Id cannot contain :").
+ * This lets the API cancel or reschedule a job by computing its ID from the
+ * alert record, without a separate lookup table — same trick as
+ * sla-scheduler.ts's `sla:{outboxEventId}` (which is itself latently broken
+ * by this same colon restriction — pre-existing, out of scope here).
  *
  * Recovery after BullMQ downtime: on restart this scheduler re-polls the
  * outbox for undelivered `ticket.alert_scheduled` events. Events whose
@@ -101,44 +104,71 @@ export async function tick(): Promise<void> {
         );
       }
 
-      if (fresh.length > 0) {
-        await Promise.all(
-          fresh.map((row) => {
-            const fireAt = new Date(row.payload.fireAt).getTime();
-            const delay = Math.max(0, fireAt - now);
-            const jobId = `alert:${row.payload.alertId}`;
+      // Per-row isolation (allSettled, not all): one row's enqueue failure
+      // must never poison the rest of the batch. An earlier version used
+      // Promise.all + a single transaction-wide update, so a single bad row
+      // (the colon-in-jobId incident, or any future transient failure) threw,
+      // rolled back the whole transaction, and left every row in the batch —
+      // including unrelated alerts — permanently undelivered, re-polled and
+      // re-failing every tick forever.
+      const enqueueResults = await Promise.allSettled(
+        fresh.map(async (row) => {
+          const fireAt = new Date(row.payload.fireAt).getTime();
+          const delay = Math.max(0, fireAt - now);
+          const jobId = `alert-${row.payload.alertId}`;
 
-            return ticketAlertsQueue.add(
-              "alert.fire",
-              {
-                alertId: row.payload.alertId,
-                tenantId: row.tenant_id,
-                fireAt: row.payload.fireAt,
-              } satisfies AlertJobData,
-              { jobId, delay },
-            );
-          }),
-        );
+          await ticketAlertsQueue.add(
+            "alert.fire",
+            {
+              alertId: row.payload.alertId,
+              tenantId: row.tenant_id,
+              fireAt: row.payload.fireAt,
+            } satisfies AlertJobData,
+            { jobId, delay },
+          );
+          return row.id;
+        }),
+      );
 
+      const enqueuedIds: string[] = [];
+      const failedRows: { row: AlertOutboxRow; err: unknown }[] = [];
+      enqueueResults.forEach((result, i) => {
+        const row = fresh[i];
+        if (!row) return;
+        if (result.status === "fulfilled") {
+          enqueuedIds.push(result.value);
+        } else {
+          failedRows.push({ row, err: result.reason });
+        }
+      });
+
+      if (enqueuedIds.length > 0) {
         logger.info(
-          { count: fresh.length },
+          { count: enqueuedIds.length },
           "Alert scheduler: enqueued fire jobs",
         );
       }
-
-      // Mark all rows (fresh + stale) as delivered so they are not re-processed.
-      // Stale rows are marked delivered even though they weren't enqueued —
-      // the ticket_alerts row itself (still 'pending') is the durable record,
-      // not the outbox row.
-      await tx
-        .update(outboxEvents)
-        .set({ deliveredAt: new Date() })
-        .where(
-          inArray(
-            outboxEvents.id,
-            rows.map((r) => r.id),
-          ),
+      if (failedRows.length > 0) {
+        logger.error(
+          {
+            count: failedRows.length,
+            outboxEventIds: failedRows.map((f) => f.row.id),
+            errs: failedRows.map((f) => String(f.err)),
+          },
+          "Alert scheduler: some rows failed to enqueue — left undelivered for retry next tick, rest of batch unaffected",
         );
+      }
+
+      // Mark delivered: stale rows + successfully-enqueued fresh rows only.
+      // Failed rows are deliberately left delivered_at=NULL so the next
+      // tick's FOR UPDATE SKIP LOCKED re-selects and retries just them.
+      const deliveredIds = [...stale.map((r) => r.id), ...enqueuedIds];
+      if (deliveredIds.length > 0) {
+        await tx
+          .update(outboxEvents)
+          .set({ deliveredAt: new Date() })
+          .where(inArray(outboxEvents.id, deliveredIds));
+      }
     });
   } catch (err) {
     logger.error({ err }, "Alert scheduler tick failed");

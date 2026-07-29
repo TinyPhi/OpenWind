@@ -15,6 +15,12 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+const mockRedisPublish = vi.fn().mockResolvedValue(undefined);
+vi.mock("@platform/redis", () => ({
+  getRedis: vi.fn(() => ({ publish: mockRedisPublish })),
+  NOTIFICATION_PUSH_CHANNEL: "notification:push",
+}));
+
 const mockTxSelectLimit = vi.fn();
 const mockTxSelectWhere = vi.fn(() => ({ limit: mockTxSelectLimit }));
 const mockTxSelectFrom = vi.fn(() => ({ where: mockTxSelectWhere }));
@@ -30,22 +36,23 @@ const mockTxUpdateWhere = vi.fn().mockResolvedValue(undefined);
 const mockTxUpdateSet = vi.fn(() => ({ where: mockTxUpdateWhere }));
 const mockTxUpdate = vi.fn(() => ({ set: mockTxUpdateSet }));
 
-const mockTransaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
-  fn({
-    select: mockTxSelect,
-    insert: mockTxInsert,
-    update: mockTxUpdate,
-  }),
+// Both the main fire transaction and the post-fire link-attach update go
+// through withTenantContext (ticket_alerts/notifications/notification_
+// recipients all have tenant RLS — a plain db.transaction() leaves
+// app.tenant_id unset and RLS rejects every query). Reused for both calls.
+const mockWithTenantContext = vi.fn(
+  async (_tenantId: string, fn: (tx: unknown) => Promise<unknown>) =>
+    fn({
+      select: mockTxSelect,
+      insert: mockTxInsert,
+      update: mockTxUpdate,
+    }),
 );
-
-const mockDbUpdateWhere = vi.fn().mockReturnValue({ catch: vi.fn() });
-const mockDbUpdateSet = vi.fn(() => ({ where: mockDbUpdateWhere }));
-const mockDbUpdate = vi.fn(() => ({ set: mockDbUpdateSet }));
 
 const isOutboundNotificationsEnabledMock = vi.fn().mockResolvedValue(true);
 
 vi.mock("@platform/db", () => ({
-  db: { transaction: mockTransaction, update: mockDbUpdate },
+  withTenantContext: mockWithTenantContext,
   ticketAlerts: "ticket_alerts_mock",
   notifications: { id: "notifications_id_mock" },
   notificationRecipients: "notification_recipients_mock",
@@ -103,6 +110,7 @@ describe("alertWorker processor (§R5, §R7)", () => {
     vi.clearAllMocks();
     mockTxInsertReturning.mockResolvedValue([{ id: "notification-1" }]);
     isOutboundNotificationsEnabledMock.mockResolvedValue(true);
+    mockRedisPublish.mockResolvedValue(undefined);
   });
 
   it("fires: writes a notification + recipient, flips status to 'fired' when pending", async () => {
@@ -177,6 +185,28 @@ describe("alertWorker processor (§R5, §R7)", () => {
       expect.objectContaining({ userId: "user-owner" }),
       expect.objectContaining({ userId: "user-mate" }),
     ]);
+  });
+
+  it("publishes a live push to NOTIFICATION_PUSH_CHANNEL for each recipient — without this, the recipient only sees the alert on their next refresh, not live", async () => {
+    mockTxSelectLimit.mockResolvedValueOnce([
+      alertRow({
+        scope: "all",
+        createdBy: "user-owner",
+        recipientsSnapshot: ["user-owner", "user-mate"],
+      }),
+    ]);
+
+    await capturedProcessor!(makeJob({ tenantId: "tenant-111" }));
+
+    expect(mockRedisPublish).toHaveBeenCalledTimes(2);
+    expect(mockRedisPublish).toHaveBeenCalledWith(
+      "notification:push",
+      expect.stringContaining('"userId":"user-owner"'),
+    );
+    expect(mockRedisPublish).toHaveBeenCalledWith(
+      "notification:push",
+      expect.stringContaining('"userId":"user-mate"'),
+    );
   });
 
   it("enqueues the outbound handoff only when the kill switch is enabled", async () => {

@@ -9,10 +9,13 @@
  *
  * Delivery reuses the existing live pipeline unmodified (§R7): one
  * `notifications` row + one `notification_recipients` row per recipient,
- * then the same `notify-outbound` handoff every other in-app notification
- * uses — no new delivery mechanism. Recipients come from the alert's own
- * columns (createdBy for scope='me', recipientsSnapshot for scope='all'),
- * never re-derived from live ticket access.
+ * the same Redis pub/sub live-push (NOTIFICATION_PUSH_CHANNEL) the websocket
+ * layer (apps/api) forwards to connected clients — see notification-worker.ts,
+ * whose shape this mirrors exactly — then the same `notify-outbound` handoff
+ * every other in-app notification uses. No new delivery mechanism. Recipients
+ * come from the alert's own columns (createdBy for scope='me',
+ * recipientsSnapshot for scope='all'), never re-derived from live ticket
+ * access.
  *
  * Notification body is deliberately generic (no interpolation of the
  * alert's free-text note) — matches notification-templates.ts's existing
@@ -23,13 +26,14 @@
 import { Worker } from "bullmq";
 import { eq, and } from "drizzle-orm";
 import {
-  db,
+  withTenantContext,
   ticketAlerts,
   notifications,
   notificationRecipients,
   isOutboundNotificationsEnabled,
 } from "@platform/db";
 import { logger } from "@platform/logger";
+import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { connection, notifyOutboundQueue } from "./queues.js";
 import { buildRecordLink } from "./notification-templates.js";
 import type { AlertJobData } from "./alert-scheduler.js";
@@ -39,7 +43,13 @@ export const alertWorker = new Worker<AlertJobData>(
   async (job) => {
     const { alertId, tenantId } = job.data;
 
-    const fired = await db.transaction(async (tx) => {
+    // ticket_alerts/notifications/notification_recipients are all RLS-tenant
+    // -scoped — withTenantContext sets both SET LOCAL ROLE app_user and the
+    // app.tenant_id GUC the RLS policies check. A plain db.transaction() here
+    // (as this file originally had) leaves that GUC unset, and the RLS
+    // policy's `current_setting('app.tenant_id', true)::uuid` cast throws
+    // "invalid input syntax for type uuid: ''" instead of just seeing 0 rows.
+    const fired = await withTenantContext(tenantId, async (tx) => {
       const [alert] = await tx
         .select()
         .from(ticketAlerts)
@@ -71,6 +81,10 @@ export const alertWorker = new Worker<AlertJobData>(
           ? (alert.recipientsSnapshot ?? [alert.createdBy])
           : [alert.createdBy];
       const uniqueRecipients = Array.from(new Set(recipients));
+      // Captured once so the DB row and the live-push payload below agree —
+      // mirrors notification-worker.ts's identical reasoning (avoids a
+      // second SELECT after insert just to read defaultNow() back).
+      const createdAt = new Date();
 
       const insertedNotifications = await tx
         .insert(notifications)
@@ -80,6 +94,7 @@ export const alertWorker = new Worker<AlertJobData>(
           title: "Ticket alert",
           body: "A reminder you set on this ticket is due",
           link: null, // filled in below once resolved — see instanceLink
+          createdAt,
         })
         .returning({ id: notifications.id });
       const notification = insertedNotifications[0];
@@ -99,7 +114,12 @@ export const alertWorker = new Worker<AlertJobData>(
         .set({ status: "fired", firedAt: new Date(), updatedAt: new Date() })
         .where(eq(ticketAlerts.id, alertId));
 
-      return { notificationId: notification.id, instanceId: alert.instanceId };
+      return {
+        notificationId: notification.id,
+        instanceId: alert.instanceId,
+        recipients: uniqueRecipients,
+        createdAt,
+      };
     });
 
     if (!fired) return;
@@ -110,17 +130,51 @@ export const alertWorker = new Worker<AlertJobData>(
       () => null,
     );
     if (link) {
-      await db
-        .update(notifications)
-        .set({ link })
-        .where(eq(notifications.id, fired.notificationId))
-        .catch((err: unknown) => {
-          logger.error(
-            { err, notificationId: fired.notificationId },
-            "Alert fire: failed to attach ticket link",
-          );
-        });
+      await withTenantContext(tenantId, (tx) =>
+        tx
+          .update(notifications)
+          .set({ link })
+          .where(eq(notifications.id, fired.notificationId)),
+      ).catch((err: unknown) => {
+        logger.error(
+          { err, notificationId: fired.notificationId },
+          "Alert fire: failed to attach ticket link",
+        );
+      });
     }
+
+    // Live push — best-effort, not a delivery guarantee, identical shape to
+    // notification-worker.ts's push so the same websocket layer (apps/api)
+    // forwards it without any alert-specific handling. Without this, the
+    // recipient only sees the alert on their next full page load/REST
+    // refetch instead of live in the notification bell.
+    const redis = getRedis();
+    await Promise.all(
+      fired.recipients.map((userId) =>
+        redis
+          .publish(
+            NOTIFICATION_PUSH_CHANNEL,
+            JSON.stringify({
+              tenantId,
+              userId,
+              notification: {
+                id: fired.notificationId,
+                type: "ticket.alert",
+                title: "Ticket alert",
+                body: "A reminder you set on this ticket is due",
+                link,
+                createdAt: fired.createdAt.toISOString(),
+              },
+            }),
+          )
+          .catch((err: unknown) => {
+            logger.warn(
+              { err, tenantId, userId, notificationId: fired.notificationId },
+              "Alert fire: failed to publish live push",
+            );
+          }),
+      ),
+    );
 
     if (await isOutboundNotificationsEnabled()) {
       await notifyOutboundQueue
