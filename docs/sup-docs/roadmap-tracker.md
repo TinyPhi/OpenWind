@@ -1,10 +1,11 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-25 (reconciliation — 8 PRs merged 2026-07-23/24 closing #128, #129, #141,
+**Last updated:** 2026-07-29 — PR #211 merged, closing **#125** (notify action wired end-to-end).
+Pre-Phase-3 hardening backlog now fully closed. Two PRs still open from earlier work:
+#186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).
+**Previously:** 2026-07-25 (reconciliation — 8 PRs merged 2026-07-23/24 closing #128, #129, #141,
 #160, #167, #168, #170, plus ADR-005 and ADR-006 accepted, resolving both open questions the
-2026-07-22 reconciliation left for a human. Only **#125** remains open from the original
-pre-Phase-3 hardening backlog. #181 (#136/ADR-007 RLS) merged 2026-07-25. Two PRs open awaiting
-review: #186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).)
+2026-07-22 reconciliation left for a human. #181 (#136/ADR-007 RLS) merged 2026-07-25.)
 **Previously:** 2026-07-24 (`workflow` branch — workflow builder UX pass, cascading-rename fix,
 template naming/validation bugfixes, template visibility governance (new, ad-hoc, not on the
 tracked Phase 3 backlog), and the Docs guardrail-pipeline stage — see week-log.md 2026-07-24 for
@@ -16,11 +17,11 @@ detail.); 2026-07-16 (PR #144 — child tickets, tender module (8th standard mod
 
 ## Summary scorecard
 
-| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                                                      |
-| ------------------------------- | ------------------- | --------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                                                 |
-| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **~95%**   | Pre-Phase 3 hardening: only **#125** (notify→Novu) remains open; #136/ADR-007 RLS closed via PR #181 (merged 2026-07-25). |
-| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace — not started, needs human planning sign-off per `CLAUDE.md`                                  |
+| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                               |
+| ------------------------------- | ------------------- | --------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                          |
+| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **100%**   | Pre-Phase 3 hardening complete — #125 closed via PR #211 (2026-07-29). All hardening items closed. |
+| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace — not started, needs human planning sign-off per `CLAUDE.md`           |
 
 ---
 
@@ -105,20 +106,20 @@ were consolidated into [docs/reviews/pending-review-findings.md](../reviews/pend
 2026-07-24 (only still-open findings kept). #126/#127 jumped the original queue per that review's
 severity ranking. As of 2026-07-24:
 
-| Issue                        | Title                                                               | Status                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [#121](../../issues/121)     | RLS under real role (`SET LOCAL ROLE app_user`)                     | ✅ Closed — PR #135                                                                                         |
-| [#122](../../issues/122)     | Isolation tests run as `app_user`, not superuser                    | ✅ Closed — alongside #121                                                                                  |
-| [#126](../../issues/126)     | `entity.created`/`entity.assigned` triggers never fire              | ✅ Closed — PR #138                                                                                         |
-| [#127](../../issues/127)     | `setEntityState`/`bulkSetState` unguarded state side-door           | ✅ Closed — PR #155                                                                                         |
-| [#120](../../issues/120)     | Automation double-trigger (depth resets on outbox path)             | ✅ Closed                                                                                                   |
-| [#123](../../issues/123)     | Automation queue has no retries                                     | ✅ Closed                                                                                                   |
-| [#124](../../issues/124)     | Auth middleware writes on every request                             | ✅ Closed                                                                                                   |
-| [#128](../../issues/128)     | OpenBao + MinIO commented out of docker-compose                     | ✅ Closed — PR #173 (2026-07-23), idempotency follow-up PR #178 (2026-07-24)                                |
-| [#129](../../issues/129)     | Worker has no health endpoint                                       | ✅ Closed — PR #175 (2026-07-24)                                                                            |
-| [#141](../../issues/141)     | `pnpm lint` is a repo-wide no-op                                    | ✅ Closed — PR #166                                                                                         |
-| [#136](../../issues/136)     | RLS for entity_types/workflows/workflow_states/workflow_transitions | ✅ Closed — ADR-007 accepted, merged via PR #181 (2026-07-25)                                               |
-| **[#125](../../issues/125)** | **`notify` action is a stub — Novu never wired up**                 | **Only item still fully open** — needs a real outbox-pattern delivery worker, bigger than originally scoped |
+| Issue                    | Title                                                               | Status                                                                       |
+| ------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [#121](../../issues/121) | RLS under real role (`SET LOCAL ROLE app_user`)                     | ✅ Closed — PR #135                                                          |
+| [#122](../../issues/122) | Isolation tests run as `app_user`, not superuser                    | ✅ Closed — alongside #121                                                   |
+| [#126](../../issues/126) | `entity.created`/`entity.assigned` triggers never fire              | ✅ Closed — PR #138                                                          |
+| [#127](../../issues/127) | `setEntityState`/`bulkSetState` unguarded state side-door           | ✅ Closed — PR #155                                                          |
+| [#120](../../issues/120) | Automation double-trigger (depth resets on outbox path)             | ✅ Closed                                                                    |
+| [#123](../../issues/123) | Automation queue has no retries                                     | ✅ Closed                                                                    |
+| [#124](../../issues/124) | Auth middleware writes on every request                             | ✅ Closed                                                                    |
+| [#128](../../issues/128) | OpenBao + MinIO commented out of docker-compose                     | ✅ Closed — PR #173 (2026-07-23), idempotency follow-up PR #178 (2026-07-24) |
+| [#129](../../issues/129) | Worker has no health endpoint                                       | ✅ Closed — PR #175 (2026-07-24)                                             |
+| [#141](../../issues/141) | `pnpm lint` is a repo-wide no-op                                    | ✅ Closed — PR #166                                                          |
+| [#136](../../issues/136) | RLS for entity_types/workflows/workflow_states/workflow_transitions | ✅ Closed — ADR-007 accepted, merged via PR #181 (2026-07-25)                |
+| [#125](../../issues/125) | `notify` action — outbox-pattern delivery worker + in-app inbox     | ✅ Closed — PR #211 (2026-07-29)                                             |
 
 ### Found since the 2026-06-29 consulting review, now also closed or in review
 
@@ -138,7 +139,7 @@ severity ranking. As of 2026-07-24:
 **Informally assigned via issue-comment `@mentions` (GitHub's `assignees` field isn't used in this
 repo) — not tracked here since ownership changes faster than this doc; see a local, gitignored
 `open-issues-tracker.md` in this same directory if present, or re-check `gh issue view <N>
---json comments` for current assignment:** #161, #162, #163, #165 → Tushar Sharma. #143, #125 →
+--json comments` for current assignment:** #161, #162, #163, #165 → Tushar Sharma. #143 →
 Bikash Barnwal.
 
 ---

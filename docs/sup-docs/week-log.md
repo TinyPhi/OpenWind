@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-07-29 — PR #211 merged: in-app notification hub (#125 closed)
+
+**Session type:** PR review + merge
+**PRs merged:** #211 (feat/PLAT-notification-hub-core — Tushar Sharma)
+**Issues closed:** #125 (`notify` action stub wired end-to-end)
+
+**What landed:**
+
+- New tables: `notifications`, `notification_recipients` — RLS-enabled, `app_user`-granted, tenant-scoped, idempotent via unique `(notification_id, user_id)` index
+- New API routes: `GET /notifications` (keyset-paginated inbox), `POST /notifications/:id/read`, `POST /notifications/mark-all-read` — all scoped to caller's own auth-derived `tenantId`/`userId`
+- WebSocket endpoint `/ws/notifications` — JWT via `?token=` query param, Redis pub/sub fan-out across worker processes
+- 6 system-triggered notification types wired end-to-end: `entity.assigned`, `comment.mentioned`, `access.granted`, `access.revoked`, `workflow.sla_breached`, `system.error` — plus `automation.notify` tenant-authored path
+- Pluggable outbound seam (`notification-outbound-worker.ts`) — `NOTIFICATION_SERVICE_URL` env; no-ops cleanly if not configured
+- `zitadel-management.ts` relocated from `apps/api/src/lib` to `packages/auth/src` so `apps/worker` can reach `getUserById`
+- `apps/portal` removed (stale; `apps/admin-ui` serves both agent and customer users)
+- 10-case isolation test suite for new tables; path-traversal regression test for `markNotificationRead`
+
+**Review rounds:** 3 rounds (two CHANGES_REQUESTED, one APPROVE). Main findings:
+
+- Round 1 (pre-CodeQL): `URL`-constructor origin guard added to `api.ts` (`doFetch`, `fetchRawWithAuth`)
+- Round 2: Two tenant-isolation blockers — missing `eq(notifications.tenantId, tenantId)` in outbound worker "sent"/"failed" UPDATEs; `workflow.sla_breached` using bare `db` without `withTenantContext`; both fixed. Tests added for outbound worker. `encodeURIComponent(id)` path-traversal fix in `markNotificationRead`.
+- Round 3: All blockers resolved — approved
+
+**Hardening status:**
+
+| Backlog               | Status                                                           |
+| --------------------- | ---------------------------------------------------------------- |
+| Pre-Phase 3 hardening | ✅ **Complete** — all items closed (#121–#129, #141, #136, #125) |
+
+---
+
 ## 2026-07-24 — Docs/config hygiene bundle: #193, #203, #204 closed
 
 **Session type:** Docs + config (mechanical fixes, no code)
