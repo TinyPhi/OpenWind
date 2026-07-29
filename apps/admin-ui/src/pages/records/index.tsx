@@ -109,6 +109,7 @@ export function AdminRecords(): React.ReactElement {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const activeFilter =
     (searchParams.get("filter") as FilterChip | null) ?? "all";
@@ -196,6 +197,14 @@ export function AdminRecords(): React.ReactElement {
     );
   });
 
+  const searchTerm = search.trim().toLowerCase();
+  const filteredWorkflows = workflows.filter((wf) =>
+    humanizeWorkflowName(wf.name).toLowerCase().includes(searchTerm),
+  );
+  const searchedMyWorkflows = visibleMyWorkflows.filter((wf) =>
+    humanizeWorkflowName(wf.workflowName).toLowerCase().includes(searchTerm),
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (!userLoaded || loading) {
@@ -242,6 +251,17 @@ export function AdminRecords(): React.ReactElement {
           </div>
         </div>
 
+        {workflows.length > 0 && (
+          <input
+            type="text"
+            className="mod-search"
+            placeholder="Search workflows by name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: "100%", maxWidth: "360px", marginBottom: "20px" }}
+          />
+        )}
+
         {workflows.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📋</div>
@@ -255,9 +275,15 @@ export function AdminRecords(): React.ReactElement {
               + New Workflow
             </button>
           </div>
+        ) : filteredWorkflows.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">🔍</div>
+            <h4>No matches</h4>
+            <p>No workflows match "{search}".</p>
+          </div>
         ) : (
           <WorkflowCardGrid
-            items={workflows.map((wf, i) => ({
+            items={filteredWorkflows.map((wf, i) => ({
               id: wf.id,
               name: humanizeWorkflowName(wf.name),
               entityTypeId: wf.entityTypeId,
@@ -333,6 +359,17 @@ export function AdminRecords(): React.ReactElement {
         ))}
       </div>
 
+      {visibleMyWorkflows.length > 0 && (
+        <input
+          type="text"
+          className="mod-search"
+          placeholder="Search workflows by name…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ width: "100%", maxWidth: "360px", marginBottom: "20px" }}
+        />
+      )}
+
       {visibleMyWorkflows.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">📋</div>
@@ -343,9 +380,15 @@ export function AdminRecords(): React.ReactElement {
               : `No tickets match the "${FILTER_LABELS[activeFilter]}" filter.`}
           </p>
         </div>
+      ) : searchedMyWorkflows.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon">🔍</div>
+          <h4>No matches</h4>
+          <p>No workflows match "{search}".</p>
+        </div>
       ) : (
         <WorkflowCardGrid
-          items={visibleMyWorkflows.map((wf, i) => ({
+          items={searchedMyWorkflows.map((wf, i) => ({
             id: wf.workflowId,
             name: humanizeWorkflowName(wf.workflowName),
             entityTypeId: wf.entityTypeId,
@@ -416,6 +459,9 @@ function WorkflowCardGrid({
             key={item.id}
             onClick={() => onNavigate(item.slug, item.filterParam)}
             style={{
+              height: "320px",
+              display: "flex",
+              flexDirection: "column",
               borderRadius: "16px",
               overflow: "hidden",
               cursor: "pointer",
@@ -437,12 +483,15 @@ function WorkflowCardGrid({
                 "var(--shadow-sm)";
             }}
           >
-            {/* Gradient header */}
+            {/* Gradient header — fixed height, top half */}
             <div
               style={{
+                height: "160px",
+                flexShrink: 0,
                 background: item.gradient,
                 padding: "24px 24px 20px",
                 position: "relative",
+                overflow: "hidden",
               }}
             >
               {item.count > 0 && (
@@ -491,8 +540,17 @@ function WorkflowCardGrid({
               )}
             </div>
 
-            {/* Card body */}
-            <div style={{ padding: "16px 20px 20px" }}>
+            {/* Card body — bottom half, fills remaining fixed height */}
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                padding: "16px 20px 20px",
+                overflow: "hidden",
+              }}
+            >
               {item.states.length > 0 && (
                 <div
                   style={{
@@ -554,7 +612,12 @@ function WorkflowCardGrid({
 
               <button
                 className="btn-primary"
-                style={{ width: "100%", justifyContent: "center" }}
+                style={{
+                  width: "100%",
+                  justifyContent: "center",
+                  marginTop: "auto",
+                  flexShrink: 0,
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onNavigate(item.slug, item.filterParam);

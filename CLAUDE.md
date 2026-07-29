@@ -88,9 +88,11 @@ resolved:
    tracked as #165).
 
 **Delivery has guardrails (Claude Code only; plain git + CI unaffected).** Every change runs
-Plan → Code → Review → Ship: freeze + **you approve** an acceptance-criteria plan-lock
+Plan → Code → Review → Docs → Ship: freeze + **you approve** an acceptance-criteria plan-lock
 (`/spec-tasks` or the `openwind-loop` pick step) before editing source; all edits then one `/review`;
-the commit procedure runs `typecheck+lint+test+test:isolation`, writes the commit marker, and opens a
+then docs are updated alongside the change (`write-docs-marker.sh --touched`) or the commit
+explicitly records why this diff needs none (`--skip "<reason>"`) — no silent third option; the
+commit procedure runs `typecheck+lint+test+test:isolation`, writes the commit marker, and opens a
 structured PR. The hooks are **guardrails, not barricades** — best-effort speed bumps that catch
 honest mistakes; they are not a security boundary (a determined agent can bypass them). The real
 enforcement is CI + required human PR review + branch protection. See

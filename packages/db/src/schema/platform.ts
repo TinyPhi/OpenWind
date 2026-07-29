@@ -46,6 +46,11 @@ export const modules = pgTable("modules", {
   version: text("version").notNull(),
   isSystem: boolean("is_system").default(false).notNull(),
   minPlan: text("min_plan").default("standard").notNull(),
+  // Global, platform-wide toggle — controls whether this template appears in
+  // every tenant's Templates page. Admin-only (the platform's top role — no
+  // separate superadmin tier); not per-tenant. Defaults to true so existing
+  // behavior (every seeded module visible) is unchanged.
+  isVisible: boolean("is_visible").default(true).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -191,7 +196,7 @@ export const adminAuditLog = pgTable(
 
 /**
  * platformSettings — single-row global platform config (see
- * 0043_platform_settings.sql). No tenant_id/RLS, deliberately: this is a
+ * 0040_platform_settings.sql). No tenant_id/RLS, deliberately: this is a
  * platform-operator concern (like modules.isVisible), not per-tenant.
  * Always read/write id=1; the DB-level CHECK enforces there's only one row.
  */

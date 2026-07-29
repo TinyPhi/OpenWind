@@ -279,35 +279,14 @@
       "idx": 39,
       "version": "7",
       "when": 1783417689000,
-      "tag": "0039_notifications",
+      "tag": "0039_module_visibility",
       "breakpoints": false
     },
     {
       "idx": 40,
       "version": "7",
-      "when": 1783417690000,
-      "tag": "0040_notifications_automation_type",
-      "breakpoints": false
-    },
-    {
-      "idx": 41,
-      "version": "7",
-      "when": 1783417691000,
-      "tag": "0041_notifications_comment_replied_type",
-      "breakpoints": false
-    },
-    {
-      "idx": 42,
-      "version": "7",
-      "when": 1783417692000,
-      "tag": "0042_notifications_mention_access_type",
-      "breakpoints": false
-    },
-    {
-      "idx": 43,
-      "version": "7",
-      "when": 1783417693000,
-      "tag": "0043_platform_settings",
+      "when": 1783417694000,
+      "tag": "0040_platform_settings",
       "breakpoints": false
     }
   ]
