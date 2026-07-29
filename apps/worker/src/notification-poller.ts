@@ -6,7 +6,7 @@ import { notifyQueue } from "./queues.js";
 const BATCH_SIZE = 100;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
-// The 6 trigger types the in-app notification hub cares about
+// The 8 trigger types the in-app notification hub cares about
 // (docs/specs/in-app-notification-hub.md). Positive allowlist, matching
 // outbox-poller.ts's own convention — a new outbox event type is excluded by
 // default rather than silently claimed and mishandled.

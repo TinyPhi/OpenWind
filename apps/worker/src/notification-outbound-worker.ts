@@ -49,6 +49,9 @@ async function dispatchOutbound(payload: OutboundPayload): Promise<void> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    // Without a timeout, a hung external notification service hangs this
+    // BullMQ job indefinitely instead of failing and retrying/DLQ-ing.
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!res.ok) {
