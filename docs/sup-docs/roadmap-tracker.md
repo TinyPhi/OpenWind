@@ -5,6 +5,10 @@
 2026-07-22 reconciliation left for a human. Only **#125** remains open from the original
 pre-Phase-3 hardening backlog. #181 (#136/ADR-007 RLS) merged 2026-07-25. Two PRs open awaiting
 review: #186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).)
+**Previously:** 2026-07-24 (`workflow` branch — workflow builder UX pass, cascading-rename fix,
+template naming/validation bugfixes, template visibility governance (new, ad-hoc, not on the
+tracked Phase 3 backlog), and the Docs guardrail-pipeline stage — see week-log.md 2026-07-24 for
+detail.); 2026-07-16 (PR #144 — child tickets, tender module (8th standard module), access-request flow, attachments, "My Tickets" view, multi-admin workflows, plus a pre-PR security hardening pass — see "Out-of-band feature work" under Phase 2 below)
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
 

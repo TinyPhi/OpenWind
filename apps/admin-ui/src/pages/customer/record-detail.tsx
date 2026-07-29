@@ -3803,7 +3803,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                           alignItems: "center",
                           gap: "10px",
                           padding: "8px 10px",
-                          background: "var(--bg-secondary, #f9fafb)",
+                          background: "var(--bg-card, #ffffff)",
                           border: "1px solid var(--border-color, #e5e7eb)",
                           borderRadius: "8px",
                         }}
