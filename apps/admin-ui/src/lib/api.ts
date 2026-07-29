@@ -34,9 +34,7 @@ async function doFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    // codeql[js/server-side-request-forgery] resolved.href is tainted by `url`
-    // in CodeQL's model, but the origin check above ensures it cannot resolve
-    // off this page's origin — the alert is a false positive.
+    // lgtm[js/server-side-request-forgery] origin checked against window.location.origin above; taint through resolved.href is a false positive
     return await fetch(resolved.href, {
       ...options,
       headers,
@@ -127,7 +125,7 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
   let token = user?.access_token;
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  // codeql[js/server-side-request-forgery] same false positive as doFetch — see above
+  // lgtm[js/server-side-request-forgery] same false positive as doFetch — origin checked above
   let response = await fetch(resolved.href, { headers });
 
   // On 401, attempt a silent token refresh and retry once — matches
@@ -138,7 +136,7 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
       token = newToken;
       const retryHeaders = new Headers();
       retryHeaders.set("Authorization", `Bearer ${token}`);
-      // codeql[js/server-side-request-forgery] same false positive as doFetch — see above
+      // lgtm[js/server-side-request-forgery] same false positive as doFetch — origin checked above
       response = await fetch(resolved.href, { headers: retryHeaders });
     }
   }
