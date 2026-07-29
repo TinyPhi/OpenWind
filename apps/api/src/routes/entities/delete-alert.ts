@@ -2,6 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "@platform/auth";
 import { ticketAlerts, withTenantContext } from "@platform/db";
 import { factory } from "./factory.js";
+import { voidPendingAlertOutboxRows } from "../../lib/alert-outbox.js";
 import {
   ticketAlertsQueue,
   ticketAlertJobId,
@@ -41,6 +42,12 @@ export const deleteAlertHandler = factory.createHandlers(
         .update(ticketAlerts)
         .set({ status: "cancelled", updatedAt: new Date() })
         .where(eq(ticketAlerts.id, alertId));
+
+      // Not load-bearing (alert-worker's status guard already prevents a
+      // cancelled alert from firing) — voids a not-yet-polled outbox row so
+      // it doesn't sit around getting "enqueued" for a job that'll just
+      // no-op, and the scheduler's log stays meaningful.
+      await voidPendingAlertOutboxRows(tx, alertId);
 
       return { status: 204 as const };
     });

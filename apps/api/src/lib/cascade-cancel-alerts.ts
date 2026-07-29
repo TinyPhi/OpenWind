@@ -5,10 +5,53 @@
  * an alert firing a little late for an archived/inaccessible ticket is a far
  * smaller problem than an archive/delete/revoke request 500ing because of it.
  */
-import { eq, and, inArray } from "drizzle-orm";
-import { ticketAlerts, withTenantContext } from "@platform/db";
+import { eq, and, isNull, inArray } from "drizzle-orm";
+import { ticketAlerts, entityRelations, withTenantContext } from "@platform/db";
+import { RELATION_PARENT_OF } from "@platform/entity-engine";
 import { logger } from "@platform/logger";
 import { ticketAlertsQueue, ticketAlertJobId } from "./ticket-alerts-queue.js";
+import { voidPendingAlertOutboxRows } from "./alert-outbox.js";
+
+/**
+ * BFS over active parent_of relations — same query shape as
+ * packages/entity-engine/src/archive.ts's private collectActiveDescendants,
+ * duplicated here (read-only, pre-archive) rather than imported: that
+ * function isn't exported, and by the time archiveEntity() returns, it has
+ * already soft-deleted the relations themselves (deletedAt = archiveTs), so
+ * querying isNull(deletedAt) AFTER the fact would find nothing. Called
+ * BEFORE archiveEntity() in archive.ts, while the relations are still active,
+ * so the descendant set here matches exactly what archiveEntity is about to
+ * cascade-archive.
+ */
+export async function collectActiveDescendantIds(
+  tenantId: string,
+  instanceId: string,
+): Promise<string[]> {
+  return withTenantContext(tenantId, async (tx) => {
+    const result: string[] = [];
+    const queue = [instanceId];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) break;
+      const children = await tx
+        .select({ toInstanceId: entityRelations.toInstanceId })
+        .from(entityRelations)
+        .where(
+          and(
+            eq(entityRelations.tenantId, tenantId),
+            eq(entityRelations.fromInstanceId, current),
+            eq(entityRelations.relationType, RELATION_PARENT_OF),
+            isNull(entityRelations.deletedAt),
+          ),
+        );
+      for (const c of children) {
+        result.push(c.toInstanceId);
+        queue.push(c.toInstanceId);
+      }
+    }
+    return result;
+  });
+}
 
 async function cancelPendingAlerts(
   tenantId: string,
@@ -35,6 +78,8 @@ async function cancelPendingAlerts(
         .update(ticketAlerts)
         .set({ status: "cancelled", updatedAt: new Date() })
         .where(inArray(ticketAlerts.id, ids));
+
+      await Promise.all(ids.map((id) => voidPendingAlertOutboxRows(tx, id)));
 
       return ids;
     });

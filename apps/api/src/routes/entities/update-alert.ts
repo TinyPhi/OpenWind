@@ -10,6 +10,7 @@ import {
 } from "@platform/db";
 import { factory } from "./factory.js";
 import { explicitAccessListUserIds } from "../../lib/entity-access.js";
+import { voidPendingAlertOutboxRows } from "../../lib/alert-outbox.js";
 import {
   ticketAlertsQueue,
   ticketAlertJobId,
@@ -103,6 +104,11 @@ export const updateAlertHandler = factory.createHandlers(
         .where(eq(ticketAlerts.id, alertId))
         .returning();
 
+      // Void any not-yet-polled outbox row from creation (or a prior rapid
+      // edit) before inserting the fresh one — otherwise the scheduler could
+      // poll the stale row first and silently keep the OLD schedule (BullMQ
+      // ignores a second add() with the same jobId). See alert-outbox.ts.
+      await voidPendingAlertOutboxRows(tx, alertId);
       await tx.insert(outboxEvents).values({
         tenantId,
         eventType: "ticket.alert_scheduled",
