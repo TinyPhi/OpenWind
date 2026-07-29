@@ -453,6 +453,125 @@ async function _fetchOrgUsers(
   }
 }
 
+// ── List each org user's project role grants ────────────────────────────────
+//
+// Used to (a) filter the org-wide user list down to a single role (e.g. "user")
+// for surfaces that must never expose agents/admins — the users page and the
+// @mention picker — and (b) render each user's role(s) in the users page's
+// Roles column. Queries Zitadel's user-grant search rather than trusting the
+// caller's own JWT roles claim, since this lists *other* users' roles.
+
+const _userRolesCache = new Map<
+  string,
+  | { rolesByUserId: Map<string, string[]>; expiresAt: number }
+  | Promise<Map<string, string[]>>
+>();
+
+export async function listUserRolesByUserId(
+  orgId: string,
+): Promise<Map<string, string[]>> {
+  if (!orgId) return new Map();
+
+  const cacheKey = orgId;
+  const now = Date.now();
+  const cached = _userRolesCache.get(cacheKey);
+  if (cached && !(cached instanceof Promise) && now < cached.expiresAt)
+    return cached.rolesByUserId;
+  if (cached instanceof Promise) return cached;
+
+  const pending = _fetchUserRolesByUserId(orgId, now, cacheKey);
+  _userRolesCache.set(cacheKey, pending);
+  return pending;
+}
+
+export async function listUserIdsWithRole(
+  orgId: string,
+  roleKey: string,
+): Promise<Set<string>> {
+  const rolesByUserId = await listUserRolesByUserId(orgId);
+  const userIds = new Set<string>();
+  for (const [userId, roles] of rolesByUserId) {
+    if (roles.includes(roleKey)) userIds.add(userId);
+  }
+  return userIds;
+}
+
+async function _fetchUserRolesByUserId(
+  orgId: string,
+  now: number,
+  cacheKey: string,
+): Promise<Map<string, string[]>> {
+  const token = await getAccessToken();
+  if (!token) {
+    logger.warn(
+      { orgId },
+      "listUserRolesByUserId: no service account token — check ZITADEL_SERVICE_ACCOUNT_KEY",
+    );
+    return new Map();
+  }
+
+  const projectId = env.ZITADEL_PROJECT_ID ?? env.ZITADEL_AUDIENCE;
+  if (!projectId) return new Map();
+
+  try {
+    const url = `${internalBase()}/management/v1/users/grants/_search`;
+    const PAGE_LIMIT = 1000;
+    const payload = {
+      query: { limit: PAGE_LIMIT, asc: true },
+      queries: [{ projectIdQuery: { projectId } }],
+    };
+
+    const result = await httpPost(
+      url,
+      issuerHost(),
+      {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      JSON.stringify(payload),
+    );
+
+    if (result.status < 200 || result.status >= 300) {
+      logger.error(
+        { status: result.status },
+        "listUserRolesByUserId: Zitadel grants search failed",
+      );
+      _userRolesCache.delete(cacheKey);
+      return new Map();
+    }
+
+    const data = JSON.parse(result.text) as {
+      result?: Array<{ userId: string; roleKeys?: string[] }>;
+      details?: { totalResult?: string };
+    };
+    const totalResult = parseInt(data.details?.totalResult ?? "0", 10);
+    if (totalResult > PAGE_LIMIT) {
+      logger.warn(
+        { orgId, totalResult, fetched: PAGE_LIMIT },
+        "listUserRolesByUserId: result truncated — total exceeds page limit",
+      );
+    }
+
+    const rolesByUserId = new Map<string, string[]>();
+    for (const grant of data.result ?? []) {
+      const existing = rolesByUserId.get(grant.userId) ?? [];
+      rolesByUserId.set(
+        grant.userId,
+        Array.from(new Set([...existing, ...(grant.roleKeys ?? [])])),
+      );
+    }
+    _userRolesCache.set(cacheKey, {
+      rolesByUserId,
+      expiresAt: now + CACHE_TTL_MS,
+    });
+    return rolesByUserId;
+  } catch (err) {
+    logger.error({ err }, "Failed to list Zitadel user grants");
+    _userRolesCache.delete(cacheKey);
+    return new Map();
+  }
+}
+
 // ── Get single user by ID ─────────────────────────────────────────────────────
 
 const _userByIdCache = new Map<
@@ -533,4 +652,5 @@ export async function getUserById(userId: string): Promise<OrgUser | null> {
 export function invalidateUserCache(): void {
   _usersCache.clear();
   _userByIdCache.clear();
+  _userRolesCache.clear();
 }
