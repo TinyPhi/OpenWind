@@ -285,8 +285,36 @@
     {
       "idx": 40,
       "version": "7",
+      "when": 1783417690000,
+      "tag": "0040_notifications",
+      "breakpoints": false
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1783417691000,
+      "tag": "0041_notifications_automation_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1783417692000,
+      "tag": "0042_notifications_comment_replied_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1783417693000,
+      "tag": "0043_notifications_mention_access_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 44,
+      "version": "7",
       "when": 1783417694000,
-      "tag": "0040_platform_settings",
+      "tag": "0044_platform_settings",
       "breakpoints": false
     }
   ]

@@ -28,9 +28,12 @@ export async function listNotifications(
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
-  await fetchWithAuth(`${API_URL}/notifications/${id}/read`, {
-    method: "POST",
-  });
+  await fetchWithAuth(
+    `${API_URL}/notifications/${encodeURIComponent(id)}/read`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
