@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { db, withTenantContext, workflows, tenantUsers } from "@platform/db";
+import { withTenantContext, workflows, tenantUsers } from "@platform/db";
 import { env } from "@platform/config";
 
 export interface ResolvedTrigger {
@@ -90,14 +90,21 @@ export async function resolveRecipients(
 
     case "workflow.sla_breached": {
       const workflowId = payload["workflowId"] as string;
-      const [workflow] = await db
-        .select({
-          createdBy: workflows.createdBy,
-          assignedTo: workflows.assignedTo,
-        })
-        .from(workflows)
-        .where(eq(workflows.id, workflowId))
-        .limit(1);
+      // workflows has RLS (0037_rls_workflow_config_tables.sql) — this worker
+      // runs as app_user (no BYPASSRLS), so a bare db.select() here sees no
+      // rows and every sla_breached event silently produces no notification.
+      const [workflow] = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({
+            createdBy: workflows.createdBy,
+            assignedTo: workflows.assignedTo,
+          })
+          .from(workflows)
+          .where(
+            and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)),
+          )
+          .limit(1),
+      );
 
       if (!workflow)
         return {
