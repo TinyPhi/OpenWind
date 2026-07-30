@@ -298,9 +298,15 @@ importers:
       ioredis:
         specifier: ^5.0.0
         version: 5.10.1
+      jose:
+        specifier: ^5.0.0
+        version: 5.10.0
       pdfkit:
         specifier: ^0.19.1
         version: 0.19.1
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@platform/tsconfig':
         specifier: workspace:*
@@ -712,6 +718,9 @@ importers:
       '@platform/config':
         specifier: workspace:*
         version: link:../config
+      '@platform/logger':
+        specifier: workspace:*
+        version: link:../logger
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2

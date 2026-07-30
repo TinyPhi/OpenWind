@@ -6,6 +6,7 @@ import {
   notificationRecipients,
   tenantUsers,
   deadLetterEvents,
+  isOutboundNotificationsEnabled,
 } from "@platform/db";
 import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { logger } from "@platform/logger";
@@ -138,12 +139,21 @@ export const notificationWorker = new Worker<NotificationJobData>(
 
     // Outbound handoff — deterministic jobId (the notification id) makes the
     // enqueue itself idempotent across retries of this job, independent of
-    // the de-dupe marker the outbound worker also checks (R16).
-    await notifyOutboundQueue.add(
-      "dispatch",
-      { notificationId, tenantId },
-      { jobId: notificationId },
-    );
+    // the de-dupe marker the outbound worker also checks (R16). Gated by the
+    // global kill switch (docs/specs/outbound-notifications-kill-switch.md) —
+    // in-app delivery above is unaffected either way.
+    if (await isOutboundNotificationsEnabled()) {
+      await notifyOutboundQueue.add(
+        "dispatch",
+        { notificationId, tenantId },
+        { jobId: notificationId },
+      );
+    } else {
+      logger.info(
+        { tenantId, notificationId },
+        "Notification: outbound handoff skipped — global kill switch is disabled",
+      );
+    }
 
     logger.info(
       {
