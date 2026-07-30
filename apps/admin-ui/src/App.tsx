@@ -33,7 +33,17 @@ import { AutomationWizard } from "./pages/automations/wizard/wizard.js";
 import { RequireAdmin } from "./components/require-admin.js";
 import { SystemLogsPage } from "./pages/system-logs.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
+import { useIdleLogout } from "./hooks/use-idle-logout.js";
 import "./index.css";
+
+function AuthenticatedShell({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  useIdleLogout();
+  return <>{children}</>;
+}
 
 export function App(): React.ReactElement {
   return (
@@ -85,11 +95,13 @@ export function App(): React.ReactElement {
                 key="protected"
                 fallback={<Navigate to="/login" />}
               >
-                <EntityTypeProvider>
-                  <Layout>
-                    <Outlet />
-                  </Layout>
-                </EntityTypeProvider>
+                <AuthenticatedShell>
+                  <EntityTypeProvider>
+                    <Layout>
+                      <Outlet />
+                    </Layout>
+                  </EntityTypeProvider>
+                </AuthenticatedShell>
               </Authenticated>
             }
           >

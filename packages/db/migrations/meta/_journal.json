@@ -309,6 +309,13 @@
       "when": 1783417692000,
       "tag": "0043_notifications_mention_access_type",
       "breakpoints": false
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1783417693000,
+      "tag": "0044_platform_settings",
+      "breakpoints": false
     }
   ]
 }

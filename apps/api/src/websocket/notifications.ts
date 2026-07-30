@@ -1,9 +1,14 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
-import { verifyJwt, extractAuthContext } from "@platform/auth";
+import {
+  verifyJwt,
+  extractAuthContext,
+  lookupTenantIdByOrgId,
+} from "@platform/auth";
 import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { logger } from "@platform/logger";
+import { env } from "@platform/config";
 
 const WS_PATH = "/ws/notifications";
 
@@ -42,8 +47,15 @@ function sendToConnections(
   message: unknown,
   exclude?: WebSocket,
 ): void {
-  const set = connections.get(connectionKey(tenantId, userId));
-  if (!set) return;
+  const key = connectionKey(tenantId, userId);
+  const set = connections.get(key);
+  if (!set) {
+    logger.warn(
+      { tenantId, userId, openKeys: Array.from(connections.keys()) },
+      "Notification websocket: push received but no matching open connection",
+    );
+    return;
+  }
   const data = JSON.stringify(message);
   for (const ws of set) {
     if (ws === exclude) continue;
@@ -143,10 +155,31 @@ export function attachNotificationWebSocket(
         return;
       }
 
+      // Mirror requireAuth()'s org -> tenant resolution (packages/auth/src/middleware.ts):
+      // extractAuthContext's tenantId is the raw Zitadel org id in production, not the
+      // internal tenants.id UUID that notification_recipients.tenant_id actually stores.
+      // Without this, every connection here registers under the wrong key and
+      // sendToConnections silently finds nothing to send to.
+      let tenantId = auth.tenantId;
+      if (env.NODE_ENV === "production") {
+        const mappedTenantId = auth.orgId
+          ? await lookupTenantIdByOrgId(auth.orgId)
+          : null;
+        if (!mappedTenantId) {
+          socket.destroy();
+          return;
+        }
+        tenantId = mappedTenantId;
+      }
+
       wss.handleUpgrade(req, socket, head, (ws) => {
-        addConnection(auth.tenantId, auth.userId, ws);
-        ws.on("close", () => removeConnection(auth.tenantId, auth.userId, ws));
-        ws.on("error", () => removeConnection(auth.tenantId, auth.userId, ws));
+        addConnection(tenantId, auth.userId, ws);
+        logger.info(
+          { tenantId, userId: auth.userId },
+          "Notification websocket: connection registered",
+        );
+        ws.on("close", () => removeConnection(tenantId, auth.userId, ws));
+        ws.on("error", () => removeConnection(tenantId, auth.userId, ws));
       });
     })().catch((err: unknown) => {
       logger.error({ err }, "Notification websocket: upgrade failed");

@@ -2099,6 +2099,52 @@ h1, h2, h3, h4, h5, h6 {
 .settings-section-chevron-open { transform: rotate(180deg); }
 .settings-section-body { margin-top: 28px; }
 
+/* Horizontal switchable tabs (docs/specs/settings-page-tabs-redesign.md) —
+   replaces the earlier stacked-collapsible-card layout. */
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--transition-normal);
+}
+
+.settings-tab:hover {
+  color: var(--text-primary);
+}
+
+.settings-tab-active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.settings-tab-icon {
+  display: flex;
+  width: 18px;
+  height: 18px;
+}
+
+.settings-tab-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .settings-section-icon {
   display: flex;
   align-items: center;

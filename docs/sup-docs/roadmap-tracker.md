@@ -1,8 +1,9 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-29 — PR #211 merged, closing **#125** (notify action wired end-to-end).
-Pre-Phase-3 hardening backlog now fully closed. Two PRs still open from earlier work:
-#186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).
+**Last updated:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
+wired end-to-end); #212 added global outbound kill switch, M2M auth, auto-logout, settings tabs;
+#214 removed stale `portal` from CI Docker matrix. Pre-Phase-3 hardening backlog fully closed.
+Two PRs still open from earlier work: #186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).
 **Previously:** 2026-07-25 (reconciliation — 8 PRs merged 2026-07-23/24 closing #128, #129, #141,
 #160, #167, #168, #170, plus ADR-005 and ADR-006 accepted, resolving both open questions the
 2026-07-22 reconciliation left for a human. #181 (#136/ADR-007 RLS) merged 2026-07-25.)
