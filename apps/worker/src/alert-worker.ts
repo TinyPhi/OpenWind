@@ -112,7 +112,12 @@ export const alertWorker = new Worker<AlertJobData>(
       await tx
         .update(ticketAlerts)
         .set({ status: "fired", firedAt: new Date(), updatedAt: new Date() })
-        .where(eq(ticketAlerts.id, alertId));
+        .where(
+          and(
+            eq(ticketAlerts.id, alertId),
+            eq(ticketAlerts.tenantId, tenantId),
+          ),
+        );
 
       return {
         notificationId: notification.id,
@@ -134,7 +139,12 @@ export const alertWorker = new Worker<AlertJobData>(
         tx
           .update(notifications)
           .set({ link })
-          .where(eq(notifications.id, fired.notificationId)),
+          .where(
+            and(
+              eq(notifications.id, fired.notificationId),
+              eq(notifications.tenantId, tenantId),
+            ),
+          ),
       ).catch((err: unknown) => {
         logger.error(
           { err, notificationId: fired.notificationId },

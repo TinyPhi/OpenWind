@@ -2,7 +2,7 @@
 
 **Spec:** docs/specs/ticket-alerts.md
 **Generated:** 2026-07-28
-**Status:** not started
+**Status:** done
 
 ---
 
@@ -13,9 +13,9 @@
 
 | task                                                                                                                                                                                                                                                   | requirement         | status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- | ------ |
-| T1: Migration 0042 — `ticket_alerts` table (cols per §I), RLS (tenant-only, no per-user policy), indexes `(tenant_id, instance_id)` / `(tenant_id, created_by)`, `GRANT` to `app_user` in same migration, analytics annotation, down-migration comment | R1–R10 (foundation) | todo   |
-| T2: Drizzle schema for `ticket_alerts` in `packages/db/src/schema`                                                                                                                                                                                     | R1–R10 (foundation) | todo   |
-| T11: Isolation tests — cross-tenant `ticket_alerts` RLS (confirm tenant-only, not per-user)                                                                                                                                                            | R2 (RLS clause)     | todo   |
+| T1: Migration 0042 — `ticket_alerts` table (cols per §I), RLS (tenant-only, no per-user policy), indexes `(tenant_id, instance_id)` / `(tenant_id, created_by)`, `GRANT` to `app_user` in same migration, analytics annotation, down-migration comment | R1–R10 (foundation) | done   |
+| T2: Drizzle schema for `ticket_alerts` in `packages/db/src/schema`                                                                                                                                                                                     | R1–R10 (foundation) | done   |
+| T11: Isolation tests — cross-tenant `ticket_alerts` RLS (confirm tenant-only, not per-user)                                                                                                                                                            | R2 (RLS clause)     | done   |
 
 ---
 
@@ -26,10 +26,10 @@
 
 | task                                                                                                                                                                                                                         | requirement | status |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T3: `POST /entities/:instanceId/alerts` — access check (404 if none), 20-cap check (422), future-`fire_at` check (422), recipient snapshot (explicit access list ∪ creator) for scope='all', outbox row inserted in same txn | R1, R4      | todo   |
-| T4: `GET /entities/:instanceId/alerts` — app-layer visibility filter (creator-always; scope='all' + `hasEntityReadAccess`)                                                                                                   | R2          | todo   |
-| T5: `PATCH` / `DELETE /entities/:instanceId/alerts/:id` — creator-only (403 if scope='all' non-creator, 404 if scope='me' non-creator), reject on `fired`/`cancelled` (409/404), reschedule semantics on edit                | R3, R6, R9  | todo   |
-| T6: New BullMQ queue `ticket-alerts` in `apps/worker/src/queues.ts`, `defaultJobOptions` matching `slaQueue`                                                                                                                 | R5 (infra)  | todo   |
+| T3: `POST /entities/:instanceId/alerts` — access check (404 if none), 20-cap check (422), future-`fire_at` check (422), recipient snapshot (explicit access list ∪ creator) for scope='all', outbox row inserted in same txn | R1, R4      | done   |
+| T4: `GET /entities/:instanceId/alerts` — app-layer visibility filter (creator-always; scope='all' + `hasEntityReadAccess`)                                                                                                   | R2          | done   |
+| T5: `PATCH` / `DELETE /entities/:instanceId/alerts/:id` — creator-only (403 if scope='all' non-creator, 404 if scope='me' non-creator), reject on `fired`/`cancelled` (409/404), reschedule semantics on edit                | R3, R6, R9  | done   |
+| T6: New BullMQ queue `ticket-alerts` in `apps/worker/src/queues.ts`, `defaultJobOptions` matching `slaQueue`                                                                                                                 | R5 (infra)  | done   |
 
 ---
 
@@ -40,9 +40,9 @@
 
 | task                                                                                                                                                                                                                              | requirement | status |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T7: `apps/worker/src/alert-scheduler.ts` — separate poller (10s interval) for `ticket.alert_scheduled` outbox rows, enqueues `alert:{alertId}` BullMQ job; fully independent file/queue from `sla-scheduler.ts`                   | R5          | todo   |
-| T8: `apps/worker/src/alert-worker.ts` — fire-time consumer; transactional guard on `status='pending'`; writes `notifications`/`notification_recipients` + enqueues `notify-outbound`; flips to `fired`/`fired_at` only on success | R5, R7      | todo   |
-| T9: Cascade-cancel hooks — ticket archive/delete cancels its pending alerts + jobs; creator's own access revocation cancels their pending alerts + jobs                                                                           | R8          | todo   |
+| T7: `apps/worker/src/alert-scheduler.ts` — separate poller (10s interval) for `ticket.alert_scheduled` outbox rows, enqueues `alert-{alertId}` BullMQ job; fully independent file/queue from `sla-scheduler.ts`                   | R5          | done   |
+| T8: `apps/worker/src/alert-worker.ts` — fire-time consumer; transactional guard on `status='pending'`; writes `notifications`/`notification_recipients` + enqueues `notify-outbound`; flips to `fired`/`fired_at` only on success | R5, R7      | done   |
+| T9: Cascade-cancel hooks — ticket archive/delete cancels its pending alerts + jobs; creator's own access revocation cancels their pending alerts + jobs                                                                           | R8          | done   |
 
 ---
 
@@ -53,8 +53,8 @@
 
 | task                                                                                                                                                | requirement | status |
 | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T10: Admin-UI — 3-dot menu + alert modal (list + add form) on `record-detail.tsx` action row; creator-only affordances; in-place form reset on save | R10         | todo   |
-| T12: Full unit/integration test sweep across R1–R10 (cross-phase, run last)                                                                         | R1–R10      | todo   |
+| T10: Admin-UI — 3-dot menu + alert modal (list + add form) on `record-detail.tsx` action row; creator-only affordances; in-place form reset on save | R10         | done   |
+| T12: Full unit/integration test sweep across R1–R10 (cross-phase, run last)                                                                         | R1–R10      | done   |
 
 ---
 
