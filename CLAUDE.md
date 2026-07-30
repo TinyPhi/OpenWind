@@ -66,9 +66,8 @@ docs this consolidates were removed 2026-07-24; their resolved findings aren't r
 - [x] #141 `pnpm lint` was a repo-wide no-op — PR #166
 - [x] #136 RLS for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions` — ADR-007
       accepted 2026-07-24; implementation in PR #181 (open, awaiting review)
-- [ ] **#125** `notify` action is a stub — `actions/notify.ts` only logs. Needs a real
-      outbox-pattern delivery worker, not just a Novu call — bigger than originally scoped.
-      Assigned to Bikash Barnwal.
+- [x] **#125** `notify` action wired end-to-end — outbox-pattern delivery worker, in-app inbox,
+      WebSocket live push, pluggable outbound seam — PR #211 (2026-07-29).
 
 See [docs/sup-docs/roadmap-tracker.md](docs/sup-docs/roadmap-tracker.md) for the fuller,
 actively-maintained backlog table (includes #143, #160–#171 follow-ons, and PR-in-review status).

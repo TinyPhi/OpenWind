@@ -5,7 +5,52 @@
 
 ---
 
-## 2026-07-25 — global outbound-notifications kill switch
+## 2026-07-29 — PRs #211, #212, #214 merged; Phase 2 hardening complete
+
+**Session type:** PR review + merge (three PRs)
+**PRs merged:** #211 (feat/PLAT-notification-hub-core — Tushar Sharma), #212 (feat/PLAT-notification-hub-followups — Tushar Sharma), #214 (fix/PLAT-remove-portal-from-docker-matrix — PrabhuVijit)
+**Issues closed:** #125 (`notify` action stub wired end-to-end)
+
+**What landed in #211 (notification hub core):**
+
+- New tables: `notifications`, `notification_recipients` — RLS-enabled, `app_user`-granted, tenant-scoped, idempotent via unique `(notification_id, user_id)` index
+- New API routes: `GET /notifications` (keyset-paginated inbox), `POST /notifications/:id/read`, `POST /notifications/mark-all-read` — all scoped to caller's own auth-derived `tenantId`/`userId`
+- WebSocket endpoint `/ws/notifications` — JWT via `?token=` query param, Redis pub/sub fan-out across worker processes
+- 6 system-triggered notification types wired end-to-end: `entity.assigned`, `comment.mentioned`, `access.granted`, `access.revoked`, `workflow.sla_breached`, `system.error` — plus `automation.notify` tenant-authored path
+- Pluggable outbound seam (`notification-outbound-worker.ts`) — `NOTIFICATION_SERVICE_URL` env; no-ops cleanly if not configured
+- `zitadel-management.ts` relocated from `apps/api/src/lib` to `packages/auth/src` so `apps/worker` can reach `getUserById`
+- `apps/portal` removed (stale; `apps/admin-ui` serves both agent and customer users)
+- 10-case isolation test suite for new tables; path-traversal regression test for `markNotificationRead`
+
+**Review rounds for #211:** 3 rounds (two CHANGES_REQUESTED, one APPROVE). Main findings:
+
+- Round 1 (pre-CodeQL): `URL`-constructor origin guard added to `api.ts` (`doFetch`, `fetchRawWithAuth`)
+- Round 2: Two tenant-isolation blockers — missing `eq(notifications.tenantId, tenantId)` in outbound worker "sent"/"failed" UPDATEs; `workflow.sla_breached` using bare `db` without `withTenantContext`; both fixed. Tests added for outbound worker. `encodeURIComponent(id)` path-traversal fix in `markNotificationRead`.
+- Round 3: All blockers resolved — approved
+
+**What landed in #212 (notification hub followups):**
+
+- **Global outbound-notifications kill switch** — single-row `platform_settings` table (migration `0044`), `GET`/`PATCH /admin/platform-settings` admin-role-gated; both outbound-enqueue call sites gated (`notify.ts`, `notification-worker.ts`); fails closed on DB error
+- **Zitadel M2M auth for outbound handoff** — `notification-outbound-auth.ts` acquires a service-account token before POSTing to `NOTIFICATION_SERVICE_URL`; token cached until 60 s before expiry
+- **Auto-logout on inactivity** — `useIdleLogout` hook (5 min default, resets on user activity); wired in `App.tsx`
+- **Settings page tabs redesign** — outbound kill switch toggle lives under new Settings → Notifications tab
+- **Role-gate isolation tests** for `/admin/platform-settings`
+- Migration renumber fix: `0043` → `0044` (conflict with notification tables migration from #211)
+
+**What landed in #214 (CI fix):**
+
+- Removed stale `portal` from Docker build matrix — `apps/portal` no longer exists; its presence caused the entire matrix job group to fail on every push to `main`
+- Added `fail-fast: false` to prevent one matrix leg failure from cancelling the others
+
+**Hardening status:**
+
+| Backlog               | Status                                                           |
+| --------------------- | ---------------------------------------------------------------- |
+| Pre-Phase 3 hardening | ✅ **Complete** — all items closed (#121–#129, #141, #136, #125) |
+
+---
+
+## 2026-07-25 — global outbound-notifications kill switch (dev session)
 
 **Session type:** New feature (not on the tracked #120–#129 backlog)
 **Branch:** `tushar` (merged `notification` + `workflow` branches in first)
