@@ -73,3 +73,87 @@ describe("useIdleLogout", () => {
     removeSpy.mockRestore();
   });
 });
+
+describe("useIdleLogout — config-driven via env (no explicit timeoutMs override)", () => {
+  const originalEnabled = import.meta.env["VITE_IDLE_LOGOUT_ENABLED"];
+  const originalMinutes = import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockLogout.mockClear();
+    mockNavigate.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = originalEnabled;
+    import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] = originalMinutes;
+  });
+
+  it("does not attach any listeners or timer when VITE_IDLE_LOGOUT_ENABLED=false", async () => {
+    import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = "false";
+    const addSpy = vi.spyOn(window, "addEventListener");
+
+    renderHook(() => useIdleLogout(), { wrapper });
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+    expect(mockLogout).not.toHaveBeenCalled();
+    expect(addSpy).not.toHaveBeenCalledWith("mousemove", expect.any(Function));
+
+    addSpy.mockRestore();
+  });
+
+  it("defaults to enabled with a 5-minute timeout when neither env var is set", async () => {
+    import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = undefined;
+    import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] = undefined;
+
+    renderHook(() => useIdleLogout(), { wrapper });
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 - 1);
+    expect(mockLogout).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
+  it("uses VITE_IDLE_LOGOUT_TIMEOUT_MINUTES to compute the timeout in ms", async () => {
+    import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = undefined;
+    import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] = "10";
+
+    renderHook(() => useIdleLogout(), { wrapper });
+
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000 - 1);
+    expect(mockLogout).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
+  it("falls back to the 5-minute default for an invalid VITE_IDLE_LOGOUT_TIMEOUT_MINUTES value", async () => {
+    import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = undefined;
+    import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] = "not-a-number";
+
+    renderHook(() => useIdleLogout(), { wrapper });
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
+  it("prefers window.__CONFIG__ over the Vite build-time env var (Docker runtime-config precedence, matches authProvider.ts)", async () => {
+    import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] = "5";
+    (
+      window as unknown as {
+        __CONFIG__?: { IDLE_LOGOUT_TIMEOUT_MINUTES?: string };
+      }
+    ).__CONFIG__ = { IDLE_LOGOUT_TIMEOUT_MINUTES: "10" };
+
+    renderHook(() => useIdleLogout(), { wrapper });
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(mockLogout).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(mockLogout).toHaveBeenCalled();
+
+    delete (window as unknown as { __CONFIG__?: unknown }).__CONFIG__;
+  });
+});

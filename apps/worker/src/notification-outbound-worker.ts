@@ -20,6 +20,7 @@ interface OutboundJobData {
 
 interface OutboundPayload {
   notificationId: string;
+  tenantId: string;
   title: string;
   body: string;
   link: string | null;
@@ -28,6 +29,25 @@ interface OutboundPayload {
   // for now (only email is wired; sms/whatsapp are false until the external
   // service's contract is settled). docs/specs/in-app-notification-hub.md.
   channels: { email: boolean; sms: boolean; whatsapp: boolean };
+}
+
+/**
+ * notifications.link is stored as an app-relative path (e.g.
+ * "/records/ticket-1/abc"), matching what the admin-ui router expects. The
+ * outbound service has no notion of our routing base, so it needs the full,
+ * clickable URL — resolved against APP_URL (config-driven; same var already
+ * used for CORS_ORIGIN) rather than hardcoding a host here.
+ */
+function toAbsoluteLink(link: string | null): string | null {
+  if (!link) return null;
+  if (!env.APP_URL) {
+    logger.warn(
+      {},
+      "Notification outbound: APP_URL not configured — sending link as a relative path",
+    );
+    return link;
+  }
+  return new URL(link, env.APP_URL).toString();
 }
 
 /**
@@ -142,9 +162,10 @@ export const notificationOutboundWorker = new Worker<OutboundJobData>(
 
     await dispatchOutbound({
       notificationId,
+      tenantId,
       title: notification.title,
       body: notification.body,
-      link: notification.link,
+      link: toAbsoluteLink(notification.link),
       recipients,
       channels: { email: true, sms: false, whatsapp: false },
     });
