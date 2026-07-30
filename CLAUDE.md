@@ -113,8 +113,8 @@ apps/
   worker/       BullMQ background workers
   admin-ui/     Refine + shadcn/ui — single app serving both agent/admin and customer
                 users (port 3001), RBAC-controlled internally. There is no separate
-                portal app — `apps/portal` on disk is stale/unused, kept only pending
-                cleanup (see docker-compose.yml's comment on the admin-ui service).
+                portal app — `apps/portal` source was removed in PR #211; the directory
+                exists only as a pnpm workspace stub.
 packages/
   db/           Drizzle schema, migrations, client
   entity-engine/
@@ -212,11 +212,19 @@ Full setup: `docs/local-setup.md`
 
 ## Maintenance notes
 
-**Dep bumps:** The `esbuild` override pin (`>=0.28.1`) is for GHSA-gv7w-rqvm-qjhr
-(esbuild < 0.28.1, high severity). Do not remove it — tsx@4.x and vite@6.x both pull in the
-vulnerable version transitively. Lives in `pnpm-workspace.yaml`'s `overrides:` key (moved
-from `package.json`'s `pnpm.overrides` field when pnpm was upgraded to v11 — that field is
-no longer read).
+**Dep bumps:** All security override pins live in `pnpm-workspace.yaml`'s `overrides:` key
+(moved from `package.json`'s `pnpm.overrides` field when pnpm was upgraded to v11 — that
+field is no longer read). Do not remove these:
+
+- `esbuild >=0.28.1` — GHSA-gv7w-rqvm-qjhr (high); tsx@4.x and vite@6.x pull in the
+  vulnerable version transitively.
+- `"brace-expansion" ">=5.0.8"` — GHSA-3jxr-9vmj-r5cp / GHSA-52cp-r559-cp3m /
+  GHSA-mh99-v99m-4gvg (DoS via unbounded expansion); blanket pin covers all major lines.
+- `"js-yaml@4" "4.3.0"` — quadratic CPU via merge-key chains (>=4.0.0 <4.3.0).
+- `"fast-uri" ">=3.1.4"` — GHSA-4c8g-83qw-93j6 / GHSA-v2hh-gcrm-f6hx (host confusion
+  via IDN / backslash authority); pulled in via commitlint's ajv dep.
+- `postcss ">=8.5.18"` — GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL
+  auto-loading); pulled in via vite (admin-ui devDep).
 
 ---
 
