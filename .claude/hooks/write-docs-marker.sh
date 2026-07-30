@@ -10,16 +10,18 @@
 set -euo pipefail
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"
 export REPO
+export LIBDIR="${CLAUDE_PROJECT_DIR:-$REPO}/.claude/hooks/lib"
 exec node -e '
-const fs=require("fs"), cp=require("child_process"), crypto=require("crypto");
+const fs=require("fs"), cp=require("child_process");
+const ctx=require(process.env.LIBDIR+"/context.js");
 const repo=process.env.REPO;
-fs.mkdirSync(repo+"/.claude/state",{recursive:true});
+ctx.ensureStateDir(repo,"docs-updated");
 const args=process.argv.slice(1);
 function sh(c){try{return cp.execSync(c,{cwd:repo}).toString();}catch(e){return "";}}
-const branch=sh("git rev-parse --abbrev-ref HEAD").trim();
-const diff=sh("git diff HEAD");
-if(!diff.trim()){console.error("Cannot write docs marker: git diff HEAD is empty - nothing to document.");process.exit(1);}
-const diffSha=crypto.createHash("sha256").update(diff).digest("hex");
+const branch=ctx.branchOf(repo);
+const diffBuf=ctx.shBuf("git diff HEAD",repo);
+if(!diffBuf.toString().trim()){console.error("Cannot write docs marker: git diff HEAD is empty - nothing to document.");process.exit(1);}
+const diffSha=ctx.sha256(diffBuf);
 const changed=sh("git diff HEAD --name-only").split("\n").filter(Boolean);
 const isDocFile=f=>/(^|\/)docs\//i.test(f) || /^CLAUDE\.md$/i.test(f) || /^README\.md$/i.test(f) || /^\.claude\/.*\.md$/i.test(f);
 const touchedDocs=changed.filter(isDocFile);
@@ -37,7 +39,7 @@ if(skipIdx!==-1){
   process.exit(1);
 }
 const marker={branch,diff_sha:diffSha,mode,touched_docs:touchedDocs,skip_reason:reason,timestamp_iso:new Date().toISOString()};
-fs.writeFileSync(repo+"/.claude/state/docs-updated.json",JSON.stringify(marker,null,2));
+ctx.writeJSON(ctx.statePath(repo,"docs-updated",branch), marker);
 console.log("docs marker written for "+branch+" (mode="+mode+(mode==="touched"?", files="+touchedDocs.length:", reason=\""+reason+"\"")+"). Commit now - any further edit invalidates it.");
 process.exit(0);
 ' -- "$@"

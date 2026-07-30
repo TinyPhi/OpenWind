@@ -975,22 +975,25 @@ These modules are the platform. They have no customer-facing UI on their own.
 | `@platform/api-gateway`       | Route registration, rate limiting, API key management  |
 | `@platform/connector-sdk`     | Connector interface, credential vault, webhook gateway |
 | `@platform/plugin-sdk`        | Plugin lifecycle, slot registry, hook registration     |
-| `@platform/search`            | Postgres FTS + Typesense sync                          |
 | `@platform/ai`                | Claude API wrapper, prompt management, RAG service     |
 
-### 10.2 Standard modules (pre-built, installed by default in the standard bundle)
+### 10.2 Standard modules (pre-built; `core` ones installed by default, `optional` ones opt-in)
 
-| Module                    | Key entities                        | Key workflow                                               |
-| ------------------------- | ----------------------------------- | ---------------------------------------------------------- |
-| `@modules/crm`            | Contact, Company, Deal, Activity    | Lead → Qualified → Proposal → Won/Lost                     |
-| `@modules/helpdesk`       | Ticket, Comment, Article            | Open → In Progress → Pending → Resolved                    |
-| `@modules/hrms`           | Employee, Department, Leave Request | Draft → Submitted → Approved/Rejected                      |
-| `@modules/reimbursements` | Expense Claim, Receipt              | Draft → Submitted → Manager Review → Finance Review → Paid |
-| `@modules/projects`       | Project, Task, Milestone            | Backlog → In Progress → In Review → Done                   |
-| `@modules/invoicing`      | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled                      |
-| `@modules/inventory`      | Item, Warehouse, Stock Movement     | Active → Low Stock → Out of Stock                          |
-| `@modules/procurement`    | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled                        |
-| `@modules/tender`         | Tender, Costing Task (child ticket) | Draft → Published → Bidding → Awarded/Closed               |
+| Module                    | Key entities                        | Key workflow                                                                                                                       | Category   |
+| ------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `@modules/crm`            | Contact, Company, Deal, Activity    | Lead → Qualified → Proposal → Won/Lost                                                                                             | `core`     |
+| `@modules/helpdesk`       | Ticket, Comment, Article            | Open → In Progress → Pending → Resolved                                                                                            | `core`     |
+| `@modules/hrms`           | Employee, Department, Leave Request | Draft → Submitted → Approved/Rejected                                                                                              | `core`     |
+| `@modules/reimbursements` | Expense Claim, Receipt              | Draft → Submitted → Manager Review → Finance Review → Paid                                                                         | `core`     |
+| `@modules/projects`       | Project, Task, Milestone            | Backlog → In Progress → In Review → Done                                                                                           | `core`     |
+| `@modules/invoicing`      | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled                                                                                              | `core`     |
+| `@modules/procurement`    | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled                                                                                                | `core`     |
+| `@modules/tender`         | Tender                              | Draft → BOQ Preparation → Pending Costing Review → Costing Approved → Document Preparation → Pending Submission Review → Submitted | `optional` |
+
+`category` (`core` \| `optional`) is the classification from ADR-005 (accepted 2026-07-23): `core`
+modules auto-provision on tenant creation; `optional` modules stay opt-in via the existing install
+API, same as today. `tender` is the platform's 8th module and its only `optional` one — it does
+not ship with new tenants unless explicitly installed.
 
 ### 10.3 Sector packages (optional, industry-specific installs)
 

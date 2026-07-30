@@ -97,6 +97,10 @@ export async function createWorkflow(
   createdBy: string,
   input: CreateWorkflowInput,
 ): Promise<WorkflowDefinition> {
+  // ON CONFLICT DO NOTHING (not a pre-check SELECT) — atomic against the
+  // workflows_tenant_entity_type_unique constraint, no TOCTOU race under
+  // concurrent creation. Matches the pattern in tenant-lifecycle.ts's
+  // provisionTenant slug race. See issue #168 / ADR-006 Known gap #3.
   const [row] = await db
     .insert(workflows)
     .values({
@@ -107,9 +111,14 @@ export async function createWorkflow(
       createdBy,
       assignedTo: [createdBy],
     })
+    .onConflictDoNothing()
     .returning();
 
-  if (!row) throw new WorkflowError("WORKFLOW_NOT_FOUND");
+  if (!row) {
+    throw new WorkflowError("ENTITY_TYPE_ALREADY_GOVERNED", {
+      entityTypeId: input.entityTypeId,
+    });
+  }
 
   logger.info({ tenantId, workflowId: row.id, createdBy }, "Workflow created");
   return rowToWorkflow(row);
@@ -123,6 +132,9 @@ export async function getWorkflowByEntityTypeId(
   tenantId: string,
   entityTypeId: string,
 ): Promise<WorkflowDefinition | null> {
+  // workflows_tenant_entity_type_unique (migration 0036) prevents more than
+  // one row matching this filter going forward, but ORDER BY keeps this
+  // deterministic rather than relying on that constraint alone (issue #168).
   const [row] = await db
     .select()
     .from(workflows)
@@ -132,6 +144,7 @@ export async function getWorkflowByEntityTypeId(
         eq(workflows.tenantId, tenantId),
       ),
     )
+    .orderBy(asc(workflows.createdAt))
     .limit(1);
   return row ? rowToWorkflow(row) : null;
 }
@@ -164,12 +177,22 @@ export async function getWorkflow(
     db
       .select()
       .from(workflowStates)
-      .where(eq(workflowStates.workflowId, workflowId))
+      .where(
+        and(
+          eq(workflowStates.workflowId, workflowId),
+          eq(workflowStates.tenantId, tenantId),
+        ),
+      )
       .orderBy(asc(workflowStates.sortOrder), asc(workflowStates.id)),
     db
       .select()
       .from(workflowTransitions)
-      .where(eq(workflowTransitions.workflowId, workflowId))
+      .where(
+        and(
+          eq(workflowTransitions.workflowId, workflowId),
+          eq(workflowTransitions.tenantId, tenantId),
+        ),
+      )
       .orderBy(asc(workflowTransitions.id)),
   ]);
 
@@ -257,12 +280,22 @@ export async function listWorkflows(
     db
       .select()
       .from(workflowStates)
-      .where(inArray(workflowStates.workflowId, workflowIds))
+      .where(
+        and(
+          inArray(workflowStates.workflowId, workflowIds),
+          eq(workflowStates.tenantId, tenantId),
+        ),
+      )
       .orderBy(asc(workflowStates.sortOrder), asc(workflowStates.id)),
     db
       .select()
       .from(workflowTransitions)
-      .where(inArray(workflowTransitions.workflowId, workflowIds))
+      .where(
+        and(
+          inArray(workflowTransitions.workflowId, workflowIds),
+          eq(workflowTransitions.tenantId, tenantId),
+        ),
+      )
       .orderBy(asc(workflowTransitions.id)),
     db
       .select({ workflowId: entityInstances.workflowId, total: count() })
@@ -413,10 +446,20 @@ export async function deleteWorkflow(
 
   await db
     .delete(workflowTransitions)
-    .where(eq(workflowTransitions.workflowId, workflowId));
+    .where(
+      and(
+        eq(workflowTransitions.workflowId, workflowId),
+        eq(workflowTransitions.tenantId, tenantId),
+      ),
+    );
   await db
     .delete(workflowStates)
-    .where(eq(workflowStates.workflowId, workflowId));
+    .where(
+      and(
+        eq(workflowStates.workflowId, workflowId),
+        eq(workflowStates.tenantId, tenantId),
+      ),
+    );
   await db.delete(workflows).where(eq(workflows.id, workflowId));
 
   logger.info({ tenantId, workflowId }, "Workflow deleted");
@@ -464,6 +507,7 @@ export async function addWorkflowState(
   const [row] = await db
     .insert(workflowStates)
     .values({
+      tenantId,
       workflowId,
       name: input.name,
       label: input.label,
@@ -550,6 +594,7 @@ export async function updateWorkflowState(
       and(
         eq(workflowStates.id, stateId),
         eq(workflowStates.workflowId, workflowId),
+        eq(workflowStates.tenantId, tenantId),
       ),
     )
     .returning();
@@ -618,6 +663,7 @@ export async function deleteWorkflowState(
       and(
         eq(workflowStates.id, stateId),
         eq(workflowStates.workflowId, workflowId),
+        eq(workflowStates.tenantId, tenantId),
       ),
     )
     .limit(1);
@@ -631,6 +677,7 @@ export async function deleteWorkflowState(
     .where(
       and(
         eq(workflowTransitions.workflowId, workflowId),
+        eq(workflowTransitions.tenantId, tenantId),
         or(
           eq(workflowTransitions.fromState, state.name),
           eq(workflowTransitions.toState, state.name),
@@ -647,6 +694,7 @@ export async function deleteWorkflowState(
       and(
         eq(workflowStates.id, stateId),
         eq(workflowStates.workflowId, workflowId),
+        eq(workflowStates.tenantId, tenantId),
       ),
     );
 
@@ -667,6 +715,7 @@ export async function addWorkflowTransition(
   const [row] = await db
     .insert(workflowTransitions)
     .values({
+      tenantId,
       workflowId,
       fromState: input.fromState,
       toState: input.toState,
@@ -716,6 +765,7 @@ export async function updateWorkflowTransition(
       and(
         eq(workflowTransitions.id, transitionId),
         eq(workflowTransitions.workflowId, workflowId),
+        eq(workflowTransitions.tenantId, tenantId),
       ),
     )
     .returning();
@@ -745,6 +795,7 @@ export async function deleteWorkflowTransition(
       and(
         eq(workflowTransitions.id, transitionId),
         eq(workflowTransitions.workflowId, workflowId),
+        eq(workflowTransitions.tenantId, tenantId),
       ),
     )
     .returning({ id: workflowTransitions.id });

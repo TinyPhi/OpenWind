@@ -258,42 +258,63 @@
       "idx": 36,
       "version": "7",
       "when": 1783417686000,
-      "tag": "0036_notifications",
+      "tag": "0036_workflows_entity_type_unique",
       "breakpoints": false
     },
     {
       "idx": 37,
       "version": "7",
       "when": 1783417687000,
-      "tag": "0037_notifications_automation_type",
+      "tag": "0037_rls_workflow_config_tables",
       "breakpoints": false
     },
     {
       "idx": 38,
       "version": "7",
       "when": 1783417688000,
-      "tag": "0038_notifications_comment_replied_type",
+      "tag": "0038_audit_log_purge_actions",
       "breakpoints": false
     },
     {
       "idx": 39,
       "version": "7",
       "when": 1783417689000,
-      "tag": "0039_notifications_mention_access_type",
+      "tag": "0039_module_visibility",
       "breakpoints": false
     },
     {
       "idx": 40,
       "version": "7",
-      "when": 1783417690000,
-      "tag": "0040_module_visibility",
+      "when": 1783417689000,
+      "tag": "0040_notifications",
       "breakpoints": false
     },
     {
       "idx": 41,
       "version": "7",
+      "when": 1783417690000,
+      "tag": "0041_notifications_automation_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 42,
+      "version": "7",
       "when": 1783417691000,
-      "tag": "0041_platform_settings",
+      "tag": "0042_notifications_comment_replied_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1783417692000,
+      "tag": "0043_notifications_mention_access_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1783417693000,
+      "tag": "0044_platform_settings",
       "breakpoints": false
     }
   ]

@@ -13,12 +13,27 @@ PASS=0
 FAIL=0
 TMP=.claude/_hooktest_tmp.ts
 
+# State is keyed by branch (.claude/state/<kind>/<branch-slug>.json) — resolve this
+# checkout's slug once so every path below points at the file the hooks actually use.
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+SLUG="$(node -e 'console.log(require(require("path").resolve(process.argv[1],"lib/context.js")).slug(process.argv[2]))' "$H" "$BRANCH")"
+PLAN_JSON=".claude/state/plan/$SLUG.json"
+REVIEW_JSON=".claude/state/review/$SLUG.json"
+SHIP_READY_JSON=".claude/state/ship-ready/$SLUG.json"
+PASS_APPROVED_JSON=".claude/state/pass-approved/$SLUG.json"
+CLAIMED_DONE=".claude/state/claimed-done/$SLUG"
+
 # Save any live gate state before tests mutate it, restore on exit so running
 # this script locally mid-session doesn't destroy plan.json / review.json / etc.
+# Then START from a clean state dir too: a real approved plan-lock for the CURRENT
+# branch (from actual mid-session use) would otherwise leak into the "no plan yet ->
+# blocked" assertions below and fail them for reasons unrelated to the hooks under
+# test. CI's checkout is already state-less, so this is a no-op there.
 _STATE_BACKUP=
 if [ -d .claude/state ]; then
   _STATE_BACKUP="$(mktemp -d)"
   cp -r .claude/state/. "$_STATE_BACKUP/"
+  rm -rf .claude/state
 fi
 
 cleanup() {
@@ -90,20 +105,20 @@ echo "verify-stop (sentinel-gated):"
 ck 0 "no claimed-done sentinel -> allows stop" "$(hook verify-stop.sh '{"hook_event_name":"Stop"}')"
 
 echo "ship-cleanup (clean up only when commit landed):"
-mkdir -p .claude/state
+mkdir -p "$(dirname "$SHIP_READY_JSON")" "$(dirname "$CLAIMED_DONE")"
 HEAD=$(git rev-parse HEAD)
-printf '{"branch":"b","head_sha":"%s","staged_tree_sha":"z","timestamp_iso":"2026-01-01T00:00:00Z"}' "$HEAD" >.claude/state/ship-ready.json
+printf '{"branch":"%s","head_sha":"%s","staged_tree_sha":"z","timestamp_iso":"2026-01-01T00:00:00Z"}' "$BRANCH" "$HEAD" >"$SHIP_READY_JSON"
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/ship-cleanup.sh" >/dev/null 2>&1
-[ -f .claude/state/ship-ready.json ]
+[ -f "$SHIP_READY_JSON" ]
 ck 0 "keeps marker when HEAD unchanged (commit failed)" $?
-printf '{"branch":"b","head_sha":"deadbeef","staged_tree_sha":"z","timestamp_iso":"2026-01-01T00:00:00Z"}' >.claude/state/ship-ready.json
+printf '{"branch":"%s","head_sha":"deadbeef","staged_tree_sha":"z","timestamp_iso":"2026-01-01T00:00:00Z"}' "$BRANCH" >"$SHIP_READY_JSON"
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/ship-cleanup.sh" >/dev/null 2>&1
-[ -f .claude/state/ship-ready.json ]
+[ -f "$SHIP_READY_JSON" ]
 ck 1 "deletes marker when HEAD advanced (commit landed)" $?
-rm -f .claude/state/ship-ready.json
-: >.claude/state/claimed-done
+rm -f "$SHIP_READY_JSON"
+: >"$CLAIMED_DONE"
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"SHIP_BYPASS=1 git commit -m x"}}' | "$H/ship-cleanup.sh" >/dev/null 2>&1
-[ -f .claude/state/claimed-done ]
+[ -f "$CLAIMED_DONE" ]
 ck 0 "keeps claimed-done when no marker (bypass path)" $?
 
 echo "commit-gate B2 / write-review dod_met (with a controlled diff):"
@@ -112,7 +127,7 @@ git add "$TMP"
 printf '%s' '{"track":"t","acceptance_criteria":[{"text":"x"}],"scope_paths":["**"]}' | "$H/write-plan.sh" set - >/dev/null 2>&1
 printf '%s' '{"prompt":"approve-plan"}' | "$H/approval-gate.sh" >/dev/null 2>&1
 printf '%s' '{}' | "$H/write-review.sh" - --allow-no-tests >/dev/null 2>&1
-grep -q '"dod_met": false' .claude/state/review.json
+grep -q '"dod_met": false' "$REVIEW_JSON"
 ck 0 "absent dod_met defaults to false" $?
 printf 'export const _u = 2;\n' >>"$TMP"
 OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" 2>&1)
@@ -123,32 +138,34 @@ echo "human approval (agent cannot self-approve):"
 rm -rf .claude/state
 git reset -q -- "$TMP" 2>/dev/null || true
 printf '%s' '{"track":"t","acceptance_criteria":[{"text":"x"}],"scope_paths":["**"]}' | "$H/write-plan.sh" set - >/dev/null 2>&1
-grep -q '"approved": false' .claude/state/plan.json
+grep -q '"approved": false' "$PLAN_JSON"
 ck 0 "draft plan is approved:false" $?
 "$H/write-plan.sh" approve >/dev/null 2>&1
 ck 1 "agent self-approve (write-plan.sh approve) is refused" $?
 printf '%s' '{"prompt":"please approve-plan now"}' | "$H/approval-gate.sh" >/dev/null 2>&1
-grep -q '"approved": true' .claude/state/plan.json
+grep -q '"approved": true' "$PLAN_JSON"
 ck 0 "human approve-plan prompt stamps approved:true" $?
-rm -f .claude/state/plan.json
+rm -f "$PLAN_JSON"
 printf '%s' '{"track":"t","acceptance_criteria":[{"text":"x"}],"scope_paths":["**"]}' | "$H/write-plan.sh" set - >/dev/null 2>&1
 printf '%s' '{"prompt":"what does approve-plan do?"}' | "$H/approval-gate.sh" >/dev/null 2>&1
-grep -q '"approved": false' .claude/state/plan.json
+grep -q '"approved": false' "$PLAN_JSON"
 ck 0 "question mentioning approve-plan does NOT approve" $?
 printf '%s' '{"prompt":"approve-plan"}' | "$H/approval-gate.sh" >/dev/null 2>&1  # re-approve so the edit-gate precondition holds
 edit_after_approve=$(printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"packages/db/x.ts"}}' | "$H/edit-gate.sh"; echo $?)
 ck 0 "edit-gate allows source after human plan approval" $edit_after_approve
 
 echo "approve-ship guard (no marker = no pass-approved written):"
-rm -f .claude/state/ship-ready.json .claude/state/pass-approved.json
+rm -f "$SHIP_READY_JSON" "$PASS_APPROVED_JSON"
 printf '%s' '{"prompt":"how does approve-ship work?"}' | "$H/approval-gate.sh" >/dev/null 2>&1
-[ -f .claude/state/pass-approved.json ]
+[ -f "$PASS_APPROVED_JSON" ]
 ck 1 "approve-ship keyword in question does NOT write pass-approved without a marker" $?
 
 echo "human pass-approval + full gate chain:"
 printf 'export const _h = 1;\n' >"$TMP"
 git add "$TMP"
 printf '%s' '{"dod_met":true}' | "$H/write-review.sh" - --allow-no-tests >/dev/null 2>&1
+docsmarker_out=$("$H/write-docs-marker.sh" --skip "hook test fixture, no doc surface" 2>&1); docsmarker_rc=$?
+[ "$docsmarker_rc" != "0" ] && printf 'write-docs-marker.sh exit=%s: %s\n' "$docsmarker_rc" "$docsmarker_out" >&2
 "$H/write-ship-marker.sh" >/dev/null 2>&1
 no_pass=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" 2>&1)
 printf '%s' "$no_pass" | grep -q "no human pass-approval"
@@ -158,18 +175,38 @@ OTHER=$(git status --porcelain | grep -v '_hooktest_tmp' || true)
 if [ -n "$OTHER" ]; then
   echo "  skip  full-chain ALLOW assertions (working tree has uncommitted changes; these always run in CI's clean checkout — see header note)"
 else
-  with_pass=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" >/dev/null 2>&1; echo $?)
+  with_pass_out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | "$H/commit-gate.sh" 2>&1); with_pass=$?
   ck 0 "full gate chain ALLOWS commit (plan+review+dod+marker+pass-approval, fully staged)" "$with_pass"
-  rm -f .claude/state/pass-approved.json
-  autopass=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | OPENWIND_AUTOPASS=1 "$H/commit-gate.sh" >/dev/null 2>&1; echo $?)
+  [ "$with_pass" != "0" ] && printf '%s\n' "$with_pass_out" >&2
+  rm -f "$PASS_APPROVED_JSON"
+  autopass_out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' | OPENWIND_AUTOPASS=1 "$H/commit-gate.sh" 2>&1); autopass=$?
   ck 0 "OPENWIND_AUTOPASS=1 skips the human pass-approval requirement" "$autopass"
+  [ "$autopass" != "0" ] && printf '%s\n' "$autopass_out" >&2
 fi
 
 echo "mark-done produces the sentinel verify-stop checks:"
-rm -f .claude/state/claimed-done
+rm -f "$CLAIMED_DONE"
 "$H/mark-done.sh" >/dev/null 2>&1
-[ -f .claude/state/claimed-done ]
+[ -f "$CLAIMED_DONE" ]
 ck 0 "mark-done writes claimed-done" $?
+
+echo "worktree-aware resolution (edit-gate anchors on file path, commit-gate on cd/-C target):"
+WT_DIR="$(mktemp -d)/ow-hooktest-wt"
+if git worktree add "$WT_DIR" HEAD >/dev/null 2>&1; then
+  no_plan_in_wt=$(printf '%s' "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$WT_DIR/packages/db/x.ts\"}}" | "$H/edit-gate.sh"; echo $?)
+  ck 2 "edit in worktree blocked (no plan-lock there) — not silently allowed" "$no_plan_in_wt"
+  main_repo_unaffected=$([ -f "$PLAN_JSON" ] && echo present || echo absent)
+  ck present "main checkout's own plan-lock untouched by worktree edit attempt" "$main_repo_unaffected"
+  wt_commit=$(printf '%s' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $WT_DIR && git commit -m x\"}}" | "$H/commit-gate.sh" 2>&1)
+  printf '%s' "$wt_commit" | grep -q "$WT_DIR"
+  ck 0 "commit-gate report references the worktree path, not the main checkout" $?
+  chained_commit=$(printf '%s' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd /tmp && cd $WT_DIR && git commit -m x\"}}" | "$H/commit-gate.sh" 2>&1)
+  printf '%s' "$chained_commit" | grep -q "$WT_DIR"
+  ck 0 "commit-gate follows a chained cd to its LAST target, not the first hop" $?
+  git worktree remove "$WT_DIR" --force >/dev/null 2>&1
+else
+  echo "  skip  worktree-aware resolution (could not create a test worktree in this environment)"
+fi
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"

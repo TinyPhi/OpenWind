@@ -12,10 +12,20 @@ allowBuilds:
 overrides:
   typescript: "^5.5.0"
   esbuild: ">=0.28.1"
+  # Source of truth for the minimum hono version across the workspace (#182) — package.json
+  # "hono" specifiers in individual apps/packages should match this floor, not drift below it.
   hono: ">=4.12.25"
-  # GHSA-3jxr-9vmj-r5cp + GHSA-52cp-r559-cp3m: brace-expansion DoS
-  "brace-expansion@1": "1.1.16"
-  "brace-expansion@2": "2.1.2"
-  "brace-expansion@5": "5.0.7"
+  # GHSA-3jxr-9vmj-r5cp + GHSA-52cp-r559-cp3m + GHSA-mh99-v99m-4gvg (#206): brace-expansion
+  # DoS via unbounded expansion length. The per-major-line pins this override used to have
+  # (1.1.16 / 2.1.2 / 5.0.7) are ALL <=5.0.7 — GHSA-mh99-v99m-4gvg's vulnerable range covers
+  # every one of them regardless of major line, and its only patched version is >=5.0.8.
+  # Consolidated to one blanket override across all requested ranges.
+  "brace-expansion": ">=5.0.8"
   # js-yaml quadratic CPU via merge-key chains
   "js-yaml@4": "4.3.0"
+  # GHSA-4c8g-83qw-93j6 + GHSA-v2hh-gcrm-f6hx: fast-uri host confusion (IDN canonicalization
+  # failure, literal backslash authority delimiter) — pulled in via commitlint's ajv dep
+  "fast-uri": ">=3.1.4"
+  # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
+  # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths
+  postcss: ">=8.5.18"

@@ -12,7 +12,9 @@ import {
   workflowStates,
   workflowTransitions,
   automationRules,
+  modules,
 } from "@platform/db";
+import { logger } from "@platform/logger";
 import { ModuleService } from "../../src/services/module-service.js";
 import { createApp } from "../../src/app.js";
 
@@ -157,13 +159,15 @@ describe("Module System Integration Tests", () => {
     expect(ticketFields.map((f) => f.name)).toContain("priority");
     expect(ticketFields.map((f) => f.name)).toContain("category");
 
-    // Verify workflow created
+    // Verify workflow created — name comes from {WORKFLOW_NAME} (the
+    // module's registry display name, "Helpdesk"), not a hardcoded literal
+    // (issue #171 — 002_workflow.sql used to hardcode "ticket_workflow").
     const wfs = await db
       .select()
       .from(workflows)
       .where(eq(workflows.tenantId, TEST_TENANT_ID));
-    expect(wfs.map((w) => w.name)).toContain("ticket_workflow");
-    const wf = wfs.find((w) => w.name === "ticket_workflow")!;
+    expect(wfs.map((w) => w.name)).toContain("Helpdesk");
+    const wf = wfs.find((w) => w.name === "Helpdesk")!;
 
     // Verify workflow states created
     const states = await db
@@ -229,5 +233,221 @@ describe("Module System Integration Tests", () => {
     };
     const helpdesk = listJson.find((m) => m.slug === "helpdesk");
     expect(helpdesk?.installed).toBe(false);
+  });
+
+  // #171 — reinstalling used to accumulate orphaned "Support Ticket" entity
+  // types/workflows every cycle (001_seed.sql had no idempotency guard at
+  // all). With that file removed, a full install -> uninstall -> reinstall
+  // cycle must produce exactly one entity type per distinct name for the
+  // module, not one-per-cycle.
+  it("install -> uninstall -> reinstall produces exactly one entity type per distinct name (#171 regression)", async () => {
+    await app.request("/modules/helpdesk/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    const types = await db
+      .select()
+      .from(entityTypes)
+      .where(eq(entityTypes.tenantId, TEST_TENANT_ID));
+    const namesCount = new Map<string, number>();
+    for (const t of types) {
+      namesCount.set(t.name, (namesCount.get(t.name) ?? 0) + 1);
+    }
+    for (const [name, count] of namesCount) {
+      expect(count, `expected exactly one entity type named "${name}"`).toBe(1);
+    }
+    expect(types.map((t) => t.name).sort()).toEqual(
+      ["article", "comment", "ticket"].sort(),
+    );
+
+    const wfs = await db
+      .select()
+      .from(workflows)
+      .where(eq(workflows.tenantId, TEST_TENANT_ID));
+    expect(wfs).toHaveLength(1);
+  });
+});
+
+// ── workflowName rename (issue #170) ─────────────────────────────────────────
+//
+// installModule's rename step resolves "the workflow this module just
+// seeded" first by exact name match (workflows.name === the module's
+// registry display name), falling back to a module_id -> entity_type_id join
+// when nothing matches by name. Before this fix, tender's seed SQL hardcoded
+// a literal workflow name instead of using {WORKFLOW_NAME}, so the exact-name
+// match never found it and the rename silently no-op'd.
+
+describe("installModule — workflowName rename (issue #170)", () => {
+  const TENDER_TENANT_ID = "00000000-0000-0000-0000-000000000170";
+  const HELPDESK_TENANT_ID = "00000000-0000-0000-0000-000000000171";
+  const AMBIGUOUS_TENANT_ID = "00000000-0000-0000-0000-000000000172";
+  const AMBIGUOUS_SLUG = "test-ambiguous-170";
+
+  beforeAll(async () => {
+    for (const id of [
+      TENDER_TENANT_ID,
+      HELPDESK_TENANT_ID,
+      AMBIGUOUS_TENANT_ID,
+    ]) {
+      await db
+        .insert(tenants)
+        .values({
+          id,
+          name: `Test Rename Tenant ${id}`,
+          slug: `test-rename-tenant-${id}`,
+          plan: "standard",
+          status: "active",
+          config: {},
+        })
+        .onConflictDoNothing();
+    }
+    await ModuleService.seedRegistry();
+  });
+
+  afterAll(async () => {
+    for (const id of [
+      TENDER_TENANT_ID,
+      HELPDESK_TENANT_ID,
+      AMBIGUOUS_TENANT_ID,
+    ]) {
+      await db.delete(automationRules).where(eq(automationRules.tenantId, id));
+      const wfs = await db
+        .select()
+        .from(workflows)
+        .where(eq(workflows.tenantId, id));
+      for (const wf of wfs) {
+        await db
+          .delete(workflowTransitions)
+          .where(eq(workflowTransitions.workflowId, wf.id));
+        await db
+          .delete(workflowStates)
+          .where(eq(workflowStates.workflowId, wf.id));
+      }
+      await db.delete(workflows).where(eq(workflows.tenantId, id));
+      await db.delete(entityFields).where(eq(entityFields.tenantId, id));
+      await db.delete(entityTypes).where(eq(entityTypes.tenantId, id));
+      await db.delete(tenants).where(eq(tenants.id, id));
+    }
+    await db.delete(modules).where(eq(modules.slug, AMBIGUOUS_SLUG));
+  });
+
+  it("renames tender's workflow — regression test, fails without the seed-SQL + fallback fix", async () => {
+    await ModuleService.installModule(TENDER_TENANT_ID, "tender", {
+      workflowName: "Custom Tender Flow",
+    });
+
+    const wfs = await db
+      .select()
+      .from(workflows)
+      .where(eq(workflows.tenantId, TENDER_TENANT_ID));
+    expect(wfs).toHaveLength(1);
+    expect(wfs[0]?.name).toBe("Custom Tender Flow");
+  });
+
+  it("still renames helpdesk's workflow via the exact-name fast path — unaffected by the fallback addition", async () => {
+    await ModuleService.installModule(HELPDESK_TENANT_ID, "helpdesk", {
+      workflowName: "Custom Helpdesk Flow",
+    });
+
+    const wfs = await db
+      .select()
+      .from(workflows)
+      .where(eq(workflows.tenantId, HELPDESK_TENANT_ID));
+    // helpdesk seeds exactly one workflow (001_entity_types.sql/002_workflow.sql's
+    // "ticket" pair) since issue #171 removed the vestigial second seed
+    // pipeline (001_seed.sql) that used to also seed a "Support Ticket"
+    // entity type + workflow. 002_workflow.sql now seeds its name via
+    // {WORKFLOW_NAME} (matching #170's convention), so the exact-name match
+    // (and therefore the rename) still targets it directly.
+    expect(wfs).toHaveLength(1);
+    const renamed = wfs.filter((w) => w.name === "Custom Helpdesk Flow");
+    expect(renamed).toHaveLength(1);
+  });
+
+  it("skips the rename and logs a warning when the fallback resolution is ambiguous, rather than guessing", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+
+    const [inserted] = await db
+      .insert(modules)
+      .values({
+        slug: AMBIGUOUS_SLUG,
+        name: "Test Ambiguous Module",
+        version: "0.0.1",
+      })
+      .onConflictDoNothing()
+      .returning();
+    // onConflictDoNothing returns [] (not the existing row) on conflict — a
+    // stale row from an interrupted prior run would otherwise make this
+    // undefined. Fall back to a plain SELECT rather than a confusing
+    // non-null-assertion throw.
+    const moduleRow =
+      inserted ??
+      (
+        await db
+          .select()
+          .from(modules)
+          .where(eq(modules.slug, AMBIGUOUS_SLUG))
+          .limit(1)
+      )[0];
+    if (!moduleRow) throw new Error("failed to create or find test module");
+    const moduleId = moduleRow.id;
+
+    // No seed directory exists for this slug, so installModule's seeding step
+    // is skipped entirely (logs its own separate warning) and the rename
+    // logic below runs against DB state we control directly — two entity
+    // types tagged with the same module_id, each with a workflow, neither
+    // named to match the module's display name.
+    const [etA] = await db
+      .insert(entityTypes)
+      .values({
+        tenantId: AMBIGUOUS_TENANT_ID,
+        name: "ambiguous_a",
+        plural: "ambiguous_as",
+        moduleId,
+        allowCustomFields: true,
+      })
+      .returning();
+    const [etB] = await db
+      .insert(entityTypes)
+      .values({
+        tenantId: AMBIGUOUS_TENANT_ID,
+        name: "ambiguous_b",
+        plural: "ambiguous_bs",
+        moduleId,
+        allowCustomFields: true,
+      })
+      .returning();
+    await db.insert(workflows).values([
+      {
+        tenantId: AMBIGUOUS_TENANT_ID,
+        entityTypeId: etA!.id,
+        name: "workflow_a",
+        initialState: "open",
+      },
+      {
+        tenantId: AMBIGUOUS_TENANT_ID,
+        entityTypeId: etB!.id,
+        name: "workflow_b",
+        initialState: "open",
+      },
+    ]);
+
+    await ModuleService.installModule(AMBIGUOUS_TENANT_ID, AMBIGUOUS_SLUG, {
+      workflowName: "Should Not Apply",
+    });
+
+    const wfs = await db
+      .select()
+      .from(workflows)
+      .where(eq(workflows.tenantId, AMBIGUOUS_TENANT_ID));
+    expect(wfs.map((w) => w.name).sort()).toEqual(["workflow_a", "workflow_b"]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ count: 2 }),
+      expect.stringContaining("ambiguous"),
+    );
+
+    warnSpy.mockRestore();
   });
 });

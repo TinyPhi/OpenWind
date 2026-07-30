@@ -13,7 +13,7 @@ export const notifications = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id").notNull(),
     /**
-     * DB-enforced via a CHECK constraint (0036, extended by 0037): the 6
+     * DB-enforced via a CHECK constraint (0040, extended by 0041-0043): the 6
      * fixed system triggers plus 'automation.notify' for tenant-authored
      * automation rules' notify action.
      */

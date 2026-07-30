@@ -64,6 +64,7 @@ vi.mock("@platform/db", () => ({
   entityRelations: {},
   outboxEvents: {},
   workflowEvents: {},
+  workflowStates: { workflowId: "workflow_id", name: "name" },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -461,16 +462,24 @@ describe("setEntityState", () => {
   // directly with no workflow_events row and no outbox event, so the change
   // never appeared in the workflow audit trail and never triggered automations.
   it("writes a workflow_events row and a workflow.transitioned outbox event when the entity has a workflow (#127)", async () => {
-    dbMock.select.mockReturnValue(
-      makeQueryBuilder(() => [
-        {
-          id: INSTANCE_ID,
-          entityTypeId: ENTITY_TYPE_ID,
-          currentState: "open",
-          workflowId: "wf-1",
-        },
-      ]),
-    );
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: INSTANCE_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-1",
+          },
+        ]),
+      )
+      // #160 — getParentId (not a child ticket: empty result).
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      // #160 — the new workflow_states validation query.
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ name: "closed" }]))
+      // Remaining calls are loadEntityType/loadEntityFields (audit hook,
+      // run via Promise.all after the update) — any truthy row satisfies both.
+      .mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
     mockUpdateReturning.mockResolvedValue([
       { ...fakeInstance, currentState: "closed", workflowId: "wf-1" },
     ]);
@@ -535,6 +544,128 @@ describe("setEntityState", () => {
 
     expect(mockInsertValues).not.toHaveBeenCalled();
   });
+
+  // #160 — setEntityState previously accepted any state string with no check
+  // against the workflow's actual workflow_states, unlike updateEntity.
+  it("rejects a state that is not a valid workflow_states name for the entity's workflow (#160)", async () => {
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: INSTANCE_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-1",
+          },
+        ]),
+      )
+      // getParentId (not a child ticket).
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ name: "open" }, { name: "closed" }]),
+      );
+
+    await expect(
+      setEntityState(dbMock as never, TENANT_ID, INSTANCE_ID, "bogus"),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("accepts a state that IS a valid workflow_states name for the entity's workflow (#160)", async () => {
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: INSTANCE_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-1",
+          },
+        ]),
+      )
+      // getParentId (not a child ticket).
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ name: "open" }, { name: "closed" }]),
+      )
+      // loadEntityType/loadEntityFields (audit hook) — any truthy row works.
+      .mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
+    mockUpdateReturning.mockResolvedValue([
+      { ...fakeInstance, currentState: "closed", workflowId: "wf-1" },
+    ]);
+
+    const result = await setEntityState(
+      dbMock as never,
+      TENANT_ID,
+      INSTANCE_ID,
+      "closed",
+    );
+
+    expect(result.currentState).toBe("closed");
+  });
+
+  // #160 — a child ticket inherits its parent's workflowId, so without a
+  // child-ticket-aware check it would validate against the PARENT's full
+  // workflow_states instead of the fixed open/in-progress/closed set
+  // updateEntity already restricts children to.
+  it("restricts a child ticket to open/in-progress/closed regardless of the parent workflow's states (#160)", async () => {
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: INSTANCE_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-parent",
+          },
+        ]),
+      )
+      // getParentId — IS a child ticket.
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ toInstanceId: "parent-1" }]),
+      );
+
+    await expect(
+      setEntityState(
+        dbMock as never,
+        TENANT_ID,
+        INSTANCE_ID,
+        "boq_preparation", // a real state in the parent's workflow, invalid for children
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("allows a child ticket to be set to a state in its fixed set (#160)", async () => {
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: INSTANCE_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-parent",
+          },
+        ]),
+      )
+      // getParentId — IS a child ticket.
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ toInstanceId: "parent-1" }]),
+      )
+      .mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
+    mockUpdateReturning.mockResolvedValue([
+      { ...fakeInstance, currentState: "in-progress", workflowId: "wf-parent" },
+    ]);
+
+    const result = await setEntityState(
+      dbMock as never,
+      TENANT_ID,
+      INSTANCE_ID,
+      "in-progress",
+    );
+
+    expect(result.currentState).toBe("in-progress");
+  });
 });
 
 describe("bulkSetState", () => {
@@ -544,16 +675,25 @@ describe("bulkSetState", () => {
 
   // #127 — bulkSetState had the identical unguarded side-door as setEntityState.
   it("writes a workflow_events row and outbox event per changed instance with a workflow (#127)", async () => {
-    dbMock.select.mockReturnValue(
-      makeQueryBuilder(() => [
-        {
-          id: INSTANCE_ID,
-          entityTypeId: ENTITY_TYPE_ID,
-          currentState: "open",
-          workflowId: "wf-1",
-        },
-      ]),
-    );
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: INSTANCE_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-1",
+          },
+        ]),
+      )
+      // #160 — batched entity_relations lookup (no child tickets in batch).
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      // #160 — the new workflow_states validation query.
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ workflowId: "wf-1", name: "closed" }]),
+      )
+      // loadEntityType/loadEntityFields (audit hook loop) — any truthy row.
+      .mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
     mockUpdateReturning.mockResolvedValue([{ id: INSTANCE_ID }]);
 
     const result = await bulkSetState(
@@ -583,6 +723,152 @@ describe("bulkSetState", () => {
         actorId: "actor-1",
       }),
     ]);
+  });
+
+  // #160 — bulkSetState previously accepted any state string with no check,
+  // and (per the design risk this test locks in) must validate each item
+  // against ITS OWN workflow, not a single flat set of "valid states seen
+  // anywhere in this batch" — two items in different workflows targeting the
+  // same state string must be judged independently.
+  it("validates each item against its OWN workflow, not a batch-wide state set (#160)", async () => {
+    const ID_A = "instance-a";
+    const ID_B = "instance-b";
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: ID_A,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-a",
+          },
+          {
+            id: ID_B,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-b",
+          },
+        ]),
+      )
+      // #160 — batched entity_relations lookup (no child tickets in batch).
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      // "closed" is valid in wf-a but NOT in wf-b.
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          { workflowId: "wf-a", name: "open" },
+          { workflowId: "wf-a", name: "closed" },
+          { workflowId: "wf-b", name: "open" },
+          { workflowId: "wf-b", name: "in-review" },
+        ]),
+      )
+      // loadEntityType/loadEntityFields (audit hook loop, for ID_A only —
+      // ID_B is rejected before reaching the update/audit path) — any
+      // truthy row works.
+      .mockReturnValue(makeQueryBuilder(() => [fakeEntityType]));
+    mockUpdateReturning.mockResolvedValue([{ id: ID_A }]);
+
+    const result = await bulkSetState(
+      dbMock as never,
+      TENANT_ID,
+      [
+        { id: ID_A, state: "closed" },
+        { id: ID_B, state: "closed" },
+      ],
+      "actor-1",
+    );
+
+    expect(result.updatedIds).toEqual([ID_A]);
+    expect(result.errors).toEqual([
+      { index: 1, id: ID_B, code: "INVALID_STATE" },
+    ]);
+  });
+
+  // #160 — a child ticket in a bulk batch must be restricted to
+  // open/in-progress/closed, even though it inherits its parent's full
+  // workflowId (same mirror of updateEntity's child-ticket check as the
+  // single-item setEntityState path above).
+  it("restricts a child ticket in the batch to open/in-progress/closed (#160)", async () => {
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: INSTANCE_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-parent",
+          },
+        ]),
+      )
+      // entity_relations — INSTANCE_ID IS a child ticket.
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ fromInstanceId: INSTANCE_ID }]),
+      );
+
+    const result = await bulkSetState(
+      dbMock as never,
+      TENANT_ID,
+      [{ id: INSTANCE_ID, state: "boq_preparation" }],
+      "actor-1",
+    );
+
+    expect(result.updatedIds).toEqual([]);
+    expect(result.errors).toEqual([
+      { index: 0, id: INSTANCE_ID, code: "INVALID_STATE" },
+    ]);
+  });
+
+  // #160 — regression guard for a real bug an adversarial review caught:
+  // indexing INVALID_STATE errors by an id->index Map collapses to the LAST
+  // occurrence when the same id appears twice in one batch, misreporting an
+  // earlier occurrence's error at the wrong index. Each validItems entry now
+  // carries its own originalIndex captured at the first pass over `items`,
+  // so duplicate ids can't collide.
+  it("reports the correct original index for each occurrence when an id is duplicated in the batch (#160)", async () => {
+    const DUP_ID = "instance-dup";
+    const OTHER_ID = "instance-other";
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: DUP_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-1",
+          },
+          {
+            id: OTHER_ID,
+            entityTypeId: ENTITY_TYPE_ID,
+            currentState: "open",
+            workflowId: "wf-1",
+          },
+        ]),
+      )
+      // entity_relations — no child tickets.
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      // "open" is the only valid state — every "closed"/"bogus" target below
+      // is invalid, isolating the index-tracking behavior from state validity.
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ workflowId: "wf-1", name: "open" }]),
+      );
+
+    const result = await bulkSetState(
+      dbMock as never,
+      TENANT_ID,
+      [
+        { id: DUP_ID, state: "bogus" }, // index 0 — invalid
+        { id: OTHER_ID, state: "open" }, // index 1 — valid
+        { id: DUP_ID, state: "closed" }, // index 2 — invalid (same id as index 0)
+      ],
+      "actor-1",
+    );
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        { index: 0, id: DUP_ID, code: "INVALID_STATE" },
+        { index: 2, id: DUP_ID, code: "INVALID_STATE" },
+      ]),
+    );
+    expect(result.errors).toHaveLength(2);
   });
 
   it("skips instances with no workflowId or an unchanged state", async () => {

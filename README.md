@@ -228,11 +228,11 @@ All user types log in at the same URL (`http://localhost:3001`). The app reads t
 
 ### Seeded demo data
 
-The bootstrap seeds a fully configured **Helpdesk** module so you can explore the platform immediately:
-
-- **Support Ticket** entity type with 6 fields (subject, description, priority, category, customer name, email)
-- **Ticket Lifecycle** workflow: New → Open → In Progress → Waiting for Customer → Resolved → Closed
-- **5 sample tickets** across every workflow state (from high-priority bugs to feature requests)
+The bootstrap seeds the **module registry** (Helpdesk, CRM, HRMS, Reimbursements, Projects,
+Invoicing, Procurement, Tender) so every template shows up on the Templates page — it does not
+create any tenant-owned entity types, workflows, or records. Log in and install a module (e.g.
+Helpdesk) from the Templates page to seed its `ticket` entity type, 4-state workflow
+(open → in_progress → pending → resolved), and automation rule into your own tenant.
 
 ### Resetting everything
 

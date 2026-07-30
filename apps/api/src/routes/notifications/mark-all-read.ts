@@ -1,4 +1,4 @@
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantAndUserContext, notificationRecipients } from "@platform/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { factory } from "./factory.js";
@@ -6,6 +6,9 @@ import { broadcastReadState } from "../../websocket/notifications.js";
 
 export const markAllNotificationsReadHandler = factory.createHandlers(
   requireAuth(),
+  // Notifications are user-scoped personal data, not role-gated — see the
+  // matching comment in list.ts.
+  requireRole("admin", "agent", "user", "superadmin"),
   async (c) => {
     const { tenantId, userId } = c.get("auth");
 

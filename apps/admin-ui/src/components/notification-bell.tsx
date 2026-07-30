@@ -7,6 +7,7 @@ import {
   subscribeToNotifications,
   type NotificationItem,
 } from "../lib/notifications-client.js";
+import { relativeTime } from "../lib/format.js";
 
 const BELL_ICON = (
   <svg
@@ -25,16 +26,6 @@ const BELL_ICON = (
     />
   </svg>
 );
-
-function relativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diffMs / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
 
 export function NotificationBell(): React.ReactElement {
   const navigate = useNavigate();

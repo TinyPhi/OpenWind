@@ -208,7 +208,7 @@ type uuid: ""` — the RLS policy's `app.tenant_id` GUC was unset/stale, and
   outbound email/SMS/WhatsApp handoff without touching in-app delivery.
   Deliberately **not per-tenant** — the failure mode (external delivery
   service down/misbehaving) affects every tenant identically.
-  - New single-row `platform_settings` table (migration `0041`), no
+  - New single-row `platform_settings` table (migration `0044`), no
     tenant_id/RLS — a platform-operator concern, same pattern as
     `modules.isVisible`.
   - `isOutboundNotificationsEnabled()` fails **closed** (disabled) on any DB
@@ -238,6 +238,347 @@ type uuid: ""` — the RLS policy's `app.tenant_id` GUC was unset/stale, and
 - None blocking. The 4 pre-existing `apps/api` test failures (quarantine/
   upload/modules seed) are worth a follow-up session — not caused by this
   work but discovered while re-verifying the full suite.
+
+---
+
+## 2026-07-24 — Docs/config hygiene bundle: #193, #203, #204 closed
+
+**Session type:** Docs + config (mechanical fixes, no code)
+**Branch:** `chore/PLAT-193-docs-config-hygiene`
+**Spec:** `docs/specs/docs-config-hygiene-193-203-204.md`
+
+### Completed this session
+
+- **#203** — `architecture-brief.md`'s module map was stale: it referenced a `@platform/search`
+  package that doesn't exist under `packages/`, and listed `inventory` (never built) instead of
+  `tender` (the platform's actual, shipped 8th module). Removed the dead package reference,
+  swapped `inventory` → `tender`, and added a `Category` column citing ADR-005 (`core` for the
+  original 7, `optional` for `tender`).
+- **#204** — `docs/local-setup.md` didn't mention OpenBao or MinIO at all despite both being real,
+  uncommented `docker-compose.yml` services. Added a full section: env vars, first-run init
+  steps, and the PR #178 idempotent-retry gotcha (`openbao-init`'s "transit engine already
+  enabled" message on repeat `docker compose up` is expected, not a failure). Root `SETUP.md`
+  duplicated and was staler than `docs/local-setup.md`; since `README.md` links the root path
+  directly, turned it into a one-line pointer rather than deleting it outright.
+- **#193** — all 10 non-core `docker-compose.yml` images were pinned to floating `:latest`.
+  Pulled each fresh and pinned to its actual resolved digest (a freeze, not an upgrade) —
+  `openbao`/`openbao-init` share one digest as required. Found along the way that the three
+  `novu-*` images have already drifted apart upstream (api/worker rebuilt 2026-07-08, web not
+  since 2025-03-21) — pinned each to its real current state and documented the drift in
+  `local-setup.md` rather than forcing an artificial match. Added a bump policy note (deliberate,
+  own commit, never silent).
+- Went through this repo's full Plan → Code → Review flow for all three: spec written and
+  stress-tested (`/spec-review` found two blockers — T4's wording risked upgrading instead of
+  freezing versions, and the two `openbao` lines had no parity requirement — both fixed before
+  implementation), plan-lock drafted and human-approved, implementation verified against every
+  acceptance criterion (grep checks, `docker compose config`, `docker compose pull`, README link
+  check), `pnpm typecheck`/`lint` confirmed green. `pnpm test` has one pre-existing failure
+  (`@platform/auth`, missing `platform_test` DB) confirmed via `git stash` to exist identically
+  on the base commit — not a regression from this change.
+- `docs/sup-docs/roadmap-tracker.md` deliberately **not** touched this session: it's already
+  substantially owned by in-flight PR #189, which predates and doesn't cover these three issues —
+  editing it here would risk an avoidable merge conflict for no scorecard benefit (none of
+  #193/#203/#204 are phase-tracked items).
+
+### Verification
+
+- pnpm typecheck: PASS
+- pnpm lint: PASS
+- pnpm test: 1 pre-existing, unrelated failure (`@platform/auth` — missing `platform_test` DB),
+  confirmed pre-existing via `git stash` comparison against the base commit
+- pnpm test:isolation: N/A — blocked by the same missing DB, and not triggered anyway (no new
+  tables/routes in this diff)
+
+### Next
+
+- Open the PR for `chore/PLAT-193-docs-config-hygiene`, closing #193/#203/#204.
+- Once PR #189 merges, its roadmap-tracker.md rewrite will still need a follow-up mention of
+  these three closures if the scorecard is meant to reflect every closed issue.
+
+## 2026-07-24 — Hardening backlog closeout: #167/#160/#170/#129/#176 closed, RLS/ADR-007 + nit-bug batches in review, docs audit
+
+**Session type:** Mixed (parallel backlog work + guardrail infra fix + full docs audit)
+**Branches:** `fix/PLAT-167-grant-access-consistency`, `fix/PLAT-160-state-validation`,
+`fix/PLAT-176-hook-worktree-per-branch-state`, `chore/PLAT-128-openbao-init-idempotent`,
+`chore/PLAT-batch2-nit-fixes`, `docs/PLAT-*` (this cleanup)
+
+### Completed this session
+
+- **#167** (`grant-access.ts` should accept workflow-admin callers) — closed via PR #179. Ported
+  the `isPrivileged || isRecordWorkflowAdmin` pattern already used by the three sibling ACL
+  routes; deliberately no `isOwner` path (direct-grant stays admin/workflow-admin-only per
+  `resolve-access-request.ts`'s own rationale). Adversarial review found no issues in the core
+  logic; strengthened unit-test call-argument assertions per its one suggestion.
+- **#160** (`setEntityState`/`bulkSetState` don't validate target state) — closed via PR #180.
+  Mirrors `updateEntity`'s existing `workflow_states` check, including the child-ticket
+  fixed-state-list branch. Adversarial review caught two real bugs before ship: a duplicate-id
+  index-collapse bug in `bulkSetState`'s error reporting, and a missing child-ticket check
+  (children inherit their parent's `workflowId`, so without this they'd validate against the
+  parent's full workflow instead of the fixed open/in-progress/closed set) — both fixed.
+- **#176** (guardrail hooks: shared state clobbers across branches, `edit-gate` silently bypasses
+  worktrees) — closed via PR #177. New `.claude/hooks/lib/context.js`; state now keyed per-branch
+  (`.claude/state/<kind>/<branch-slug>.json`); `edit-gate`/`commit-gate`/`ship-cleanup` resolve
+  the actual worktree a tool call targets instead of the hook's own inherited cwd;
+  `approval-gate`/`verify-stop` (no anchor available from a chat prompt or Stop event) scan all
+  linked worktrees and report ambiguity rather than guessing. Caught and fixed a real bug during
+  verification: a raw-vs-trimmed hash mismatch between `write-ship-marker.sh` and
+  `commit-gate.sh`/`approval-gate.sh` that would have made every real `approve-ship` fail.
+- **#128 follow-up** (openbao-init idempotency, flagged in PR #173's review) — closed via a
+  standalone PR, verified live against two consecutive `docker compose up` runs.
+- **#170** (`installModule` rename dead for non-templated seeds), **#129** (worker health
+  endpoint) — both already closed 2026-07-24 via PRs #174/#175 (see below, same day, prior
+  session block); reconciled into this backlog view.
+- **ADR-005** (core/optional module category, tender ratification) and **ADR-006** (per-workflow
+  ownership/admin model) — both accepted 2026-07-23/24, resolving the two open questions the
+  2026-07-22 reconciliation explicitly left for a human: `tender` is now the platform's 8th
+  module (optional category, `modules.category` column itself not yet built — tracked as #165),
+  and the per-workflow ownership model is permanent, accepted policy.
+- **ADR-007** (RLS for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`) —
+  accepted; implementation in PR #181 (open, not yet merged — CI green, awaiting a fresh review
+  since the one approval it got was auto-dismissed by a post-approval merge + 1-line fixture fix).
+- **Nit-bug batches** — PR #186 (#182–185, from reviews of PRs #175/#177/#179/#180) and PR #188
+  (#187, #171, #150, #148, #110) bundled and shipped, matching this repo's established pattern of
+  batching small independent fixes into one PR. #171 turned out non-trivial: deleting helpdesk's
+  vestigial `001_seed.sql` required also templating `002_workflow.sql`'s workflow name via
+  `{WORKFLOW_NAME}` (matching #170's convention) so the install-rename fast path kept working,
+  which cascaded into fixing a test that hardcoded the literal `"ticket_workflow"` string. Both
+  PRs open, CI green, awaiting review.
+- **Full docs audit** — read and cross-checked every file in `docs/` (excluding `decisions/` and
+  `specs/`) against actual current repo state via 4 parallel review passes. Acted on this session:
+  deleted `analysis-2026-05-22.md` and `first-loop-task.md` (fully superseded, confirmed via
+  `gh issue view` that every carry-over issue they discuss is closed); tightened
+  `phase-timeline.md` (kept the still-true velocity baseline and operating model, cut the
+  now-wrong dated projections, restored the Phase 1 carry-over decision table into this doc
+  rather than losing it); reconciled this doc (`roadmap-tracker.md`) against the backlog above;
+  consolidated all 4 `docs/reviews/*` files into
+  [`docs/reviews/pending-review-findings.md`](../reviews/pending-review-findings.md) — only
+  still-open findings kept, deduplicated across sources, each noting whether it already has a
+  tracked issue (most of the CTO/consulting-review security findings do; most of the
+  ux-adoption-review's product findings never got filed at all, which the audit flags as the
+  likely reason they saw zero progress since 2026-06-23). **Not acted on this session** (see
+  "Next"): `architecture-brief.md`'s phantom `@platform/search` package and never-built
+  `inventory` module (omits `tender`); `local-setup.md` missing OpenBao/MinIO entirely (added to
+  `docker-compose.yml` after the doc was last touched) and a duplicate, more-stale root
+  `SETUP.md`.
+- **Assignment clarity:** #161/#162/#163/#165 confirmed informally assigned to Tushar Sharma;
+  #143/#125 confirmed informally assigned to Bikash Barnwal (via chat, not GitHub's `assignees`
+  field, which this repo has never used). Local-only `open-issues-tracker.md` created (gitignored
+  by request) to track this without committing individual names into shared docs.
+- **#117** (week-log/roadmap-tracker never updated for #93–#100) — investigated and closed.
+  `gh pr view 115` showed `closingIssuesReferences: []`: PR #115's title named all five issues
+  but its body never used `Closes #N` syntax, so only #93/#94/#98 auto-closed; #99 and #100
+  had sat open for over a month despite the code being genuinely shipped (verified directly —
+  `addState`/`updateState`/`deleteState`/`deleteTransition` in `workflow-canvas.tsx`, the
+  `PUT /workflows/:id/canvas` endpoint and its `canvas.test.ts`/`canvas.isolation.test.ts`
+  coverage). Closed both with an explanatory comment citing the code and this log. This entry
+  (above, retitled) and the `roadmap-tracker.md` 2D row now cite all five issue numbers
+  explicitly, satisfying #117's literal acceptance criteria — #117 itself closed as a result.
+
+### Phase snapshot
+
+| Track                                                    | Status                                                                          |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Pre-Phase 3 hardening                                    | Only **#125** (notify→Novu) still fully open. #136/ADR-007 in review (PR #181). |
+| Nit-bug batches (#182–185, #187/#171/#150/#148/#110)     | Both PRs (#186, #188) open, CI green, awaiting review                           |
+| Unclassified work (child tickets/tender/ownership model) | Resolved — ADR-005 and ADR-006 both accepted 2026-07-23/24                      |
+| Phase 3                                                  | Not started, needs human planning sign-off per `CLAUDE.md`                      |
+
+### Next
+
+- Merge #181, #186, #188 (all CI green, awaiting review)
+- #143 and #125 — assigned to Bikash Barnwal, not this session's queue
+- #161/#162/#163/#165 — assigned to Tushar Sharma, not this session's queue
+- Finish the docs audit follow-through: `architecture-brief.md` module-map fix (drop
+  `@platform/search`/`inventory`, add `tender`), `local-setup.md` OpenBao/MinIO gap + `SETUP.md`
+  duplication
+- #165 — implement ADR-005's `modules.category` column + auto-provisioning (Tushar)
+
+### Open questions
+
+- None blocking — both prior open questions (tender scope, ownership-model ADR) resolved this
+  session via ADR-005/ADR-006.
+
+---
+
+## 2026-07-23 — Tail of prior hardening sprint: #141, #168, #128, ADR-005 accepted
+
+**Session type:** Backlog (pre-existing work, reconciled into this log after the fact — see
+`open-issues-tracker.md`'s note on informal `@username` assignments for why this wasn't logged
+in real time)
+
+### Completed
+
+- **#141** (`pnpm lint` repo-wide no-op) — closed via PR #166.
+- **#168** (shadow-workflow entity-type-ownership escalation, found during ADR-006 review) —
+  closed via PR #172: `UNIQUE(tenant_id, entity_type_id)` migration on `workflows`, atomic
+  `onConflictDoNothing()` handling, admin/agent-only role restriction on workflow creation.
+- **#128** (OpenBao + MinIO commented out of `docker-compose.yml`) — closed via PR #173.
+- **ADR-005** (core vs. optional module classification, tender ratification) — accepted.
+
+### Next
+
+- See 2026-07-24 entry above — this tail fed directly into that session's larger closeout.
+
+---
+
+## 2026-07-24 — ADR-007 accepted and implemented: RLS for workflow config tables (#136)
+
+**Session type:** Feature (ADR-driven hardening)
+**Branch:** `feat/PLAT-136-rls-workflow-config-tables`
+
+### Completed this session
+
+- Drafted, adversarially reviewed (three rounds), and got human sign-off on ADR-007, then
+  implemented it: migration 0037 adds RLS to `entity_types`/`workflows` (nullable-tenant,
+  `entity_fields`-shape) and `workflow_states`/`workflow_transitions` (new `tenant_id NOT NULL`
+  column, backfilled, `entity_instances`-shape) — closing the last four tables in the platform
+  without a database-level tenant isolation backstop.
+- Updated every module's seed SQL (9 files) to supply `tenant_id` for the newly-`NOT NULL`
+  columns — without this, every module install would have started failing the moment the
+  migration shipped.
+- Found and fixed an unrelated pre-existing bug while writing the regression test for
+  `tenant-purge.ts`: `admin_audit_log`'s CHECK constraint never allowed the
+  `purge.completed`/`purge.failed` actions the purge worker writes, so every real tenant purge
+  has been silently failing that audit-trail write in production (migration 0038).
+- A second adversarial review (code-level, post-implementation) caught that the `NOT
+VALID`/`VALIDATE CONSTRAINT` low-lock migration technique doesn't work in this repo — the
+  drizzle-orm postgres-js migrator batches every pending migration into one transaction, so the
+  `ADD COLUMN` lock is already held for the whole batch regardless. Simplified both migrations
+  back to a direct `SET NOT NULL`. Also added explicit `tenant_id` filters (defense-in-depth,
+  alongside RLS) to several `workflow-crud.ts`/`engine.ts`/`canvas.ts`/`tenant-purge.ts` query
+  sites that had relied on RLS alone.
+- `/security-review` run: no high-confidence findings.
+- `docs/decisions/ADR-007-rls-workflow-config-tables.md` still asserts the disproven low-lock
+  claim in its Implementation specification — needs a human correction (agents don't edit
+  accepted ADRs).
+
+### Verification
+
+- `pnpm typecheck` / `pnpm lint`: PASS (41/41 packages)
+- `pnpm test`: PASS (473 tests, up from 472 pre-existing — new symmetric write-block test)
+- `pnpm test:isolation`: PASS (170 tests, up from 169) — new `apps/worker/tests/isolation/`
+  capability added (didn't exist before this session)
+
+### Next
+
+- #125, #128, #129 remain open in the pre-Phase-3 hardening backlog (unrelated to this session)
+- Human correction needed on ADR-007's Implementation specification (low-lock claim)
+- Production row counts for `workflow_states`/`workflow_transitions` still unconfirmed before
+  this migration runs against a real environment (ADR-007 Open Question OQ-1)
+
+---
+
+## 2026-07-22 — Doc reconciliation: PRs #144/#151/#152/#155 surfaced, #127 closed out
+
+**Session type:** Docs (comprehensive project review)
+**Branch:** `docs/PLAT-127-tracker-reconciliation`
+
+### Completed this session
+
+- Pulled 23 new commits on `main` (up to PR #155) and ran a full review: vision-alignment
+  check against `architecture-brief.md`/ADRs, a security/architecture pass on the new surface,
+  and a local health check (typecheck/lint/test).
+- Found `CLAUDE.md`, `roadmap-tracker.md`, and `week-log.md` had not been updated for PR #144
+  (2026-07-16: child tickets, a new `modules/tender` vertical, access requests, security
+  hardening) or PRs #151/#152/#155 (2026-07-21: tenant-org-id mapping, request-access UI,
+  per-workflow ownership model + closing #127). This work was authored outside the
+  `openwind-loop` process — no plan-lock, no PROGRESS.md entries for the feature work itself
+  (only a later security-audit pass on top of it got logged) — which is why these three files
+  went silent on it.
+- Verified directly in code (not just the PR title) that **#127 is genuinely closed**:
+  `setEntityState`/`bulkSetState` (`packages/entity-engine/src/engine.ts`) now both insert a
+  `workflow_events` row and a `workflow.transitioned` outbox event when the state changes.
+  Marked closed in `CLAUDE.md`.
+- Security/architecture review of the new surface (access-request/grant/revoke flow,
+  child-ticket routes, tenant-org-id mapping, `modules/tender`) found no IDOR or escalation
+  path: RLS + explicit tenant filters present, 404-not-403 followed, org-id mapping fails
+  closed, the new `read_only` ACL only widens read paths, and `modules/tender` genuinely
+  respects the zero-TypeScript rule.
+- New finding, not yet filed: `setEntityState`/`bulkSetState` don't validate the target state
+  against `workflow_states` (unlike `updateEntity`) — noted in `CLAUDE.md` and the tracker, not
+  fixed this session.
+- Flagged two decisions for human/ADR sign-off rather than deciding them in the docs: (1) is
+  `tender` a sanctioned 8th module, and (2) an ADR for the new per-workflow ownership/admin
+  authorization model introduced by PR #155.
+- Re-confirmed **#141** (`pnpm lint` no-op) is still live: `turbo run lint` only executes
+  `build` tasks; zero packages have a real `lint` script.
+- Re-checked **#149**: its title claims "9 pre-existing failures," but the issue body lists 4
+  and `view-configs.test.ts` itself has exactly 4 `it()` blocks — the count looks stale/wrong;
+  flagged, not corrected in the issue itself this session.
+- Added the new shipped-but-unclassified work as its own section in `roadmap-tracker.md`
+  (cross-referencing the specs behind it) rather than slotting it into an existing phase.
+
+### Phase snapshot
+
+| Track                                                         | Status                                                                        |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Pre-Phase 3 hardening                                         | #121, #122, #126, #127, #120, #123, #124 closed. #125, #128, #129 open.       |
+| Unclassified (child tickets/tender/access-requests/ownership) | Shipped on `main`; pending ADR + phase classification — human decision needed |
+| Phase 3                                                       | Not started                                                                   |
+
+### Next
+
+- Human decision: tender module scope (ADR or explicit rejection) + ADR for the per-workflow
+  ownership/access-grant authorization model
+- File + fix: `setEntityState`/`bulkSetState` missing state-value validation
+- Reconcile `#149`'s stated failure count against its own body/the test file
+- Remaining open hardening items: #125, #128, #129, #136, #141, #143
+- Small open housekeeping: #148 (corepack integrity hash), #150 (`PROGRESS.md`
+  gitignore-claim contradiction), #116/#117 (export-pattern ADR + week-log backfill)
+
+### Open questions
+
+- Should `tender` be folded into the standard module list (`architecture-brief.md`'s 8-module
+  map currently lists _inventory_, not _tender_), or treated as one-off/reconsidered? Owner
+  decision required — not made in this session.
+
+---
+
+## 2026-07-21 — PR #155 merged; #127 closed + IDOR gaps + per-workflow ownership
+
+**Session type:** PR review + doc cleanup
+**PRs merged this session:** #151, #152, #153, #154, #155
+
+### Completed this session
+
+- PR #151 (`fix(auth,api): map Zitadel org ids to tenants; accept read_only ACL level`) — reviewed
+  and approved (@TusharSharma991). Org→tenant UUID lookup production fix, `zitadel_org_id` column,
+  `read_only` ACL level treated as sufficient for entity reads.
+- PR #152 (`feat(admin-ui,portal): request-access UI on record detail`) — CHANGES_REQUESTED
+  (IMP-1: portal noAccess check fired on any 404, not just the record fetch); fix validated and
+  approved.
+- PRs #153, #154 — merged (confirmed by user; no review sessions this session).
+- PR #155 (`feat(workflow-engine,api,admin-ui): per-workflow ownership/admin model + #127/IDOR fixes`)
+  — thorough review posted as CHANGES_REQUESTED with 2 blockers:
+  - BLOCKER-1: four IDOR-fix routes used `hasEntityReadAccess` instead of `hasEntityAccess`,
+    locking workflow admins out of record events/relations/transitions.
+  - BLOCKER-2: migration `0033_workflow_created_by` out of order in `_journal.json` (appended
+    after already-applied 0034); renumbered to 0035.
+    Fix commit `0793254` addressed both blockers + tightened `grant-access.ts` test (G-3). Approved
+    and merged to main (2026-07-21T15:01Z).
+
+### Hardening checklist delta
+
+| Issue                                                     | Status     | PR   |
+| --------------------------------------------------------- | ---------- | ---- |
+| #127 `setEntityState`/`bulkSetState` unguarded            | ✅ Closed  | #155 |
+| IDOR on list-events/relations/transitions/workflow-events | ✅ Fixed   | #155 |
+| Per-workflow `created_by`/`assigned_to` ownership model   | ✅ Shipped | #155 |
+
+### Phase snapshot
+
+| Track                 | Status                                                                        |
+| --------------------- | ----------------------------------------------------------------------------- |
+| Pre-Phase 3 hardening | #121, #122, #126, #120, #123, #124, #127 closed. #125, #128, #129, #141 open. |
+
+### Next
+
+- #125 — wire Novu delivery worker (notify action is a stub)
+- #128 — uncomment OpenBao + MinIO in `docker-compose.yml`
+- #129 — worker HTTP readiness probe
+- #141 — `pnpm lint` no-op fix (real lint scripts per package)
+- #136 — RLS policies for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`
+- PR #155 G-1/G-2 follow-up: dead `createdBy` forwarding in `handle-workflow-error.ts`; `list-slugs.ts` disclosure acknowledgement
 
 ---
 
@@ -280,7 +621,7 @@ type uuid: ""` — the RLS policy's `app.tenant_id` GUC was unset/stale, and
   buttons pinned to the bottom, added search to `/records`, redesigned the `/workflows` list
   (stats overview strip, active/inactive grouping, per-workflow entity icons, larger rows).
 - **New feature — template visibility governance** (not part of the tracked backlog, direct
-  ask): `modules.is_visible` (migration `0040_module_visibility.sql`), a global platform-wide
+  ask): `modules.is_visible` (migration `0039_module_visibility.sql`), a global platform-wide
   toggle. `GET /modules` (Templates page) is always filtered to visible-only for every role,
   including admin — `GET /modules?includeHidden=true` (admin-only, used by the new Settings
   page management card) sees hidden ones too, so admin can re-enable them. 7 new route tests.
@@ -516,10 +857,17 @@ Start hardening sprint at #121 (RLS role fix).
 
 ---
 
-## 2026-06-18 — Track 2D export API + workflow canvas — PR #115 merged (issue #93, #98)
+## 2026-06-18 — Track 2D export API + workflow canvas — PR #115 merged (issues #93, #94, #98, #99, #100)
 
 **Session type:** Feature implementation + review cycle (4 rounds)
 **Branch:** `feat/93-98-export-api-workflow-canvas` → PR #115 merged
+
+Covers all 5 issues from this track: #93 (export API), #94 (export UI), #98 (workflow
+canvas), #99 (canvas edit ops — add/rename/delete state, delete transition), #100 (atomic
+canvas save endpoint + dirty-state/`beforeunload` guard). PR #115's title named all five but
+its body never used `Closes #N` syntax, so GitHub only auto-closed #93/#94/#98 — #99/#100
+sat open until caught and closed on 2026-07-24 (see that entry below) despite the code
+having shipped here.
 
 ### Completed this session
 

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { humanizeWorkflowName } from "../../lib/format.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import type { EntityType } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { resolveCardIcon } from "../../lib/icon.js";
-import { humanizeWorkflowName } from "../../lib/format.js";
 
 function toWorkflowSlug(name: string): string {
   return name
