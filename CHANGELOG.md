@@ -20,6 +20,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **API error responses** — workflow and entity engine errors now return human-readable `message` fields instead of raw error codes. Affected codes: `INSTANCE_NOT_FOUND`, `TRANSITION_NOT_AVAILABLE`, `TRANSITION_FORBIDDEN`, `TRANSITION_LOCKED`, `CONDITION_NOT_MET`, `REQUIRED_FIELDS_MISSING`, `ENTITY_NOT_FOUND`, `FIELD_VALIDATION_FAILED`, and others. Clients that match on `error` code are unaffected; clients that display `message` directly will see improved copy.
 
+### Fixed
+
+- **Automation `assign`/`create_entity` actions were declared but never dispatched** (#191) — a
+  rule using either action type saved successfully and silently did nothing. Both are now wired
+  up: `assign` writes `assignedTo` via `updateEntity`; `create_entity` creates a new instance via
+  `createEntity`. See #218 for a known follow-up limitation this surfaces (unbounded recursion risk
+  for a self-triggering `create_entity` rule, since `entity.created`'s outbox payload doesn't carry
+  automation depth the way `entity.assigned`'s does).
+
 ### Added
 
 #### Admin UI
