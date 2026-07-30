@@ -1,7 +1,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { listEntityTypes, MAX_PAGE_SIZE } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -20,11 +20,13 @@ export const listEntityTypesHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
 
     try {
-      const page = await listEntityTypes(db, tenantId, {
-        moduleId,
-        cursor,
-        limit,
-      });
+      const page = await withTenantContext(tenantId, (tx) =>
+        listEntityTypes(tx, tenantId, {
+          moduleId,
+          cursor,
+          limit,
+        }),
+      );
       return c.json(page);
     } catch (err) {
       return handleEntityError(c, err);
