@@ -4,6 +4,8 @@ import { startOutboxPoller, stopOutboxPoller } from "./outbox-poller.js";
 import { stopAutomationWorker } from "./automation-worker.js";
 import { startSlaScheduler, stopSlaScheduler } from "./sla-scheduler.js";
 import { slaBreacher } from "./sla-breacher.js";
+import { startAlertScheduler, stopAlertScheduler } from "./alert-scheduler.js";
+import { alertWorker } from "./alert-worker.js";
 import { stopAvScanWorker } from "./av-scan.js";
 import { scheduleFileCleanup, stopFileCleanupWorker } from "./file-cleanup.js";
 import { stopTenantPurgeWorker } from "./tenant-purge.js";
@@ -22,6 +24,7 @@ logger.info({}, "Worker process starting");
 startOutboxPoller();
 startSlaScheduler();
 startHealthServer();
+startAlertScheduler();
 startNotificationPoller();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
@@ -36,9 +39,11 @@ async function shutdown(): Promise<void> {
   await Promise.all([
     stopOutboxPoller(),
     stopSlaScheduler(),
+    stopAlertScheduler(),
     stopNotificationPoller(),
     stopAutomationWorker(),
     slaBreacher.close(),
+    alertWorker.close(),
     stopAvScanWorker(),
     stopFileCleanupWorker(),
     stopTenantPurgeWorker(),
