@@ -101,9 +101,15 @@ beforeAll(async () => {
     .returning({ id: workflows.id });
   workflowId = workflow!.id;
 
-  await db
-    .insert(workflowStates)
-    .values([{ workflowId, name: "open", label: "Open", sortOrder: 0 }]);
+  await db.insert(workflowStates).values([
+    {
+      workflowId,
+      tenantId: TENANT,
+      name: "open",
+      label: "Open",
+      sortOrder: 0,
+    },
+  ]);
 });
 
 afterAll(async () => {

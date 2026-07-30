@@ -101,7 +101,12 @@ export const updateAlertHandler = factory.createHandlers(
           recipientsSnapshot,
           updatedAt: new Date(),
         })
-        .where(eq(ticketAlerts.id, alertId))
+        .where(
+          and(
+            eq(ticketAlerts.id, alertId),
+            eq(ticketAlerts.tenantId, tenantId),
+          ),
+        )
         .returning();
 
       // Void any not-yet-polled outbox row from creation (or a prior rapid

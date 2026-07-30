@@ -41,7 +41,12 @@ export const deleteAlertHandler = factory.createHandlers(
       await tx
         .update(ticketAlerts)
         .set({ status: "cancelled", updatedAt: new Date() })
-        .where(eq(ticketAlerts.id, alertId));
+        .where(
+          and(
+            eq(ticketAlerts.id, alertId),
+            eq(ticketAlerts.tenantId, tenantId),
+          ),
+        );
 
       // Not load-bearing (alert-worker's status guard already prevents a
       // cancelled alert from firing) — voids a not-yet-polled outbox row so
