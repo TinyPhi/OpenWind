@@ -3,6 +3,8 @@ import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 
 export type { Redis };
+export { checkRateLimit } from "./rate-limit.js";
+export type { RateLimitResult } from "./rate-limit.js";
 
 // Shared pub/sub channel: apps/worker's notification worker (a separate
 // process from apps/api) publishes here after writing a notification, and

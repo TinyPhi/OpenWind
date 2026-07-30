@@ -1,6 +1,14 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
+**Last updated:** 2026-07-31 — #195 closed (rate limiter bucketed on an unverified JWT claim
+instead of the authenticated tenant, from the second consulting-review pass filed 2026-07-24 as
+#191–#202). Post-auth tenant-scoped rate limiting now lives in `requireAuth()` (`@platform/auth`);
+pre-auth stage simplified to IP-only keying. Also closed #191 this same investigation round
+(automation `assign`/`create_entity` actions) and filed two follow-ups: #218 (create_entity
+recursion-depth gap) and #220 (`loadEntityType` missing explicit tenant filter, defense-in-depth
+gap — not currently exploitable, RLS already covers it). #191–#202 batch otherwise still open,
+mostly unassigned — worth a dedicated triage session.
+**Previously:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
 wired end-to-end); #212 added global outbound kill switch, M2M auth, auto-logout, settings tabs;
 #214 removed stale `portal` from CI Docker matrix. Pre-Phase-3 hardening backlog fully closed.
 Two PRs still open from earlier work: #186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).

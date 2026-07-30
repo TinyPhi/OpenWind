@@ -1,41 +1,6 @@
 import { createMiddleware } from "hono/factory";
-import { Redis } from "ioredis";
 import type { MiddlewareHandler } from "hono";
-import { env } from "@platform/config";
-import { logger } from "@platform/logger";
-
-const redis = new Redis(env.REDIS_URL, { lazyConnect: true });
-
-redis.on("error", (err: unknown) => {
-  logger.error({ error: String(err) }, "Rate limiter Redis error");
-});
-
-// Sliding window via a sorted set. Each member is a unique timestamped key.
-// The window removes entries older than `windowMs` before counting.
-async function checkRateLimit(
-  key: string,
-  limit: number,
-  windowSeconds: number,
-): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
-  const now = Date.now();
-  const windowStart = now - windowSeconds * 1000;
-  const resetAt = Math.ceil(now / 1000) + windowSeconds;
-  const member = `${now}-${Math.random().toString(36).slice(2)}`;
-
-  const pipeline = redis.pipeline();
-  pipeline.zremrangebyscore(key, 0, windowStart);
-  pipeline.zadd(key, now, member);
-  pipeline.zcard(key);
-  pipeline.expire(key, windowSeconds * 2);
-  const results = await pipeline.exec();
-
-  const count = (results?.[2]?.[1] as number | undefined) ?? 0;
-  return {
-    allowed: count <= limit,
-    remaining: Math.max(0, limit - count),
-    resetAt,
-  };
-}
+import { getRedis, checkRateLimit } from "@platform/redis";
 
 export interface RateLimitOptions {
   limit?: number;
@@ -45,36 +10,15 @@ export interface RateLimitOptions {
 }
 
 /**
- * Extract a stable identity key from the request without full JWT verification.
- * Used only for rate-limit bucketing (not for auth decisions).
- * Prefers the tenant/user from a JWT bearer token; falls back to IP.
+ * Pre-auth flood guard — runs before requireAuth() has verified anything, so
+ * the ONLY safe identity to key on is the transport-level client IP. This
+ * used to also try decoding (not verifying) a bearer token's claims, which
+ * let a client evade its bucket entirely by varying an unverified claim per
+ * request (#195) — requireAuth() (@platform/auth) now runs a second,
+ * tenant-scoped check on the *verified* auth.tenantId after authentication,
+ * which is the layer that actually needs to be unforgeable.
  */
 function rateLimitKey(c: Parameters<MiddlewareHandler>[0]): string {
-  // If requireAuth has already run, use the verified auth context.
-  const auth = c.get("auth") as
-    | { tenantId?: string; userId?: string }
-    | undefined;
-  if (auth?.tenantId) return auth.tenantId;
-
-  // Try to decode (not verify) the JWT to get a tenant bucket.
-  const bearer = c.req.header("Authorization");
-  if (bearer?.startsWith("Bearer ")) {
-    try {
-      const payload = JSON.parse(
-        Buffer.from(
-          bearer.slice(7).split(".")[1] ?? "",
-          "base64url",
-        ).toString(),
-      ) as Record<string, unknown>;
-      const org = payload["urn:zitadel:iam:user:resourceowner:id"];
-      if (typeof org === "string" && org) return org;
-      const sub = payload["sub"];
-      if (typeof sub === "string" && sub) return sub;
-    } catch {
-      // fall through to IP
-    }
-  }
-
   return (
     c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? "unknown"
   );
@@ -89,11 +33,12 @@ export const rateLimit = (options: RateLimitOptions = {}): MiddlewareHandler =>
       : (options.limit ?? 500);
     const windowSeconds = options.windowSeconds ?? 60;
 
-    const tenantId = rateLimitKey(c);
+    const clientIp = rateLimitKey(c);
     const routeClass = isAuthRoute ? "auth" : "api";
-    const key = `rl:${tenantId}:${routeClass}`;
+    const key = `rl:ip:${clientIp}:${routeClass}`;
 
     const { allowed, remaining, resetAt } = await checkRateLimit(
+      getRedis(),
       key,
       limit,
       windowSeconds,

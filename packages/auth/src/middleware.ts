@@ -12,6 +12,7 @@ import {
   withTenantContext,
 } from "@platform/db";
 import { logger } from "@platform/logger";
+import { getRedis, checkRateLimit } from "@platform/redis";
 import { verifyJwt, extractAuthContext } from "./jwks.js";
 import { introspectToken } from "./introspection.js";
 import type { AuthContext } from "./types.js";
@@ -19,6 +20,53 @@ import {
   getCachedTenantStatus,
   setCachedTenantStatus,
 } from "./tenant-status-cache.js";
+
+const TENANT_RATE_LIMIT_WINDOW_SECONDS = 60;
+
+/**
+ * Post-auth, tenant-scoped rate limit (#195). Runs only after the JWT/API-key
+ * has been verified, so unlike the pre-auth IP-based stage (apps/api's
+ * rate-limit middleware), the key here is unforgeable — a client cannot get
+ * a fresh bucket by varying an unverified claim. Returns a 429 Response when
+ * exceeded, or null to let the caller proceed.
+ *
+ * checkRateLimit itself already fails open (bounded timeout, never throws —
+ * see packages/redis/src/rate-limit.ts). The try/catch here is a second,
+ * independent layer: this runs on every authenticated request across the
+ * whole API, so if that contract were ever violated by a future change, the
+ * failure mode must still be "request proceeds," never "500s the entire API."
+ */
+async function enforceTenantRateLimit(
+  c: Context<AuthVariables>,
+  tenantId: string,
+): Promise<Response | null> {
+  try {
+    const { allowed, remaining, resetAt } = await checkRateLimit(
+      getRedis(),
+      `rl:tenant:${tenantId}`,
+      env.RATE_LIMIT_TENANT_PER_MIN,
+      TENANT_RATE_LIMIT_WINDOW_SECONDS,
+    );
+
+    c.header("x-ratelimit-limit", String(env.RATE_LIMIT_TENANT_PER_MIN));
+    c.header("x-ratelimit-remaining", String(remaining));
+    c.header("x-ratelimit-reset", String(resetAt));
+
+    if (!allowed) {
+      return c.json(
+        { error: "RATE_LIMITED", message: "Too many requests" },
+        429,
+      );
+    }
+    return null;
+  } catch (err) {
+    logger.warn(
+      { err, tenantId },
+      "auth: tenant rate-limit check failed unexpectedly — failing open",
+    );
+    return null;
+  }
+}
 
 type AuthVariables = { Variables: { auth: AuthContext } };
 
@@ -159,6 +207,8 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           );
         }
         c.set("auth", auth);
+        const rateLimited = await enforceTenantRateLimit(c, auth.tenantId);
+        if (rateLimited) return rateLimited;
         await next();
         return;
       }
@@ -237,6 +287,9 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
       if (tenantStatus === "deleted" || tenantStatus === "purged") {
         return c.json({ error: "TENANT_NOT_FOUND", message: "Not found" }, 404);
       }
+
+      const rateLimited = await enforceTenantRateLimit(c, auth.tenantId);
+      if (rateLimited) return rateLimited;
 
       // Upsert the verified user into tenant_users BEFORE calling next().
       // This must complete before the route handler runs so that

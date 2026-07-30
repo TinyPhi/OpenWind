@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- **Rate limiter no longer buckets on an unverified JWT claim** (#195) — the pre-auth flood guard
+  used to decode (not verify) a bearer token's `org`/`sub` claim and bucket on it when present,
+  letting a client evade its rate limit entirely by varying an unforgeable claim per request. The
+  pre-auth stage now keys strictly on client IP; a new post-auth, tenant-scoped stage inside
+  `requireAuth()` (`@platform/auth`) enforces the real per-tenant limit (100 req/min default) on the
+  verified `auth.tenantId`, for both JWT and API-key traffic. Both stages share one sliding-window
+  Redis implementation (moved to `@platform/redis`), which now fails open within a bounded 250ms
+  timeout instead of potentially hanging a request if Redis is unreachable.
 - **RLS on entity_types, workflows, workflow_states, workflow_transitions** — these four tables
   previously had no database-level tenant isolation, relying solely on application-layer ownership
   checks. `entity_types`/`workflows` now enforce a nullable-tenant RLS policy pair (system/template
