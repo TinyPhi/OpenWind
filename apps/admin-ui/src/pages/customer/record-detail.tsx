@@ -2235,7 +2235,6 @@ export function CustomerRecordDetail(): React.ReactElement {
     (a, b) =>
       new Date(a.triggeredAt).getTime() - new Date(b.triggeredAt).getTime(),
   );
-
   // Build a proper comment tree: each node knows its direct children
   const sortedComments = [...commentEvents].sort(
     (a, b) =>
