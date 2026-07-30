@@ -5,6 +5,8 @@
 export {
   listProjectRoles,
   listOrgUsers,
+  listUserIdsWithRole,
+  listUserRolesByUserId,
   getUserById,
   invalidateUserCache,
   type OrgUser,

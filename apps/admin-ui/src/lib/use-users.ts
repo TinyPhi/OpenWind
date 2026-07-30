@@ -6,6 +6,7 @@ export type TenantUser = {
   email: string | null;
   displayName: string | null;
   createdAt: string;
+  roles?: string[];
 };
 
 export function useUsers(): { users: TenantUser[]; loading: boolean } {

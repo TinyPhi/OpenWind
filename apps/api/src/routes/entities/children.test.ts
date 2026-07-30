@@ -61,6 +61,14 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// archive.ts also cascade-cancels pending ticket alerts (docs/specs/ticket-alerts.md) —
+// unrelated to this file's child-relations focus, and cancelAllPendingAlertsForInstance
+// is fire-and-forget (void) in archive.ts, so a no-op mock is sufficient here.
+vi.mock("../../lib/cascade-cancel-alerts.js", () => ({
+  collectActiveDescendantIds: vi.fn().mockResolvedValue([]),
+  cancelAllPendingAlertsForInstance: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ── Import handlers after mocks ───────────────────────────────────────────────
 
 const { createChildHandler } = await import("./create-child.js");
