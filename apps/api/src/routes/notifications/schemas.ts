@@ -7,3 +7,7 @@ export const ListNotificationsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(50).optional().default(10),
 });
+
+export const NotificationIdParamSchema = z.object({
+  id: z.string().uuid(),
+});

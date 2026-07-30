@@ -67,6 +67,10 @@ Thumbs.db
 PROGRESS.md
 BLOCKERS.md
 
+# Local-only planning reference — informal @username assignments and
+# tactical/planning triage notes, deliberately kept off the record
+docs/sup-docs/open-issues-tracker.md
+
 # Test coverage
 coverage/
 

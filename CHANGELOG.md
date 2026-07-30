@@ -48,6 +48,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **RLS on entity_types, workflows, workflow_states, workflow_transitions** — these four tables
+  previously had no database-level tenant isolation, relying solely on application-layer ownership
+  checks. `entity_types`/`workflows` now enforce a nullable-tenant RLS policy pair (system/template
+  rows readable by all tenants, writable by none via the app role); `workflow_states`/
+  `workflow_transitions` gained a `tenant_id NOT NULL` column and a standard tenant-scoped RLS pair.
+  See ADR-007.
+
 ### Changed
 
 - **API error responses** — workflow and entity engine errors now return human-readable `message` fields instead of raw error codes. Affected codes: `INSTANCE_NOT_FOUND`, `TRANSITION_NOT_AVAILABLE`, `TRANSITION_FORBIDDEN`, `TRANSITION_LOCKED`, `CONDITION_NOT_MET`, `REQUIRED_FIELDS_MISSING`, `ENTITY_NOT_FOUND`, `FIELD_VALIDATION_FAILED`, and others. Clients that match on `error` code are unaffected; clients that display `message` directly will see improved copy.
@@ -111,6 +120,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Module seed registry was not auto-populated on first list request
 - Helpdesk seed rewritten as a single DO block to fix install errors on Postgres simple protocol
 - Type cast errors in seed SQL for Postgres simple protocol
+- `admin_audit_log`'s action allowlist never included `purge.completed`/`purge.failed` — every
+  real tenant purge has been silently failing its completion/failure audit-trail write
 
 ---
 

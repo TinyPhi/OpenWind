@@ -68,6 +68,14 @@ type EntityValidator = (
 
 const crossFieldValidators = new Map<string, EntityValidator[]>();
 
+// Child tickets inherit their parent's workflowId, so they're validated against this
+// fixed set rather than the parent's full workflow_states (#185).
+const CHILD_TICKET_STATES: readonly string[] = [
+  "open",
+  "in-progress",
+  "closed",
+];
+
 /** @internal exported for child-relations.ts — not part of the package's public API */
 export function buildEntityCreatedPayload(
   tenantId: string,
@@ -481,14 +489,13 @@ export async function updateEntity(
       updates.assignedTo = input.assignedTo;
     }
     if (input.currentState !== undefined && input.currentState !== null) {
-      const childTicketStates = ["open", "in-progress", "closed"];
       if (isChildTicket) {
-        if (!childTicketStates.includes(input.currentState)) {
+        if (!CHILD_TICKET_STATES.includes(input.currentState)) {
           throw new ValidationError([
             {
               field: "currentState",
               code: "invalid",
-              message: `Child ticket state must be one of: ${childTicketStates.join(", ")}`,
+              message: `Child ticket state must be one of: ${CHILD_TICKET_STATES.join(", ")}`,
             },
           ]);
         }
@@ -660,14 +667,13 @@ export async function updateEntity(
       updates.assignedTo = input.assignedTo;
     }
     if (input.currentState !== undefined && input.currentState !== null) {
-      const childTicketStates = ["open", "in-progress", "closed"];
       if (isChildTicket2) {
-        if (!childTicketStates.includes(input.currentState)) {
+        if (!CHILD_TICKET_STATES.includes(input.currentState)) {
           throw new ValidationError([
             {
               field: "currentState",
               code: "invalid",
-              message: `Child ticket state must be one of: ${childTicketStates.join(", ")}`,
+              message: `Child ticket state must be one of: ${CHILD_TICKET_STATES.join(", ")}`,
             },
           ]);
         }
@@ -1545,21 +1551,112 @@ export async function bulkSetState(
   const foundIds = new Set(existing.map((r) => r.id));
 
   const errors: BulkSetStateResult["errors"] = [];
-  const validItems: Array<{ id: string; state: string }> = [];
+  // Carries each item's ORIGINAL `items` array index alongside it, rather
+  // than deriving the index later from a `Map` keyed by id — a Map keyed by
+  // id collapses to the LAST occurrence if the same id appears twice in one
+  // batch (nothing rejects duplicate ids upstream), which would report the
+  // wrong index for an earlier occurrence's error.
+  const validItems: Array<{
+    id: string;
+    state: string;
+    originalIndex: number;
+  }> = [];
 
   for (const [i, item] of items.entries()) {
     if (!foundIds.has(item.id)) {
       errors.push({ index: i, id: item.id, code: "ENTITY_NOT_FOUND" });
     } else {
-      validItems.push(item);
+      validItems.push({ ...item, originalIndex: i });
     }
   }
 
   if (validItems.length === 0) return { updatedIds: [], errors };
 
+  // #160 — mirrors updateEntity's validation: a child ticket (inherits its
+  // parent's workflowId) must be restricted to the fixed
+  // open/in-progress/closed set, not validated against the PARENT's full
+  // workflow_states. One batched entity_relations lookup across all ids in
+  // the batch, not a per-item getParentId call.
+  const childIds = new Set(
+    (
+      await db
+        .select({ fromInstanceId: entityRelations.fromInstanceId })
+        .from(entityRelations)
+        .where(
+          and(
+            eq(entityRelations.tenantId, tenantId),
+            inArray(
+              entityRelations.fromInstanceId,
+              validItems.map((item) => item.id),
+            ),
+            eq(entityRelations.relationType, "child_of"),
+            isNull(entityRelations.deletedAt),
+          ),
+        )
+    ).map((r) => r.fromInstanceId),
+  );
+
+  // Validate each item's target state against ITS OWN bound workflow's
+  // workflow_states, not a single flat set across the whole batch: items in
+  // this call may belong to different workflows, and a state name valid in
+  // one could be invalid in another. One batched lookup keyed on distinct
+  // workflowIds present in validItems (excluding child tickets, which never
+  // consult workflow_states), not per-item.
+  const workflowIds = [
+    ...new Set(
+      validItems
+        .filter((item) => !childIds.has(item.id))
+        .map((item) => foundMap.get(item.id)?.workflowId)
+        .filter((w): w is string => !!w),
+    ),
+  ];
+  const statesByWorkflow = new Map<string, Set<string>>();
+  if (workflowIds.length > 0) {
+    const stateRows = await db
+      .select({
+        workflowId: workflowStates.workflowId,
+        name: workflowStates.name,
+      })
+      .from(workflowStates)
+      .where(inArray(workflowStates.workflowId, workflowIds));
+    for (const r of stateRows) {
+      const set = statesByWorkflow.get(r.workflowId) ?? new Set<string>();
+      set.add(r.name);
+      statesByWorkflow.set(r.workflowId, set);
+    }
+  }
+
+  const stateValidatedItems: Array<{ id: string; state: string }> = [];
+  for (const item of validItems) {
+    if (childIds.has(item.id)) {
+      if (!CHILD_TICKET_STATES.includes(item.state)) {
+        errors.push({
+          index: item.originalIndex,
+          id: item.id,
+          code: "INVALID_STATE",
+        });
+        continue;
+      }
+      stateValidatedItems.push(item);
+      continue;
+    }
+    const workflowId = foundMap.get(item.id)?.workflowId;
+    if (workflowId && !statesByWorkflow.get(workflowId)?.has(item.state)) {
+      errors.push({
+        index: item.originalIndex,
+        id: item.id,
+        code: "INVALID_STATE",
+      });
+      continue;
+    }
+    stateValidatedItems.push(item);
+  }
+
+  if (stateValidatedItems.length === 0) return { updatedIds: [], errors };
+
   // Group by target state — one UPDATE per unique state value
   const byState = new Map<string, string[]>();
-  for (const item of validItems) {
+  for (const item of stateValidatedItems) {
     const bucket = byState.get(item.state) ?? [];
     bucket.push(item.id);
     byState.set(item.state, bucket);
@@ -1643,7 +1740,7 @@ export async function bulkSetState(
     }
   >();
 
-  for (const item of validItems) {
+  for (const item of stateValidatedItems) {
     const prior = foundMap.get(item.id);
     if (!prior) continue;
 
@@ -1708,6 +1805,41 @@ export async function setEntityState(
     .limit(1);
 
   if (!existing) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
+
+  // #160 — mirrors updateEntity's existing workflow_states validation (both
+  // branches: the child-ticket fixed-state-list check AND the workflow_states
+  // lookup). This direct state-set previously accepted any string, letting an
+  // admin/agent push an entity into an undefined state name — or, for a child
+  // ticket, into a state outside its restricted open/in-progress/closed set
+  // (children inherit their parent's workflowId, so without this check they'd
+  // validate against the PARENT's full workflow states instead).
+  const isChildTicket = (await getParentId(db, tenantId, instanceId)) !== null;
+  if (isChildTicket) {
+    if (!CHILD_TICKET_STATES.includes(state)) {
+      throw new ValidationError([
+        {
+          field: "state",
+          code: "invalid",
+          message: `Child ticket state must be one of: ${CHILD_TICKET_STATES.join(", ")}`,
+        },
+      ]);
+    }
+  } else if (existing.workflowId) {
+    const states = await db
+      .select({ name: workflowStates.name })
+      .from(workflowStates)
+      .where(eq(workflowStates.workflowId, existing.workflowId));
+    const validStates = states.map((s) => s.name);
+    if (!validStates.includes(state)) {
+      throw new ValidationError([
+        {
+          field: "state",
+          code: "invalid",
+          message: `Invalid state '${state}' for the workflow. Valid states are: ${validStates.join(", ")}`,
+        },
+      ]);
+    }
+  }
 
   const [row] = await db
     .update(entityInstances)

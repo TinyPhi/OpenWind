@@ -7,18 +7,25 @@
 #   approve-plan  -> stamps the branch plan-lock approved:true (unlocks source edits)
 #   approve-ship  -> writes pass-approved bound to the current diff (unlocks the commit)
 # Never blocks; only records approval. Stdout is surfaced to the session as confirmation.
+#
+# Worktree-aware: this hook fires with cwd == the main checkout no matter which worktree the
+# agent has actually been editing/shipping in (a plain chat message carries no file path or
+# command to anchor on, unlike edit-gate/commit-gate). So it scans the main checkout AND every
+# linked `git worktree` for a pending plan-lock / ship-ready marker on ITS OWN checked-out
+# branch, and approves whichever single one matches. If more than one location has a pending
+# item, it reports the ambiguity instead of guessing which branch the human meant.
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"
 export REPO
+export LIBDIR="${CLAUDE_PROJECT_DIR:-$REPO}/.claude/hooks/lib"
 exec node -e '
-const fs = require("fs"), cp = require("child_process"), crypto = require("crypto");
+const fs = require("fs");
+const ctx = require(process.env.LIBDIR + "/context.js");
 const repo = process.env.REPO;
 let input = {};
 try { input = JSON.parse(fs.readFileSync(0, "utf8") || "{}"); } catch (e) {}
 const prompt = (input.prompt || "").toString();
-fs.mkdirSync(repo + "/.claude/state", { recursive: true });
-function branch() { try { return cp.execSync("git rev-parse --abbrev-ref HEAD", { cwd: repo }).toString().trim(); } catch (e) { return ""; } }
-function sha(args) { try { return crypto.createHash("sha256").update(cp.execSync("git " + args, { cwd: repo })).digest("hex"); } catch (e) { return null; } }
 const out = [];
+function sha(args, dir) { return ctx.sha256(ctx.shBuf("git " + args, dir)); }
 function isApprove(kw) {
   // fire only when the directive LEADS a line (optionally after a short affirmative) and is not
   // negated/questioned - so "what does approve-ship do?" or "do NOT approve-plan" do not approve.
@@ -26,27 +33,43 @@ function isApprove(kw) {
   const negated = new RegExp("\\b(?:not|never|no|why|what|how|explain|describe|cannot)\\b[^\\n]*" + kw, "i").test(prompt);
   return atStart && !negated;
 }
+const locations = ctx.listWorktrees(repo);
 if (isApprove("approve-plan")) {
-  let plan = null;
-  try { plan = JSON.parse(fs.readFileSync(repo + "/.claude/state/plan.json", "utf8")); } catch (e) {}
-  if (!plan) out.push("[approval-gate] No plan-lock to approve - the agent must draft one (write-plan.sh set) first.");
-  else if (plan.branch !== branch()) out.push("[approval-gate] Plan-lock is for " + plan.branch + ", not the current branch.");
-  else {
+  const candidates = [];
+  for (const dir of locations) {
+    const branch = ctx.branchOf(dir);
+    if (!branch) continue;
+    const plan = ctx.readJSON(ctx.statePath(dir, "plan", branch));
+    if (plan && plan.branch === branch && plan.approved !== true) candidates.push({ dir, branch, plan });
+  }
+  if (candidates.length === 0) {
+    out.push("[approval-gate] No pending plan-lock to approve in " + locations.length + " checked location(s) (main + worktrees) - the agent must draft one (write-plan.sh set) first.");
+  } else if (candidates.length > 1) {
+    out.push("[approval-gate] Ambiguous: " + candidates.length + " pending plan-locks found - " + candidates.map(c => c.branch + " (" + c.dir + ")").join(", ") + ". Say which branch to approve.");
+  } else {
+    const { dir, branch, plan } = candidates[0];
     plan.approved = true; plan.approved_iso = new Date().toISOString(); plan.approved_by = "human:UserPromptSubmit";
-    fs.writeFileSync(repo + "/.claude/state/plan.json", JSON.stringify(plan, null, 2));
-    out.push("[approval-gate] PLAN APPROVED by human for " + plan.branch + " - source edits unlocked.");
+    ctx.writeJSON(ctx.statePath(dir, "plan", branch), plan);
+    out.push("[approval-gate] PLAN APPROVED by human for " + branch + " (" + dir + ") - source edits unlocked.");
   }
 }
 if (isApprove("approve-ship")) {
-  let marker = null;
-  try { marker = JSON.parse(fs.readFileSync(repo + "/.claude/state/ship-ready.json", "utf8")); } catch (e) {}
-  const staged = sha("diff --staged");
-  if (!marker || marker.staged_tree_sha !== staged) {
-    out.push("[approval-gate] Cannot record approve-ship: no ship marker for the current staged diff. Run the commit procedure (write-ship-marker.sh) first, then type 'approve-ship'.");
+  const candidates = [];
+  for (const dir of locations) {
+    const branch = ctx.branchOf(dir);
+    if (!branch) continue;
+    const marker = ctx.readJSON(ctx.statePath(dir, "ship-ready", branch));
+    if (marker && marker.staged_tree_sha === sha("diff --staged", dir)) candidates.push({ dir, branch });
+  }
+  if (candidates.length === 0) {
+    out.push("[approval-gate] Cannot record approve-ship: no ship marker matches the current staged diff in " + locations.length + " checked location(s). Run the commit procedure (write-ship-marker.sh) first, then type \x27approve-ship\x27.");
+  } else if (candidates.length > 1) {
+    out.push("[approval-gate] Ambiguous: " + candidates.length + " locations have a matching ship marker - " + candidates.map(c => c.branch + " (" + c.dir + ")").join(", ") + ". Say which branch to approve.");
   } else {
-    const rec = { branch: branch(), diff_sha: sha("diff HEAD"), approved_iso: new Date().toISOString(), approved_by: "human:UserPromptSubmit" };
-    fs.writeFileSync(repo + "/.claude/state/pass-approved.json", JSON.stringify(rec, null, 2));
-    out.push("[approval-gate] SHIP/PASS APPROVED by human for the current diff - the commit is unlocked while the diff is unchanged.");
+    const { dir, branch } = candidates[0];
+    const rec = { branch, diff_sha: sha("diff HEAD", dir), approved_iso: new Date().toISOString(), approved_by: "human:UserPromptSubmit" };
+    ctx.writeJSON(ctx.statePath(dir, "pass-approved", branch), rec);
+    out.push("[approval-gate] SHIP/PASS APPROVED by human for " + branch + " (" + dir + ") - the commit is unlocked while the diff is unchanged.");
   }
 }
 if (out.length) process.stdout.write(out.join("\n") + "\n");

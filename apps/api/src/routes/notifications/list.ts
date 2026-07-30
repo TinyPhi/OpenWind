@@ -1,11 +1,11 @@
-import { zValidator } from "../../lib/validator.js";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   withTenantAndUserContext,
   notifications,
   notificationRecipients,
 } from "@platform/db";
 import { eq, and, or, lt, desc } from "drizzle-orm";
+import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { ListNotificationsQuerySchema } from "./schemas.js";
 
@@ -23,6 +23,12 @@ function parseCursor(
 
 export const listNotificationsHandler = factory.createHandlers(
   requireAuth(),
+  // Notifications are user-scoped personal data, not a role-gated resource —
+  // any recipientId (packages/automation-engine/src/actions/notify.ts) can be
+  // a customer, so this must stay open to every authenticated role. Listed
+  // explicitly (not just requireAuth()) per code-style's auth+role+validation
+  // convention, rather than silently relying on requireAuth() alone.
+  requireRole("admin", "agent", "user", "superadmin"),
   zValidator("query", ListNotificationsQuerySchema),
   async (c) => {
     const { tenantId, userId } = c.get("auth");
@@ -47,6 +53,7 @@ export const listNotificationsHandler = factory.createHandlers(
         )
         .where(
           and(
+            eq(notifications.tenantId, tenantId),
             eq(notificationRecipients.tenantId, tenantId),
             eq(notificationRecipients.userId, userId),
             parsedCursor

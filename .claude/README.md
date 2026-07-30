@@ -91,9 +91,16 @@ pass and a new-migration reminder; left untouched, and not relied upon by this f
 
 ## State (`.claude/state/`, gitignored)
 
-Per-branch / per-session, never committed: `plan.json`, `review.json`, `docs-updated.json`,
-`ship-ready.json`, `claimed-done`, `bypass.log`. Because `plan.json` is gitignored, the commit step copies its
-acceptance criteria into the **PR body** so human reviewers see the frozen contract.
+Keyed by branch, never committed: `plan/<branch-slug>.json`, `review/<branch-slug>.json`,
+`docs-updated/<branch-slug>.json`, `ship-ready/<branch-slug>.json`, `pass-approved/<branch-slug>.json`,
+`claimed-done/<branch-slug>` (plus a shared `bypass.log`). Because `plan/` is gitignored, the
+commit step copies its acceptance criteria into the **PR body** so human reviewers see the frozen
+contract.
+
+Keying by branch means switching branches in the same working directory no longer clobbers
+another branch's plan/review/ship state — each branch gets its own file. `.claude/hooks/lib/context.js`
+centralizes the path logic (`statePath(repo, kind, branch)`) so every hook agrees on where a given
+branch's state lives.
 
 `PROGRESS.md` / `BLOCKERS.md` (written by the loop) are gitignored too.
 
@@ -110,14 +117,24 @@ subshell's git process), and the SHIP_BYPASS audit log, but worth knowing.
 
 ## Known limitations
 
-**State files are not locked.** `.claude/state/` is a flat directory with no file locking. Two
-concurrent sessions on the same branch share `plan.json`, `review.json`, `ship-ready.json`, and
-`pass-approved.json`. The failure modes are conservative (one session's stale marker blocks the
-other), but simultaneous parallel-agent worktrees on the same branch can produce confusing errors.
-Use separate worktrees (see git-conventions.md).
+**Worktrees are supported, not just tolerated.** State is keyed by branch, and `edit-gate`,
+`commit-gate`, `ship-cleanup`, `approval-gate`, and `verify-stop` all resolve the repo/worktree a
+given tool call actually targets — from the file path for `Write`/`Edit`, from an explicit
+`cd <dir> &&` / `git -C <dir>` in a `Bash` command, or (for the two hooks with no such anchor,
+`approval-gate` and `verify-stop`) by scanning the main checkout plus every `git worktree` for the
+one location with a matching pending item. This means running parallel branches across separate
+worktrees from the same Claude Code session works correctly. If a scan finds **more than one**
+matching pending plan/marker across locations, the hook reports the ambiguity (branch + path for
+each) instead of guessing — say which branch you mean.
 
-**`pass-approved.json` is not snapshotted by the marker.** The commit-gate checks pass-approval
-at commit time, independently of when the marker was written. If `pass-approved.json` is cleared
-between marker-write and commit (e.g., `ship-cleanup.sh` fires on an unrelated failed commit), the
-human needs to type `approve-ship` again. The conservative failure mode is correct — this note is
-here so it doesn't surprise you.
+**State files are still not locked.** `.claude/state/` has no file locking. Two concurrent
+sessions on the _same_ branch in the _same_ worktree share that branch's `plan/`, `review/`,
+`ship-ready/`, and `pass-approved/` files. The failure modes are conservative (one session's stale
+marker blocks the other) — use separate worktrees per concurrent branch (see git-conventions.md)
+to avoid this entirely, which the fixes above now make load-bearing rather than best-effort.
+
+**`pass-approved/<branch>.json` is not snapshotted by the marker.** The commit-gate checks
+pass-approval at commit time, independently of when the marker was written. If that file is
+cleared between marker-write and commit (e.g., `ship-cleanup.sh` fires on an unrelated failed
+commit), the human needs to type `approve-ship` again. The conservative failure mode is correct —
+this note is here so it doesn't surprise you.

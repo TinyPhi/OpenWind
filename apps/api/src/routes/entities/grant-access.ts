@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, tenantUsers, withTenantContext } from "@platform/db";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
@@ -17,17 +18,21 @@ const GrantAccessSchema = z.object({
 
 export const grantAccessHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent"),
+  requireRole("admin", "agent", "user"),
   zValidator("json", GrantAccessSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId, userId: actorId } = c.get("auth");
+    const { tenantId, userId: actorId, roles } = c.get("auth");
+    const isPrivileged = roles.includes("admin") || roles.includes("agent");
     const { userId, level, tag } = c.req.valid("json");
 
     try {
       const [instance] = await withTenantContext(tenantId, (tx) =>
         tx
-          .select({ id: entityInstances.id })
+          .select({
+            id: entityInstances.id,
+            workflowId: entityInstances.workflowId,
+          })
           .from(entityInstances)
           .where(
             and(
@@ -40,6 +45,30 @@ export const grantAccessHandler = factory.createHandlers(
 
       if (!instance) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+      }
+
+      // No isOwner path here (unlike revoke-access.ts/update-access.ts): a
+      // direct, unprompted grant is intentionally admin/workflow-admin-only —
+      // a plain owner must go through the request/approve flow instead. See
+      // resolve-access-request.ts's identical rationale comment.
+      if (!isPrivileged) {
+        const isRecordWorkflowAdmin = instance.workflowId
+          ? isWorkflowAdmin(
+              actorId,
+              await withTenantContext(tenantId, (tx) =>
+                getWorkflow(tx, tenantId, instance.workflowId as string, {
+                  userId: actorId,
+                  isGlobalAdmin: false,
+                }),
+              ),
+            )
+          : false;
+        if (!isRecordWorkflowAdmin) {
+          return c.json(
+            { error: "NOT_FOUND", message: "Record not found" },
+            404,
+          );
+        }
       }
 
       // Reject granting access to a userId that isn't actually a member of

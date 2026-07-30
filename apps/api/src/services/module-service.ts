@@ -9,6 +9,7 @@ import {
   modules,
   tenants,
   workflows,
+  entityTypes,
 } from "@platform/db";
 import { logger } from "@platform/logger";
 
@@ -285,39 +286,84 @@ export class ModuleService {
           await executeRawInTenantContext(tenantId, processedSql);
         }
       }
-
-      // 2b. If a custom workflow name was requested, find the workflow created
-      //     during seeding by (tenantId, canonical name), then rename it via
-      //     a parameterized Drizzle update. Never use entityTypeId = moduleRecord.id
-      //     — moduleRecord.id is the modules registry PK, not entity_types.id.
-      if (options?.workflowName) {
-        const [seededWorkflow] = await withTenantContext(tenantId, (tx) =>
-          tx
-            .select({ id: workflows.id })
-            .from(workflows)
-            .where(
-              and(
-                eq(workflows.tenantId, tenantId),
-                eq(workflows.name, moduleRecord.name),
-              ),
-            )
-            .limit(1),
-        );
-        if (seededWorkflow && options.workflowName) {
-          const newName = options.workflowName;
-          await withTenantContext(tenantId, (tx) =>
-            tx
-              .update(workflows)
-              .set({ name: newName })
-              .where(eq(workflows.id, seededWorkflow.id)),
-          );
-        }
-      }
     } else {
       logger.warn(
         { slug, seedDir },
         "No seed directory found for module during install",
       );
+    }
+
+    // 2b. If a custom workflow name was requested, find the workflow created
+    //     during seeding by (tenantId, canonical name), then rename it via
+    //     a parameterized Drizzle update. Never use entityTypeId = moduleRecord.id
+    //     — moduleRecord.id is the modules registry PK, not entity_types.id.
+    //     Runs regardless of whether a seed directory existed — a module's
+    //     workflow could already exist from an earlier install attempt.
+    if (options?.workflowName) {
+      const seededWorkflow = await withTenantContext(tenantId, async (tx) => {
+        // Primary: exact canonical-name match — works when seed SQL used
+        // {WORKFLOW_NAME} (the standard convention going forward, issue #170).
+        const [byName] = await tx
+          .select({ id: workflows.id })
+          .from(workflows)
+          .where(
+            and(
+              eq(workflows.tenantId, tenantId),
+              eq(workflows.name, moduleRecord.name),
+            ),
+          )
+          .limit(1);
+        if (byName) return byName;
+
+        // Fallback: resolve via the entity type this module seeded.
+        // entity_types.module_id is set from {MODULE_ID} by every module's
+        // seed SQL, unlike workflow names, which some modules hardcode
+        // instead of using {WORKFLOW_NAME} — issue #170.
+        const candidates = await tx
+          .select({ id: workflows.id })
+          .from(workflows)
+          .innerJoin(entityTypes, eq(workflows.entityTypeId, entityTypes.id))
+          .where(
+            and(
+              eq(workflows.tenantId, tenantId),
+              eq(entityTypes.moduleId, moduleRecord.id),
+            ),
+          );
+
+        if (candidates.length > 1) {
+          // Ambiguous — module seeded multiple workflows for the same
+          // tenant (this was previously reachable for helpdesk, which had
+          // a vestigial second seed pipeline alongside its primary one until
+          // issue #171 removed it). Refuse to guess which one the caller
+          // meant; log instead of silently renaming the wrong one.
+          logger.warn(
+            {
+              tenantId,
+              slug,
+              moduleId: moduleRecord.id,
+              count: candidates.length,
+            },
+            "installModule: workflowName rename skipped — module seeded multiple workflows, resolution ambiguous",
+          );
+          return undefined;
+        }
+        return candidates[0];
+      });
+
+      if (seededWorkflow) {
+        const newName = options.workflowName;
+        await withTenantContext(tenantId, (tx) =>
+          tx
+            .update(workflows)
+            .set({ name: newName })
+            .where(eq(workflows.id, seededWorkflow.id)),
+        );
+      } else {
+        logger.warn(
+          { tenantId, slug },
+          "installModule: workflowName rename requested but no seeded workflow found",
+        );
+      }
     }
 
     // 3. Update installed modules list inside a Drizzle transaction

@@ -8,6 +8,8 @@ name: openwind
 #   pgbouncer  — Connection pooler (transaction mode, required for RLS)
 #   redis      — Queue backend (BullMQ) + application cache
 #   zitadel    — Identity provider (OIDC/OAuth2/SAML)
+#   openbao    — Secrets manager (Transit envelope encryption for connector credentials)
+#   minio      — S3-compatible object storage (file uploads/presigned URLs)
 #   api        — Hono API server (port 3000)
 #   admin-ui   — React app with Vite HMR (port 3001) — admin + portal in one app, RBAC-controlled
 #
@@ -74,7 +76,9 @@ services:
   # correctly — session mode would let the setting leak across pooled connections.
   pgbouncer:
     container_name: ow-pgbouncer
-    image: edoburu/pgbouncer:latest
+    # pinned 2026-07-24 — this was :latest's resolved digest at pin time, no named
+    # version tag published upstream for this image; bump deliberately, in its own commit
+    image: edoburu/pgbouncer@sha256:4c1ca296ef525f108f5d3552cc337c0c09587cf8dae7f0067fd93349e47dc1cd
     restart: unless-stopped
     environment:
       DB_HOST: postgres
@@ -99,43 +103,44 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── OpenBao (secrets manager) — NOT IN USE YET ────────────────────────────
-  # Uncomment when packages/auth or packages/files starts using OpenBao Transit.
-  # openbao:
-  #   container_name: ow-secrets
-  #   image: openbao/openbao:latest
-  #   restart: unless-stopped
-  #   command: server -dev -dev-root-token-id=dev-root-token
-  #   environment:
-  #     BAO_DEV_ROOT_TOKEN_ID: dev-root-token
-  #     BAO_ADDR: http://0.0.0.0:8200
-  #     BAO_LOG_LEVEL: warn
-  #   ports:
-  #     - "8200:8200"
-  #   cap_add:
-  #     - IPC_LOCK
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/v1/sys/health"]
-  #     interval: 5s
-  #     timeout: 3s
-  #     retries: 10
-  #
-  # openbao-init:
-  #   container_name: ow-secrets-init
-  #   image: openbao/openbao:latest
-  #   depends_on:
-  #     openbao:
-  #       condition: service_healthy
-  #   environment:
-  #     BAO_ADDR: http://openbao:8200
-  #     BAO_TOKEN: dev-root-token
-  #   entrypoint: >
-  #     /bin/sh -c "
-  #       bao secrets enable transit &&
-  #       bao write -f transit/keys/platform-credentials derived=true &&
-  #       echo 'OpenBao Transit key created with derivation enabled'
-  #     "
-  #   restart: "no"
+  # ── OpenBao (secrets manager) ──────────────────────────────────────────────
+  openbao:
+    container_name: ow-secrets
+    # pinned 2026-07-24 — v2.6.1 (both openbao lines MUST stay on the same version)
+    image: openbao/openbao@sha256:5b2486ab0fb90bbc788cc345b0a08616dfb375873ee8be5df3a2fd4d378a67e0
+    restart: unless-stopped
+    command: server -dev -dev-root-token-id=dev-root-token
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: dev-root-token
+      BAO_ADDR: http://0.0.0.0:8200
+      BAO_LOG_LEVEL: warn
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  openbao-init:
+    container_name: ow-secrets-init
+    # pinned 2026-07-24 — v2.6.1 (both openbao lines MUST stay on the same version)
+    image: openbao/openbao@sha256:5b2486ab0fb90bbc788cc345b0a08616dfb375873ee8be5df3a2fd4d378a67e0
+    depends_on:
+      openbao:
+        condition: service_healthy
+    environment:
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: dev-root-token
+    entrypoint: >
+      /bin/sh -c "
+        bao secrets enable transit 2>/dev/null || true &&
+        bao write -f transit/keys/platform-credentials derived=true &&
+        echo 'OpenBao Transit key created with derivation enabled'
+      "
+    restart: "no"
 
   # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
@@ -222,7 +227,10 @@ services:
   novu-api:
     container_name: ow-notify-api
     profiles: [notifications]
-    image: ghcr.io/novuhq/novu/api:latest
+    # pinned 2026-07-24 — :latest's resolved digest, built 2026-07-08. NOTE: novu-web's
+    # :latest was last rebuilt 2025-03-21 — the three novu-* images are NOT on a matched
+    # release line upstream; this pin preserves exactly what was running, not a synced set
+    image: ghcr.io/novuhq/novu/api@sha256:d9550e949cf469a3124c6859844863c15881c512fcd2cf5ea2147f8b339fb4e7
     restart: unless-stopped
     environment:
       NODE_ENV: local
@@ -242,7 +250,9 @@ services:
   novu-worker:
     container_name: ow-notify-worker
     profiles: [notifications]
-    image: ghcr.io/novuhq/novu/worker:latest
+    # pinned 2026-07-24 — :latest's resolved digest, built 2026-07-08 (see novu-api's note
+    # on the novu-*/web version drift)
+    image: ghcr.io/novuhq/novu/worker@sha256:83296878d1b633ca5c9a4e39b10283fa8e2c4d5d341c11847ffd1e4a3897f3b0
     restart: unless-stopped
     environment:
       NODE_ENV: local
@@ -258,7 +268,9 @@ services:
   novu-web:
     container_name: ow-notify-web
     profiles: [notifications]
-    image: ghcr.io/novuhq/novu/web:latest
+    # pinned 2026-07-24 — :latest's resolved digest, built 2025-03-21 (see novu-api's note
+    # on the novu-*/web version drift — this one is over a year older than api/worker)
+    image: ghcr.io/novuhq/novu/web@sha256:f454df7c8d2101a3d600675d75311cf449040db0edc15fbc069cd16d4cb0a993
     restart: unless-stopped
     environment:
       REACT_APP_API_URL: http://localhost:3010
@@ -277,7 +289,9 @@ services:
   mailhog:
     container_name: ow-mailhog
     profiles: [tools]
-    image: mailhog/mailhog:latest
+    # pinned 2026-07-24 — this project has never published a tag besides :latest,
+    # so this digest is the only way to freeze it; bump deliberately, in its own commit
+    image: mailhog/mailhog@sha256:8d76a3d4ffa32a3661311944007a415332c4bb855657f4f6c57996405c009bea
     restart: unless-stopped
     ports:
       - "1025:1025"
@@ -292,7 +306,9 @@ services:
   bullboard:
     container_name: ow-bullboard
     profiles: [tools]
-    image: deadly0/bull-board:latest
+    # pinned 2026-07-24 — this project has never published a tag besides :latest,
+    # so this digest is the only way to freeze it; bump deliberately, in its own commit
+    image: deadly0/bull-board@sha256:afd615426192c7d43d6320aea7d8910835170c8b43e9b755b6c416d38946be93
     restart: unless-stopped
     environment:
       REDIS_HOST: redis

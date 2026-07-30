@@ -13,6 +13,7 @@ export type WorkflowErrorCode =
   | "WORKFLOW_STATE_IN_USE"
   | "WORKFLOW_ADMIN_LIST_FORBIDDEN"
   | "WORKFLOW_ADMIN_REMOVE_CREATOR_FORBIDDEN"
+  | "ENTITY_TYPE_ALREADY_GOVERNED"
   | "WORKFLOW_STATE_NAME_TAKEN";
 
 export class WorkflowError extends Error {

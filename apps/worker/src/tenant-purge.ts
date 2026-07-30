@@ -14,8 +14,11 @@
  *   then on-disk files purged (best-effort, outside DB transaction)
  *
  * Each DB step uses `withTenantContext` so RLS policies pass for the target tenant.
- * Tables without RLS (tenants, admin_audit_log, workflow_states, workflow_transitions)
- * use plain `db` or the passed transaction.
+ * Tables without RLS (tenants, admin_audit_log) use plain `db` or the passed transaction.
+ * `workflow_states`/`workflow_transitions` gained RLS and a `tenant_id` column in
+ * ADR-007 (migration 0037) — their deletes below now filter by `tenant_id` directly
+ * (in addition to the pre-existing `inArray(workflowId, wfIds)` filter), matching every
+ * other table in this function.
  *
  * The job is idempotent: re-running after partial failure is safe because
  * each DELETE targets by tenant_id and missing rows are a no-op.
@@ -90,7 +93,10 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       await tx.delete(files).where(eq(files.tenantId, tenantId));
       logger.info({ tenantId }, "tenant-purge: file rows deleted");
 
-      // M1: workflow transitions + states have no tenant_id — delete via workflow IDs
+      // M1: workflow transitions + states, scoped by both workflow ID and tenant_id
+      // (the latter added in ADR-007 — kept alongside the workflow ID list rather
+      // than replacing it, since a workflow's own delete below is also scoped by
+      // workflow_id via FK, not tenant_id directly).
       const tenantWorkflowIds = await tx
         .select({ id: workflows.id })
         .from(workflows)
@@ -100,10 +106,20 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
         const wfIds = tenantWorkflowIds.map((r) => r.id);
         await tx
           .delete(workflowTransitions)
-          .where(inArray(workflowTransitions.workflowId, wfIds));
+          .where(
+            and(
+              inArray(workflowTransitions.workflowId, wfIds),
+              eq(workflowTransitions.tenantId, tenantId),
+            ),
+          );
         await tx
           .delete(workflowStates)
-          .where(inArray(workflowStates.workflowId, wfIds));
+          .where(
+            and(
+              inArray(workflowStates.workflowId, wfIds),
+              eq(workflowStates.tenantId, tenantId),
+            ),
+          );
       }
 
       // Workflow events (has tenant_id, FK → entityInstances + workflows)

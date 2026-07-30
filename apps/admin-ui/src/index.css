@@ -63,7 +63,7 @@
   --bg-primary: hsl(0, 0%, 100%);
   --bg-secondary: hsl(220, 20%, 97%);
   --bg-tertiary: hsl(220, 16%, 93%);
-  --bg-card: hsl(0, 0%, 100%);
+  --bg-card: hsla(0, 0%, 100%, 0.9);
 
   --text-primary: hsl(225, 25%, 10%);
   --text-secondary: hsl(225, 12%, 38%);

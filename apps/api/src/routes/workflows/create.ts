@@ -14,7 +14,15 @@ const CreateWorkflowSchema = z.object({
 
 export const createWorkflowHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin", "agent", "user"),
+  // admin/agent only (issue #168): workflows(tenant_id, entity_type_id) is
+  // UNIQUE (migration 0036), so whoever creates a workflow for an entity
+  // type wins that entity type permanently — opening creation to plain
+  // `user`-role callers would let any tenant member race to squat a
+  // freshly-created entity type before its intended owner claims it.
+  // `user`-role delegation still works exactly as designed: an admin/agent
+  // creates the workflow, then adds the intended owner's userId to
+  // assignedTo[] via updateWorkflow — that grant is unaffected by this gate.
+  requireRole("admin", "agent"),
   zValidator("json", CreateWorkflowSchema),
   async (c) => {
     const input = c.req.valid("json");

@@ -196,7 +196,7 @@ export const adminAuditLog = pgTable(
 
 /**
  * platformSettings — single-row global platform config (see
- * 0041_platform_settings.sql). No tenant_id/RLS, deliberately: this is a
+ * 0044_platform_settings.sql). No tenant_id/RLS, deliberately: this is a
  * platform-operator concern (like modules.isVisible), not per-tenant.
  * Always read/write id=1; the DB-level CHECK enforces there's only one row.
  */

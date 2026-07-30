@@ -84,6 +84,16 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
           409,
         ) as Response;
 
+      case "ENTITY_TYPE_ALREADY_GOVERNED":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "This entity type already has a workflow — a second workflow cannot be created for the same entity type",
+          },
+          409,
+        ) as Response;
+
       case "WORKFLOW_STATE_NAME_TAKEN":
         return c.json(
           {
@@ -143,6 +153,31 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
               : undefined,
           },
           422,
+        ) as Response;
+
+      case "TRANSITION_LOCKED":
+        // Needs a Retry-After header alongside the JSON body — c.json() can't
+        // express that, so this returns a raw Response (mirrors
+        // error-handler.ts's identical handling for the global onError path).
+        return new Response(
+          JSON.stringify({
+            error: err.code,
+            message:
+              "Another transition is in progress — retry after 5 seconds",
+          }),
+          {
+            status: 409,
+            headers: { "Content-Type": "application/json", "Retry-After": "5" },
+          },
+        );
+
+      case "SLA_TIMER_FAILED":
+        return c.json(
+          {
+            error: err.code,
+            message: "An unexpected error occurred while scheduling the SLA",
+          },
+          500,
         ) as Response;
 
       default:

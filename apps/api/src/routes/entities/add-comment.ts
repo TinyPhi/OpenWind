@@ -16,6 +16,7 @@ import { isNull } from "drizzle-orm";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
+import { handleEntityError } from "../../lib/handle-entity-error.js";
 
 const MentionSchema = z.object({
   userId: z.string().min(1),
@@ -81,13 +82,17 @@ export const addCommentHandler = factory.createHandlers(
         userAccess?.level === "read_write";
 
       if (!canComment && instance.workflowId) {
-        const workflow = await withTenantContext(tenantId, (tx) =>
-          getWorkflow(tx, tenantId, instance.workflowId as string, {
-            userId,
-            isGlobalAdmin: false,
-          }),
-        );
-        canComment = isWorkflowAdmin(userId, workflow);
+        try {
+          const workflow = await withTenantContext(tenantId, (tx) =>
+            getWorkflow(tx, tenantId, instance.workflowId as string, {
+              userId,
+              isGlobalAdmin: false,
+            }),
+          );
+          canComment = isWorkflowAdmin(userId, workflow);
+        } catch (err) {
+          return handleEntityError(c, err);
+        }
       }
 
       if (!canComment) {
@@ -311,24 +316,6 @@ export const addCommentHandler = factory.createHandlers(
       );
     }
 
-    if (mentionsGettingNewAccess.length > 0) {
-      await withTenantContext(tenantId, (tx) =>
-        tx.insert(outboxEvents).values({
-          tenantId,
-          eventType: "comment.mention_access_granted",
-          version: 1,
-          payload: {
-            eventType: "comment.mention_access_granted",
-            version: 1,
-            tenantId,
-            instanceId: id,
-            actorId: userId,
-            mentionedUserIds: mentionsGettingNewAccess,
-          },
-        }),
-      );
-    }
-
     // Reply notification: notify the parent comment's author, distinct from
     // an explicit @mention. workflow_events.actor_id is the commenter — read
     // directly rather than from metadata, no parsing needed.
@@ -427,6 +414,30 @@ export const addCommentHandler = factory.createHandlers(
         logger.info(
           { userId: grant.userId, level: grant.level },
           "add-comment: access granted",
+        );
+      }
+
+      // Fires only once every grant in the loop above has actually
+      // succeeded — inserting this before the grant loop (as an earlier
+      // revision did) meant a "you've been granted access" notification
+      // could be delivered even when the grant write itself failed, since
+      // this whole block is wrapped in a catch that logs and swallows
+      // rather than rethrowing.
+      if (mentionsGettingNewAccess.length > 0) {
+        await withTenantContext(tenantId, (tx) =>
+          tx.insert(outboxEvents).values({
+            tenantId,
+            eventType: "comment.mention_access_granted",
+            version: 1,
+            payload: {
+              eventType: "comment.mention_access_granted",
+              version: 1,
+              tenantId,
+              instanceId: id,
+              actorId: userId,
+              mentionedUserIds: mentionsGettingNewAccess,
+            },
+          }),
         );
       }
     } catch (accessErr) {

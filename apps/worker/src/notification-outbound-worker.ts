@@ -69,6 +69,9 @@ async function dispatchOutbound(payload: OutboundPayload): Promise<void> {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
+    // Without a timeout, a hung external notification service hangs this
+    // BullMQ job indefinitely instead of failing and retrying/DLQ-ing.
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!res.ok) {
@@ -152,7 +155,12 @@ export const notificationOutboundWorker = new Worker<OutboundJobData>(
       tx
         .update(notifications)
         .set({ outboundStatus: "sent" })
-        .where(eq(notifications.id, notificationId)),
+        .where(
+          and(
+            eq(notifications.id, notificationId),
+            eq(notifications.tenantId, tenantId),
+          ),
+        ),
     );
   },
   { connection },
@@ -173,7 +181,12 @@ async function handleFailedJob(
       tx
         .update(notifications)
         .set({ outboundStatus: "failed" })
-        .where(eq(notifications.id, notificationId))
+        .where(
+          and(
+            eq(notifications.id, notificationId),
+            eq(notifications.tenantId, tenantId),
+          ),
+        )
         .returning({ type: notifications.type }),
     );
 

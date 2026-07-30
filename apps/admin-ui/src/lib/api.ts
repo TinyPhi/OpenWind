@@ -13,6 +13,14 @@ async function doFetch(
   options: RequestInit,
   token: string | undefined,
 ): Promise<Response> {
+  // Resolve against the current page origin so absolute URLs, protocol-relative
+  // URLs, and path traversal are all normalised before the origin comparison.
+  const resolved = new URL(url, window.location.origin);
+  if (resolved.origin !== window.location.origin) {
+    throw new Error(
+      "Refusing to send authenticated request to a cross-origin URL",
+    );
+  }
   const headers = new Headers(options.headers as HeadersInit | undefined);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (
@@ -30,7 +38,12 @@ async function doFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    return await fetch(url, { ...options, headers, signal: controller.signal });
+    // lgtm[js/server-side-request-forgery] origin checked against window.location.origin above; taint through resolved.href is a false positive
+    return await fetch(resolved.href, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
   } catch (err) {
     clearTimeout(timer);
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
@@ -105,12 +118,19 @@ export async function fetchWithAuth(
 }
 
 export async function fetchRawWithAuth(url: string): Promise<Response> {
+  const resolved = new URL(url, window.location.origin);
+  if (resolved.origin !== window.location.origin) {
+    throw new Error(
+      "Refusing to send authenticated request to a cross-origin URL",
+    );
+  }
   await waitForAuth();
   const user = await userManager.getUser();
   let token = user?.access_token;
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  let response = await fetch(url, { headers });
+  // lgtm[js/server-side-request-forgery] same false positive as doFetch — origin checked above
+  let response = await fetch(resolved.href, { headers });
 
   // On 401, attempt a silent token refresh and retry once — matches
   // fetchWithAuth's retry behavior, previously missing here.
@@ -120,7 +140,8 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
       token = newToken;
       const retryHeaders = new Headers();
       retryHeaders.set("Authorization", `Bearer ${token}`);
-      response = await fetch(url, { headers: retryHeaders });
+      // lgtm[js/server-side-request-forgery] same false positive as doFetch — origin checked above
+      response = await fetch(resolved.href, { headers: retryHeaders });
     }
   }
 
