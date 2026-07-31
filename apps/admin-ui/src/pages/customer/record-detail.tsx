@@ -1134,6 +1134,28 @@ export function CustomerRecordDetail(): React.ReactElement {
   } | null>(null);
   const [resolveLevel, setResolveLevel] = useState<AccessLevel>("read_comment");
   const [resolveSaving, setResolveSaving] = useState(false);
+
+  // Ticket alerts (docs/specs/ticket-alerts.md, R10)
+  type TicketAlertScope = "me" | "all";
+  type TicketAlert = {
+    id: string;
+    note: string;
+    fireAt: string;
+    scope: TicketAlertScope;
+    status: "pending" | "fired" | "cancelled";
+    firedAt: string | null;
+    createdBy: string;
+  };
+  const [alertsModalOpen, setAlertsModalOpen] = useState(false);
+  const [kebabMenuOpen, setKebabMenuOpen] = useState(false);
+  const [alerts, setAlerts] = useState<TicketAlert[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
+  const [alertFormNote, setAlertFormNote] = useState("");
+  const [alertFormFireAt, setAlertFormFireAt] = useState("");
+  const [alertFormScope, setAlertFormScope] = useState<TicketAlertScope>("me");
+  const [editingAlertId, setEditingAlertId] = useState<string | null>(null);
+  const [alertSaving, setAlertSaving] = useState(false);
   useEffect(() => {
     userManager
       .getUser()
@@ -1666,6 +1688,132 @@ export function CustomerRecordDetail(): React.ReactElement {
     }
   }
 
+  function resetAlertForm(): void {
+    setAlertFormNote("");
+    setAlertFormFireAt("");
+    setAlertFormScope("me");
+    setEditingAlertId(null);
+  }
+
+  async function loadAlerts(options: { silent?: boolean } = {}): Promise<void> {
+    if (!id) return;
+    if (!options.silent) {
+      setAlertsLoading(true);
+      setAlertsError(null);
+    }
+    try {
+      const res = (await fetchWithAuth(`${API_URL}/entities/${id}/alerts`)) as {
+        data: TicketAlert[];
+      };
+      setAlerts(res.data);
+    } catch (err) {
+      // A silent background refresh failing (e.g. a transient network blip)
+      // shouldn't blank the modal with an error over data the user can
+      // already see — only surface it for the explicit/foreground load.
+      if (!options.silent) {
+        setAlertsError(
+          err instanceof Error ? err.message : "Failed to load alerts",
+        );
+      }
+    } finally {
+      if (!options.silent) setAlertsLoading(false);
+    }
+  }
+
+  // The Alerts modal has no live-push subscription of its own — the
+  // notification bell's websocket client (notifications-client.ts) is a
+  // single-subscriber singleton already claimed by notification-bell.tsx;
+  // subscribing again here would silently steal its handler. Polling while
+  // the modal is open is the safe way to keep this list from going stale
+  // (e.g. showing "pending" after the alert has actually fired) without
+  // touching that shared singleton.
+  useEffect(() => {
+    if (!alertsModalOpen) return;
+    const interval = setInterval(() => {
+      void loadAlerts({ silent: true });
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [alertsModalOpen, id]);
+
+  function openAlertsModal(): void {
+    setKebabMenuOpen(false);
+    resetAlertForm();
+    setAlertsError(null);
+    setAlerts([]);
+    setAlertsModalOpen(true);
+    void loadAlerts();
+  }
+
+  function startEditAlert(alert: TicketAlert): void {
+    setEditingAlertId(alert.id);
+    setAlertFormNote(alert.note);
+    // datetime-local expects "YYYY-MM-DDTHH:mm" in local time, no timezone suffix.
+    const local = new Date(alert.fireAt);
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    setAlertFormFireAt(
+      `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())}T${pad(local.getHours())}:${pad(local.getMinutes())}`,
+    );
+    setAlertFormScope(alert.scope);
+  }
+
+  async function saveAlert(): Promise<void> {
+    if (!id || !alertFormNote.trim() || !alertFormFireAt) return;
+    setAlertSaving(true);
+    setAlertsError(null);
+    try {
+      const fireAtIso = new Date(alertFormFireAt).toISOString();
+      if (editingAlertId) {
+        await fetchWithAuth(
+          `${API_URL}/entities/${id}/alerts/${editingAlertId}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              note: alertFormNote.trim(),
+              fireAt: fireAtIso,
+              scope: alertFormScope,
+            }),
+          },
+        );
+      } else {
+        await fetchWithAuth(`${API_URL}/entities/${id}/alerts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            note: alertFormNote.trim(),
+            fireAt: fireAtIso,
+            scope: alertFormScope,
+          }),
+        });
+      }
+      resetAlertForm();
+      await loadAlerts();
+    } catch (err) {
+      setAlertsError(
+        err instanceof Error ? err.message : "Failed to save alert",
+      );
+    } finally {
+      setAlertSaving(false);
+    }
+  }
+
+  async function cancelAlert(alertId: string): Promise<void> {
+    if (!id) return;
+    if (!window.confirm("Cancel this alert?")) return;
+    setAlertsError(null);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/alerts/${alertId}`, {
+        method: "DELETE",
+      });
+      if (editingAlertId === alertId) resetAlertForm();
+      await loadAlerts();
+    } catch (err) {
+      setAlertsError(
+        err instanceof Error ? err.message : "Failed to cancel alert",
+      );
+    }
+  }
+
   async function createChild(): Promise<void> {
     if (!id || !effectiveEntityTypeId || !newChildTitle.trim()) return;
     setCreatingChild(true);
@@ -2087,7 +2235,6 @@ export function CustomerRecordDetail(): React.ReactElement {
     (a, b) =>
       new Date(a.triggeredAt).getTime() - new Date(b.triggeredAt).getTime(),
   );
-
   // Build a proper comment tree: each node knows its direct children
   const sortedComments = [...commentEvents].sort(
     (a, b) =>
@@ -2715,60 +2862,65 @@ export function CustomerRecordDetail(): React.ReactElement {
                   {restoring ? "Restoring…" : "Restore"}
                 </button>
               )}
-              {!editing && isAdminOrAgent && !record.deletedAt && (
-                <button
-                  type="button"
-                  className="rcd-btn-secondary rcd-btn-archive"
-                  disabled={archiving}
-                  onClick={() => void archiveRecord(false)}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
+              {/* Archive button hidden for now (per request) — see git history
+                  for the removed rcd-btn-archive block if it needs to come
+                  back (e.g. folded into the kebab menu). */}
+              {!editing && !record.deletedAt && (
+                <div className="rcd-kebab-wrap">
+                  <button
+                    type="button"
+                    className="rcd-kebab-btn"
+                    aria-label="More actions"
+                    aria-expanded={kebabMenuOpen}
+                    onClick={() => setKebabMenuOpen((v) => !v)}
                   >
-                    <polyline points="21 8 21 21 3 21 3 8" />
-                    <rect x="1" y="3" width="22" height="5" />
-                    <line x1="10" y1="12" x2="14" y2="12" />
-                  </svg>
-                  {archiving ? "Archiving…" : "Archive"}
-                </button>
-              )}
-              {!editing && isAdminOrAgent && !record.deletedAt && (
-                <button
-                  type="button"
-                  className="rcd-btn-secondary"
-                  onClick={() => {
-                    setEditValues(record.fields);
-                    setCurrentState(record.currentState ?? "");
-                    setEditAssignedTo(record.assignedTo ?? "");
-                    setSaveError(null);
-                    setEditing(true);
-                    setDetailsExpanded(true);
-                  }}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                  </svg>
-                  Edit
-                </button>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="5" r="2" />
+                      <circle cx="12" cy="12" r="2" />
+                      <circle cx="12" cy="19" r="2" />
+                    </svg>
+                  </button>
+                  {kebabMenuOpen && (
+                    <>
+                      <div
+                        className="rcd-kebab-backdrop"
+                        onClick={() => setKebabMenuOpen(false)}
+                      />
+                      <div className="rcd-kebab-menu">
+                        {isAdminOrAgent && (
+                          <button
+                            type="button"
+                            className="rcd-kebab-menu-item"
+                            onClick={() => {
+                              setKebabMenuOpen(false);
+                              setEditValues(record.fields);
+                              setCurrentState(record.currentState ?? "");
+                              setEditAssignedTo(record.assignedTo ?? "");
+                              setSaveError(null);
+                              setEditing(true);
+                              setDetailsExpanded(true);
+                            }}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="rcd-kebab-menu-item"
+                          onClick={openAlertsModal}
+                        >
+                          Set Alert
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
               <button
                 type="button"
@@ -4671,6 +4823,176 @@ export function CustomerRecordDetail(): React.ReactElement {
               >
                 {resolveSaving ? "Saving…" : "Approve"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Ticket alerts modal ──────────────────────────────── */}
+      {alertsModalOpen && (
+        <div
+          className="modal-overlay"
+          onClick={() => setAlertsModalOpen(false)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Alerts</h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setAlertsModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              {alertsError && (
+                <p
+                  style={{
+                    color: "var(--danger, #e5484d)",
+                    fontSize: "13px",
+                    marginBottom: "10px",
+                  }}
+                >
+                  {alertsError}
+                </p>
+              )}
+
+              {alertsLoading ? (
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  Loading…
+                </p>
+              ) : alerts.length === 0 ? (
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  No alerts on this ticket yet.
+                </p>
+              ) : (
+                <div className="alerts-list">
+                  {alerts.map((alert) => {
+                    const isOwn = alert.createdBy === currentUserId;
+                    return (
+                      <div key={alert.id} className="alert-row">
+                        <div className="alert-row-main">
+                          <span className="alert-row-note">{alert.note}</span>
+                          <span className="alert-row-meta">
+                            {new Date(alert.fireAt).toLocaleString()} ·{" "}
+                            {alert.scope === "all"
+                              ? "Everyone with access"
+                              : "Just me"}
+                            {!isOwn && " (shared)"}
+                          </span>
+                        </div>
+                        <div className="alert-row-status">
+                          {alert.status === "pending" && (
+                            <span className="alert-badge alert-badge-pending">
+                              pending
+                            </span>
+                          )}
+                          {alert.status === "fired" && (
+                            <span className="alert-badge alert-badge-fired">
+                              fired
+                              {alert.firedAt
+                                ? ` · ${new Date(alert.firedAt).toLocaleString()}`
+                                : ""}
+                            </span>
+                          )}
+                          {alert.status === "cancelled" && (
+                            <span className="alert-badge alert-badge-cancelled">
+                              cancelled
+                            </span>
+                          )}
+                        </div>
+                        {isOwn && alert.status === "pending" && (
+                          <div className="alert-row-actions">
+                            <button
+                              type="button"
+                              className="alert-row-action-btn"
+                              aria-label="Edit alert"
+                              onClick={() => startEditAlert(alert)}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              className="alert-row-action-btn"
+                              aria-label="Cancel alert"
+                              onClick={() => void cancelAlert(alert.id)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="alert-form">
+                <div className="alert-form-title">
+                  {editingAlertId ? "Edit Alert" : "Add Alert"}
+                </div>
+                <input
+                  className="portal-input"
+                  type="text"
+                  placeholder="Note"
+                  value={alertFormNote}
+                  onChange={(e) => setAlertFormNote(e.target.value)}
+                  maxLength={2000}
+                />
+                <input
+                  className="portal-input"
+                  type="datetime-local"
+                  value={alertFormFireAt}
+                  onChange={(e) => setAlertFormFireAt(e.target.value)}
+                />
+                <div className="modal-access-opts">
+                  <label>
+                    <input
+                      type="radio"
+                      name="alert-scope"
+                      checked={alertFormScope === "me"}
+                      onChange={() => setAlertFormScope("me")}
+                    />{" "}
+                    Just me
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="alert-scope"
+                      checked={alertFormScope === "all"}
+                      onChange={() => setAlertFormScope("all")}
+                    />{" "}
+                    Everyone with access
+                  </label>
+                </div>
+                <div className="alert-form-actions">
+                  {editingAlertId && (
+                    <button
+                      type="button"
+                      className="portal-btn-secondary"
+                      disabled={alertSaving}
+                      onClick={resetAlertForm}
+                    >
+                      Cancel edit
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="portal-btn-primary"
+                    disabled={
+                      alertSaving || !alertFormNote.trim() || !alertFormFireAt
+                    }
+                    onClick={() => void saveAlert()}
+                  >
+                    {alertSaving
+                      ? "Saving…"
+                      : editingAlertId
+                        ? "Update alert"
+                        : "Save alert"}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

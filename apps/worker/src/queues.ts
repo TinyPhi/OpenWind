@@ -70,6 +70,18 @@ export const notifyQueue = new Queue("notify", {
   },
 });
 
+// Ticket alerts (docs/specs/ticket-alerts.md) — personal reminder firing,
+// deliberately its own queue/poller, independent of slaQueue/sla-scheduler.ts
+// (see spec §V: the two must never be merged). Same defaultJobOptions as
+// slaQueue for consistency.
+export const ticketAlertsQueue = new Queue("ticket-alerts", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});
+
 // Outbound handoff — the single seam to the externally-owned email/SMS/
 // WhatsApp service (contract TBD). 3 attempts/exponential backoff matches the
 // automation queue convention (issue #123).

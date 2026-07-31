@@ -5,6 +5,7 @@ import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
+import { cancelUsersPendingAlertsForInstance } from "../../lib/cascade-cancel-alerts.js";
 
 export const revokeAccessHandler = factory.createHandlers(
   requireAuth(),
@@ -86,6 +87,7 @@ export const revokeAccessHandler = factory.createHandlers(
         type: "access_revoke",
         targetUserId,
       });
+      void cancelUsersPendingAlertsForInstance(tenantId, id, targetUserId);
 
       return c.json({ data: { revoked: true } });
     } catch (err) {
