@@ -38,6 +38,12 @@ vi.mock("@platform/redis", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
 }));
 
+const mockArgon2Verify = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
+vi.mock("@node-rs/argon2", () => ({
+  verify: mockArgon2Verify,
+  hash: vi.fn().mockResolvedValue("$argon2id$v=19$mock-hash"),
+}));
+
 const mockVerifyJwt = vi.fn();
 const mockExtractAuthContext = vi.fn();
 vi.mock("./jwks.js", () => ({
@@ -166,6 +172,7 @@ beforeEach(() => {
     remaining: 99,
     resetAt: 0,
   });
+  mockArgon2Verify.mockResolvedValue(true);
 });
 
 // ── requireAuth ───────────────────────────────────────────────────────────────
@@ -288,6 +295,66 @@ describe("requireAuth", () => {
     ]);
     const res = await get(app, "sk_validkey");
     expect(res.status).toBe(200);
+  });
+
+  describe("argon2id verification (#237)", () => {
+    it("returns 401 when argon2 verification fails (tampered or wrong key)", async () => {
+      const fakeRow = {
+        id: "key-id-2",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+        key_hash_argon2: "$argon2id$v=19$stored-hash",
+      };
+      mockArgon2Verify.mockResolvedValueOnce(false);
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_tamperedkey");
+      expect(res.status).toBe(401);
+    });
+
+    it("passes without calling argon2 when key_hash_argon2 is null (legacy key)", async () => {
+      const fakeRow = {
+        id: "key-id-3",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+        key_hash_argon2: null,
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_legacykey");
+      expect(res.status).toBe(200);
+      expect(mockArgon2Verify).not.toHaveBeenCalled();
+    });
+
+    it("uses cached argon2 result on repeated requests — calls argon2 only once", async () => {
+      const fakeRow = {
+        id: "key-id-4",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+        key_hash_argon2: "$argon2id$v=19$stored-hash",
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      // Two requests with the same raw key — second should hit the in-process cache.
+      await get(app, "sk_cachetestkey");
+      await get(app, "sk_cachetestkey");
+      expect(mockArgon2Verify).toHaveBeenCalledTimes(1);
+    });
   });
 
   // Zitadel org ids are never valid `uuid`s, so in production the JWT path

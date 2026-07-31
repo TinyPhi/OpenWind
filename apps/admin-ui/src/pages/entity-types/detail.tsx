@@ -3,6 +3,10 @@ import { useOne } from "@refinedev/core";
 import { useParams, Link } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
+import {
+  showAlert,
+  showConfirm,
+} from "../../components/global-alert-dialog.js";
 
 type EntityType = {
   id: string;
@@ -254,7 +258,7 @@ export function EntityTypeDetail(): React.ReactElement {
       });
       loadFields();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete field");
+      showAlert(err instanceof Error ? err.message : "Failed to delete field");
     } finally {
       setDeletingFieldId(null);
     }
@@ -517,9 +521,11 @@ export function EntityTypeDetail(): React.ReactElement {
                           className="btn-danger-sm"
                           disabled={deletingFieldId === field.id}
                           onClick={() => {
-                            if (confirm(`Delete field "${field.label}"?`)) {
-                              void handleDeleteField(field.id);
-                            }
+                            void showConfirm(
+                              `Delete field "${field.label}"?`,
+                            ).then((confirmed) => {
+                              if (confirmed) void handleDeleteField(field.id);
+                            });
                           }}
                           title="Delete field"
                         >
