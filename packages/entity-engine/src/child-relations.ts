@@ -90,25 +90,18 @@ async function collectDescendantIds(
   db: DbOrTx,
   tenantId: string,
   instanceId: string,
-  includeSoftDeleted = false,
 ): Promise<string[]> {
   const result: string[] = [];
   const queue = [instanceId];
   while (queue.length > 0) {
     const current = queue.shift();
     if (!current) break;
-    const cond = includeSoftDeleted
-      ? and(
-          eq(entityRelations.tenantId, tenantId),
-          eq(entityRelations.fromInstanceId, current),
-          eq(entityRelations.relationType, RELATION_PARENT_OF),
-        )
-      : and(
-          eq(entityRelations.tenantId, tenantId),
-          eq(entityRelations.fromInstanceId, current),
-          eq(entityRelations.relationType, RELATION_PARENT_OF),
-          isNull(entityRelations.deletedAt),
-        );
+    const cond = and(
+      eq(entityRelations.tenantId, tenantId),
+      eq(entityRelations.fromInstanceId, current),
+      eq(entityRelations.relationType, RELATION_PARENT_OF),
+      isNull(entityRelations.deletedAt),
+    );
     const children = await db
       .select({ toInstanceId: entityRelations.toInstanceId })
       .from(entityRelations)
