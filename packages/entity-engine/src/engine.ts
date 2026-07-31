@@ -143,7 +143,7 @@ export async function createEntity(
   tenantId: string,
   input: CreateEntityInput,
 ): Promise<EntityInstance> {
-  const entityType = await loadEntityType(db, input.entityTypeId);
+  const entityType = await loadEntityType(db, input.entityTypeId, tenantId);
 
   const schema = await getValidationSchema(
     db,
@@ -432,7 +432,11 @@ export async function updateEntity(
       validatedFields = fullResult.data as Record<string, unknown>;
     }
 
-    const entityType = await loadEntityType(db, existing.entityTypeId);
+    const entityType = await loadEntityType(
+      db,
+      existing.entityTypeId,
+      tenantId,
+    );
     if (!isChildTicket) {
       const crossErrors = runCrossFieldValidators(
         entityType.name,
@@ -826,7 +830,7 @@ export async function deleteEntity(
   logger.info({ tenantId, instanceId }, "Entity soft-deleted");
 
   const [entityType, allFields] = await Promise.all([
-    loadEntityType(db, row.entityTypeId),
+    loadEntityType(db, row.entityTypeId, tenantId),
     loadEntityFields(db, row.entityTypeId, tenantId),
   ]);
 
@@ -954,7 +958,7 @@ export async function addEntityField(
   entityTypeId: string,
   field: Omit<EntityField, "id" | "tenantId">,
 ): Promise<EntityField> {
-  const entityType = await loadEntityType(db, entityTypeId);
+  const entityType = await loadEntityType(db, entityTypeId, tenantId);
 
   if (!entityType.allowCustomFields && entityType.tenantId !== null) {
     throw new EntityError("CUSTOM_FIELDS_NOT_ALLOWED", { entityTypeId });
@@ -994,11 +998,17 @@ export async function addEntityField(
 async function loadEntityType(
   db: DbOrTx,
   entityTypeId: string,
+  tenantId: string,
 ): Promise<EntityType> {
   const [row] = await db
     .select()
     .from(entityTypes)
-    .where(eq(entityTypes.id, entityTypeId))
+    .where(
+      and(
+        eq(entityTypes.id, entityTypeId),
+        or(isNull(entityTypes.tenantId), eq(entityTypes.tenantId, tenantId)),
+      ),
+    )
     .limit(1);
 
   if (!row) throw new EntityError("ENTITY_TYPE_NOT_FOUND", { entityTypeId });
@@ -1108,7 +1118,7 @@ export async function bulkCreateEntities(
     const cached = typeMetaCache.get(entityTypeId);
     if (cached) return cached;
     const [entityType, allFields] = await Promise.all([
-      loadEntityType(db, entityTypeId),
+      loadEntityType(db, entityTypeId, tenantId),
       loadEntityFields(db, entityTypeId, tenantId),
     ]);
     const meta: TypeMeta = { entityType, allFields };
@@ -1360,7 +1370,11 @@ export async function bulkUpdateEntities(
           return;
         }
 
-        const entityType = await loadEntityType(db, existing.entityTypeId);
+        const entityType = await loadEntityType(
+          db,
+          existing.entityTypeId,
+          tenantId,
+        );
         const crossErrors = runCrossFieldValidators(
           entityType.name,
           fullResult.data as Record<string, unknown>,
@@ -1478,7 +1492,7 @@ export async function bulkUpdateEntities(
           // Load entity type for audit — not needed for the fields update path
           // above (entityType is already available there) but needed here.
           const [bulkEntityType, bulkAllFields] = await Promise.all([
-            loadEntityType(db, existing.entityTypeId),
+            loadEntityType(db, existing.entityTypeId, tenantId),
             loadEntityFields(db, existing.entityTypeId, tenantId),
           ]);
           await fireEntityAuditHook({
@@ -1746,7 +1760,7 @@ export async function bulkSetState(
 
     if (!typeCache.has(prior.entityTypeId)) {
       const [et, ef] = await Promise.all([
-        loadEntityType(db, prior.entityTypeId),
+        loadEntityType(db, prior.entityTypeId, tenantId),
         loadEntityFields(db, prior.entityTypeId, tenantId),
       ]);
       typeCache.set(prior.entityTypeId, {
@@ -1894,7 +1908,7 @@ export async function setEntityState(
   }
 
   const [entityType, allFields] = await Promise.all([
-    loadEntityType(db, existing.entityTypeId),
+    loadEntityType(db, existing.entityTypeId, tenantId),
     loadEntityFields(db, existing.entityTypeId, tenantId),
   ]);
 

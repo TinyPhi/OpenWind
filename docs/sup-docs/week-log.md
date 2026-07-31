@@ -114,6 +114,22 @@
 
 ---
 
+## 2026-07-31 — #220 fixed: `loadEntityType` explicit tenant filter
+
+**Session type:** Small security-hardening fix, branch `fix/PLAT-220-load-entity-type-tenant-filter`
+**Issue closed (pending merge):** #220 — `loadEntityType` had no explicit tenant filter, relying on RLS alone (defense-in-depth gap flagged during #191 review, not exploitable today)
+
+**What landed:**
+
+- `loadEntityType` (`packages/entity-engine/src/engine.ts`) gained a `tenantId` param + the same `or(isNull(tenantId), eq(tenantId, …))` filter `loadEntityFields` already used
+- All 9 call sites updated to pass the `tenantId` already in scope at each — no new parameter threading, no public API change (helper is unexported)
+- New isolation test (`load-entity-type-tenant-filter.isolation.test.ts`) proves the explicit filter blocks cross-tenant access using a bare `db` connection (no `withTenantContext`), isolating this layer from RLS
+- Full spec + task-plan pair in `docs/specs/entity-engine-load-entity-type-tenant-filter-220{,-tasks}.md`
+
+**Verification:** typecheck 40/40, lint 40/40 (0 warnings), entity-engine unit tests 189/189, isolation tests 210/210 (31 files). Full `pnpm test` has pre-existing unrelated failures (Redis unreachable in host-mode runs per this repo's `docker-compose.yml`; already-tracked #149 flake) — logged in the spec's §B, not caused by this change.
+
+---
+
 ## 2026-07-29 — PRs #211, #212, #214 merged; Phase 2 hardening complete
 
 **Session type:** PR review + merge (three PRs)
