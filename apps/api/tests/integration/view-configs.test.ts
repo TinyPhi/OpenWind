@@ -72,7 +72,7 @@ describe("View Configs Integration Tests", () => {
       method: "GET",
     });
     expect(res.status).toBe(404);
-  }, 15000);
+  });
 
   it("POST /modules/helpdesk/install - successfully seeds default view configs", async () => {
     currentTenantId = TEST_TENANT_ID;
@@ -98,10 +98,17 @@ describe("View Configs Integration Tests", () => {
     expect(json.entityTypeSlug).toBe("ticket");
     expect(json.formFieldOrder).toContain("title");
     expect(json.listColumns.length).toBeGreaterThan(0);
-  }, 15000);
+  });
 
   it("PATCH /admin/view-configs/ticket - overrides layout configuration successfully", async () => {
     currentTenantId = TEST_TENANT_ID;
+    // Ensure prerequisite view configs exist independently of test execution order
+    await app.request("/modules/helpdesk/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
     const customList = [
       { field: "title", label: "Custom Title", width: 400, sortable: true },
     ];
@@ -130,7 +137,7 @@ describe("View Configs Integration Tests", () => {
     expect(getJson.listColumns[0]?.label).toBe("Custom Title");
     // Ensure existing fields not overridden by patch are kept (formFieldOrder, etc.)
     expect(getJson.formFieldOrder).toContain("title");
-  }, 15000);
+  });
 
   it("GET /admin/view-configs/ticket - isolates layout configs across tenants", async () => {
     const OTHER_TENANT = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
@@ -161,5 +168,5 @@ describe("View Configs Integration Tests", () => {
         .where(eq(viewConfigs.tenantId, OTHER_TENANT));
       await db.delete(tenants).where(eq(tenants.id, OTHER_TENANT));
     }
-  }, 15000);
+  });
 });
