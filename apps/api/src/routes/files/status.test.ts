@@ -3,6 +3,17 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
+// ── Hoisted mutable auth fixture ──────────────────────────────────────────────
+
+const { mockAuth } = vi.hoisted(() => ({
+  mockAuth: {
+    tenantId: "t-aaa",
+    userId: "u-bbb",
+    roles: ["user"] as string[],
+    email: "test@example.com",
+  },
+}));
+
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockSelectResults: unknown[][] = [];
@@ -20,12 +31,7 @@ vi.mock("@platform/auth", () => ({
   requireAuth:
     () =>
     async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", {
-        tenantId: "t-aaa",
-        userId: "u-bbb",
-        roles: ["user"],
-        email: "test@example.com",
-      });
+      c.set("auth", mockAuth as AuthContext);
       await next();
     },
 }));
@@ -64,6 +70,8 @@ describe("GET /files/:id/status", () => {
     vi.clearAllMocks();
     mockSelectResults.length = 0;
     selectCallIndex = 0;
+    mockAuth.roles = ["user"];
+    mockAuth.userId = "u-bbb";
   });
 
   it("allows the uploader to check status of their unbound file (#224)", async () => {
@@ -92,6 +100,26 @@ describe("GET /files/:id/status", () => {
     const res = await makeApp().request(`/files/${FILE_ID}/status`);
 
     expect(res.status).toBe(404);
+    expect(mockHasEntityAccess).not.toHaveBeenCalled();
+  });
+
+  it("allows admin to check scan status of any unbound file (#224)", async () => {
+    mockAuth.roles = ["admin"];
+    mockAuth.userId = "admin-user";
+    mockSelectResults.push([
+      {
+        id: FILE_ID,
+        scanStatus: "pending",
+        entityId: null,
+        uploadedBy: "some-other-user",
+      },
+    ]);
+
+    const res = await makeApp().request(`/files/${FILE_ID}/status`);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.scanStatus).toBe("pending");
     expect(mockHasEntityAccess).not.toHaveBeenCalled();
   });
 
