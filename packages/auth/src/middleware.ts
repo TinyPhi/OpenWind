@@ -494,6 +494,9 @@ export async function lookupTenantIdByOrgId(
 // keyed by SHA-256(rawKey) so repeated requests with the same key only pay
 // that cost once per TTL window.
 const ARGON2_VERIFY_CACHE_TTL_MS = 60_000;
+// Sweep expired entries when the map reaches this size to prevent unbounded
+// growth under adversarial load (many unique invalid keys, each one entry).
+const ARGON2_VERIFY_CACHE_MAX_ENTRIES = 10_000;
 const _argon2VerifyCache = new Map<string, { valid: boolean; exp: number }>();
 
 async function verifyArgon2(
@@ -505,6 +508,12 @@ async function verifyArgon2(
   if (cached && Date.now() < cached.exp) return cached.valid;
 
   const valid = await argon2Verify(storedHash, rawKey);
+  if (_argon2VerifyCache.size >= ARGON2_VERIFY_CACHE_MAX_ENTRIES) {
+    const now = Date.now();
+    for (const [k, v] of _argon2VerifyCache) {
+      if (now >= v.exp) _argon2VerifyCache.delete(k);
+    }
+  }
   _argon2VerifyCache.set(cacheKey, {
     valid,
     exp: Date.now() + ARGON2_VERIFY_CACHE_TTL_MS,
