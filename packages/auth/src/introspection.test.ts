@@ -117,6 +117,20 @@ describe("introspectToken", () => {
     expect(result.active).toBe(false);
   });
 
+  it("returns inactive result when Zitadel response is not valid JSON (#238)", async () => {
+    const res = makeHttpResponse(200);
+    makeHttpRequest(res);
+
+    const promise = introspectToken("malformed-json-token-6a");
+    setTimeout(() => {
+      res.emit("data", Buffer.from("not-json{{{"));
+      res.emit("end");
+    }, 1);
+
+    const result = await promise;
+    expect(result.active).toBe(false);
+  });
+
   it("uses cached result on second call with same token", async () => {
     const body = JSON.stringify({ active: true, sub: "user-cached" });
     const res = makeHttpResponse();
