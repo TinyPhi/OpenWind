@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { inArray } from "drizzle-orm";
+import { entityInstances } from "@platform/db";
 
 // ── Mock @platform/db ─────────────────────────────────────────────────────────
 
@@ -322,10 +324,13 @@ describe("bulkUpdateEntities", () => {
   });
 
   it("processes items independently — valid items succeed even when others fail", async () => {
+    // The existing-rows fetch is now one batched query (#196) — only inst-2
+    // exists, so it's the only row the batch returns; ghost-id resolves to
+    // ENTITY_NOT_FOUND via the resulting Map having no entry for it, not via
+    // a separate per-item query.
     mockSelectResult
-      .mockReturnValueOnce([]) // first item: not found
-      .mockReturnValueOnce([makeRow("inst-2")]) // second item: found
-      .mockReturnValueOnce([fakeEntityType]);
+      .mockReturnValueOnce([makeRow("inst-2")]) // batched existing-rows fetch
+      .mockReturnValueOnce([fakeEntityType]); // inst-2's loadEntityType call
     mockGetValidationSchema.mockResolvedValue(passingSchema());
     mockUpdateReturning.mockResolvedValue([makeRow("inst-2")]);
 
@@ -339,6 +344,35 @@ describe("bulkUpdateEntities", () => {
     expect(result.updated).toHaveLength(1);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.code).toBe("ENTITY_NOT_FOUND");
+  });
+
+  it("fetches all existing rows in a single batched query, not one per item (#196)", async () => {
+    // The first select() call (issued synchronously before the per-item
+    // Promise.all starts) is the batched existing-rows fetch; everything
+    // after runs concurrently per item (loadEntityType/loadEntityFields),
+    // so only the first call's shape is asserted precisely here — the
+    // distinguishing signal of this fix is that it's an inArray query
+    // covering both ids in one round trip, not two separate eq(id, ...)
+    // round trips (the pre-fix N+1 shape).
+    mockSelectResult.mockReturnValue([makeRow("inst-1"), makeRow("inst-2")]);
+    mockGetValidationSchema.mockResolvedValue(passingSchema());
+    mockUpdateReturning
+      .mockResolvedValueOnce([makeRow("inst-1")])
+      .mockResolvedValueOnce([makeRow("inst-2")]);
+
+    const updates = [
+      { id: "inst-1", input: { fields: { subject: "a" } } },
+      { id: "inst-2", input: { fields: { subject: "b" } } },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await bulkUpdateEntities(dbMock as any, TENANT, updates);
+
+    expect(result.updated).toHaveLength(2);
+    expect(result.errors).toHaveLength(0);
+    expect(inArray).toHaveBeenCalledWith(
+      entityInstances.id,
+      expect.arrayContaining(["inst-1", "inst-2"]),
+    );
   });
 });
 
