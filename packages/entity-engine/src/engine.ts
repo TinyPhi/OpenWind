@@ -1312,19 +1312,35 @@ export async function bulkUpdateEntities(
     payload: EntityAssignedEvent;
   }> = [];
 
+  // Fetch all rows in one query instead of one SELECT per item (#196 N+1) —
+  // mirrors bulkSetState's foundMap pattern below. Per-row UPDATEs still
+  // happen individually since each item's `fields`/`assignedTo` payload is
+  // heterogeneous (unlike bulkSetState's small set of distinct target
+  // states, which groups into one UPDATE per state) — batching those would
+  // need a VALUES-based multi-row UPDATE not used anywhere else in this
+  // file, so this fixes the read side only, per the confirmed-real half of
+  // #196.
+  const existingRows =
+    updates.length > 0
+      ? await db
+          .select()
+          .from(entityInstances)
+          .where(
+            and(
+              inArray(
+                entityInstances.id,
+                updates.map((u) => u.id),
+              ),
+              eq(entityInstances.tenantId, tenantId),
+              isNull(entityInstances.deletedAt),
+            ),
+          )
+      : [];
+  const existingMap = new Map(existingRows.map((r) => [r.id, r]));
+
   await Promise.all(
     updates.map(async ({ id, input }, i) => {
-      const [existing] = await db
-        .select()
-        .from(entityInstances)
-        .where(
-          and(
-            eq(entityInstances.id, id),
-            eq(entityInstances.tenantId, tenantId),
-            isNull(entityInstances.deletedAt),
-          ),
-        )
-        .limit(1);
+      const existing = existingMap.get(id);
 
       if (!existing) {
         errors.push({ index: i, id, code: "ENTITY_NOT_FOUND" });
