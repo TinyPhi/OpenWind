@@ -35,7 +35,10 @@ vi.mock("@platform/db", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
-  sql: vi.fn((..._args: unknown[]) => ({ op: "sql" })),
+  sql: vi.fn((strings: TemplateStringsArray, ..._values: unknown[]) => ({
+    op: "sql",
+    text: Array.isArray(strings) ? strings[0] : "",
+  })),
   inArray: vi.fn((col, vals) => ({ col, vals, op: "inArray" })),
 }));
 
@@ -200,18 +203,15 @@ describe("SLA scheduler tick", () => {
 
       await tick();
 
-      // First execute = SELECT (returns the outbox rows).
-      // Per-tenant dead-letter loop issues two more executes:
+      // The sql mock captures the first template string chunk in .text.
+      // Per-tenant dead-letter loop must issue both:
       //   1. SET LOCAL ROLE app_user   (switches to non-superuser for RLS)
       //   2. SELECT set_config(...)    (sets app.tenant_id GUC)
-      // All three produce op:"sql" from the drizzle-orm mock.
-      const executeCalls = mockTxExecute.mock.calls;
-      const sqlCalls = executeCalls.filter((call) => {
-        const arg = call[0] as { op?: string };
-        return arg?.op === "sql";
-      });
-      // At least two sql executes beyond the initial SELECT (role + config)
-      expect(sqlCalls.length).toBeGreaterThanOrEqual(2);
+      const sqlTexts = mockTxExecute.mock.calls.map(
+        (call) => (call[0] as { op?: string; text?: string })?.text ?? "",
+      );
+      expect(sqlTexts).toContain("SET LOCAL ROLE app_user");
+      expect(sqlTexts.some((t) => t.includes("set_config"))).toBe(true);
     });
 
     it("dead-letters events with a malformed (NaN) fireAt instead of enqueuing with NaN delay", async () => {
