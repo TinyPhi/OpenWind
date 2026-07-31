@@ -3,6 +3,10 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
+import {
+  showAlert,
+  showConfirm,
+} from "../../components/global-alert-dialog.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
 import {
   type AttachmentFile,
@@ -1799,7 +1803,7 @@ export function CustomerRecordDetail(): React.ReactElement {
 
   async function cancelAlert(alertId: string): Promise<void> {
     if (!id) return;
-    if (!window.confirm("Cancel this alert?")) return;
+    if (!(await showConfirm("Cancel this alert?"))) return;
     setAlertsError(null);
     try {
       await fetchWithAuth(`${API_URL}/entities/${id}/alerts/${alertId}`, {
@@ -3312,7 +3316,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                                 DOC_MIMES_ATTACH.has(mimeType) &&
                                 file.size < 1024
                               ) {
-                                alert(
+                                showAlert(
                                   `"${file.name}" appears to be a cloud placeholder (${file.size} B) that hasn't been downloaded yet.\n\nIn File Explorer, right-click → "Always keep on this device", wait for it to download, then try again.`,
                                 );
                                 continue;
