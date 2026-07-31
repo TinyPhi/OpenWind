@@ -19,7 +19,7 @@ const PlatformSettingsPatchSchema = z.object({
 
 export const getPlatformSettingsHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("superadmin"),
   async (c) => {
     const [row] = await db
       .select()
@@ -39,7 +39,7 @@ export const getPlatformSettingsHandler = factory.createHandlers(
 
 export const updatePlatformSettingsHandler = factory.createHandlers(
   requireAuth(),
-  requireRole("admin"),
+  requireRole("superadmin"),
   zValidator("json", PlatformSettingsPatchSchema),
   async (c) => {
     const { outboundNotificationsEnabled } = c.req.valid("json");
