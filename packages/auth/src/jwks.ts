@@ -22,6 +22,10 @@ function getJwks(): JwksGetter {
     const hostOverride =
       jwksUri.hostname !== issuerHost ? issuerHost : undefined;
     _jwks = createRemoteJWKSet(jwksUri, {
+      // Refresh cached JWKS after 1 hour so a rotated/revoked signing key stops
+      // being accepted within a bounded window. Without this the cache is
+      // infinite and key rotation requires a process restart. (#262)
+      cacheMaxAge: 60 * 60 * 1000,
       ...(hostOverride !== undefined
         ? {
             headers: { Host: hostOverride },
@@ -45,11 +49,10 @@ export async function verifyJwt(
         // ZITADEL_AUDIENCE is required and non-empty (packages/config/src/env.ts),
         // so audience validation is always enforced here.
         audience: env.ZITADEL_AUDIENCE,
-        // Allow up to 30 s of clock skew between Zitadel and the API container.
-        // Without this, tokens with nbf = "now" fail if the server clock is a
-        // few seconds behind Zitadel, causing 401s on the very first request
-        // after login before the client retries with a refreshed token.
-        clockTolerance: 30,
+        // 5 s is sufficient to absorb NTP clock skew between containers.
+        // 30 s was wider than necessary and extended the replay window for
+        // stolen tokens by 25 extra seconds past their stated expiry. (#255)
+        clockTolerance: 5,
       },
     );
     return payload as JWTPayload & ZitadelClaims;
