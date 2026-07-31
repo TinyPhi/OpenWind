@@ -75,13 +75,45 @@ describe("POST /api-keys — scope ceiling guard (#223)", () => {
     mockAuth.roles = ["admin"];
   });
 
-  it("returns 201 when scopes are a subset of creator roles", async () => {
+  it("returns 201 when scopes match creator role exactly", async () => {
     const res = await makeApp().request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: body({ scopes: ["admin"] }),
     });
     expect(res.status).toBe(201);
+  });
+
+  it("returns 201 when admin grants a lower-privilege scope (hierarchy check)", async () => {
+    mockAuth.roles = ["admin"];
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body({ scopes: ["agent"] }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 403 when agent attempts to grant admin scope — escalation blocked", async () => {
+    mockAuth.roles = ["agent"];
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body({ scopes: ["admin"] }),
+    });
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe("FORBIDDEN");
+  });
+
+  it("returns 403 for an unknown scope string", async () => {
+    mockAuth.roles = ["admin"];
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body({ scopes: ["custom_role"] }),
+    });
+    expect(res.status).toBe(403);
   });
 
   it("returns 201 for empty scopes array", async () => {
