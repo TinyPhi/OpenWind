@@ -61,6 +61,7 @@
 
 **Tests:** 18 new tests across `files.test.ts`, `status.test.ts`, `packages/files/src/index.test.ts`.
 332/332 unit tests passing. Typecheck + lint clean.
+
 ## 2026-07-31 — Group E: withTenantContext gaps in worker + routes (#243 #244 #254 #234)
 
 **Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
