@@ -71,4 +71,24 @@ describe("Dialog", () => {
     fireEvent.click(closeButton);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("places the built-in close button before children in DOM order for accessible tab navigation", () => {
+    render(
+      <Dialog defaultOpen>
+        <DialogContent>
+          <DialogTitle>Edit Field</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    const closeButton = screen.getByRole("button", { name: "Close" });
+    const title = screen.getByText("Edit Field");
+
+    expect(dialog.firstElementChild).toBe(closeButton);
+    expect(
+      closeButton.compareDocumentPosition(title) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });
