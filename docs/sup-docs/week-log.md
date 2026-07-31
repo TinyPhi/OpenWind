@@ -35,6 +35,47 @@
 
 ---
 
+## 2026-07-31 — Group E: withTenantContext gaps in worker + routes (#243 #244 #254 #234)
+
+**Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-group-e`
+**Spec:** `docs/specs/group-e-withtenant-context-gaps.md`
+
+### Completed this session
+
+- **#243 sla-breacher bare db**: Both the main processor and the dead-letter failed handler
+  replaced `db.transaction()` + manual `set_config` with `withTenantContext(tenantId, tx => ...)`.
+  RLS second layer now enforced on `outbox_events`, `entity_instances`, and `dead_letter_events`.
+- **#244 sla-scheduler no role switch**: The dead-letter loop inside `tick()` already used
+  `set_config` but not `SET LOCAL ROLE app_user`. Added `await tx.execute(sql\`SET LOCAL ROLE app_user\`)`before each tenant's`set_config`call. Cannot use`withTenantContext`here because the outer`db.transaction()` with FOR UPDATE SKIP LOCKED must remain a single atomic transaction.
+- **#254 notification prefs bare db**: `apps/api/src/routes/preferences/notifications.ts` — both
+  GET and PATCH replaced bare `db` calls with `withTenantContext`.
+- **#234 entity-type GET/list routes bare db**: `apps/api/src/routes/entity-types/get.ts` and
+  `list.ts` both updated to route through `withTenantContext`.
+- Tests: `sla-breacher.test.ts` mock structure replaced (`db.transaction` → `withTenantContext`),
+  assertions updated. `sla-scheduler.test.ts` updated to assert two execute calls per tenant
+  (SET LOCAL ROLE + set_config). New test files: `preferences/notifications.test.ts`,
+  `entity-types/get.test.ts`, `entity-types/list.test.ts`.
+
+### Verification
+
+- pnpm typecheck: PASS (all packages)
+- pnpm lint: PASS
+- pnpm test: PASS — 97 worker unit tests, 337 API unit tests; pre-existing integration/isolation
+  failures (Docker not running) are unrelated to this diff
+- pnpm test:isolation: pending Docker stack
+
+### Next
+
+- Open PR for `fix/PLAT-security-group-e`
+- PRs #279 (Group B), #280 (Group C), #281 (Group A) still open awaiting CI + human review
+
+### Open questions
+
+- None
+
+---
+
 ## 2026-07-31 — #195 closed: post-auth tenant-scoped rate limiting
 
 **Session type:** Investigation + bug fix (Plan → Code → Review → Docs → Ship)
