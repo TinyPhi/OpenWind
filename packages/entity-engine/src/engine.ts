@@ -290,6 +290,7 @@ export async function createEntity(
         row.entityTypeId,
         row.assignedTo,
         resolveAssignedBy(input.actorId, row.createdBy),
+        input.depth,
       ),
     );
   }
@@ -1261,6 +1262,7 @@ export async function bulkCreateEntities(
           row.entityTypeId,
           row.assignedTo,
           resolveAssignedBy(auditMeta[idx]?.actorId, row.createdBy),
+          auditMeta[idx]?.depth,
         ),
       );
     }

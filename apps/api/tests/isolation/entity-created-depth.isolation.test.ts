@@ -76,4 +76,59 @@ describe("entity.created outbox depth carries through for MAX_DEPTH enforcement 
       "MAX_DEPTH_EXCEEDED",
     );
   });
+
+  it("createEntity with assignedTo stamps depth+1 on both entity.created and entity.assigned outbox payloads", async () => {
+    const entityType = await createEntityType(db, TENANT, {
+      name: `depth_assigned_${Date.now()}`,
+      plural: "depth_assigneds",
+      allowCustomFields: true,
+    });
+
+    const TEST_USER = "uuuuuuuu-0000-4000-a000-000000000218";
+
+    const createdInstance = await withTenantContext(TENANT, (tx) =>
+      createEntity(tx, TENANT, {
+        entityTypeId: entityType.id,
+        fields: {},
+        assignedTo: TEST_USER,
+        depth: 9,
+      }),
+    );
+
+    const rows = await withTenantContext(TENANT, (tx) =>
+      tx.select().from(outboxEvents).where(eq(outboxEvents.tenantId, TENANT)),
+    );
+
+    const createdEvent = rows.find(
+      (r) =>
+        r.eventType === "entity.created" &&
+        (r.payload as Record<string, unknown>).instanceId ===
+          createdInstance.id,
+    );
+    const assignedEvent = rows.find(
+      (r) =>
+        r.eventType === "entity.assigned" &&
+        (r.payload as Record<string, unknown>).instanceId ===
+          createdInstance.id,
+    );
+
+    expect(createdEvent).toBeDefined();
+    expect(assignedEvent).toBeDefined();
+
+    expect((createdEvent?.payload as Record<string, unknown>).depth).toBe(10);
+    expect((assignedEvent?.payload as Record<string, unknown>).depth).toBe(10);
+
+    const assignedDepth = (assignedEvent?.payload as Record<string, unknown>)
+      .depth as number;
+    const err = await executeAutomationRules(
+      db,
+      TENANT,
+      assignedEvent?.payload,
+      assignedDepth,
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(AutomationError);
+    expect((err as InstanceType<typeof AutomationError>).code).toBe(
+      "MAX_DEPTH_EXCEEDED",
+    );
+  });
 });
