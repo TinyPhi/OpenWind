@@ -108,7 +108,12 @@ describe("api-keys CRUD (#10 fix)", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...skHeaders() },
-      body: JSON.stringify({ name: "isolation-test-key", scopes: ["agent"] }),
+      // The creator authenticates with roles: ["admin"] above - scopes
+      // requested here must be a subset of that (the #223 scope-ceiling
+      // guard added in this same PR), so this uses "admin" rather than
+      // "agent" to isolate this test to its original purpose (RLS on
+      // api_keys CRUD), not the unrelated scope-ceiling check.
+      body: JSON.stringify({ name: "isolation-test-key", scopes: ["admin"] }),
     });
 
     expect(res.status).toBe(201);
