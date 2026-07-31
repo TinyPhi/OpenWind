@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 
 type AutomationRule = {
   id: string;
@@ -297,86 +298,18 @@ export function Automations(): React.ReactElement {
       )}
 
       {/* Delete confirm modal */}
-      {confirmDelete && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1100,
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !deletingId)
-              setConfirmDelete(null);
-          }}
-        >
-          <div
-            style={{
-              background: "var(--bg-primary)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "14px",
-              padding: "28px 32px",
-              width: "100%",
-              maxWidth: "420px",
-              boxShadow: "var(--shadow-lg)",
-            }}
-          >
-            <div
-              style={{
-                width: "44px",
-                height: "44px",
-                borderRadius: "10px",
-                background: "hsla(0,84%,60%,.12)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "20px",
-                marginBottom: "16px",
-              }}
-            >
-              🗑
-            </div>
-            <p style={{ margin: "0 0 6px", fontSize: "15px", fontWeight: 600 }}>
-              Delete &ldquo;{confirmDelete.name}&rdquo;?
-            </p>
-            <p
-              style={{
-                margin: "0 0 24px",
-                fontSize: "13px",
-                color: "var(--danger)",
-              }}
-            >
-              This action cannot be undone.
-            </p>
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                justifyContent: "flex-end",
-              }}
-            >
-              <button
-                className="btn btn-secondary"
-                onClick={() => setConfirmDelete(null)}
-                disabled={!!deletingId}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-danger-sm"
-                onClick={() => void handleDelete(confirmDelete)}
-                disabled={!!deletingId}
-                style={{ minWidth: "90px" }}
-              >
-                {deletingId ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDeleteDialog
+        open={confirmDelete !== null}
+        title={
+          confirmDelete
+            ? `Delete "${confirmDelete.name}"?`
+            : "Delete this item?"
+        }
+        message=""
+        busy={!!deletingId}
+        onConfirm={() => confirmDelete && void handleDelete(confirmDelete)}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
