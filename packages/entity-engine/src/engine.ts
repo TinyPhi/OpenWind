@@ -83,6 +83,7 @@ export function buildEntityCreatedPayload(
   entityTypeId: string,
   fields: Record<string, unknown>,
   createdBy: string | null,
+  depth?: number,
 ): EntityCreatedEvent {
   return {
     eventType: "entity.created",
@@ -92,6 +93,10 @@ export function buildEntityCreatedPayload(
     entityTypeId,
     fields,
     createdBy,
+    // depth + 1 for the guard, mirroring buildEntityAssignedPayload's
+    // convention — only set when this creation was itself driven by an
+    // automation rule (#120/#218).
+    ...(depth !== undefined && { depth: depth + 1 }),
   };
 }
 
@@ -264,11 +269,9 @@ export async function createEntity(
     });
   }
 
-  // Outbox events for automation triggers (#126). NOTE: automation rules on
-  // entity.created/entity.assigned can chain into create/update actions —
-  // this is the first path that makes the unbounded outbox-routed recursion
-  // gap (#120, MAX_DEPTH resets to 0 on the outbox path) actually reachable.
-  // #120 is tracked separately; not fixed here.
+  // Outbox events for automation triggers (#126). depth is threaded through
+  // (#218) so a self-triggering create_entity automation rule trips
+  // MAX_DEPTH on the outbox hop instead of silently resuming at depth 0.
   const outboxRows: Array<EntityCreatedEvent | EntityAssignedEvent> = [
     buildEntityCreatedPayload(
       tenantId,
@@ -276,6 +279,7 @@ export async function createEntity(
       row.entityTypeId,
       redactedFieldsForEvents,
       row.createdBy,
+      input.depth,
     ),
   ];
   if (row.assignedTo !== null) {
@@ -286,6 +290,7 @@ export async function createEntity(
         row.entityTypeId,
         row.assignedTo,
         resolveAssignedBy(input.actorId, row.createdBy),
+        input.depth,
       ),
     );
   }
@@ -1102,6 +1107,7 @@ export async function bulkCreateEntities(
     createdBy: string | null;
     actorId: string | undefined;
     entityFields: Array<{ name: string; sensitivity: AuditFieldSensitivity }>;
+    depth: number | undefined;
   }> = [];
 
   // Per-type cache: avoids O(N) DB calls for entityType + allFields when many
@@ -1196,6 +1202,7 @@ export async function bulkCreateEntities(
         name: f.name,
         sensitivity: f.sensitivity,
       })),
+      depth: input.depth,
     });
   }
 
@@ -1208,9 +1215,10 @@ export async function bulkCreateEntities(
   const created = rows.map(rowToInstance);
 
   // Outbox events for automation triggers (#126) — see createEntity for the
-  // #120 recursion-exposure note and the PII/financial redaction rationale.
-  // Sensitivity maps are cached per entity type (via typeMetaCache, already
-  // populated above) rather than rebuilt per row.
+  // PII/financial redaction rationale. depth is threaded through (#218) via
+  // auditMeta, the same parallel-array pattern already used for createdBy/
+  // actorId. Sensitivity maps are cached per entity type (via typeMetaCache,
+  // already populated above) rather than rebuilt per row.
   const sensitivityByType = new Map<string, Map<string, FieldSensitivity>>();
   function getSensitivityMap(
     entityTypeId: string,
@@ -1243,6 +1251,7 @@ export async function bulkCreateEntities(
           getSensitivityMap(row.entityTypeId),
         ),
         row.createdBy,
+        auditMeta[idx]?.depth,
       ),
     ];
     if (row.assignedTo !== null) {
@@ -1253,6 +1262,7 @@ export async function bulkCreateEntities(
           row.entityTypeId,
           row.assignedTo,
           resolveAssignedBy(auditMeta[idx]?.actorId, row.createdBy),
+          auditMeta[idx]?.depth,
         ),
       );
     }
@@ -1312,19 +1322,35 @@ export async function bulkUpdateEntities(
     payload: EntityAssignedEvent;
   }> = [];
 
+  // Fetch all rows in one query instead of one SELECT per item (#196 N+1) —
+  // mirrors bulkSetState's foundMap pattern below. Per-row UPDATEs still
+  // happen individually since each item's `fields`/`assignedTo` payload is
+  // heterogeneous (unlike bulkSetState's small set of distinct target
+  // states, which groups into one UPDATE per state) — batching those would
+  // need a VALUES-based multi-row UPDATE not used anywhere else in this
+  // file, so this fixes the read side only, per the confirmed-real half of
+  // #196.
+  const existingRows =
+    updates.length > 0
+      ? await db
+          .select()
+          .from(entityInstances)
+          .where(
+            and(
+              inArray(
+                entityInstances.id,
+                updates.map((u) => u.id),
+              ),
+              eq(entityInstances.tenantId, tenantId),
+              isNull(entityInstances.deletedAt),
+            ),
+          )
+      : [];
+  const existingMap = new Map(existingRows.map((r) => [r.id, r]));
+
   await Promise.all(
     updates.map(async ({ id, input }, i) => {
-      const [existing] = await db
-        .select()
-        .from(entityInstances)
-        .where(
-          and(
-            eq(entityInstances.id, id),
-            eq(entityInstances.tenantId, tenantId),
-            isNull(entityInstances.deletedAt),
-          ),
-        )
-        .limit(1);
+      const existing = existingMap.get(id);
 
       if (!existing) {
         errors.push({ index: i, id, code: "ENTITY_NOT_FOUND" });

@@ -209,7 +209,13 @@ async function runAction(
         await executeAssignAction(db, tenantId, event, action.config, depth);
         break;
       case "create_entity":
-        await executeCreateEntityAction(db, tenantId, event, action.config);
+        await executeCreateEntityAction(
+          db,
+          tenantId,
+          event,
+          action.config,
+          depth,
+        );
         break;
       case "transition":
         await executeTransitionAction(
