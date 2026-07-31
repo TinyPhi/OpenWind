@@ -32,11 +32,12 @@ export const TriggerTypeSchema = z.enum(TRIGGER_TYPES);
 // the comment in modules/helpdesk/seed/003_automation_rules.sql for the seed
 // side of this gap.
 //
-// notify/assign/create_entity/connector.action/script are declared in
-// packages/automation-engine/src/types.ts's ActionType union but not yet
-// implemented in executor.ts's switch (they fall through to "unhandled
-// action type" and no-op) — kept permissive (`z.record(z.unknown())`) rather
-// than over-constraining a shape that doesn't exist yet.
+// notify/connector.action/script are declared in packages/automation-engine/
+// src/types.ts's ActionType union but not yet implemented in executor.ts's
+// switch (they fall through to "unhandled action type" and no-op) — kept
+// permissive (`z.record(z.unknown())`) rather than over-constraining a shape
+// that doesn't exist yet. assign/create_entity WERE this way too until #191
+// wired up their dispatch — they now have real shapes below.
 
 const SetFieldConfigSchema = z.object({
   instanceId: z.string().optional(),
@@ -58,15 +59,26 @@ const WebhookActionConfigSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 });
 
+const AssignConfigSchema = z.object({
+  instanceId: z.string().optional(),
+  assigneeId: z.string().min(1),
+});
+
+const CreateEntityConfigSchema = z.object({
+  entityTypeId: z.string().min(1),
+  fields: z.record(z.unknown()).optional(),
+  assignedTo: z.string().optional(),
+});
+
 export const ActionConfigSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("notify"), config: z.record(z.unknown()) }),
   z.object({ type: z.literal("set_field"), config: SetFieldConfigSchema }),
   z.object({ type: z.literal("transition"), config: TransitionConfigSchema }),
   z.object({ type: z.literal("webhook"), config: WebhookActionConfigSchema }),
-  z.object({ type: z.literal("assign"), config: z.record(z.unknown()) }),
+  z.object({ type: z.literal("assign"), config: AssignConfigSchema }),
   z.object({
     type: z.literal("create_entity"),
-    config: z.record(z.unknown()),
+    config: CreateEntityConfigSchema,
   }),
   z.object({
     type: z.literal("connector.action"),
