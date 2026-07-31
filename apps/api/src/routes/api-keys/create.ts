@@ -22,7 +22,20 @@ export const createApiKeyHandler = factory.createHandlers(
   zValidator("json", CreateApiKeySchema),
   async (c) => {
     const { name, scopes } = c.req.valid("json");
-    const { tenantId } = c.get("auth");
+    const { tenantId, roles } = c.get("auth");
+
+    const creatorRoles = new Set(roles);
+    for (const scope of scopes) {
+      if (!creatorRoles.has(scope)) {
+        return c.json(
+          {
+            error: "FORBIDDEN",
+            message: "Cannot grant scope exceeding your own roles",
+          },
+          403,
+        );
+      }
+    }
 
     // Generate a cryptographically random key with a recognisable prefix.
     // The raw key is returned exactly once — after this the hash is all that

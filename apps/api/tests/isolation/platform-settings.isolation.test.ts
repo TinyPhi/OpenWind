@@ -6,7 +6,7 @@
  * modules.is_visible (see the migration's own comment). There is no
  * cross-tenant boundary to prove here; the boundary that matters is the
  * role gate -- this is a platform-operator control (the outbound
- * notifications kill switch), so it must be admin-only end to end
+ * notifications kill switch), so it must be superadmin-only end to end
  * against real Postgres, not just unit-tested with a mocked db.
  *
  * Uses a real Postgres database (no mocks).
@@ -54,13 +54,18 @@ afterEach(async () => {
 });
 
 describe("GET /admin/platform-settings — role gate", () => {
-  it("admin can read the global settings row", async () => {
-    const res = await makeApp(["admin"]).request("/");
+  it("superadmin can read the global settings row", async () => {
+    const res = await makeApp(["superadmin"]).request("/");
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
       data: { outboundNotificationsEnabled: boolean };
     };
     expect(typeof json.data.outboundNotificationsEnabled).toBe("boolean");
+  });
+
+  it("admin is forbidden from reading the global settings row (#231)", async () => {
+    const res = await makeApp(["admin"]).request("/");
+    expect(res.status).toBe(403);
   });
 
   it("agent is forbidden from reading the global settings row", async () => {
@@ -91,8 +96,17 @@ describe("PATCH /admin/platform-settings — role gate and real update", () => {
     expect(row?.outboundNotificationsEnabled).toBe(true);
   });
 
-  it("admin can flip the kill switch off and the change persists", async () => {
+  it("admin is forbidden from flipping the kill switch (#231)", async () => {
     const res = await makeApp(["admin"]).request("/", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outboundNotificationsEnabled: false }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("superadmin can flip the kill switch off and the change persists", async () => {
+    const res = await makeApp(["superadmin"]).request("/", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ outboundNotificationsEnabled: false }),

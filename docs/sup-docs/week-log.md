@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-07-31 — security group B: four critical API access control fixes
+
+**Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-hardening`
+**Issues:** #225, #223, #229, #231
+**Spec:** `docs/specs/security-group-b-api-access-control.md`
+
+### Completed this session
+
+- **#225** (critical): `viewConfigsRouter` was registered before `adminRouter` in `app.ts` —
+  Hono first-match wins, so `GET /admin/view-configs/:entityType` was handled by the router that
+  only had `requireAuth()` (no `requireRole()`), making it readable by any authenticated user.
+  Fixed by adding `requireRole("agent", "admin")` to the GET handler directly.
+- **#223** (critical): `POST /api-keys` accepted arbitrary `scopes` including `"superadmin"` from
+  an `admin`-role caller. Fixed by validating requested scopes are a subset of the creator's own
+  JWT roles before inserting the key.
+- **#229** (critical): `POST /entities` and `POST /entities/bulk` accepted `createdBy` from the
+  request body. Any `user`-role caller could attribute an entity to another user and gain implicit
+  `read_write` access via the `createdBy === userId` access shortcut. Fixed by stripping `createdBy`
+  from both schemas; the authenticated `userId` is now always used.
+- **#231** (critical): `GET/PATCH /admin/platform-settings` required only `requireRole("admin")`,
+  but `platform_settings` is a global singleton (not tenant-scoped). Any tenant admin could
+  toggle the outbound notifications kill-switch platform-wide. Fixed to `requireRole("superadmin")`.
+  Updated existing isolation test to match.
+
+**Tests:** 23 new unit tests across 4 new test files; existing isolation test updated.
+**Result:** 347/347 unit tests passing; typecheck + lint clean.
+
+---
+
 ## 2026-07-31 — #195 closed: post-auth tenant-scoped rate limiting
 
 **Session type:** Investigation + bug fix (Plan → Code → Review → Docs → Ship)
