@@ -102,6 +102,13 @@ describe("View Configs Integration Tests", () => {
 
   it("PATCH /admin/view-configs/ticket - overrides layout configuration successfully", async () => {
     currentTenantId = TEST_TENANT_ID;
+    // Ensure prerequisite view configs exist independently of test execution order
+    await app.request("/modules/helpdesk/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
     const customList = [
       { field: "title", label: "Custom Title", width: 400, sortable: true },
     ];
