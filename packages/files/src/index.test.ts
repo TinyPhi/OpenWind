@@ -12,13 +12,15 @@ const mockPresignedPost = vi.fn();
 const mockGetSignedUrl = vi.fn();
 const mockS3Send = vi.fn();
 
+const mockGetObjectCommand = vi.fn();
+
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: vi.fn().mockImplementation(function () {
     return { send: mockS3Send };
   }),
   DeleteObjectCommand: vi.fn(),
   PutObjectCommand: vi.fn(),
-  GetObjectCommand: vi.fn(),
+  GetObjectCommand: mockGetObjectCommand,
 }));
 
 vi.mock("@aws-sdk/s3-request-presigner", () => ({
@@ -143,8 +145,17 @@ function makeDb(overrides: Partial<MockDb> = {}): MockDb {
   return mockDb;
 }
 
+let lastGetObjectCommandArgs: Record<string, unknown> | undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  lastGetObjectCommandArgs = undefined;
+  mockGetObjectCommand.mockImplementation(function (
+    args: Record<string, unknown>,
+  ) {
+    lastGetObjectCommandArgs = args;
+    return args;
+  });
   mockQueueAdd.mockResolvedValue({ id: "j-1" });
   mockQueueClose.mockResolvedValue(undefined);
   mockS3Send.mockResolvedValue({});
@@ -358,7 +369,11 @@ describe("confirmUpload", () => {
 // ── getDownloadUrl ────────────────────────────────────────────────────────────
 
 describe("getDownloadUrl", () => {
-  function makeDbWithStatus(scanStatus: string) {
+  function makeDbWithStatus(
+    scanStatus: string,
+    mimeType = "application/pdf",
+    originalName = "test-file.pdf",
+  ) {
     return makeDb({
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
@@ -368,7 +383,8 @@ describe("getDownloadUrl", () => {
                 id: FILE_ID,
                 scanStatus,
                 storageKey: "key",
-                originalName: "test-file.pdf",
+                originalName,
+                mimeType,
                 tenantId: TENANT_ID,
               },
             ]),
@@ -411,6 +427,54 @@ describe("getDownloadUrl", () => {
     await expect(
       getDownloadUrl(db as never, TENANT_ID, FILE_ID),
     ).rejects.toMatchObject({ code: "FILE_NOT_FOUND" });
+  });
+
+  it("forces Content-Disposition attachment for SVG regardless of inline flag (#240)", async () => {
+    const db = makeDbWithStatus("clean", "image/svg+xml");
+    await getDownloadUrl(db as never, TENANT_ID, FILE_ID, true); // inline=true
+    expect(lastGetObjectCommandArgs?.ResponseContentDisposition).toMatch(
+      /^attachment/,
+    );
+  });
+
+  it("allows non-SVG files to be served inline when requested", async () => {
+    const db = makeDbWithStatus("clean", "application/pdf");
+    await getDownloadUrl(db as never, TENANT_ID, FILE_ID, true); // inline=true
+    expect(lastGetObjectCommandArgs?.ResponseContentDisposition).toMatch(
+      /^inline/,
+    );
+  });
+
+  it("strips CRLF from originalName to prevent header injection (#241)", async () => {
+    const db = makeDbWithStatus(
+      "clean",
+      "application/pdf",
+      "evil\r\nX-Injected: hdr.pdf",
+    );
+    await getDownloadUrl(db as never, TENANT_ID, FILE_ID);
+    const disposition =
+      lastGetObjectCommandArgs?.ResponseContentDisposition as string;
+    expect(disposition).not.toContain("\r");
+    expect(disposition).not.toContain("\n");
+  });
+
+  it("strips double-quotes from originalName to prevent value termination (#241)", async () => {
+    const db = makeDbWithStatus("clean", "application/pdf", 'file"name.pdf');
+    await getDownloadUrl(db as never, TENANT_ID, FILE_ID);
+    const disposition =
+      lastGetObjectCommandArgs?.ResponseContentDisposition as string;
+    // The filename= value should not contain an unescaped quote that closes it early
+    const filenameMatch = /filename="([^"]*)"/.exec(disposition);
+    expect(filenameMatch).not.toBeNull();
+    expect(filenameMatch![1]).not.toContain('"');
+  });
+
+  it("includes RFC 5987 filename* for Unicode filenames (#241)", async () => {
+    const db = makeDbWithStatus("clean", "application/pdf", "résumé.pdf");
+    await getDownloadUrl(db as never, TENANT_ID, FILE_ID);
+    const disposition =
+      lastGetObjectCommandArgs?.ResponseContentDisposition as string;
+    expect(disposition).toContain("filename*=UTF-8''");
   });
 });
 

@@ -101,11 +101,12 @@ export async function tick(): Promise<void> {
       }
 
       // Dead-letter stale events — do not enqueue them.
-      // Group by tenant and set app.tenant_id before each INSERT block.
-      // dead_letter_events RLS derives its WITH CHECK from the USING clause:
-      // tenant_id = current_setting('app.tenant_id', true)::uuid — without
-      // the GUC the expression evaluates to NULL and every INSERT is silently
-      // blocked.  set_config with true is SET LOCAL (transaction-scoped).
+      // Group by tenant; before each INSERT block issue SET LOCAL ROLE app_user
+      // (switches away from the superuser so RLS is enforced) and set
+      // app.tenant_id (satisfies dead_letter_events WITH CHECK). Cannot use
+      // withTenantContext here because the outer db.transaction() (FOR UPDATE
+      // SKIP LOCKED) must stay intact — both SQL statements are issued inline
+      // within the existing tx instead. (#244)
       if (stale.length > 0) {
         const staleByTenant = new Map<string, SlaOutboxRow[]>();
         for (const row of stale) {
@@ -115,6 +116,7 @@ export async function tick(): Promise<void> {
         }
 
         for (const [tenantId, tenantRows] of staleByTenant) {
+          await tx.execute(sql`SET LOCAL ROLE app_user`);
           await tx.execute(
             sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
           );
