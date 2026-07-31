@@ -12,7 +12,6 @@ const BulkCreateSchema = z.object({
       z.object({
         entityTypeId: z.string().uuid(),
         fields: z.record(z.unknown()),
-        createdBy: z.string().optional(),
         assignedTo: z.string().optional(),
         workflowId: z.string().uuid().optional(),
       }),
@@ -26,12 +25,16 @@ export const bulkCreateHandler = factory.createHandlers(
   requireRole("admin", "agent"),
   zValidator("json", BulkCreateSchema),
   async (c) => {
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
     const { items } = c.req.valid("json");
 
     try {
+      const itemsWithCreator = items.map((item) => ({
+        ...item,
+        createdBy: userId,
+      }));
       const result = await withTenantContext(tenantId, (tx) =>
-        bulkCreateEntities(tx, tenantId, items),
+        bulkCreateEntities(tx, tenantId, itemsWithCreator),
       );
       return c.json({ data: result }, 201);
     } catch (err) {

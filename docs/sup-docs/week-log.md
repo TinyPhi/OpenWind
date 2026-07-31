@@ -5,6 +5,77 @@
 
 ---
 
+## 2026-07-31 — security group B: four critical API access control fixes
+
+**Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-hardening`
+**Issues:** #225, #223, #229, #231
+**Spec:** `docs/specs/security-group-b-api-access-control.md`
+
+### Completed this session
+
+- **#225** (critical): `viewConfigsRouter` was registered before `adminRouter` in `app.ts` —
+  Hono first-match wins, so `GET /admin/view-configs/:entityType` was handled by the router that
+  only had `requireAuth()` (no `requireRole()`), making it readable by any authenticated user.
+  Fixed by adding `requireRole("agent", "admin")` to the GET handler directly.
+- **#223** (critical): `POST /api-keys` accepted arbitrary `scopes` including `"superadmin"` from
+  an `admin`-role caller. Fixed by validating requested scopes are a subset of the creator's own
+  JWT roles before inserting the key.
+- **#229** (critical): `POST /entities` and `POST /entities/bulk` accepted `createdBy` from the
+  request body. Any `user`-role caller could attribute an entity to another user and gain implicit
+  `read_write` access via the `createdBy === userId` access shortcut. Fixed by stripping `createdBy`
+  from both schemas; the authenticated `userId` is now always used.
+- **#231** (critical): `GET/PATCH /admin/platform-settings` required only `requireRole("admin")`,
+  but `platform_settings` is a global singleton (not tenant-scoped). Any tenant admin could
+  toggle the outbound notifications kill-switch platform-wide. Fixed to `requireRole("superadmin")`.
+  Updated existing isolation test to match.
+
+**Tests:** 23 new unit tests across 4 new test files; existing isolation test updated.
+**Result:** 347/347 unit tests passing; typecheck + lint clean.
+
+---
+
+## 2026-07-31 — Group E: withTenantContext gaps in worker + routes (#243 #244 #254 #234)
+
+**Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-group-e`
+**Spec:** `docs/specs/group-e-withtenant-context-gaps.md`
+
+### Completed this session
+
+- **#243 sla-breacher bare db**: Both the main processor and the dead-letter failed handler
+  replaced `db.transaction()` + manual `set_config` with `withTenantContext(tenantId, tx => ...)`.
+  RLS second layer now enforced on `outbox_events`, `entity_instances`, and `dead_letter_events`.
+- **#244 sla-scheduler no role switch**: The dead-letter loop inside `tick()` already used
+  `set_config` but not `SET LOCAL ROLE app_user`. Added `await tx.execute(sql\`SET LOCAL ROLE app_user\`)`before each tenant's`set_config`call. Cannot use`withTenantContext`here because the outer`db.transaction()` with FOR UPDATE SKIP LOCKED must remain a single atomic transaction.
+- **#254 notification prefs bare db**: `apps/api/src/routes/preferences/notifications.ts` — both
+  GET and PATCH replaced bare `db` calls with `withTenantContext`.
+- **#234 entity-type GET/list routes bare db**: `apps/api/src/routes/entity-types/get.ts` and
+  `list.ts` both updated to route through `withTenantContext`.
+- Tests: `sla-breacher.test.ts` mock structure replaced (`db.transaction` → `withTenantContext`),
+  assertions updated. `sla-scheduler.test.ts` updated to assert two execute calls per tenant
+  (SET LOCAL ROLE + set_config). New test files: `preferences/notifications.test.ts`,
+  `entity-types/get.test.ts`, `entity-types/list.test.ts`.
+
+### Verification
+
+- pnpm typecheck: PASS (all packages)
+- pnpm lint: PASS
+- pnpm test: PASS — 97 worker unit tests, 337 API unit tests; pre-existing integration/isolation
+  failures (Docker not running) are unrelated to this diff
+- pnpm test:isolation: pending Docker stack
+
+### Next
+
+- Open PR for `fix/PLAT-security-group-e`
+- PRs #279 (Group B), #280 (Group C), #281 (Group A) still open awaiting CI + human review
+
+### Open questions
+
+- None
+
+---
+
 ## 2026-07-31 — #195 closed: post-auth tenant-scoped rate limiting
 
 **Session type:** Investigation + bug fix (Plan → Code → Review → Docs → Ship)

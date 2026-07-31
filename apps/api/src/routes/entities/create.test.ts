@@ -163,4 +163,38 @@ describe("POST /entities", () => {
 
     expect(res.status).toBe(404);
   });
+
+  it("ignores createdBy from body — always uses auth.userId (#229)", async () => {
+    mockCreateEntity.mockResolvedValue(fakeInstance);
+
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ createdBy: "attacker-user-id" }),
+    });
+
+    expect(mockCreateEntity).toHaveBeenCalledWith(
+      expect.any(Object),
+      "t-aaa",
+      expect.objectContaining({ createdBy: "u-bbb" }),
+    );
+  });
+
+  it("rejects body with createdBy field as unknown key — Zod strips it silently", async () => {
+    mockCreateEntity.mockResolvedValue(fakeInstance);
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ createdBy: "any-value" }),
+    });
+
+    // Request still succeeds — createdBy is stripped by Zod, not rejected
+    expect(res.status).toBe(201);
+    expect(mockCreateEntity).toHaveBeenCalledWith(
+      expect.any(Object),
+      "t-aaa",
+      expect.objectContaining({ createdBy: "u-bbb" }),
+    );
+  });
 });

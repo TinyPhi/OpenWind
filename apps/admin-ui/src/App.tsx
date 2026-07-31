@@ -33,6 +33,7 @@ import { AutomationWizard } from "./pages/automations/wizard/wizard.js";
 import { RequireAdmin } from "./components/require-admin.js";
 import { SystemLogsPage } from "./pages/system-logs.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
+import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
 import "./index.css";
 
@@ -49,6 +50,7 @@ export function App(): React.ReactElement {
   return (
     <BrowserRouter>
       <GlobalErrorBanner />
+      <GlobalAlertDialog />
       <Refine
         authProvider={authProvider}
         dataProvider={dataProvider}
