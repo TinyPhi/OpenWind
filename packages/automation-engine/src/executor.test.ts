@@ -4,6 +4,7 @@ const mockSelect = vi.fn();
 const mockInsert = vi.fn();
 const mockUpdate = vi.fn();
 const mockUpdateEntity = vi.fn();
+const mockCreateEntity = vi.fn();
 const mockExecuteTransition = vi.fn();
 
 // Simulates Drizzle's db.transaction(): runs the callback with a nested tx
@@ -51,6 +52,7 @@ vi.mock("@platform/workflow-engine", () => ({
 
 vi.mock("@platform/entity-engine", () => ({
   updateEntity: (...args: unknown[]) => mockUpdateEntity(...args),
+  createEntity: (...args: unknown[]) => mockCreateEntity(...args),
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -152,6 +154,54 @@ describe("executeAutomationRules", () => {
       TENANT_ID,
       BASE_EVENT.instanceId,
       expect.objectContaining({ fields: { priority: "high" } }),
+    );
+  });
+
+  it("executes assign action by calling updateEntity with assignedTo", async () => {
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [{ type: "assign", config: { assigneeId: "user-123" } }],
+      },
+    ]);
+    mockUpdateEntity.mockResolvedValue({ id: BASE_EVENT.instanceId });
+
+    await executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT);
+
+    expect(mockUpdateEntity).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      BASE_EVENT.instanceId,
+      expect.objectContaining({ assignedTo: "user-123" }),
+    );
+  });
+
+  it("executes create_entity action by calling createEntity", async () => {
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [
+          {
+            type: "create_entity",
+            config: {
+              entityTypeId: "00000000-0000-0000-0000-000000000042",
+              fields: { title: "Follow-up" },
+            },
+          },
+        ],
+      },
+    ]);
+    mockCreateEntity.mockResolvedValue({ id: "new-entity-1" });
+
+    await executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT);
+
+    expect(mockCreateEntity).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      expect.objectContaining({
+        entityTypeId: "00000000-0000-0000-0000-000000000042",
+        fields: { title: "Follow-up" },
+      }),
     );
   });
 

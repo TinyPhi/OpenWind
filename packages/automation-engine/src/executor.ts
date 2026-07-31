@@ -14,6 +14,8 @@ import { executeNotifyAction } from "./actions/notify.js";
 import { executeSetFieldAction } from "./actions/set-field.js";
 import { executeTransitionAction } from "./actions/transition.js";
 import { executeWebhookAction } from "./actions/webhook.js";
+import { executeAssignAction } from "./actions/assign.js";
+import { executeCreateEntityAction } from "./actions/create-entity.js";
 import { isOpen, recordFailure, reset } from "./circuit-breaker.js";
 
 const MAX_DEPTH = 10;
@@ -202,6 +204,12 @@ async function runAction(
         break;
       case "set_field":
         await executeSetFieldAction(db, tenantId, event, action.config, depth);
+        break;
+      case "assign":
+        await executeAssignAction(db, tenantId, event, action.config, depth);
+        break;
+      case "create_entity":
+        await executeCreateEntityAction(db, tenantId, event, action.config);
         break;
       case "transition":
         await executeTransitionAction(

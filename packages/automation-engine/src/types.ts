@@ -69,13 +69,24 @@ export type WebhookActionConfig = {
   timeoutMs?: number;
 };
 
+export interface AssignConfig {
+  instanceId?: string;
+  assigneeId: string;
+}
+
+export interface CreateEntityConfig {
+  entityTypeId: string;
+  fields?: Record<string, unknown>;
+  assignedTo?: string;
+}
+
 export type ActionConfig =
   | { type: "notify"; config: NotifyConfig }
   | { type: "set_field"; config: SetFieldConfig }
   | { type: "transition"; config: TransitionConfig }
   | { type: "webhook"; config: WebhookActionConfig }
-  | { type: "assign"; config: Record<string, unknown> }
-  | { type: "create_entity"; config: Record<string, unknown> }
+  | { type: "assign"; config: AssignConfig }
+  | { type: "create_entity"; config: CreateEntityConfig }
   | { type: "connector.action"; config: Record<string, unknown> }
   | { type: "script"; config: Record<string, unknown> };
 

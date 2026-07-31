@@ -62,6 +62,58 @@
 
 ---
 
+## 2026-07-30 — #191 closed: automation `assign`/`create_entity` actions wired up
+
+**Session type:** Bug fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-191-automation-assign-create-entity`
+**Issue:** #191
+
+### Completed this session
+
+- `packages/automation-engine/src/executor.ts`'s `runAction` switch had no case for `assign` or
+  `create_entity` — both were declared in the `ActionType` union (selectable in the no-code
+  automation builder, usable in module seed SQL) but silently no-opped. Added:
+  - `actions/assign.ts` — calls `updateEntity({ assignedTo })`, mirroring `set-field.ts`'s
+    instanceId-resolution and depth-threading pattern.
+  - `actions/create-entity.ts` — calls `createEntity` with a configured `entityTypeId`/`fields`.
+- Replaced the two `Record<string, unknown>` placeholder shapes in `ActionConfig` (types.ts) and
+  `ActionConfigSchema` (apps/api's automation-rules/schemas.ts) with real typed/Zod shapes now
+  that they're implemented.
+- Prove-It: added failing tests first (confirmed via `git stash` on the implementation files that
+  they fail on pre-fix code), then implemented, then confirmed green.
+- New isolation test (`automation-assign-create-entity.isolation.test.ts`) runs both actions
+  end-to-end through a real automation rule against Postgres.
+- **Filed #218 as a follow-up, not fixed here:** wiring up `create_entity` makes a previously
+  theoretical gap live — `buildEntityCreatedPayload` (entity-engine) has no `depth` parameter,
+  unlike `buildEntityAssignedPayload` (which #120/PR#139 fixed), so a self-triggering
+  `create_entity` rule recurses unbounded across the outbox hop instead of hitting `MAX_DEPTH`.
+  Fixing it changes `CreateEntityInput`'s shape — an entity-engine API change out of #191's scope.
+  Not blocking on it: `create_entity` ships inert in every existing module seed today.
+
+### Verification
+
+- pnpm typecheck: PASS (all 28 packages, after rebuilding several packages' stale `dist/` —
+  pre-existing staleness from the 58-commit pull earlier this session, not caused by this diff)
+- pnpm lint: PASS
+- pnpm test: 10 pre-existing failures in `modules.test.ts`/`upload-flow.test.ts`/
+  `view-configs.test.ts` (freshly-created local `platform_test` DB missing seed data, and Redis
+  unreachable from host per the port-mapping removal) — confirmed pre-existing via `git stash`
+  comparison against the base commit; unrelated files, not touched by this diff
+- pnpm test:isolation: PASS (27/27 files, 186/186 tests, including the 2 new ones)
+
+### Next
+
+- #191–#202 (second consulting-review batch, filed 2026-07-24) otherwise remain open and
+  unassigned — worth a triage session before they rot the way #191 itself sat for 6 days.
+- #218 (create_entity recursion-depth gap) needs a human-approved plan-lock before pickup, since
+  it changes an entity-engine package contract.
+
+### Open questions
+
+- None blocking.
+
+---
+
 ## 2026-07-29 — PRs #211, #212, #214 merged; Phase 2 hardening complete
 
 **Session type:** PR review + merge (three PRs)

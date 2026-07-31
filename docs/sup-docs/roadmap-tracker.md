@@ -8,6 +8,14 @@ pre-auth stage simplified to IP-only keying. Also closed #191 this same investig
 recursion-depth gap) and #220 (`loadEntityType` missing explicit tenant filter, defense-in-depth
 gap — not currently exploitable, RLS already covers it). #191–#202 batch otherwise still open,
 mostly unassigned — worth a dedicated triage session.
+**Previously:** 2026-07-30 — #191 closed (`assign`/`create_entity` automation actions were
+declared but never dispatched — see `docs/reviews/pending-review-findings.md`'s "already has a
+tracked issue" table, from the second consulting-review pass filed 2026-07-24 as #191–#202, none
+of which had been picked up before this). Filed **#218** as a follow-up: `create_entity` can now
+be used in a self-triggering rule, and unlike `assign`/`transition`, its `entity.created` outbox
+payload doesn't carry automation recursion depth — an unbounded-recursion DoS risk, not yet fixed
+(entity-engine API change, out of #191's scope). #191–#202 otherwise remain open/unassigned —
+this tracker hasn't been reconciled against that full batch yet.
 **Previously:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
 wired end-to-end); #212 added global outbound kill switch, M2M auth, auto-logout, settings tabs;
 #214 removed stale `portal` from CI Docker matrix. Pre-Phase-3 hardening backlog fully closed.
