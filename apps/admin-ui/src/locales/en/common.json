@@ -1,0 +1,29 @@
+{
+  "login": {
+    "brandName": "OpenWind",
+    "theme": {
+      "switchToLight": "Switch to light mode",
+      "switchToDark": "Switch to dark mode",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "title": "Sign in to OpenWind",
+    "description": "Your modular workflow platform. Access modules, configure workflows, and manage your workspace.",
+    "signInButton": "Sign in with Zitadel",
+    "redirecting": "Redirecting…",
+    "securityNote": "Access is secured and session-scoped to your organisation",
+    "helpPrompt": "Need access?",
+    "contactAdmin": "Contact your admin",
+    "footer": {
+      "copyright": "© 2026 OpenWind. Open-source platform.",
+      "github": "GitHub",
+      "docs": "Docs",
+      "privacy": "Privacy"
+    }
+  },
+  "authCallback": {
+    "errorTitle": "Authentication Error",
+    "backToLogin": "Back to Login",
+    "verifying": "Verifying credentials and synchronizing session..."
+  }
+}
