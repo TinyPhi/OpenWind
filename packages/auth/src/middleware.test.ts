@@ -14,6 +14,7 @@ vi.mock("@platform/config", () => ({
       "https://zitadel.example.com/oauth/v2/introspect",
     ZITADEL_INTROSPECTION_CLIENT_ID: "client-id",
     ZITADEL_INTROSPECTION_CLIENT_SECRET: "client-secret",
+    RATE_LIMIT_TENANT_PER_MIN: 100,
     get NODE_ENV() {
       return mockNodeEnv;
     },
@@ -30,9 +31,11 @@ vi.mock("@platform/logger", () => ({
 // resolution loads it as a separate module instance), so it fails Zod
 // validation against an empty test env before any test runs. Stub it out;
 // this suite only exercises the in-memory getCachedTenantStatus path.
+const mockCheckRateLimit = vi.fn();
 vi.mock("@platform/redis", () => ({
-  getRedis: vi.fn(),
+  getRedis: vi.fn(() => ({})),
   closeRedis: vi.fn(),
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
 }));
 
 const mockVerifyJwt = vi.fn();
@@ -158,6 +161,11 @@ beforeEach(() => {
   mockExistingTenantUser = undefined;
   mockNodeEnv = undefined;
   mockTenantRow = { status: "active" };
+  mockCheckRateLimit.mockResolvedValue({
+    allowed: true,
+    remaining: 99,
+    resetAt: 0,
+  });
 });
 
 // ── requireAuth ───────────────────────────────────────────────────────────────
@@ -342,6 +350,111 @@ describe("requireAuth", () => {
       // Unaffected by mockTenantRow being unset — the org-lookup branch
       // must not run outside production.
       expect(res.status).toBe(200);
+    });
+  });
+
+  // #195: unlike the pre-auth IP-based stage, this check runs only after the
+  // token/key has been verified, so it keys on the real, unforgeable tenantId.
+  describe("post-auth tenant-scoped rate limit (#195)", () => {
+    it("keys the check on the verified tenantId for the JWT path", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+
+      const app = makeApp([requireAuth()]);
+      await get(app, "valid.jwt");
+
+      expect(mockCheckRateLimit).toHaveBeenCalledWith(
+        expect.anything(),
+        `rl:tenant:${VALID_AUTH.tenantId}`,
+        100,
+        60,
+      );
+    });
+
+    it("returns 429 when the tenant has exceeded its quota (JWT path)", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      mockCheckRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: 123,
+      });
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(429);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("RATE_LIMITED");
+    });
+
+    it("keys the check on the verified tenantId for the API-key path", async () => {
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+      };
+      const mockDb = { execute: vi.fn().mockResolvedValue([fakeRow]) };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      await get(app, "sk_validkey");
+
+      expect(mockCheckRateLimit).toHaveBeenCalledWith(
+        expect.anything(),
+        "rl:tenant:tenant-abc",
+        100,
+        60,
+      );
+    });
+
+    it("returns 429 when the tenant has exceeded its quota (API-key path)", async () => {
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+      };
+      const mockDb = { execute: vi.fn().mockResolvedValue([fakeRow]) };
+      mockCheckRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: 123,
+      });
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(429);
+    });
+
+    it("fails open (200) when the rate-limit check itself throws", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      mockCheckRateLimit.mockRejectedValueOnce(new Error("redis down"));
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+    });
+
+    it("a forged/varied unverified claim cannot create a fresh bucket — key depends only on the verified tenantId", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      const app1 = makeApp([requireAuth()]);
+      await get(app1, "valid.jwt");
+
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+      const app2 = makeApp([requireAuth()]);
+      await get(app2, "valid.jwt");
+
+      const keys = mockCheckRateLimit.mock.calls.map((c) => c[1] as string);
+      expect(keys[0]).toBe(keys[1]);
+      expect(keys[0]).toBe(`rl:tenant:${VALID_AUTH.tenantId}`);
     });
   });
 });
