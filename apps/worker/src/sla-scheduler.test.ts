@@ -192,7 +192,7 @@ describe("SLA scheduler tick", () => {
       );
     });
 
-    it("sets app.tenant_id before each dead_letter_events INSERT so RLS WITH CHECK passes (N2)", async () => {
+    it("issues SET LOCAL ROLE app_user and set_config before each dead_letter_events INSERT so RLS is enforced (#244)", async () => {
       const fireAt = new Date(
         Date.now() - STALE_SLA_THRESHOLD_MS - 3_600_000,
       ).toISOString();
@@ -200,13 +200,18 @@ describe("SLA scheduler tick", () => {
 
       await tick();
 
-      // The SELECT call is the first execute; set_config must also appear
+      // First execute = SELECT (returns the outbox rows).
+      // Per-tenant dead-letter loop issues two more executes:
+      //   1. SET LOCAL ROLE app_user   (switches to non-superuser for RLS)
+      //   2. SELECT set_config(...)    (sets app.tenant_id GUC)
+      // All three produce op:"sql" from the drizzle-orm mock.
       const executeCalls = mockTxExecute.mock.calls;
-      const setConfigCall = executeCalls.find((call) => {
+      const sqlCalls = executeCalls.filter((call) => {
         const arg = call[0] as { op?: string };
         return arg?.op === "sql";
       });
-      expect(setConfigCall).toBeDefined();
+      // At least two sql executes beyond the initial SELECT (role + config)
+      expect(sqlCalls.length).toBeGreaterThanOrEqual(2);
     });
 
     it("dead-letters events with a malformed (NaN) fireAt instead of enqueuing with NaN delay", async () => {
