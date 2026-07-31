@@ -44,6 +44,13 @@ const contentStyle: React.CSSProperties = {
   padding: "20px 24px",
 };
 
+const ALERT_DIALOG_STYLES = `
+  .ow-alert-action:hover { filter: brightness(0.9); }
+  .ow-alert-action:focus-visible { outline: 2px solid var(--ring, hsl(215, 90%, 60%)); outline-offset: 2px; }
+  .ow-alert-cancel:hover { background: var(--muted-hover, hsl(210, 40%, 90%)); }
+  .ow-alert-cancel:focus-visible { outline: 2px solid var(--ring, hsl(215, 90%, 60%)); outline-offset: 2px; }
+`;
+
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
@@ -57,12 +64,14 @@ const AlertDialogContent = React.forwardRef<
           style={{ ...contentStyle, ...style }}
           {...props}
         >
+          <style>{ALERT_DIALOG_STYLES}</style>
           {children}
         </AlertDialogPrimitive.Content>
       </AlertDialogOverlay>
     </AlertDialogPortal>
   );
 });
+AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
 
 function AlertDialogHeader({
   style,
@@ -89,6 +98,7 @@ const AlertDialogTitle = React.forwardRef<
     />
   );
 });
+AlertDialogTitle.displayName = AlertDialogPrimitive.Title.displayName;
 
 const AlertDialogDescription = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Description>,
@@ -107,6 +117,8 @@ const AlertDialogDescription = React.forwardRef<
     />
   );
 });
+AlertDialogDescription.displayName =
+  AlertDialogPrimitive.Description.displayName;
 
 function AlertDialogFooter({
   style,
@@ -139,10 +151,11 @@ const buttonBaseStyle: React.CSSProperties = {
 const AlertDialogAction = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Action>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action>
->(function AlertDialogAction({ style, ...props }, ref) {
+>(function AlertDialogAction({ className, style, ...props }, ref) {
   return (
     <AlertDialogPrimitive.Action
       ref={ref}
+      className={["ow-alert-action", className].filter(Boolean).join(" ")}
       style={{
         ...buttonBaseStyle,
         background: "var(--danger, hsl(350, 80%, 60%))",
@@ -153,14 +166,16 @@ const AlertDialogAction = React.forwardRef<
     />
   );
 });
+AlertDialogAction.displayName = AlertDialogPrimitive.Action.displayName;
 
 const AlertDialogCancel = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Cancel>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Cancel>
->(function AlertDialogCancel({ style, ...props }, ref) {
+>(function AlertDialogCancel({ className, style, ...props }, ref) {
   return (
     <AlertDialogPrimitive.Cancel
       ref={ref}
+      className={["ow-alert-cancel", className].filter(Boolean).join(" ")}
       style={{
         ...buttonBaseStyle,
         background: "transparent",
@@ -172,6 +187,7 @@ const AlertDialogCancel = React.forwardRef<
     />
   );
 });
+AlertDialogCancel.displayName = AlertDialogPrimitive.Cancel.displayName;
 
 export {
   AlertDialog,

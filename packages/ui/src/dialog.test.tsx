@@ -55,4 +55,20 @@ describe("Dialog", () => {
     });
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("renders a built-in close button that closes the dialog when clicked", () => {
+    render(
+      <Dialog defaultOpen>
+        <DialogContent>
+          <DialogTitle>Edit Field</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    const closeButton = screen.getByRole("button", { name: "Close" });
+    expect(closeButton).toBeDefined();
+
+    fireEvent.click(closeButton);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });

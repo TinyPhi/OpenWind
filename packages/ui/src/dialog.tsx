@@ -39,8 +39,10 @@ const DialogOverlay = React.forwardRef<
     />
   );
 });
+DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const contentStyle: React.CSSProperties = {
+  position: "relative",
   background: "var(--bg-secondary, hsl(222, 15%, 18%))",
   border: "1px solid var(--border-color, hsla(222, 12%, 40%, 0.35))",
   borderRadius: "var(--radius-lg, 20px)",
@@ -50,6 +52,19 @@ const contentStyle: React.CSSProperties = {
   overflowY: "auto",
   boxShadow: "var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.6))",
   padding: "20px 24px",
+};
+
+const closeButtonStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 12,
+  right: 12,
+  cursor: "pointer",
+  background: "transparent",
+  border: "none",
+  color: "var(--text-muted, hsl(222, 8%, 56%))",
+  fontSize: 18,
+  lineHeight: 1,
+  padding: 4,
 };
 
 const DialogContent = React.forwardRef<
@@ -66,11 +81,15 @@ const DialogContent = React.forwardRef<
           {...props}
         >
           {children}
+          <DialogPrimitive.Close style={closeButtonStyle} aria-label="Close">
+            ✕
+          </DialogPrimitive.Close>
         </DialogPrimitive.Content>
       </DialogOverlay>
     </DialogPortal>
   );
 });
+DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 function DialogHeader({
   style,
@@ -108,6 +127,7 @@ const DialogTitle = React.forwardRef<
     />
   );
 });
+DialogTitle.displayName = DialogPrimitive.Title.displayName;
 
 const DialogDescription = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Description>,
@@ -126,6 +146,7 @@ const DialogDescription = React.forwardRef<
     />
   );
 });
+DialogDescription.displayName = DialogPrimitive.Description.displayName;
 
 function DialogFooter({
   style,
