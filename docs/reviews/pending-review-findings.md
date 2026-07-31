@@ -18,15 +18,11 @@ that's the difference between the two halves of this list.
 
 | Finding                                                                            | Issue                    | Owner          |
 | ---------------------------------------------------------------------------------- | ------------------------ | -------------- |
-| `notify` action is a stub, Novu never wired up                                     | [#125](../../issues/125) | Bikash Barnwal |
 | Automation-triggered transitions absent from outbox (Phase 3A connector gap)       | [#143](../../issues/143) | Bikash Barnwal |
 | 6 of 7 standard modules ship no automations, non-idempotent seed SQL               | [#161](../../issues/161) | Tushar Sharma  |
 | Tender costing-review automation references nonexistent `create_child` action      | [#162](../../issues/162) | Tushar Sharma  |
-| `assign`/`create_entity` automation action types declared but never dispatched     | [#191](../../issues/191) | Unassigned     |
 | No backup / disaster-recovery runbook                                              | [#192](../../issues/192) | Unassigned     |
-| Every non-core Docker image pinned to `:latest`                                    | [#193](../../issues/193) | Unassigned     |
 | `tests/e2e/` has no actual test harness                                            | [#194](../../issues/194) | Unassigned     |
-| Rate limiter buckets on an unverified JWT claim, not the authenticated tenant      | [#195](../../issues/195) | Unassigned     |
 | Scale-risk backlog: cache invalidation, search pagination, N+1, pool ceiling       | [#196](../../issues/196) | Unassigned     |
 | Several field types render as plain text inputs in the portal (#1 adoption-killer) | [#197](../../issues/197) | Unassigned     |
 | No accessibility floor on modals                                                   | [#198](../../issues/198) | Unassigned     |
