@@ -1,6 +1,12 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
+**Last updated:** 2026-07-31 — #220 fixed (`loadEntityType` had no explicit tenant filter,
+relying on RLS alone — defense-in-depth gap, not exploitable today; found during #191's
+review). `packages/entity-engine/src/engine.ts`'s `loadEntityType` now mirrors
+`loadEntityFields`'s `or(isNull(tenantId), eq(tenantId, …))` filter across all 9 call sites.
+New isolation test proves the fix independent of RLS. Branch
+`fix/PLAT-220-load-entity-type-tenant-filter`, not yet merged.
+**Previously:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
 wired end-to-end); #212 added global outbound kill switch, M2M auth, auto-logout, settings tabs;
 #214 removed stale `portal` from CI Docker matrix. Pre-Phase-3 hardening backlog fully closed.
 Two PRs still open from earlier work: #186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).
