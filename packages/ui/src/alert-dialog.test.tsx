@@ -60,4 +60,18 @@ describe("AlertDialog", () => {
     expect(onAction).not.toHaveBeenCalled();
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
+
+  it("injects a singleton style tag in document.head when opened", () => {
+    render(
+      <AlertDialog defaultOpen>
+        <AlertDialogContent>
+          <AlertDialogTitle>Delete this record?</AlertDialogTitle>
+        </AlertDialogContent>
+      </AlertDialog>,
+    );
+
+    const styleEl = document.getElementById("ow-alert-dialog-styles");
+    expect(styleEl).not.toBeNull();
+    expect(styleEl?.textContent).toContain(".ow-alert-action:hover");
+  });
 });

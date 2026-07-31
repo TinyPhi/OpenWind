@@ -80,10 +80,10 @@ const DialogContent = React.forwardRef<
           style={{ ...contentStyle, ...style }}
           {...props}
         >
-          {children}
           <DialogPrimitive.Close style={closeButtonStyle} aria-label="Close">
             ✕
           </DialogPrimitive.Close>
+          {children}
         </DialogPrimitive.Content>
       </DialogOverlay>
     </DialogPortal>

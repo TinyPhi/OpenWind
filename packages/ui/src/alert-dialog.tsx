@@ -44,6 +44,7 @@ const contentStyle: React.CSSProperties = {
   padding: "20px 24px",
 };
 
+const ALERT_DIALOG_STYLES_ID = "ow-alert-dialog-styles";
 const ALERT_DIALOG_STYLES = `
   .ow-alert-action:hover { filter: brightness(0.9); }
   .ow-alert-action:focus-visible { outline: 2px solid var(--ring, hsl(215, 90%, 60%)); outline-offset: 2px; }
@@ -51,10 +52,24 @@ const ALERT_DIALOG_STYLES = `
   .ow-alert-cancel:focus-visible { outline: 2px solid var(--ring, hsl(215, 90%, 60%)); outline-offset: 2px; }
 `;
 
+function injectAlertDialogStyles(): void {
+  if (typeof document === "undefined") return;
+  if (!document.getElementById(ALERT_DIALOG_STYLES_ID)) {
+    const styleEl = document.createElement("style");
+    styleEl.id = ALERT_DIALOG_STYLES_ID;
+    styleEl.textContent = ALERT_DIALOG_STYLES;
+    document.head.appendChild(styleEl);
+  }
+}
+
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
 >(function AlertDialogContent({ style, children, ...props }, ref) {
+  React.useEffect(() => {
+    injectAlertDialogStyles();
+  }, []);
+
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay>
@@ -64,7 +79,6 @@ const AlertDialogContent = React.forwardRef<
           style={{ ...contentStyle, ...style }}
           {...props}
         >
-          <style>{ALERT_DIALOG_STYLES}</style>
           {children}
         </AlertDialogPrimitive.Content>
       </AlertDialogOverlay>
