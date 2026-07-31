@@ -1,6 +1,19 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-31 — #195 closed (rate limiter bucketed on an unverified JWT claim
+**Last updated:** 2026-07-31 — dedicated triage session on the #191–#202 batch (the one the
+previous entry below flagged as "worth a session"). **Closed this pass:** #149 (PR #269), #218
+(PR #270), #220 (PR #222, merged). **Investigated, mostly resolved:** #196 — 2 of 4 sub-findings
+don't reproduce against current code (schema cache is already Redis-backed with proper
+invalidation; search already uses keyset/cursor pagination, not `OFFSET`), 1 fixed via PR #271
+(`bulkUpdateEntities` N+1). **Open PRs awaiting review** (not yet merged, so their issues stay
+open): #201 native-confirm → shared `AlertDialog` (PR #282), #198 modal a11y wave 1 — consolidates
+the 2 duplicated modal patterns, ~27 single-instance modals remain and are tracked as #284 (PR
+#285), #192 backup/restore runbook, tested end-to-end against real Postgres+MinIO (PR #286), #194
+e2e harness MVP — first test in this repo to exercise real, unmocked auth (PR #287), #197
+`FieldInput` consolidation + `user_ref`/`entity_ref` widgets, `file`/`files` deferred as #289 (PR
+#288). **Untouched this session:** #199 (packages/ui hollow), #200 (zero i18n) — still open,
+unassigned.
+**Previously:** 2026-07-31 — #195 closed (rate limiter bucketed on an unverified JWT claim
 instead of the authenticated tenant, from the second consulting-review pass filed 2026-07-24 as
 #191–#202). Post-auth tenant-scoped rate limiting now lives in `requireAuth()` (`@platform/auth`);
 pre-auth stage simplified to IP-only keying. Also closed #191 this same investigation round
@@ -167,6 +180,30 @@ Bikash Barnwal.
 
 ---
 
+## Second consulting-review batch (#191–#202) — status
+
+Filed 2026-07-24 from the second external consulting-review pass. Triaged and mostly worked
+through 2026-07-30/31 (see header above for the session narrative).
+
+| Issue                    | Title                                                                  | Status                                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [#191](../../issues/191) | Automation `assign`/`create_entity` actions declared, never dispatched | ✅ Closed — PR #219                                                                                    |
+| [#195](../../issues/195) | Rate limiter bucketed on unverified JWT claim, not tenant              | ✅ Closed — PR #221                                                                                    |
+| [#218](../../issues/218) | `create_entity` unbounded recursion (follow-up from #191)              | ✅ Closed — PR #270                                                                                    |
+| [#220](../../issues/220) | `loadEntityType()` no explicit tenant filter (follow-up from #191)     | ✅ Closed — PR #222                                                                                    |
+| [#149](../../issues/149) | 4 pre-existing `view-configs.test.ts` failures under parallelism       | ✅ Closed — PR #269                                                                                    |
+| [#196](../../issues/196) | Scale-risk backlog — cache invalidation, pagination, N+1, pool         | 🟡 Mostly resolved — 2/4 don't reproduce, 1 fixed (PR #271), issue left open for the pool-sizing item  |
+| [#201](../../issues/201) | Native `confirm()`/`alert()` instead of a shared dialog                | PR #282 open, not yet merged                                                                           |
+| [#198](../../issues/198) | No accessibility floor on modals                                       | PR #285 open (wave 1 — consolidates 2 duplicated patterns; ~27 single-instance modals tracked as #284) |
+| [#192](../../issues/192) | No backup / disaster-recovery runbook                                  | PR #286 open, not yet merged                                                                           |
+| [#194](../../issues/194) | `tests/e2e/` has no actual test harness                                | PR #287 open, not yet merged                                                                           |
+| [#197](../../issues/197) | "Configured" field types render as plain text, not real widgets        | PR #288 open (`file`/`files` deferred as #289)                                                         |
+| [#199](../../issues/199) | `packages/ui` is hollow — no real shared component library             | Open — untouched this session                                                                          |
+| [#200](../../issues/200) | Zero internationalization — all UI strings hardcoded English           | Open — untouched this session                                                                          |
+| [#202](../../issues/202) | `docker compose down -v` data-loss foot-gun                            | Open — untouched this session                                                                          |
+
+---
+
 ## Phase 3 — Scale & Extensibility
 
 **Goal:** Platform extensible by third parties. Connector marketplace, plugin system, AI layer, first sector package.
@@ -196,5 +233,5 @@ version GC, defer until 2D workflow editor — 2D shipped 2026-07-22, revisit), 
 4. Run session-start checks:
    - `gh issue list --state open --label phase:2` — hardening sprint (must close before 3A starts)
    - `gh issue list --state open --label phase:3` — Phase 3 feature tracks
-   - `gh pr list --state open` — anything awaiting review/merge (as of 2026-07-25: #186, #188, #189,
-     #205 — #181/#190 merged 2026-07-25)
+   - `gh pr list --state open` — anything awaiting review/merge (as of 2026-07-31: #280, #281,
+     #282, #283, #285, #286, #287, #288 — #279 merged 2026-07-31)
