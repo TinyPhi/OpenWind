@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { zValidator } from "../../lib/validator.js";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import { deleteFile, FileError } from "@platform/files";
 import { factory } from "./factory.js";
 
@@ -16,7 +16,9 @@ export const deleteFileHandler = factory.createHandlers(
     const { tenantId } = c.get("auth");
 
     try {
-      await deleteFile(db, tenantId, fileId);
+      await withTenantContext(tenantId, (tx) =>
+        deleteFile(tx, tenantId, fileId),
+      );
       return c.body(null, 204);
     } catch (err: unknown) {
       if (err instanceof FileError && err.code === "FILE_NOT_FOUND") {
