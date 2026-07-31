@@ -381,14 +381,28 @@ export async function getDownloadUrl(
   // scanStatus === "clean"
   const expiresAt = new Date(Date.now() + DOWNLOAD_URL_EXPIRY_SECONDS * 1000);
 
+  // Strip characters that can break or inject the Content-Disposition header:
+  // \r\n ends the header line and lets an attacker inject arbitrary headers;
+  // " closes the quoted filename value early; bidirectional-override Unicode
+  // chars (U+200E/F, U+202A–E) can reverse the displayed filename in browsers
+  // to make "malware.exe" appear as "malware.pdf". (#241)
+  const safeFilename = file.originalName
+    .replace(/[\r\n"]/g, "_")
+    .replace(/[‎‏‪-‮]/g, "");
+
+  // SVG files are active documents — browsers execute their JavaScript in the
+  // page origin. Force attachment even when the caller requests inline display
+  // to prevent a stored-XSS attack via a crafted SVG upload. (#240)
+  const isSvg =
+    file.mimeType === "image/svg+xml" || file.mimeType.includes("svg");
+  const dispositionType = inline && !isSvg ? "inline" : "attachment";
+
   const downloadUrl = await getSignedUrl(
     getS3ForSigning(),
     new GetObjectCommand({
       Bucket: env.S3_BUCKET,
       Key: file.storageKey,
-      ResponseContentDisposition: inline
-        ? `inline; filename="${file.originalName}"`
-        : `attachment; filename="${file.originalName}"`,
+      ResponseContentDisposition: `${dispositionType}; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
     }),
     { expiresIn: DOWNLOAD_URL_EXPIRY_SECONDS },
   );
