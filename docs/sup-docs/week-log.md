@@ -5,6 +5,115 @@
 
 ---
 
+## 2026-07-31 — #195 closed: post-auth tenant-scoped rate limiting
+
+**Session type:** Investigation + bug fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-195-tenant-rate-limit`
+**Issue:** #195
+**Spec:** `docs/specs/tenant-scoped-rate-limit-195.md`
+
+### Completed this session
+
+- Investigated the `loadEntityType()` defense-in-depth finding surfaced during #191's review
+  (missing explicit tenant filter, relying solely on RLS). Confirmed it's not currently
+  exploitable — RLS on `entity_types` since ADR-007 already blocks the cross-tenant case for every
+  real call path — but is a genuine violation of this repo's "two layers, always" rule. Filed as
+  **#220** rather than silently absorbed, so it doesn't rot unfiled.
+- **#195**: `apps/api`'s pre-auth rate-limit middleware ran before `requireAuth()`, so its
+  "prefer verified auth" branch was permanently dead code; its fallback decoded (never verified) a
+  bearer token's `org`/`sub` claim and bucketed on it, letting a client evade its limit entirely by
+  varying an unverified claim per request.
+  - Pre-auth stage simplified to key strictly on client IP — no token content read at all.
+  - New post-auth, tenant-scoped stage added inside `requireAuth()` (`@platform/auth`), both the
+    JWT and API-key paths, keyed on the verified `auth.tenantId` — unforgeable by construction.
+    100 req/min default (`RATE_LIMIT_TENANT_PER_MIN`, matches `security.md`'s documented default).
+  - Both stages share one sliding-window Redis implementation, moved to `@platform/redis`
+    (`packages/redis/src/rate-limit.ts`) rather than duplicated.
+  - **Correctness fix found via runtime testing, not assumed**: the original design assumed
+    "fails open on Redis error" the way the pre-auth stage's own code comment implied — but
+    verifying against this repo's actual Redis container (no host port mapping by design) showed
+    ioredis queues commands while disconnected rather than rejecting fast, so an unreachable Redis
+    would hang a request for many seconds instead of failing open. Fixed by wrapping the shared
+    `checkRateLimit` in a bounded 250ms timeout that always resolves (never throws), verified with
+    a real hung-pipeline test that measures elapsed time.
+- Prove-It confirmed throughout: new tests in `rate-limit.test.ts` (both `apps/api` and
+  `@platform/redis`) and `middleware.test.ts` fail against the pre-fix code (checked via
+  `git stash`), pass after.
+
+### Verification
+
+- pnpm typecheck: PASS (all 28 packages)
+- pnpm lint: PASS
+- pnpm test: 2 pre-existing failures (`quarantine-flow.test.ts`, `upload-flow.test.ts` — both
+  ioredis "Connection is closed" against a Redis this host can't reach), confirmed pre-existing via
+  `git stash` comparison against the base commit; unrelated files, not touched by this diff
+- pnpm test:isolation: PASS (26/26 files, 185/185 tests, including 2 extended with new cases)
+
+### Next
+
+- #191–#202 (second consulting-review batch, filed 2026-07-24) still mostly open/unassigned.
+- #218 (create_entity recursion-depth gap) and #220 (loadEntityType tenant-filter gap) both need
+  a human-approved plan-lock before pickup — both change an entity-engine package contract.
+
+### Open questions
+
+- None blocking. Flagged in the spec: the post-auth limit is a flat 100/min regardless of route —
+  route-class-aware post-auth limits are a possible follow-up if that proves too coarse in practice.
+
+---
+
+## 2026-07-30 — #191 closed: automation `assign`/`create_entity` actions wired up
+
+**Session type:** Bug fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-191-automation-assign-create-entity`
+**Issue:** #191
+
+### Completed this session
+
+- `packages/automation-engine/src/executor.ts`'s `runAction` switch had no case for `assign` or
+  `create_entity` — both were declared in the `ActionType` union (selectable in the no-code
+  automation builder, usable in module seed SQL) but silently no-opped. Added:
+  - `actions/assign.ts` — calls `updateEntity({ assignedTo })`, mirroring `set-field.ts`'s
+    instanceId-resolution and depth-threading pattern.
+  - `actions/create-entity.ts` — calls `createEntity` with a configured `entityTypeId`/`fields`.
+- Replaced the two `Record<string, unknown>` placeholder shapes in `ActionConfig` (types.ts) and
+  `ActionConfigSchema` (apps/api's automation-rules/schemas.ts) with real typed/Zod shapes now
+  that they're implemented.
+- Prove-It: added failing tests first (confirmed via `git stash` on the implementation files that
+  they fail on pre-fix code), then implemented, then confirmed green.
+- New isolation test (`automation-assign-create-entity.isolation.test.ts`) runs both actions
+  end-to-end through a real automation rule against Postgres.
+- **Filed #218 as a follow-up, not fixed here:** wiring up `create_entity` makes a previously
+  theoretical gap live — `buildEntityCreatedPayload` (entity-engine) has no `depth` parameter,
+  unlike `buildEntityAssignedPayload` (which #120/PR#139 fixed), so a self-triggering
+  `create_entity` rule recurses unbounded across the outbox hop instead of hitting `MAX_DEPTH`.
+  Fixing it changes `CreateEntityInput`'s shape — an entity-engine API change out of #191's scope.
+  Not blocking on it: `create_entity` ships inert in every existing module seed today.
+
+### Verification
+
+- pnpm typecheck: PASS (all 28 packages, after rebuilding several packages' stale `dist/` —
+  pre-existing staleness from the 58-commit pull earlier this session, not caused by this diff)
+- pnpm lint: PASS
+- pnpm test: 10 pre-existing failures in `modules.test.ts`/`upload-flow.test.ts`/
+  `view-configs.test.ts` (freshly-created local `platform_test` DB missing seed data, and Redis
+  unreachable from host per the port-mapping removal) — confirmed pre-existing via `git stash`
+  comparison against the base commit; unrelated files, not touched by this diff
+- pnpm test:isolation: PASS (27/27 files, 186/186 tests, including the 2 new ones)
+
+### Next
+
+- #191–#202 (second consulting-review batch, filed 2026-07-24) otherwise remain open and
+  unassigned — worth a triage session before they rot the way #191 itself sat for 6 days.
+- #218 (create_entity recursion-depth gap) needs a human-approved plan-lock before pickup, since
+  it changes an entity-engine package contract.
+
+### Open questions
+
+- None blocking.
+
+---
+
 ## 2026-07-31 — #220 fixed: `loadEntityType` explicit tenant filter
 
 **Session type:** Small security-hardening fix, branch `fix/PLAT-220-load-entity-type-tenant-filter`

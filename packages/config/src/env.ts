@@ -53,6 +53,11 @@ const EnvSchema = z
     DATABASE_POOL_MIN: z.coerce.number().int().min(1).default(2),
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).default(10),
     REDIS_URL: z.string().url(),
+    // Post-auth, tenant-scoped rate limit (#195) — requireAuth() (@platform/auth)
+    // enforces this per verified auth.tenantId, independent of the pre-auth
+    // IP-based flood guard in apps/api's rate-limit middleware. Default matches
+    // security.md's documented "100 req/min per tenant for standard endpoints".
+    RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(100),
     ZITADEL_ISSUER: z.string().url(),
     // Override the JWKS fetch URL when running inside Docker (issuer claim still
     // matches localhost:8080 in the JWT, but we fetch keys via container hostname).

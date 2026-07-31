@@ -159,4 +159,32 @@ describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () 
     );
     expect(row?.lastUsedAt).not.toBeNull();
   });
+
+  // #195: requireAuth() now runs a post-auth, tenant-scoped rate-limit check
+  // (packages/redis's checkRateLimit, keyed on the verified auth.tenantId)
+  // before calling next(). It fails open on a Redis error, so this doesn't
+  // assert on real bucketing here — this repo's dev/CI Redis container has no
+  // host port mapping by design (docker-compose.yml), so a host-run isolation
+  // suite can't reach it at all. The actual sliding-window bucketing logic is
+  // unit-tested with a mocked Redis pipeline in packages/redis/src/
+  // rate-limit.test.ts and packages/auth/src/middleware.test.ts. What IS
+  // verified here, against real Postgres, is the thing an isolation suite
+  // exists to catch: the new stage must never cross-contaminate tenants —
+  // each tenant's request still authenticates to its own tenantId end-to-end.
+  it("tenant A and tenant B each authenticate to their own tenantId through the added rate-limit stage", async () => {
+    const [resA, resB] = await Promise.all([
+      makeApp().request("/whoami", {
+        headers: { Authorization: `Bearer ${RAW_KEY_A}` },
+      }),
+      makeApp().request("/whoami", {
+        headers: { Authorization: `Bearer ${RAW_KEY_B}` },
+      }),
+    ]);
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    const bodyA = (await resA.json()) as { auth: AuthContext };
+    const bodyB = (await resB.json()) as { auth: AuthContext };
+    expect(bodyA.auth.tenantId).toBe(TENANT_A);
+    expect(bodyB.auth.tenantId).toBe(TENANT_B);
+  });
 });
