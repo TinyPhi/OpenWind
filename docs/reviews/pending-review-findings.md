@@ -47,7 +47,7 @@ filed as GitHub issues; they're tracked here and via `CLAUDE.md`'s Phase 3 table
   in git history for detail if picked up — not re-summarized here)
 - MT-02/WE-05 triage items (see git history for the original review for detail)
 - ADRs still needed for: plugin system (3B), AI layer (3C), observability (3D), **rate-limiting
-  strategy** (blocks a principled fix for [#195](../../issues/195)), notification SLA policy
+  strategy**, notification SLA policy
 
 ---
 
