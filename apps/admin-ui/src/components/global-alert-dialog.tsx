@@ -89,10 +89,13 @@ export function GlobalAlertDialog(): React.ReactElement | null {
         <AlertDialogTitle>{current.title}</AlertDialogTitle>
         <AlertDialogDescription>{current.message}</AlertDialogDescription>
         <AlertDialogFooter>
+          {/* No onClick here: Cancel already triggers onOpenChange(false)
+              via Radix, which calls dismiss(...) above - an explicit
+              handler here would double-fire it (dismiss is idempotent-safe
+              since resolve() and the queue filter are both no-ops on a
+              second call, but there's no reason to rely on that). */}
           {current.kind === "confirm" && (
-            <AlertDialogCancel onClick={() => dismiss(current.id, false)}>
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
           )}
           <AlertDialogAction onClick={() => dismiss(current.id, true)}>
             {current.kind === "confirm" ? "Confirm" : "OK"}
