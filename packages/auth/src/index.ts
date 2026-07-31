@@ -20,6 +20,8 @@ export { introspectToken } from "./introspection.js";
 export {
   listProjectRoles,
   listOrgUsers,
+  listUserIdsWithRole,
+  listUserRolesByUserId,
   getUserById,
   invalidateUserCache,
 } from "./zitadel-management.js";
