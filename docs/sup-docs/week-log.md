@@ -35,6 +35,35 @@
 
 ---
 
+## 2026-07-31 — Security Group C: file route hardening (#224, #235, #239, #240, #241)
+
+**Session type:** Security fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-group-c`
+**Issues:** #224, #235, #239, #240, #241
+
+### Completed this session
+
+- **#224 / #239** (`download.ts`, `status.ts`): Unbound files (entityId = null) skipped all ACL
+  checks — any authenticated tenant member who knew a fileId could obtain a presigned download URL
+  for another user's unattached file. Added uploader-ownership check (`uploadedBy === userId`) for
+  files not yet bound to an entity; admin/agent roles bypass as expected.
+- **#235** (`delete.ts`): `DELETE /files/:id` called `deleteFile(db, ...)` with the raw module-level
+  `db` handle, bypassing `withTenantContext`. RLS second layer (ADR-001) was absent on the only
+  mutating file route. Wrapped in `withTenantContext`.
+- **#240** (`packages/files/src/index.ts` — `getDownloadUrl`): SVG files served with
+  `Content-Disposition: inline` are executed as JavaScript in the browser's page origin — stored-XSS
+  via crafted SVG upload. Force attachment regardless of the caller's inline flag when
+  `mimeType === 'image/svg+xml'`.
+- **#241** (`packages/files/src/index.ts` — `getDownloadUrl`): Raw `originalName` embedded in
+  `Content-Disposition` allowed header injection (`\r\n`), early value termination (`"`), and
+  Unicode bidi-override spoofing. Sanitized the ASCII fallback and added RFC 5987 `filename*`
+  encoding for Unicode filenames.
+
+**Tests:** 18 new tests across `files.test.ts`, `status.test.ts`, `packages/files/src/index.test.ts`.
+332/332 unit tests passing. Typecheck + lint clean.
+
+---
+
 ## 2026-07-31 — #195 closed: post-auth tenant-scoped rate limiting
 
 **Session type:** Investigation + bug fix (Plan → Code → Review → Docs → Ship)

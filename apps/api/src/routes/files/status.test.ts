@@ -66,9 +66,9 @@ describe("GET /files/:id/status", () => {
     selectCallIndex = 0;
   });
 
-  it("returns 200 with scan status for a file not bound to any entity", async () => {
+  it("allows the uploader to check status of their unbound file (#224)", async () => {
     mockSelectResults.push([
-      { id: FILE_ID, scanStatus: "clean", entityId: null },
+      { id: FILE_ID, scanStatus: "clean", entityId: null, uploadedBy: "u-bbb" },
     ]);
 
     const res = await makeApp().request(`/files/${FILE_ID}/status`);
@@ -76,6 +76,22 @@ describe("GET /files/:id/status", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data.scanStatus).toBe("clean");
+    expect(mockHasEntityAccess).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for a non-uploader checking status of an unbound file (#224)", async () => {
+    mockSelectResults.push([
+      {
+        id: FILE_ID,
+        scanStatus: "clean",
+        entityId: null,
+        uploadedBy: "other-user",
+      },
+    ]);
+
+    const res = await makeApp().request(`/files/${FILE_ID}/status`);
+
+    expect(res.status).toBe(404);
     expect(mockHasEntityAccess).not.toHaveBeenCalled();
   });
 

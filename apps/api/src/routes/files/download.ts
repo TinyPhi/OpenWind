@@ -24,7 +24,7 @@ export const getDownloadUrlHandler = factory.createHandlers(
       // the download endpoint directly instead of going through the entity.
       const [file] = await withTenantContext(tenantId, (tx) =>
         tx
-          .select({ entityId: files.entityId })
+          .select({ entityId: files.entityId, uploadedBy: files.uploadedBy })
           .from(files)
           .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
           .limit(1),
@@ -58,6 +58,17 @@ export const getDownloadUrlHandler = factory.createHandlers(
         );
 
         if (!instance || !allowed) {
+          return c.json(
+            { error: "FILE_NOT_FOUND", message: "File not found" },
+            404,
+          );
+        }
+      } else if (file) {
+        // Unbound file: only the uploader or privileged roles may access it.
+        // Without this check any tenant member who knows the fileId can obtain
+        // a presigned URL for another user's unattached file. (#224 / #239)
+        const isPrivileged = roles.includes("admin") || roles.includes("agent");
+        if (!isPrivileged && file.uploadedBy !== userId) {
           return c.json(
             { error: "FILE_NOT_FOUND", message: "File not found" },
             404,
