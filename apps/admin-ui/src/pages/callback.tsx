@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { userManager } from "../authProvider.js";
 
 export function AuthCallback(): React.ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const called = useRef(false);
@@ -48,14 +50,14 @@ export function AuthCallback(): React.ReactElement {
             />
           </svg>
         </div>
-        <h2 style={{ marginBottom: "10px" }}>Authentication Error</h2>
+        <h2 style={{ marginBottom: "10px" }}>{t("authCallback.errorTitle")}</h2>
         <p className="loader-text">{error}</p>
         <button
           className="login-btn"
           onClick={() => navigate("/login")}
           style={{ marginTop: "24px", width: "auto" }}
         >
-          Back to Login
+          {t("authCallback.backToLogin")}
         </button>
       </div>
     );
@@ -64,9 +66,7 @@ export function AuthCallback(): React.ReactElement {
   return (
     <div className="loader-container">
       <div className="spinner"></div>
-      <p className="loader-text">
-        Verifying credentials and synchronizing session...
-      </p>
+      <p className="loader-text">{t("authCallback.verifying")}</p>
     </div>
   );
 }
