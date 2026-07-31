@@ -73,6 +73,7 @@ beforeAll(async () => {
       .returning(),
   );
   // Key C: stored with both SHA-256 and argon2id hash (migration 0047 path)
+  const keyHashArgon2C = await hashApiKeyArgon2(RAW_KEY_C);
   const [rowC] = await withTenantContext(TENANT_A, (tx) =>
     tx
       .insert(apiKeys)
@@ -80,7 +81,7 @@ beforeAll(async () => {
         tenantId: TENANT_A,
         name: "isolation-test-argon2",
         keyHash: hashApiKey(RAW_KEY_C),
-        keyHashArgon2: await hashApiKeyArgon2(RAW_KEY_C),
+        keyHashArgon2: keyHashArgon2C,
         scopes: ["agent"],
       })
       .returning(),
