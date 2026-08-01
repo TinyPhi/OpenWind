@@ -6,6 +6,7 @@ import {
   requireRole,
   requireIntrospection,
   hashApiKey,
+  hashApiKeyArgon2,
 } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
 import { factory } from "./factory.js";
@@ -53,6 +54,7 @@ export const createApiKeyHandler = factory.createHandlers(
     // is stored.  The caller is responsible for storing it securely.
     const rawKey = `sk_live_${randomBytes(32).toString("base64url")}`;
     const keyHash = hashApiKey(rawKey);
+    const keyHashArgon2 = await hashApiKeyArgon2(rawKey);
 
     const [created] = await withTenantContext(tenantId, (tx) =>
       tx
@@ -61,6 +63,7 @@ export const createApiKeyHandler = factory.createHandlers(
           tenantId,
           name,
           keyHash,
+          keyHashArgon2,
           scopes,
         })
         .returning({

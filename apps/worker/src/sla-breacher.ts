@@ -19,9 +19,9 @@
  */
 
 import { Worker } from "bullmq";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
-  db,
+  withTenantContext,
   outboxEvents,
   entityInstances,
   deadLetterEvents,
@@ -63,7 +63,9 @@ export const slaBreacher = new Worker<SlaJobData>(
 
     // G1: wrap the guard SELECT and the outbox INSERT in a single transaction
     // so no concurrent executeTransition can slip through the TOCTOU window.
-    await db.transaction(async (tx) => {
+    // withTenantContext issues SET LOCAL ROLE app_user + sets app.tenant_id
+    // so RLS second layer is enforced on outbox_events and entityInstances.
+    await withTenantContext(tenantId, async (tx) => {
       // Guard: is the instance still in the SLA-tracked state?
       const [instance] = await tx
         .select({
@@ -152,36 +154,28 @@ slaBreacher.on("failed", (job, err) => {
       slaHours,
       outboxEventId,
     } = job.data;
-    // Wrap in a transaction and set app.tenant_id before the INSERT.
-    // dead_letter_events RLS derives its WITH CHECK from the USING clause:
-    // tenant_id = current_setting('app.tenant_id', true)::uuid — without
-    // the GUC the expression evaluates to NULL and the INSERT is silently
-    // blocked (the outer .catch() logs but the DLQ row is never written).
-    void db
-      .transaction(async (tx) => {
-        await tx.execute(
-          sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
-        );
-        await tx.insert(deadLetterEvents).values({
-          tenantId,
-          originalEventId: outboxEventId,
-          eventType: "workflow.sla_breached",
-          payload: {
-            instanceId,
-            workflowId,
-            stateName,
-            slaHours,
-          } as Record<string, unknown>,
-          ruleId: null,
-          error: err.message,
-          attemptCount: job.attemptsMade,
-        });
-      })
-      .catch((dlqErr: unknown) => {
-        logger.error(
-          { jobId: job.id, dlqErr },
-          "SLA breach: failed to write dead-letter event",
-        );
+    // withTenantContext issues SET LOCAL ROLE app_user + app.tenant_id GUC
+    // so dead_letter_events RLS WITH CHECK passes without manual set_config.
+    void withTenantContext(tenantId, async (tx) => {
+      await tx.insert(deadLetterEvents).values({
+        tenantId,
+        originalEventId: outboxEventId,
+        eventType: "workflow.sla_breached",
+        payload: {
+          instanceId,
+          workflowId,
+          stateName,
+          slaHours,
+        } as Record<string, unknown>,
+        ruleId: null,
+        error: err.message,
+        attemptCount: job.attemptsMade,
       });
+    }).catch((dlqErr: unknown) => {
+      logger.error(
+        { jobId: job.id, dlqErr },
+        "SLA breach: failed to write dead-letter event",
+      );
+    });
   }
 });

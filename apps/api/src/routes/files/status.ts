@@ -16,6 +16,7 @@ export const getFileScanStatusHandler = factory.createHandlers(
           id: files.id,
           scanStatus: files.scanStatus,
           entityId: files.entityId,
+          uploadedBy: files.uploadedBy,
         })
         .from(files)
         .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
@@ -26,10 +27,10 @@ export const getFileScanStatusHandler = factory.createHandlers(
       return c.json({ error: "NOT_FOUND", message: "File not found" }, 404);
     }
 
-    // Same entity ACL check download.ts applies — otherwise a user without
-    // record access could learn a file's existence/scan status by hitting
-    // this endpoint directly instead of going through the entity.
     if (file.entityId) {
+      // Same entity ACL check download.ts applies — otherwise a user without
+      // record access could learn a file's existence/scan status by hitting
+      // this endpoint directly instead of going through the entity.
       const [instance, allowed] = await withTenantContext(
         tenantId,
         async (tx) => {
@@ -57,6 +58,14 @@ export const getFileScanStatusHandler = factory.createHandlers(
       );
 
       if (!instance || !allowed) {
+        return c.json({ error: "NOT_FOUND", message: "File not found" }, 404);
+      }
+    } else {
+      // Unbound file: only the uploader or privileged roles may check its
+      // status. Without this check any tenant member who knows the fileId
+      // can learn whether it exists and whether it passed AV scanning. (#224)
+      const isPrivileged = roles.includes("admin") || roles.includes("agent");
+      if (!isPrivileged && file.uploadedBy !== userId) {
         return c.json({ error: "NOT_FOUND", message: "File not found" }, 404);
       }
     }

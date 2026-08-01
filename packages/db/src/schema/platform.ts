@@ -66,6 +66,7 @@ export const apiKeys = pgTable(
     tenantId: uuid("tenant_id").notNull(),
     name: text("name").notNull(),
     keyHash: text("key_hash").notNull().unique(),
+    keyHashArgon2: text("key_hash_argon2"),
     scopes: text("scopes").array().default([]).notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
