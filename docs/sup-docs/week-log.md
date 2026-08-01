@@ -5,6 +5,69 @@
 
 ---
 
+## 2026-07-31 — #191–#202 batch triage: 5 PRs (backup/DR, e2e harness, field widgets, a11y modals wave 1, confirm/alert dialog)
+
+**Session type:** Backlog triage + fixes (Plan → Code → Review → Docs → Ship, one plan-lock/PR per issue)
+**Branches:** `fix/PLAT-201-confirm-alert-dialog`, `fix/PLAT-198-a11y-modals`,
+`chore/PLAT-192-backup-runbook`, `test/PLAT-194-e2e-harness-mvp`, `feat/PLAT-197-field-type-widgets`
+**Issues:** #201, #198, #192, #194, #197 (all part of the #191–#202 second consulting-review batch)
+
+### Completed this session
+
+- **#201** (PR #282): replaced native `confirm()`/`alert()` at 8 call sites with a shared
+  `GlobalAlertDialog` (window `CustomEvent` controller, mirrors the existing
+  `global-error-banner.tsx` pattern) built on `@platform/ui`'s `AlertDialog` primitive. Found and
+  fixed a double-fire bug along the way: `AlertDialogCancel` auto-triggers `onOpenChange(false)`,
+  so an explicit `onClick` alongside it called `onCancel` twice.
+- **#198** (PR #285, wave 1 of N): consolidated the first 2 duplicated modal patterns —
+  `ConfirmDeleteDialog` (replaces 5 hand-rolled copies) and `TransitionModal` (replaces 2
+  byte-for-byte-identical ~161-line components). Filed **#284** documenting the remaining ~27
+  single-instance modals as a follow-up rather than scope-creeping this PR.
+- **#192** (PR #286): finished the backup runbook — verified end-to-end against the real stack
+  (uploaded a test file to MinIO, ran the backup, confirmed checksum match; restored the Postgres
+  dump into a scratch DB, confirmed table/row counts matched source exactly). Documented scope
+  (Postgres + MinIO backed up; Redis/Mongo deliberately not) in `docs/local-setup.md`.
+- **#194** (PR #287): stood up `tests/e2e/` with one real MVP flow (module install →
+  view-config seeding), and — in the process — discovered every existing "integration" test in
+  this repo mocks `@platform/auth` entirely, so no test had ever exercised the real
+  `requireAuth`/`requireRole` chain. This one uses a real `api_keys` DB row and real HTTP auth.
+  Also fixed a real (if narrow) gap while here: `apps/api/vitest.config.ts`'s module-alias map was
+  missing `@platform/redis`, the actual root cause of an unrelated CJS/ESM resolution failure.
+- **#197** (PR #288): consolidated the 4 duplicated `FieldInput` implementations into one shared
+  component; added real widgets for `user_ref` (reuses the existing `UserPicker`) and `entity_ref`
+  (new searchable picker, resolves `config.target_entity_type` via `useEntityTypes()`); `formula`/
+  `lookup` render read-only (confirmed both are computed server-side). `file`/`files` deferred as
+  **#289** — the upload API's required `moduleSlug` param doesn't fit a generic, page-agnostic
+  component.
+- **#149** and **#218** closed earlier in this session (PRs #269, #270); **#196** investigated —
+  2 of 4 sub-findings don't reproduce against current code, 1 fixed via PR #271.
+
+### Verification
+
+- pnpm typecheck: PASS (repo-wide, all 40 tasks)
+- pnpm lint: PASS (repo-wide, `--max-warnings=0`)
+- pnpm test: PASS — 589/596, 6 skipped; 2 pre-existing failures (`quarantine-flow.test.ts`,
+  `upload-flow.test.ts`, both Redis `ECONNREFUSED` — this repo's dev compose doesn't map Redis to
+  a host port — confirmed pre-existing, not introduced by this session's changes)
+- pnpm test:isolation: PASS (33/33 files, 217/217 tests)
+- `vite build`: clean production build for admin-ui after each UI change
+
+### Next
+
+- #199 (`packages/ui` hollow) and #200 (zero i18n) remain untouched — still open, unassigned.
+- #284 (remaining ~27 modals) and #289 (`file`/`files` widgets) filed as explicit follow-ups.
+- #196 left open pending a decision on the connection-pool-sizing sub-finding (the only one of the
+  4 not fully resolved or dismissed).
+- 5 PRs open awaiting human review: #282, #285, #286, #287, #288.
+
+### Open questions
+
+- None blocking. All 5 PRs document their scope decisions (deferred file/files, modal wave 1,
+  pool-sizing) directly in their PR bodies / filed follow-up issues rather than leaving them
+  implicit.
+
+---
+
 ## 2026-07-31 — security group B: four critical API access control fixes
 
 **Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
