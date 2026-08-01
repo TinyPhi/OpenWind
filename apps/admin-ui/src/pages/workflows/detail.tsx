@@ -26,6 +26,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
 // BrowserRouter. This shim intercepts history.pushState/replaceState to provide
@@ -197,101 +198,6 @@ const EMPTY_TRANSITION: AddTransitionForm = {
   allowedRoles: [],
   requiresComment: false,
 };
-
-function ConfirmDeleteModal({
-  message,
-  onConfirm,
-  onCancel,
-  busy,
-}: {
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  busy: boolean;
-}): React.ReactElement {
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,.55)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1100,
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !busy) onCancel();
-      }}
-    >
-      <div
-        style={{
-          background: "var(--bg-primary)",
-          border: "1px solid var(--border-color)",
-          borderRadius: "14px",
-          padding: "28px 32px",
-          width: "100%",
-          maxWidth: "420px",
-          boxShadow: "var(--shadow-lg)",
-        }}
-      >
-        <div
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "10px",
-            background: "hsla(0,84%,60%,.12)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "20px",
-            marginBottom: "16px",
-          }}
-        >
-          🗑
-        </div>
-        <p
-          style={{
-            margin: "0 0 6px",
-            fontSize: "15px",
-            color: "var(--text-primary)",
-            fontWeight: 600,
-          }}
-        >
-          {message}
-        </p>
-        <p
-          style={{
-            margin: "0 0 24px",
-            fontSize: "13px",
-            color: "var(--danger)",
-          }}
-        >
-          This action cannot be undone.
-        </p>
-        <div
-          style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
-        >
-          <button
-            className="btn btn-secondary"
-            onClick={onCancel}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            className="btn btn-danger-sm"
-            onClick={onConfirm}
-            disabled={busy}
-            style={{ minWidth: "90px" }}
-          >
-            {busy ? "Deleting…" : "Delete"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function StateDot({ color }: { color: string | null }): React.ReactElement {
   return (
@@ -4237,126 +4143,35 @@ export function WorkflowDetail(): React.ReactElement {
       )}
 
       {/* Shared confirm-delete */}
-      {confirmDelete && (
-        <ConfirmDeleteModal
-          message={confirmDelete.message}
-          onConfirm={confirmDelete.onConfirm}
-          onCancel={() => setConfirmDelete(null)}
-          busy={
-            deletingFieldId !== null ||
-            deletingStateId !== null ||
-            deletingTransId !== null
-          }
-        />
-      )}
+      <ConfirmDeleteDialog
+        open={confirmDelete !== null}
+        message={confirmDelete?.message ?? ""}
+        onConfirm={() => confirmDelete?.onConfirm()}
+        onCancel={() => setConfirmDelete(null)}
+        busy={
+          deletingFieldId !== null ||
+          deletingStateId !== null ||
+          deletingTransId !== null
+        }
+      />
 
       {/* Delete workflow */}
-      {showDeleteWorkflow && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !deletingWorkflow)
-              setShowDeleteWorkflow(false);
-          }}
-        >
-          <div
-            style={{
-              background: "var(--bg-primary)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "16px",
-              padding: "28px 32px",
-              width: "100%",
-              maxWidth: "440px",
-              boxShadow: "var(--shadow-lg)",
-            }}
-          >
-            <div
-              style={{
-                width: "48px",
-                height: "48px",
-                borderRadius: "12px",
-                background: "hsla(0,84%,60%,.12)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "22px",
-                marginBottom: "16px",
-              }}
-            >
-              🗑
-            </div>
-            <h3
-              style={{ margin: "0 0 8px", fontSize: "18px", fontWeight: 700 }}
-            >
-              Delete workflow?
-            </h3>
-            <p
-              style={{
-                margin: "0 0 6px",
-                fontSize: "14px",
-                color: "var(--text-secondary)",
-              }}
-            >
-              You are about to permanently delete{" "}
-              <strong>"{workflow.name}"</strong>. This will also remove all its
-              steps and actions.
-            </p>
-            <p
-              style={{
-                margin: "0 0 20px",
-                fontSize: "13px",
-                color: "var(--danger)",
-              }}
-            >
-              This action cannot be undone.
-            </p>
-
-            {deleteWorkflowError && (
-              <p
-                style={{
-                  margin: "0 0 16px",
-                  fontSize: "13px",
-                  color: "var(--danger)",
-                }}
-              >
-                ⚠ {deleteWorkflowError}
-              </p>
-            )}
-
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                justifyContent: "flex-end",
-              }}
-            >
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowDeleteWorkflow(false)}
-                disabled={deletingWorkflow}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-danger-sm"
-                onClick={() => void handleDeleteWorkflow()}
-                disabled={deletingWorkflow}
-                style={{ minWidth: "120px" }}
-              >
-                {deletingWorkflow ? "Deleting…" : "Delete Workflow"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDeleteDialog
+        open={showDeleteWorkflow}
+        title="Delete workflow?"
+        message={
+          <>
+            You are about to permanently delete{" "}
+            <strong>"{workflow.name}"</strong>. This will also remove all its
+            steps and actions.
+          </>
+        }
+        errorMessage={deleteWorkflowError}
+        confirmLabel="Delete Workflow"
+        busy={deletingWorkflow}
+        onConfirm={() => void handleDeleteWorkflow()}
+        onCancel={() => setShowDeleteWorkflow(false)}
+      />
 
       {/* Nav-away guard — unsaved canvas changes */}
       {blocker.state === "blocked" && (

@@ -7,7 +7,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth } from "@platform/auth";
-import { db } from "@platform/db";
+import { withTenantContext } from "@platform/db";
 import {
   getUserPreferences,
   updateUserPreferences,
@@ -36,7 +36,9 @@ export const getNotificationPrefsHandler = factory.createHandlers(
   requireAuth(),
   async (c) => {
     const { tenantId, userId } = c.get("auth");
-    const prefs = await getUserPreferences(db, tenantId, userId);
+    const prefs = await withTenantContext(tenantId, (tx) =>
+      getUserPreferences(tx, tenantId, userId),
+    );
     return c.json({ data: prefs });
   },
 );
@@ -49,11 +51,13 @@ export const updateNotificationPrefsHandler = factory.createHandlers(
     const input = c.req.valid("json");
     // Zod optional() adds `| undefined` to each property, but the function
     // signature uses exactOptionalPropertyTypes — cast through unknown.
-    const updated = await updateUserPreferences(
-      db,
-      tenantId,
-      userId,
-      input as Partial<NotificationPreferences>,
+    const updated = await withTenantContext(tenantId, (tx) =>
+      updateUserPreferences(
+        tx,
+        tenantId,
+        userId,
+        input as Partial<NotificationPreferences>,
+      ),
     );
     return c.json({ data: updated });
   },

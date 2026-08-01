@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
 import {
@@ -357,158 +358,6 @@ type WorkflowDef = {
   states?: Array<{ id: string; name: string; label: string }>;
 };
 
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  field: EntityField;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}): React.ReactElement {
-  const strVal = value === null || value === undefined ? "" : String(value);
-  switch (field.fieldType) {
-    case "boolean":
-      return (
-        <label className="portal-checkbox">
-          <input
-            type="checkbox"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          <span>{field.label}</span>
-        </label>
-      );
-    case "number":
-      return (
-        <input
-          className="portal-input"
-          type="number"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) =>
-            onChange(e.target.value === "" ? null : Number(e.target.value))
-          }
-        />
-      );
-    case "currency": {
-      const currVal =
-        value !== null && typeof value === "object"
-          ? (value as { amount?: unknown; currency?: unknown })
-          : { amount: "", currency: "" };
-      const amountStr =
-        currVal.amount === null || currVal.amount === undefined
-          ? ""
-          : String(currVal.amount);
-      const currencyStr =
-        currVal.currency === null || currVal.currency === undefined
-          ? ""
-          : String(currVal.currency);
-      const allowed = field.config.allowedCurrencies ?? [];
-      const currencies =
-        allowed.length > 0 ? allowed : ["USD", "EUR", "GBP", "INR", "AED"];
-      return (
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            className="portal-input"
-            type="number"
-            placeholder="0.00"
-            value={amountStr}
-            required={field.isRequired}
-            style={{ flex: 1 }}
-            onChange={(e) =>
-              onChange({
-                amount: e.target.value === "" ? null : Number(e.target.value),
-                currency: currencyStr || currencies[0],
-              })
-            }
-          />
-          <select
-            className="portal-input"
-            value={currencyStr || currencies[0]}
-            style={{ width: "90px" }}
-            onChange={(e) =>
-              onChange({
-                amount: amountStr === "" ? null : Number(amountStr),
-                currency: e.target.value,
-              })
-            }
-          >
-            {currencies.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
-    }
-    case "date":
-      return (
-        <input
-          className="portal-input"
-          type="date"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "datetime":
-      return (
-        <input
-          className="portal-input"
-          type="datetime-local"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "enum":
-    case "multi_enum": {
-      const opts = (field.config.options ?? []).map((o) =>
-        typeof o === "string"
-          ? { label: o, value: o }
-          : { label: o.label, value: o.value },
-      );
-      return (
-        <select
-          className="portal-input"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        >
-          <option value="">Select…</option>
-          {opts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    case "longtext":
-      return (
-        <textarea
-          className="portal-input portal-textarea"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-          rows={4}
-        />
-      );
-    default:
-      return (
-        <input
-          className="portal-input"
-          type="text"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-  }
-}
-
 export function CustomerRecordCreate(): React.ReactElement {
   const { typeSlug } = useParams<{ typeSlug: string }>();
   const navigate = useNavigate();
@@ -716,6 +565,8 @@ export function CustomerRecordCreate(): React.ReactElement {
             <FieldInput
               field={field}
               value={fieldValues[field.name]}
+              classPrefix="portal"
+              required={field.isRequired}
               onChange={(v) =>
                 setFieldValues((p) => ({ ...p, [field.name]: v }))
               }

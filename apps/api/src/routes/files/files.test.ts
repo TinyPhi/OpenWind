@@ -31,7 +31,10 @@ vi.mock("@platform/files", () => ({
 // row found, so the route falls through to getDownloadUrl unchanged --
 // matches these tests' existing expectations. Tests exercising the new
 // access-control behavior override this per-test.
-const mockFilesSelectResult: { entityId: string | null }[] = [];
+const mockFilesSelectResult: {
+  entityId: string | null;
+  uploadedBy?: string;
+}[] = [];
 const mockEntitySelectResult: Record<string, unknown>[] = [];
 
 vi.mock("@platform/db", () => ({
@@ -319,7 +322,10 @@ describe("GET /files/:id", () => {
       userId: "user-outsider",
       roles: ["user"],
     };
-    mockFilesSelectResult.push({ entityId: "entity-1" });
+    mockFilesSelectResult.push({
+      entityId: "entity-1",
+      uploadedBy: "user-owner",
+    });
     mockEntitySelectResult.push({
       createdBy: "user-owner",
       assignedTo: "user-other",
@@ -335,7 +341,10 @@ describe("GET /files/:id", () => {
 
   it("returns 200 for a non-privileged user who owns the file's bound entity", async () => {
     mockAuth = { tenantId: "tenant-1", userId: "user-owner", roles: ["user"] };
-    mockFilesSelectResult.push({ entityId: "entity-1" });
+    mockFilesSelectResult.push({
+      entityId: "entity-1",
+      uploadedBy: "user-owner",
+    });
     mockEntitySelectResult.push({
       createdBy: "user-owner",
       assignedTo: null,
@@ -354,7 +363,10 @@ describe("GET /files/:id", () => {
 
   it("allows a privileged (admin/agent) caller regardless of entity access", async () => {
     mockAuth = { tenantId: "tenant-1", userId: "user-admin", roles: ["admin"] };
-    mockFilesSelectResult.push({ entityId: "entity-1" });
+    mockFilesSelectResult.push({
+      entityId: "entity-1",
+      uploadedBy: "user-owner",
+    });
     mockEntitySelectResult.push({
       createdBy: "user-owner",
       assignedTo: "user-other",
@@ -371,9 +383,38 @@ describe("GET /files/:id", () => {
     expect(res.status).toBe(200);
   });
 
-  it("skips the entity access check for a file not bound to any entity", async () => {
-    mockAuth = { tenantId: "tenant-1", userId: "user-anyone", roles: ["user"] };
-    mockFilesSelectResult.push({ entityId: null });
+  it("allows the uploader to download their own unbound file (#224)", async () => {
+    mockAuth = { tenantId: "tenant-1", userId: "user-owner", roles: ["user"] };
+    mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
+    vi.mocked(getDownloadUrl).mockResolvedValue({
+      downloadUrl: "https://s3.example.com/get",
+      downloadUrlExpiresAt: new Date("2026-01-01T02:00:00Z"),
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 404 for a non-uploader accessing an unbound file (#224)", async () => {
+    mockAuth = {
+      tenantId: "tenant-1",
+      userId: "user-outsider",
+      roles: ["user"],
+    };
+    mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+
+    expect(res.status).toBe(404);
+    expect(getDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it("allows admin to download any unbound file (#224)", async () => {
+    mockAuth = { tenantId: "tenant-1", userId: "user-admin", roles: ["admin"] };
+    mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
     vi.mocked(getDownloadUrl).mockResolvedValue({
       downloadUrl: "https://s3.example.com/get",
       downloadUrlExpiresAt: new Date("2026-01-01T02:00:00Z"),

@@ -35,7 +35,10 @@ vi.mock("@platform/db", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
-  sql: vi.fn((..._args: unknown[]) => ({ op: "sql" })),
+  sql: vi.fn((strings: TemplateStringsArray, ..._values: unknown[]) => ({
+    op: "sql",
+    text: Array.isArray(strings) ? strings[0] : "",
+  })),
   inArray: vi.fn((col, vals) => ({ col, vals, op: "inArray" })),
 }));
 
@@ -192,7 +195,7 @@ describe("SLA scheduler tick", () => {
       );
     });
 
-    it("sets app.tenant_id before each dead_letter_events INSERT so RLS WITH CHECK passes (N2)", async () => {
+    it("issues SET LOCAL ROLE app_user and set_config before each dead_letter_events INSERT so RLS is enforced (#244)", async () => {
       const fireAt = new Date(
         Date.now() - STALE_SLA_THRESHOLD_MS - 3_600_000,
       ).toISOString();
@@ -200,13 +203,15 @@ describe("SLA scheduler tick", () => {
 
       await tick();
 
-      // The SELECT call is the first execute; set_config must also appear
-      const executeCalls = mockTxExecute.mock.calls;
-      const setConfigCall = executeCalls.find((call) => {
-        const arg = call[0] as { op?: string };
-        return arg?.op === "sql";
-      });
-      expect(setConfigCall).toBeDefined();
+      // The sql mock captures the first template string chunk in .text.
+      // Per-tenant dead-letter loop must issue both:
+      //   1. SET LOCAL ROLE app_user   (switches to non-superuser for RLS)
+      //   2. SELECT set_config(...)    (sets app.tenant_id GUC)
+      const sqlTexts = mockTxExecute.mock.calls.map(
+        (call) => (call[0] as { op?: string; text?: string })?.text ?? "",
+      );
+      expect(sqlTexts).toContain("SET LOCAL ROLE app_user");
+      expect(sqlTexts.some((t) => t.includes("set_config"))).toBe(true);
     });
 
     it("dead-letters events with a malformed (NaN) fireAt instead of enqueuing with NaN delay", async () => {
