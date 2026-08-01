@@ -1,6 +1,9 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-31 — #195 closed (rate limiter bucketed on an unverified JWT claim
+**Last updated:** 2026-08-01 — 5 security-hardening PRs merged 2026-07-31 (Groups A, B, C, E,
+and PR #282 for #201). Group G automation engine hardening in PR #293, open/awaiting review.
+Groups D and H not yet started; see security hardening table below for full current status.
+**Previously:** 2026-07-31 — #195 closed (rate limiter bucketed on an unverified JWT claim
 instead of the authenticated tenant, from the second consulting-review pass filed 2026-07-24 as
 #191–#202). Post-auth tenant-scoped rate limiting now lives in `requireAuth()` (`@platform/auth`);
 pre-auth stage simplified to IP-only keying. Also closed #191 this same investigation round
@@ -8,20 +11,9 @@ pre-auth stage simplified to IP-only keying. Also closed #191 this same investig
 recursion-depth gap) and #220 (`loadEntityType` missing explicit tenant filter, defense-in-depth
 gap — not currently exploitable, RLS already covers it). #191–#202 batch otherwise still open,
 mostly unassigned — worth a dedicated triage session.
-**Previously:** 2026-07-30 — #191 closed (`assign`/`create_entity` automation actions were
-declared but never dispatched — see `docs/reviews/pending-review-findings.md`'s "already has a
-tracked issue" table, from the second consulting-review pass filed 2026-07-24 as #191–#202, none
-of which had been picked up before this). Filed **#218** as a follow-up: `create_entity` can now
-be used in a self-triggering rule, and unlike `assign`/`transition`, its `entity.created` outbox
-payload doesn't carry automation recursion depth — an unbounded-recursion DoS risk, not yet fixed
-(entity-engine API change, out of #191's scope). #191–#202 otherwise remain open/unassigned —
-this tracker hasn't been reconciled against that full batch yet.
-**In progress:** 2026-07-31 — #220 fix (`loadEntityType` had no explicit tenant filter, relying
-on RLS alone — defense-in-depth gap, not exploitable today; found during #191's review).
-`packages/entity-engine/src/engine.ts`'s `loadEntityType` now mirrors `loadEntityFields`'s
-`or(isNull(tenantId), eq(tenantId, …))` filter across all 9 call sites. New isolation test proves
-the fix independent of RLS. Branch `fix/PLAT-220-load-entity-type-tenant-filter` (PR #222),
-awaiting review.
+**In progress:** Group G (PR #293) — automation engine hardening: fail-closed circuit breaker
+(#245), deterministic notify IDs (#228), OutboxDepthSchema strip (#258), unknown-action throw
+(#256), script action removed (#259), per-trigger-type triggerConfig validation (#257).
 **Previously:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
 wired end-to-end); #212 added global outbound kill switch, M2M auth, auto-logout, settings tabs;
 #214 removed stale `portal` from CI Docker matrix. Pre-Phase-3 hardening backlog fully closed.
@@ -143,6 +135,20 @@ severity ranking. As of 2026-07-24:
 | [#141](../../issues/141) | `pnpm lint` is a repo-wide no-op                                    | ✅ Closed — PR #166                                                          |
 | [#136](../../issues/136) | RLS for entity_types/workflows/workflow_states/workflow_transitions | ✅ Closed — ADR-007 accepted, merged via PR #181 (2026-07-25)                |
 | [#125](../../issues/125) | `notify` action — outbox-pattern delivery worker + in-app inbox     | ✅ Closed — PR #211 (2026-07-29)                                             |
+
+### Security hardening — July 2026 audit batch (filed 2026-07-31, issues #221–#267)
+
+| Group | PR   | Issues fixed                                     | Status                                                      |
+| ----- | ---- | ------------------------------------------------ | ----------------------------------------------------------- |
+| A     | #281 | #237, #262, #255, #238 (#232/#236 already fixed) | ✅ Merged 2026-07-31                                        |
+| B     | #279 | #225, #223, #229, #231                           | ✅ Merged 2026-07-31                                        |
+| C     | #280 | #224, #239, #235, #240, #241                     | ✅ Merged 2026-07-31                                        |
+| —     | #282 | #201 (native confirm/alert)                      | ✅ Merged 2026-07-31                                        |
+| E     | #283 | #243, #244, #254, #234                           | ✅ Merged 2026-07-31                                        |
+| G     | #293 | #245, #228, #258, #256, #259, #257               | 🔄 PR open, awaiting review                                 |
+| D     | —    | #233, #230, #264, #265, #226 + others            | 🔴 Not started — #227 needs human sign-off before #249/#227 |
+| H     | —    | #251, #252, #253, #260, #261, #263               | 🔴 Not started                                              |
+| skip  | —    | #246, #248, #250, #247                           | ⛔ Blocked on issue #2 (SSRF/PII) — human review required   |
 
 ### Found since the 2026-06-29 consulting review, now also closed or in review
 
