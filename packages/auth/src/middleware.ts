@@ -576,8 +576,14 @@ async function resolveApiKey(
   };
 }
 
+// SHA-256 here is a fast lookup/cache-key hash (indexed exact-match DB lookup
+// in resolve_api_key_by_hash; cache key in verifyArgon2), not the security
+// verification boundary — that's argon2id (hashApiKeyArgon2/verifyArgon2,
+// #237/PR #281) for keys created after migration 0047. Legacy (pre-0047) keys
+// still authenticate on SHA-256 match alone until rotated — a documented,
+// accepted interim state (see #291), not a missed control.
 export function hashApiKey(rawKey: string): string {
-  return createHash("sha256").update(rawKey).digest("hex");
+  return createHash("sha256").update(rawKey).digest("hex"); // lgtm[js/insufficient-password-hash] -- lookup/cache-key hash only, see #291
 }
 
 export function hashApiKeyArgon2(rawKey: string): Promise<string> {

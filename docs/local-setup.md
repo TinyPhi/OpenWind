@@ -421,6 +421,76 @@ Zitadel's own database lives in the separate `zitadel-db` container (in
 
 ---
 
+## Backup & Disaster Recovery
+
+**Status: mechanical building block only — RPO/RTO targets and a production cron
+schedule are not yet decided (tracked in [#192](../../issues/192)).** This is a
+deliberate scope boundary, not an oversight: those are policy decisions for a
+maintainer to make, not something to infer from the code.
+
+### What gets backed up
+
+| Service                         | Backed up? | Why                                                                                                                                                  |
+| ------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Postgres (`postgres` service)   | ✅ Yes     | Primary store — tenant data, entities, workflows, automations. Critical.                                                                             |
+| MinIO (`platform-files` bucket) | ✅ Yes     | Uploaded file attachments. Critical, and not reconstructable from Postgres.                                                                          |
+| Redis                           | ❌ No      | Queues (BullMQ), rate-limit counters, caches — all rebuildable/ephemeral.                                                                            |
+| Novu's Mongo                    | ❌ No      | Notification delivery state — rebuildable; in-flight notifications may be lost on restore, which is an acceptable tradeoff for a non-critical store. |
+
+### Running a backup
+
+```bash
+# Ad hoc, from repo root, with the stack up (docker compose up -d):
+./scripts/backup.sh
+
+# Output: ./backups/<UTC timestamp>/postgres-platform.dump
+#         ./backups/<UTC timestamp>/minio/platform-files/...
+
+# Cron-able — override the output directory, everything else has dev defaults:
+BACKUP_DIR=/var/backups/openwind ./scripts/backup.sh
+```
+
+The script uses `pg_dump --format=custom` (compressed, restorable with
+`pg_restore`) and `mc mirror` for MinIO. See the script's own header comment
+for the full list of overridable env vars (Postgres user/db, MinIO
+service/bucket/credentials).
+
+**Version-bump policy applies here too**: this script assumes the
+`pg_dump`/`mc` client versions bundled in this repo's pinned `postgres` and
+`minio-init` images (see the image-pinning policy above) — a version bump to
+either image is a deliberate, separate change, never silently bundled with
+an unrelated diff.
+
+### Restoring
+
+**Postgres** — restore into a scratch database first and verify before
+touching the real one:
+
+```bash
+docker compose exec postgres psql -U platform -d platform -c "CREATE DATABASE platform_restore_check;"
+docker compose exec -T postgres pg_restore -U platform -d platform_restore_check \
+  --no-owner --no-privileges < ./backups/<timestamp>/postgres-platform.dump
+```
+
+**MinIO** — mirror is bidirectional; reverse the source/dest of the same
+`mc mirror` command the backup script uses:
+
+```bash
+docker compose run --rm --no-deps \
+  -v "$(pwd)/backups/<timestamp>/minio:/backup" \
+  --entrypoint /bin/sh minio-init -c "
+    mc alias set local http://minio:9000 'platform_access_key' 'platform_secret_key_dev_only' >/dev/null &&
+    mc mirror --overwrite /backup/platform-files local/platform-files
+  "
+```
+
+**Verified 2026-07-31**: both directions tested against this repo's dev
+stack — a real file round-tripped through MinIO with a matching checksum,
+and a Postgres dump was restored into a scratch database with table and row
+counts (`outbox_events`, `entity_types`, etc.) matching the source exactly.
+
+---
+
 ## Troubleshooting
 
 ### Login fails: mixed content error in browser console
