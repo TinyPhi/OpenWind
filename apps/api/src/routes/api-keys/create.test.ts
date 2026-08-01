@@ -31,14 +31,20 @@ vi.mock("@platform/auth", () => ({
   requireIntrospection: () => async (_c: Context, next: Next) => {
     await next();
   },
-  hashApiKey: (key: string) => `hashed:${key}`,
+  hashApiKey: (key: string) => `sha256:${key}`,
+  hashApiKeyArgon2: async (key: string) => `argon2id:${key}`,
 }));
+
+const mockInsertValues = vi.fn();
 
 vi.mock("@platform/db", () => ({
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
     const tx = {
       insert: () => tx,
-      values: () => tx,
+      values: (...args: unknown[]) => {
+        mockInsertValues(...args);
+        return tx;
+      },
       returning: () =>
         Promise.resolve([
           {
@@ -164,5 +170,40 @@ describe("POST /api-keys — scope ceiling guard (#223)", () => {
       body: body({ scopes: ["superadmin"] }),
     });
     expect(res.status).toBe(201);
+  });
+});
+
+describe("POST /api-keys — argon2id hash storage (#237)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.roles = ["admin"];
+  });
+
+  it("returns 201 and stores both SHA-256 and argon2id hashes", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body(),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockInsertValues).toHaveBeenCalledOnce();
+
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.keyHash).toMatch(/^sha256:/);
+    expect(insertArg.keyHashArgon2).toMatch(/^argon2id:/);
+  });
+
+  it("raw key is returned in the response body exactly once", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body(),
+    });
+
+    const json = await res.json();
+    expect(json.data.key).toMatch(/^sk_live_/);
+    expect(json.data.keyHash).toBeUndefined();
+    expect(json.data.keyHashArgon2).toBeUndefined();
   });
 });

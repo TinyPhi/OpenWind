@@ -10,6 +10,7 @@ import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 import { humanizeWorkflowName } from "../../lib/format.js";
+import { TransitionModal } from "../../components/transition-modal.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -97,170 +98,6 @@ function relativeTime(iso: string): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
-}
-
-// ── Transition Modal ───────────────────────────────────────────────────────────
-
-function TransitionModal({
-  record,
-  transition,
-  toStateLabel,
-  allFields,
-  onConfirm,
-  onCancel,
-}: {
-  record: EntityInstance;
-  transition: Transition;
-  toStateLabel: string;
-  allFields: EntityField[];
-  onConfirm: (comment: string, fieldUpdates: Record<string, unknown>) => void;
-  onCancel: () => void;
-}): React.ReactElement {
-  const [comment, setComment] = useState("");
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {};
-    for (const name of transition.requiresFields) {
-      const existing = record.fields[name];
-      init[name] =
-        existing !== null && existing !== undefined ? String(existing) : "";
-    }
-    return init;
-  });
-
-  const requiredFields = transition.requiresFields
-    .map((name) => allFields.find((f) => f.name === name))
-    .filter(Boolean) as EntityField[];
-
-  const isValid =
-    (!transition.requiresComment || comment.trim().length > 0) &&
-    transition.requiresFields.every(
-      (name) => (fieldValues[name] ?? "").trim().length > 0,
-    );
-
-  function handleFieldChange(name: string, value: string): void {
-    setFieldValues((prev) => ({ ...prev, [name]: value }));
-  }
-
-  function handleSubmit(): void {
-    const updates: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(fieldValues)) {
-      if (v.trim()) updates[k] = v.trim();
-    }
-    onConfirm(comment, updates);
-  }
-
-  return (
-    <div className="tm-overlay" onClick={onCancel}>
-      <div className="tm-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="tm-header">
-          <div className="tm-header-left">
-            <span className="tm-icon">→</span>
-            <span className="tm-title">Move to {toStateLabel}</span>
-          </div>
-          <button className="tm-close" onClick={onCancel}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path
-                d="M1 1l12 12M13 1L1 13"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <div className="tm-body">
-          {requiredFields.map((f) => (
-            <div key={f.id} className="tm-field">
-              <label className="tm-label">
-                {f.label}
-                <span className="tm-required">*</span>
-              </label>
-              {f.fieldType === "enum" ? (
-                <select
-                  className="tm-input"
-                  value={fieldValues[f.name] ?? ""}
-                  onChange={(e) => handleFieldChange(f.name, e.target.value)}
-                >
-                  <option value="">Select…</option>
-                  {(f.config.options ?? []).map((opt) => {
-                    const val = typeof opt === "string" ? opt : opt.value;
-                    const lbl = typeof opt === "string" ? opt : opt.label;
-                    return (
-                      <option key={val} value={val}>
-                        {lbl}
-                      </option>
-                    );
-                  })}
-                </select>
-              ) : f.fieldType === "long_text" ? (
-                <textarea
-                  className="tm-input tm-textarea"
-                  value={fieldValues[f.name] ?? ""}
-                  onChange={(e) => handleFieldChange(f.name, e.target.value)}
-                  rows={3}
-                  placeholder={`Enter ${f.label.toLowerCase()}…`}
-                />
-              ) : f.fieldType === "number" || f.fieldType === "currency" ? (
-                <input
-                  type="number"
-                  className="tm-input"
-                  value={fieldValues[f.name] ?? ""}
-                  onChange={(e) => handleFieldChange(f.name, e.target.value)}
-                  placeholder={`Enter ${f.label.toLowerCase()}…`}
-                />
-              ) : f.fieldType === "date" || f.fieldType === "datetime" ? (
-                <input
-                  type={f.fieldType === "datetime" ? "datetime-local" : "date"}
-                  className="tm-input"
-                  value={fieldValues[f.name] ?? ""}
-                  onChange={(e) => handleFieldChange(f.name, e.target.value)}
-                />
-              ) : (
-                <input
-                  type="text"
-                  className="tm-input"
-                  value={fieldValues[f.name] ?? ""}
-                  onChange={(e) => handleFieldChange(f.name, e.target.value)}
-                  placeholder={`Enter ${f.label.toLowerCase()}…`}
-                />
-              )}
-            </div>
-          ))}
-
-          {transition.requiresComment && (
-            <div className="tm-field">
-              <label className="tm-label">
-                Comment
-                <span className="tm-required">*</span>
-              </label>
-              <textarea
-                className="tm-input tm-textarea"
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                rows={3}
-                placeholder="Add a comment for this transition…"
-                autoFocus
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="tm-footer">
-          <button className="tm-btn-cancel" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            className="tm-btn-confirm"
-            onClick={handleSubmit}
-            disabled={!isValid}
-          >
-            Confirm
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ── Child Ticket Card ──────────────────────────────────────────────────────────
@@ -1094,16 +931,20 @@ export function WorkflowRecords(): React.ReactElement {
   return (
     <div className="kb-page">
       {/* Transition modal */}
-      {pendingDrop && pendingRecord && (
-        <TransitionModal
-          record={pendingRecord}
-          transition={pendingDrop.transition}
-          toStateLabel={pendingToState?.label ?? pendingDrop.toStateName}
-          allFields={fields}
-          onConfirm={handleModalConfirm}
-          onCancel={() => setPendingDrop(null)}
-        />
-      )}
+      <TransitionModal
+        open={pendingDrop !== null && pendingRecord !== null}
+        record={pendingRecord ?? { fields: {} }}
+        transition={
+          pendingDrop?.transition ?? {
+            requiresComment: false,
+            requiresFields: [],
+          }
+        }
+        toStateLabel={pendingToState?.label ?? pendingDrop?.toStateName ?? ""}
+        allFields={fields}
+        onConfirm={handleModalConfirm}
+        onCancel={() => setPendingDrop(null)}
+      />
 
       {/* Top bar */}
       <div className="kb-topbar">

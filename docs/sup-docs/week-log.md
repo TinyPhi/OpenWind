@@ -35,6 +35,74 @@
 
 ---
 
+## 2026-07-31 — Security Group C: file route hardening (#224, #235, #239, #240, #241)
+
+**Session type:** Security fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-group-c`
+**Issues:** #224, #235, #239, #240, #241
+
+### Completed this session
+
+- **#224 / #239** (`download.ts`, `status.ts`): Unbound files (entityId = null) skipped all ACL
+  checks — any authenticated tenant member who knew a fileId could obtain a presigned download URL
+  for another user's unattached file. Added uploader-ownership check (`uploadedBy === userId`) for
+  files not yet bound to an entity; admin/agent roles bypass as expected.
+- **#235** (`delete.ts`): `DELETE /files/:id` called `deleteFile(db, ...)` with the raw module-level
+  `db` handle, bypassing `withTenantContext`. RLS second layer (ADR-001) was absent on the only
+  mutating file route. Wrapped in `withTenantContext`.
+- **#240** (`packages/files/src/index.ts` — `getDownloadUrl`): SVG files served with
+  `Content-Disposition: inline` are executed as JavaScript in the browser's page origin — stored-XSS
+  via crafted SVG upload. Force attachment regardless of the caller's inline flag when
+  `mimeType === 'image/svg+xml'`.
+- **#241** (`packages/files/src/index.ts` — `getDownloadUrl`): Raw `originalName` embedded in
+  `Content-Disposition` allowed header injection (`\r\n`), early value termination (`"`), and
+  Unicode bidi-override spoofing. Sanitized the ASCII fallback and added RFC 5987 `filename*`
+  encoding for Unicode filenames.
+
+**Tests:** 18 new tests across `files.test.ts`, `status.test.ts`, `packages/files/src/index.test.ts`.
+332/332 unit tests passing. Typecheck + lint clean.
+
+## 2026-07-31 — Group E: withTenantContext gaps in worker + routes (#243 #244 #254 #234)
+
+**Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-group-e`
+**Spec:** `docs/specs/group-e-withtenant-context-gaps.md`
+
+### Completed this session
+
+- **#243 sla-breacher bare db**: Both the main processor and the dead-letter failed handler
+  replaced `db.transaction()` + manual `set_config` with `withTenantContext(tenantId, tx => ...)`.
+  RLS second layer now enforced on `outbox_events`, `entity_instances`, and `dead_letter_events`.
+- **#244 sla-scheduler no role switch**: The dead-letter loop inside `tick()` already used
+  `set_config` but not `SET LOCAL ROLE app_user`. Added `await tx.execute(sql\`SET LOCAL ROLE app_user\`)`before each tenant's`set_config`call. Cannot use`withTenantContext`here because the outer`db.transaction()` with FOR UPDATE SKIP LOCKED must remain a single atomic transaction.
+- **#254 notification prefs bare db**: `apps/api/src/routes/preferences/notifications.ts` — both
+  GET and PATCH replaced bare `db` calls with `withTenantContext`.
+- **#234 entity-type GET/list routes bare db**: `apps/api/src/routes/entity-types/get.ts` and
+  `list.ts` both updated to route through `withTenantContext`.
+- Tests: `sla-breacher.test.ts` mock structure replaced (`db.transaction` → `withTenantContext`),
+  assertions updated. `sla-scheduler.test.ts` updated to assert two execute calls per tenant
+  (SET LOCAL ROLE + set_config). New test files: `preferences/notifications.test.ts`,
+  `entity-types/get.test.ts`, `entity-types/list.test.ts`.
+
+### Verification
+
+- pnpm typecheck: PASS (all packages)
+- pnpm lint: PASS
+- pnpm test: PASS — 97 worker unit tests, 337 API unit tests; pre-existing integration/isolation
+  failures (Docker not running) are unrelated to this diff
+- pnpm test:isolation: pending Docker stack
+
+### Next
+
+- Open PR for `fix/PLAT-security-group-e`
+- PRs #279 (Group B), #280 (Group C), #281 (Group A) still open awaiting CI + human review
+
+### Open questions
+
+- None
+
+---
+
 ## 2026-07-31 — #195 closed: post-auth tenant-scoped rate limiting
 
 **Session type:** Investigation + bug fix (Plan → Code → Review → Docs → Ship)
