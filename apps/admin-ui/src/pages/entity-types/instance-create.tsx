@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { FieldInput } from "../../components/field-input.js";
+import { Button } from "@platform/ui";
 
 type EntityField = {
   id: string;
@@ -281,9 +282,9 @@ export function EntityInstanceCreate(): React.ReactElement {
           >
             Cancel
           </Link>
-          <button type="submit" className="btn-primary" disabled={saving}>
+          <Button type="submit" variant="primary" disabled={saving}>
             {saving ? "Creating…" : `Create ${typeName}`}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

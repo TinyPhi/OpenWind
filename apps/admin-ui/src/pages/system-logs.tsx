@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Button } from "@platform/ui";
 import {
   listSystemLogs,
   type SystemLogEntry,
@@ -184,14 +185,14 @@ export function SystemLogsPage(): React.ReactElement {
               {logs.length} entr{logs.length !== 1 ? "ies" : "y"}
             </span>
             {cursor && (
-              <button
+              <Button
                 type="button"
-                className="btn btn-secondary"
+                variant="secondary"
                 onClick={loadMore}
                 disabled={loadingMore}
               >
                 {loadingMore ? "Loading…" : "Load more"}
-              </button>
+              </Button>
             )}
           </div>
         </div>

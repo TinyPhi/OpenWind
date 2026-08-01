@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Button, IconButton } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 
@@ -115,12 +116,12 @@ export function Automations(): React.ReactElement {
             Trigger actions automatically based on workflow events.
           </p>
         </div>
-        <button
-          className="btn btn-primary"
+        <Button
+          variant="primary"
           onClick={() => void navigate("/automations/new")}
         >
           + New Rule
-        </button>
+        </Button>
       </div>
 
       {error && (
@@ -143,13 +144,13 @@ export function Automations(): React.ReactElement {
           <p style={{ color: "var(--text-muted)", fontSize: "13px" }}>
             Create a rule to trigger actions when workflow events occur.
           </p>
-          <button
-            className="btn btn-primary"
+          <Button
+            variant="primary"
             style={{ marginTop: "16px" }}
             onClick={() => void navigate("/automations/new")}
           >
             + New Rule
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="table-scroll">
@@ -271,22 +272,22 @@ export function Automations(): React.ReactElement {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "8px" }}>
-                        <button
-                          className="icon-btn icon-btn-edit"
+                        <IconButton
+                          variant="edit"
                           title="Edit rule"
                           onClick={() =>
                             void navigate(`/automations/${rule.id}/edit`)
                           }
                         >
                           ✏
-                        </button>
-                        <button
-                          className="icon-btn icon-btn-delete"
+                        </IconButton>
+                        <IconButton
+                          variant="delete"
                           title="Delete rule"
                           onClick={() => setConfirmDelete(rule)}
                         >
                           🗑
-                        </button>
+                        </IconButton>
                       </div>
                     </td>
                   </tr>

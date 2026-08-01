@@ -1,4 +1,8 @@
 export { cn } from "./utils.js";
+export { Button } from "./button.js";
+export type { ButtonProps, ButtonVariant, ButtonSize } from "./button.js";
+export { IconButton } from "./icon-button.js";
+export type { IconButtonProps, IconButtonVariant } from "./icon-button.js";
 export {
   Dialog,
   DialogTrigger,

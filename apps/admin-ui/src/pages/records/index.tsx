@@ -6,6 +6,7 @@ import { useEntityTypes } from "../../entity-type-context.js";
 import type { EntityType } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { resolveCardIcon } from "../../lib/icon.js";
+import { Button } from "@platform/ui";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -267,13 +268,13 @@ export function AdminRecords(): React.ReactElement {
             <div className="empty-icon">📋</div>
             <h4>No workflows yet</h4>
             <p>Create a workflow to start tracking records.</p>
-            <button
-              className="btn-primary"
+            <Button
+              variant="primary"
               style={{ marginTop: "16px" }}
               onClick={() => navigate("/workflows/new")}
             >
               + New Workflow
-            </button>
+            </Button>
           </div>
         ) : filteredWorkflows.length === 0 ? (
           <div className="empty-state">
@@ -610,8 +611,8 @@ function WorkflowCardGrid({
                 </div>
               )}
 
-              <button
-                className="btn-primary"
+              <Button
+                variant="primary"
                 style={{
                   width: "100%",
                   justifyContent: "center",
@@ -624,7 +625,7 @@ function WorkflowCardGrid({
                 }}
               >
                 View Records →
-              </button>
+              </Button>
             </div>
           </div>
         );
