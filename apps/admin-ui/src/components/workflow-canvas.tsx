@@ -27,6 +27,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "@dagrejs/dagre";
+import { ConfirmDeleteDialog } from "./confirm-delete-dialog.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -677,42 +678,6 @@ function TransitionPanel({
           )}
         </div>
       </form>
-    </div>
-  );
-}
-
-function ConfirmDialog({
-  message,
-  onConfirm,
-  onCancel,
-}: {
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}): React.ReactElement {
-  return (
-    <div style={overlayBackdropStyle} onClick={onCancel}>
-      <div
-        style={{ ...overlayCardStyle, maxWidth: "360px" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ fontSize: "13px", marginBottom: "14px" }}>{message}</div>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button
-            onClick={onConfirm}
-            style={{
-              ...btnPrimaryStyle,
-              background: "#ef4444",
-              borderColor: "#ef4444",
-            }}
-          >
-            Delete
-          </button>
-          <button onClick={onCancel} style={btnSecondaryStyle}>
-            Cancel
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1415,13 +1380,13 @@ export function WorkflowCanvas({
         />
       )}
 
-      {confirmDelete && (
-        <ConfirmDialog
-          message={confirmDelete.message}
-          onConfirm={confirmDelete.onConfirm}
-          onCancel={() => setConfirmDelete(null)}
-        />
-      )}
+      <ConfirmDeleteDialog
+        open={confirmDelete !== null}
+        message={confirmDelete?.message ?? ""}
+        busy={false}
+        onConfirm={() => confirmDelete?.onConfirm()}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
