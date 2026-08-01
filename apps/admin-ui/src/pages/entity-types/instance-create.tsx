@@ -33,7 +33,10 @@ type EntityTypeMeta = {
 export function EntityInstanceCreate(): React.ReactElement {
   const { id: entityTypeId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getTypeById } = useEntityTypes();
+  const { getTypeById, modules } = useEntityTypes();
+  const moduleSlug =
+    modules.find((m) => m.id === getTypeById(entityTypeId ?? "")?.moduleId)
+      ?.slug ?? "platform";
 
   const [entityType, setEntityType] = useState<EntityTypeMeta | null>(null);
   const [fields, setFields] = useState<EntityField[]>([]);
@@ -255,6 +258,8 @@ export function EntityInstanceCreate(): React.ReactElement {
                 field={f}
                 value={fieldValues[f.name]}
                 required={f.isRequired}
+                moduleSlug={moduleSlug}
+                entityId={undefined}
                 onChange={(v) => setFieldValues((p) => ({ ...p, [f.name]: v }))}
               />
             </div>

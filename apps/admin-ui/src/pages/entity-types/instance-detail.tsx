@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { UserPicker } from "../../components/user-picker.js";
 import { FieldInput } from "../../components/field-input.js";
+import { useEntityTypes } from "../../entity-type-context.js";
 
 type EntityField = {
   id: string;
@@ -60,6 +61,10 @@ export function EntityInstanceDetail(): React.ReactElement {
     id: string;
     instanceId: string;
   }>();
+  const { getTypeById, modules } = useEntityTypes();
+  const moduleSlug =
+    modules.find((m) => m.id === getTypeById(entityTypeId ?? "")?.moduleId)
+      ?.slug ?? "platform";
 
   const [fields, setFields] = useState<EntityField[]>([]);
   const [record, setRecord] = useState<EntityInstance | null>(null);
@@ -466,6 +471,8 @@ export function EntityInstanceDetail(): React.ReactElement {
                   <FieldInput
                     field={f}
                     value={editValues[f.name]}
+                    moduleSlug={moduleSlug}
+                    entityId={instanceId}
                     onChange={(v) =>
                       setEditValues((p) => ({ ...p, [f.name]: v }))
                     }

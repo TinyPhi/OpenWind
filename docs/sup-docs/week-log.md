@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-08-02 — #289 file/files field-type widgets for FieldInput
+
+**Session type:** Frontend feature (Plan → Code → Review → Docs → Ship)
+**Branch:** `feat/PLAT-289-file-field-widgets`
+**Issues:** #289
+
+### Completed this session
+
+- Added `FileFieldPicker` (`apps/admin-ui/src/components/file-field-picker.tsx`) — a
+  self-fetching widget for `file`/`files` fields, mirroring the `UserRefPicker`/`EntityRefPicker`
+  pattern (#197/PR #288): `useFileUpload` calls hooks internally, so it must live in its own
+  component mounted from `FieldInput`'s switch, never inline in a switch case. Reuses the
+  existing upload flow end-to-end — `useFileUpload`, `AttachmentUploadZone`, `StagedFileChip`,
+  `FileChip`, `FilePreviewModal` — no new upload/scan logic.
+- Wired `case "file"`/`case "files"` into `field-input.tsx` (`multiple` derived from
+  `field.fieldType`), replacing the previous silent fallthrough to a plain, freely-editable text
+  input — the bug #289 exists to fix.
+- Threaded the new required `moduleSlug`/`entityId` props through all 4 `FieldInput` call sites.
+  `record-detail.tsx`/`record-create.tsx` already computed a `moduleSlug` for their own
+  attachments section — reused directly. `instance-detail.tsx`/`instance-create.tsx` had no such
+  concept before (entity types can have `moduleId: null` for core/module-less types) — added a
+  `modules.find(m => m.id === type?.moduleId)?.slug ?? "platform"` derivation via
+  `useEntityTypes()`.
+- Field-level "remove" only clears the field's own reference (`onChange`) — it never deletes the
+  underlying file record, since the same file may legitimately still appear in the entity's
+  general attachments list (confirmed `GET /entities/:id/attachments` is generic,
+  entity-engine-level, not module-specific).
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green.
+- `pnpm --filter @platform/admin-ui test` — 100/100 pass (10 new: 8 `file-field-picker.test.tsx`
+  - 2 new `field-input.test.tsx` cases for the `file`/`files` delegation).
+- No full-browser visual check possible in this sandbox (same environment gap as the #199/#284
+  sessions) — substituted with component tests + manual diff review.
+
+---
+
 ## 2026-08-01 — security group G: automation engine hardening + abmish review fixes
 
 **Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
