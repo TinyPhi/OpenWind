@@ -225,6 +225,51 @@ describe("PATCH /automation-rules/:id", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("fetches existing rule to validate triggerConfig when triggerType is omitted from PATCH", async () => {
+    mockGet.mockResolvedValue({
+      ...fakeRule,
+      triggerType: "field.changed",
+      triggerConfig: {
+        entityTypeId: "00000000-0000-0000-0000-000000000001",
+        field: "status",
+      },
+    });
+    mockUpdate.mockResolvedValue(fakeRule);
+
+    // PATCH only triggerConfig — must fetch existing rule's triggerType
+    // and validate the pair. Bad config for field.changed (missing required field) → 422.
+    const res = await makeApp().request(`/${RULE_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        triggerConfig: { entityTypeId: "not-a-uuid" }, // missing `field`, bad uuid
+      }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("fetches existing rule to validate triggerConfig when only triggerType changes", async () => {
+    mockGet.mockResolvedValue({
+      ...fakeRule,
+      triggerType: "entity.created",
+      triggerConfig: {},
+    });
+    mockUpdate.mockResolvedValue(fakeRule);
+
+    // Changing triggerType to field.changed but keeping the existing empty triggerConfig.
+    // field.changed requires entityTypeId and field — existing {} is invalid → 422.
+    const res = await makeApp().request(`/${RULE_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ triggerType: "field.changed" }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe("DELETE /automation-rules/:id", () => {

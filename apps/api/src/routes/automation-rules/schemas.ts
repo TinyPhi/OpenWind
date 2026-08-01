@@ -47,6 +47,15 @@ const NotifyConfigSchema = z.object({
       body: z.string().max(1000).optional(),
     })
     .optional(),
+  // Wizard UI display state — symbolic recipient roles ("assignee", "creator",
+  // "all_agents") and legacy field aliases. The executor only consumes
+  // recipientId (a resolved user UUID) and channel. Resolution of symbolic
+  // roles → recipientId is a Phase 3 feature; these fields are preserved here
+  // so the wizard round-trips faithfully across save/re-open without silently
+  // resetting user selections (the Zod default-strip behaviour).
+  recipients: z.array(z.string()).optional(),
+  channels: z.array(z.string()).optional(),
+  message: z.string().optional(),
 });
 
 const SetFieldConfigSchema = z.object({
@@ -128,7 +137,7 @@ export const TRIGGER_CONFIG_SCHEMAS = {
   }),
   "schedule.cron": z.object({ cron: z.string().min(1) }),
   "connector.event": z.record(z.unknown()),
-} satisfies Partial<Record<(typeof TRIGGER_TYPES)[number], z.ZodTypeAny>>;
+} satisfies Record<(typeof TRIGGER_TYPES)[number], z.ZodTypeAny>;
 
 // ── Condition tree ────────────────────────────────────────────────────────────
 // Mirrors ConditionTree from @platform/workflow-engine. Validated at write time

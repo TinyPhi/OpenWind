@@ -22,17 +22,19 @@ export type { NotifyConfig };
 // is already admin-configured content, not a free-text injection surface.
 //
 // Idempotency: the notification ID is derived deterministically from
-// (tenantId, ruleId, execId, recipientId) so BullMQ retries of the same
-// automation execution reuse the same ID and are deduplicated by the
-// onConflictDoNothing insert (#228).
+// (tenantId, ruleId, jobEventId, recipientId). jobEventId is the outbox
+// event row ID, which is constant across all BullMQ retries of the same
+// job (the queue uses it as the jobId). execId is only used as a fallback
+// for direct callers (isolation tests, one-off engine calls) where no
+// stable outbox-backed ID exists and retries don't occur (#228).
 function deriveNotificationId(
   tenantId: string,
   ruleId: string,
-  execId: string,
+  jobEventId: string,
   recipientId: string,
 ): string {
   const hash = createHash("sha256")
-    .update([tenantId, ruleId, execId, recipientId].join(":"))
+    .update([tenantId, ruleId, jobEventId, recipientId].join(":"))
     .digest("hex");
   return [
     hash.slice(0, 8),
@@ -52,6 +54,7 @@ export async function executeNotifyAction(
   _event: TriggerEvent,
   config: NotifyConfig,
   redis?: Redis,
+  outboxEventId?: string,
 ): Promise<void> {
   const recipientId = config.recipientId;
   if (!recipientId) {
@@ -74,7 +77,7 @@ export async function executeNotifyAction(
   const notificationId = deriveNotificationId(
     tenantId,
     ruleId,
-    execId,
+    outboxEventId ?? execId,
     recipientId,
   );
 

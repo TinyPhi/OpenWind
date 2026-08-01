@@ -76,7 +76,42 @@ describe("executeNotifyAction", () => {
     });
   });
 
-  it("derives a stable notificationId across retries — same inputs produce same id (#228)", async () => {
+  it("derives a stable notificationId across retries when outboxEventId is provided (#228)", async () => {
+    const OUTBOX_ID = "outbox-evt-stable-aaa";
+    // Simulate first attempt: execId-1
+    await executeNotifyAction(
+      dbMock as never,
+      "t-1",
+      RULE_ID,
+      "exec-attempt-1",
+      EVENT,
+      { recipientId: "u-target" } as never,
+      undefined,
+      OUTBOX_ID,
+    );
+    const idFirst = (insertedRows[0]?.values as { id?: string })?.id;
+
+    insertedRows.length = 0;
+    // Simulate BullMQ retry: different execId, same outboxEventId → same notificationId
+    await executeNotifyAction(
+      dbMock as never,
+      "t-1",
+      RULE_ID,
+      "exec-attempt-2",
+      EVENT,
+      { recipientId: "u-target" } as never,
+      undefined,
+      OUTBOX_ID,
+    );
+    const idSecond = (insertedRows[0]?.values as { id?: string })?.id;
+
+    expect(idFirst).toBe(idSecond);
+    expect(idFirst).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it("falls back to execId when no outboxEventId — same execId still stable", async () => {
     await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
       recipientId: "u-target",
     } as never);
@@ -94,10 +129,17 @@ describe("executeNotifyAction", () => {
     );
   });
 
-  it("produces different ids for different execution contexts", async () => {
-    await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
-      recipientId: "u-target",
-    } as never);
+  it("produces different ids for different outboxEventIds (different logical events)", async () => {
+    await executeNotifyAction(
+      dbMock as never,
+      "t-1",
+      RULE_ID,
+      EXEC_ID,
+      EVENT,
+      { recipientId: "u-target" } as never,
+      undefined,
+      "outbox-evt-aaa",
+    );
     const idA = (insertedRows[0]?.values as { id?: string })?.id;
 
     insertedRows.length = 0;
@@ -105,9 +147,11 @@ describe("executeNotifyAction", () => {
       dbMock as never,
       "t-1",
       RULE_ID,
-      "exec-different",
+      EXEC_ID,
       EVENT,
       { recipientId: "u-target" } as never,
+      undefined,
+      "outbox-evt-bbb",
     );
     const idB = (insertedRows[0]?.values as { id?: string })?.id;
 

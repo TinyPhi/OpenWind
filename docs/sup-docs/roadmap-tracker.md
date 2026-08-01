@@ -1,21 +1,15 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-08-01 — 5 security-hardening PRs merged 2026-07-31 (Groups A, B, C, E,
-and PR #282 for #201). Group G automation engine hardening in PR #293, open/awaiting review.
-Groups D and H not yet started; see security hardening table below for full current status.
-**Last updated:** 2026-07-31 — dedicated triage session on the #191–#202 batch (the one the
-previous entry below flagged as "worth a session"). **Closed this pass:** #149 (PR #269), #218
-(PR #270), #220 (PR #222, merged). **Investigated, mostly resolved:** #196 — 2 of 4 sub-findings
-don't reproduce against current code (schema cache is already Redis-backed with proper
-invalidation; search already uses keyset/cursor pagination, not `OFFSET`), 1 fixed via PR #271
-(`bulkUpdateEntities` N+1). **Open PRs awaiting review** (not yet merged, so their issues stay
-open): #201 native-confirm → shared `AlertDialog` (PR #282), #198 modal a11y wave 1 — consolidates
-the 2 duplicated modal patterns, ~27 single-instance modals remain and are tracked as #284 (PR
-#285), #192 backup/restore runbook, tested end-to-end against real Postgres+MinIO (PR #286), #194
-e2e harness MVP — first test in this repo to exercise real, unmocked auth (PR #287), #197
-`FieldInput` consolidation + `user_ref`/`entity_ref` widgets, `file`/`files` deferred as #289 (PR
-#288). **Untouched this session:** #199 (packages/ui hollow), #200 (zero i18n) — still open,
-unassigned.
+**Last updated:** 2026-08-01 — abmish review of PR #293 (group G); addressing 5 findings:
+outboxEventId threading for true BullMQ-retry idempotency (#228), partial-PATCH triggerConfig
+cross-validation (#257), wizard field name alignment, connector.action no-op, non-partial
+TRIGGER_CONFIG_SCHEMAS. Merge conflict with 2026-07-31 batch-triage session resolved.
+**Previously:** 2026-07-31 — dedicated triage session on the #191–#202 batch. **Closed this pass:**
+#149 (PR #269), #218 (PR #270), #220 (PR #222, merged). **Investigated, mostly resolved:**
+#196 — 2 of 4 sub-findings don't reproduce, 1 fixed via PR #271 (`bulkUpdateEntities` N+1).
+**Open PRs awaiting review:** #201 (PR #282), #198 (PR #285), #192 (PR #286), #194 (PR #287),
+#197 (PR #288). **Also 2026-07-31 (separate session):** 5 security-hardening PRs merged
+(Groups A, B, C, E + PR #282 for #201). Group G (PR #293) opened.
 **Previously:** 2026-07-31 — #195 closed (rate limiter bucketed on an unverified JWT claim
 instead of the authenticated tenant, from the second consulting-review pass filed 2026-07-24 as
 #191–#202). Post-auth tenant-scoped rate limiting now lives in `requireAuth()` (`@platform/auth`);

@@ -26,6 +26,7 @@ export async function executeAutomationRules(
   rawEvent: unknown,
   depth = 0,
   redis?: Redis,
+  outboxEventId?: string,
 ): Promise<void> {
   if (depth >= MAX_DEPTH) {
     throw new AutomationError("MAX_DEPTH_EXCEEDED", { depth });
@@ -118,6 +119,7 @@ export async function executeAutomationRules(
             action,
             depth,
             redis,
+            outboxEventId,
           );
           if (skipped) skippedCount++;
         }
@@ -190,6 +192,7 @@ async function runAction(
   action: ActionConfig,
   depth: number,
   redis?: Redis,
+  outboxEventId?: string,
 ): Promise<boolean> {
   if (!redis) {
     throw new AutomationError("CIRCUIT_BREAKER_UNAVAILABLE", {
@@ -215,6 +218,7 @@ async function runAction(
           event,
           action.config,
           redis,
+          outboxEventId,
         );
         break;
       case "set_field":
@@ -240,12 +244,23 @@ async function runAction(
           action.config,
           depth,
           redis,
+          outboxEventId,
         );
         break;
       case "webhook":
         await executeWebhookAction(tenantId, ruleId, event, action.config, {
           extraBlockCidrs: env.SSRF_BLOCK_CIDRS,
         });
+        break;
+      case "connector.action":
+        // Phase 3 stub — the type is valid and may be stored in automation_rules,
+        // but the connector runtime isn't implemented yet. Log and skip rather
+        // than throwing, so rules seeded today survive the Phase 3 cut-over
+        // without hard-failing on every execution.
+        logger.warn(
+          { tenantId, ruleId },
+          "Automation: connector.action is not yet implemented — skipping",
+        );
         break;
       default:
         throw new AutomationError("UNKNOWN_ACTION_TYPE", {

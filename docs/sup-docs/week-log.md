@@ -5,7 +5,7 @@
 
 ---
 
-## 2026-08-01 — security group G: automation engine hardening
+## 2026-08-01 — security group G: automation engine hardening + abmish review fixes
 
 **Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
 **Branch:** `fix/PLAT-security-group-g`
@@ -18,28 +18,33 @@
 - **#245** Fail-closed circuit breaker — throw `CIRCUIT_BREAKER_UNAVAILABLE` when redis is
   undefined instead of silently bypassing; running automation without a circuit breaker is worse
   than refusing to run. The executor catches this per-rule and marks the execution `failed`.
-- **#228** Deterministic notify IDs — SHA-256 of `(tenantId, ruleId, execId, recipientId)`
-  formatted as a UUID v4-like string, plus `onConflictDoNothing` on both DB inserts. BullMQ
-  retries of the same execution are now fully idempotent; no duplicate notifications.
-- **#258** Removed `OutboxDepthSchema.passthrough()` — Zod's default strip mode is correct;
-  `.passthrough()` would have let unknown fields from the outbox payload bleed through the
-  depth-only schema.
-- **#256** Unknown action type now throws `UNKNOWN_ACTION_TYPE` instead of silently falling
-  through the switch default with no effect.
-- **#259** Removed `script` action type from executor switch and API schemas. No sandbox
-  implementation exists; rules with script actions are now rejected at the API boundary (400)
-  rather than stored and silently failing in the worker.
-- **#257** Per-trigger-type `triggerConfig` validation: `TRIGGER_CONFIG_SCHEMAS` record +
-  `.superRefine()` in create and update routes. Wrong config shape for a trigger type now
-  returns a 422 with a `triggerConfig`-prefixed path, not a silent worker-time failure.
+- **#228** Deterministic notify IDs — SHA-256 of `(tenantId, ruleId, jobEventId, recipientId)`
+  formatted as a UUID v4-like string, plus `onConflictDoNothing` on both DB inserts. `jobEventId`
+  is the outbox event row ID (= BullMQ `jobId`), which is constant across all retry attempts —
+  not `execRow.id` which is freshly generated on each call (abmish finding #1). Threaded through
+  `executeAutomationRules` → `runAction` → `executeNotifyAction` and through
+  `executeTransitionAction`'s recursive call.
+- **#258** Removed `OutboxDepthSchema.passthrough()` — Zod's default strip mode is correct.
+- **#256** Unknown action type now throws `UNKNOWN_ACTION_TYPE` instead of silently no-op'ing.
+  `connector.action` is now an explicit case that logs and no-ops gracefully — preserving
+  existing stored rules without tripping the circuit breaker (abmish finding #4).
+- **#259** Removed `script` action type from executor switch and API schemas.
+- **#257** Per-trigger-type `triggerConfig` validation: partial PATCH now fetches the existing
+  rule from DB to validate the config/type pair when only one half is patched (abmish finding #2).
+  `TRIGGER_CONFIG_SCHEMAS` changed from `Partial<Record<...>>` to `Record<...>` for compile-time
+  exhaustiveness (abmish finding #5). Wizard UI field names (`recipients`, `channels`, `message`)
+  preserved in `NotifyConfigSchema` so they survive Zod's default strip (abmish finding #3).
 
 ### Verification
 
 - pnpm typecheck: PASS
 - pnpm lint: PASS
-- pnpm test (automation-engine unit, 63/63): PASS
-- pnpm test (automation-rules routes, 11/11): PASS
+- pnpm test (automation-engine unit, 64/64): PASS
+- pnpm test (automation-rules routes, 13/13): PASS
 - pnpm test:isolation: requires Docker stack — deferred to CI
+
+---
+
 ## 2026-07-31 — #191–#202 batch triage: 5 PRs (backup/DR, e2e harness, field widgets, a11y modals wave 1, confirm/alert dialog)
 
 **Session type:** Backlog triage + fixes (Plan → Code → Review → Docs → Ship, one plan-lock/PR per issue)

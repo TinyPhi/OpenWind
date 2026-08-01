@@ -14,6 +14,7 @@ export async function executeTransitionAction(
   config: TransitionConfig,
   depth: number,
   redis?: Redis,
+  outboxEventId?: string,
 ): Promise<void> {
   const instanceId =
     config.instanceId ?? ("instanceId" in event ? event.instanceId : undefined);
@@ -52,5 +53,12 @@ export async function executeTransitionAction(
     occurredAt: workflowEvent.createdAt.toISOString(),
   };
 
-  await executeAutomationRules(db, tenantId, followUpEvent, depth + 1, redis);
+  await executeAutomationRules(
+    db,
+    tenantId,
+    followUpEvent,
+    depth + 1,
+    redis,
+    outboxEventId,
+  );
 }
