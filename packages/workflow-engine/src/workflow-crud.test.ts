@@ -14,6 +14,7 @@ function makeSelectBuilder(results: () => unknown[]) {
   q["where"] = () => q;
   q["orderBy"] = () => q;
   q["limit"] = () => q;
+  q["offset"] = () => Promise.resolve(results());
   q["then"] = (resolve: (v: unknown[]) => void) =>
     Promise.resolve(results()).then(resolve);
   return q;
