@@ -40,14 +40,16 @@ function readDepth(payload: unknown): number {
 export const automationWorker = new Worker<AutomationJobData>(
   "automation",
   async (job) => {
-    const { tenantId, payload } = job.data;
+    const { tenantId, payload, outboxEventId } = job.data;
     // Resume MAX_DEPTH counting from the depth this event was triggered at
     // (stamped by the transition action) instead of resetting to 0 — an
     // outbox-delivered event from a recursive automation loop must still be
     // bounded. Events from direct user/API transitions carry no depth and
     // start at 0. See issue #120.
     // Pass the Redis connection so the circuit breaker is active.
-    // Without this argument the circuit breaker guard is silently skipped.
+    // Pass outboxEventId so notify-action IDs are stable across BullMQ retries
+    // (the queue uses row.id as both jobId and outboxEventId, so it's constant
+    // across all retry attempts for the same logical event — see #228).
     await withTenantContext(tenantId, (tx) =>
       executeAutomationRules(
         tx,
@@ -55,6 +57,7 @@ export const automationWorker = new Worker<AutomationJobData>(
         payload,
         readDepth(payload),
         connection,
+        outboxEventId,
       ),
     );
   },

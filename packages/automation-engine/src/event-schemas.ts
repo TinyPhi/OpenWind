@@ -113,7 +113,7 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
 // executeAutomationRules with the right depth argument (#120), one step before
 // that function does its own full TriggerEventSchema.safeParse. Reuses
 // baseEvent's `depth` constraint so the two never drift apart.
-export const OutboxDepthSchema = baseEvent.pick({ depth: true }).passthrough();
+export const OutboxDepthSchema = baseEvent.pick({ depth: true });
 
 export type WorkflowTransitionedV1 = z.infer<
   typeof WorkflowTransitionedV1Schema

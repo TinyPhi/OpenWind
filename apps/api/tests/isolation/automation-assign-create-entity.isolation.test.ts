@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, and } from "drizzle-orm";
+import Redis from "ioredis";
 import {
   db,
   withTenantContext,
@@ -15,6 +16,7 @@ import {
   automationExecutions,
   entityInstances,
 } from "@platform/db";
+import { env } from "@platform/config";
 import {
   createEntityType,
   createEntity,
@@ -30,8 +32,10 @@ import {
 const TENANT = "ffffffff-0000-4000-f000-000000000191";
 
 let entityType: EntityType;
+let redis: Redis;
 
 beforeAll(async () => {
+  redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   entityType = await createEntityType(db, TENANT, {
     name: `assign_create_ticket_${Date.now()}`,
     plural: "tickets",
@@ -54,6 +58,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await redis.quit();
   await withTenantContext(TENANT, async (tx) => {
     await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
     await tx
@@ -81,15 +86,21 @@ describe("automation 'assign' action (#191)", () => {
       actions: [{ type: "assign", config: { assigneeId: "user-abc-123" } }],
     });
 
-    await executeAutomationRules(db, TENANT, {
-      version: 1,
-      eventType: "entity.created",
-      tenantId: TENANT,
-      instanceId: instance.id,
-      entityTypeId: entityType.id,
-      fields: {},
-      createdBy: null,
-    });
+    await executeAutomationRules(
+      db,
+      TENANT,
+      {
+        version: 1,
+        eventType: "entity.created",
+        tenantId: TENANT,
+        instanceId: instance.id,
+        entityTypeId: entityType.id,
+        fields: {},
+        createdBy: null,
+      },
+      0,
+      redis,
+    );
 
     const updated = await withTenantContext(TENANT, (tx) =>
       getEntity(tx, TENANT, instance.id),
@@ -141,15 +152,21 @@ describe("automation 'create_entity' action (#191)", () => {
         .where(eq(entityInstances.tenantId, TENANT)),
     );
 
-    await executeAutomationRules(db, TENANT, {
-      version: 1,
-      eventType: "entity.created",
-      tenantId: TENANT,
-      instanceId: trigger.id,
-      entityTypeId: entityType.id,
-      fields: {},
-      createdBy: null,
-    });
+    await executeAutomationRules(
+      db,
+      TENANT,
+      {
+        version: 1,
+        eventType: "entity.created",
+        tenantId: TENANT,
+        instanceId: trigger.id,
+        entityTypeId: entityType.id,
+        fields: {},
+        createdBy: null,
+      },
+      0,
+      redis,
+    );
 
     const after = await withTenantContext(TENANT, (tx) =>
       tx

@@ -23,8 +23,7 @@ export type ActionType =
   | "set_field"
   | "create_entity"
   | "webhook"
-  | "connector.action"
-  | "script";
+  | "connector.action";
 
 export interface AutomationRule {
   id: string;
@@ -87,8 +86,7 @@ export type ActionConfig =
   | { type: "webhook"; config: WebhookActionConfig }
   | { type: "assign"; config: AssignConfig }
   | { type: "create_entity"; config: CreateEntityConfig }
-  | { type: "connector.action"; config: Record<string, unknown> }
-  | { type: "script"; config: Record<string, unknown> };
+  | { type: "connector.action"; config: Record<string, unknown> };
 
 export type CreateAutomationRuleInput = {
   name: string;
@@ -119,7 +117,9 @@ export class AutomationError extends Error {
       | "ACTION_FAILED"
       | "INVALID_EVENT_PAYLOAD"
       | "WEBHOOK_SSRF_BLOCKED"
-      | "DNS_RESOLUTION_TIMEOUT",
+      | "DNS_RESOLUTION_TIMEOUT"
+      | "UNKNOWN_ACTION_TYPE"
+      | "CIRCUIT_BREAKER_UNAVAILABLE",
     public readonly meta?: Record<string, unknown>,
   ) {
     super(code);
