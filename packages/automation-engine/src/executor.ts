@@ -239,6 +239,7 @@ async function runAction(
           event,
           action.config,
           depth,
+          redis,
         );
         break;
       case "webhook":

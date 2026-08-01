@@ -1,3 +1,4 @@
+import type { Redis } from "ioredis";
 import type { DbOrTx } from "@platform/db";
 import { executeTransition } from "@platform/workflow-engine";
 import type { TriggerEvent } from "../event-schemas.js";
@@ -12,6 +13,7 @@ export async function executeTransitionAction(
   event: TriggerEvent,
   config: TransitionConfig,
   depth: number,
+  redis?: Redis,
 ): Promise<void> {
   const instanceId =
     config.instanceId ?? ("instanceId" in event ? event.instanceId : undefined);
@@ -50,5 +52,5 @@ export async function executeTransitionAction(
     occurredAt: workflowEvent.createdAt.toISOString(),
   };
 
-  await executeAutomationRules(db, tenantId, followUpEvent, depth + 1);
+  await executeAutomationRules(db, tenantId, followUpEvent, depth + 1, redis);
 }

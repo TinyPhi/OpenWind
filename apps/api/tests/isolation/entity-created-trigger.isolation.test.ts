@@ -12,12 +12,14 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, and, desc } from "drizzle-orm";
+import Redis from "ioredis";
 import {
   db,
   withTenantContext,
   outboxEvents,
   automationExecutions,
 } from "@platform/db";
+import { env } from "@platform/config";
 import {
   createEntityType,
   createEntity,
@@ -34,8 +36,10 @@ import {
 const TENANT = "cccccccc-0000-4000-c000-000000000126";
 
 let entityType: EntityType;
+let redis: Redis;
 
 beforeAll(async () => {
+  redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   entityType = await createEntityType(db, TENANT, {
     name: `trigger_ticket_${Date.now()}`,
     plural: "trigger_tickets",
@@ -78,6 +82,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await redis.quit();
   await withTenantContext(TENANT, async (tx) => {
     await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
     // Without this, re-running this file against a non-fresh local DB
@@ -178,7 +183,7 @@ describe("entity.created outbox emission and automation execution (#126)", () =>
 
     // Simulates what apps/worker/src/outbox-poller.ts does: hand the exact
     // stored payload to the executor, unmodified.
-    await executeAutomationRules(db, TENANT, row?.payload);
+    await executeAutomationRules(db, TENANT, row?.payload, 0, redis);
 
     const updated = await getEntity(db, TENANT, instance.id);
     expect(updated.fields["priority"]).toBe("medium");

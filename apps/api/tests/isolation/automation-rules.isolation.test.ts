@@ -37,7 +37,7 @@ beforeAll(async () => {
       triggerType: "entity.created",
       triggerConfig: {},
       conditions: null,
-      actions: [{ type: "notify", config: { channel: "email" } }],
+      actions: [{ type: "notify", config: { channel: ["email"] } }],
     }),
   );
   ruleAId = ruleA.id;
@@ -104,7 +104,7 @@ describe("automation-rules routes work at all now (#6 -- previously broken by RL
         name: "isolation-test-rule-b",
         triggerType: "entity.created",
         triggerConfig: {},
-        actions: [{ type: "notify", config: { channel: "email" } }],
+        actions: [{ type: "notify", config: { channel: ["email"] } }],
       }),
     });
 
