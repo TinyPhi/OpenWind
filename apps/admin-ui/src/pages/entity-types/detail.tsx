@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useOne } from "@refinedev/core";
 import { useParams, Link } from "react-router-dom";
+import { Dialog, DialogContent, DialogClose, DialogTitle } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 import {
@@ -604,231 +605,133 @@ export function EntityTypeDetail(): React.ReactElement {
         </div>
       )}
 
-      {showAddField && (
-        <div className="modal-overlay" onClick={() => setShowAddField(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+      <Dialog
+        open={showAddField}
+        onOpenChange={(next) => {
+          if (!next) setShowAddField(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">Add Field</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddField(false)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleAddField(e)}>
-              <div className="modal-body">
-                {fieldError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {fieldError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. Subject"
-                      value={fieldForm.label}
-                      onChange={(e) => {
-                        const label = e.target.value;
-                        const name = label
-                          .toLowerCase()
-                          .replace(/\s+/g, "_")
-                          .replace(/[^a-z0-9_]/g, "");
-                        setFieldForm((f) => ({ ...f, label, name }));
-                      }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Field Name *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. subject"
-                      value={fieldForm.name}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({ ...f, name: e.target.value }))
-                      }
-                      pattern="^[a-z_][a-z0-9_]*$"
-                      title="snake_case only"
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Field Type *</label>
-                    <select
-                      className="form-input"
-                      value={fieldForm.fieldType}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({
-                          ...f,
-                          fieldType: e.target.value as FieldTypeVal,
-                        }))
-                      }
-                    >
-                      {FIELD_TYPES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Sort Order</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={0}
-                      value={fieldForm.sortOrder}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({
-                          ...f,
-                          sortOrder: parseInt(e.target.value) || 0,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-                {(fieldForm.fieldType === "enum" ||
-                  fieldForm.fieldType === "multi_enum") && (
-                  <div className="form-group">
-                    <label className="form-label">Options</label>
-                    <EnumOptionsList
-                      rows={fieldForm.enumRows}
-                      onChange={(rows) =>
-                        setFieldForm((f) => ({ ...f, enumRows: rows }))
-                      }
-                    />
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: "24px" }}>
-                  <label className="form-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={fieldForm.isRequired}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({
-                          ...f,
-                          isRequired: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Required</span>
-                  </label>
-                  <label className="form-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={fieldForm.isIndexed}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({
-                          ...f,
-                          isIndexed: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Indexed</span>
-                  </label>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowAddField(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingField}
-                >
-                  {savingField ? "Adding…" : "Add Field"}
-                </button>
-              </div>
-            </form>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button className="modal-close">×</button>
+            </DialogClose>
           </div>
-        </div>
-      )}
-      {/* ── Edit Field Modal ──────────────────────────────────────────── */}
-      {editingField && (
-        <div className="modal-overlay" onClick={() => setEditingField(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Edit Field — {editingField.label}</h3>
-              <button
-                className="modal-close"
-                onClick={() => setEditingField(null)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleSaveField(e)}>
-              <div className="modal-body">
-                {editError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {editError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      value={editForm.label}
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, label: e.target.value }))
-                      }
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Sort Order</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={0}
-                      value={editForm.sortOrder}
-                      onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          sortOrder: parseInt(e.target.value) || 0,
-                        }))
-                      }
-                    />
-                  </div>
+          <form onSubmit={(e) => void handleAddField(e)}>
+            <div className="modal-body">
+              {fieldError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {fieldError}
                 </div>
-
-                {(editingField.fieldType === "enum" ||
-                  editingField.fieldType === "multi_enum") && (
-                  <div className="form-group">
-                    <label className="form-label">Options</label>
-                    <EnumOptionsList
-                      rows={editForm.enumRows}
-                      onChange={(rows) =>
-                        setEditForm((f) => ({ ...f, enumRows: rows }))
-                      }
-                    />
-                  </div>
-                )}
-
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Label *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. Subject"
+                    value={fieldForm.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      const name = label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setFieldForm((f) => ({ ...f, label, name }));
+                    }}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Field Name *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. subject"
+                    value={fieldForm.name}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    pattern="^[a-z_][a-z0-9_]*$"
+                    title="snake_case only"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Field Type *</label>
+                  <select
+                    className="form-input"
+                    value={fieldForm.fieldType}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({
+                        ...f,
+                        fieldType: e.target.value as FieldTypeVal,
+                      }))
+                    }
+                  >
+                    {FIELD_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Sort Order</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    value={fieldForm.sortOrder}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({
+                        ...f,
+                        sortOrder: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              {(fieldForm.fieldType === "enum" ||
+                fieldForm.fieldType === "multi_enum") && (
+                <div className="form-group">
+                  <label className="form-label">Options</label>
+                  <EnumOptionsList
+                    rows={fieldForm.enumRows}
+                    onChange={(rows) =>
+                      setFieldForm((f) => ({ ...f, enumRows: rows }))
+                    }
+                  />
+                </div>
+              )}
+              <div style={{ display: "flex", gap: "24px" }}>
                 <label className="form-checkbox">
                   <input
                     type="checkbox"
-                    checked={editForm.isRequired}
+                    checked={fieldForm.isRequired}
                     onChange={(e) =>
-                      setEditForm((f) => ({
+                      setFieldForm((f) => ({
                         ...f,
                         isRequired: e.target.checked,
                       }))
@@ -836,27 +739,157 @@ export function EntityTypeDetail(): React.ReactElement {
                   />
                   <span>Required</span>
                 </label>
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={fieldForm.isIndexed}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({
+                        ...f,
+                        isIndexed: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Indexed</span>
+                </label>
               </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setEditingField(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingEdit}
-                >
-                  {savingEdit ? "Saving…" : "Save changes"}
-                </button>
-              </div>
-            </form>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowAddField(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={savingField}
+              >
+                {savingField ? "Adding…" : "Add Field"}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      {/* ── Edit Field Modal ──────────────────────────────────────────── */}
+      <Dialog
+        open={editingField !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditingField(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">
+                Edit Field — {editingField?.label}
+              </h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button className="modal-close">×</button>
+            </DialogClose>
           </div>
-        </div>
-      )}
+          <form onSubmit={(e) => void handleSaveField(e)}>
+            <div className="modal-body">
+              {editError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {editError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Label *</label>
+                  <input
+                    className="form-input"
+                    value={editForm.label}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, label: e.target.value }))
+                    }
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Sort Order</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    value={editForm.sortOrder}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        sortOrder: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              {(editingField?.fieldType === "enum" ||
+                editingField?.fieldType === "multi_enum") && (
+                <div className="form-group">
+                  <label className="form-label">Options</label>
+                  <EnumOptionsList
+                    rows={editForm.enumRows}
+                    onChange={(rows) =>
+                      setEditForm((f) => ({ ...f, enumRows: rows }))
+                    }
+                  />
+                </div>
+              )}
+
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={editForm.isRequired}
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      isRequired: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Required</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setEditingField(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={savingEdit}
+              >
+                {savingEdit ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

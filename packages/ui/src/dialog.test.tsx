@@ -91,4 +91,16 @@ describe("Dialog", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+
+  it("omits the built-in close button when showCloseButton is false", () => {
+    render(
+      <Dialog defaultOpen>
+        <DialogContent showCloseButton={false}>
+          <DialogTitle>Edit Field</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
 });

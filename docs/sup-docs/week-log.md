@@ -5,6 +5,52 @@
 
 ---
 
+## 2026-08-02 — #284 a11y wave 2: migrate remaining modals to Dialog/AlertDialog
+
+**Session type:** Frontend a11y (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-284-modal-a11y-wave2`
+**Issues:** #284
+
+### Completed this session
+
+- Migrated 24 of the ~27 remaining single-instance modals (wave 1, #198/PR #285, consolidated
+  the 2 duplicated patterns) from hand-rolled `.modal-overlay`/`.modal` divs to `@platform/ui`'s
+  `Dialog`/`AlertDialog`, using the exact style-reset technique `transition-modal.tsx` already
+  established — zero visual change, real `role="dialog"`/`aria-modal`/focus-trap gained. Split
+  across 4 files: `workflows/detail.tsx` (7), `customer/record-detail.tsx` (8),
+  `workflow-canvas.tsx` + `modules.tsx` (4), `entity-types/*` + `record-list.tsx` (5).
+- Deferred, unchanged: `workflow-canvas.tsx`'s `TransitionPanel` (a slide-in side panel, not a
+  true modal) and `record-detail.tsx`'s access-denied overlay (a full-page state) — both
+  explicitly flagged in the issue as needing separate manual judgment.
+- De-duplicated a near-duplicate "Request access?" confirmation that had been split into two
+  copies (one standalone modal, one embedded inside the access-denied overlay) purely to dodge a
+  z-index/stacking bug — now that the standalone copy is a portal-based `Dialog`, the embedded
+  copy was redundant and removed.
+- **Found and fixed a real bug while doing this**: `packages/ui`'s `DialogContent` unconditionally
+  renders its own "×" close button, even when a modal's own markup already supplies one —
+  producing two close affordances. This was already live in production via `transition-modal.tsx`
+  (wave 1, PR #285, 2 shipped instances) but wave 2 was about to propagate it to ~22 more. Added
+  an opt-out `showCloseButton?: boolean` prop (default `true`, preserving existing behavior for
+  callers with no close control of their own) and set it `false` on every migrated modal that has
+  its own.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green repo-wide.
+- `pnpm --filter @platform/ui test` — 10/10 pass (this branch predates #199's Button/IconButton
+  work, so only `dialog`/`alert-dialog` tests exist here; added a new test for `showCloseButton`).
+- `pnpm --filter @platform/admin-ui test` — 90/90 pass, no regressions.
+- Manual diff review of all 4 migration groups plus the `showCloseButton` fix.
+- No full-browser visual check possible in this sandbox (same environment gap as the #199
+  session) — substituted with jsdom component tests + manual diff review.
+
+### Next
+
+- `TransitionPanel` and the access-denied overlay remain open for a future, separately-scoped
+  manual-judgment pass.
+
+---
+
 ## 2026-08-01 — security group G: automation engine hardening + abmish review fixes
 
 **Session type:** Security hardening (Plan → Code → Review → Docs → Ship)

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useList } from "@refinedev/core";
+import { Dialog, DialogContent, DialogTitle } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 
 type Module = {
@@ -509,13 +510,14 @@ export function Modules(): React.ReactElement {
 
       {/* ── Preview modal ────────────────────────────────────────────────── */}
       {previewTarget && (
-        <div
-          className="modal-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setPreviewTarget(null);
+        <Dialog
+          open={true}
+          onOpenChange={(next) => {
+            if (!next) setPreviewTarget(null);
           }}
         >
-          <div
+          <DialogContent
+            showCloseButton={false}
             style={{
               background: "var(--bg-secondary)",
               border: "1px solid var(--border-color)",
@@ -557,15 +559,17 @@ export function Modules(): React.ReactElement {
                 {MODULE_EMOJI[previewTarget.slug] ?? "📋"}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: "17px",
-                    fontWeight: 700,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  {previewTarget.name}
-                </div>
+                <DialogTitle asChild>
+                  <div
+                    style={{
+                      fontSize: "17px",
+                      fontWeight: 700,
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {previewTarget.name}
+                  </div>
+                </DialogTitle>
                 <div
                   style={{
                     fontSize: "12px",
@@ -856,19 +860,20 @@ export function Modules(): React.ReactElement {
                 </button>
               )}
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* ── Fork modal ───────────────────────────────────────────────────── */}
       {forkTarget && (
-        <div
-          className="modal-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeForkModal();
+        <Dialog
+          open={true}
+          onOpenChange={(next) => {
+            if (!next) closeForkModal();
           }}
         >
-          <div
+          <DialogContent
+            showCloseButton={false}
             style={{
               background: "var(--bg-secondary)",
               border: "1px solid var(--border-color)",
@@ -906,15 +911,17 @@ export function Modules(): React.ReactElement {
                 {MODULE_EMOJI[forkTarget.slug] ?? "📋"}
               </div>
               <div style={{ flex: 1 }}>
-                <div
-                  style={{
-                    fontSize: "16px",
-                    fontWeight: 700,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  Copy "{forkTarget.name}"
-                </div>
+                <DialogTitle asChild>
+                  <div
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    Copy "{forkTarget.name}"
+                  </div>
+                </DialogTitle>
                 <div
                   style={{
                     fontSize: "12px",
@@ -1067,8 +1074,8 @@ export function Modules(): React.ReactElement {
                 {forking ? "Copying…" : "Copy Template"}
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
