@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-08-01 — security group G: automation engine hardening
+
+**Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-group-g`
+**PR:** #293
+**Issues:** #245, #228, #258, #256, #259, #257
+**Skipped:** #246, #248, #250 — blocked on issue #2 (SSRF/PII), require human review
+
+### Completed this session
+
+- **#245** Fail-closed circuit breaker — throw `CIRCUIT_BREAKER_UNAVAILABLE` when redis is
+  undefined instead of silently bypassing; running automation without a circuit breaker is worse
+  than refusing to run. The executor catches this per-rule and marks the execution `failed`.
+- **#228** Deterministic notify IDs — SHA-256 of `(tenantId, ruleId, execId, recipientId)`
+  formatted as a UUID v4-like string, plus `onConflictDoNothing` on both DB inserts. BullMQ
+  retries of the same execution are now fully idempotent; no duplicate notifications.
+- **#258** Removed `OutboxDepthSchema.passthrough()` — Zod's default strip mode is correct;
+  `.passthrough()` would have let unknown fields from the outbox payload bleed through the
+  depth-only schema.
+- **#256** Unknown action type now throws `UNKNOWN_ACTION_TYPE` instead of silently falling
+  through the switch default with no effect.
+- **#259** Removed `script` action type from executor switch and API schemas. No sandbox
+  implementation exists; rules with script actions are now rejected at the API boundary (400)
+  rather than stored and silently failing in the worker.
+- **#257** Per-trigger-type `triggerConfig` validation: `TRIGGER_CONFIG_SCHEMAS` record +
+  `.superRefine()` in create and update routes. Wrong config shape for a trigger type now
+  returns a 422 with a `triggerConfig`-prefixed path, not a silent worker-time failure.
+
+### Verification
+
+- pnpm typecheck: PASS
+- pnpm lint: PASS
+- pnpm test (automation-engine unit, 63/63): PASS
+- pnpm test (automation-rules routes, 11/11): PASS
+- pnpm test:isolation: requires Docker stack — deferred to CI
+
+---
+
 ## 2026-07-31 — security group B: four critical API access control fixes
 
 **Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
