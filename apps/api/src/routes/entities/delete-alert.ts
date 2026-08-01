@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import { ticketAlerts, withTenantContext } from "@platform/db";
 import { factory } from "./factory.js";
 import { voidPendingAlertOutboxRows } from "../../lib/alert-outbox.js";
@@ -10,6 +10,7 @@ import {
 
 export const deleteAlertHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   async (c) => {
     const instanceId = c.req.param("id") ?? "";
     const alertId = c.req.param("alertId") ?? "";
@@ -30,9 +31,7 @@ export const deleteAlertHandler = factory.createHandlers(
 
       if (!existing) return { status: 404 as const };
       if (existing.createdBy !== userId) {
-        return existing.scope === "all"
-          ? { status: 403 as const }
-          : { status: 404 as const };
+        return { status: 404 as const };
       }
       if (existing.status !== "pending") {
         return { status: 409 as const };
@@ -59,15 +58,6 @@ export const deleteAlertHandler = factory.createHandlers(
 
     if (result.status === 404) {
       return c.json({ error: "NOT_FOUND", message: "Alert not found" }, 404);
-    }
-    if (result.status === 403) {
-      return c.json(
-        {
-          error: "FORBIDDEN",
-          message: "Only the creator can cancel this alert",
-        },
-        403,
-      );
     }
     if (result.status === 409) {
       return c.json(

@@ -1,6 +1,6 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   entityInstances,
   files,
@@ -18,6 +18,7 @@ const AddCommentAttachmentSchema = z.object({
 
 export const addCommentAttachmentHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   zValidator("json", AddCommentAttachmentSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";

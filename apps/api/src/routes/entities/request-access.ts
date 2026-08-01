@@ -1,7 +1,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   entityInstances,
   accessRequests,
@@ -18,6 +18,7 @@ const RequestAccessSchema = z.object({
 
 export const requestAccessHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   zValidator("json", RequestAccessSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
