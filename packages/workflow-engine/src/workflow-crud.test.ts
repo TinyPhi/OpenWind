@@ -12,7 +12,9 @@ function makeSelectBuilder(results: () => unknown[]) {
   const q: Record<string, unknown> = {};
   q["from"] = () => q;
   q["where"] = () => q;
+  q["orderBy"] = () => q;
   q["limit"] = () => q;
+  q["offset"] = () => Promise.resolve(results());
   q["then"] = (resolve: (v: unknown[]) => void) =>
     Promise.resolve(results()).then(resolve);
   return q;
