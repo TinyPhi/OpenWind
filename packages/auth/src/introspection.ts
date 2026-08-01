@@ -118,7 +118,15 @@ async function callIntrospectionEndpoint(
     return { active: false };
   }
 
-  return JSON.parse(result.text) as IntrospectionResult;
+  try {
+    return JSON.parse(result.text) as IntrospectionResult;
+  } catch {
+    logger.warn(
+      { status: result.status },
+      "Token introspection returned unparseable body — treating as inactive",
+    );
+    return { active: false };
+  }
 }
 
 // SHA-256 — a 32-bit djb2 hash previously used here has a large enough

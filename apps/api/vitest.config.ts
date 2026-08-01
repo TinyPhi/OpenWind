@@ -24,6 +24,7 @@ export default defineConfig({
         "automation-engine/src/index.ts",
       ),
       "@platform/logger": path.join(packages, "logger/src/index.ts"),
+      "@platform/redis": path.join(packages, "redis/src/index.ts"),
       "@platform/auth": path.join(packages, "auth/src/index.ts"),
       "@platform/db": path.join(packages, "db/src/index.ts"),
       "@platform/config": path.join(packages, "config/src/index.ts"),
