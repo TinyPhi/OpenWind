@@ -4,7 +4,7 @@
  *
  * Covers: access-gated create, past-fire_at rejection, the 20-cap, app-layer
  * visibility (creator-always / scope='all' gated on explicit ticket access),
- * creator-only edit/cancel returning 404 for non-creators (§R3), and the
+ * creator-only edit/cancel with the 403-vs-404 split (§R3), and the
  * fired/cancelled read-only guard (§R9 — enforced here via cancel, since
  * firing itself is Phase 3/T8).
  */
@@ -210,7 +210,7 @@ describe("GET /:id/alerts — visibility (§R2)", () => {
 });
 
 describe("PATCH/DELETE /:id/alerts/:alertId — ownership (§R3) and fired/cancelled guard (§R9)", () => {
-  it("non-creator gets 404 editing a scope='all' alert (ownership hidden)", async () => {
+  it("non-creator gets 403 editing a scope='all' alert (existence already visible)", async () => {
     const list = await makeApp(OWNER).request(`/${instanceId}/alerts`);
     const { data } = (await list.json()) as {
       data: { id: string; scope: string }[];
@@ -225,7 +225,7 @@ describe("PATCH/DELETE /:id/alerts/:alertId — ownership (§R3) and fired/cance
         body: JSON.stringify({ note: "hijacked" }),
       },
     );
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
   });
 
   it("non-creator gets 404 editing a scope='me' alert it can't even see", async () => {

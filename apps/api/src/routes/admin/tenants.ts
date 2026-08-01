@@ -58,6 +58,9 @@ export const listTenantsHandlers = factory.createHandlers(
   requireRole("superadmin"),
   zValidator("query", ListTenantsQuerySchema),
   async (c) => {
+    if (env.PLATFORM_ORG_ID && c.get("auth").tenantId !== env.PLATFORM_ORG_ID) {
+      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+    }
     const { status, limit, offset } = c.req.valid("query");
 
     const rows = await db

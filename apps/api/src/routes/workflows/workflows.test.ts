@@ -155,6 +155,7 @@ describe("GET /workflows", () => {
       TYPE_ID,
       false,
       100,
+      0,
     );
   });
 
@@ -169,6 +170,7 @@ describe("GET /workflows", () => {
       undefined,
       false,
       100,
+      0,
     );
   });
 });

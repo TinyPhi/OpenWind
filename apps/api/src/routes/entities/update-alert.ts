@@ -54,7 +54,12 @@ export const updateAlertHandler = factory.createHandlers(
 
       if (!existing) return { status: 404 as const };
       if (existing.createdBy !== userId) {
-        return { status: 404 as const };
+        // scope='all' alerts are visible to other ticket-access holders (§R2),
+        // so existence isn't secret — 403 is the correct response here.
+        // scope='me' alerts are private; 404 hides existence from non-creators.
+        return existing.scope === "all"
+          ? { status: 403 as const }
+          : { status: 404 as const };
       }
       if (existing.status !== "pending") {
         return { status: 409 as const };
@@ -122,6 +127,12 @@ export const updateAlertHandler = factory.createHandlers(
 
     if (result.status === 404) {
       return c.json({ error: "NOT_FOUND", message: "Alert not found" }, 404);
+    }
+    if (result.status === 403) {
+      return c.json(
+        { error: "FORBIDDEN", message: "Not the alert creator" },
+        403,
+      );
     }
     if (result.status === 409) {
       return c.json(

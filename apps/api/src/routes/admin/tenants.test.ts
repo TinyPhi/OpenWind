@@ -107,6 +107,7 @@ vi.mock("../../lib/tenant-lifecycle.js", () => ({
 }));
 
 const {
+  listTenantsHandlers,
   getTenantHandlers,
   suspendTenantHandlers,
   reactivateTenantHandlers,
@@ -117,6 +118,7 @@ const TENANT_ID = "00000000-0000-0000-0000-000000000001";
 
 function makeApp() {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
+  app.get("/", ...listTenantsHandlers);
   app.get("/:id", ...getTenantHandlers);
   app.patch("/:id/suspend", ...suspendTenantHandlers);
   app.patch("/:id/reactivate", ...reactivateTenantHandlers);
@@ -194,5 +196,26 @@ describe("admin tenant routes — PLATFORM_ORG_ID guard (#251)", () => {
       body: "{}",
     });
     expect(res.status).toBe(404);
+  });
+
+  it("GET / passes when PLATFORM_ORG_ID is unset (dev/test)", async () => {
+    const res = await makeApp().request("/");
+    expect(res.status).toBe(200);
+  });
+
+  it("GET / returns 404 when caller's tenantId does not match PLATFORM_ORG_ID", async () => {
+    mockEnv.PLATFORM_ORG_ID = "t-platform";
+    mockAuth.tenantId = "t-customer";
+
+    const res = await makeApp().request("/");
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect((json as { error: string }).error).toBe("NOT_FOUND");
+  });
+
+  it("GET / passes when caller's tenantId matches PLATFORM_ORG_ID", async () => {
+    mockEnv.PLATFORM_ORG_ID = "t-platform";
+    const res = await makeApp().request("/");
+    expect(res.status).toBe(200);
   });
 });
