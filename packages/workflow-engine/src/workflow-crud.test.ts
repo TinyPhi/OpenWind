@@ -12,7 +12,9 @@ function makeSelectBuilder(results: () => unknown[]) {
   const q: Record<string, unknown> = {};
   q["from"] = () => q;
   q["where"] = () => q;
+  q["orderBy"] = () => q;
   q["limit"] = () => q;
+  q["offset"] = () => Promise.resolve(results());
   q["then"] = (resolve: (v: unknown[]) => void) =>
     Promise.resolve(results()).then(resolve);
   return q;
@@ -76,7 +78,8 @@ vi.mock("./authorization.js", () => ({
   isWorkflowAdminListEditor: vi.fn(() => true),
 }));
 
-const { updateWorkflowState } = await import("./workflow-crud.js");
+const { updateWorkflowState, listWorkflowsSummary } =
+  await import("./workflow-crud.js");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -115,6 +118,51 @@ beforeEach(() => {
   selectCallCount = 0;
   selectQueue = [];
   updateCalls = [];
+});
+
+const workflowRow = {
+  id: WORKFLOW_ID,
+  tenantId: TENANT_ID,
+  entityTypeId: "etype-1",
+  name: "Support",
+  initialState: "open",
+  isActive: true,
+  createdBy: CALLER.userId,
+  assignedTo: [CALLER.userId],
+  maxChildDepth: 1,
+  maxChildrenPerParent: null,
+  createdAt: new Date("2026-01-01"),
+};
+
+describe("listWorkflowsSummary — limit parameter (#261)", () => {
+  it("returns mapped workflow rows from the DB", async () => {
+    selectQueue = [() => [workflowRow]];
+
+    const results = await listWorkflowsSummary(
+      dbMock as never,
+      TENANT_ID,
+      CALLER,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.id).toBe(WORKFLOW_ID);
+    expect(results[0]?.name).toBe("Support");
+  });
+
+  it("returns empty array when no workflows match", async () => {
+    selectQueue = [() => []];
+
+    const results = await listWorkflowsSummary(
+      dbMock as never,
+      TENANT_ID,
+      CALLER,
+      undefined,
+      false,
+      10,
+    );
+
+    expect(results).toHaveLength(0);
+  });
 });
 
 describe("updateWorkflowState — rename cascade", () => {

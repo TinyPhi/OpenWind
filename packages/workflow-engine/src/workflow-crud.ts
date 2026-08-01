@@ -211,6 +211,8 @@ export async function listWorkflowsSummary(
   caller: WorkflowCaller,
   entityTypeId?: string,
   activeOnly?: boolean,
+  limit = 500,
+  offset = 0,
 ): Promise<WorkflowDefinition[]> {
   const visibility = caller.isGlobalAdmin
     ? visibleTo(tenantId)
@@ -227,7 +229,9 @@ export async function listWorkflowsSummary(
     .select()
     .from(workflows)
     .where(filter)
-    .orderBy(asc(workflows.createdAt));
+    .orderBy(asc(workflows.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   return rows.map(rowToWorkflow);
 }
@@ -254,6 +258,8 @@ export async function listWorkflows(
   caller: WorkflowCaller,
   entityTypeId?: string,
   activeOnly?: boolean,
+  limit = 500,
+  offset = 0,
 ): Promise<WorkflowFull[]> {
   const visibility = caller.isGlobalAdmin
     ? visibleTo(tenantId)
@@ -270,7 +276,9 @@ export async function listWorkflows(
     .select()
     .from(workflows)
     .where(filter)
-    .orderBy(asc(workflows.createdAt));
+    .orderBy(asc(workflows.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   if (rows.length === 0) return [];
 

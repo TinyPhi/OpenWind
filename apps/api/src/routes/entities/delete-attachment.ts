@@ -1,4 +1,4 @@
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   entityInstances,
   files,
@@ -14,6 +14,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 
 export const deleteAttachmentHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   async (c) => {
     const id = c.req.param("id") ?? "";
     const fileId = c.req.param("fileId") ?? "";

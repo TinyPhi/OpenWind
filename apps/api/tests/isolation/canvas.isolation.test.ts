@@ -206,7 +206,7 @@ describe("PUT /workflows/:id/canvas — initial state deletion guard", () => {
 });
 
 describe("PUT /workflows/:id/canvas — role authorization", () => {
-  it("returns 403 when a non-admin role attempts to save the canvas", async () => {
+  it("returns 404 when a non-admin role attempts to save the canvas", async () => {
     const app = makeApp(TENANT_A, "u-agent", ["agent"]);
 
     const res = await app.request(`/${workflowIdA}/canvas`, {
@@ -215,8 +215,8 @@ describe("PUT /workflows/:id/canvas — role authorization", () => {
       body: JSON.stringify(validCanvasBody()),
     });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     const json = (await res.json()) as { error: string };
-    expect(json.error).toBe("FORBIDDEN");
+    expect(json.error).toBe("NOT_FOUND");
   });
 });

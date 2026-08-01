@@ -72,7 +72,12 @@ export async function getAutomationRule(
 export async function listAutomationRules(
   db: DbOrTx,
   tenantId: string,
-  filter?: { triggerType?: TriggerType; isEnabled?: boolean },
+  filter?: {
+    triggerType?: TriggerType;
+    isEnabled?: boolean;
+    limit?: number;
+    offset?: number;
+  },
 ): Promise<AutomationRule[]> {
   const conditions = [eq(automationRules.tenantId, tenantId)];
 
@@ -83,11 +88,16 @@ export async function listAutomationRules(
     conditions.push(eq(automationRules.isEnabled, filter.isEnabled));
   }
 
+  const limit = filter?.limit ?? 500;
+  const offset = filter?.offset ?? 0;
+
   const rows = await db
     .select()
     .from(automationRules)
     .where(and(...conditions))
-    .orderBy(automationRules.priority, automationRules.createdAt);
+    .orderBy(automationRules.priority, automationRules.createdAt)
+    .limit(limit)
+    .offset(offset);
 
   return rows.map(rowToRule);
 }

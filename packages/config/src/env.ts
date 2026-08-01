@@ -71,6 +71,12 @@ const EnvSchema = z
     // Dev fallback: used as tenantId when urn:zitadel:iam:user:resourceowner:id is absent (instance admin login).
     // Must never be set in production — it bypasses tenant isolation for instance-admin logins.
     DEV_TENANT_ID: z.string().optional(),
+    // The Zitadel org UUID that belongs to platform operators. When set, admin
+    // tenant lifecycle routes (GET/PATCH/DELETE /admin/tenants/:id) verify that
+    // the caller's auth.tenantId matches this value — blocking a customer user
+    // who has been granted 'superadmin' from accessing other tenants' lifecycle
+    // routes. Unset in dev/test (where DEV_TENANT_ID already unifies tenantIds).
+    PLATFORM_ORG_ID: z.string().uuid().optional(),
     // Service account key JSON (raw JSON string from Zitadel console).
     // Used to call the Zitadel Management API for live role/user queries.
     // Store the full JSON string. Never commit this value.

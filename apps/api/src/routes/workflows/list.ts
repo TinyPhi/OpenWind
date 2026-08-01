@@ -17,6 +17,8 @@ const ListWorkflowsQuerySchema = z.object({
     .string()
     .optional()
     .transform((v) => v === "true"),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
 });
 
 export const listWorkflowsHandler = factory.createHandlers(
@@ -24,15 +26,32 @@ export const listWorkflowsHandler = factory.createHandlers(
   requireRole("admin", "agent", "user"),
   zValidator("query", ListWorkflowsQuerySchema),
   async (c) => {
-    const { entityTypeId, activeOnly, summary } = c.req.valid("query");
+    const { entityTypeId, activeOnly, summary, limit, offset } =
+      c.req.valid("query");
     const auth = c.get("auth");
     const { tenantId } = auth;
     const caller = toWorkflowCaller(auth);
     try {
       const workflows = await withTenantContext(tenantId, (tx) =>
         summary
-          ? listWorkflowsSummary(tx, tenantId, caller, entityTypeId, activeOnly)
-          : listWorkflows(tx, tenantId, caller, entityTypeId, activeOnly),
+          ? listWorkflowsSummary(
+              tx,
+              tenantId,
+              caller,
+              entityTypeId,
+              activeOnly,
+              limit,
+              offset,
+            )
+          : listWorkflows(
+              tx,
+              tenantId,
+              caller,
+              entityTypeId,
+              activeOnly,
+              limit,
+              offset,
+            ),
       );
       return c.json({ data: workflows });
     } catch (err) {

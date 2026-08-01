@@ -33,6 +33,9 @@ vi.mock("@platform/auth", () => ({
       c.set("auth", currentAuth);
       await next();
     },
+  requireRole: () => async (_c: Context, next: Next) => {
+    await next();
+  },
 }));
 
 vi.mock("../../lib/zitadel-management.js", () => ({

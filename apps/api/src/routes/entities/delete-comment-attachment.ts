@@ -1,4 +1,4 @@
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   entityInstances,
   workflowEvents,
@@ -12,6 +12,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 
 export const deleteCommentAttachmentHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   async (c) => {
     const id = c.req.param("id") ?? "";
     const eventId = c.req.param("eventId") ?? "";
