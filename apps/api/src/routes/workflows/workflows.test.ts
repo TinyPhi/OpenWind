@@ -154,6 +154,7 @@ describe("GET /workflows", () => {
       { userId: "u-bbb", isGlobalAdmin: true },
       TYPE_ID,
       false,
+      100,
     );
   });
 
@@ -167,6 +168,7 @@ describe("GET /workflows", () => {
       { userId: "u-bbb", isGlobalAdmin: true },
       undefined,
       false,
+      100,
     );
   });
 });

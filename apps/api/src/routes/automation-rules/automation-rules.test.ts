@@ -65,7 +65,7 @@ const fakeRule = {
   triggerType: "workflow.transitioned" as const,
   triggerConfig: {},
   conditions: null,
-  actions: [{ type: "notify" as const, config: { channel: "email" } }],
+  actions: [{ type: "notify" as const, config: { channel: ["email"] } }],
   priority: 0,
   createdAt: new Date("2026-01-01"),
   updatedAt: new Date("2026-01-01"),
@@ -155,6 +155,8 @@ describe("GET /automation-rules", () => {
     expect(mockList).toHaveBeenCalledWith({}, "t-aaa", {
       triggerType: undefined,
       isEnabled: undefined,
+      limit: 100,
+      offset: 0,
     });
   });
 
@@ -166,7 +168,28 @@ describe("GET /automation-rules", () => {
     expect(mockList).toHaveBeenCalledWith({}, "t-aaa", {
       triggerType: "entity.created",
       isEnabled: true,
+      limit: 100,
+      offset: 0,
     });
+  });
+
+  it("passes limit and offset to listAutomationRules (#261)", async () => {
+    mockList.mockResolvedValue([]);
+
+    await makeApp().request("/?limit=10&offset=20");
+
+    expect(mockList).toHaveBeenCalledWith({}, "t-aaa", {
+      triggerType: undefined,
+      isEnabled: undefined,
+      limit: 10,
+      offset: 20,
+    });
+  });
+
+  it("rejects limit above 500 with 400", async () => {
+    const res = await makeApp().request("/?limit=501");
+    expect(res.status).toBe(400);
+    expect(mockList).not.toHaveBeenCalled();
   });
 });
 

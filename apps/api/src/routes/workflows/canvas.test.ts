@@ -4,6 +4,14 @@ import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as WorkflowEngine from "@platform/workflow-engine";
 
+// non-admin ownership fixture: when set, the DB returns a workflow row
+// owned by someone else so the isWorkflowAdmin check can fire.
+let mockWorkflowRow: {
+  id: string;
+  createdBy: string;
+  assignedTo: string[];
+} | null = null;
+
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockGetWorkflow = vi.fn();
@@ -14,16 +22,18 @@ const mockUpdateTransitions = vi.fn().mockResolvedValue([]);
 const mockDeleteTransitions = vi.fn().mockResolvedValue([]);
 const mockDeleteStates = vi.fn().mockResolvedValue([]);
 
+let mockAuthCtx: AuthContext = {
+  tenantId: "t-aaa",
+  userId: "u-bbb",
+  roles: ["admin"],
+  email: "test@example.com",
+};
+
 vi.mock("@platform/auth", () => ({
   requireAuth:
     () =>
     async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", {
-        tenantId: "t-aaa",
-        userId: "u-bbb",
-        roles: ["admin"],
-        email: "test@example.com",
-      });
+      c.set("auth", mockAuthCtx);
       await next();
     },
   requireRole: () => async (_c: Context, next: Next) => {
@@ -42,7 +52,13 @@ vi.mock("@platform/db", () => ({
   withTenantContext: (_tenantId: string, fn: (tx: unknown) => unknown) =>
     fn({
       select: () => ({
-        from: () => ({ where: () => ({ orderBy: () => Promise.resolve([]) }) }),
+        from: () => ({
+          where: () => ({
+            orderBy: () => Promise.resolve([]),
+            limit: () =>
+              Promise.resolve(mockWorkflowRow ? [mockWorkflowRow] : []),
+          }),
+        }),
       }),
       insert: (table: unknown) => {
         if (String(table).includes("States")) mockInsertStates();
@@ -60,6 +76,12 @@ vi.mock("@platform/db", () => ({
         return chainable;
       },
     }),
+  workflows: {
+    id: "workflows.id",
+    createdBy: "workflows.createdBy",
+    assignedTo: "workflows.assignedTo",
+    tenantId: "workflows.tenantId",
+  },
   workflowStates: "workflowStates",
   workflowTransitions: "workflowTransitions",
 }));
@@ -70,11 +92,14 @@ vi.mock("drizzle-orm", () => ({
   inArray: (a: unknown, b: unknown) => ({ a, b }),
 }));
 
+const mockIsWorkflowAdmin = vi.fn(() => true);
+
 vi.mock("@platform/workflow-engine", async (importOriginal) => {
   const real = await importOriginal<typeof WorkflowEngine>();
   return {
     ...real,
     getWorkflow: (...args: unknown[]) => mockGetWorkflow(...args),
+    isWorkflowAdmin: (...args: unknown[]) => mockIsWorkflowAdmin(...args),
   };
 });
 
@@ -142,6 +167,14 @@ describe("PUT /workflows/:id/canvas", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetWorkflow.mockResolvedValue(BASE_WORKFLOW);
+    mockIsWorkflowAdmin.mockReturnValue(true);
+    mockWorkflowRow = null;
+    mockAuthCtx = {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["admin"],
+      email: "test@example.com",
+    };
   });
 
   it("returns 200 with updated workflow on clean save", async () => {
@@ -217,5 +250,30 @@ describe("PUT /workflows/:id/canvas", () => {
       body: JSON.stringify({ states: [], transitions: [] }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 403) when non-global-admin is not the workflow admin (#260)", async () => {
+    mockAuthCtx = {
+      tenantId: "t-aaa",
+      userId: "u-not-owner",
+      roles: ["agent"],
+      email: "agent@example.com",
+    };
+    mockWorkflowRow = {
+      id: WF_ID,
+      createdBy: "u-someone-else",
+      assignedTo: [],
+    };
+    mockIsWorkflowAdmin.mockReturnValue(false);
+
+    const app = makeApp();
+    const res = await app.request(`/${WF_ID}/canvas`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ states: BASE_WORKFLOW.states, transitions: [] }),
+    });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect((body as { error: string }).error).toBe("NOT_FOUND");
   });
 });
