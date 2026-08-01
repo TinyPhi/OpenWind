@@ -26,6 +26,7 @@ export async function executeAutomationRules(
   rawEvent: unknown,
   depth = 0,
   redis?: Redis,
+  outboxEventId?: string,
 ): Promise<void> {
   if (depth >= MAX_DEPTH) {
     throw new AutomationError("MAX_DEPTH_EXCEEDED", { depth });
@@ -113,10 +114,12 @@ export async function executeAutomationRules(
             ruleTx,
             tenantId,
             rule.id,
+            execRow.id,
             event,
             action,
             depth,
             redis,
+            outboxEventId,
           );
           if (skipped) skippedCount++;
         }
@@ -184,12 +187,19 @@ async function runAction(
   db: DbOrTx,
   tenantId: string,
   ruleId: string,
+  execId: string,
   event: TriggerEvent,
   action: ActionConfig,
   depth: number,
   redis?: Redis,
+  outboxEventId?: string,
 ): Promise<boolean> {
-  if (redis && (await isOpen(redis, tenantId, action.type))) {
+  if (!redis) {
+    throw new AutomationError("CIRCUIT_BREAKER_UNAVAILABLE", {
+      actionType: action.type,
+    });
+  }
+  if (await isOpen(redis, tenantId, action.type)) {
     logger.warn(
       { tenantId, actionType: action.type },
       "Automation: circuit open — skipping action",
@@ -200,7 +210,16 @@ async function runAction(
   try {
     switch (action.type) {
       case "notify":
-        await executeNotifyAction(db, tenantId, event, action.config, redis);
+        await executeNotifyAction(
+          db,
+          tenantId,
+          ruleId,
+          execId,
+          event,
+          action.config,
+          redis,
+          outboxEventId,
+        );
         break;
       case "set_field":
         await executeSetFieldAction(db, tenantId, event, action.config, depth);
@@ -224,6 +243,8 @@ async function runAction(
           event,
           action.config,
           depth,
+          redis,
+          outboxEventId,
         );
         break;
       case "webhook":
@@ -231,16 +252,24 @@ async function runAction(
           extraBlockCidrs: env.SSRF_BLOCK_CIDRS,
         });
         break;
-      default:
+      case "connector.action":
+        // Phase 3 stub — the type is valid and may be stored in automation_rules,
+        // but the connector runtime isn't implemented yet. Log and skip rather
+        // than throwing, so rules seeded today survive the Phase 3 cut-over
+        // without hard-failing on every execution.
         logger.warn(
-          { tenantId, actionType: action.type },
-          "Automation: unhandled action type",
+          { tenantId, ruleId },
+          "Automation: connector.action is not yet implemented — skipping",
         );
-        return false;
+        break;
+      default:
+        throw new AutomationError("UNKNOWN_ACTION_TYPE", {
+          actionType: (action as { type: string }).type,
+        });
     }
-    if (redis) await reset(redis, tenantId, action.type);
+    await reset(redis, tenantId, action.type);
   } catch (err) {
-    if (redis) await recordFailure(redis, tenantId, action.type);
+    await recordFailure(redis, tenantId, action.type);
     throw err;
   }
 

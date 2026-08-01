@@ -10,17 +10,31 @@ import {
   TriggerTypeSchema,
   ActionConfigSchema,
   ConditionTreeSchema,
+  TRIGGER_CONFIG_SCHEMAS,
 } from "./schemas.js";
 
-const CreateAutomationRuleSchema = z.object({
-  name: z.string().min(1).max(200),
-  triggerType: TriggerTypeSchema,
-  triggerConfig: z.record(z.unknown()),
-  conditions: ConditionTreeSchema.nullable().optional(),
-  actions: z.array(ActionConfigSchema).min(1),
-  isEnabled: z.boolean().optional(),
-  priority: z.number().int().optional(),
-});
+const CreateAutomationRuleSchema = z
+  .object({
+    name: z.string().min(1).max(200),
+    triggerType: TriggerTypeSchema,
+    triggerConfig: z.record(z.unknown()),
+    conditions: ConditionTreeSchema.nullable().optional(),
+    actions: z.array(ActionConfigSchema).min(1),
+    isEnabled: z.boolean().optional(),
+    priority: z.number().int().optional(),
+  })
+  .superRefine((v, ctx) => {
+    const schema =
+      TRIGGER_CONFIG_SCHEMAS[
+        v.triggerType as keyof typeof TRIGGER_CONFIG_SCHEMAS
+      ];
+    const result = schema.safeParse(v.triggerConfig);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        ctx.addIssue({ ...issue, path: ["triggerConfig", ...issue.path] });
+      }
+    }
+  });
 
 export const createAutomationRuleHandler = factory.createHandlers(
   requireAuth(),
