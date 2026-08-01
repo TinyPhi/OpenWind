@@ -94,7 +94,12 @@ describe("POST /automation-rules", () => {
         name: "Close on transition",
         triggerType: "workflow.transitioned",
         triggerConfig: {},
-        actions: [{ type: "notify", config: { channel: "email" } }],
+        actions: [
+          {
+            type: "notify",
+            config: { recipientId: "u-aaa", channel: ["email"] },
+          },
+        ],
       }),
     });
 

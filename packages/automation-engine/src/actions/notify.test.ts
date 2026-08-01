@@ -7,7 +7,7 @@ const dbMock = {
   insert: (table: unknown) => ({
     values: (values: unknown) => {
       insertedRows.push({ table, values });
-      return Promise.resolve(undefined);
+      return { onConflictDoNothing: () => Promise.resolve(undefined) };
     },
   }),
 };
@@ -36,6 +36,8 @@ vi.mock("bullmq", () => ({
 const { executeNotifyAction } = await import("./notify.js");
 
 const EVENT = {} as TriggerEvent;
+const RULE_ID = "rule-aaa";
+const EXEC_ID = "exec-bbb";
 
 describe("executeNotifyAction", () => {
   beforeEach(() => {
@@ -45,7 +47,7 @@ describe("executeNotifyAction", () => {
   });
 
   it("skips and warns when no recipientId is configured", async () => {
-    await executeNotifyAction(dbMock as never, "t-1", EVENT, {
+    await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
       channel: ["email"],
     } as never);
     expect(insertedRows).toHaveLength(0);
@@ -53,7 +55,7 @@ describe("executeNotifyAction", () => {
   });
 
   it("writes a notification + recipient row using the rule's own config content", async () => {
-    await executeNotifyAction(dbMock as never, "t-1", EVENT, {
+    await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
       recipientId: "u-target",
       payload: { title: "Custom title", body: "Custom body", link: "/x" },
     } as never);
@@ -74,8 +76,46 @@ describe("executeNotifyAction", () => {
     });
   });
 
+  it("derives a stable notificationId across retries — same inputs produce same id (#228)", async () => {
+    await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
+      recipientId: "u-target",
+    } as never);
+    const idFirst = (insertedRows[0]?.values as { id?: string })?.id;
+
+    insertedRows.length = 0;
+    await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
+      recipientId: "u-target",
+    } as never);
+    const idSecond = (insertedRows[0]?.values as { id?: string })?.id;
+
+    expect(idFirst).toBe(idSecond);
+    expect(idFirst).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it("produces different ids for different execution contexts", async () => {
+    await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
+      recipientId: "u-target",
+    } as never);
+    const idA = (insertedRows[0]?.values as { id?: string })?.id;
+
+    insertedRows.length = 0;
+    await executeNotifyAction(
+      dbMock as never,
+      "t-1",
+      RULE_ID,
+      "exec-different",
+      EVENT,
+      { recipientId: "u-target" } as never,
+    );
+    const idB = (insertedRows[0]?.values as { id?: string })?.id;
+
+    expect(idA).not.toBe(idB);
+  });
+
   it("falls back to generic title/body when the rule config doesn't provide them", async () => {
-    await executeNotifyAction(dbMock as never, "t-1", EVENT, {
+    await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
       recipientId: "u-target",
     } as never);
 
@@ -90,6 +130,8 @@ describe("executeNotifyAction", () => {
     await executeNotifyAction(
       dbMock as never,
       "t-1",
+      RULE_ID,
+      EXEC_ID,
       EVENT,
       { recipientId: "u-target" } as never,
       {} as never,
@@ -103,7 +145,7 @@ describe("executeNotifyAction", () => {
   });
 
   it("does not enqueue an outbound job when no redis connection is provided", async () => {
-    await executeNotifyAction(dbMock as never, "t-1", EVENT, {
+    await executeNotifyAction(dbMock as never, "t-1", RULE_ID, EXEC_ID, EVENT, {
       recipientId: "u-target",
     } as never);
 
@@ -115,6 +157,8 @@ describe("executeNotifyAction", () => {
     await executeNotifyAction(
       dbMock as never,
       "t-1",
+      RULE_ID,
+      EXEC_ID,
       EVENT,
       { recipientId: "u-target" } as never,
       {} as never,

@@ -10,6 +10,7 @@ import {
   TriggerTypeSchema,
   ActionConfigSchema,
   ConditionTreeSchema,
+  TRIGGER_CONFIG_SCHEMAS,
 } from "./schemas.js";
 
 const UpdateAutomationRuleSchema = z
@@ -24,6 +25,19 @@ const UpdateAutomationRuleSchema = z
   })
   .refine((v) => Object.keys(v).length > 0, {
     message: "At least one field is required",
+  })
+  .superRefine((v, ctx) => {
+    if (!v.triggerType || !v.triggerConfig) return;
+    const schema =
+      TRIGGER_CONFIG_SCHEMAS[
+        v.triggerType as keyof typeof TRIGGER_CONFIG_SCHEMAS
+      ];
+    const result = schema.safeParse(v.triggerConfig);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        ctx.addIssue({ ...issue, path: ["triggerConfig", ...issue.path] });
+      }
+    }
   });
 
 export const updateAutomationRuleHandler = factory.createHandlers(

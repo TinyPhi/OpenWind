@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { Redis } from "ioredis";
 import { Queue } from "bullmq";
 import type { DbOrTx } from "@platform/db";
@@ -21,15 +21,34 @@ export type { NotifyConfig };
 // come from the rule's own config, since a tenant-authored automation rule
 // is already admin-configured content, not a free-text injection surface.
 //
-// Known limitation: unlike the 6 system triggers, this notification's id is
-// a fresh randomUUID(), not derived from a stable outbox-event id — so if
-// the whole automation job this action runs inside is retried by BullMQ
-// (e.g. a later action in the same rule throws), this notify action could
-// fire twice. Accepted for now; revisit if automation retries turn out to
-// hit this action in practice.
+// Idempotency: the notification ID is derived deterministically from
+// (tenantId, ruleId, execId, recipientId) so BullMQ retries of the same
+// automation execution reuse the same ID and are deduplicated by the
+// onConflictDoNothing insert (#228).
+function deriveNotificationId(
+  tenantId: string,
+  ruleId: string,
+  execId: string,
+  recipientId: string,
+): string {
+  const hash = createHash("sha256")
+    .update([tenantId, ruleId, execId, recipientId].join(":"))
+    .digest("hex");
+  return [
+    hash.slice(0, 8),
+    hash.slice(8, 12),
+    "4" + hash.slice(13, 16),
+    ((parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80).toString(16) +
+      hash.slice(18, 20),
+    hash.slice(20, 32),
+  ].join("-");
+}
+
 export async function executeNotifyAction(
   db: DbOrTx,
   tenantId: string,
+  ruleId: string,
+  execId: string,
   _event: TriggerEvent,
   config: NotifyConfig,
   redis?: Redis,
@@ -52,22 +71,33 @@ export async function executeNotifyAction(
       : "You have a new notification";
   const link = typeof payload["link"] === "string" ? payload["link"] : null;
 
-  const notificationId = randomUUID();
-
-  await db.insert(notifications).values({
-    id: notificationId,
+  const notificationId = deriveNotificationId(
     tenantId,
-    type: "automation.notify",
-    title,
-    body,
-    link,
-  });
+    ruleId,
+    execId,
+    recipientId,
+  );
 
-  await db.insert(notificationRecipients).values({
-    notificationId,
-    tenantId,
-    userId: recipientId,
-  });
+  await db
+    .insert(notifications)
+    .values({
+      id: notificationId,
+      tenantId,
+      type: "automation.notify",
+      title,
+      body,
+      link,
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(notificationRecipients)
+    .values({
+      notificationId,
+      tenantId,
+      userId: recipientId,
+    })
+    .onConflictDoNothing();
 
   if (redis) {
     if (await isOutboundNotificationsEnabled()) {

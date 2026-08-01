@@ -113,6 +113,7 @@ export async function executeAutomationRules(
             ruleTx,
             tenantId,
             rule.id,
+            execRow.id,
             event,
             action,
             depth,
@@ -184,12 +185,18 @@ async function runAction(
   db: DbOrTx,
   tenantId: string,
   ruleId: string,
+  execId: string,
   event: TriggerEvent,
   action: ActionConfig,
   depth: number,
   redis?: Redis,
 ): Promise<boolean> {
-  if (redis && (await isOpen(redis, tenantId, action.type))) {
+  if (!redis) {
+    throw new AutomationError("CIRCUIT_BREAKER_UNAVAILABLE", {
+      actionType: action.type,
+    });
+  }
+  if (await isOpen(redis, tenantId, action.type)) {
     logger.warn(
       { tenantId, actionType: action.type },
       "Automation: circuit open — skipping action",
@@ -200,7 +207,15 @@ async function runAction(
   try {
     switch (action.type) {
       case "notify":
-        await executeNotifyAction(db, tenantId, event, action.config, redis);
+        await executeNotifyAction(
+          db,
+          tenantId,
+          ruleId,
+          execId,
+          event,
+          action.config,
+          redis,
+        );
         break;
       case "set_field":
         await executeSetFieldAction(db, tenantId, event, action.config, depth);
@@ -232,15 +247,13 @@ async function runAction(
         });
         break;
       default:
-        logger.warn(
-          { tenantId, actionType: action.type },
-          "Automation: unhandled action type",
-        );
-        return false;
+        throw new AutomationError("UNKNOWN_ACTION_TYPE", {
+          actionType: (action as { type: string }).type,
+        });
     }
-    if (redis) await reset(redis, tenantId, action.type);
+    await reset(redis, tenantId, action.type);
   } catch (err) {
-    if (redis) await recordFailure(redis, tenantId, action.type);
+    await recordFailure(redis, tenantId, action.type);
     throw err;
   }
 
