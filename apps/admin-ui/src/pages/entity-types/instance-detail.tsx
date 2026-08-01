@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { UserPicker } from "../../components/user-picker.js";
+import { FieldInput } from "../../components/field-input.js";
 
 type EntityField = {
   id: string;
@@ -52,109 +53,6 @@ function formatFieldValue(value: unknown): string {
     return JSON.stringify(value);
   }
   return String(value);
-}
-
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  field: EntityField;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}): React.ReactElement {
-  const strVal = value === null || value === undefined ? "" : String(value);
-  switch (field.fieldType) {
-    case "boolean":
-      return (
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          <span>{field.label}</span>
-        </label>
-      );
-    case "number":
-    case "currency":
-      return (
-        <input
-          className="form-input"
-          type="number"
-          value={strVal}
-          onChange={(e) =>
-            onChange(e.target.value === "" ? null : Number(e.target.value))
-          }
-        />
-      );
-    case "date":
-      return (
-        <input
-          className="form-input"
-          type="date"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "datetime":
-      return (
-        <input
-          className="form-input"
-          type="datetime-local"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "enum":
-    case "multi_enum": {
-      const opts = (field.config.options ?? []).map((o) =>
-        typeof o === "string"
-          ? { label: o, value: o }
-          : { label: o.label, value: o.value },
-      );
-      return (
-        <select
-          className="form-input"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        >
-          <option value="">Select…</option>
-          {opts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    case "longtext":
-      return (
-        <textarea
-          className="form-input"
-          value={strVal}
-          rows={4}
-          style={{ resize: "vertical" }}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    default:
-      return (
-        <input
-          className="form-input"
-          type="text"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-  }
 }
 
 export function EntityInstanceDetail(): React.ReactElement {
