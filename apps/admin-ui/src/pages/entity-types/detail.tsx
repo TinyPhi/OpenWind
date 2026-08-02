@@ -630,7 +630,9 @@ export function EntityTypeDetail(): React.ReactElement {
               <h3 className="modal-title">Add Field</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleAddField(e)}>
@@ -801,7 +803,9 @@ export function EntityTypeDetail(): React.ReactElement {
               </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleSaveField(e)}>

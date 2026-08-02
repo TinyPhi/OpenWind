@@ -264,7 +264,9 @@ export function EntityTypes(): React.ReactElement {
               <h3 className="modal-title">New Entity Type</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleCreate(e)}>

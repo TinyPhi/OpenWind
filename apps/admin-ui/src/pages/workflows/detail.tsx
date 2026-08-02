@@ -3301,7 +3301,9 @@ export function WorkflowDetail(): React.ReactElement {
               <h3 className="modal-title">Add Detail</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleAddField(e)}>
@@ -3427,7 +3429,9 @@ export function WorkflowDetail(): React.ReactElement {
               <h3 className="modal-title">Add Step</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleAddState(e)}>
@@ -3613,7 +3617,9 @@ export function WorkflowDetail(): React.ReactElement {
               <h3 className="modal-title">Add Action</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleAddTransition(e)}>
@@ -3794,7 +3800,9 @@ export function WorkflowDetail(): React.ReactElement {
               </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleEditField(e)}>
@@ -3905,7 +3913,9 @@ export function WorkflowDetail(): React.ReactElement {
               <h3 className="modal-title">Edit Step — {editingState?.label}</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleEditState(e)}>
@@ -4100,7 +4110,9 @@ export function WorkflowDetail(): React.ReactElement {
               <h3 className="modal-title">Edit Action</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <form onSubmit={(e) => void handleEditTransition(e)}>

@@ -706,7 +706,9 @@ export function EntityInstanceDetail(): React.ReactElement {
               <h3 className="modal-title">Change State</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <div className="modal-body">

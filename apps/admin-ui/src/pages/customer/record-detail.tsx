@@ -3971,7 +3971,9 @@ export function CustomerRecordDetail(): React.ReactElement {
               </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <div className="modal-body">
@@ -4150,7 +4152,9 @@ export function CustomerRecordDetail(): React.ReactElement {
               <h3 className="modal-title">Grant ticket access</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <div className="modal-body">
@@ -4401,7 +4405,9 @@ export function CustomerRecordDetail(): React.ReactElement {
               <h3 className="modal-title">New sub-task</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <div className="modal-body">
@@ -4517,7 +4523,9 @@ export function CustomerRecordDetail(): React.ReactElement {
               </h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button className="modal-close">×</button>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
             </DialogClose>
           </div>
           <div className="modal-body">
@@ -4597,7 +4605,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               <span className="modal-title">Request access?</span>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close">
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
             </DialogClose>
@@ -4666,7 +4674,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               <h3 className="modal-title">Review access request</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close">
+              <button type="button" className="modal-close" aria-label="Close">
                 ✕
               </button>
             </DialogClose>
@@ -4788,7 +4796,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               <h3 className="modal-title">Alerts</h3>
             </DialogTitle>
             <DialogClose asChild>
-              <button type="button" className="modal-close">
+              <button type="button" className="modal-close" aria-label="Close">
                 ✕
               </button>
             </DialogClose>

@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-08-02 — #284 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `fix/PLAT-284-modal-a11y-wave2`)
+**Issues:** #284 (PR #298)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #298 review: all ~20 custom `<DialogClose asChild>` close buttons
+  (`<button className="modal-close">×</button>`) were missing `aria-label="Close"` — screen
+  readers announced the `×` glyph literally instead of "Close". Added to all of them across
+  `workflows/detail.tsx`, `record-detail.tsx`, `entity-types/*`, `instance-detail.tsx` (blocking).
+- Also added the non-blocking `type="button"` suggestion to the same 14 buttons that were missing
+  it (some already had it).
+- Filed **#304** for the two remaining non-blocking suggestions (a shared `DIALOG_CONTENT_RESET`
+  constant for the ~20-times-duplicated style-reset block, and converting `modules.tsx`'s two
+  modals from conditional-mount to the controlled `open`/`onOpenChange` pattern used everywhere
+  else) — the second one touches ~14 `previewTarget.`/`forkTarget.` references and deserves its
+  own careful pass rather than being rushed into this response.
+
+### Verification
+
+- `pnpm --filter @platform/admin-ui typecheck && lint && test` — green (90/90 tests).
+
+---
+
 ## 2026-08-02 — #284 a11y wave 2: migrate remaining modals to Dialog/AlertDialog
 
 **Session type:** Frontend a11y (Plan → Code → Review → Docs → Ship)
