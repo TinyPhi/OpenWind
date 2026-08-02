@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-08-02 — #62 closed, real gap split to #301 and fixed
+
+**Session type:** Bug fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-62-state-delete-instance-guard`
+**Issues:** #62 (closed), #301 (filed and closed by this session's fix)
+
+### Completed this session
+
+- Re-investigated #62 ("workflow version GC and stuck instance recovery") now that the workflow
+  editor (2D) has shipped. Its premise doesn't match the architecture that was actually built:
+  no `version` column exists on `workflows`, and `deleteWorkflow` already blocks deletion when
+  ANY instance references it (not just active ones) — so the "old version orphans instances"
+  scenario the issue described can't happen. Closed #62 with the full explanation.
+- Found a real, narrower, analogous gap while investigating: `deleteWorkflowState`
+  (`packages/workflow-engine/src/workflow-crud.ts`) only checked whether a _transition_
+  referenced the state being deleted — never whether a live entity instance was currently
+  _sitting in_ it. `entityInstances.currentState` is a plain `text` column with no FK, so nothing
+  at the DB layer caught this either. Filed as #301 with an accurate description.
+- Followed the Prove-It Pattern: wrote a failing isolation test first
+  (`apps/api/tests/isolation/workflow-state-delete-guard.isolation.test.ts`), confirmed it failed
+  against unmodified code (the state got deleted despite a live instance sitting in it), then
+  fixed `deleteWorkflowState` to also check `entityInstances` for the workflow + state name,
+  throwing the same `WORKFLOW_STATE_IN_USE` error code (same underlying concept — a second kind
+  of "in use"). Confirmed the fix doesn't regress deleting a genuinely unused state.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green, repo-wide.
+- New isolation test: 2/2 pass. Existing `workflow-engine.isolation.test.ts`: 18/18 pass
+  (run together with the new file).
+- `pnpm test:isolation` — 7 pre-existing failures, confirmed identical to earlier sessions this
+  week (missing PgBouncer/OpenBao/Zitadel containers in this sandbox's Docker stack), unrelated
+  to this change.
+
+---
+
 ## 2026-08-01 — security group G: automation engine hardening + abmish review fixes
 
 **Session type:** Security hardening (Plan → Code → Review → Docs → Ship)

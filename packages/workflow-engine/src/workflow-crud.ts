@@ -696,6 +696,22 @@ export async function deleteWorkflowState(
 
   if (ref) throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
 
+  // Block if any live entity instance currently sits in this state (#301) —
+  // currentState has no FK to workflow_states, so this is the only guard.
+  const [occupant] = await db
+    .select({ id: entityInstances.id })
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.workflowId, workflowId),
+        eq(entityInstances.tenantId, tenantId),
+        eq(entityInstances.currentState, state.name),
+      ),
+    )
+    .limit(1);
+
+  if (occupant) throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
+
   await db
     .delete(workflowStates)
     .where(
