@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useOne } from "@refinedev/core";
 import { useParams, Link } from "react-router-dom";
-import { Dialog, DialogContent, DialogClose, DialogTitle } from "@platform/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogTitle,
+  Button,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 import {
@@ -424,12 +430,13 @@ export function EntityTypeDetail(): React.ReactElement {
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <span className="badge badge-muted">{fields.length} fields</span>
             {entityType.allowCustomFields && (
-              <button
-                className="btn-primary btn-sm"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowAddField(true)}
               >
                 + Add Field
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -518,8 +525,9 @@ export function EntityTypeDetail(): React.ReactElement {
                     </td>
                     <td>
                       {!field.isSystem && (
-                        <button
-                          className="btn-danger-sm"
+                        <Button
+                          variant="danger"
+                          size="sm"
                           disabled={deletingFieldId === field.id}
                           onClick={() => {
                             void showConfirm(
@@ -531,7 +539,7 @@ export function EntityTypeDetail(): React.ReactElement {
                           title="Delete field"
                         >
                           {deletingFieldId === field.id ? "…" : "✕"}
-                        </button>
+                        </Button>
                       )}
                     </td>
                   </tr>
@@ -757,20 +765,16 @@ export function EntityTypeDetail(): React.ReactElement {
               </div>
             </div>
             <div className="modal-footer">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setShowAddField(false)}
               >
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingField}
-              >
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingField}>
                 {savingField ? "Adding…" : "Add Field"}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -876,20 +880,16 @@ export function EntityTypeDetail(): React.ReactElement {
               </label>
             </div>
             <div className="modal-footer">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setEditingField(null)}
               >
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingEdit}
-              >
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingEdit}>
                 {savingEdit ? "Saving…" : "Save changes"}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>

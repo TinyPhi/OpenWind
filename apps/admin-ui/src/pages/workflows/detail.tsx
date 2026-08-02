@@ -39,6 +39,8 @@ import {
   AlertDialogFooter,
   AlertDialogAction,
   AlertDialogCancel,
+  Button,
+  IconButton,
 } from "@platform/ui";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
@@ -462,22 +464,22 @@ function StateEditPopover({
       )}
 
       <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-        <button
-          className="btn btn-secondary"
+        <Button
+          variant="secondary"
           onClick={onClose}
           disabled={saving}
           style={{ fontSize: "12px" }}
         >
           Cancel
-        </button>
-        <button
-          className="btn btn-primary"
+        </Button>
+        <Button
+          variant="primary"
           onClick={() => void handleSave()}
           disabled={saving || !form.label.trim()}
           style={{ fontSize: "12px" }}
         >
           {saving ? "Saving…" : "Save"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1875,8 +1877,8 @@ export function WorkflowDetail(): React.ReactElement {
               flexWrap: "wrap",
             }}
           >
-            <button
-              className="btn-primary"
+            <Button
+              variant="primary"
               onClick={() =>
                 navigate(`/workflows/${toWorkflowSlug(workflow.name)}/records`)
               }
@@ -1897,7 +1899,7 @@ export function WorkflowDetail(): React.ReactElement {
                 <line x1="10" y1="14" x2="21" y2="3" />
               </svg>
               View Records
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -2167,12 +2169,13 @@ export function WorkflowDetail(): React.ReactElement {
             label="Steps"
             count={workflow.states.length}
             action={
-              <button
-                className="btn-primary btn-sm"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowAddState(true)}
               >
                 + Add Step
-              </button>
+              </Button>
             }
           />
           <div className="table-scroll">
@@ -2250,8 +2253,8 @@ export function WorkflowDetail(): React.ReactElement {
                           justifyContent: "flex-end",
                         }}
                       >
-                        <button
-                          className="icon-btn icon-btn-edit"
+                        <IconButton
+                          variant="edit"
                           onClick={() => {
                             setEditingState(state);
                             setStateForm({
@@ -2282,10 +2285,10 @@ export function WorkflowDetail(): React.ReactElement {
                             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
-                        </button>
+                        </IconButton>
                         {state.name !== workflow.initialState ? (
-                          <button
-                            className="icon-btn icon-btn-delete"
+                          <IconButton
+                            variant="delete"
                             disabled={deletingStateId === state.id}
                             onClick={() =>
                               setConfirmDelete({
@@ -2316,7 +2319,7 @@ export function WorkflowDetail(): React.ReactElement {
                                 <path d="M10 11v6M14 11v6" />
                               </svg>
                             )}
-                          </button>
+                          </IconButton>
                         ) : (
                           <span
                             style={{ display: "inline-block", width: "30px" }}
@@ -2347,12 +2350,13 @@ export function WorkflowDetail(): React.ReactElement {
             label="Actions"
             count={workflow.transitions.length}
             action={
-              <button
-                className="btn-primary btn-sm"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowAddTransition(true)}
               >
                 + Add Action
-              </button>
+              </Button>
             }
           />
           {workflow.transitions.length === 0 ? (
@@ -2468,8 +2472,8 @@ export function WorkflowDetail(): React.ReactElement {
                             justifyContent: "flex-end",
                           }}
                         >
-                          <button
-                            className="icon-btn icon-btn-edit"
+                          <IconButton
+                            variant="edit"
                             onClick={() => {
                               setEditingTransition(t);
                               setTransForm({
@@ -2496,9 +2500,9 @@ export function WorkflowDetail(): React.ReactElement {
                               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                             </svg>
-                          </button>
-                          <button
-                            className="icon-btn icon-btn-delete"
+                          </IconButton>
+                          <IconButton
+                            variant="delete"
                             disabled={deletingTransId === t.id}
                             onClick={() =>
                               setConfirmDelete({
@@ -2529,7 +2533,7 @@ export function WorkflowDetail(): React.ReactElement {
                                 <path d="M10 11v6M14 11v6" />
                               </svg>
                             )}
-                          </button>
+                          </IconButton>
                         </div>
                       </td>
                     </tr>
@@ -2556,12 +2560,13 @@ export function WorkflowDetail(): React.ReactElement {
             label="Details to Collect"
             count={fields.length}
             action={
-              <button
-                className="btn-primary btn-sm"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowAddField(true)}
               >
                 + Add Detail
-              </button>
+              </Button>
             }
           />
           {fieldsLoading ? (
@@ -2647,8 +2652,8 @@ export function WorkflowDetail(): React.ReactElement {
                                   justifyContent: "flex-end",
                                 }}
                               >
-                                <button
-                                  className="icon-btn icon-btn-edit"
+                                <IconButton
+                                  variant="edit"
                                   onClick={() => {
                                     setEditingField(f);
                                     setFieldForm({
@@ -2674,9 +2679,9 @@ export function WorkflowDetail(): React.ReactElement {
                                     <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                                   </svg>
-                                </button>
-                                <button
-                                  className="icon-btn icon-btn-delete"
+                                </IconButton>
+                                <IconButton
+                                  variant="delete"
                                   disabled={deletingFieldId === f.id}
                                   onClick={() =>
                                     setConfirmDelete({
@@ -2707,7 +2712,7 @@ export function WorkflowDetail(): React.ReactElement {
                                       <path d="M10 11v6M14 11v6" />
                                     </svg>
                                   )}
-                                </button>
+                                </IconButton>
                               </div>
                             </td>
                           </SortableFieldRow>
@@ -3197,14 +3202,14 @@ export function WorkflowDetail(): React.ReactElement {
                     </p>
                   </div>
                 </div>
-                <button
-                  className="btn btn-secondary"
+                <Button
+                  variant="secondary"
                   disabled={savingChildSettings}
                   onClick={() => void handleSaveChildSettings()}
                   style={{ minWidth: "110px" }}
                 >
                   {savingChildSettings ? "Saving…" : "Save limits"}
-                </button>
+                </Button>
               </div>
 
               {/* Activate / Deactivate */}
@@ -3222,10 +3227,8 @@ export function WorkflowDetail(): React.ReactElement {
                     ? "This workflow is currently active. Deactivating it will prevent new records from being created."
                     : "This workflow is inactive. Activate it to allow new records to be created."}
                 </p>
-                <button
-                  className={
-                    workflow.isActive ? "btn btn-secondary" : "btn-primary"
-                  }
+                <Button
+                  variant={workflow.isActive ? "secondary" : "primary"}
                   onClick={() => void handleToggleActive()}
                   disabled={togglingActive}
                   style={{ minWidth: "130px" }}
@@ -3235,7 +3238,7 @@ export function WorkflowDetail(): React.ReactElement {
                     : workflow.isActive
                       ? "Deactivate Workflow"
                       : "Activate Workflow"}
-                </button>
+                </Button>
               </div>
 
               {/* Danger zone — deletion is restricted to the creator or a
@@ -3260,12 +3263,13 @@ export function WorkflowDetail(): React.ReactElement {
                     Permanently delete this workflow and all its states and
                     transitions. This cannot be undone.
                   </p>
-                  <button
-                    className="btn btn-danger-sm"
+                  <Button
+                    variant="danger"
+                    size="sm"
                     onClick={() => setShowDeleteWorkflow(true)}
                   >
                     Delete Workflow
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -3384,20 +3388,16 @@ export function WorkflowDetail(): React.ReactElement {
               </label>
             </div>
             <div className="modal-footer">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setShowAddField(false)}
               >
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingField}
-              >
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingField}>
                 {savingField ? "Adding…" : "Add Detail"}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -3572,20 +3572,16 @@ export function WorkflowDetail(): React.ReactElement {
               </label>
             </div>
             <div className="modal-footer">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setShowAddState(false)}
               >
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingState}
-              >
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingState}>
                 {savingState ? "Adding…" : "Add Step"}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -3753,20 +3749,16 @@ export function WorkflowDetail(): React.ReactElement {
               </label>
             </div>
             <div className="modal-footer">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setShowAddTransition(false)}
               >
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingTrans}
-              >
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingTrans}>
                 {savingTrans ? "Adding…" : "Add Action"}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -3868,20 +3860,16 @@ export function WorkflowDetail(): React.ReactElement {
               </label>
             </div>
             <div className="modal-footer">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setEditingField(null)}
               >
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingField}
-              >
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingField}>
                 {savingField ? "Saving…" : "Save Changes"}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -4065,20 +4053,16 @@ export function WorkflowDetail(): React.ReactElement {
               </label>
             </div>
             <div className="modal-footer">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setEditingState(null)}
               >
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingState}
-              >
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingState}>
                 {savingState ? "Saving…" : "Save Changes"}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -4224,20 +4208,16 @@ export function WorkflowDetail(): React.ReactElement {
               </label>
             </div>
             <div className="modal-footer">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
                 onClick={() => setEditingTransition(null)}
               >
                 Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingTrans}
-              >
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingTrans}>
                 {savingTrans ? "Saving…" : "Save Changes"}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -4312,40 +4292,13 @@ export function WorkflowDetail(): React.ReactElement {
           <AlertDialogFooter
             style={{ justifyContent: "flex-start", marginTop: 0 }}
           >
-            <AlertDialogAction
-              asChild
-              style={{
-                padding: undefined,
-                borderRadius: undefined,
-                fontSize: undefined,
-                fontWeight: undefined,
-                cursor: undefined,
-                transition: undefined,
-                border: undefined,
-                background: undefined,
-                color: undefined,
-              }}
-            >
-              <button className="btn-primary" onClick={() => blocker.proceed()}>
+            <AlertDialogAction asChild>
+              <Button variant="primary" onClick={() => blocker.proceed()}>
                 Leave without saving
-              </button>
+              </Button>
             </AlertDialogAction>
-            <AlertDialogCancel
-              asChild
-              style={{
-                padding: undefined,
-                borderRadius: undefined,
-                fontSize: undefined,
-                fontWeight: undefined,
-                cursor: undefined,
-                transition: undefined,
-                border: undefined,
-                background: undefined,
-                color: undefined,
-                borderColor: undefined,
-              }}
-            >
-              <button className="btn">Stay</button>
+            <AlertDialogCancel asChild>
+              <Button variant="secondary">Stay</Button>
             </AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Dialog, DialogContent, DialogTitle } from "@platform/ui";
+import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import type { SavedView } from "../../lib/types.js";
@@ -1052,12 +1052,9 @@ export function CustomerRecordList(): React.ReactElement {
             Export ready
           </span>
           <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              className="btn-primary btn-sm"
-              onClick={triggerAsyncDownload}
-            >
+            <Button variant="primary" size="sm" onClick={triggerAsyncDownload}>
               Download
-            </button>
+            </Button>
             <button
               style={{
                 background: "none",
@@ -1181,8 +1178,8 @@ export function CustomerRecordList(): React.ReactElement {
               justifyContent: "flex-end",
             }}
           >
-            <button
-              className="btn btn-secondary"
+            <Button
+              variant="secondary"
               onClick={() => {
                 setShowSaveViewModal(false);
                 setViewSaveError(null);
@@ -1190,14 +1187,14 @@ export function CustomerRecordList(): React.ReactElement {
               disabled={savingView}
             >
               Cancel
-            </button>
-            <button
-              className="btn btn-primary"
+            </Button>
+            <Button
+              variant="primary"
               onClick={() => void handleSaveView()}
               disabled={savingView || !newViewName.trim()}
             >
               {savingView ? "Saving…" : "Save view"}
-            </button>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

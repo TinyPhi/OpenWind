@@ -29,6 +29,7 @@ import {
   AlertDialogFooter,
   AlertDialogAction,
   AlertDialogCancel,
+  Button,
 } from "@platform/ui";
 
 type EntityField = {
@@ -4091,13 +4092,13 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
           <div className="modal-footer">
-            <button
-              className="btn-secondary"
+            <Button
+              variant="secondary"
               onClick={() => setAccessChangeModal(null)}
               disabled={accessChangeSaving}
             >
               Cancel
-            </button>
+            </Button>
             <button
               style={{
                 background:
@@ -4277,14 +4278,14 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
           <div className="modal-footer">
-            <button
-              className="btn-secondary"
+            <Button
+              variant="secondary"
               onClick={() => setPendingMentionGrant(null)}
             >
               Cancel
-            </button>
-            <button
-              className="btn-primary"
+            </Button>
+            <Button
+              variant="primary"
               onClick={() => {
                 if (!pendingMentionGrant) return;
                 const { text, mentions, replyTo, selectedLevel } =
@@ -4307,7 +4308,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               }}
             >
               Grant &amp; post
-            </button>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -4352,11 +4353,12 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <AlertDialogFooter className="modal-footer">
             <AlertDialogCancel asChild>
-              <button className="btn-secondary">Cancel</button>
+              <Button variant="secondary">Cancel</Button>
             </AlertDialogCancel>
             <AlertDialogAction asChild>
-              <button
-                className="btn-primary rcd-btn-archive-confirm"
+              <Button
+                variant="primary"
+                className="rcd-btn-archive-confirm"
                 disabled={archiving}
                 onClick={(e) => {
                   e.preventDefault();
@@ -4366,7 +4368,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 {archiving
                   ? "Archiving…"
                   : `Archive all ${(archiveConfirm?.childCount ?? 0) + 1}`}
-              </button>
+              </Button>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -4467,8 +4469,8 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
           <div className="modal-footer">
-            <button
-              className="btn-secondary"
+            <Button
+              variant="secondary"
               onClick={() => {
                 setShowCreateChild(false);
                 setNewChildTitle("");
@@ -4479,14 +4481,14 @@ export function CustomerRecordDetail(): React.ReactElement {
               }}
             >
               Cancel
-            </button>
-            <button
-              className="btn-primary"
+            </Button>
+            <Button
+              variant="primary"
               disabled={!newChildTitle.trim() || creatingChild}
               onClick={() => void createChild()}
             >
               {creatingChild ? "Creating…" : "Create sub-task"}
-            </button>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -4549,17 +4551,17 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           </div>
           <div className="modal-footer">
-            <button
-              className="btn-secondary"
+            <Button
+              variant="secondary"
               onClick={() => {
                 setStateModal(null);
                 setComment("");
               }}
             >
               Cancel
-            </button>
-            <button
-              className="btn-primary"
+            </Button>
+            <Button
+              variant="primary"
               disabled={
                 (Boolean(stateModal?.requiresComment) && !comment.trim()) ||
                 transitioning === stateModal?.id
@@ -4570,7 +4572,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               }}
             >
               {transitioning === stateModal?.id ? "Moving…" : "Confirm"}
-            </button>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
