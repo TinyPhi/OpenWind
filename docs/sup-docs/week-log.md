@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-08-02 — #199 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `feat/PLAT-199-button-primitive`)
+**Issues:** #199 (PR #295)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #295 review: `IconButton.baseStyle` was missing 3 properties the
+  original `.icon-btn` CSS had — `flexShrink: 0` (blocking; without it, icon buttons in
+  space-constrained flex rows could shrink below their intended 30×30 size — confirmed at least
+  one call site had already worked around it locally rather than at the source), `padding: 0`,
+  and `outline: "none"` (prevents a double focus indicator now that a custom box-shadow ring
+  drives focus styling). All three added.
+- Added the same keyboard focus indicator to `Button` (it only existed on `IconButton` before) —
+  `onFocus`/`onBlur` + box-shadow ring, `outline: "none"` on the base style.
+- Added missing `aria-label` to the 4 flagged `IconButton` usages in
+  `automations/wizard/step-conditions.tsx`/`step-actions.tsx`.
+- Added the flagged test gap: primary/danger variant hover transitions, plus a `Button` focus-ring
+  test.
+- Filed **#303** for the "4 `<Link>` sites will drift from `Button`" follow-up (a real
+  `asChild`/Radix-`Slot` design decision, not a quick fix) rather than fixing it in this pass.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green, repo-wide.
+- `pnpm --filter @platform/ui test` — 32/32 pass (up from 18, all new/updated tests included).
+- `pnpm --filter @platform/admin-ui test` — 90/90 pass, no regressions.
+- Still holding on the reviewer's recommended pre-merge human visual smoke test.
+
+---
+
 ## 2026-08-01 — packages/ui: Button/IconButton primitive (#199)
 
 **Session type:** Frontend architecture (Plan → Code → Review → Docs → Ship)

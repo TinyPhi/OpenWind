@@ -27,6 +27,9 @@ const baseStyle: React.CSSProperties = {
   background: "transparent",
   cursor: "pointer",
   transition: "background 0.15s, border-color 0.15s, transform 0.12s",
+  flexShrink: 0,
+  padding: 0,
+  outline: "none",
 };
 
 const variantStyle: Record<IconButtonVariant, React.CSSProperties> = {

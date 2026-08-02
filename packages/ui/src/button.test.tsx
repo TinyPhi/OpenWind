@@ -6,6 +6,20 @@ afterEach(() => {
   cleanup();
 });
 
+/**
+ * jsdom normalizes hsl()/hsla() color literals to rgb()/rgba() when read
+ * back from a live style declaration — this computes the same normalized
+ * form instead of hardcoding jsdom's conversion.
+ */
+function normalizedColor(
+  prop: "color" | "backgroundColor",
+  css: string,
+): string {
+  const el = document.createElement("div");
+  el.style[prop] = css;
+  return el.style[prop];
+}
+
 describe("Button", () => {
   it("renders children and defaults to the secondary variant", () => {
     render(<Button>Save</Button>);
@@ -63,6 +77,45 @@ describe("Button", () => {
     expect(button.style.color).toBe(
       "var(--text-secondary, hsl(222, 10%, 75%))",
     );
+  });
+
+  it("applies hover styling for the primary variant", () => {
+    render(<Button variant="primary">Create</Button>);
+    const button = screen.getByRole("button", { name: "Create" });
+
+    fireEvent.mouseEnter(button);
+    expect(button.style.transform).toBe("translateY(-1px)");
+
+    fireEvent.mouseLeave(button);
+    expect(button.style.transform).toBe("");
+  });
+
+  it("applies hover styling for the danger variant", () => {
+    render(<Button variant="danger">Delete</Button>);
+    const button = screen.getByRole("button", { name: "Delete" });
+
+    fireEvent.mouseEnter(button);
+    expect(button.style.background).toBe(
+      normalizedColor("backgroundColor", "hsla(350, 80%, 60%, 0.2)"),
+    );
+
+    fireEvent.mouseLeave(button);
+    expect(button.style.background).toBe(
+      normalizedColor("backgroundColor", "hsla(350, 80%, 60%, 0.1)"),
+    );
+  });
+
+  it("applies a focus ring on focus and clears it on blur", () => {
+    render(<Button>Save</Button>);
+    const button = screen.getByRole("button", { name: "Save" });
+
+    fireEvent.focus(button);
+    expect(button.style.boxShadow).toBe(
+      "0 0 0 3px var(--border-focus, hsla(250, 84%, 66%, 0.35))",
+    );
+
+    fireEvent.blur(button);
+    expect(button.style.boxShadow).toBe("");
   });
 
   it("does not apply hover styling while disabled", () => {

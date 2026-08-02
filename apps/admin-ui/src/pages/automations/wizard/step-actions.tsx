@@ -255,6 +255,8 @@ function WebhookConfig({
               onClick={() =>
                 onChange({ headers: headers.filter((_, j) => j !== i) })
               }
+              title="Remove header"
+              aria-label="Remove header"
             >
               ×
             </IconButton>
@@ -379,6 +381,7 @@ function ActionCard({
           variant="delete"
           onClick={() => onRemove(action.id)}
           title="Remove action"
+          aria-label="Remove action"
         >
           🗑
         </IconButton>

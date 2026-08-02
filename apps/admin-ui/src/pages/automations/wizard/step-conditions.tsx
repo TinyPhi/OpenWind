@@ -187,6 +187,7 @@ function ConditionNodeEditor({
               style={{ fontSize: "10px" }}
               onClick={() => onRemove(path)}
               title="Remove group"
+              aria-label="Remove group"
             >
               ×
             </IconButton>
@@ -290,9 +291,10 @@ function ConditionNodeEditor({
       )}
       <IconButton
         variant="delete"
-        style={{ fontSize: "11px", padding: "2px 6px", flexShrink: 0 }}
+        style={{ fontSize: "11px", padding: "2px 6px" }}
         onClick={() => onRemove(path)}
         title="Remove condition"
+        aria-label="Remove condition"
       >
         ×
       </IconButton>

@@ -4,9 +4,11 @@ import * as React from "react";
  * Mirrors apps/admin-ui/src/index.css's .btn-primary/.btn-secondary/.btn-sm/
  * .btn-danger-sm rules (see docs/specs/packages-ui-button-primitive.md §V for
  * the one intentional deviation: .btn-primary-sm's separate padding rule is
- * dropped in favor of the .btn-primary.btn-sm value). Hover is tracked via
- * local state rather than a stylesheet — this package ships no CSS of its
- * own (tsc-only build, see dialog.tsx).
+ * dropped in favor of the .btn-primary.btn-sm value). Hover/focus are tracked
+ * via local state rather than a stylesheet — this package ships no CSS of its
+ * own (tsc-only build, see dialog.tsx). :focus-visible is approximated with
+ * onFocus (fires on mouse-click focus too, not just keyboard) — same known,
+ * accepted simplification as IconButton.
  */
 
 export type ButtonVariant = "primary" | "secondary" | "danger";
@@ -25,6 +27,11 @@ const baseStyle: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
   transition: "var(--transition-fast, all 0.15s ease)",
+  outline: "none",
+};
+
+const focusStyle: React.CSSProperties = {
+  boxShadow: "0 0 0 3px var(--border-focus, hsla(250, 84%, 66%, 0.35))",
 };
 
 const sizeStyle: Record<ButtonSize, React.CSSProperties> = {
@@ -81,11 +88,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       disabled,
       onMouseEnter,
       onMouseLeave,
+      onFocus,
+      onBlur,
       ...props
     },
     ref,
   ) {
     const [hovered, setHovered] = React.useState(false);
+    const [focused, setFocused] = React.useState(false);
 
     return (
       <button
@@ -96,6 +106,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           ...sizeStyle[size],
           ...variantStyle[variant],
           ...(hovered && !disabled ? variantHoverStyle[variant] : null),
+          ...(focused && !disabled ? focusStyle : null),
           ...(disabled ? disabledStyle : null),
           ...style,
         }}
@@ -106,6 +117,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         onMouseLeave={(e) => {
           setHovered(false);
           onMouseLeave?.(e);
+        }}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
         }}
         {...props}
       />
