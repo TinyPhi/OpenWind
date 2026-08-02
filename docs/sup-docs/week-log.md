@@ -88,6 +88,7 @@
 
 - #199 remains open for a `Table`/design-token layer if/when a second consuming app exists
   (`apps/portal` was removed in PR #211 — currently only one frontend app).
+
 ## 2026-08-01 — #196 perf scale-risk backlog: closed
 
 **Session type:** Investigation / issue triage (no source changes)
