@@ -6,6 +6,7 @@ import type { SavedView } from "../../lib/types.js";
 import { useExport } from "../../lib/use-export.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 import { TransitionModal } from "../../components/transition-modal.js";
+import { Button } from "@platform/ui";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1051,12 +1052,9 @@ export function CustomerRecordList(): React.ReactElement {
             Export ready
           </span>
           <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              className="btn-primary btn-sm"
-              onClick={triggerAsyncDownload}
-            >
+            <Button variant="primary" size="sm" onClick={triggerAsyncDownload}>
               Download
-            </button>
+            </Button>
             <button
               style={{
                 background: "none",
@@ -1187,8 +1185,8 @@ export function CustomerRecordList(): React.ReactElement {
                 justifyContent: "flex-end",
               }}
             >
-              <button
-                className="btn btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setShowSaveViewModal(false);
                   setViewSaveError(null);
@@ -1196,14 +1194,14 @@ export function CustomerRecordList(): React.ReactElement {
                 disabled={savingView}
               >
                 Cancel
-              </button>
-              <button
-                className="btn btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => void handleSaveView()}
                 disabled={savingView || !newViewName.trim()}
               >
                 {savingView ? "Saving…" : "Save view"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
