@@ -3,6 +3,7 @@ import { useGetIdentity } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
+import { Button } from "@platform/ui";
 
 type WorkflowState = {
   name: string;
@@ -747,18 +748,20 @@ export function Dashboard(): React.ReactElement {
           className="dash-header-actions"
           style={{ display: "flex", gap: "8px", flexShrink: 0 }}
         >
-          <button
-            className="btn-primary btn-sm"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => navigate("/workflows/new")}
           >
             + New Workflow
-          </button>
-          <button
-            className="btn-secondary btn-sm"
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => navigate("/modules")}
           >
             Browse Modules
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -844,8 +847,9 @@ export function Dashboard(): React.ReactElement {
             <SectionHeader
               title="Workflow Performance"
               action={
-                <button
-                  className="btn btn-sm"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   style={{
                     border: "1px solid var(--border-color)",
                     color: "var(--text-muted)",
@@ -856,7 +860,7 @@ export function Dashboard(): React.ReactElement {
                   onClick={() => navigate("/workflows")}
                 >
                   View all →
-                </button>
+                </Button>
               }
             />
 
@@ -1115,8 +1119,9 @@ export function Dashboard(): React.ReactElement {
             <SectionHeader
               title="Recent Records"
               action={
-                <button
-                  className="btn btn-sm"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   style={{
                     border: "1px solid var(--border-color)",
                     color: "var(--text-muted)",
@@ -1127,7 +1132,7 @@ export function Dashboard(): React.ReactElement {
                   onClick={() => navigate("/records")}
                 >
                   View all →
-                </button>
+                </Button>
               }
             />
 

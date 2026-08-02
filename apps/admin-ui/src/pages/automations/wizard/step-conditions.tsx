@@ -1,4 +1,5 @@
 import React from "react";
+import { Button, IconButton } from "@platform/ui";
 import type {
   WizardData,
   ConditionNode,
@@ -181,14 +182,15 @@ function ConditionNodeEditor({
             Match {node.op === "and" ? "all" : "any"} of:
           </span>
           {path.length > 0 && (
-            <button
-              className="icon-btn icon-btn-delete"
+            <IconButton
+              variant="delete"
               style={{ fontSize: "10px" }}
               onClick={() => onRemove(path)}
               title="Remove group"
+              aria-label="Remove group"
             >
               ×
-            </button>
+            </IconButton>
           )}
         </div>
 
@@ -208,21 +210,21 @@ function ConditionNodeEditor({
 
         {/* Add buttons */}
         <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-          <button
-            className="btn btn-secondary"
+          <Button
+            variant="secondary"
             style={{ fontSize: "11px", padding: "4px 10px" }}
             onClick={() => onAddLeaf(path)}
           >
             + Add condition
-          </button>
+          </Button>
           {depth < 3 && (
-            <button
-              className="btn btn-secondary"
+            <Button
+              variant="secondary"
               style={{ fontSize: "11px", padding: "4px 10px" }}
               onClick={() => onAddGroup(path)}
             >
               + Add group
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -287,14 +289,15 @@ function ConditionNodeEditor({
           }
         />
       )}
-      <button
-        className="icon-btn icon-btn-delete"
-        style={{ fontSize: "11px", padding: "2px 6px", flexShrink: 0 }}
+      <IconButton
+        variant="delete"
+        style={{ fontSize: "11px", padding: "2px 6px" }}
         onClick={() => onRemove(path)}
         title="Remove condition"
+        aria-label="Remove condition"
       >
         ×
-      </button>
+      </IconButton>
     </div>
   );
 }
@@ -372,9 +375,9 @@ export function StepConditions({ data, onChange }: Props): React.ReactElement {
           >
             No conditions — rule fires on every trigger event.
           </p>
-          <button className="btn btn-secondary" onClick={init}>
+          <Button variant="secondary" onClick={init}>
             + Add conditions
-          </button>
+          </Button>
         </div>
       ) : (
         <div>
@@ -387,8 +390,8 @@ export function StepConditions({ data, onChange }: Props): React.ReactElement {
             onAddLeaf={handleAddLeaf}
             onAddGroup={handleAddGroup}
           />
-          <button
-            className="btn btn-secondary"
+          <Button
+            variant="secondary"
             style={{
               fontSize: "12px",
               marginTop: "8px",
@@ -397,7 +400,7 @@ export function StepConditions({ data, onChange }: Props): React.ReactElement {
             onClick={clear}
           >
             Remove all conditions
-          </button>
+          </Button>
         </div>
       )}
     </div>

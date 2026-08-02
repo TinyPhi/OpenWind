@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useList } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
+import { Button } from "@platform/ui";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { resolveCardIcon } from "../../lib/icon.js";
 
@@ -248,10 +249,7 @@ export function Workflows(): React.ReactElement {
           <span className="stat-pill stat-pill-muted">
             {allWorkflows.length} total
           </span>
-          <button
-            className="btn-primary"
-            onClick={() => navigate("/workflows/new")}
-          >
+          <Button variant="primary" onClick={() => navigate("/workflows/new")}>
             <svg
               width="13"
               height="13"
@@ -267,7 +265,7 @@ export function Workflows(): React.ReactElement {
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             New Workflow
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -351,13 +349,13 @@ export function Workflows(): React.ReactElement {
           <p>
             Copy a template from the Templates page or create a blank workflow.
           </p>
-          <button
-            className="btn-primary"
+          <Button
+            variant="primary"
             style={{ marginTop: "16px" }}
             onClick={() => navigate("/workflows/new")}
           >
             Create your first workflow
-          </button>
+          </Button>
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useList } from "@refinedev/core";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
+import { Button } from "@platform/ui";
 
 type Module = {
   id: string;
@@ -477,14 +478,14 @@ export function Modules(): React.ReactElement {
                 The template registry is empty. Click below to load the built-in
                 module templates.
               </p>
-              <button
-                className="btn-primary"
+              <Button
+                variant="primary"
                 onClick={() => void handleSeed()}
                 disabled={seeding}
                 style={{ marginTop: "12px" }}
               >
                 {seeding ? "Seeding…" : "Seed Templates"}
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -835,15 +836,15 @@ export function Modules(): React.ReactElement {
                 flexShrink: 0,
               }}
             >
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => setPreviewTarget(null)}
               >
                 Close
-              </button>
+              </Button>
               {!previewTarget.isSystem && (
-                <button
-                  className="btn-primary"
+                <Button
+                  variant="primary"
                   style={{
                     background: `linear-gradient(135deg, ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}, ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}cc)`,
                   }}
@@ -853,7 +854,7 @@ export function Modules(): React.ReactElement {
                   }}
                 >
                   Copy Template
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -1051,21 +1052,21 @@ export function Modules(): React.ReactElement {
                 gap: "10px",
               }}
             >
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={closeForkModal}
                 disabled={forking}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => void handleFork()}
                 disabled={forking || !forkName.trim() || nameConflict}
                 style={{ minWidth: "120px" }}
               >
                 {forking ? "Copying…" : "Copy Template"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1321,8 +1322,9 @@ function ModuleCard({
             </svg>
           </button>
           {!mod.isSystem && (
-            <button
-              className="btn-primary btn-sm"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => onFork(mod)}
               style={{
                 background: `linear-gradient(135deg, ${accent}, ${accent}cc)`,
@@ -1330,7 +1332,7 @@ function ModuleCard({
               }}
             >
               Copy
-            </button>
+            </Button>
           )}
         </div>
       </div>
