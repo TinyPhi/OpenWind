@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-08-02 — #289 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `feat/PLAT-289-file-field-widgets`)
+**Issues:** #289 (PR #299)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #299 review, both required bugs:
+  - **Visual duplicate in edit mode**: once a staged upload's id also appeared in
+    `existingFiles` (the entity's attachment list, fetched after `POST /files` associated the
+    file), both `StagedFileChip` and `FileChip` rendered for the same file. Fixed by filtering
+    `stagedFiles` to exclude ids already present in `existingFiles` before rendering.
+  - **`cleanFileIds` effect fired on every render**: `cleanFileIds` is a fresh array reference
+    each render (computed inline in `useFileUpload`), so `useEffect(..., [cleanFileIds])` never
+    actually skipped a render. Changed to `[cleanFileIds.join(",")]`, matching the same pattern
+    already used one effect above for `currentIds`.
+- Also addressed all 3 "recommended before merge" items: a single-mode race guard (block a
+  second upload from starting while the first is still mid-scan), an inline comment on the
+  `fetchWithAuth` return-type assertion (code-style rule), and converting the two structural
+  layout `<div style={{...}}>`s to CSS classes (`ffp-container`/`ffp-chip-row` in `index.css`,
+  matching `file-attachment.tsx`'s `fa-*` convention).
+- Added the requested test confirming `StagedFileChip` is suppressed once the same id appears in
+  `existingFiles`.
+
+### Verification
+
+- `pnpm --filter @platform/admin-ui typecheck && lint && test` — green (101/101 tests, up from
+  100).
+- **Caught and reverted a mistake in this session**: ran `prettier --write` on the whole
+  `apps/admin-ui/src/index.css` to format the 2 new CSS classes, not realizing this project's
+  `format:check` only covers `.ts/.tsx/.md/.json` (not `.css`) — it rewrote ~4000 unrelated lines
+  across the entire file. Reverted immediately via `git checkout`, re-added just the 2 intended
+  lines by hand.
+
+---
+
 ## 2026-08-02 — #289 file/files field-type widgets for FieldInput
 
 **Session type:** Frontend feature (Plan → Code → Review → Docs → Ship)

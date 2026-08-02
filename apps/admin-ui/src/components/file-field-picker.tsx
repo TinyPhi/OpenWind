@@ -57,6 +57,7 @@ export function FileFieldPicker({
     void fetchWithAuth(`${API_URL}/entities/${entityId}/attachments`)
       .then((res) => {
         if (cancelled) return;
+        // fetchWithAuth returns unknown; this endpoint's shape is fixed.
         const all = (res as { data: AttachmentFile[] }).data;
         setExistingFiles(all.filter((f) => currentIds.includes(f.id)));
       })
@@ -81,21 +82,35 @@ export function FileFieldPicker({
       onChange(newIds[newIds.length - 1] ?? null);
     }
     // onChange/currentIds are intentionally excluded — this should only react
-    // to the upload hook's own cleanFileIds changing, not fire on every
-    // parent re-render.
-  }, [cleanFileIds]);
+    // to the upload hook's own cleanFileIds set actually changing, not fire
+    // on every parent re-render (cleanFileIds is a fresh array reference each
+    // render, same reasoning as the attachment-fetch effect above).
+  }, [cleanFileIds.join(",")]);
 
   function handleRemoveExisting(fileId: string): void {
     const remaining = currentIds.filter((id) => id !== fileId);
     onChange(multiple ? remaining : null);
   }
 
-  const canAddMore = multiple || currentIds.length === 0;
+  // Once a staged file's id shows up in existingFiles (POST /files already
+  // associated it via entityId, and the attachment-fetch effect above picked
+  // it up), stop rendering its StagedFileChip — otherwise both chips render
+  // for the same file.
+  const visibleStagedFiles = stagedFiles.filter(
+    (f) => !existingFiles.some((e) => e.id === f.fileId),
+  );
+
+  // In single mode, block a second upload from starting while the first is
+  // still mid-scan (currentIds stays empty until the effect above fires) —
+  // otherwise two files reaching "clean" simultaneously could leave the
+  // first stranded in stagedFiles as a visual orphan.
+  const canAddMore =
+    multiple || (currentIds.length === 0 && stagedFiles.length === 0);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div className="ffp-container">
       {existingFiles.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <div className="ffp-chip-row">
           {existingFiles.map((f) => (
             <FileChip
               key={f.id}
@@ -107,9 +122,9 @@ export function FileFieldPicker({
           ))}
         </div>
       )}
-      {stagedFiles.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {stagedFiles.map((f) => (
+      {visibleStagedFiles.length > 0 && (
+        <div className="ffp-chip-row">
+          {visibleStagedFiles.map((f) => (
             <StagedFileChip key={f.fileId} file={f} onRemove={removeFile} />
           ))}
         </div>

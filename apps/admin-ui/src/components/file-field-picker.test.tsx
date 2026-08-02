@@ -200,4 +200,44 @@ describe("FileFieldPicker", () => {
     expect(onChange).toHaveBeenCalledWith(null);
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
   });
+
+  it("suppresses a StagedFileChip once its id also appears in existingFiles", async () => {
+    fetchWithAuth.mockResolvedValue({
+      data: [
+        {
+          id: "file-9",
+          originalName: "report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          scanStatus: "clean",
+          uploadedBy: "u1",
+          createdAt: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    mockUpload({
+      stagedFiles: [
+        {
+          fileId: "file-9",
+          originalName: "report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          scanStatus: "clean",
+          uploadProgress: 100,
+        },
+      ],
+    });
+    render(
+      <FileFieldPicker
+        value="file-9"
+        onChange={vi.fn()}
+        multiple={false}
+        moduleSlug="helpdesk"
+        entityId="e1"
+      />,
+    );
+    await waitFor(() => screen.getByText("report.pdf"));
+    // Only one chip for the file, not a StagedFileChip + FileChip pair.
+    expect(screen.getAllByText("report.pdf")).toHaveLength(1);
+  });
 });

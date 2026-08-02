@@ -2780,6 +2780,10 @@ select.form-input {
 .rcd-sidebar-add:hover { background: var(--accent-light); color: var(--accent-primary); border-color: hsla(250,84%,60%,.35); }
 .rcd-sidebar-hint { font-size: 12px; color: var(--text-muted); padding: 12px 14px; margin: 0; }
 
+/* ── File field picker (#289) ── */
+.ffp-container { display: flex; flex-direction: column; gap: 8px; }
+.ffp-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
 /* ── File attachment chips ── */
 .fa-sidebar-list { display: flex; flex-direction: column; gap: 4px; }
 .fa-chip {
