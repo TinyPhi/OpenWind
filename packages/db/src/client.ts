@@ -32,25 +32,22 @@ export async function executeRawInTenantContext(
   });
 }
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Check if a tenant exists and its status is 'active'.
  * Runs outside withTenantContext because the tenants table is not tenant-scoped.
  */
 export async function isTenantActive(tenantId: string): Promise<boolean> {
-  if (!tenantId) return false;
-  try {
-    const [tenant] = await db
-      .select({ id: schema.tenants.id })
-      .from(schema.tenants)
-      .where(
-        and(
-          eq(schema.tenants.id, tenantId),
-          eq(schema.tenants.status, "active"),
-        ),
-      )
-      .limit(1);
-    return !!tenant;
-  } catch {
-    return false;
-  }
+  if (!tenantId || !UUID_REGEX.test(tenantId)) return false;
+
+  const [tenant] = await db
+    .select({ id: schema.tenants.id })
+    .from(schema.tenants)
+    .where(
+      and(eq(schema.tenants.id, tenantId), eq(schema.tenants.status, "active")),
+    )
+    .limit(1);
+  return !!tenant;
 }
