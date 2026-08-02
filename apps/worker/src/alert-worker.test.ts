@@ -57,6 +57,7 @@ vi.mock("@platform/db", () => ({
   notifications: { id: "notifications_id_mock" },
   notificationRecipients: "notification_recipients_mock",
   isOutboundNotificationsEnabled: isOutboundNotificationsEnabledMock,
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("drizzle-orm", () => ({

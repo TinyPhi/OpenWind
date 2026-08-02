@@ -99,7 +99,7 @@ export const exportEntitiesHandler = factory.createHandlers(
         format,
         filters,
         requestedBy: userId,
-        includePii: canSeePii,
+        requestedByRoles: roles,
       });
       if (!job.id) throw new Error("Export job enqueue returned no ID");
       return c.json({ jobId: job.id }, 202);

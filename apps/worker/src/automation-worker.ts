@@ -1,6 +1,10 @@
 import { Worker, type Job } from "bullmq";
 import Redis from "ioredis";
-import { withTenantContext, deadLetterEvents } from "@platform/db";
+import {
+  withTenantContext,
+  deadLetterEvents,
+  isTenantActive,
+} from "@platform/db";
 import {
   executeAutomationRules,
   OutboxDepthSchema,
@@ -41,6 +45,16 @@ export const automationWorker = new Worker<AutomationJobData>(
   "automation",
   async (job) => {
     const { tenantId, payload, outboxEventId } = job.data;
+
+    const active = await isTenantActive(tenantId);
+    if (!active) {
+      logger.warn(
+        { tenantId, outboxEventId, jobId: job.id },
+        "Automation execution aborted: tenant is not active",
+      );
+      return;
+    }
+
     // Resume MAX_DEPTH counting from the depth this event was triggered at
     // (stamped by the transition action) instead of resetting to 0 — an
     // outbox-delivered event from a recursive automation loop must still be

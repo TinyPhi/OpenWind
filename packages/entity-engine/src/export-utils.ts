@@ -10,8 +10,10 @@ export type ExportJobPayload = {
   format: "csv" | "xlsx" | "pdf";
   filters: { state?: string; assignedTo?: string };
   requestedBy: string;
-  includePii: boolean;
+  requestedByRoles: string[];
 };
+
+export const PII_EXPORT_ROLES = new Set(["pii_export", "admin", "superadmin"]);
 
 export type ExportJobResult = {
   downloadUrl: string;

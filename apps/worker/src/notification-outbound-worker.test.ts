@@ -84,6 +84,7 @@ vi.mock("@platform/db", () => ({
     tenantId: "tenantId",
   },
   outboxEvents: {},
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("drizzle-orm", () => ({

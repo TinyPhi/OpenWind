@@ -7,6 +7,7 @@ import {
   tenantUsers,
   deadLetterEvents,
   isOutboundNotificationsEnabled,
+  isTenantActive,
 } from "@platform/db";
 import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { logger } from "@platform/logger";
@@ -51,6 +52,15 @@ export const notificationWorker = new Worker<NotificationJobData>(
   "notify",
   async (job) => {
     const { tenantId, eventType, payload } = job.data;
+
+    const active = await isTenantActive(tenantId);
+    if (!active) {
+      logger.warn(
+        { tenantId, eventType, jobId: job.id },
+        "Notification processing aborted: tenant is not active",
+      );
+      return;
+    }
 
     const resolved = await resolveRecipients(tenantId, eventType, payload);
     // Invariant: a notifications row is never created without at least one

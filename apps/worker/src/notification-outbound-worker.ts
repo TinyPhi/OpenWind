@@ -6,6 +6,7 @@ import {
   notifications,
   notificationRecipients,
   outboxEvents,
+  isTenantActive,
 } from "@platform/db";
 import { getUserById } from "@platform/auth";
 import { env } from "@platform/config";
@@ -82,6 +83,15 @@ export const notificationOutboundWorker = new Worker<OutboundJobData>(
   "notify-outbound",
   async (job) => {
     const { notificationId, tenantId } = job.data;
+
+    const active = await isTenantActive(tenantId);
+    if (!active) {
+      logger.warn(
+        { tenantId, notificationId, jobId: job.id },
+        "Outbound dispatch aborted: tenant is not active",
+      );
+      return;
+    }
 
     // notifications/notification_recipients both have RLS — this worker's DB
     // connection runs as app_user (no BYPASSRLS), so every query here must go

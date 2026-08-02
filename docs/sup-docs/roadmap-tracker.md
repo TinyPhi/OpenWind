@@ -1,9 +1,6 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-08-01 — abmish review of PR #293 (group G); addressing 5 findings:
-outboxEventId threading for true BullMQ-retry idempotency (#228), partial-PATCH triggerConfig
-cross-validation (#257), wizard field name alignment, connector.action no-op, non-partial
-TRIGGER_CONFIG_SCHEMAS. Merge conflict with 2026-07-31 batch-triage session resolved.
+**Last updated:** 2026-08-02 — Group G (PR #293) and Group H (PR #294) merged. Security hardening batches for Groups A, B, C, E, G, and H are now fully merged into main. Group D (workers/DB RLS checks) is the remaining batch pending implementation.
 **Previously:** 2026-07-31 — dedicated triage session on the #191–#202 batch. **Closed this pass:**
 #149 (PR #269), #218 (PR #270), #220 (PR #222, merged). **Investigated, mostly resolved:**
 #196 — 2 of 4 sub-findings don't reproduce, 1 fixed via PR #271 (`bulkUpdateEntities` N+1).
@@ -18,9 +15,7 @@ pre-auth stage simplified to IP-only keying. Also closed #191 this same investig
 recursion-depth gap) and #220 (`loadEntityType` missing explicit tenant filter, defense-in-depth
 gap — not currently exploitable, RLS already covers it). #191–#202 batch otherwise still open,
 mostly unassigned — worth a dedicated triage session.
-**In progress:** Group G (PR #293) — automation engine hardening: fail-closed circuit breaker
-(#245), deterministic notify IDs (#228), OutboxDepthSchema strip (#258), unknown-action throw
-(#256), script action removed (#259), per-trigger-type triggerConfig validation (#257).
+**In progress:** Group D (not started) — backend queue worker payload validations (#226, #227, #249) and DB privilege/RLS configuration (#230, #233, #264, #265).
 **Previously:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
 wired end-to-end); #212 added global outbound kill switch, M2M auth, auto-logout, settings tabs;
 #214 removed stale `portal` from CI Docker matrix. Pre-Phase-3 hardening backlog fully closed.
@@ -152,9 +147,9 @@ severity ranking. As of 2026-07-24:
 | C     | #280 | #224, #239, #235, #240, #241                     | ✅ Merged 2026-07-31                                        |
 | —     | #282 | #201 (native confirm/alert)                      | ✅ Merged 2026-07-31                                        |
 | E     | #283 | #243, #244, #254, #234                           | ✅ Merged 2026-07-31                                        |
-| G     | #293 | #245, #228, #258, #256, #259, #257               | 🔄 PR open, awaiting review                                 |
+| G     | #293 | #245, #228, #258, #256, #259, #257               | ✅ Merged 2026-08-01                                        |
 | D     | —    | #233, #230, #264, #265, #226 + others            | 🔴 Not started — #227 needs human sign-off before #249/#227 |
-| H     | —    | #251, #252, #253, #260, #261, #263               | 🔴 Not started                                              |
+| H     | #294 | #251, #252, #253, #260, #261, #263               | ✅ Merged 2026-08-01                                        |
 | skip  | —    | #246, #248, #250, #247                           | ⛔ Blocked on issue #2 (SSRF/PII) — human review required   |
 
 ### Found since the 2026-06-29 consulting review, now also closed or in review
