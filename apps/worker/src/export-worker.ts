@@ -134,8 +134,14 @@ export async function renderXlsx(
 export const exportWorker = new Worker<ExportJobPayload, ExportJobResult>(
   "export",
   async (job) => {
-    const { tenantId, entityTypeId, format, filters, requestedByRoles } =
-      job.data;
+    const {
+      tenantId,
+      entityTypeId,
+      format,
+      filters,
+      requestedByRoles,
+      includePii: legacyIncludePii,
+    } = job.data;
 
     logger.info(
       { tenantId, entityTypeId, format, jobId: job.id },
@@ -157,7 +163,10 @@ export const exportWorker = new Worker<ExportJobPayload, ExportJobResult>(
       const allFields = await listEntityFields(tx, tenantId, entityTypeId);
 
       // Determine includePii in the worker by checking requestedByRoles against PII_EXPORT_ROLES
-      const includePii = requestedByRoles.some((r) => PII_EXPORT_ROLES.has(r));
+      const includePii =
+        legacyIncludePii ??
+        requestedByRoles?.some((r) => PII_EXPORT_ROLES.has(r)) ??
+        false;
       const exportFields = includePii
         ? allFields
         : allFields.filter(
