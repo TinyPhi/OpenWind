@@ -88,6 +88,32 @@
 
 - #199 remains open for a `Table`/design-token layer if/when a second consuming app exists
   (`apps/portal` was removed in PR #211 — currently only one frontend app).
+## 2026-08-01 — #196 perf scale-risk backlog: closed
+
+**Session type:** Investigation / issue triage (no source changes)
+**Issues:** #196 (closed), #296 (filed)
+
+### Completed this session
+
+- Re-verified all 4 grouped sub-findings in #196 against current code (post the recent
+  security-hardening PR batch, #279–#294), rather than trusting the 2026-07-31 investigation
+  comment at face value:
+  - Cross-instance cache invalidation — confirmed still doesn't reproduce.
+    `schema-cache.ts`'s `invalidateSchemaCache` uses cursor-based `redis.scan` + `del`, not the
+    blocking `redis.keys()` issue #4 separately tracks; `engine.ts`'s three `Map` caches are all
+    function-local (recreated per call), not persistent cross-replica state.
+  - `ts_rank` OFFSET pagination cliff — confirmed still doesn't reproduce, zero `OFFSET`/
+    `.offset(` usage under `entity-engine/src`.
+  - `bulkUpdateEntities` N+1 — already fixed via PR #271.
+  - Connection pool ceiling (`DATABASE_POOL_MAX=10`) — genuinely not resolvable by code-reading;
+    needs a real concurrency target + load test. Split into its own tracked issue, **#296**, per
+    #196's own "suggested next step" (split once any item is confirmed/scoped).
+- Closed #196 with the re-verification recorded as a comment.
+
+### Next
+
+- #296 stays open until a load-test session with a concrete concurrent-tenant target is run —
+  matches CLAUDE.md's existing "deferred until load testing" gate for adjacent schema-cache work.
 
 ---
 
