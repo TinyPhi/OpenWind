@@ -105,6 +105,8 @@ describe("dead_letter_events RLS policies", () => {
           eventType: "entity.created",
           payload: { test: "DL-A" },
           originalEventId: outboxIdA,
+          error: "some error message",
+          attemptCount: 1,
         })
         .returning(),
     );
@@ -118,6 +120,8 @@ describe("dead_letter_events RLS policies", () => {
           eventType: "entity.created",
           payload: { test: "DL-B" },
           originalEventId: outboxIdB,
+          error: "some error message",
+          attemptCount: 1,
         })
         .returning(),
     );
@@ -141,6 +145,8 @@ describe("dead_letter_events RLS policies", () => {
           tenantId: TENANT_B,
           eventType: "entity.created",
           payload: { test: "hijack" },
+          error: "some error message",
+          attemptCount: 1,
         }),
       ),
     ).rejects.toThrow();
