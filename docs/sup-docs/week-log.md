@@ -5,41 +5,88 @@
 
 ---
 
+## 2026-08-03 — security batch 3 (PR #312): Group D follow-ups
+
+**Session type:** Bug fix, security follow-up
+**PR:** #312 — closes #306 (deduped tenant validation), #308 (export error mislabeling), #309
+(unified `system.error` payload schemas), #310 (`initialState` delete guard), #311 (TOCTOU row
+locking in `deleteWorkflowState`). #247 (notification HTML escaping) is explicitly **not** closed
+by this PR — deferred to future outbound-HTML-email-sink work per the PR's own description.
+
+---
+
+## 2026-08-03 — issue hygiene (#284, #289, #301) + #303/#304 cleanup
+
+**Session type:** Issue triage + bug fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-303-304-button-aschild-dialog-cleanup`
+**Issues:** #284, #289, #301 (closed, no code — already shipped, just missing the closing
+keyword), #303 and #304 (implemented and closed this session)
+
+### Completed this session
+
+- Checked 6 open issues (#284, #289, #296, #301, #303, #304) against their actual PR/merge
+  state before doing any work, per the "verify before acting" discipline from the 2026-08-02
+  session. Found 3 were already fully shipped to `main` but never auto-closed because their
+  merging PRs (#298, #299, #302) didn't use a `Closes #N` keyword:
+  - **#284** (a11y modal migration wave 2) — PR #298, merged 2026-08-03T05:13:53Z
+  - **#289** (file/files field widgets) — PR #299, merged 2026-08-03T04:25:45Z
+  - **#301** (`deleteWorkflowState` live-instance guard) — PR #302, merged 2026-08-03T08:15:03Z
+
+  Closed all 3 with a comment linking the merge commit.
+
+- **#296** (Postgres pool ceiling) left open — the issue itself states this needs a load-test
+  target defined by a human before it's actionable, not something resolvable by reading code.
+- Implemented the 2 remaining open issues, both non-blocking frontend cleanups flagged in PR
+  review:
+  - **#303** — added an `asChild` prop to `packages/ui`'s `Button` (Radix `Slot`, already a
+    dependency but previously unused), migrated the 4 verified `<Link className="btn-secondary">`
+    sites (one more than my first grep found — a wrapped `className` line hid 3 of them) to
+    `<Button asChild variant="secondary"><Link>...</Link></Button>`.
+  - **#304** — extracted the 19x-duplicated `DialogContent` style-reset block into an exported
+    `DIALOG_CONTENT_RESET` constant in `packages/ui`; converted `modules.tsx`'s Preview and
+    Fork/Copy-Template modals from conditional-mount to the controlled `open={x !== null}`
+    pattern, converting ~18 `previewTarget.`/`forkTarget.` JSX references to optional chaining
+    so the body renders safely while the dialog is closed.
+
+### Verification
+
+- pnpm typecheck: PASS (40/40 tasks)
+- pnpm lint: PASS (40/40 tasks, `--max-warnings=0`)
+- pnpm test: 8 pre-existing failures, all in `apps/api` isolation tests unrelated to this diff
+  (same documented Docker-stack gap as PR #302 this week — missing PgBouncer/OpenBao/Zitadel
+  containers in this sandbox)
+- pnpm test:isolation: 7 pre-existing failures, same cause as above
+
+### Next
+
+- #296 needs a human-defined load-test target (concurrent tenants × req/s) before it can be
+  picked up.
+
+---
+
 ## 2026-08-03 — roadmap-tracker.md + pending-review-findings.md reconciliation
 
 **Session type:** Docs reconciliation (no source changes)
 **Branch:** `docs/PLAT-roadmap-reconciliation-0803`
 
-### Why
+Both tracker docs had drifted from actual `gh` state — a 2026-08-01 snapshot was already stale by
+2026-08-03, and after merging `main` back in, a second pass caught `main`'s own docs commit making
+the same kind of mistake (Group D's issue list in `roadmap-tracker.md` dropped #227/#249; PR #312
+was wrongly credited with closing #247 despite its own body saying otherwise). Fixed both.
 
-Both tracker docs had drifted from actual `gh` state within a single day — PRs merge fast enough
-that a 2026-08-01 snapshot was already stale by 2026-08-03. Caught while answering an unrelated
-status question; fixed before it compounded further.
-
-### Completed this session
-
-- Confirmed via `gh` and folded into `roadmap-tracker.md`: security Group H merged (PR #294,
-  2026-08-01); #199 got `Button`/`IconButton` (PR #295, 2026-08-02); #196 closed and #296 split off
-  (PR #297, 2026-08-02); a11y wave 2 / #284 merged (PR #298, 2026-08-03); #289 file/files widgets
-  merged (PR #299, 2026-08-03); #62 closure and #301 fix already logged in a prior entry. Security
-  Group D (PR #305 — closes #226, #227, #230, #233, #249, #264, #265) and #303/#304 (PR #307) are
-  currently open, awaiting review — both flagged as the top outstanding items.
-- Updated `pending-review-findings.md` per its own stated rule: deleted rows for #194, #196, #197,
-  #201 (all closed since 2026-07-24), and corrected the framing on #192 and #198 — both are open by
-  a deliberate maintainer scope decision (RPO/RTO policy; 2 deferred non-modal UI elements),
-  not neglect as the "just needs a person" framing implied.
-- Verified the ADR backlog section still holds: no `.claude/context/phase-3-primer.md` yet, no
-  ADR-002 addendum, no ADR beyond ADR-007 — none of that section needed a change.
-
-### Verification
-
-- Docs-only change; `pnpm typecheck`/`lint`/`test` not applicable.
-- Every issue number referenced was checked against `gh issue view <N> --json state,comments`
-  before writing, not assumed from a prior doc's claim.
+- `pending-review-findings.md`: deleted rows for closed issues per the doc's own stated rule
+  (delete, don't mark done); reframed #192/#198 from "needs a person" to "open by deliberate
+  maintainer decision"; corrected #200 from "untouched" — PR #272 shipped i18n scaffolding + 2
+  converted screens 2026-07-31, ~55 files still remain.
+- `roadmap-tracker.md`: cut the header's cascading multi-week "Previously:" narrative down to a
+  current-state summary — that history already lives here, session by session; duplicating it in
+  the tracker's header was pure drift risk with no reader benefit.
+- Cross-referenced every branch left on disk against `gh pr list --state merged` as a side effect;
+  found and deleted 41 fully-merged local branches (10 true git-ancestors, 31 squash-merged) plus
+  30 remote branches on `origin`, none of which had a live worktree or unique unmerged content.
 
 ### Next
 
-- #305 and #307 are the two open PRs; reviewing/merging those is the next concrete action.
 - #165/#163/#161 (module-registry cluster) is unstarted, informally assigned to Tushar Sharma via
   issue-comment `@mentions` — no PR yet.
 
@@ -137,6 +184,31 @@ status question; fixed before it compounded further.
 - `pnpm --filter @platform/ui test` — 32/32 pass (up from 18, all new/updated tests included).
 - `pnpm --filter @platform/admin-ui test` — 90/90 pass, no regressions.
 - Still holding on the reviewer's recommended pre-merge human visual smoke test.
+
+---
+
+## 2026-08-01 — security group H: API route validation & RLS hardening
+
+**Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-group-h`
+**PR:** #294
+**Issues:** #251, #252, #253, #260, #261, #263
+
+### Completed this session
+
+- **#263** added `WITH CHECK` to RLS policies on `access_requests`, `notifications`, `notification_recipients`, and `ticket_alerts` (migration `0048`).
+- **#252** modified ticket alert endpoints to return 404 instead of 403 on existence checks to prevent resource ID enumeration.
+- **#253** modified workflow canvas routes to return 404 instead of 403 when not a workflow admin to prevent ID leakage.
+- **#260** added `requireRole("admin", "agent", "user")` check to 9 entity action endpoints that were missing role-based checks.
+- **#261** capped API endpoints at max 500 rows and added limit/offset support to lists.
+- **#251** added `PLATFORM_ORG_ID` environment check to tenant lifecycle routes to ensure tenant-admin boundaries.
+
+### Verification
+
+- pnpm typecheck: PASS
+- pnpm lint: PASS
+- Added unit tests for each vulnerability and updated existing canvas/ticket-alerts isolation tests.
+- All unit + integration tests pass successfully.
 
 ---
 

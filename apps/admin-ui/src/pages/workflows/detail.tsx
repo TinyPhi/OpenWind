@@ -41,6 +41,7 @@ import {
   AlertDialogCancel,
   Button,
   IconButton,
+  DIALOG_CONTENT_RESET,
 } from "@platform/ui";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
@@ -1664,9 +1665,9 @@ export function WorkflowDetail(): React.ReactElement {
               "You're not an admin of this workflow. Contact a workflow admin to request access."
             )}
           </p>
-          <Link to="/workflows" className="btn btn-secondary">
-            ← Back to Workflows
-          </Link>
+          <Button asChild variant="secondary">
+            <Link to="/workflows">← Back to Workflows</Link>
+          </Button>
         </div>
       </div>
     );
@@ -3289,16 +3290,7 @@ export function WorkflowDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -3413,16 +3405,7 @@ export function WorkflowDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -3597,16 +3580,7 @@ export function WorkflowDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -3774,16 +3748,7 @@ export function WorkflowDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -3885,16 +3850,7 @@ export function WorkflowDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -4078,16 +4034,7 @@ export function WorkflowDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>

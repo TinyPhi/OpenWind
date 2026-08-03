@@ -23,6 +23,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import ExcelJS from "exceljs";
 import { stringify } from "csv-stringify/sync";
 import { withTenantContext } from "@platform/db";
+import { validateActiveTenant } from "./tenant-guard.js";
 import {
   getEntityType,
   listEntityFields,
@@ -30,6 +31,7 @@ import {
   buildExportRow,
   type ExportJobPayload,
   type ExportJobResult,
+  PII_EXPORT_ROLES,
 } from "@platform/entity-engine";
 import { renderExportPdf } from "./render-export-pdf.js";
 import { env } from "@platform/config";
@@ -133,19 +135,42 @@ export async function renderXlsx(
 export const exportWorker = new Worker<ExportJobPayload, ExportJobResult>(
   "export",
   async (job) => {
-    const { tenantId, entityTypeId, format, filters, includePii } = job.data;
+    const {
+      tenantId,
+      entityTypeId,
+      format,
+      filters,
+      requestedByRoles,
+      includePii: legacyIncludePii,
+    } = job.data;
 
     logger.info(
       { tenantId, entityTypeId, format, jobId: job.id },
       "export job started",
     );
 
+    const active = await validateActiveTenant(tenantId, "export job", {
+      entityTypeId,
+      jobId: job.id,
+    });
+    if (!active) {
+      return {
+        downloadUrl: "",
+        error: "TENANT_DEACTIVATED",
+        format,
+        rowCount: 0,
+      };
+    }
+
     const result = await withTenantContext(tenantId, async (tx) => {
       const entityType = await getEntityType(tx, tenantId, entityTypeId);
       const allFields = await listEntityFields(tx, tenantId, entityTypeId);
 
-      // includePii is set at enqueue time based on the requesting user's roles;
-      // the worker trusts the value carried in the job payload.
+      // Determine includePii in the worker by checking requestedByRoles against PII_EXPORT_ROLES
+      const includePii =
+        legacyIncludePii ??
+        requestedByRoles?.some((r) => PII_EXPORT_ROLES.has(r)) ??
+        false;
       const exportFields = includePii
         ? allFields
         : allFields.filter(

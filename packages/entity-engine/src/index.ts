@@ -92,4 +92,5 @@ export {
   buildExportRow,
   type ExportJobPayload,
   type ExportJobResult,
+  PII_EXPORT_ROLES,
 } from "./export-utils.js";

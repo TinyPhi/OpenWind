@@ -44,6 +44,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Automation recursion depth is now carried through the outbox payload, preventing `MAX_DEPTH` from being silently reset on outbox-routed automation loops
 - Auth middleware no longer force-writes `tenant_users` on every authenticated request (was an unconditional `onConflictDoUpdate`; now SELECT-then-conditional-write)
 - `loadEntityType` (entity engine internal helper) now applies an explicit tenant filter matching `loadEntityFields`, instead of relying on RLS alone — closes the last helper in `engine.ts` missing the mandatory second isolation layer (#220)
+- `deleteWorkflowState` checks if the deleted state is set as the workflow's `initialState` and throws `WORKFLOW_STATE_IN_USE` to block it (#310)
+- Export worker and download route handler propagate `TENANT_DEACTIVATED` error code instead of confusingly mislabeling it as `EXPORT_EXPIRED` (#308)
+- Background workers unified and deduplicated `isTenantActive` validation checks using a shared tenant guard (#306)
 
 ---
 

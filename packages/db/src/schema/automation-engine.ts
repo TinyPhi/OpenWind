@@ -54,6 +54,12 @@ export const automationExecutions = pgTable(
   }),
 );
 
+/**
+ * outboxEvents — internal message bus / outbox queue.
+ * RLS: Enabled (see 0049_outbox_events_rls.sql). Restricted to current tenant_id.
+ * WORKER BYPASS: The background outbox poller executes under the master user database role,
+ * which bypasses RLS and allows reading/delivering events across all tenants in a single batch.
+ */
 export const outboxEvents = pgTable(
   "outbox_events",
   {
@@ -92,6 +98,9 @@ export const outboxEvents = pgTable(
  * Dead-letter store for outbox events that could not be processed after
  * exceeding the stale threshold (currently 48 h for SLA events).  Operators
  * can inspect this table to decide whether to re-trigger or discard.
+ * RLS: Enabled (see 0049_outbox_events_rls.sql). Restricted to current tenant_id.
+ * WORKER BYPASS: Background worker processes run under the master user role
+ * and bypass RLS to write/manage dead lettered events across all tenants.
  */
 export const deadLetterEvents = pgTable(
   "dead_letter_events",

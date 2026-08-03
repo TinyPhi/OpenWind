@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { env } from "@platform/config";
+import { eq, and } from "drizzle-orm";
 import * as schema from "./schema/index.js";
 
 const queryClient = postgres(env.DATABASE_URL, {
@@ -29,4 +30,24 @@ export async function executeRawInTenantContext(
     await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
     await tx.unsafe(rawSql);
   });
+}
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Check if a tenant exists and its status is 'active'.
+ * Runs outside withTenantContext because the tenants table is not tenant-scoped.
+ */
+export async function isTenantActive(tenantId: string): Promise<boolean> {
+  if (!tenantId || !UUID_REGEX.test(tenantId)) return false;
+
+  const [tenant] = await db
+    .select({ id: schema.tenants.id })
+    .from(schema.tenants)
+    .where(
+      and(eq(schema.tenants.id, tenantId), eq(schema.tenants.status, "active")),
+    )
+    .limit(1);
+  return !!tenant;
 }

@@ -37,11 +37,18 @@ import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { connection, notifyOutboundQueue } from "./queues.js";
 import { buildRecordLink } from "./notification-templates.js";
 import type { AlertJobData } from "./alert-scheduler.js";
+import { validateActiveTenant } from "./tenant-guard.js";
 
 export const alertWorker = new Worker<AlertJobData>(
   "ticket-alerts",
   async (job) => {
     const { alertId, tenantId } = job.data;
+
+    const active = await validateActiveTenant(tenantId, "Alert fire", {
+      alertId,
+      jobId: job.id,
+    });
+    if (!active) return;
 
     // ticket_alerts/notifications/notification_recipients are all RLS-tenant
     // -scoped — withTenantContext sets both SET LOCAL ROLE app_user and the

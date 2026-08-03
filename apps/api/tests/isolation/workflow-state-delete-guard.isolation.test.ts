@@ -160,4 +160,54 @@ describe("deleteWorkflowState — instance-in-use guard (#301)", () => {
       .limit(1);
     expect(row?.id).toBe(occupiedStateId);
   });
+
+  it("throws WORKFLOW_STATE_IN_USE when trying to delete a state designated as the workflow's initialState", async () => {
+    const ts = Date.now();
+    const [etRow] = await db
+      .insert(entityTypes)
+      .values({
+        tenantId: null,
+        name: `isolation_state_guard_init_${ts}`,
+        plural: `isolation_state_guards_init_${ts}`,
+        allowCustomFields: true,
+      })
+      .returning();
+    if (!etRow) throw new Error("entity type insert failed");
+
+    // Create a new workflow where initialState is 'abandoned_initial'
+    const [wf] = await db
+      .insert(workflows)
+      .values({
+        tenantId: TENANT,
+        entityTypeId: etRow.id,
+        name: `Initial State Delete Guard Test Workflow_${ts}`,
+        initialState: "abandoned_initial",
+        createdBy: CALLER.userId,
+      })
+      .returning();
+    if (!wf) throw new Error("workflow insert failed");
+
+    const [state] = await db
+      .insert(workflowStates)
+      .values({
+        tenantId: TENANT,
+        workflowId: wf.id,
+        name: "abandoned_initial",
+        label: "Abandoned Initial",
+        sortOrder: 0,
+      })
+      .returning();
+    if (!state) throw new Error("state insert failed");
+
+    await withTenantContext(TENANT, async (tx) => {
+      await expect(
+        deleteWorkflowState(tx, TENANT, wf.id, state.id, CALLER),
+      ).rejects.toMatchObject({ code: "WORKFLOW_STATE_IN_USE" });
+    });
+
+    // Cleanup the test workflow, state, and entity type
+    await db.delete(workflowStates).where(eq(workflowStates.id, state.id));
+    await db.delete(workflows).where(eq(workflows.id, wf.id));
+    await db.delete(entityTypes).where(eq(entityTypes.id, etRow.id));
+  });
 });

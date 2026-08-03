@@ -12,6 +12,7 @@ import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import { connection } from "./queues.js";
 import { getNotificationOutboundToken } from "./notification-outbound-auth.js";
+import { validateActiveTenant } from "./tenant-guard.js";
 
 interface OutboundJobData {
   notificationId: string;
@@ -82,6 +83,12 @@ export const notificationOutboundWorker = new Worker<OutboundJobData>(
   "notify-outbound",
   async (job) => {
     const { notificationId, tenantId } = job.data;
+
+    const active = await validateActiveTenant(tenantId, "Outbound dispatch", {
+      notificationId,
+      jobId: job.id,
+    });
+    if (!active) return;
 
     // notifications/notification_recipients both have RLS — this worker's DB
     // connection runs as app_user (no BYPASSRLS), so every query here must go

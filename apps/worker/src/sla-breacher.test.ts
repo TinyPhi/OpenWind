@@ -38,6 +38,7 @@ vi.mock("@platform/db", () => ({
   outboxEvents: "outbox_events_mock",
   entityInstances: "entity_instances_mock",
   deadLetterEvents: "dead_letter_events_mock",
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("drizzle-orm", () => ({

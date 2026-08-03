@@ -2,8 +2,9 @@
 
 **Reconciled:** 2026-08-03 — checked every row below against current `gh issue` state. #194, #196,
 #197, and #201 have since closed (per this doc's own rule below, their rows are removed, not
-marked done); #192 and #198 are still open but by deliberate scope decision, not neglect — see
-their updated notes. The July-2026 internal security audit (issues #221–#267, tracked in
+marked done); #192 and #198 are still open but by deliberate scope decision, not neglect; #200 has
+scaffolding merged (PR #272) but was still marked "untouched" here — corrected. The July-2026
+internal security audit (issues #221–#267, tracked in
 [roadmap-tracker.md](../sup-docs/roadmap-tracker.md)) is a separate, later audit round and isn't
 folded into this doc.
 
@@ -31,7 +32,7 @@ that's the difference between the two halves of this list.
 | No backup / disaster-recovery runbook — mechanical building block shipped (PR #286), RPO/RTO policy still an open maintainer decision                                                                                                 | [#192](../../issues/192) | Unassigned     |
 | No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay); closing vs. leaving open for those 2 is an open maintainer decision | [#198](../../issues/198) | Unassigned     |
 | `packages/ui` is hollow — no real shared component library — `Button`/`IconButton` shipped (PR #295); still no `Table` or design-token layer                                                                                          | [#199](../../issues/199) | Unassigned     |
-| Zero internationalization                                                                                                                                                                                                             | [#200](../../issues/200) | Unassigned     |
+| Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                    | [#200](../../issues/200) | Unassigned     |
 | `docker compose down` vs `-v` data-loss foot-gun                                                                                                                                                                                      | [#202](../../issues/202) | Unassigned     |
 
 ---

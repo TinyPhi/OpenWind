@@ -21,6 +21,7 @@ vi.mock("bullmq", () => ({
 
 vi.mock("@platform/db", () => ({
   withTenantContext: (tenantId: string, fn: (tx: unknown) => unknown) => fn({}),
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("@platform/entity-engine", () => ({

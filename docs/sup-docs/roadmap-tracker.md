@@ -1,49 +1,11 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-08-03 — reconciliation pass against current `gh` state (several rows below
-had drifted since the 2026-08-01 entry: PRs merge fast enough that a same-day snapshot goes stale
-within a session). Since 2026-08-01: Group H security PR #294 merged (2026-08-01); #199 got
-`Button`/`IconButton` via PR #295 (2026-08-02); #196 formally closed + #296 split off via PR #297
-(2026-08-02); a11y wave 2 (#284) merged via PR #298 (2026-08-03); #289 (`file`/`files` widgets)
-merged via PR #299 (2026-08-03); #301 (`deleteWorkflowState` live-instance guard) filed and fixed
-same-session via PR #302 (2026-08-03); two new frontend findings filed off PR #295's review —
-#303 (duplicated dialog style-reset block) and #304 (`<Link className="btn-secondary">` drift) —
-both now covered by open PR #307. **Currently open:** PR #305 (security Group D — closes #226,
-#227, #230, #233, #249, #264, #265) and PR #307 (#303/#304). Full detail in the sections below.
-**Previously:** 2026-08-01 — abmish review of PR #293 (group G); addressing 5 findings:
-outboxEventId threading for true BullMQ-retry idempotency (#228), partial-PATCH triggerConfig
-cross-validation (#257), wizard field name alignment, connector.action no-op, non-partial
-TRIGGER_CONFIG_SCHEMAS. Merge conflict with 2026-07-31 batch-triage session resolved.
-**Previously:** 2026-07-31 — dedicated triage session on the #191–#202 batch. **Closed this pass:**
-#149 (PR #269), #218 (PR #270), #220 (PR #222, merged). **Investigated, mostly resolved:**
-#196 — 2 of 4 sub-findings don't reproduce, 1 fixed via PR #271 (`bulkUpdateEntities` N+1).
-**Open PRs awaiting review:** #201 (PR #282), #198 (PR #285), #192 (PR #286), #194 (PR #287),
-#197 (PR #288). **Also 2026-07-31 (separate session):** 5 security-hardening PRs merged
-(Groups A, B, C, E + PR #282 for #201). Group G (PR #293) opened.
-**Previously:** 2026-07-31 — #195 closed (rate limiter bucketed on an unverified JWT claim
-instead of the authenticated tenant, from the second consulting-review pass filed 2026-07-24 as
-#191–#202). Post-auth tenant-scoped rate limiting now lives in `requireAuth()` (`@platform/auth`);
-pre-auth stage simplified to IP-only keying. Also closed #191 this same investigation round
-(automation `assign`/`create_entity` actions) and filed two follow-ups: #218 (create_entity
-recursion-depth gap) and #220 (`loadEntityType` missing explicit tenant filter, defense-in-depth
-gap — not currently exploitable, RLS already covers it). #191–#202 batch otherwise still open,
-mostly unassigned — worth a dedicated triage session.
-**In progress:** Group G (PR #293) — automation engine hardening: fail-closed circuit breaker
-(#245), deterministic notify IDs (#228), OutboxDepthSchema strip (#258), unknown-action throw
-(#256), script action removed (#259), per-trigger-type triggerConfig validation (#257).
-**Previously:** 2026-07-29 — PRs #211, #212, #214 merged. #211 closed **#125** (notify action
-wired end-to-end); #212 added global outbound kill switch, M2M auth, auto-logout, settings tabs;
-#214 removed stale `portal` from CI Docker matrix. Pre-Phase-3 hardening backlog fully closed.
-Two PRs still open from earlier work: #186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).
-**Previously:** 2026-07-25 (reconciliation — 8 PRs merged 2026-07-23/24 closing #128, #129, #141,
-#160, #167, #168, #170, plus ADR-005 and ADR-006 accepted, resolving both open questions the
-2026-07-22 reconciliation left for a human. #181 (#136/ADR-007 RLS) merged 2026-07-25.)
-**Previously:** 2026-07-24 (`workflow` branch — workflow builder UX pass, cascading-rename fix,
-template naming/validation bugfixes, template visibility governance (new, ad-hoc, not on the
-tracked Phase 3 backlog), and the Docs guardrail-pipeline stage — see week-log.md 2026-07-24 for
-detail.); 2026-07-16 (PR #144 — child tickets, tender module (8th standard module), access-request flow, attachments, "My Tickets" view, multi-admin workflows, plus a pre-PR security hardening pass — see "Out-of-band feature work" under Phase 2 below)
+**Last updated:** 2026-08-03 — reconciled against current `gh` state. Security Groups D and H,
+PR #312's Group-D follow-ups, and #303/#304 are all merged; only this doc's own PR (#313) is open.
+Full current status lives in the sections below — **this header tracks state, not history.**
+Session-by-session narrative is in [week-log.md](week-log.md); don't duplicate it here.
 **Team model:** AI-first (Claude Code as primary engineering partner)
-**Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
+**Tracking:** Update `% done` and `Status` each session.
 
 ---
 
@@ -155,17 +117,18 @@ severity ranking. As of 2026-07-24:
 
 ### Security hardening — July 2026 audit batch (filed 2026-07-31, issues #221–#267)
 
-| Group | PR   | Issues fixed                                     | Status                                                    |
-| ----- | ---- | ------------------------------------------------ | --------------------------------------------------------- |
-| A     | #281 | #237, #262, #255, #238 (#232/#236 already fixed) | ✅ Merged 2026-07-31                                      |
-| B     | #279 | #225, #223, #229, #231                           | ✅ Merged 2026-07-31                                      |
-| C     | #280 | #224, #239, #235, #240, #241                     | ✅ Merged 2026-07-31                                      |
-| —     | #282 | #201 (native confirm/alert)                      | ✅ Merged 2026-07-31                                      |
-| E     | #283 | #243, #244, #254, #234                           | ✅ Merged 2026-07-31                                      |
-| G     | #293 | #245, #228, #258, #256, #259, #257               | ✅ Merged 2026-08-01                                      |
-| D     | #305 | #226, #227, #230, #233, #249, #264, #265         | 🔄 PR open, awaiting review                               |
-| H     | #294 | #251, #252, #253, #260, #261, #263               | ✅ Merged 2026-08-01                                      |
-| skip  | —    | #246, #248, #250, #247                           | ⛔ Blocked on issue #2 (SSRF/PII) — human review required |
+| Group | PR   | Issues fixed                                                        | Status                                                                                                                                                                                                                                       |
+| ----- | ---- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | #281 | #237, #262, #255, #238 (#232/#236 already fixed)                    | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| B     | #279 | #225, #223, #229, #231                                              | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| C     | #280 | #224, #239, #235, #240, #241                                        | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| —     | #282 | #201 (native confirm/alert)                                         | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| E     | #283 | #243, #244, #254, #234                                              | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| G     | #293 | #245, #228, #258, #256, #259, #257                                  | ✅ Merged 2026-08-01                                                                                                                                                                                                                         |
+| D     | #305 | #226, #227, #230, #233, #249, #264, #265                            | ✅ Merged 2026-08-03                                                                                                                                                                                                                         |
+| H     | #294 | #251, #252, #253, #260, #261, #263                                  | ✅ Merged 2026-08-01                                                                                                                                                                                                                         |
+| —     | #312 | #306, #308, #309, #310, #311 (Group D + workflow-engine follow-ups) | ✅ Merged 2026-08-03                                                                                                                                                                                                                         |
+| skip  | —    | #246, #248, #250, #247                                              | ⛔ Blocked on issue #2 (SSRF/PII) — human review required. #247 additionally deferred by PR #312 to future outbound-HTML-email-sink work; #312's own body explicitly does not close it, despite an earlier tracker draft crediting it there. |
 
 ### Found since the 2026-06-29 consulting review, now also closed or in review
 
@@ -204,14 +167,14 @@ through 2026-07-30/31 (see header above for the session narrative).
 | [#149](../../issues/149) | 4 pre-existing `view-configs.test.ts` failures under parallelism | ✅ Closed — PR #269 |
 | [#196](../../issues/196) | Scale-risk backlog — cache invalidation, pagination, N+1, pool | ✅ Closed 2026-08-01 — re-verified against current code: cache invalidation & pagination don't reproduce, N+1 fixed (PR #271), pool ceiling split into #296 (needs load-test data) |
 | [#201](../../issues/201) | Native `confirm()`/`alert()` instead of a shared dialog | ✅ Closed — PR #282 merged 2026-07-31 |
-| [#198](../../issues/198) | No accessibility floor on modals | 🟡 Open by design — wave 1 (PR #285) and wave 2 (#284, PR #298) both merged, but the issue's bar is systemic ("not a single `role=\"dialog\"` anywhere") and 2 items are deliberately deferred: `workflow-canvas.tsx`'s `TransitionPanel` (slide-in panel, not a true modal) and `record-detail.tsx`'s access-denied overlay (likely full-page state). Per abmish's 2026-08-02 status comment, closing now (with a note on the 2 exceptions) vs. leaving open specifically for them is a call for a human to make — not yet decided. |
-| [#192](../../issues/192) | No backup / disaster-recovery runbook | 🟡 Open by design — PR #286 (merged 2026-08-01) added `scripts/backup.sh` (pg_dump + MinIO mirror) and a tested restore runbook, but deliberately stops short of an RPO/RTO policy or cron schedule — PR body: "this is not a production backup policy... issue stays open for that," a maintainer decision. |
+| [#198](../../issues/198) | No accessibility floor on modals | 🟡 Open by design — wave 1 (PR #285) and wave 2 (#284, PR #298) both merged, but the issue's bar is systemic ("not a single `role=\"dialog\"` anywhere") and 2 items are deliberately deferred: `workflow-canvas.tsx`'s `TransitionPanel` (slide-in panel, not a true modal) and `record-detail.tsx`'s access-denied overlay (likely full-page state). Closing now (with a note on the 2 exceptions) vs. leaving open specifically for them is a call for a human to make — not yet decided. |
+| [#192](../../issues/192) | No backup / disaster-recovery runbook | 🟡 Open by design — PR #286 (merged 2026-08-01) added `scripts/backup.sh` (pg_dump + MinIO mirror) and a tested restore runbook, but deliberately stops short of an RPO/RTO policy or cron schedule — a maintainer decision the PR body explicitly leaves open. |
 | [#194](../../issues/194) | `tests/e2e/` has no actual test harness | ✅ Closed 2026-08-02 — PR #287 (real HTTP, real auth, no mocks) |
 | [#197](../../issues/197) | "Configured" field types render as plain text, not real widgets | ✅ Closed — PR #288 merged 2026-08-01 (`file`/`files` deferred as #289) |
-| [#289](../../issues/289) | `file`/`files` field-type widgets deferred from #197/PR #288 | ✅ Closed — PR #299 merged 2026-08-03. `FileFieldPicker` reuses `useFileUpload`/`AttachmentUploadZone`/`FileChip`; `moduleSlug` threaded through all 4 `FieldInput` call sites (2 already had it for their own attachments section, 2 newly derive it via `entity_types.moduleId → modules.slug`, falling back to `"platform"` for module-less core entity types). |
-| [#199](../../issues/199) | `packages/ui` is hollow — no real shared component library | 🟡 Narrowed and partly addressed — `Dialog`/`AlertDialog` (#273) and `FieldInput`/`UserRefPicker`/`EntityRefPicker` (#288) turned out to already be correctly layered (generic primitives in `packages/ui`, app-specific widgets in `admin-ui`); `Button`/`IconButton` added to `packages/ui` and all 17 admin-ui pages migrated off raw `btn-*`/`icon-btn-*` CSS classNames via PR #295 (merged 2026-08-02). That migration surfaced two more drift findings, now separately tracked: #303 (dialog style-reset block duplicated ~20x) and #304 (4 `<Link className="btn-secondary">` sites left unmigrated — PR #307 open, covers both). Issue left open: no `Table`/design-token layer yet. |
-| [#200](../../issues/200) | Zero internationalization — all UI strings hardcoded English | Open — still untouched, no owner |
-| [#202](../../issues/202) | `docker compose down -v` data-loss foot-gun | Open — still untouched, no owner |
+| [#289](../../issues/289) | `file`/`files` field-type widgets deferred from #197/PR #288 | ✅ Closed — PR #299 merged 2026-08-03. `FileFieldPicker` reuses `useFileUpload`/`AttachmentUploadZone`/`FileChip`; `moduleSlug` derived via `entity_types.moduleId → modules.slug` (falls back to `"platform"` for module-less core entity types). Stayed open post-merge (no `Closes` keyword) until an issue-hygiene pass closed it same day. |
+| [#199](../../issues/199) | `packages/ui` is hollow — no real shared component library | 🟡 Narrowed, partly addressed — `Dialog`/`AlertDialog` (#273) and the `FieldInput` family (#288) were already correctly layered; `Button`/`IconButton` added and all 17 admin-ui pages migrated off raw `btn-*`/`icon-btn-*` classNames (PR #295). That review surfaced #303 (4 `<Link>` sites not on `Button`) and #304 (dialog style-reset duplication + `modules.tsx` mount pattern) — both resolved via PR #307 (2026-08-03). Still no `Table`/design-token layer. |
+| [#200](../../issues/200) | Zero internationalization — all UI strings hardcoded English | 🟡 Scaffolding only — PR #272 (merged 2026-07-31) installed `react-i18next` and fully converted 2 of 57 files (`login.tsx`, `callback.tsx`) as a proof of concept; ~55 files and ~300 strings remain, deliberately out of scope for that PR. Correctly still open — not "untouched" as this doc previously said. |
+| [#202](../../issues/202) | `docker compose down -v` data-loss foot-gun | Open — no PR, no owner |
 
 ---
 
@@ -244,5 +207,5 @@ version GC, defer until 2D workflow editor — 2D shipped 2026-07-22, revisit), 
 4. Run session-start checks:
    - `gh issue list --state open --label phase:2` — hardening sprint (must close before 3A starts)
    - `gh issue list --state open --label phase:3` — Phase 3 feature tracks
-   - `gh pr list --state open` — anything awaiting review/merge (as of 2026-08-03: #305 security
-     Group D, #307 #303/#304 — everything else from the 2026-07-31/2026-08-01 batches has merged)
+   - `gh pr list --state open` — anything awaiting review/merge (as of 2026-08-03: only #313, this
+     doc's own PR — everything else has merged)
