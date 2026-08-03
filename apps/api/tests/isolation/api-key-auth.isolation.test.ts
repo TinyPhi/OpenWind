@@ -196,9 +196,19 @@ describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () 
     await makeApp().request("/whoami", {
       headers: { Authorization: `Bearer ${RAW_KEY_A}` },
     });
-    const [row] = await withTenantContext(TENANT_A, (tx) =>
-      tx.select().from(apiKeys).where(eq(apiKeys.id, keyAId)),
-    );
+
+    let row: typeof apiKeys.$inferSelect | undefined = undefined;
+    for (let i = 0; i < 20; i++) {
+      const [res] = await withTenantContext(TENANT_A, (tx) =>
+        tx.select().from(apiKeys).where(eq(apiKeys.id, keyAId)),
+      );
+      row = res;
+      if (row?.lastUsedAt !== null) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
     expect(row?.lastUsedAt).not.toBeNull();
   });
 
