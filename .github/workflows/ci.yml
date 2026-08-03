@@ -5,6 +5,10 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  schedule:
+    # CodeQL backstop — non-code PRs (docs/config-only) skip the `security` job below,
+    # so this keeps weekly coverage from lapsing on quiet weeks.
+    - cron: "0 3 * * 1"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,10 +20,45 @@ env:
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
+  # ── 0. Change detection ─────────────────────────────────────────────────────
+  # Job-level `if:` (not top-level paths-ignore) so required status checks still
+  # report "skipped" instead of leaving PRs stuck on a check that never ran.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      db: ${{ steps.filter.outputs.db }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.sql'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'turbo.json'
+              - '**/tsconfig*.json'
+              - 'apps/**/Dockerfile'
+            db:
+              - 'packages/db/**'
+              - 'packages/entity-engine/**'
+              - 'packages/workflow-engine/**'
+              - 'packages/automation-engine/**'
+              - 'apps/**'
+              - 'tests/isolation/**'
+
   # ── 1. Lint and type-check ─────────────────────────────────────────────────
   quality:
     name: Quality gates
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,6 +99,7 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     needs: quality
+    if: github.event.pull_request.draft != true
 
     services:
       postgres:
@@ -138,7 +178,19 @@ jobs:
   isolation-tests:
     name: Tenant isolation
     runs-on: ubuntu-latest
-    needs: quality
+    needs: [quality, changes]
+    # Always run on push (post-merge safety net); on PRs, only when db-relevant
+    # paths changed — this suite is the heaviest job after CodeQL and most PRs
+    # (UI-only, docs-only, config-only) never touch these paths. `always()` plus
+    # an explicit quality-success check replaces the implicit needs-gating so a
+    # `changes` job failure fails OPEN (runs the suite) instead of silently
+    # skipping a tenant-isolation check — silent-skip-on-tooling-hiccup is not
+    # an acceptable failure mode for this particular suite.
+    if: >-
+      always() &&
+      needs.quality.result == 'success' &&
+      github.event.pull_request.draft != true &&
+      (github.event_name == 'push' || needs.changes.result == 'failure' || needs.changes.outputs.db == 'true')
 
     services:
       postgres:
@@ -199,8 +251,19 @@ jobs:
   security:
     name: Security scan
     runs-on: ubuntu-latest
+    needs: changes
     permissions:
       security-events: write
+    # CodeQL is the slowest job in this workflow. Skip it for PRs that touch no
+    # code (docs/.claude/-only); still run on every push and on the weekly
+    # schedule so coverage doesn't lapse for quiet weeks. `always()` is required
+    # here: `changes` intentionally skips itself on the schedule trigger, and
+    # without always() the default needs-gating would make this job inherit
+    # that skip — silently defeating the weekly backstop this job exists for.
+    if: >-
+      always() &&
+      (github.event_name == 'schedule' || github.event_name == 'push' ||
+       needs.changes.result == 'failure' || needs.changes.outputs.code == 'true')
 
     steps:
       - uses: actions/checkout@v4
@@ -234,7 +297,11 @@ jobs:
     name: Docker build
     runs-on: ubuntu-latest
     needs: [test, isolation-tests]
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    if: >-
+      always() &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') &&
+      needs.test.result == 'success' &&
+      (needs.isolation-tests.result == 'success' || needs.isolation-tests.result == 'skipped')
 
     strategy:
       fail-fast: false
@@ -263,15 +330,16 @@ jobs:
     name: CI complete
     runs-on: ubuntu-latest
     needs: [quality, test, isolation-tests, security]
-    if: always()
+    if: always() && github.event_name != 'schedule'
     steps:
-      - name: Check all jobs passed
+      - name: Check all required jobs passed or were legitimately skipped
         run: |
-          if [[ "${{ needs.quality.result }}" != "success" ]] || \
-             [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.isolation-tests.result }}" != "success" ]] || \
-             [[ "${{ needs.security.result }}" != "success" ]]; then
+          ok() { [[ "$1" == "success" || "$1" == "skipped" ]]; }
+          if ! ok "${{ needs.quality.result }}" || \
+             ! ok "${{ needs.test.result }}" || \
+             ! ok "${{ needs.isolation-tests.result }}" || \
+             ! ok "${{ needs.security.result }}"; then
             echo "One or more required CI jobs failed."
             exit 1
           fi
-          echo "All CI jobs passed."
+          echo "All required CI jobs passed (or were conditionally skipped)."
