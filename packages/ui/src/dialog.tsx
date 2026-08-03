@@ -67,10 +67,25 @@ const closeButtonStyle: React.CSSProperties = {
   padding: 4,
 };
 
+export interface DialogContentProps extends React.ComponentPropsWithoutRef<
+  typeof DialogPrimitive.Content
+> {
+  /**
+   * Set false when the modal's own body already supplies a close control
+   * (e.g. a header "×" button) — otherwise this and that control both
+   * render, stacked at slightly different positions. Defaults to true so
+   * existing callers with no close control of their own keep one.
+   */
+  showCloseButton?: boolean;
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(function DialogContent({ style, children, ...props }, ref) {
+  DialogContentProps
+>(function DialogContent(
+  { style, children, showCloseButton = true, ...props },
+  ref,
+) {
   return (
     <DialogPortal>
       <DialogOverlay>
@@ -80,9 +95,11 @@ const DialogContent = React.forwardRef<
           style={{ ...contentStyle, ...style }}
           {...props}
         >
-          <DialogPrimitive.Close style={closeButtonStyle} aria-label="Close">
-            ✕
-          </DialogPrimitive.Close>
+          {showCloseButton && (
+            <DialogPrimitive.Close style={closeButtonStyle} aria-label="Close">
+              ✕
+            </DialogPrimitive.Close>
+          )}
           {children}
         </DialogPrimitive.Content>
       </DialogOverlay>

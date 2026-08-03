@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-02 — issue hygiene sweep: #192, #194, #198
+
+**Session type:** Issue triage (no source changes)
+**Issues:** #194 (closed), #192 and #198 (verified, left open with status comments)
+
+### Completed this session
+
+- Verified 3 issues flagged as candidates for closure against their merged PRs' actual bodies
+  rather than assuming "PR merged" = "issue resolved":
+  - **#192** (backup runbook) — PR #286 merged, but its own description explicitly reserves the
+    issue for a maintainer RPO/RTO + cron-schedule decision. Left open, no change needed (already
+    accurately represented).
+  - **#194** (e2e harness) — PR #287 merged and satisfies the issue's own stated completion bar
+    ("even one real passing e2e spec"). Closed with a comment noting broader coverage remains an
+    unscoped, available follow-on.
+  - **#198** (modal a11y, systemic) — wave 1 (#285) merged but wave 2 (#284/PR #298) is still
+    open/unmerged, so the issue's systemic bar isn't met yet. Left open with a status comment
+    (not closed) pointing at the 2 explicitly-deferred items once #298 lands.
+
+### Next
+
+- Revisit #198 once PR #298 merges — likely closeable then, modulo the 2 deferred items.
+
 ## 2026-08-02 — #62 closed, real gap split to #301 and fixed
 
 **Session type:** Bug fix (Plan → Code → Review → Docs → Ship)
@@ -29,15 +52,278 @@
   fixed `deleteWorkflowState` to also check `entityInstances` for the workflow + state name,
   throwing the same `WORKFLOW_STATE_IN_USE` error code (same underlying concept — a second kind
   of "in use"). Confirmed the fix doesn't regress deleting a genuinely unused state.
+- Addressed PrabhuVijit's PR #302 review: broadened the `WORKFLOW_STATE_IN_USE` error message to
+  cover both causes, wrapped every isolation-test `deleteWorkflowState` call in `withTenantContext`
+  so RLS actually activates, added a cross-tenant isolation test, and collapsed a double
+  `deleteWorkflowState` invocation in test case 1 down to one call.
 
 ### Verification
 
 - `pnpm typecheck && pnpm lint` — green, repo-wide.
-- New isolation test: 2/2 pass. Existing `workflow-engine.isolation.test.ts`: 18/18 pass
-  (run together with the new file).
-- `pnpm test:isolation` — 7 pre-existing failures, confirmed identical to earlier sessions this
-  week (missing PgBouncer/OpenBao/Zitadel containers in this sandbox's Docker stack), unrelated
-  to this change.
+- New isolation test: 3/3 pass (all wrapped in `withTenantContext`, including the added
+  cross-tenant case). Existing `workflow-engine.isolation.test.ts`: 18/18 pass (run together with
+  the new file).
+- `pnpm test:isolation` — 8 pre-existing failures (api-keys CRUD, Redis-dependent), confirmed via
+  `git stash` to be identical with or without this change — the sandbox's `ow-cache` container has
+  no host-mapped port, unrelated to this diff.
+
+---
+
+## 2026-08-02 — #199 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `feat/PLAT-199-button-primitive`)
+**Issues:** #199 (PR #295)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #295 review: `IconButton.baseStyle` was missing 3 properties the
+  original `.icon-btn` CSS had — `flexShrink: 0` (blocking; without it, icon buttons in
+  space-constrained flex rows could shrink below their intended 30×30 size — confirmed at least
+  one call site had already worked around it locally rather than at the source), `padding: 0`,
+  and `outline: "none"` (prevents a double focus indicator now that a custom box-shadow ring
+  drives focus styling). All three added.
+- Added the same keyboard focus indicator to `Button` (it only existed on `IconButton` before) —
+  `onFocus`/`onBlur` + box-shadow ring, `outline: "none"` on the base style.
+- Added missing `aria-label` to the 4 flagged `IconButton` usages in
+  `automations/wizard/step-conditions.tsx`/`step-actions.tsx`.
+- Added the flagged test gap: primary/danger variant hover transitions, plus a `Button` focus-ring
+  test.
+- Filed **#303** for the "4 `<Link>` sites will drift from `Button`" follow-up (a real
+  `asChild`/Radix-`Slot` design decision, not a quick fix) rather than fixing it in this pass.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green, repo-wide.
+- `pnpm --filter @platform/ui test` — 32/32 pass (up from 18, all new/updated tests included).
+- `pnpm --filter @platform/admin-ui test` — 90/90 pass, no regressions.
+- Still holding on the reviewer's recommended pre-merge human visual smoke test.
+
+---
+
+## 2026-08-01 — packages/ui: Button/IconButton primitive (#199)
+
+**Session type:** Frontend architecture (Plan → Code → Review → Docs → Ship)
+**Branch:** `feat/PLAT-199-button-primitive`
+**Issues:** #199
+
+### Completed this session
+
+- Investigated #199 ("`packages/ui` is hollow") and found the premise partly stale: `Dialog`/
+  `AlertDialog` (#273) and the `FieldInput`/`UserRefPicker`/`EntityRefPicker` consolidation (#288)
+  were already correctly layered — generic Radix-based primitives in `packages/ui`, admin-ui-
+  specific widgets (tied to entity-engine field types and API routes) staying in
+  `apps/admin-ui/src/components/`, per the dependency rule. Moving the latter into `packages/ui`
+  would have been the wrong fix.
+- The real remaining gap: no `Button` primitive, despite 17 admin-ui pages each hand-rolling
+  `<button className="btn-primary/btn-secondary/btn/btn-sm/btn-danger-sm/icon-btn-*">` against
+  hand-written CSS in `index.css`. Added `Button` (variant: primary/secondary/danger, size:
+  default/sm) and `IconButton` (variant: default/edit/delete/ghost) to `packages/ui`, styled with
+  inline `React.CSSProperties` referencing the same design tokens `Dialog` already established
+  (no CSS/asset pipeline in this package) — hover/focus/active state tracked via local React state
+  since inline styles can't express pseudo-classes.
+- Migrated all 17 identified pages (dispatched as 5 parallel subagent groups, each on disjoint
+  files to avoid conflicting edits). ~136 button call sites converted. Deferred, unchanged:
+  `btn-icon`/`btn-edit-sm` (1 usage each, ambiguous one-offs — same precedent as #288 deferring
+  `file`/`files` widgets) and 4 `<Link>` elements styled as buttons (`Button` renders `<button>`,
+  not `<a>` — out of scope for a className swap).
+- Removed the now-dead `.btn`/`.btn-primary`/`.btn-primary-sm`/`.btn-sm`/`.btn-danger-sm`/
+  `.icon-btn*` CSS rules from `index.css`. Kept `.btn-secondary` (still used by the 4 `<Link>`s),
+  `.btn-icon`/`.btn-edit-sm` (deferred). One disclosed, intentional visual change: two divergent
+  "small primary button" CSS rules existed pre-change (`.btn-primary-sm` vs `.btn-primary.btn-sm`,
+  different padding) — `Button` implements one canonical version, same precedent as #288's
+  currency-field consolidation note.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint && pnpm test` — green repo-wide, except 5 pre-existing
+  `apps/api` isolation-test failures confirmed identical on a clean `main` checkout (this sandbox's
+  Docker stack is only partially up — Postgres/Redis/MinIO running, no PgBouncer/OpenBao/Zitadel/
+  worker containers — unrelated to this frontend-only diff).
+- `pnpm test:isolation` — same pre-existing environmental gap, not run to completion; blocker
+  surfaced rather than silently skipped, per `definition-of-done.md`.
+- New `packages/ui` tests: `button.test.tsx` (9 tests), `icon-button.test.tsx` (9 tests) — both
+  green. `apps/admin-ui`'s existing 90-test suite still green (14 files).
+- No full-browser visual smoke test was possible in this sandbox (no `chromium-cli`/Playwright
+  available, no network to install one, no Zitadel container for an authenticated session) —
+  substituted with: dev server boots clean, all migrated page modules transform through Vite's
+  dev pipeline without error, and manual diff review of every migrated file.
+
+### Next
+
+- #199 remains open for a `Table`/design-token layer if/when a second consuming app exists
+  (`apps/portal` was removed in PR #211 — currently only one frontend app).
+
+---
+
+## 2026-08-02 — #284 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `fix/PLAT-284-modal-a11y-wave2`)
+**Issues:** #284 (PR #298)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #298 review: all ~20 custom `<DialogClose asChild>` close buttons
+  (`<button className="modal-close">×</button>`) were missing `aria-label="Close"` — screen
+  readers announced the `×` glyph literally instead of "Close". Added to all of them across
+  `workflows/detail.tsx`, `record-detail.tsx`, `entity-types/*`, `instance-detail.tsx` (blocking).
+- Also added the non-blocking `type="button"` suggestion to the same 14 buttons that were missing
+  it (some already had it).
+- Filed **#304** for the two remaining non-blocking suggestions (a shared `DIALOG_CONTENT_RESET`
+  constant for the ~20-times-duplicated style-reset block, and converting `modules.tsx`'s two
+  modals from conditional-mount to the controlled `open`/`onOpenChange` pattern used everywhere
+  else) — the second one touches ~14 `previewTarget.`/`forkTarget.` references and deserves its
+  own careful pass rather than being rushed into this response.
+
+### Verification
+
+- `pnpm --filter @platform/admin-ui typecheck && lint && test` — green (90/90 tests).
+
+---
+
+## 2026-08-02 — #284 a11y wave 2: migrate remaining modals to Dialog/AlertDialog
+
+**Session type:** Frontend a11y (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-284-modal-a11y-wave2`
+**Issues:** #284
+
+### Completed this session
+
+- Migrated 24 of the ~27 remaining single-instance modals (wave 1, #198/PR #285, consolidated
+  the 2 duplicated patterns) from hand-rolled `.modal-overlay`/`.modal` divs to `@platform/ui`'s
+  `Dialog`/`AlertDialog`, using the exact style-reset technique `transition-modal.tsx` already
+  established — zero visual change, real `role="dialog"`/`aria-modal`/focus-trap gained. Split
+  across 4 files: `workflows/detail.tsx` (7), `customer/record-detail.tsx` (8),
+  `workflow-canvas.tsx` + `modules.tsx` (4), `entity-types/*` + `record-list.tsx` (5).
+- Deferred, unchanged: `workflow-canvas.tsx`'s `TransitionPanel` (a slide-in side panel, not a
+  true modal) and `record-detail.tsx`'s access-denied overlay (a full-page state) — both
+  explicitly flagged in the issue as needing separate manual judgment.
+- De-duplicated a near-duplicate "Request access?" confirmation that had been split into two
+  copies (one standalone modal, one embedded inside the access-denied overlay) purely to dodge a
+  z-index/stacking bug — now that the standalone copy is a portal-based `Dialog`, the embedded
+  copy was redundant and removed.
+- **Found and fixed a real bug while doing this**: `packages/ui`'s `DialogContent` unconditionally
+  renders its own "×" close button, even when a modal's own markup already supplies one —
+  producing two close affordances. This was already live in production via `transition-modal.tsx`
+  (wave 1, PR #285, 2 shipped instances) but wave 2 was about to propagate it to ~22 more. Added
+  an opt-out `showCloseButton?: boolean` prop (default `true`, preserving existing behavior for
+  callers with no close control of their own) and set it `false` on every migrated modal that has
+  its own.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green repo-wide.
+- `pnpm --filter @platform/ui test` — 10/10 pass (this branch predates #199's Button/IconButton
+  work, so only `dialog`/`alert-dialog` tests exist here; added a new test for `showCloseButton`).
+- `pnpm --filter @platform/admin-ui test` — 90/90 pass, no regressions.
+- Manual diff review of all 4 migration groups plus the `showCloseButton` fix.
+- No full-browser visual check possible in this sandbox (same environment gap as the #199
+  session) — substituted with jsdom component tests + manual diff review.
+
+### Next
+
+- `TransitionPanel` and the access-denied overlay remain open for a future, separately-scoped
+  manual-judgment pass.
+
+## 2026-08-02 — #289 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `feat/PLAT-289-file-field-widgets`)
+**Issues:** #289 (PR #299)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #299 review, both required bugs:
+  - **Visual duplicate in edit mode**: once a staged upload's id also appeared in
+    `existingFiles` (the entity's attachment list, fetched after `POST /files` associated the
+    file), both `StagedFileChip` and `FileChip` rendered for the same file. Fixed by filtering
+    `stagedFiles` to exclude ids already present in `existingFiles` before rendering.
+  - **`cleanFileIds` effect fired on every render**: `cleanFileIds` is a fresh array reference
+    each render (computed inline in `useFileUpload`), so `useEffect(..., [cleanFileIds])` never
+    actually skipped a render. Changed to `[cleanFileIds.join(",")]`, matching the same pattern
+    already used one effect above for `currentIds`.
+- Also addressed all 3 "recommended before merge" items: a single-mode race guard (block a
+  second upload from starting while the first is still mid-scan), an inline comment on the
+  `fetchWithAuth` return-type assertion (code-style rule), and converting the two structural
+  layout `<div style={{...}}>`s to CSS classes (`ffp-container`/`ffp-chip-row` in `index.css`,
+  matching `file-attachment.tsx`'s `fa-*` convention).
+- Added the requested test confirming `StagedFileChip` is suppressed once the same id appears in
+  `existingFiles`.
+
+### Verification
+
+- `pnpm --filter @platform/admin-ui typecheck && lint && test` — green (101/101 tests, up from
+  100).
+- **Caught and reverted a mistake in this session**: ran `prettier --write` on the whole
+  `apps/admin-ui/src/index.css` to format the 2 new CSS classes, not realizing this project's
+  `format:check` only covers `.ts/.tsx/.md/.json` (not `.css`) — it rewrote ~4000 unrelated lines
+  across the entire file. Reverted immediately via `git checkout`, re-added just the 2 intended
+  lines by hand.
+
+---
+
+## 2026-08-02 — #289 file/files field-type widgets for FieldInput
+
+**Session type:** Frontend feature (Plan → Code → Review → Docs → Ship)
+**Branch:** `feat/PLAT-289-file-field-widgets`
+**Issues:** #289
+
+### Completed this session
+
+- Added `FileFieldPicker` (`apps/admin-ui/src/components/file-field-picker.tsx`) — a
+  self-fetching widget for `file`/`files` fields, mirroring the `UserRefPicker`/`EntityRefPicker`
+  pattern (#197/PR #288): `useFileUpload` calls hooks internally, so it must live in its own
+  component mounted from `FieldInput`'s switch, never inline in a switch case. Reuses the
+  existing upload flow end-to-end — `useFileUpload`, `AttachmentUploadZone`, `StagedFileChip`,
+  `FileChip`, `FilePreviewModal` — no new upload/scan logic.
+- Wired `case "file"`/`case "files"` into `field-input.tsx` (`multiple` derived from
+  `field.fieldType`), replacing the previous silent fallthrough to a plain, freely-editable text
+  input — the bug #289 exists to fix.
+- Threaded the new required `moduleSlug`/`entityId` props through all 4 `FieldInput` call sites.
+  `record-detail.tsx`/`record-create.tsx` already computed a `moduleSlug` for their own
+  attachments section — reused directly. `instance-detail.tsx`/`instance-create.tsx` had no such
+  concept before (entity types can have `moduleId: null` for core/module-less types) — added a
+  `modules.find(m => m.id === type?.moduleId)?.slug ?? "platform"` derivation via
+  `useEntityTypes()`.
+- Field-level "remove" only clears the field's own reference (`onChange`) — it never deletes the
+  underlying file record, since the same file may legitimately still appear in the entity's
+  general attachments list (confirmed `GET /entities/:id/attachments` is generic,
+  entity-engine-level, not module-specific).
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green.
+- `pnpm --filter @platform/admin-ui test` — 100/100 pass (10 new: 8 `file-field-picker.test.tsx`
+  - 2 new `field-input.test.tsx` cases for the `file`/`files` delegation).
+- No full-browser visual check possible in this sandbox (same environment gap as the #199/#284
+  sessions) — substituted with component tests + manual diff review.
+
+---
+
+## 2026-08-01 — #196 perf scale-risk backlog: closed
+
+**Session type:** Investigation / issue triage (no source changes)
+**Issues:** #196 (closed), #296 (filed)
+
+### Completed this session
+
+- Re-verified all 4 grouped sub-findings in #196 against current code (post the recent
+  security-hardening PR batch, #279–#294), rather than trusting the 2026-07-31 investigation
+  comment at face value:
+  - Cross-instance cache invalidation — confirmed still doesn't reproduce.
+    `schema-cache.ts`'s `invalidateSchemaCache` uses cursor-based `redis.scan` + `del`, not the
+    blocking `redis.keys()` issue #4 separately tracks; `engine.ts`'s three `Map` caches are all
+    function-local (recreated per call), not persistent cross-replica state.
+  - `ts_rank` OFFSET pagination cliff — confirmed still doesn't reproduce, zero `OFFSET`/
+    `.offset(` usage under `entity-engine/src`.
+  - `bulkUpdateEntities` N+1 — already fixed via PR #271.
+  - Connection pool ceiling (`DATABASE_POOL_MAX=10`) — genuinely not resolvable by code-reading;
+    needs a real concurrency target + load test. Split into its own tracked issue, **#296**, per
+    #196's own "suggested next step" (split once any item is confirmed/scoped).
+- Closed #196 with the re-verification recorded as a comment.
+
+### Next
+
+- #296 stays open until a load-test session with a concrete concurrent-tenant target is run —
+  matches CLAUDE.md's existing "deferred until load testing" gate for adjacent schema-cache work.
 
 ---
 

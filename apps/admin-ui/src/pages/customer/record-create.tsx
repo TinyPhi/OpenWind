@@ -567,6 +567,8 @@ export function CustomerRecordCreate(): React.ReactElement {
               value={fieldValues[field.name]}
               classPrefix="portal"
               required={field.isRequired}
+              moduleSlug={typeSlug ?? "unknown"}
+              entityId={undefined}
               onChange={(v) =>
                 setFieldValues((p) => ({ ...p, [field.name]: v }))
               }

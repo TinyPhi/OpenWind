@@ -12,6 +12,19 @@ vi.mock("./entity-ref-picker.js", () => ({
     targetEntityTypeName: string;
   }) => <div data-testid="entity-ref-picker">{targetEntityTypeName}</div>,
 }));
+vi.mock("./file-field-picker.js", () => ({
+  FileFieldPicker: ({
+    multiple,
+    moduleSlug,
+  }: {
+    multiple: boolean;
+    moduleSlug: string;
+  }) => (
+    <div data-testid="file-field-picker">
+      {multiple ? "multiple" : "single"}:{moduleSlug}
+    </div>
+  ),
+}));
 
 const { FieldInput } = await import("./field-input.js");
 
@@ -30,6 +43,8 @@ describe("FieldInput", () => {
   it("renders a number input for number fields", () => {
     render(
       <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
         field={{ ...baseField, fieldType: "number" }}
         value={5}
         onChange={vi.fn()}
@@ -42,6 +57,8 @@ describe("FieldInput", () => {
   it("renders a checkbox for boolean fields with portal className", () => {
     const { container } = render(
       <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
         field={{ ...baseField, fieldType: "boolean" }}
         value={true}
         classPrefix="portal"
@@ -56,6 +73,8 @@ describe("FieldInput", () => {
     const onChange = vi.fn();
     render(
       <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
         field={{
           ...baseField,
           fieldType: "currency",
@@ -74,6 +93,8 @@ describe("FieldInput", () => {
   it("renders formula fields as disabled read-only text", () => {
     render(
       <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
         field={{ ...baseField, fieldType: "formula" }}
         value={42}
         onChange={vi.fn()}
@@ -86,6 +107,8 @@ describe("FieldInput", () => {
   it("renders lookup fields as disabled read-only text with a dash placeholder when empty", () => {
     render(
       <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
         field={{ ...baseField, fieldType: "lookup" }}
         value={null}
         onChange={vi.fn()}
@@ -98,6 +121,8 @@ describe("FieldInput", () => {
   it("delegates user_ref fields to UserRefPicker", () => {
     render(
       <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
         field={{ ...baseField, fieldType: "user_ref" }}
         value={null}
         onChange={vi.fn()}
@@ -109,6 +134,8 @@ describe("FieldInput", () => {
   it("delegates entity_ref fields to EntityRefPicker with the resolved target type name", () => {
     render(
       <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
         field={{
           ...baseField,
           fieldType: "entity_ref",
@@ -121,9 +148,41 @@ describe("FieldInput", () => {
     expect(screen.getByTestId("entity-ref-picker").textContent).toBe("ticket");
   });
 
+  it("delegates file fields to FileFieldPicker with multiple=false", () => {
+    render(
+      <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
+        field={{ ...baseField, fieldType: "file" }}
+        value={null}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("file-field-picker").textContent).toBe(
+      "single:helpdesk",
+    );
+  });
+
+  it("delegates files fields to FileFieldPicker with multiple=true", () => {
+    render(
+      <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
+        field={{ ...baseField, fieldType: "files" }}
+        value={null}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("file-field-picker").textContent).toBe(
+      "multiple:helpdesk",
+    );
+  });
+
   it("marks the control required when the required prop is set", () => {
     render(
       <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
         field={{ ...baseField, fieldType: "text" }}
         value=""
         required

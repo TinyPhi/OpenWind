@@ -1026,93 +1026,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ─── Buttons ────────────────────────────────────────── */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: var(--transition-fast);
-  border: 1px solid transparent;
-}
-
-.btn-primary-sm {
-  background: var(--accent-gradient);
-  color: white;
-  box-shadow: 0 2px 8px hsla(250, 84%, 66%, 0.2);
-}
-
-.btn-primary-sm:hover:not(:disabled) {
-  box-shadow: 0 4px 12px hsla(250, 84%, 66%, 0.35);
-  transform: translateY(-1px);
-}
-
+/* .btn/.btn-primary/.btn-secondary/.btn-sm/.btn-danger-sm and the
+   .icon-btn family moved to packages/ui's Button/IconButton components
+   (docs/specs/packages-ui-button-primitive.md). .btn-edit-sm/.btn-icon
+   remain — deferred, still 1 raw usage each. */
 .btn-edit-sm {
   background-color: hsla(210, 80%, 55%, 0.1);
   color: hsl(210, 80%, 65%);
   border-color: hsla(210, 80%, 55%, 0.3);
 }
 .btn-edit-sm:hover { background-color: hsla(210, 80%, 55%, 0.2); }
-
-/* ── Circular icon buttons ── */
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  transition: background .15s, border-color .15s, transform .12s;
-  flex-shrink: 0;
-  padding: 0;
-  outline: none;
-}
-.icon-btn:focus-visible { box-shadow: 0 0 0 3px var(--border-focus); }
-.icon-btn:active { transform: scale(0.88); }
-.icon-btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
-
-.icon-btn-edit {
-  color: hsl(210, 80%, 65%);
-  background: hsla(210, 80%, 55%, 0.08);
-  border-color: hsla(210, 80%, 55%, 0.2);
-}
-.icon-btn-edit:hover { background: hsla(210, 80%, 55%, 0.18); border-color: hsla(210, 80%, 55%, 0.35); }
-
-.icon-btn-delete {
-  color: var(--danger);
-  background: hsla(350, 80%, 60%, 0.08);
-  border-color: hsla(350, 80%, 60%, 0.2);
-}
-.icon-btn-delete:hover:not(:disabled) { background: hsla(350, 80%, 60%, 0.18); border-color: hsla(350, 80%, 60%, 0.35); }
-
-.icon-btn-ghost {
-  color: var(--text-muted);
-  background: transparent;
-  border-color: transparent;
-}
-.icon-btn-ghost:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
-
-.btn-danger-sm {
-  background-color: hsla(350, 80%, 60%, 0.1);
-  color: var(--danger);
-  border-color: hsla(350, 80%, 60%, 0.3);
-}
-
-.btn-danger-sm:hover:not(:disabled) {
-  background-color: hsla(350, 80%, 60%, 0.2);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none !important;
-}
 
 .btn-icon {
   background: none;
@@ -2383,35 +2306,10 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--border-color);
 }
 
-/* ─── Primary / Secondary buttons ───────────────────────── */
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border: none;
-  background: var(--accent-gradient);
-  color: white;
-  box-shadow: 0 2px 8px hsla(250, 84%, 66%, 0.2);
-  transition: var(--transition-fast);
-}
-.btn-primary:hover:not(:disabled) {
-  box-shadow: 0 4px 12px hsla(250, 84%, 66%, 0.35);
-  transform: translateY(-1px);
-}
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-.btn-primary.btn-sm {
-  padding: 5px 12px;
-  font-size: 12px;
-}
+/* ─── Secondary button ──────────────────────────────────── */
+/* .btn-primary/.btn-sm moved to packages/ui's Button component. This one
+   stays — still used by a handful of <Link> nav elements styled as a
+   button (Button renders <button>, not <a>, so those weren't migrated). */
 .btn-secondary {
   display: inline-flex;
   align-items: center;
@@ -2429,10 +2327,6 @@ h1, h2, h3, h4, h5, h6 {
 .btn-secondary:hover {
   border-color: var(--accent-primary);
   color: var(--accent-primary);
-}
-.btn-sm {
-  padding: 5px 12px;
-  font-size: 12px;
 }
 
 /* ─── Modal ──────────────────────────────────────────────── */
@@ -2779,6 +2673,10 @@ select.form-input {
 }
 .rcd-sidebar-add:hover { background: var(--accent-light); color: var(--accent-primary); border-color: hsla(250,84%,60%,.35); }
 .rcd-sidebar-hint { font-size: 12px; color: var(--text-muted); padding: 12px 14px; margin: 0; }
+
+/* ── File field picker (#289) ── */
+.ffp-container { display: flex; flex-direction: column; gap: 8px; }
+.ffp-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* ── File attachment chips ── */
 .fa-sidebar-list { display: flex; flex-direction: column; gap: 4px; }

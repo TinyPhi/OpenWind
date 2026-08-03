@@ -27,6 +27,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "@dagrejs/dagre";
+import { Dialog, DialogContent, DialogTitle } from "@platform/ui";
 import { ConfirmDeleteDialog } from "./confirm-delete-dialog.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -422,9 +423,16 @@ function AddStateDialog({
   }
 
   return (
-    <div style={overlayBackdropStyle} onClick={onCancel}>
-      <div style={overlayCardStyle} onClick={(e) => e.stopPropagation()}>
-        <div style={overlayTitleStyle}>Add State</div>
+    <Dialog
+      open={true}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <DialogContent style={overlayCardStyle}>
+        <DialogTitle asChild>
+          <div style={overlayTitleStyle}>Add State</div>
+        </DialogTitle>
         <form onSubmit={submit}>
           <label style={labelStyle}>Name (slug, auto-formatted)</label>
           <input
@@ -452,8 +460,8 @@ function AddStateDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -489,9 +497,16 @@ function EditStateDialog({
   }
 
   return (
-    <div style={overlayBackdropStyle} onClick={onCancel}>
-      <div style={overlayCardStyle} onClick={(e) => e.stopPropagation()}>
-        <div style={overlayTitleStyle}>Edit State — {state.name}</div>
+    <Dialog
+      open={true}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <DialogContent style={overlayCardStyle}>
+        <DialogTitle asChild>
+          <div style={overlayTitleStyle}>Edit State — {state.name}</div>
+        </DialogTitle>
         <form onSubmit={submit}>
           <label style={labelStyle}>Display label</label>
           <input
@@ -556,8 +571,8 @@ function EditStateDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -683,16 +698,6 @@ function TransitionPanel({
 }
 
 // ── Shared overlay styles ─────────────────────────────────────────────────────
-
-const overlayBackdropStyle: React.CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  background: "rgba(0,0,0,.25)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 30,
-};
 
 const overlayCardStyle: React.CSSProperties = {
   background: "var(--bg-card, #fff)",

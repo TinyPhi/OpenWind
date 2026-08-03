@@ -1,5 +1,12 @@
 import React, { useState, useMemo } from "react";
 import { useList } from "@refinedev/core";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogClose,
+  Button,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 
 type Module = {
@@ -477,14 +484,14 @@ export function Modules(): React.ReactElement {
                 The template registry is empty. Click below to load the built-in
                 module templates.
               </p>
-              <button
-                className="btn-primary"
+              <Button
+                variant="primary"
                 onClick={() => void handleSeed()}
                 disabled={seeding}
                 style={{ marginTop: "12px" }}
               >
                 {seeding ? "Seeding…" : "Seed Templates"}
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -509,13 +516,14 @@ export function Modules(): React.ReactElement {
 
       {/* ── Preview modal ────────────────────────────────────────────────── */}
       {previewTarget && (
-        <div
-          className="modal-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setPreviewTarget(null);
+        <Dialog
+          open={true}
+          onOpenChange={(next) => {
+            if (!next) setPreviewTarget(null);
           }}
         >
-          <div
+          <DialogContent
+            showCloseButton={false}
             style={{
               background: "var(--bg-secondary)",
               border: "1px solid var(--border-color)",
@@ -557,15 +565,17 @@ export function Modules(): React.ReactElement {
                 {MODULE_EMOJI[previewTarget.slug] ?? "📋"}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: "17px",
-                    fontWeight: 700,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  {previewTarget.name}
-                </div>
+                <DialogTitle asChild>
+                  <div
+                    style={{
+                      fontSize: "17px",
+                      fontWeight: 700,
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {previewTarget.name}
+                  </div>
+                </DialogTitle>
                 <div
                   style={{
                     fontSize: "12px",
@@ -577,21 +587,24 @@ export function Modules(): React.ReactElement {
                     `Pre-built ${previewTarget.name.toLowerCase()} workflow template`}
                 </div>
               </div>
-              <button
-                onClick={() => setPreviewTarget(null)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: "22px",
-                  cursor: "pointer",
-                  lineHeight: 1,
-                  padding: "0 4px",
-                  flexShrink: 0,
-                }}
-              >
-                ×
-              </button>
+              <DialogClose asChild>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    fontSize: "22px",
+                    cursor: "pointer",
+                    lineHeight: 1,
+                    padding: "0 4px",
+                    flexShrink: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </DialogClose>
             </div>
 
             {/* scrollable body */}
@@ -835,15 +848,15 @@ export function Modules(): React.ReactElement {
                 flexShrink: 0,
               }}
             >
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => setPreviewTarget(null)}
               >
                 Close
-              </button>
+              </Button>
               {!previewTarget.isSystem && (
-                <button
-                  className="btn-primary"
+                <Button
+                  variant="primary"
                   style={{
                     background: `linear-gradient(135deg, ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}, ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}cc)`,
                   }}
@@ -853,22 +866,23 @@ export function Modules(): React.ReactElement {
                   }}
                 >
                   Copy Template
-                </button>
+                </Button>
               )}
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* ── Fork modal ───────────────────────────────────────────────────── */}
       {forkTarget && (
-        <div
-          className="modal-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeForkModal();
+        <Dialog
+          open={true}
+          onOpenChange={(next) => {
+            if (!next) closeForkModal();
           }}
         >
-          <div
+          <DialogContent
+            showCloseButton={false}
             style={{
               background: "var(--bg-secondary)",
               border: "1px solid var(--border-color)",
@@ -906,15 +920,17 @@ export function Modules(): React.ReactElement {
                 {MODULE_EMOJI[forkTarget.slug] ?? "📋"}
               </div>
               <div style={{ flex: 1 }}>
-                <div
-                  style={{
-                    fontSize: "16px",
-                    fontWeight: 700,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  Copy "{forkTarget.name}"
-                </div>
+                <DialogTitle asChild>
+                  <div
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    Copy "{forkTarget.name}"
+                  </div>
+                </DialogTitle>
                 <div
                   style={{
                     fontSize: "12px",
@@ -926,21 +942,24 @@ export function Modules(): React.ReactElement {
                   to use.
                 </div>
               </div>
-              <button
-                onClick={closeForkModal}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: "20px",
-                  cursor: "pointer",
-                  lineHeight: 1,
-                  padding: "0 4px",
-                  flexShrink: 0,
-                }}
-              >
-                ×
-              </button>
+              <DialogClose asChild>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    fontSize: "20px",
+                    cursor: "pointer",
+                    lineHeight: 1,
+                    padding: "0 4px",
+                    flexShrink: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </DialogClose>
             </div>
 
             {/* modal body */}
@@ -1051,24 +1070,24 @@ export function Modules(): React.ReactElement {
                 gap: "10px",
               }}
             >
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={closeForkModal}
                 disabled={forking}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => void handleFork()}
                 disabled={forking || !forkName.trim() || nameConflict}
                 style={{ minWidth: "120px" }}
               >
                 {forking ? "Copying…" : "Copy Template"}
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
@@ -1321,8 +1340,9 @@ function ModuleCard({
             </svg>
           </button>
           {!mod.isSystem && (
-            <button
-              className="btn-primary btn-sm"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => onFork(mod)}
               style={{
                 background: `linear-gradient(135deg, ${accent}, ${accent}cc)`,
@@ -1330,7 +1350,7 @@ function ModuleCard({
               }}
             >
               Copy
-            </button>
+            </Button>
           )}
         </div>
       </div>

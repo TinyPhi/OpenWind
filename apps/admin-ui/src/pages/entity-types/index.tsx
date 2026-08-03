@@ -1,6 +1,13 @@
 import React, { useState } from "react";
 import { useList } from "@refinedev/core";
 import { Link, useNavigate } from "react-router-dom";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogTitle,
+  Button,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 
@@ -99,9 +106,9 @@ export function EntityTypes(): React.ReactElement {
         </div>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <div className="stat-pill">{types.length} types</div>
-          <button className="btn-primary" onClick={() => setShowModal(true)}>
+          <Button variant="primary" onClick={() => setShowModal(true)}>
             + New Entity Type
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -238,97 +245,114 @@ export function EntityTypes(): React.ReactElement {
         </div>
       )}
 
-      {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+      <Dialog
+        open={showModal}
+        onOpenChange={(next) => {
+          if (!next) setShowModal(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">New Entity Type</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowModal(false)}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
-            </div>
-            <form onSubmit={(e) => void handleCreate(e)}>
-              <div className="modal-body">
-                {error && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {error}
-                  </div>
-                )}
-                <div className="form-group">
-                  <label className="form-label">Name *</label>
-                  <input
-                    className="form-input"
-                    placeholder="e.g. Support Ticket"
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, name: e.target.value }))
-                    }
-                    required
-                    autoFocus
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Plural *</label>
-                  <input
-                    className="form-input"
-                    placeholder="e.g. Support Tickets"
-                    value={form.plural}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, plural: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Icon (emoji)</label>
-                  <input
-                    className="form-input"
-                    placeholder="e.g. 🎫"
-                    value={form.icon}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, icon: e.target.value }))
-                    }
-                    style={{ maxWidth: "120px" }}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={form.allowCustomFields}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          allowCustomFields: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Allow custom fields</span>
-                  </label>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowModal(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary" disabled={saving}>
-                  {saving ? "Creating…" : "Create Entity Type"}
-                </button>
-              </div>
-            </form>
+            </DialogClose>
           </div>
-        </div>
-      )}
+          <form onSubmit={(e) => void handleCreate(e)}>
+            <div className="modal-body">
+              {error && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {error}
+                </div>
+              )}
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Support Ticket"
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Plural *</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Support Tickets"
+                  value={form.plural}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, plural: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Icon (emoji)</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. 🎫"
+                  value={form.icon}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, icon: e.target.value }))
+                  }
+                  style={{ maxWidth: "120px" }}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.allowCustomFields}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        allowCustomFields: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Allow custom fields</span>
+                </label>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving ? "Creating…" : "Create Entity Type"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
