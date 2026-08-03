@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { TOKENS } from "./tokens.js";
 
 /**
  * Consumers must define this repo's standard design tokens on an ancestor
@@ -43,14 +44,14 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const contentStyle: React.CSSProperties = {
   position: "relative",
-  background: "var(--bg-secondary, hsl(222, 15%, 18%))",
-  border: "1px solid var(--border-color, hsla(222, 12%, 40%, 0.35))",
-  borderRadius: "var(--radius-lg, 20px)",
+  background: TOKENS.bgSecondary,
+  border: `1px solid ${TOKENS.borderColor}`,
+  borderRadius: TOKENS.radiusLg,
   width: "100%",
   maxWidth: 540,
   maxHeight: "90vh",
   overflowY: "auto",
-  boxShadow: "var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.6))",
+  boxShadow: TOKENS.shadowLg,
   padding: "20px 24px",
 };
 
@@ -61,7 +62,7 @@ const closeButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   background: "transparent",
   border: "none",
-  color: "var(--text-muted, hsl(222, 8%, 56%))",
+  color: TOKENS.textMuted,
   fontSize: 18,
   lineHeight: 1,
   padding: 4,
@@ -152,7 +153,7 @@ const DialogTitle = React.forwardRef<
       style={{
         fontSize: 16,
         fontWeight: 700,
-        color: "var(--text-primary, hsl(0, 0%, 94%))",
+        color: TOKENS.textPrimary,
         margin: 0,
         ...style,
       }}
@@ -171,7 +172,7 @@ const DialogDescription = React.forwardRef<
       ref={ref}
       style={{
         fontSize: 13,
-        color: "var(--text-muted, hsl(222, 8%, 56%))",
+        color: TOKENS.textMuted,
         marginTop: 4,
         ...style,
       }}

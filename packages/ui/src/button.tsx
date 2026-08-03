@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
+import { TOKENS } from "./tokens.js";
 
 /**
  * Mirrors apps/admin-ui/src/index.css's .btn-primary/.btn-secondary/.btn-sm/
@@ -32,15 +33,15 @@ const baseStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  borderRadius: "var(--radius-sm, 8px)",
+  borderRadius: TOKENS.radiusSm,
   fontWeight: 600,
   cursor: "pointer",
-  transition: "var(--transition-fast, all 0.15s ease)",
+  transition: TOKENS.transitionFast,
   outline: "none",
 };
 
 const focusStyle: React.CSSProperties = {
-  boxShadow: "0 0 0 3px var(--border-focus, hsla(250, 84%, 66%, 0.35))",
+  boxShadow: `0 0 0 3px ${TOKENS.borderFocus}`,
 };
 
 const sizeStyle: Record<ButtonSize, React.CSSProperties> = {
@@ -51,20 +52,19 @@ const sizeStyle: Record<ButtonSize, React.CSSProperties> = {
 const variantStyle: Record<ButtonVariant, React.CSSProperties> = {
   primary: {
     border: "none",
-    background:
-      "var(--accent-gradient, linear-gradient(135deg, hsl(250, 84%, 66%), hsl(265, 84%, 66%)))",
+    background: TOKENS.accentGradient,
     color: "white",
     boxShadow: "0 2px 8px hsla(250, 84%, 66%, 0.2)",
   },
   secondary: {
-    border: "1px solid var(--border-color, hsla(222, 12%, 40%, 0.35))",
-    background: "var(--bg-elevated, hsl(222, 15%, 22%))",
-    color: "var(--text-secondary, hsl(222, 10%, 75%))",
+    border: `1px solid ${TOKENS.borderColor}`,
+    background: TOKENS.bgElevated,
+    color: TOKENS.textSecondary,
   },
   danger: {
     border: "1px solid hsla(350, 80%, 60%, 0.3)",
     background: "hsla(350, 80%, 60%, 0.1)",
-    color: "var(--danger, hsl(350, 80%, 60%))",
+    color: TOKENS.danger,
   },
 };
 
@@ -74,8 +74,8 @@ const variantHoverStyle: Record<ButtonVariant, React.CSSProperties> = {
     transform: "translateY(-1px)",
   },
   secondary: {
-    borderColor: "var(--accent-primary, hsl(250, 84%, 66%))",
-    color: "var(--accent-primary, hsl(250, 84%, 66%))",
+    borderColor: TOKENS.accentPrimary,
+    color: TOKENS.accentPrimary,
   },
   danger: {
     background: "hsla(350, 80%, 60%, 0.2)",

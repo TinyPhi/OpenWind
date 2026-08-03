@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { Button } from "./button.js";
+import { TOKENS } from "./tokens.js";
 
 afterEach(() => {
   cleanup();
@@ -52,6 +53,12 @@ describe("Button", () => {
     render(<Button>Save</Button>);
     const button = screen.getByRole("button", { name: "Save" });
     expect(button.style.padding).toBe("8px 16px");
+  });
+
+  it("uses the shared radius-sm token for its border radius (regression: this fallback drifted to 8px here while every other caller and index.css's actual token used 6px)", () => {
+    render(<Button>Save</Button>);
+    const button = screen.getByRole("button", { name: "Save" });
+    expect(button.style.borderRadius).toBe(TOKENS.radiusSm);
   });
 
   it("applies the disabled visual treatment and disables the element", () => {
