@@ -28,6 +28,47 @@
 
 - Revisit #198 once PR #298 merges — likely closeable then, modulo the 2 deferred items.
 
+## 2026-08-02 — #62 closed, real gap split to #301 and fixed
+
+**Session type:** Bug fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-62-state-delete-instance-guard`
+**Issues:** #62 (closed), #301 (filed and closed by this session's fix)
+
+### Completed this session
+
+- Re-investigated #62 ("workflow version GC and stuck instance recovery") now that the workflow
+  editor (2D) has shipped. Its premise doesn't match the architecture that was actually built:
+  no `version` column exists on `workflows`, and `deleteWorkflow` already blocks deletion when
+  ANY instance references it (not just active ones) — so the "old version orphans instances"
+  scenario the issue described can't happen. Closed #62 with the full explanation.
+- Found a real, narrower, analogous gap while investigating: `deleteWorkflowState`
+  (`packages/workflow-engine/src/workflow-crud.ts`) only checked whether a _transition_
+  referenced the state being deleted — never whether a live entity instance was currently
+  _sitting in_ it. `entityInstances.currentState` is a plain `text` column with no FK, so nothing
+  at the DB layer caught this either. Filed as #301 with an accurate description.
+- Followed the Prove-It Pattern: wrote a failing isolation test first
+  (`apps/api/tests/isolation/workflow-state-delete-guard.isolation.test.ts`), confirmed it failed
+  against unmodified code (the state got deleted despite a live instance sitting in it), then
+  fixed `deleteWorkflowState` to also check `entityInstances` for the workflow + state name,
+  throwing the same `WORKFLOW_STATE_IN_USE` error code (same underlying concept — a second kind
+  of "in use"). Confirmed the fix doesn't regress deleting a genuinely unused state.
+- Addressed PrabhuVijit's PR #302 review: broadened the `WORKFLOW_STATE_IN_USE` error message to
+  cover both causes, wrapped every isolation-test `deleteWorkflowState` call in `withTenantContext`
+  so RLS actually activates, added a cross-tenant isolation test, and collapsed a double
+  `deleteWorkflowState` invocation in test case 1 down to one call.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green, repo-wide.
+- New isolation test: 3/3 pass (all wrapped in `withTenantContext`, including the added
+  cross-tenant case). Existing `workflow-engine.isolation.test.ts`: 18/18 pass (run together with
+  the new file).
+- `pnpm test:isolation` — 8 pre-existing failures (api-keys CRUD, Redis-dependent), confirmed via
+  `git stash` to be identical with or without this change — the sandbox's `ow-cache` container has
+  no host-mapped port, unrelated to this diff.
+
+---
+
 ## 2026-08-02 — #199 PR review fixes (PrabhuVijit)
 
 **Session type:** Review response (same branch, `feat/PLAT-199-button-primitive`)
