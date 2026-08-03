@@ -139,10 +139,10 @@ severity ranking. As of 2026-07-24:
 | [#167](../../issues/167)                                                     | `grant-access.ts` should accept workflow-admin callers                       | ✅ Closed — PR #179               |
 | [#160](../../issues/160)                                                     | `setEntityState`/`bulkSetState` don't validate target state                  | ✅ Closed — PR #180               |
 | [#176](../../issues/176)                                                     | Guardrail hooks: shared state clobbers across branches; worktree bypass      | ✅ Closed — PR #177               |
-| [#171](../../issues/171)                                                     | helpdesk's redundant non-idempotent `001_seed.sql`                           | PR #188 open, not yet merged      |
-| [#182](../../issues/182)–[#185](../../issues/185)                            | Nit-bugs from PR #175/#177/#179/#180 reviews                                 | PR #186 open, not yet merged      |
-| [#187](../../issues/187)                                                     | `TRANSITION_LOCKED` falls through to 500 in `handle-workflow-error.ts`       | PR #188 open, not yet merged      |
-| [#150](../../issues/150), [#148](../../issues/148), [#110](../../issues/110) | Small housekeeping (gitignore, corepack hash, pretest script)                | PR #188 open, not yet merged      |
+| [#171](../../issues/171)                                                     | helpdesk's redundant non-idempotent `001_seed.sql`                           | ✅ Closed — PR #188 (2026-07-25)  |
+| [#182](../../issues/182)–[#185](../../issues/185)                            | Nit-bugs from PR #175/#177/#179/#180 reviews                                 | ✅ Closed — PR #186 (2026-07-25)  |
+| [#187](../../issues/187)                                                     | `TRANSITION_LOCKED` falls through to 500 in `handle-workflow-error.ts`       | ✅ Closed — PR #188 (2026-07-25)  |
+| [#150](../../issues/150), [#148](../../issues/148), [#110](../../issues/110) | Small housekeeping (gitignore, corepack hash, pretest script)                | ✅ Closed — PR #188 (2026-07-25)  |
 | [#143](../../issues/143)                                                     | Automation-triggered transitions absent from outbox (Phase 3A connector gap) | Open — assigned to Bikash Barnwal |
 
 **Informally assigned via issue-comment `@mentions` (GitHub's `assignees` field isn't used in this
