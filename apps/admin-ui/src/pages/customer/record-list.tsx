@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import type { SavedView } from "../../lib/types.js";
 import { useExport } from "../../lib/use-export.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 import { TransitionModal } from "../../components/transition-modal.js";
-import { Button } from "@platform/ui";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1106,106 +1106,98 @@ export function CustomerRecordList(): React.ReactElement {
       <div className="kb-divider" />
 
       {/* T19: Save View modal */}
-      {showSaveViewModal && (
-        <div
+      <Dialog
+        open={showSaveViewModal}
+        onOpenChange={(next) => {
+          if (!next) {
+            setShowSaveViewModal(false);
+            setViewSaveError(null);
+          }
+        }}
+      >
+        <DialogContent
           style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1200,
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowSaveViewModal(false);
-              setViewSaveError(null);
-            }
+            background: "var(--bg-primary)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "14px",
+            padding: "24px 28px",
+            width: "100%",
+            maxWidth: "380px",
+            boxShadow: "var(--shadow-lg)",
           }}
         >
-          <div
-            style={{
-              background: "var(--bg-primary)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "14px",
-              padding: "24px 28px",
-              width: "100%",
-              maxWidth: "380px",
-              boxShadow: "var(--shadow-lg)",
-            }}
-          >
+          <DialogTitle asChild>
             <p
               style={{ margin: "0 0 16px", fontWeight: 600, fontSize: "15px" }}
             >
               Save view
             </p>
-            <div className="form-group" style={{ marginBottom: "12px" }}>
-              <label className="form-label">View name *</label>
-              <input
-                className="form-input"
-                placeholder="e.g. My open tickets"
-                value={newViewName}
-                onChange={(e) => setNewViewName(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                fontSize: "13px",
-                marginBottom: "20px",
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={newViewDefault}
-                onChange={(e) => setNewViewDefault(e.target.checked)}
-              />
-              Set as default view
-            </label>
-            {viewSaveError && (
-              <p
-                style={{
-                  color: "var(--color-error, #dc2626)",
-                  fontSize: "12px",
-                  marginBottom: "12px",
-                }}
-              >
-                {viewSaveError}
-              </p>
-            )}
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                justifyContent: "flex-end",
-              }}
-            >
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setShowSaveViewModal(false);
-                  setViewSaveError(null);
-                }}
-                disabled={savingView}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => void handleSaveView()}
-                disabled={savingView || !newViewName.trim()}
-              >
-                {savingView ? "Saving…" : "Save view"}
-              </Button>
-            </div>
+          </DialogTitle>
+          <div className="form-group" style={{ marginBottom: "12px" }}>
+            <label className="form-label">View name *</label>
+            <input
+              className="form-input"
+              placeholder="e.g. My open tickets"
+              value={newViewName}
+              onChange={(e) => setNewViewName(e.target.value)}
+              autoFocus
+            />
           </div>
-        </div>
-      )}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              fontSize: "13px",
+              marginBottom: "20px",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={newViewDefault}
+              onChange={(e) => setNewViewDefault(e.target.checked)}
+            />
+            Set as default view
+          </label>
+          {viewSaveError && (
+            <p
+              style={{
+                color: "var(--color-error, #dc2626)",
+                fontSize: "12px",
+                marginBottom: "12px",
+              }}
+            >
+              {viewSaveError}
+            </p>
+          )}
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              justifyContent: "flex-end",
+            }}
+          >
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowSaveViewModal(false);
+                setViewSaveError(null);
+              }}
+              disabled={savingView}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void handleSaveView()}
+              disabled={savingView || !newViewName.trim()}
+            >
+              {savingView ? "Saving…" : "Save view"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Board */}
       {filteredRecords.length === 0 && states.length === 0 ? (

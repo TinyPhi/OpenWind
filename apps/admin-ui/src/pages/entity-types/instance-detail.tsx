@@ -1,10 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogTitle,
+  Button,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { UserPicker } from "../../components/user-picker.js";
 import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
-import { Button } from "@platform/ui";
 
 type EntityField = {
   id: string;
@@ -685,100 +691,111 @@ export function EntityInstanceDetail(): React.ReactElement {
       )}
 
       {/* Change state modal */}
-      {stateModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => {
+      <Dialog
+        open={stateModal}
+        onOpenChange={(next) => {
+          if (!next) {
             setStateModal(false);
             setStateError(null);
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
           }}
         >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">Change State</h3>
-              <button
-                className="modal-close"
-                onClick={() => {
-                  setStateModal(false);
-                  setStateError(null);
-                }}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            {stateError && (
+              <div
+                className="alert alert-error"
+                style={{ marginBottom: "12px" }}
+              >
+                {stateError}
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">
+                Current: {stateBadge(record.currentState)}
+              </label>
             </div>
-            <div className="modal-body">
-              {stateError && (
-                <div
-                  className="alert alert-error"
-                  style={{ marginBottom: "12px" }}
-                >
-                  {stateError}
-                </div>
-              )}
-              <div className="form-group">
-                <label className="form-label">
-                  Current: {stateBadge(record.currentState)}
-                </label>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Move to *</label>
-                {allStates.length > 0 ? (
-                  <select
-                    className="form-input"
-                    value={selectedState}
-                    onChange={(e) => setSelectedState(e.target.value)}
-                  >
-                    <option value="">Select a state…</option>
-                    {allStates
-                      .filter((s) => s.name !== record.currentState)
-                      .map((s) => (
-                        <option key={s.id} value={s.name}>
-                          {s.label || s.name}
-                        </option>
-                      ))}
-                  </select>
-                ) : (
-                  <input
-                    className="form-input"
-                    placeholder="e.g. in_progress"
-                    value={selectedState}
-                    onChange={(e) => setSelectedState(e.target.value)}
-                  />
-                )}
-              </div>
-              <div className="form-group">
-                <label className="form-label">Note (optional)</label>
-                <textarea
+            <div className="form-group">
+              <label className="form-label">Move to *</label>
+              {allStates.length > 0 ? (
+                <select
                   className="form-input"
-                  rows={3}
-                  style={{ resize: "vertical" }}
-                  placeholder="Reason for state change…"
-                  value={stateComment}
-                  onChange={(e) => setStateComment(e.target.value)}
+                  value={selectedState}
+                  onChange={(e) => setSelectedState(e.target.value)}
+                >
+                  <option value="">Select a state…</option>
+                  {allStates
+                    .filter((s) => s.name !== record.currentState)
+                    .map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.label || s.name}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <input
+                  className="form-input"
+                  placeholder="e.g. in_progress"
+                  value={selectedState}
+                  onChange={(e) => setSelectedState(e.target.value)}
                 />
-              </div>
+              )}
             </div>
-            <div className="modal-footer">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setStateModal(false);
-                  setStateError(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                disabled={!selectedState || settingState}
-                onClick={() => void handleSetState()}
-              >
-                {settingState ? "Updating…" : "Update State"}
-              </Button>
+            <div className="form-group">
+              <label className="form-label">Note (optional)</label>
+              <textarea
+                className="form-input"
+                rows={3}
+                style={{ resize: "vertical" }}
+                placeholder="Reason for state change…"
+                value={stateComment}
+                onChange={(e) => setStateComment(e.target.value)}
+              />
             </div>
           </div>
-        </div>
-      )}
+          <div className="modal-footer">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setStateModal(false);
+                setStateError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!selectedState || settingState}
+              onClick={() => void handleSetState()}
+            >
+              {settingState ? "Updating…" : "Update State"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

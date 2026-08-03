@@ -27,7 +27,21 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
-import { Button, IconButton } from "@platform/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogClose,
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+  Button,
+  IconButton,
+} from "@platform/ui";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
 // BrowserRouter. This shim intercepts history.pushState/replaceState to provide
@@ -3266,860 +3280,948 @@ export function WorkflowDetail(): React.ReactElement {
       {/* ── Modals ─────────────────────────────────────────── */}
 
       {/* Add Field */}
-      {showAddField && (
-        <div className="modal-overlay" onClick={() => setShowAddField(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+      <Dialog
+        open={showAddField}
+        onOpenChange={(next) => {
+          if (!next) setShowAddField(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">Add Detail</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddField(false)}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleAddField(e)}>
+            <div className="modal-body">
+              {fieldError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {fieldError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Label *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. Customer Name"
+                    value={fieldForm.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      const name = label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setFieldForm((f) => ({ ...f, label, name }));
+                    }}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Detail ID *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. customer_name"
+                    value={fieldForm.name}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    pattern="^[a-z_][a-z0-9_]*$"
+                    title="snake_case only"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Detail Type *</label>
+                <select
+                  className="form-input"
+                  value={fieldForm.fieldType}
+                  onChange={(e) =>
+                    setFieldForm((f) => ({
+                      ...f,
+                      fieldType: e.target.value,
+                    }))
+                  }
+                >
+                  {FIELD_TYPES.map((ft) => (
+                    <option key={ft.value} value={ft.value}>
+                      {ft.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={fieldForm.isRequired}
+                  onChange={(e) =>
+                    setFieldForm((f) => ({
+                      ...f,
+                      isRequired: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Required field</span>
+              </label>
             </div>
-            <form onSubmit={(e) => void handleAddField(e)}>
-              <div className="modal-body">
-                {fieldError && (
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowAddField(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingField}>
+                {savingField ? "Adding…" : "Add Detail"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add State */}
+      <Dialog
+        open={showAddState}
+        onOpenChange={(next) => {
+          if (!next) setShowAddState(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Add Step</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleAddState(e)}>
+            <div className="modal-body">
+              {stateError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {stateError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Label *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. In Progress"
+                    value={stateForm.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      const name = label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setStateForm((f) => ({ ...f, label, name }));
+                    }}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Step ID *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. in_progress"
+                    value={stateForm.name}
+                    onChange={(e) =>
+                      setStateForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    pattern="^[a-z_][a-z0-9_]*$"
+                    title="snake_case only"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Color</label>
                   <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
+                    }}
                   >
-                    {fieldError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
                     <input
-                      className="form-input"
-                      placeholder="e.g. Customer Name"
-                      value={fieldForm.label}
-                      onChange={(e) => {
-                        const label = e.target.value;
-                        const name = label
-                          .toLowerCase()
-                          .replace(/\s+/g, "_")
-                          .replace(/[^a-z0-9_]/g, "");
-                        setFieldForm((f) => ({ ...f, label, name }));
-                      }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Detail ID *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. customer_name"
-                      value={fieldForm.name}
+                      type="color"
+                      value={stateForm.color}
                       onChange={(e) =>
-                        setFieldForm((f) => ({ ...f, name: e.target.value }))
+                        setStateForm((f) => ({
+                          ...f,
+                          color: e.target.value,
+                        }))
                       }
-                      pattern="^[a-z_][a-z0-9_]*$"
-                      title="snake_case only"
-                      required
+                      style={{
+                        width: "40px",
+                        height: "36px",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <input
+                      className="form-input"
+                      value={stateForm.color}
+                      onChange={(e) =>
+                        setStateForm((f) => ({
+                          ...f,
+                          color: e.target.value,
+                        }))
+                      }
+                      placeholder="#6366f1"
+                      style={{ flex: 1 }}
                     />
                   </div>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Detail Type *</label>
-                  <select
+                  <label className="form-label">Order</label>
+                  <input
                     className="form-input"
-                    value={fieldForm.fieldType}
+                    type="number"
+                    min={0}
+                    value={stateForm.sortOrder}
                     onChange={(e) =>
-                      setFieldForm((f) => ({
+                      setStateForm((f) => ({
                         ...f,
-                        fieldType: e.target.value,
+                        sortOrder: e.target.value,
                       }))
                     }
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Deadline (hours, optional)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 24"
+                  value={stateForm.slaHours}
+                  onChange={(e) =>
+                    setStateForm((f) => ({
+                      ...f,
+                      slaHours: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={stateForm.isTerminal}
+                  onChange={(e) =>
+                    setStateForm((f) => ({
+                      ...f,
+                      isTerminal: e.target.checked,
+                    }))
+                  }
+                />
+                <span>
+                  This is a final step
+                  <br />
+                  <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
+                    Tickets won&apos;t move further once they reach this step
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowAddState(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingState}>
+                {savingState ? "Adding…" : "Add Step"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Transition */}
+      <Dialog
+        open={showAddTransition}
+        onOpenChange={(next) => {
+          if (!next) setShowAddTransition(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Add Action</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleAddTransition(e)}>
+            <div className="modal-body">
+              {transError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {transError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">From Step *</label>
+                  <select
+                    className="form-input"
+                    value={transForm.fromState}
+                    onChange={(e) =>
+                      setTransForm((f) => ({
+                        ...f,
+                        fromState: e.target.value,
+                      }))
+                    }
+                    required
                   >
-                    {FIELD_TYPES.map((ft) => (
-                      <option key={ft.value} value={ft.value}>
-                        {ft.label}
+                    <option value="">Select…</option>
+                    {stateNames.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
                       </option>
                     ))}
                   </select>
                 </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={fieldForm.isRequired}
+                <div className="form-group">
+                  <label className="form-label">To Step *</label>
+                  <select
+                    className="form-input"
+                    value={transForm.toState}
                     onChange={(e) =>
-                      setFieldForm((f) => ({
+                      setTransForm((f) => ({
                         ...f,
-                        isRequired: e.target.checked,
+                        toState: e.target.value,
                       }))
                     }
-                  />
-                  <span>Required field</span>
-                </label>
-              </div>
-              <div className="modal-footer">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setShowAddField(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={savingField}>
-                  {savingField ? "Adding…" : "Add Detail"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add State */}
-      {showAddState && (
-        <div className="modal-overlay" onClick={() => setShowAddState(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Add Step</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddState(false)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleAddState(e)}>
-              <div className="modal-body">
-                {stateError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
+                    required
                   >
-                    {stateError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. In Progress"
-                      value={stateForm.label}
-                      onChange={(e) => {
-                        const label = e.target.value;
-                        const name = label
-                          .toLowerCase()
-                          .replace(/\s+/g, "_")
-                          .replace(/[^a-z0-9_]/g, "");
-                        setStateForm((f) => ({ ...f, label, name }));
-                      }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Step ID *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. in_progress"
-                      value={stateForm.name}
-                      onChange={(e) =>
-                        setStateForm((f) => ({ ...f, name: e.target.value }))
-                      }
-                      pattern="^[a-z_][a-z0-9_]*$"
-                      title="snake_case only"
-                      required
-                    />
-                  </div>
+                    <option value="">Select…</option>
+                    {stateNames.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Color</label>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "8px",
-                        alignItems: "center",
-                      }}
-                    >
-                      <input
-                        type="color"
-                        value={stateForm.color}
-                        onChange={(e) =>
-                          setStateForm((f) => ({
-                            ...f,
-                            color: e.target.value,
-                          }))
-                        }
+              </div>
+              <div className="form-group">
+                <label className="form-label">Label</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Start Work"
+                  value={transForm.label}
+                  onChange={(e) =>
+                    setTransForm((f) => ({ ...f, label: e.target.value }))
+                  }
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Who Can Do This (blank = anyone)
+                </label>
+                {availableRoles.length === 0 ? (
+                  <p style={{ fontSize: "13px", color: "#6b7280" }}>
+                    Loading roles…
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      maxHeight: "160px",
+                      overflowY: "auto",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "6px",
+                      padding: "8px",
+                    }}
+                  >
+                    {availableRoles.map((role) => (
+                      <label
+                        key={role}
                         style={{
-                          width: "40px",
-                          height: "36px",
-                          border: "none",
-                          borderRadius: "6px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "14px",
                           cursor: "pointer",
                         }}
-                      />
-                      <input
-                        className="form-input"
-                        value={stateForm.color}
-                        onChange={(e) =>
-                          setStateForm((f) => ({
-                            ...f,
-                            color: e.target.value,
-                          }))
-                        }
-                        placeholder="#6366f1"
-                        style={{ flex: 1 }}
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Order</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={0}
-                      value={stateForm.sortOrder}
-                      onChange={(e) =>
-                        setStateForm((f) => ({
-                          ...f,
-                          sortOrder: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">
-                    Deadline (hours, optional)
-                  </label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min={1}
-                    placeholder="e.g. 24"
-                    value={stateForm.slaHours}
-                    onChange={(e) =>
-                      setStateForm((f) => ({
-                        ...f,
-                        slaHours: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={stateForm.isTerminal}
-                    onChange={(e) =>
-                      setStateForm((f) => ({
-                        ...f,
-                        isTerminal: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>
-                    This is a final step
-                    <br />
-                    <span
-                      style={{ fontWeight: 400, color: "var(--text-muted)" }}
-                    >
-                      Tickets won&apos;t move further once they reach this step
-                    </span>
-                  </span>
-                </label>
-              </div>
-              <div className="modal-footer">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setShowAddState(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={savingState}>
-                  {savingState ? "Adding…" : "Add Step"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add Transition */}
-      {showAddTransition && (
-        <div
-          className="modal-overlay"
-          onClick={() => setShowAddTransition(false)}
-        >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Add Action</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddTransition(false)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleAddTransition(e)}>
-              <div className="modal-body">
-                {transError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {transError}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={transForm.allowedRoles.includes(role)}
+                          onChange={(e) =>
+                            setTransForm((f) => ({
+                              ...f,
+                              allowedRoles: e.target.checked
+                                ? [...f.allowedRoles, role]
+                                : f.allowedRoles.filter((r) => r !== role),
+                            }))
+                          }
+                        />
+                        {role}
+                      </label>
+                    ))}
                   </div>
                 )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">From Step *</label>
-                    <select
-                      className="form-input"
-                      value={transForm.fromState}
-                      onChange={(e) =>
-                        setTransForm((f) => ({
-                          ...f,
-                          fromState: e.target.value,
-                        }))
-                      }
-                      required
-                    >
-                      <option value="">Select…</option>
-                      {stateNames.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">To Step *</label>
-                    <select
-                      className="form-input"
-                      value={transForm.toState}
-                      onChange={(e) =>
-                        setTransForm((f) => ({
-                          ...f,
-                          toState: e.target.value,
-                        }))
-                      }
-                      required
-                    >
-                      <option value="">Select…</option>
-                      {stateNames.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              </div>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={transForm.requiresComment}
+                  onChange={(e) =>
+                    setTransForm((f) => ({
+                      ...f,
+                      requiresComment: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Requires comment</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowAddTransition(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingTrans}>
+                {savingTrans ? "Adding…" : "Add Action"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Field */}
+      <Dialog
+        open={editingField !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditingField(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">
+                Edit Detail — {editingField?.label}
+              </h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleEditField(e)}>
+            <div className="modal-body">
+              {fieldError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {fieldError}
                 </div>
+              )}
+              <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Label</label>
+                  <label className="form-label">Label *</label>
                   <input
                     className="form-input"
-                    placeholder="e.g. Start Work"
-                    value={transForm.label}
+                    placeholder="e.g. Customer Name"
+                    value={fieldForm.label}
                     onChange={(e) =>
-                      setTransForm((f) => ({ ...f, label: e.target.value }))
+                      setFieldForm((f) => ({ ...f, label: e.target.value }))
                     }
+                    required
                     autoFocus
                   />
                 </div>
                 <div className="form-group">
                   <label className="form-label">
-                    Who Can Do This (blank = anyone)
-                  </label>
-                  {availableRoles.length === 0 ? (
-                    <p style={{ fontSize: "13px", color: "#6b7280" }}>
-                      Loading roles…
-                    </p>
-                  ) : (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "6px",
-                        maxHeight: "160px",
-                        overflowY: "auto",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "6px",
-                        padding: "8px",
-                      }}
-                    >
-                      {availableRoles.map((role) => (
-                        <label
-                          key={role}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            fontSize: "14px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={transForm.allowedRoles.includes(role)}
-                            onChange={(e) =>
-                              setTransForm((f) => ({
-                                ...f,
-                                allowedRoles: e.target.checked
-                                  ? [...f.allowedRoles, role]
-                                  : f.allowedRoles.filter((r) => r !== role),
-                              }))
-                            }
-                          />
-                          {role}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={transForm.requiresComment}
-                    onChange={(e) =>
-                      setTransForm((f) => ({
-                        ...f,
-                        requiresComment: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>Requires comment</span>
-                </label>
-              </div>
-              <div className="modal-footer">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setShowAddTransition(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={savingTrans}>
-                  {savingTrans ? "Adding…" : "Add Action"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Field */}
-      {editingField && (
-        <div className="modal-overlay" onClick={() => setEditingField(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">
-                Edit Detail — {editingField.label}
-              </h3>
-              <button
-                className="modal-close"
-                onClick={() => setEditingField(null)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleEditField(e)}>
-              <div className="modal-body">
-                {fieldError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {fieldError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. Customer Name"
-                      value={fieldForm.label}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({ ...f, label: e.target.value }))
-                      }
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">
-                      Detail ID (cannot be changed)
-                    </label>
-                    <input
-                      className="form-input"
-                      value={fieldForm.name}
-                      disabled
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">
-                    Detail Type (cannot be changed)
+                    Detail ID (cannot be changed)
                   </label>
                   <input
                     className="form-input"
-                    value={
-                      FIELD_TYPES.find((ft) => ft.value === fieldForm.fieldType)
-                        ?.label ?? fieldForm.fieldType
-                    }
+                    value={fieldForm.name}
                     disabled
                   />
                 </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={fieldForm.isRequired}
-                    onChange={(e) =>
-                      setFieldForm((f) => ({
-                        ...f,
-                        isRequired: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>Required field</span>
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Detail Type (cannot be changed)
                 </label>
+                <input
+                  className="form-input"
+                  value={
+                    FIELD_TYPES.find((ft) => ft.value === fieldForm.fieldType)
+                      ?.label ?? fieldForm.fieldType
+                  }
+                  disabled
+                />
               </div>
-              <div className="modal-footer">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setEditingField(null)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={savingField}>
-                  {savingField ? "Saving…" : "Save Changes"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={fieldForm.isRequired}
+                  onChange={(e) =>
+                    setFieldForm((f) => ({
+                      ...f,
+                      isRequired: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Required field</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditingField(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingField}>
+                {savingField ? "Saving…" : "Save Changes"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit State */}
-      {editingState && (
-        <div className="modal-overlay" onClick={() => setEditingState(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Edit Step — {editingState.label}</h3>
-              <button
-                className="modal-close"
-                onClick={() => setEditingState(null)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleEditState(e)}>
-              <div className="modal-body">
-                {stateError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {stateError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. In Progress"
-                      value={stateForm.label}
-                      onChange={(e) => {
-                        const label = e.target.value;
-                        const name = label
-                          .toLowerCase()
-                          .replace(/\s+/g, "_")
-                          .replace(/[^a-z0-9_]/g, "");
-                        setStateForm((f) => ({ ...f, label, name }));
-                      }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Step ID *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. in_progress"
-                      value={stateForm.name}
-                      onChange={(e) =>
-                        setStateForm((f) => ({ ...f, name: e.target.value }))
-                      }
-                      pattern="^[a-z_][a-z0-9_]*$"
-                      title="snake_case only"
-                      required
-                    />
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        color: "var(--text-secondary, #6b7280)",
-                      }}
-                    >
-                      Used to connect Actions to this step — changing it updates
-                      any Actions that already point here.
-                    </span>
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Color</label>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "8px",
-                        alignItems: "center",
-                      }}
-                    >
-                      <input
-                        type="color"
-                        value={stateForm.color}
-                        onChange={(e) =>
-                          setStateForm((f) => ({
-                            ...f,
-                            color: e.target.value,
-                          }))
-                        }
-                        style={{
-                          width: "40px",
-                          height: "36px",
-                          border: "none",
-                          borderRadius: "6px",
-                          cursor: "pointer",
-                        }}
-                      />
-                      <input
-                        className="form-input"
-                        value={stateForm.color}
-                        onChange={(e) =>
-                          setStateForm((f) => ({
-                            ...f,
-                            color: e.target.value,
-                          }))
-                        }
-                        placeholder="#6366f1"
-                        style={{ flex: 1 }}
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Order</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={0}
-                      value={stateForm.sortOrder}
-                      onChange={(e) =>
-                        setStateForm((f) => ({
-                          ...f,
-                          sortOrder: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">
-                    Deadline (hours, optional)
-                  </label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min={1}
-                    placeholder="e.g. 24"
-                    value={stateForm.slaHours}
-                    onChange={(e) =>
-                      setStateForm((f) => ({
-                        ...f,
-                        slaHours: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={stateForm.isTerminal}
-                    onChange={(e) =>
-                      setStateForm((f) => ({
-                        ...f,
-                        isTerminal: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>
-                    This is a final step
-                    <br />
-                    <span
-                      style={{ fontWeight: 400, color: "var(--text-muted)" }}
-                    >
-                      Tickets won&apos;t move further once they reach this step
-                    </span>
-                  </span>
-                </label>
-              </div>
-              <div className="modal-footer">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setEditingState(null)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={savingState}>
-                  {savingState ? "Saving…" : "Save Changes"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Transition */}
-      {editingTransition && (
-        <div
-          className="modal-overlay"
-          onClick={() => setEditingTransition(null)}
+      <Dialog
+        open={editingState !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditingState(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
         >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Edit Action</h3>
-              <button
-                className="modal-close"
-                onClick={() => setEditingTransition(null)}
-              >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Edit Step — {editingState?.label}</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
-            </div>
-            <form onSubmit={(e) => void handleEditTransition(e)}>
-              <div className="modal-body">
-                {transError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {transError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">
-                      From Step (cannot be changed)
-                    </label>
-                    <input
-                      className="form-input"
-                      value={transForm.fromState}
-                      disabled
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">
-                      To Step (cannot be changed)
-                    </label>
-                    <input
-                      className="form-input"
-                      value={transForm.toState}
-                      disabled
-                    />
-                  </div>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleEditState(e)}>
+            <div className="modal-body">
+              {stateError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {stateError}
                 </div>
+              )}
+              <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Label</label>
+                  <label className="form-label">Label *</label>
                   <input
                     className="form-input"
-                    placeholder="e.g. Start Work"
-                    value={transForm.label}
-                    onChange={(e) =>
-                      setTransForm((f) => ({ ...f, label: e.target.value }))
-                    }
+                    placeholder="e.g. In Progress"
+                    value={stateForm.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      const name = label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setStateForm((f) => ({ ...f, label, name }));
+                    }}
+                    required
                     autoFocus
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">
-                    Who Can Do This (blank = anyone)
-                  </label>
-                  {availableRoles.length === 0 ? (
-                    <p style={{ fontSize: "13px", color: "#6b7280" }}>
-                      Loading roles…
-                    </p>
-                  ) : (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "6px",
-                        maxHeight: "160px",
-                        overflowY: "auto",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "6px",
-                        padding: "8px",
-                      }}
-                    >
-                      {availableRoles.map((role) => (
-                        <label
-                          key={role}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            fontSize: "14px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={transForm.allowedRoles.includes(role)}
-                            onChange={(e) =>
-                              setTransForm((f) => ({
-                                ...f,
-                                allowedRoles: e.target.checked
-                                  ? [...f.allowedRoles, role]
-                                  : f.allowedRoles.filter((r) => r !== role),
-                              }))
-                            }
-                          />
-                          {role}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <label className="form-checkbox">
+                  <label className="form-label">Step ID *</label>
                   <input
-                    type="checkbox"
-                    checked={transForm.requiresComment}
+                    className="form-input"
+                    placeholder="e.g. in_progress"
+                    value={stateForm.name}
                     onChange={(e) =>
-                      setTransForm((f) => ({
+                      setStateForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    pattern="^[a-z_][a-z0-9_]*$"
+                    title="snake_case only"
+                    required
+                  />
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-secondary, #6b7280)",
+                    }}
+                  >
+                    Used to connect Actions to this step — changing it updates
+                    any Actions that already point here.
+                  </span>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Color</label>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <input
+                      type="color"
+                      value={stateForm.color}
+                      onChange={(e) =>
+                        setStateForm((f) => ({
+                          ...f,
+                          color: e.target.value,
+                        }))
+                      }
+                      style={{
+                        width: "40px",
+                        height: "36px",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <input
+                      className="form-input"
+                      value={stateForm.color}
+                      onChange={(e) =>
+                        setStateForm((f) => ({
+                          ...f,
+                          color: e.target.value,
+                        }))
+                      }
+                      placeholder="#6366f1"
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Order</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    value={stateForm.sortOrder}
+                    onChange={(e) =>
+                      setStateForm((f) => ({
                         ...f,
-                        requiresComment: e.target.checked,
+                        sortOrder: e.target.value,
                       }))
                     }
                   />
-                  <span>Requires comment</span>
-                </label>
+                </div>
               </div>
-              <div className="modal-footer">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setEditingTransition(null)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" disabled={savingTrans}>
-                  {savingTrans ? "Saving…" : "Save Changes"}
-                </Button>
+              <div className="form-group">
+                <label className="form-label">Deadline (hours, optional)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 24"
+                  value={stateForm.slaHours}
+                  onChange={(e) =>
+                    setStateForm((f) => ({
+                      ...f,
+                      slaHours: e.target.value,
+                    }))
+                  }
+                />
               </div>
-            </form>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={stateForm.isTerminal}
+                  onChange={(e) =>
+                    setStateForm((f) => ({
+                      ...f,
+                      isTerminal: e.target.checked,
+                    }))
+                  }
+                />
+                <span>
+                  This is a final step
+                  <br />
+                  <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
+                    Tickets won&apos;t move further once they reach this step
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditingState(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingState}>
+                {savingState ? "Saving…" : "Save Changes"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Transition */}
+      <Dialog
+        open={editingTransition !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditingTransition(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={{
+            background: undefined,
+            border: undefined,
+            borderRadius: undefined,
+            boxShadow: undefined,
+            maxWidth: undefined,
+            maxHeight: undefined,
+            overflowY: undefined,
+            padding: 0,
+          }}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Edit Action</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
           </div>
-        </div>
-      )}
+          <form onSubmit={(e) => void handleEditTransition(e)}>
+            <div className="modal-body">
+              {transError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {transError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">
+                    From Step (cannot be changed)
+                  </label>
+                  <input
+                    className="form-input"
+                    value={transForm.fromState}
+                    disabled
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">
+                    To Step (cannot be changed)
+                  </label>
+                  <input
+                    className="form-input"
+                    value={transForm.toState}
+                    disabled
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Label</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Start Work"
+                  value={transForm.label}
+                  onChange={(e) =>
+                    setTransForm((f) => ({ ...f, label: e.target.value }))
+                  }
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Who Can Do This (blank = anyone)
+                </label>
+                {availableRoles.length === 0 ? (
+                  <p style={{ fontSize: "13px", color: "#6b7280" }}>
+                    Loading roles…
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      maxHeight: "160px",
+                      overflowY: "auto",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "6px",
+                      padding: "8px",
+                    }}
+                  >
+                    {availableRoles.map((role) => (
+                      <label
+                        key={role}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "14px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={transForm.allowedRoles.includes(role)}
+                          onChange={(e) =>
+                            setTransForm((f) => ({
+                              ...f,
+                              allowedRoles: e.target.checked
+                                ? [...f.allowedRoles, role]
+                                : f.allowedRoles.filter((r) => r !== role),
+                            }))
+                          }
+                        />
+                        {role}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={transForm.requiresComment}
+                  onChange={(e) =>
+                    setTransForm((f) => ({
+                      ...f,
+                      requiresComment: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Requires comment</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditingTransition(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingTrans}>
+                {savingTrans ? "Saving…" : "Save Changes"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Shared confirm-delete */}
       <ConfirmDeleteDialog
@@ -4153,58 +4255,54 @@ export function WorkflowDetail(): React.ReactElement {
       />
 
       {/* Nav-away guard — unsaved canvas changes */}
-      {blocker.state === "blocked" && (
-        <div
+      <AlertDialog
+        open={blocker.state === "blocked"}
+        onOpenChange={(next) => {
+          if (!next) blocker.reset();
+        }}
+      >
+        <AlertDialogContent
           style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,.4)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
+            background: "var(--bg-card, #fff)",
+            border: "1px solid var(--border-color, #e5e7eb)",
+            borderRadius: "12px",
+            padding: "24px 26px",
+            width: "360px",
+            maxWidth: "360px",
+            boxShadow: "0 8px 32px rgba(0,0,0,.16)",
           }}
         >
-          <div
+          <AlertDialogTitle
             style={{
-              background: "var(--bg-card, #fff)",
-              border: "1px solid var(--border-color, #e5e7eb)",
-              borderRadius: "12px",
-              padding: "24px 26px",
-              width: "360px",
-              boxShadow: "0 8px 32px rgba(0,0,0,.16)",
+              fontSize: "14px",
+              fontWeight: 700,
+              marginBottom: "8px",
             }}
           >
-            <div
-              style={{
-                fontSize: "14px",
-                fontWeight: 700,
-                marginBottom: "8px",
-                color: "var(--text-primary)",
-              }}
-            >
-              Unsaved canvas changes
-            </div>
-            <div
-              style={{
-                fontSize: "13px",
-                color: "var(--text-secondary)",
-                marginBottom: "20px",
-              }}
-            >
-              You have unsaved canvas changes. Leave without saving?
-            </div>
-            <div style={{ display: "flex", gap: "10px" }}>
+            Unsaved canvas changes
+          </AlertDialogTitle>
+          <AlertDialogDescription
+            style={{
+              color: "var(--text-secondary)",
+              marginBottom: "20px",
+            }}
+          >
+            You have unsaved canvas changes. Leave without saving?
+          </AlertDialogDescription>
+          <AlertDialogFooter
+            style={{ justifyContent: "flex-start", marginTop: 0 }}
+          >
+            <AlertDialogAction asChild>
               <Button variant="primary" onClick={() => blocker.proceed()}>
                 Leave without saving
               </Button>
-              <Button variant="secondary" onClick={() => blocker.reset()}>
-                Stay
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </AlertDialogAction>
+            <AlertDialogCancel asChild>
+              <Button variant="secondary">Stay</Button>
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
