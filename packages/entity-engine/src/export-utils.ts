@@ -20,6 +20,7 @@ export type ExportJobResult = {
   downloadUrl: string;
   format: "csv" | "xlsx" | "pdf";
   rowCount: number;
+  error?: string;
 };
 
 // ── Row serialisation ─────────────────────────────────────────────────────────

@@ -19,11 +19,12 @@ import net from "node:net";
 import { Worker } from "bullmq";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { eq, and } from "drizzle-orm";
-import { db, files, outboxEvents, isTenantActive } from "@platform/db";
+import { db, files, outboxEvents } from "@platform/db";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import { sendNotification } from "@platform/notifications";
 import { connection } from "./queues.js";
+import { validateActiveTenant } from "./tenant-guard.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -119,14 +120,11 @@ export const avScanWorker = new Worker<AvScanJob>(
 
     logger.info({ tenantId, fileId, jobId: job.id }, "av-scan: job started");
 
-    const active = await isTenantActive(tenantId);
-    if (!active) {
-      logger.warn(
-        { tenantId, fileId, jobId: job.id },
-        "av-scan aborted: tenant is not active",
-      );
-      return;
-    }
+    const active = await validateActiveTenant(tenantId, "av-scan", {
+      fileId,
+      jobId: job.id,
+    });
+    if (!active) return;
 
     // Idempotency: skip if no longer pending.
     // Also fetch uploadedBy so we can notify the uploader on quarantine.
@@ -251,10 +249,16 @@ avScanWorker.on("failed", (job, err) => {
           eventType: "system.error",
           version: 1,
           payload: {
-            source: "av-scan-worker",
-            fileId,
-            error: String(err),
-            attemptsMade: job.attemptsMade,
+            eventType: "system.error",
+            version: 1,
+            tenantId,
+            context: {
+              source: "av-scan-worker",
+              fileId,
+              error: String(err),
+              attemptsMade: job.attemptsMade,
+            },
+            reason: `AV scan failed for file ${fileId}: ${String(err)}`,
           },
           // system.error isn't an automation trigger (outbox-poller.ts's
           // allowlist excludes it) and has no other consumer — dead-letter by

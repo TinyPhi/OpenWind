@@ -7,13 +7,13 @@ import {
   tenantUsers,
   deadLetterEvents,
   isOutboundNotificationsEnabled,
-  isTenantActive,
 } from "@platform/db";
 import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { logger } from "@platform/logger";
 import { connection, notifyOutboundQueue } from "./queues.js";
 import { resolveRecipients } from "./notification-recipients.js";
 import { buildNotificationContent } from "./notification-templates.js";
+import { validateActiveTenant } from "./tenant-guard.js";
 
 interface NotificationJobData {
   outboxEventId: string;
@@ -53,14 +53,15 @@ export const notificationWorker = new Worker<NotificationJobData>(
   async (job) => {
     const { tenantId, eventType, payload } = job.data;
 
-    const active = await isTenantActive(tenantId);
-    if (!active) {
-      logger.warn(
-        { tenantId, eventType, jobId: job.id },
-        "Notification processing aborted: tenant is not active",
-      );
-      return;
-    }
+    const active = await validateActiveTenant(
+      tenantId,
+      "Notification processing",
+      {
+        eventType,
+        jobId: job.id,
+      },
+    );
+    if (!active) return;
 
     const resolved = await resolveRecipients(tenantId, eventType, payload);
     // Invariant: a notifications row is never created without at least one
