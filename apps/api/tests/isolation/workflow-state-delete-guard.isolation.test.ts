@@ -7,16 +7,17 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
-import { db } from "@platform/db";
+import { db, withTenantContext } from "@platform/db";
 import {
   entityInstances,
   entityTypes,
   workflows,
   workflowStates,
 } from "@platform/db";
-import { deleteWorkflowState, WorkflowError } from "@platform/workflow-engine";
+import { deleteWorkflowState } from "@platform/workflow-engine";
 
 const TENANT = "cccccccc-0000-4000-c000-000000000013";
+const OTHER_TENANT = "dddddddd-0000-4000-d000-000000000014";
 const CALLER = { userId: "user-owner", isGlobalAdmin: true };
 
 let entityTypeId: string;
@@ -108,25 +109,11 @@ afterAll(async () => {
 
 describe("deleteWorkflowState — instance-in-use guard (#301)", () => {
   it("throws WORKFLOW_STATE_IN_USE when a live instance currently sits in the state, even with zero transitions referencing it", async () => {
-    await expect(
-      deleteWorkflowState(db, TENANT, workflowId, occupiedStateId, CALLER),
-    ).rejects.toThrow(WorkflowError);
-
-    try {
-      await deleteWorkflowState(
-        db,
-        TENANT,
-        workflowId,
-        occupiedStateId,
-        CALLER,
-      );
-      throw new Error("expected deleteWorkflowState to reject");
-    } catch (err) {
-      expect(err).toBeInstanceOf(WorkflowError);
-      expect((err as InstanceType<typeof WorkflowError>).code).toBe(
-        "WORKFLOW_STATE_IN_USE",
-      );
-    }
+    await withTenantContext(TENANT, async (tx) => {
+      await expect(
+        deleteWorkflowState(tx, TENANT, workflowId, occupiedStateId, CALLER),
+      ).rejects.toMatchObject({ code: "WORKFLOW_STATE_IN_USE" });
+    });
 
     // Confirm the instance's state truly wasn't touched by the rejected call.
     const [row] = await db
@@ -138,9 +125,11 @@ describe("deleteWorkflowState — instance-in-use guard (#301)", () => {
   });
 
   it("still allows deleting a state with zero transitions and zero instances", async () => {
-    await expect(
-      deleteWorkflowState(db, TENANT, workflowId, unusedStateId, CALLER),
-    ).resolves.toBeUndefined();
+    await withTenantContext(TENANT, async (tx) => {
+      await expect(
+        deleteWorkflowState(tx, TENANT, workflowId, unusedStateId, CALLER),
+      ).resolves.toBeUndefined();
+    });
 
     const [row] = await db
       .select({ id: workflowStates.id })
@@ -148,5 +137,27 @@ describe("deleteWorkflowState — instance-in-use guard (#301)", () => {
       .where(eq(workflowStates.id, unusedStateId))
       .limit(1);
     expect(row).toBeUndefined();
+  });
+
+  it("rejects a cross-tenant delete attempt on another tenant's occupied state (assertWorkflowOwned, 404)", async () => {
+    await withTenantContext(OTHER_TENANT, async (tx) => {
+      await expect(
+        deleteWorkflowState(
+          tx,
+          OTHER_TENANT,
+          workflowId,
+          occupiedStateId,
+          CALLER,
+        ),
+      ).rejects.toMatchObject({ code: "WORKFLOW_NOT_FOUND" });
+    });
+
+    // The state must survive the rejected cross-tenant attempt untouched.
+    const [row] = await db
+      .select({ id: workflowStates.id })
+      .from(workflowStates)
+      .where(eq(workflowStates.id, occupiedStateId))
+      .limit(1);
+    expect(row?.id).toBe(occupiedStateId);
   });
 });
