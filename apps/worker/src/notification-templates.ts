@@ -45,16 +45,6 @@ export interface NotificationContent {
   link: string | null;
 }
 
-function escapeHtml(str: unknown): string {
-  if (typeof str !== "string") return "";
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 // Fixed, hardcoded templates — not tenant-configurable (docs/specs/
 // in-app-notification-hub.md). Never interpolate raw free-text user content
 // (e.g. comment bodies) — only identifiers/names — to avoid leaking data
@@ -72,8 +62,8 @@ export async function buildNotificationContent(
     ? await buildRecordLink(params.tenantId, params.instanceId)
     : null;
 
-  const actorName = escapeHtml(params.actorName);
-  const reason = params.reason ? escapeHtml(params.reason) : undefined;
+  const actorName = params.actorName;
+  const reason = params.reason;
 
   switch (eventType) {
     case "entity.assigned":

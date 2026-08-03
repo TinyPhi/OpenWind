@@ -655,6 +655,12 @@ export async function updateWorkflowState(
   return rowToState(row);
 }
 
+/**
+ * Deletes a workflow state.
+ * WARNING: The `db` parameter must be an active transaction (Tx) to ensure the
+ * parent-first row locks (.for("update")) hold for the duration of the checks
+ * and delete, preventing TOCTOU race conditions (#311).
+ */
 export async function deleteWorkflowState(
   db: DbOrTx,
   tenantId: string,
