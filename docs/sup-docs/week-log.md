@@ -5,6 +5,53 @@
 
 ---
 
+## 2026-08-03 — issue hygiene (#284, #289, #301) + #303/#304 cleanup
+
+**Session type:** Issue triage + bug fix (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-303-304-button-aschild-dialog-cleanup`
+**Issues:** #284, #289, #301 (closed, no code — already shipped, just missing the closing
+keyword), #303 and #304 (implemented and closed this session)
+
+### Completed this session
+
+- Checked 6 open issues (#284, #289, #296, #301, #303, #304) against their actual PR/merge
+  state before doing any work, per the "verify before acting" discipline from the 2026-08-02
+  session. Found 3 were already fully shipped to `main` but never auto-closed because their
+  merging PRs (#298, #299, #302) didn't use a `Closes #N` keyword:
+  - **#284** (a11y modal migration wave 2) — PR #298, merged 2026-08-03T05:13:53Z
+  - **#289** (file/files field widgets) — PR #299, merged 2026-08-03T04:25:45Z
+  - **#301** (`deleteWorkflowState` live-instance guard) — PR #302, merged 2026-08-03T08:15:03Z
+
+  Closed all 3 with a comment linking the merge commit.
+
+- **#296** (Postgres pool ceiling) left open — the issue itself states this needs a load-test
+  target defined by a human before it's actionable, not something resolvable by reading code.
+- Implemented the 2 remaining open issues, both non-blocking frontend cleanups flagged in PR
+  review:
+  - **#303** — added an `asChild` prop to `packages/ui`'s `Button` (Radix `Slot`, already a
+    dependency but previously unused), migrated the 4 verified `<Link className="btn-secondary">`
+    sites (one more than my first grep found — a wrapped `className` line hid 3 of them) to
+    `<Button asChild variant="secondary"><Link>...</Link></Button>`.
+  - **#304** — extracted the 19x-duplicated `DialogContent` style-reset block into an exported
+    `DIALOG_CONTENT_RESET` constant in `packages/ui`; converted `modules.tsx`'s Preview and
+    Fork/Copy-Template modals from conditional-mount to the controlled `open={x !== null}`
+    pattern, converting ~18 `previewTarget.`/`forkTarget.` JSX references to optional chaining
+    so the body renders safely while the dialog is closed.
+
+### Verification
+
+- pnpm typecheck: PASS (40/40 tasks)
+- pnpm lint: PASS (40/40 tasks, `--max-warnings=0`)
+- pnpm test: 8 pre-existing failures, all in `apps/api` isolation tests unrelated to this diff
+  (same documented Docker-stack gap as PR #302 this week — missing PgBouncer/OpenBao/Zitadel
+  containers in this sandbox)
+- pnpm test:isolation: 7 pre-existing failures, same cause as above
+
+### Next
+
+- #296 needs a human-defined load-test target (concurrent tenants × req/s) before it can be
+  picked up.
+
 ## 2026-08-02 — issue hygiene sweep: #192, #194, #198
 
 **Session type:** Issue triage (no source changes)

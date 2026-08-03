@@ -152,4 +152,72 @@ describe("Button", () => {
     fireEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it("renders the child's own tag instead of a <button> when asChild is set", () => {
+    render(
+      <Button asChild>
+        <a href="/workflows">Back</a>
+      </Button>,
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+    const link = screen.getByRole("link", {
+      name: "Back",
+    }) as HTMLAnchorElement;
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("href")).toBe("/workflows");
+  });
+
+  it("merges Button's variant styling onto the asChild element", () => {
+    render(
+      <Button asChild variant="primary">
+        <a href="/workflows">Back</a>
+      </Button>,
+    );
+    const link = screen.getByRole("link", { name: "Back" });
+    expect(link.style.color).toBe("white");
+  });
+
+  it("forwards the child's own props (e.g. onClick) when asChild is set", () => {
+    const onClick = vi.fn();
+    render(
+      <Button asChild>
+        <a href="/workflows" onClick={onClick}>
+          Back
+        </a>
+      </Button>,
+    );
+    const link = screen.getByRole("link", { name: "Back" });
+    fireEvent.click(link);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks pointer interaction on a disabled asChild element, since the disabled attribute does nothing on a non-button tag", () => {
+    render(
+      <Button asChild disabled>
+        <a href="/workflows">Back</a>
+      </Button>,
+    );
+    const link = screen.getByRole("link", {
+      name: "Back",
+    }) as HTMLAnchorElement;
+    expect(link.style.opacity).toBe("0.5");
+    // The actual click-blocker: Radix Slot always runs a child's own click
+    // handler (e.g. a router <Link>'s internal navigate) before Button's, so
+    // pointer-events is what stops a disabled asChild link from being
+    // clickable in a real browser — a JS onClick guard alone cannot.
+    expect(link.style.pointerEvents).toBe("none");
+    expect(link.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("never invokes Button's own onClick when disabled, asChild or not", () => {
+    const onClick = vi.fn();
+    render(
+      <Button asChild disabled onClick={onClick}>
+        <a href="/workflows">Back</a>
+      </Button>,
+    );
+    const link = screen.getByRole("link", { name: "Back" });
+    fireEvent.click(link);
+    expect(onClick).not.toHaveBeenCalled();
+  });
 });

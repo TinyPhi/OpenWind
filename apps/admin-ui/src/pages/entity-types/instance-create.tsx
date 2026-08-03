@@ -281,12 +281,9 @@ export function EntityInstanceCreate(): React.ReactElement {
             marginTop: "24px",
           }}
         >
-          <Link
-            to={`/entity-types/${entityTypeId ?? ""}`}
-            className="btn-secondary"
-          >
-            Cancel
-          </Link>
+          <Button asChild variant="secondary">
+            <Link to={`/entity-types/${entityTypeId ?? ""}`}>Cancel</Link>
+          </Button>
           <Button type="submit" variant="primary" disabled={saving}>
             {saving ? "Creating…" : `Create ${typeName}`}
           </Button>

@@ -1,5 +1,11 @@
 import React, { useState } from "react";
-import { Dialog, DialogContent, DialogClose, DialogTitle } from "@platform/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogTitle,
+  DIALOG_CONTENT_RESET,
+} from "@platform/ui";
 
 /**
  * Shared workflow-transition modal (#198), consolidating two byte-for-byte
@@ -91,24 +97,7 @@ export function TransitionModal({
         if (!next) onCancel();
       }}
     >
-      <DialogContent
-        className="tm-modal"
-        style={{
-          // Reset every property the shared DialogContent sets inline so
-          // .tm-modal's own CSS (background/border/radius/shadow/width) wins
-          // instead of being overridden by the generic dialog look - this
-          // keeps the existing visual design untouched, only replacing the
-          // backdrop/accessibility plumbing underneath it.
-          background: undefined,
-          border: undefined,
-          borderRadius: undefined,
-          boxShadow: undefined,
-          maxWidth: undefined,
-          maxHeight: undefined,
-          overflowY: undefined,
-          padding: 0,
-        }}
-      >
+      <DialogContent className="tm-modal" style={DIALOG_CONTENT_RESET}>
         <div className="tm-header">
           <div className="tm-header-left">
             <span className="tm-icon">→</span>

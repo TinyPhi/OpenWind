@@ -30,6 +30,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   Button,
+  DIALOG_CONTENT_RESET,
 } from "@platform/ui";
 
 type EntityField = {
@@ -3956,16 +3957,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -4139,16 +4131,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -4322,19 +4305,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           if (!next) setArchiveConfirm(null);
         }}
       >
-        <AlertDialogContent
-          className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
-        >
+        <AlertDialogContent className="modal" style={DIALOG_CONTENT_RESET}>
           <div className="modal-header">
             <AlertDialogTitle asChild>
               <h3 className="modal-title">Archive this record?</h3>
@@ -4393,16 +4364,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -4508,16 +4470,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -4593,16 +4546,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -4662,16 +4606,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -4784,16 +4719,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>

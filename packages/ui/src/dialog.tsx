@@ -67,6 +67,22 @@ const closeButtonStyle: React.CSSProperties = {
   padding: 4,
 };
 
+/**
+ * Cancels every property DialogContent's own inline style sets, so a
+ * caller's existing CSS class (e.g. .modal) wins over Dialog's defaults
+ * instead of being overridden by them.
+ */
+export const DIALOG_CONTENT_RESET: React.CSSProperties = {
+  background: undefined,
+  border: undefined,
+  borderRadius: undefined,
+  boxShadow: undefined,
+  maxWidth: undefined,
+  maxHeight: undefined,
+  overflowY: undefined,
+  padding: 0,
+};
+
 export interface DialogContentProps extends React.ComponentPropsWithoutRef<
   typeof DialogPrimitive.Content
 > {

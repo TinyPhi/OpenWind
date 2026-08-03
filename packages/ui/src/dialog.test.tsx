@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogTitle,
   DialogDescription,
+  DIALOG_CONTENT_RESET,
 } from "./dialog.js";
 
 afterEach(() => {
@@ -102,5 +103,19 @@ describe("Dialog", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
+  it("DIALOG_CONTENT_RESET lets a caller's own CSS win over DialogContent's defaults", () => {
+    render(
+      <Dialog defaultOpen>
+        <DialogContent className="modal" style={DIALOG_CONTENT_RESET}>
+          <DialogTitle>Edit Field</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.style.background).toBe("");
+    expect(dialog.style.padding).toBe("0px");
   });
 });

@@ -7,6 +7,7 @@ import {
   DialogClose,
   DialogTitle,
   Button,
+  DIALOG_CONTENT_RESET,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
@@ -372,17 +373,17 @@ export function EntityTypeDetail(): React.ReactElement {
         <Link to="/entity-types" className="back-link">
           ← Entity Types
         </Link>
-        <Link
-          to={`/entity-types/${id ?? ""}/records`}
-          className="btn-secondary"
+        <Button
+          asChild
+          variant="secondary"
           style={{
             fontSize: "13px",
             padding: "6px 14px",
             textDecoration: "none",
           }}
         >
-          View Records →
-        </Link>
+          <Link to={`/entity-types/${id ?? ""}/records`}>View Records →</Link>
+        </Button>
       </div>
 
       <div className="detail-header">
@@ -622,16 +623,7 @@ export function EntityTypeDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
@@ -789,16 +781,7 @@ export function EntityTypeDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
