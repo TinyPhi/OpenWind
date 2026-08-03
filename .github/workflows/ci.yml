@@ -82,17 +82,25 @@ jobs:
             --to ${{ github.event.pull_request.head.sha }} \
             --verbose
 
+      - name: Determine turbo affected-filter base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "TURBO_FILTER=...[origin/${{ github.event.pull_request.base.ref }}]" >> "$GITHUB_ENV"
+          else
+            echo "TURBO_FILTER=...[HEAD^1]" >> "$GITHUB_ENV"
+          fi
+
       - name: Check formatting
         run: pnpm format:check
 
       - name: Lint
-        run: pnpm lint
+        run: pnpm lint --filter="$TURBO_FILTER"
 
       - name: Type check
-        run: pnpm typecheck
+        run: pnpm typecheck --filter="$TURBO_FILTER"
 
       - name: Build all packages
-        run: pnpm build
+        run: pnpm build --filter="$TURBO_FILTER"
 
   # ── 2. Unit and integration tests ─────────────────────────────────────────
   test:
@@ -146,6 +154,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to resolve HEAD^1 / origin/<base> for the turbo affected-filter
 
       - uses: pnpm/action-setup@v4
 
@@ -157,8 +167,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Determine turbo affected-filter base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "TURBO_FILTER=...[origin/${{ github.event.pull_request.base.ref }}]" >> "$GITHUB_ENV"
+          else
+            echo "TURBO_FILTER=...[HEAD^1]" >> "$GITHUB_ENV"
+          fi
+
       - name: Build
-        run: pnpm build
+        run: pnpm build --filter="$TURBO_FILTER"
 
       - name: Run database migrations
         run: pnpm db:migrate
@@ -166,7 +184,7 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_MIGRATION_URL }}
 
       - name: Run unit + integration tests
-        run: pnpm test
+        run: pnpm test --filter="$TURBO_FILTER"
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -225,6 +243,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to resolve HEAD^1 / origin/<base> for the turbo affected-filter
 
       - uses: pnpm/action-setup@v4
 
@@ -236,8 +256,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Determine turbo affected-filter base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "TURBO_FILTER=...[origin/${{ github.event.pull_request.base.ref }}]" >> "$GITHUB_ENV"
+          else
+            echo "TURBO_FILTER=...[HEAD^1]" >> "$GITHUB_ENV"
+          fi
+
       - name: Build
-        run: pnpm build
+        run: pnpm build --filter="$TURBO_FILTER"
 
       - name: Run database migrations
         run: pnpm db:migrate
@@ -245,7 +273,7 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_MIGRATION_URL }}
 
       - name: Run tenant isolation tests
-        run: pnpm test:isolation
+        run: pnpm test:isolation --filter="$TURBO_FILTER"
 
   # ── 4. Security scan ──────────────────────────────────────────────────────
   security:
