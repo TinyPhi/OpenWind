@@ -7,6 +7,7 @@ import {
   DialogClose,
   DialogTitle,
   Button,
+  DIALOG_CONTENT_RESET,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
@@ -186,18 +187,22 @@ export function EntityTypes(): React.ReactElement {
                     {new Date(type.createdAt).toLocaleDateString()}
                   </td>
                   <td>
-                    <Link
-                      to={`/entity-types/${type.id}/records`}
-                      className="btn-secondary"
+                    <Button
+                      asChild
+                      variant="secondary"
                       style={{
                         fontSize: "12px",
                         padding: "4px 10px",
                         textDecoration: "none",
                       }}
-                      onClick={(e) => e.stopPropagation()}
                     >
-                      Records
-                    </Link>
+                      <Link
+                        to={`/entity-types/${type.id}/records`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Records
+                      </Link>
+                    </Button>
                   </td>
                   <td>
                     <button
@@ -254,16 +259,7 @@ export function EntityTypes(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>

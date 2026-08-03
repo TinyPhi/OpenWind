@@ -515,115 +515,115 @@ export function Modules(): React.ReactElement {
       )}
 
       {/* ── Preview modal ────────────────────────────────────────────────── */}
-      {previewTarget && (
-        <Dialog
-          open={true}
-          onOpenChange={(next) => {
-            if (!next) setPreviewTarget(null);
+      <Dialog
+        open={previewTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) setPreviewTarget(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          style={{
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "var(--radius-lg)",
+            width: "100%",
+            maxWidth: "580px",
+            maxHeight: "85vh",
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "var(--shadow-lg)",
+            overflow: "hidden",
           }}
         >
-          <DialogContent
-            showCloseButton={false}
+          {/* header */}
+          <div
             style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-lg)",
-              width: "100%",
-              maxWidth: "580px",
-              maxHeight: "85vh",
+              padding: "20px 24px 16px",
+              borderBottom: "1px solid var(--border-color)",
               display: "flex",
-              flexDirection: "column",
-              boxShadow: "var(--shadow-lg)",
-              overflow: "hidden",
+              alignItems: "center",
+              gap: "14px",
+              flexShrink: 0,
             }}
           >
-            {/* header */}
             <div
               style={{
-                padding: "20px 24px 16px",
-                borderBottom: "1px solid var(--border-color)",
+                width: "48px",
+                height: "48px",
+                borderRadius: "10px",
+                background: `${MODULE_COLOR[previewTarget?.slug ?? ""] ?? "var(--accent-primary)"}18`,
+                border: `1px solid ${MODULE_COLOR[previewTarget?.slug ?? ""] ?? "var(--accent-primary)"}33`,
                 display: "flex",
                 alignItems: "center",
-                gap: "14px",
+                justifyContent: "center",
+                fontSize: "26px",
                 flexShrink: 0,
               }}
             >
+              {MODULE_EMOJI[previewTarget?.slug ?? ""] ?? "📋"}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <DialogTitle asChild>
+                <div
+                  style={{
+                    fontSize: "17px",
+                    fontWeight: 700,
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {previewTarget?.name}
+                </div>
+              </DialogTitle>
               <div
                 style={{
-                  width: "48px",
-                  height: "48px",
-                  borderRadius: "10px",
-                  background: `${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}18`,
-                  border: `1px solid ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}33`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "26px",
+                  fontSize: "12px",
+                  color: "var(--text-muted)",
+                  marginTop: "2px",
+                }}
+              >
+                {previewTarget?.description ??
+                  `Pre-built ${previewTarget?.name.toLowerCase() ?? ""} workflow template`}
+              </div>
+            </div>
+            <DialogClose asChild>
+              <button
+                type="button"
+                aria-label="Close"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: "22px",
+                  cursor: "pointer",
+                  lineHeight: 1,
+                  padding: "0 4px",
                   flexShrink: 0,
                 }}
               >
-                {MODULE_EMOJI[previewTarget.slug] ?? "📋"}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <DialogTitle asChild>
-                  <div
-                    style={{
-                      fontSize: "17px",
-                      fontWeight: 700,
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    {previewTarget.name}
-                  </div>
-                </DialogTitle>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "var(--text-muted)",
-                    marginTop: "2px",
-                  }}
-                >
-                  {previewTarget.description ??
-                    `Pre-built ${previewTarget.name.toLowerCase()} workflow template`}
-                </div>
-              </div>
-              <DialogClose asChild>
-                <button
-                  type="button"
-                  aria-label="Close"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-muted)",
-                    fontSize: "22px",
-                    cursor: "pointer",
-                    lineHeight: 1,
-                    padding: "0 4px",
-                    flexShrink: 0,
-                  }}
-                >
-                  ×
-                </button>
-              </DialogClose>
-            </div>
+                ×
+              </button>
+            </DialogClose>
+          </div>
 
-            {/* scrollable body */}
-            <div
-              style={{
-                overflowY: "auto",
-                padding: "20px 24px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "24px",
-              }}
-            >
-              {/* ── States ── */}
-              <div>
-                <SectionLabel>Workflow States</SectionLabel>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                  {(MODULE_STATES[previewTarget.slug] ?? []).map((s, i) => {
+          {/* scrollable body */}
+          <div
+            style={{
+              overflowY: "auto",
+              padding: "20px 24px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "24px",
+            }}
+          >
+            {/* ── States ── */}
+            <div>
+              <SectionLabel>Workflow States</SectionLabel>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                {(MODULE_STATES[previewTarget?.slug ?? ""] ?? []).map(
+                  (s, i) => {
                     const accent =
-                      MODULE_COLOR[previewTarget.slug] ??
+                      MODULE_COLOR[previewTarget?.slug ?? ""] ??
                       "var(--accent-primary)";
                     return (
                       <span
@@ -666,97 +666,16 @@ export function Modules(): React.ReactElement {
                         )}
                       </span>
                     );
-                  })}
-                </div>
+                  },
+                )}
               </div>
+            </div>
 
-              {/* ── Transitions ── */}
-              {(MODULE_TRANSITIONS[previewTarget.slug] ?? []).length > 0 && (
-                <div>
-                  <SectionLabel>Transitions</SectionLabel>
-                  <div
-                    style={{
-                      borderRadius: "var(--radius-sm)",
-                      overflow: "hidden",
-                      border: "1px solid var(--border-color)",
-                    }}
-                  >
-                    {(MODULE_TRANSITIONS[previewTarget.slug] ?? []).map(
-                      (t, i) => (
-                        <div
-                          key={`${t.from}-${t.to}`}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "10px",
-                            padding: "9px 14px",
-                            background:
-                              i % 2 === 0
-                                ? "var(--bg-primary)"
-                                : "var(--bg-tertiary)",
-                            fontSize: "12px",
-                          }}
-                        >
-                          <span
-                            style={{
-                              color: "var(--text-primary)",
-                              fontWeight: 500,
-                              flex: 1,
-                              minWidth: 0,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {t.from}
-                          </span>
-                          <span
-                            style={{
-                              color: "var(--text-muted)",
-                              fontSize: "11px",
-                              background: "var(--bg-tertiary)",
-                              border: "1px solid var(--border-color)",
-                              borderRadius: "4px",
-                              padding: "2px 8px",
-                              whiteSpace: "nowrap",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {t.label}
-                          </span>
-                          <span
-                            style={{
-                              color: "var(--text-muted)",
-                              fontSize: "14px",
-                              flexShrink: 0,
-                            }}
-                          >
-                            →
-                          </span>
-                          <span
-                            style={{
-                              color: "var(--text-primary)",
-                              fontWeight: 500,
-                              flex: 1,
-                              minWidth: 0,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              textAlign: "right",
-                            }}
-                          >
-                            {t.to}
-                          </span>
-                        </div>
-                      ),
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* ── Fields ── */}
+            {/* ── Transitions ── */}
+            {(MODULE_TRANSITIONS[previewTarget?.slug ?? ""] ?? []).length >
+              0 && (
               <div>
-                <SectionLabel>Fields</SectionLabel>
+                <SectionLabel>Transitions</SectionLabel>
                 <div
                   style={{
                     borderRadius: "var(--radius-sm)",
@@ -764,7 +683,91 @@ export function Modules(): React.ReactElement {
                     border: "1px solid var(--border-color)",
                   }}
                 >
-                  {(MODULE_FIELDS[previewTarget.slug] ?? []).map((f, i) => (
+                  {(MODULE_TRANSITIONS[previewTarget?.slug ?? ""] ?? []).map(
+                    (t, i) => (
+                      <div
+                        key={`${t.from}-${t.to}`}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          padding: "9px 14px",
+                          background:
+                            i % 2 === 0
+                              ? "var(--bg-primary)"
+                              : "var(--bg-tertiary)",
+                          fontSize: "12px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "var(--text-primary)",
+                            fontWeight: 500,
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {t.from}
+                        </span>
+                        <span
+                          style={{
+                            color: "var(--text-muted)",
+                            fontSize: "11px",
+                            background: "var(--bg-tertiary)",
+                            border: "1px solid var(--border-color)",
+                            borderRadius: "4px",
+                            padding: "2px 8px",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {t.label}
+                        </span>
+                        <span
+                          style={{
+                            color: "var(--text-muted)",
+                            fontSize: "14px",
+                            flexShrink: 0,
+                          }}
+                        >
+                          →
+                        </span>
+                        <span
+                          style={{
+                            color: "var(--text-primary)",
+                            fontWeight: 500,
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            textAlign: "right",
+                          }}
+                        >
+                          {t.to}
+                        </span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Fields ── */}
+            <div>
+              <SectionLabel>Fields</SectionLabel>
+              <div
+                style={{
+                  borderRadius: "var(--radius-sm)",
+                  overflow: "hidden",
+                  border: "1px solid var(--border-color)",
+                }}
+              >
+                {(MODULE_FIELDS[previewTarget?.slug ?? ""] ?? []).map(
+                  (f, i) => (
                     <div
                       key={f.label}
                       style={{
@@ -800,295 +803,287 @@ export function Modules(): React.ReactElement {
                         {FIELD_TYPE_LABEL[f.type] ?? f.type}
                       </span>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── What's Included ── */}
-              <div>
-                <SectionLabel>What's Included</SectionLabel>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "6px",
-                  }}
-                >
-                  {(MODULE_FEATURES[previewTarget.slug] ?? []).map((f) => (
-                    <div
-                      key={f}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        fontSize: "13px",
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      <span
-                        style={{ color: "hsl(150,75%,45%)", fontSize: "13px" }}
-                      >
-                        ✓
-                      </span>
-                      {f}
-                    </div>
-                  ))}
-                </div>
+                  ),
+                )}
               </div>
             </div>
 
-            {/* footer */}
+            {/* ── What's Included ── */}
+            <div>
+              <SectionLabel>What's Included</SectionLabel>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                }}
+              >
+                {(MODULE_FEATURES[previewTarget?.slug ?? ""] ?? []).map((f) => (
+                  <div
+                    key={f}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "13px",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <span
+                      style={{ color: "hsl(150,75%,45%)", fontSize: "13px" }}
+                    >
+                      ✓
+                    </span>
+                    {f}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* footer */}
+          <div
+            style={{
+              padding: "14px 24px 20px",
+              borderTop: "1px solid var(--border-color)",
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "10px",
+              flexShrink: 0,
+            }}
+          >
+            <Button variant="secondary" onClick={() => setPreviewTarget(null)}>
+              Close
+            </Button>
+            {previewTarget && !previewTarget.isSystem && (
+              <Button
+                variant="primary"
+                style={{
+                  background: `linear-gradient(135deg, ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}, ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}cc)`,
+                }}
+                onClick={() => {
+                  setPreviewTarget(null);
+                  openForkModal(previewTarget);
+                }}
+              >
+                Copy Template
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Fork modal ───────────────────────────────────────────────────── */}
+      <Dialog
+        open={forkTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) closeForkModal();
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          style={{
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "var(--radius-lg)",
+            width: "100%",
+            maxWidth: "480px",
+            boxShadow: "var(--shadow-lg)",
+            overflow: "hidden",
+          }}
+        >
+          {/* modal header */}
+          <div
+            style={{
+              padding: "20px 24px 16px",
+              borderBottom: "1px solid var(--border-color)",
+              display: "flex",
+              alignItems: "center",
+              gap: "14px",
+            }}
+          >
             <div
               style={{
-                padding: "14px 24px 20px",
-                borderTop: "1px solid var(--border-color)",
+                width: "46px",
+                height: "46px",
+                borderRadius: "10px",
+                background: `${MODULE_COLOR[forkTarget?.slug ?? ""] ?? "var(--accent-primary)"}18`,
+                border: `1px solid ${MODULE_COLOR[forkTarget?.slug ?? ""] ?? "var(--accent-primary)"}33`,
                 display: "flex",
-                justifyContent: "flex-end",
-                gap: "10px",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "24px",
                 flexShrink: 0,
               }}
             >
-              <Button
-                variant="secondary"
-                onClick={() => setPreviewTarget(null)}
-              >
-                Close
-              </Button>
-              {!previewTarget.isSystem && (
-                <Button
-                  variant="primary"
+              {MODULE_EMOJI[forkTarget?.slug ?? ""] ?? "📋"}
+            </div>
+            <div style={{ flex: 1 }}>
+              <DialogTitle asChild>
+                <div
                   style={{
-                    background: `linear-gradient(135deg, ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}, ${MODULE_COLOR[previewTarget.slug] ?? "var(--accent-primary)"}cc)`,
-                  }}
-                  onClick={() => {
-                    setPreviewTarget(null);
-                    openForkModal(previewTarget);
+                    fontSize: "16px",
+                    fontWeight: 700,
+                    color: "var(--text-primary)",
                   }}
                 >
-                  Copy Template
-                </Button>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* ── Fork modal ───────────────────────────────────────────────────── */}
-      {forkTarget && (
-        <Dialog
-          open={true}
-          onOpenChange={(next) => {
-            if (!next) closeForkModal();
-          }}
-        >
-          <DialogContent
-            showCloseButton={false}
-            style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-lg)",
-              width: "100%",
-              maxWidth: "480px",
-              boxShadow: "var(--shadow-lg)",
-              overflow: "hidden",
-            }}
-          >
-            {/* modal header */}
-            <div
-              style={{
-                padding: "20px 24px 16px",
-                borderBottom: "1px solid var(--border-color)",
-                display: "flex",
-                alignItems: "center",
-                gap: "14px",
-              }}
-            >
+                  Copy "{forkTarget?.name}"
+                </div>
+              </DialogTitle>
               <div
                 style={{
-                  width: "46px",
-                  height: "46px",
-                  borderRadius: "10px",
-                  background: `${MODULE_COLOR[forkTarget.slug] ?? "var(--accent-primary)"}18`,
-                  border: `1px solid ${MODULE_COLOR[forkTarget.slug] ?? "var(--accent-primary)"}33`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "24px",
+                  fontSize: "12px",
+                  color: "var(--text-muted)",
+                  marginTop: "2px",
+                }}
+              >
+                Creates a named copy — entity type, fields, and workflow ready
+                to use.
+              </div>
+            </div>
+            <DialogClose asChild>
+              <button
+                type="button"
+                aria-label="Close"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: "20px",
+                  cursor: "pointer",
+                  lineHeight: 1,
+                  padding: "0 4px",
                   flexShrink: 0,
                 }}
               >
-                {MODULE_EMOJI[forkTarget.slug] ?? "📋"}
-              </div>
-              <div style={{ flex: 1 }}>
-                <DialogTitle asChild>
-                  <div
-                    style={{
-                      fontSize: "16px",
-                      fontWeight: 700,
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    Copy "{forkTarget.name}"
-                  </div>
-                </DialogTitle>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "var(--text-muted)",
-                    marginTop: "2px",
-                  }}
-                >
-                  Creates a named copy — entity type, fields, and workflow ready
-                  to use.
-                </div>
-              </div>
-              <DialogClose asChild>
-                <button
-                  type="button"
-                  aria-label="Close"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-muted)",
-                    fontSize: "20px",
-                    cursor: "pointer",
-                    lineHeight: 1,
-                    padding: "0 4px",
-                    flexShrink: 0,
-                  }}
-                >
-                  ×
-                </button>
-              </DialogClose>
-            </div>
+                ×
+              </button>
+            </DialogClose>
+          </div>
 
-            {/* modal body */}
-            <div style={{ padding: "20px 24px" }}>
-              {/* what gets created */}
+          {/* modal body */}
+          <div style={{ padding: "20px 24px" }}>
+            {/* what gets created */}
+            <div
+              style={{
+                background: "var(--bg-tertiary)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "var(--radius-sm)",
+                padding: "12px 14px",
+                marginBottom: "20px",
+              }}
+            >
               <div
                 style={{
-                  background: "var(--bg-tertiary)",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "12px 14px",
-                  marginBottom: "20px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "var(--text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  marginBottom: "8px",
                 }}
               >
-                <div
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    color: "var(--text-muted)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.07em",
-                    marginBottom: "8px",
-                  }}
-                >
-                  What gets created
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "4px",
-                  }}
-                >
-                  {(MODULE_FEATURES[forkTarget.slug] ?? []).map((f) => (
-                    <div
-                      key={f}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        fontSize: "13px",
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      <span
-                        style={{ color: "hsl(150,75%,45%)", fontSize: "12px" }}
-                      >
-                        ✓
-                      </span>
-                      {f}
-                    </div>
-                  ))}
-                </div>
+                What gets created
               </div>
-
-              {/* workflow name input */}
-              <div className="form-group">
-                <label className="form-label">Workflow Name</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={forkName}
-                  onChange={(e) => {
-                    setForkName(e.target.value);
-                    setActionError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !nameConflict && forkName.trim())
-                      void handleFork();
-                    if (e.key === "Escape") closeForkModal();
-                  }}
-                  placeholder="e.g. Customer Support Tickets"
-                  autoFocus
-                />
-                <div className="form-hint">
-                  Names the workflow created from this template. Must be unique.
-                </div>
-                {nameConflict && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}
+              >
+                {(MODULE_FEATURES[forkTarget?.slug ?? ""] ?? []).map((f) => (
                   <div
+                    key={f}
                     style={{
-                      marginTop: "6px",
-                      fontSize: "12px",
-                      color: "var(--danger)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "13px",
+                      color: "var(--text-secondary)",
                     }}
                   >
-                    ⚠ A workflow with this name already exists.
+                    <span
+                      style={{ color: "hsl(150,75%,45%)", fontSize: "12px" }}
+                    >
+                      ✓
+                    </span>
+                    {f}
                   </div>
-                )}
+                ))}
               </div>
+            </div>
 
-              {actionError && (
+            {/* workflow name input */}
+            <div className="form-group">
+              <label className="form-label">Workflow Name</label>
+              <input
+                type="text"
+                className="form-input"
+                value={forkName}
+                onChange={(e) => {
+                  setForkName(e.target.value);
+                  setActionError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !nameConflict && forkName.trim())
+                    void handleFork();
+                  if (e.key === "Escape") closeForkModal();
+                }}
+                placeholder="e.g. Customer Support Tickets"
+                autoFocus
+              />
+              <div className="form-hint">
+                Names the workflow created from this template. Must be unique.
+              </div>
+              {nameConflict && (
                 <div
-                  className="alert alert-error"
-                  style={{ marginTop: "12px" }}
+                  style={{
+                    marginTop: "6px",
+                    fontSize: "12px",
+                    color: "var(--danger)",
+                  }}
                 >
-                  ⚠ {actionError}
+                  ⚠ A workflow with this name already exists.
                 </div>
               )}
             </div>
 
-            {/* modal footer */}
-            <div
-              style={{
-                padding: "14px 24px 20px",
-                borderTop: "1px solid var(--border-color)",
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "10px",
-              }}
+            {actionError && (
+              <div className="alert alert-error" style={{ marginTop: "12px" }}>
+                ⚠ {actionError}
+              </div>
+            )}
+          </div>
+
+          {/* modal footer */}
+          <div
+            style={{
+              padding: "14px 24px 20px",
+              borderTop: "1px solid var(--border-color)",
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "10px",
+            }}
+          >
+            <Button
+              variant="secondary"
+              onClick={closeForkModal}
+              disabled={forking}
             >
-              <Button
-                variant="secondary"
-                onClick={closeForkModal}
-                disabled={forking}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => void handleFork()}
-                disabled={forking || !forkName.trim() || nameConflict}
-                style={{ minWidth: "120px" }}
-              >
-                {forking ? "Copying…" : "Copy Template"}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void handleFork()}
+              disabled={forking || !forkName.trim() || nameConflict}
+              style={{ minWidth: "120px" }}
+            >
+              {forking ? "Copying…" : "Copy Template"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

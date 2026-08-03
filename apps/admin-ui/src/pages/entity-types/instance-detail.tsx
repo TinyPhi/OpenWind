@@ -6,6 +6,7 @@ import {
   DialogClose,
   DialogTitle,
   Button,
+  DIALOG_CONTENT_RESET,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { UserPicker } from "../../components/user-picker.js";
@@ -703,16 +704,7 @@ export function EntityInstanceDetail(): React.ReactElement {
         <DialogContent
           showCloseButton={false}
           className="modal"
-          style={{
-            background: undefined,
-            border: undefined,
-            borderRadius: undefined,
-            boxShadow: undefined,
-            maxWidth: undefined,
-            maxHeight: undefined,
-            overflowY: undefined,
-            padding: 0,
-          }}
+          style={DIALOG_CONTENT_RESET}
         >
           <div className="modal-header">
             <DialogTitle asChild>
