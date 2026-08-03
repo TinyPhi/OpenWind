@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-02 — issue hygiene sweep: #192, #194, #198
+
+**Session type:** Issue triage (no source changes)
+**Issues:** #194 (closed), #192 and #198 (verified, left open with status comments)
+
+### Completed this session
+
+- Verified 3 issues flagged as candidates for closure against their merged PRs' actual bodies
+  rather than assuming "PR merged" = "issue resolved":
+  - **#192** (backup runbook) — PR #286 merged, but its own description explicitly reserves the
+    issue for a maintainer RPO/RTO + cron-schedule decision. Left open, no change needed (already
+    accurately represented).
+  - **#194** (e2e harness) — PR #287 merged and satisfies the issue's own stated completion bar
+    ("even one real passing e2e spec"). Closed with a comment noting broader coverage remains an
+    unscoped, available follow-on.
+  - **#198** (modal a11y, systemic) — wave 1 (#285) merged but wave 2 (#284/PR #298) is still
+    open/unmerged, so the issue's systemic bar isn't met yet. Left open with a status comment
+    (not closed) pointing at the 2 explicitly-deferred items once #298 lands.
+
+### Next
+
+- Revisit #198 once PR #298 merges — likely closeable then, modulo the 2 deferred items.
+
 ## 2026-08-02 — #199 PR review fixes (PrabhuVijit)
 
 **Session type:** Review response (same branch, `feat/PLAT-199-button-primitive`)
