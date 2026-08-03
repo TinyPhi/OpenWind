@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Slot } from "@radix-ui/react-slot";
 
 /**
  * Mirrors apps/admin-ui/src/index.css's .btn-primary/.btn-secondary/.btn-sm/
@@ -17,6 +18,12 @@ export type ButtonSize = "default" | "sm";
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /**
+   * Render Button's variant/size styling onto a single child element (e.g.
+   * <Link>) instead of a real <button> — for call sites that need a
+   * non-button tag's semantics (routing, href) with Button's visuals.
+   */
+  asChild?: boolean;
 }
 
 const baseStyle: React.CSSProperties = {
@@ -86,6 +93,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       size = "default",
       style,
       disabled,
+      asChild = false,
       onMouseEnter,
       onMouseLeave,
       onFocus,
@@ -96,11 +104,12 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ) {
     const [hovered, setHovered] = React.useState(false);
     const [focused, setFocused] = React.useState(false);
+    const Comp = asChild ? Slot : "button";
 
     return (
-      <button
+      <Comp
         ref={ref}
-        disabled={disabled}
+        disabled={asChild ? undefined : disabled}
         style={{
           ...baseStyle,
           ...sizeStyle[size],

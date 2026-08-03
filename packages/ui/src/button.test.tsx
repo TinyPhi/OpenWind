@@ -152,4 +152,42 @@ describe("Button", () => {
     fireEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it("renders the child's own tag instead of a <button> when asChild is set", () => {
+    render(
+      <Button asChild>
+        <a href="/workflows">Back</a>
+      </Button>,
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+    const link = screen.getByRole("link", {
+      name: "Back",
+    }) as HTMLAnchorElement;
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("href")).toBe("/workflows");
+  });
+
+  it("merges Button's variant styling onto the asChild element", () => {
+    render(
+      <Button asChild variant="primary">
+        <a href="/workflows">Back</a>
+      </Button>,
+    );
+    const link = screen.getByRole("link", { name: "Back" });
+    expect(link.style.color).toBe("white");
+  });
+
+  it("forwards the child's own props (e.g. onClick) when asChild is set", () => {
+    const onClick = vi.fn();
+    render(
+      <Button asChild>
+        <a href="/workflows" onClick={onClick}>
+          Back
+        </a>
+      </Button>,
+    );
+    const link = screen.getByRole("link", { name: "Back" });
+    fireEvent.click(link);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
 });

@@ -16,6 +16,7 @@ export {
   DialogDescription,
 } from "./dialog.js";
 export type { DialogContentProps } from "./dialog.js";
+export { DIALOG_CONTENT_RESET } from "./dialog.js";
 export {
   AlertDialog,
   AlertDialogTrigger,
