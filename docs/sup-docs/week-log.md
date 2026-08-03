@@ -27,6 +27,163 @@
 ### Next
 
 - Revisit #198 once PR #298 merges — likely closeable then, modulo the 2 deferred items.
+## 2026-08-02 — #199 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `feat/PLAT-199-button-primitive`)
+**Issues:** #199 (PR #295)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #295 review: `IconButton.baseStyle` was missing 3 properties the
+  original `.icon-btn` CSS had — `flexShrink: 0` (blocking; without it, icon buttons in
+  space-constrained flex rows could shrink below their intended 30×30 size — confirmed at least
+  one call site had already worked around it locally rather than at the source), `padding: 0`,
+  and `outline: "none"` (prevents a double focus indicator now that a custom box-shadow ring
+  drives focus styling). All three added.
+- Added the same keyboard focus indicator to `Button` (it only existed on `IconButton` before) —
+  `onFocus`/`onBlur` + box-shadow ring, `outline: "none"` on the base style.
+- Added missing `aria-label` to the 4 flagged `IconButton` usages in
+  `automations/wizard/step-conditions.tsx`/`step-actions.tsx`.
+- Added the flagged test gap: primary/danger variant hover transitions, plus a `Button` focus-ring
+  test.
+- Filed **#303** for the "4 `<Link>` sites will drift from `Button`" follow-up (a real
+  `asChild`/Radix-`Slot` design decision, not a quick fix) rather than fixing it in this pass.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green, repo-wide.
+- `pnpm --filter @platform/ui test` — 32/32 pass (up from 18, all new/updated tests included).
+- `pnpm --filter @platform/admin-ui test` — 90/90 pass, no regressions.
+- Still holding on the reviewer's recommended pre-merge human visual smoke test.
+
+---
+
+## 2026-08-01 — packages/ui: Button/IconButton primitive (#199)
+
+**Session type:** Frontend architecture (Plan → Code → Review → Docs → Ship)
+**Branch:** `feat/PLAT-199-button-primitive`
+**Issues:** #199
+
+### Completed this session
+
+- Investigated #199 ("`packages/ui` is hollow") and found the premise partly stale: `Dialog`/
+  `AlertDialog` (#273) and the `FieldInput`/`UserRefPicker`/`EntityRefPicker` consolidation (#288)
+  were already correctly layered — generic Radix-based primitives in `packages/ui`, admin-ui-
+  specific widgets (tied to entity-engine field types and API routes) staying in
+  `apps/admin-ui/src/components/`, per the dependency rule. Moving the latter into `packages/ui`
+  would have been the wrong fix.
+- The real remaining gap: no `Button` primitive, despite 17 admin-ui pages each hand-rolling
+  `<button className="btn-primary/btn-secondary/btn/btn-sm/btn-danger-sm/icon-btn-*">` against
+  hand-written CSS in `index.css`. Added `Button` (variant: primary/secondary/danger, size:
+  default/sm) and `IconButton` (variant: default/edit/delete/ghost) to `packages/ui`, styled with
+  inline `React.CSSProperties` referencing the same design tokens `Dialog` already established
+  (no CSS/asset pipeline in this package) — hover/focus/active state tracked via local React state
+  since inline styles can't express pseudo-classes.
+- Migrated all 17 identified pages (dispatched as 5 parallel subagent groups, each on disjoint
+  files to avoid conflicting edits). ~136 button call sites converted. Deferred, unchanged:
+  `btn-icon`/`btn-edit-sm` (1 usage each, ambiguous one-offs — same precedent as #288 deferring
+  `file`/`files` widgets) and 4 `<Link>` elements styled as buttons (`Button` renders `<button>`,
+  not `<a>` — out of scope for a className swap).
+- Removed the now-dead `.btn`/`.btn-primary`/`.btn-primary-sm`/`.btn-sm`/`.btn-danger-sm`/
+  `.icon-btn*` CSS rules from `index.css`. Kept `.btn-secondary` (still used by the 4 `<Link>`s),
+  `.btn-icon`/`.btn-edit-sm` (deferred). One disclosed, intentional visual change: two divergent
+  "small primary button" CSS rules existed pre-change (`.btn-primary-sm` vs `.btn-primary.btn-sm`,
+  different padding) — `Button` implements one canonical version, same precedent as #288's
+  currency-field consolidation note.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint && pnpm test` — green repo-wide, except 5 pre-existing
+  `apps/api` isolation-test failures confirmed identical on a clean `main` checkout (this sandbox's
+  Docker stack is only partially up — Postgres/Redis/MinIO running, no PgBouncer/OpenBao/Zitadel/
+  worker containers — unrelated to this frontend-only diff).
+- `pnpm test:isolation` — same pre-existing environmental gap, not run to completion; blocker
+  surfaced rather than silently skipped, per `definition-of-done.md`.
+- New `packages/ui` tests: `button.test.tsx` (9 tests), `icon-button.test.tsx` (9 tests) — both
+  green. `apps/admin-ui`'s existing 90-test suite still green (14 files).
+- No full-browser visual smoke test was possible in this sandbox (no `chromium-cli`/Playwright
+  available, no network to install one, no Zitadel container for an authenticated session) —
+  substituted with: dev server boots clean, all migrated page modules transform through Vite's
+  dev pipeline without error, and manual diff review of every migrated file.
+
+### Next
+
+- #199 remains open for a `Table`/design-token layer if/when a second consuming app exists
+  (`apps/portal` was removed in PR #211 — currently only one frontend app).
+
+---
+
+## 2026-08-02 — #289 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `feat/PLAT-289-file-field-widgets`)
+**Issues:** #289 (PR #299)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #299 review, both required bugs:
+  - **Visual duplicate in edit mode**: once a staged upload's id also appeared in
+    `existingFiles` (the entity's attachment list, fetched after `POST /files` associated the
+    file), both `StagedFileChip` and `FileChip` rendered for the same file. Fixed by filtering
+    `stagedFiles` to exclude ids already present in `existingFiles` before rendering.
+  - **`cleanFileIds` effect fired on every render**: `cleanFileIds` is a fresh array reference
+    each render (computed inline in `useFileUpload`), so `useEffect(..., [cleanFileIds])` never
+    actually skipped a render. Changed to `[cleanFileIds.join(",")]`, matching the same pattern
+    already used one effect above for `currentIds`.
+- Also addressed all 3 "recommended before merge" items: a single-mode race guard (block a
+  second upload from starting while the first is still mid-scan), an inline comment on the
+  `fetchWithAuth` return-type assertion (code-style rule), and converting the two structural
+  layout `<div style={{...}}>`s to CSS classes (`ffp-container`/`ffp-chip-row` in `index.css`,
+  matching `file-attachment.tsx`'s `fa-*` convention).
+- Added the requested test confirming `StagedFileChip` is suppressed once the same id appears in
+  `existingFiles`.
+
+### Verification
+
+- `pnpm --filter @platform/admin-ui typecheck && lint && test` — green (101/101 tests, up from
+  100).
+- **Caught and reverted a mistake in this session**: ran `prettier --write` on the whole
+  `apps/admin-ui/src/index.css` to format the 2 new CSS classes, not realizing this project's
+  `format:check` only covers `.ts/.tsx/.md/.json` (not `.css`) — it rewrote ~4000 unrelated lines
+  across the entire file. Reverted immediately via `git checkout`, re-added just the 2 intended
+  lines by hand.
+
+---
+
+## 2026-08-02 — #289 file/files field-type widgets for FieldInput
+
+**Session type:** Frontend feature (Plan → Code → Review → Docs → Ship)
+**Branch:** `feat/PLAT-289-file-field-widgets`
+**Issues:** #289
+
+### Completed this session
+
+- Added `FileFieldPicker` (`apps/admin-ui/src/components/file-field-picker.tsx`) — a
+  self-fetching widget for `file`/`files` fields, mirroring the `UserRefPicker`/`EntityRefPicker`
+  pattern (#197/PR #288): `useFileUpload` calls hooks internally, so it must live in its own
+  component mounted from `FieldInput`'s switch, never inline in a switch case. Reuses the
+  existing upload flow end-to-end — `useFileUpload`, `AttachmentUploadZone`, `StagedFileChip`,
+  `FileChip`, `FilePreviewModal` — no new upload/scan logic.
+- Wired `case "file"`/`case "files"` into `field-input.tsx` (`multiple` derived from
+  `field.fieldType`), replacing the previous silent fallthrough to a plain, freely-editable text
+  input — the bug #289 exists to fix.
+- Threaded the new required `moduleSlug`/`entityId` props through all 4 `FieldInput` call sites.
+  `record-detail.tsx`/`record-create.tsx` already computed a `moduleSlug` for their own
+  attachments section — reused directly. `instance-detail.tsx`/`instance-create.tsx` had no such
+  concept before (entity types can have `moduleId: null` for core/module-less types) — added a
+  `modules.find(m => m.id === type?.moduleId)?.slug ?? "platform"` derivation via
+  `useEntityTypes()`.
+- Field-level "remove" only clears the field's own reference (`onChange`) — it never deletes the
+  underlying file record, since the same file may legitimately still appear in the entity's
+  general attachments list (confirmed `GET /entities/:id/attachments` is generic,
+  entity-engine-level, not module-specific).
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green.
+- `pnpm --filter @platform/admin-ui test` — 100/100 pass (10 new: 8 `file-field-picker.test.tsx`
+  - 2 new `field-input.test.tsx` cases for the `file`/`files` delegation).
+- No full-browser visual check possible in this sandbox (same environment gap as the #199/#284
+  sessions) — substituted with component tests + manual diff review.
 
 ---
 

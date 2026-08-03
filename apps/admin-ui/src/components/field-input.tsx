@@ -1,6 +1,7 @@
 import React from "react";
 import { UserRefPicker } from "./user-ref-picker.js";
 import { EntityRefPicker } from "./entity-ref-picker.js";
+import { FileFieldPicker } from "./file-field-picker.js";
 
 /**
  * Consolidated field input dispatcher (#197), replacing four near-identical
@@ -8,10 +9,6 @@ import { EntityRefPicker } from "./entity-ref-picker.js";
  * instance-create.tsx. `classPrefix` reproduces each page's original CSS
  * scope ("portal-*" for customer pages, "form-*" for entity-types pages) so
  * existing stylesheets keep applying unchanged.
- *
- * `file`/`files` are intentionally left as read-only placeholders here — the
- * upload API requires a `moduleSlug` this generic, page-agnostic component
- * has no way to know — tracked as a follow-up (see PR description).
  */
 
 export type FieldInputClassPrefix = "portal" | "form";
@@ -37,6 +34,10 @@ export interface FieldInputProps {
   classPrefix?: FieldInputClassPrefix;
   /** Set `required` on the underlying control. Omit on read-only/detail views. */
   required?: boolean;
+  /** Required for `file`/`files` fields — the upload API's namespacing param. */
+  moduleSlug: string;
+  /** Entity the field belongs to. Undefined during create flows. */
+  entityId: string | undefined;
 }
 
 function formatReadOnlyValue(value: unknown): string {
@@ -51,11 +52,25 @@ export function FieldInput({
   onChange,
   classPrefix = "form",
   required,
+  moduleSlug,
+  entityId,
 }: FieldInputProps): React.ReactElement {
   const strVal = value === null || value === undefined ? "" : String(value);
   const req = required ?? false;
 
   switch (field.fieldType) {
+    case "file":
+    case "files":
+      return (
+        <FileFieldPicker
+          value={value as string | string[] | null}
+          onChange={onChange}
+          multiple={field.fieldType === "files"}
+          moduleSlug={moduleSlug}
+          entityId={entityId}
+        />
+      );
+
     case "formula":
     case "lookup":
       return (

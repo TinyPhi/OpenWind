@@ -1,4 +1,5 @@
 import React from "react";
+import { Button, IconButton } from "@platform/ui";
 import type { WizardData, ActionItem, ActionType } from "./types.js";
 import { genId } from "./types.js";
 
@@ -249,25 +250,27 @@ function WebhookConfig({
                 onChange({ headers: next });
               }}
             />
-            <button
-              className="icon-btn icon-btn-delete"
+            <IconButton
+              variant="delete"
               onClick={() =>
                 onChange({ headers: headers.filter((_, j) => j !== i) })
               }
+              title="Remove header"
+              aria-label="Remove header"
             >
               ×
-            </button>
+            </IconButton>
           </div>
         ))}
-        <button
-          className="btn btn-secondary"
+        <Button
+          variant="secondary"
           style={{ fontSize: "11px", padding: "4px 10px", marginTop: "4px" }}
           onClick={() =>
             onChange({ headers: [...headers, { key: "", value: "" }] })
           }
         >
           + Add header
-        </button>
+        </Button>
       </div>
 
       <label
@@ -374,13 +377,14 @@ function ActionCard({
             {ACTION_TYPE_DESCRIPTIONS[action.type]}
           </span>
         </div>
-        <button
-          className="icon-btn icon-btn-delete"
+        <IconButton
+          variant="delete"
           onClick={() => onRemove(action.id)}
           title="Remove action"
+          aria-label="Remove action"
         >
           🗑
-        </button>
+        </IconButton>
       </div>
 
       {action.type === "notify" && (
@@ -455,9 +459,9 @@ export function StepActions({ data, onChange }: Props): React.ReactElement {
         />
       ))}
 
-      <button className="btn btn-secondary" onClick={addAction}>
+      <Button variant="secondary" onClick={addAction}>
         + Add Action
-      </button>
+      </Button>
     </div>
   );
 }

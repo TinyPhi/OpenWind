@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { FieldInput } from "../../components/field-input.js";
+import { Button } from "@platform/ui";
 import { userManager } from "../../authProvider.js";
 import {
   showAlert,
@@ -2994,6 +2995,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                           field={f}
                           value={editValues[f.name]}
                           classPrefix="portal"
+                          moduleSlug={typeSlug ?? "unknown"}
+                          entityId={id}
                           onChange={(v) =>
                             setEditValues((p) => ({ ...p, [f.name]: v }))
                           }
@@ -4095,13 +4098,13 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             </div>
             <div className="modal-footer">
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => setAccessChangeModal(null)}
                 disabled={accessChangeSaving}
               >
                 Cancel
-              </button>
+              </Button>
               <button
                 style={{
                   background:
@@ -4267,14 +4270,14 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             </div>
             <div className="modal-footer">
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => setPendingMentionGrant(null)}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => {
                   const { text, mentions, replyTo, selectedLevel } =
                     pendingMentionGrant;
@@ -4296,7 +4299,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 }}
               >
                 Grant &amp; post
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -4327,21 +4330,22 @@ export function CustomerRecordDetail(): React.ReactElement {
               </p>
             </div>
             <div className="modal-footer">
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => setArchiveConfirm(null)}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary rcd-btn-archive-confirm"
+              </Button>
+              <Button
+                variant="primary"
+                className="rcd-btn-archive-confirm"
                 disabled={archiving}
                 onClick={() => void archiveRecord(true)}
               >
                 {archiving
                   ? "Archiving…"
                   : `Archive all ${archiveConfirm.childCount + 1}`}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -4434,8 +4438,8 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             </div>
             <div className="modal-footer">
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setShowCreateChild(false);
                   setNewChildTitle("");
@@ -4446,14 +4450,14 @@ export function CustomerRecordDetail(): React.ReactElement {
                 }}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 disabled={!newChildTitle.trim() || creatingChild}
                 onClick={() => void createChild()}
               >
                 {creatingChild ? "Creating…" : "Create sub-task"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -4504,17 +4508,17 @@ export function CustomerRecordDetail(): React.ReactElement {
               </div>
             </div>
             <div className="modal-footer">
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setStateModal(null);
                   setComment("");
                 }}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 disabled={
                   (stateModal.requiresComment && !comment.trim()) ||
                   transitioning === stateModal.id
@@ -4524,7 +4528,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 }
               >
                 {transitioning === stateModal.id ? "Moving…" : "Confirm"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

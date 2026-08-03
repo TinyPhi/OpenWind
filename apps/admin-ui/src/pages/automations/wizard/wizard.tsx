@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../../lib/api.js";
 import { EMPTY_WIZARD, genId } from "./types.js";
 import type { WizardData, ActionItem, ConditionGroup } from "./types.js";
@@ -278,33 +279,29 @@ export function AutomationWizard(): React.ReactElement {
 
       {/* Navigation */}
       <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <button
-          className="btn btn-secondary"
+        <Button
+          variant="secondary"
           onClick={
             currentIndex === 0 ? () => void navigate("/automations") : goBack
           }
           disabled={saving}
         >
           {currentIndex === 0 ? "Cancel" : "← Back"}
-        </button>
+        </Button>
 
         {isLast ? (
-          <button
-            className="btn btn-primary"
+          <Button
+            variant="primary"
             onClick={() => void handleSave()}
             disabled={saving || !advanceOk}
             style={{ minWidth: "120px" }}
           >
             {saving ? "Saving…" : isEdit ? "Save changes" : "Create rule"}
-          </button>
+          </Button>
         ) : (
-          <button
-            className="btn btn-primary"
-            onClick={goNext}
-            disabled={!advanceOk}
-          >
+          <Button variant="primary" onClick={goNext} disabled={!advanceOk}>
             Next →
-          </button>
+          </Button>
         )}
       </div>
     </div>
