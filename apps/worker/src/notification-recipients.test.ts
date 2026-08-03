@@ -153,4 +153,28 @@ describe("resolveRecipients", () => {
     expect(result.recipients).toEqual(["u-admin"]);
     expect(result.reason).toBe("boom");
   });
+
+  describe("malformed payload parsing failure path", () => {
+    const eventTypes = [
+      "entity.assigned",
+      "comment.mentioned",
+      "comment.mention_access_granted",
+      "comment.replied",
+      "access.granted",
+      "access.revoked",
+      "workflow.sla_breached",
+      "system.error",
+    ];
+
+    it.each(eventTypes)(
+      "gracefully handles parsing failure for %s",
+      async (eventType) => {
+        const result = await resolveRecipients("t-1", eventType, {
+          invalidKey: "invalidValue",
+        });
+        expect(result.recipients).toEqual([]);
+        expect(result.actorId).toBeNull();
+      },
+    );
+  });
 });

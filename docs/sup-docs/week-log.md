@@ -140,7 +140,6 @@
 
 - #296 stays open until a load-test session with a concrete concurrent-tenant target is run —
   matches CLAUDE.md's existing "deferred until load testing" gate for adjacent schema-cache work.
-  > > > > > > > origin/main
 
 ---
 
