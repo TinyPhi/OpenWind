@@ -54,8 +54,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Clean up using the bypass superuser client
-  await db.delete(deadLetterEvents);
-  await db.delete(outboxEvents);
+  await db
+    .delete(deadLetterEvents)
+    .where(eq(deadLetterEvents.tenantId, TENANT_A));
+  await db
+    .delete(deadLetterEvents)
+    .where(eq(deadLetterEvents.tenantId, TENANT_B));
+  await db.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT_A));
+  await db.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT_B));
 });
 
 describe("outbox_events RLS policies", () => {
