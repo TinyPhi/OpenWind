@@ -11,7 +11,6 @@ import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { UserPicker } from "../../components/user-picker.js";
 import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
-import { Button } from "@platform/ui";
 
 type EntityField = {
   id: string;

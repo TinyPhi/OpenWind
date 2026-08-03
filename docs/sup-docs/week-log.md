@@ -159,6 +159,7 @@
 
 - `TransitionPanel` and the access-denied overlay remain open for a future, separately-scoped
   manual-judgment pass.
+
 ## 2026-08-02 — #289 PR review fixes (PrabhuVijit)
 
 **Session type:** Review response (same branch, `feat/PLAT-289-file-field-widgets`)
