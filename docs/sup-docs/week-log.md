@@ -100,6 +100,31 @@
 
 ---
 
+## 2026-08-01 — security group H: API route validation & RLS hardening
+
+**Session type:** Security hardening (Plan → Code → Review → Docs → Ship)
+**Branch:** `fix/PLAT-security-group-h`
+**PR:** #294
+**Issues:** #251, #252, #253, #260, #261, #263
+
+### Completed this session
+
+- **#263** added `WITH CHECK` to RLS policies on `access_requests`, `notifications`, `notification_recipients`, and `ticket_alerts` (migration `0048`).
+- **#252** modified ticket alert endpoints to return 404 instead of 403 on existence checks to prevent resource ID enumeration.
+- **#253** modified workflow canvas routes to return 404 instead of 403 when not a workflow admin to prevent ID leakage.
+- **#260** added `requireRole("admin", "agent", "user")` check to 9 entity action endpoints that were missing role-based checks.
+- **#261** capped API endpoints at max 500 rows and added limit/offset support to lists.
+- **#251** added `PLATFORM_ORG_ID` environment check to tenant lifecycle routes to ensure tenant-admin boundaries.
+
+### Verification
+
+- pnpm typecheck: PASS
+- pnpm lint: PASS
+- Added unit tests for each vulnerability and updated existing canvas/ticket-alerts isolation tests.
+- All unit + integration tests pass successfully.
+
+---
+
 ## 2026-08-01 — packages/ui: Button/IconButton primitive (#199)
 
 **Session type:** Frontend architecture (Plan → Code → Review → Docs → Ship)

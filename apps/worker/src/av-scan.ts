@@ -19,7 +19,7 @@ import net from "node:net";
 import { Worker } from "bullmq";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { eq, and } from "drizzle-orm";
-import { db, files, outboxEvents } from "@platform/db";
+import { db, files, outboxEvents, isTenantActive } from "@platform/db";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import { sendNotification } from "@platform/notifications";
@@ -118,6 +118,15 @@ export const avScanWorker = new Worker<AvScanJob>(
     const { fileId, tenantId, storageKey } = job.data;
 
     logger.info({ tenantId, fileId, jobId: job.id }, "av-scan: job started");
+
+    const active = await isTenantActive(tenantId);
+    if (!active) {
+      logger.warn(
+        { tenantId, fileId, jobId: job.id },
+        "av-scan aborted: tenant is not active",
+      );
+      return;
+    }
 
     // Idempotency: skip if no longer pending.
     // Also fetch uploadedBy so we can notify the uploader on quarantine.

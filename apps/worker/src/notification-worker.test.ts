@@ -53,6 +53,7 @@ vi.mock("@platform/db", () => ({
   tenantUsers: "tenant_users_table",
   deadLetterEvents: "dead_letter_events_table",
   isOutboundNotificationsEnabled: () => Promise.resolve(outboundEnabled),
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("drizzle-orm", () => ({

@@ -25,6 +25,7 @@ import {
   outboxEvents,
   entityInstances,
   deadLetterEvents,
+  isTenantActive,
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import { connection } from "./queues.js";
@@ -49,6 +50,15 @@ export const slaBreacher = new Worker<SlaJobData>(
       stateName,
       slaHours,
     } = job.data;
+
+    const active = await isTenantActive(tenantId);
+    if (!active) {
+      logger.warn(
+        { tenantId, instanceId, stateName, outboxEventId, jobId: job.id },
+        "SLA breach check aborted: tenant is not active",
+      );
+      return;
+    }
 
     // Warn if the job fired significantly later than its scheduled fireAt.
     // This happens when BullMQ was down and the job was delayed on recovery.
