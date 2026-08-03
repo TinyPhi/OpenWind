@@ -31,6 +31,7 @@ import {
   notifications,
   notificationRecipients,
   isOutboundNotificationsEnabled,
+  isTenantActive,
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
@@ -42,6 +43,15 @@ export const alertWorker = new Worker<AlertJobData>(
   "ticket-alerts",
   async (job) => {
     const { alertId, tenantId } = job.data;
+
+    const active = await isTenantActive(tenantId);
+    if (!active) {
+      logger.warn(
+        { tenantId, alertId, jobId: job.id },
+        "Alert fire aborted: tenant is not active",
+      );
+      return;
+    }
 
     // ticket_alerts/notifications/notification_recipients are all RLS-tenant
     // -scoped — withTenantContext sets both SET LOCAL ROLE app_user and the

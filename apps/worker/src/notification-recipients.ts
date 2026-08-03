@@ -1,6 +1,41 @@
 import { eq, and } from "drizzle-orm";
 import { withTenantContext, workflows, tenantUsers } from "@platform/db";
 import { env } from "@platform/config";
+import { z } from "zod";
+import { logger } from "@platform/logger";
+
+const EntityAssignedSchema = z.object({
+  assignedBy: z.string().nullable().optional(),
+  assigneeId: z.string(),
+  instanceId: z.string().optional(),
+});
+
+const CommentMentionedSchema = z.object({
+  actorId: z.string(),
+  mentionedUserIds: z.array(z.string()),
+  instanceId: z.string().optional(),
+});
+
+const CommentRepliedSchema = z.object({
+  actorId: z.string(),
+  targetUserId: z.string(),
+  instanceId: z.string().optional(),
+});
+
+const AccessGrantedRevokedSchema = z.object({
+  actorId: z.string(),
+  targetUserId: z.string(),
+  instanceId: z.string().optional(),
+});
+
+const SlaBreachedSchema = z.object({
+  workflowId: z.string(),
+  instanceId: z.string().optional(),
+});
+
+const SystemErrorSchema = z.object({
+  reason: z.string().optional(),
+});
 
 export interface ResolvedTrigger {
   recipients: string[];
@@ -30,69 +65,124 @@ export async function resolveRecipients(
 ): Promise<ResolvedTrigger> {
   switch (eventType) {
     case "entity.assigned": {
-      const actorId = (payload["assignedBy"] as string | null) ?? null;
-      const assigneeId = payload["assigneeId"] as string;
+      const parsed = EntityAssignedSchema.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn(
+          { eventType, payload, error: parsed.error },
+          "Malformed payload for entity.assigned",
+        );
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+      }
+      const data = parsed.data;
+      const actorId = data.assignedBy ?? null;
+      const assigneeId = data.assigneeId;
       return {
         recipients: finalize([assigneeId], actorId),
         actorId,
-        instanceId: payload["instanceId"] as string,
+        instanceId: data.instanceId,
         reason: undefined,
       };
     }
 
-    case "comment.mentioned": {
-      const actorId = payload["actorId"] as string;
-      const mentionedUserIds = payload["mentionedUserIds"] as string[];
-      return {
-        recipients: finalize(mentionedUserIds, actorId),
-        actorId,
-        instanceId: payload["instanceId"] as string,
-        reason: undefined,
-      };
-    }
-
+    case "comment.mentioned":
     case "comment.mention_access_granted": {
-      const actorId = payload["actorId"] as string;
-      const mentionedUserIds = payload["mentionedUserIds"] as string[];
+      const parsed = CommentMentionedSchema.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn(
+          { eventType, payload, error: parsed.error },
+          `Malformed payload for ${eventType}`,
+        );
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+      }
+      const data = parsed.data;
+      const actorId = data.actorId;
+      const mentionedUserIds = data.mentionedUserIds;
       return {
         recipients: finalize(mentionedUserIds, actorId),
         actorId,
-        instanceId: payload["instanceId"] as string,
+        instanceId: data.instanceId,
         reason: undefined,
       };
     }
 
     case "comment.replied": {
-      const actorId = payload["actorId"] as string;
-      const targetUserId = payload["targetUserId"] as string;
+      const parsed = CommentRepliedSchema.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn(
+          { eventType, payload, error: parsed.error },
+          "Malformed payload for comment.replied",
+        );
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+      }
+      const data = parsed.data;
+      const actorId = data.actorId;
+      const targetUserId = data.targetUserId;
       return {
-        // finalize() also covers the case where the parent comment's author
-        // replies to their own comment — self-suppressed like every other
-        // trigger, not special-cased here.
         recipients: finalize([targetUserId], actorId),
         actorId,
-        instanceId: payload["instanceId"] as string,
+        instanceId: data.instanceId,
         reason: undefined,
       };
     }
 
     case "access.granted":
     case "access.revoked": {
-      const actorId = payload["actorId"] as string;
-      const targetUserId = payload["targetUserId"] as string;
+      const parsed = AccessGrantedRevokedSchema.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn(
+          { eventType, payload, error: parsed.error },
+          `Malformed payload for ${eventType}`,
+        );
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+      }
+      const data = parsed.data;
+      const actorId = data.actorId;
+      const targetUserId = data.targetUserId;
       return {
         recipients: finalize([targetUserId], actorId),
         actorId,
-        instanceId: payload["instanceId"] as string,
+        instanceId: data.instanceId,
         reason: undefined,
       };
     }
 
     case "workflow.sla_breached": {
-      const workflowId = payload["workflowId"] as string;
-      // workflows has RLS (0037_rls_workflow_config_tables.sql) — this worker
-      // runs as app_user (no BYPASSRLS), so a bare db.select() here sees no
-      // rows and every sla_breached event silently produces no notification.
+      const parsed = SlaBreachedSchema.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn(
+          { eventType, payload, error: parsed.error },
+          "Malformed payload for workflow.sla_breached",
+        );
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+      }
+      const data = parsed.data;
+      const workflowId = data.workflowId;
+
       const [workflow] = await withTenantContext(tenantId, (tx) =>
         tx
           .select({
@@ -121,16 +211,27 @@ export async function resolveRecipients(
       return {
         recipients: finalize(admins, null),
         actorId: null,
-        instanceId: payload["instanceId"] as string | undefined,
+        instanceId: data.instanceId,
         reason: undefined,
       };
     }
 
     case "system.error": {
-      // Single hardcoded admin recipient (see packages/config/src/env.ts's
-      // SYSTEM_ADMIN_USER_ID comment) — role membership isn't queryable from
-      // our DB today. Still tenant-scoped: only notify if that admin is
-      // actually a member of this tenant.
+      const parsed = SystemErrorSchema.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn(
+          { eventType, payload, error: parsed.error },
+          "Malformed payload for system.error",
+        );
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+      }
+      const data = parsed.data;
+
       const adminId = env.SYSTEM_ADMIN_USER_ID;
       if (!adminId)
         return {
@@ -140,8 +241,6 @@ export async function resolveRecipients(
           reason: undefined,
         };
 
-      // tenant_users has RLS — must go through withTenantContext (see
-      // notification-worker.ts's resolveActorName for the same reasoning).
       const [membership] = await withTenantContext(tenantId, (tx) =>
         tx
           .select({ userId: tenantUsers.userId })
@@ -167,7 +266,7 @@ export async function resolveRecipients(
         recipients: [adminId],
         actorId: null,
         instanceId: undefined,
-        reason: payload["reason"] as string | undefined,
+        reason: data.reason,
       };
     }
 
