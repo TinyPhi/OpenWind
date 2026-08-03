@@ -33,7 +33,7 @@
     "seed:demo": "dotenv -e .env.local -- tsx scripts/seed-demo.ts",
     "reset:data": "pnpm exec dotenv -e .env.local -- tsx scripts/reset-data.ts",
     "dev:down": "docker compose down",
-    "dev:reset": "bash scripts/dev-reset.sh"
+    "dev:reset": "tsx scripts/dev-reset.ts"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",
