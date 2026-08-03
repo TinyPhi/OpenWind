@@ -664,6 +664,17 @@ export async function deleteWorkflowState(
 ): Promise<void> {
   await assertWorkflowOwned(db, tenantId, workflowId, caller);
 
+  // 1. Lock parent workflow row first to prevent lock-ordering deadlocks (#311)
+  const [wf] = await db
+    .select({ initialState: workflows.initialState })
+    .from(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)))
+    .for("update")
+    .limit(1);
+
+  if (!wf) throw new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId });
+
+  // 2. Lock child state row second
   const [state] = await db
     .select({ name: workflowStates.name })
     .from(workflowStates)
@@ -680,14 +691,7 @@ export async function deleteWorkflowState(
   if (!state) throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", { stateId });
 
   // Block if this state is the workflow's designated initialState (#310)
-  const [wf] = await db
-    .select({ initialState: workflows.initialState })
-    .from(workflows)
-    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)))
-    .for("update")
-    .limit(1);
-
-  if (wf?.initialState === state.name) {
+  if (wf.initialState === state.name) {
     throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
   }
 

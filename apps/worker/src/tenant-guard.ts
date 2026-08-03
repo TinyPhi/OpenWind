@@ -21,7 +21,7 @@ export async function validateActiveTenant(
   const active = await isTenantActive(tenantId);
   if (!active) {
     logger.warn(
-      { tenantId, ...options },
+      { tenantId, workerName, ...options },
       `${workerName}: aborting execution — tenant is deactivated or missing`,
     );
     return false;

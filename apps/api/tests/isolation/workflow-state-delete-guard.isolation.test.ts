@@ -162,13 +162,25 @@ describe("deleteWorkflowState — instance-in-use guard (#301)", () => {
   });
 
   it("throws WORKFLOW_STATE_IN_USE when trying to delete a state designated as the workflow's initialState", async () => {
+    const ts = Date.now();
+    const [etRow] = await db
+      .insert(entityTypes)
+      .values({
+        tenantId: null,
+        name: `isolation_state_guard_init_${ts}`,
+        plural: `isolation_state_guards_init_${ts}`,
+        allowCustomFields: true,
+      })
+      .returning();
+    if (!etRow) throw new Error("entity type insert failed");
+
     // Create a new workflow where initialState is 'abandoned_initial'
     const [wf] = await db
       .insert(workflows)
       .values({
         tenantId: TENANT,
-        entityTypeId,
-        name: "Initial State Delete Guard Test Workflow",
+        entityTypeId: etRow.id,
+        name: `Initial State Delete Guard Test Workflow_${ts}`,
         initialState: "abandoned_initial",
         createdBy: CALLER.userId,
       })
@@ -193,8 +205,9 @@ describe("deleteWorkflowState — instance-in-use guard (#301)", () => {
       ).rejects.toMatchObject({ code: "WORKFLOW_STATE_IN_USE" });
     });
 
-    // Cleanup the test workflow and state
+    // Cleanup the test workflow, state, and entity type
     await db.delete(workflowStates).where(eq(workflowStates.id, state.id));
     await db.delete(workflows).where(eq(workflows.id, wf.id));
+    await db.delete(entityTypes).where(eq(entityTypes.id, etRow.id));
   });
 });
