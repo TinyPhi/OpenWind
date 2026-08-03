@@ -1,16 +1,13 @@
 import { Worker, type Job } from "bullmq";
 import Redis from "ioredis";
-import {
-  withTenantContext,
-  deadLetterEvents,
-  isTenantActive,
-} from "@platform/db";
+import { withTenantContext, deadLetterEvents } from "@platform/db";
 import {
   executeAutomationRules,
   OutboxDepthSchema,
 } from "@platform/automation-engine";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
+import { validateActiveTenant } from "./tenant-guard.js";
 
 // maxRetriesPerRequest must be null for BullMQ worker connections;
 // without it a transient Redis blip throws MaxRetriesPerRequestError and drops jobs.
@@ -46,14 +43,15 @@ export const automationWorker = new Worker<AutomationJobData>(
   async (job) => {
     const { tenantId, payload, outboxEventId } = job.data;
 
-    const active = await isTenantActive(tenantId);
-    if (!active) {
-      logger.warn(
-        { tenantId, outboxEventId, jobId: job.id },
-        "Automation execution aborted: tenant is not active",
-      );
-      return;
-    }
+    const active = await validateActiveTenant(
+      tenantId,
+      "Automation execution",
+      {
+        outboxEventId,
+        jobId: job.id,
+      },
+    );
+    if (!active) return;
 
     // Resume MAX_DEPTH counting from the depth this event was triggered at
     // (stamped by the transition action) instead of resetting to 0 — an

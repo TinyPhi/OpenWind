@@ -25,12 +25,12 @@ import {
   outboxEvents,
   entityInstances,
   deadLetterEvents,
-  isTenantActive,
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import { connection } from "./queues.js";
 import type { SlaJobData } from "./sla-scheduler.js";
 import type { WorkflowSlaBreachedEvent } from "@platform/workflow-engine";
+import { validateActiveTenant } from "./tenant-guard.js";
 
 /**
  * Jobs that fire more than 15 minutes past their scheduled fireAt are logged
@@ -51,14 +51,13 @@ export const slaBreacher = new Worker<SlaJobData>(
       slaHours,
     } = job.data;
 
-    const active = await isTenantActive(tenantId);
-    if (!active) {
-      logger.warn(
-        { tenantId, instanceId, stateName, outboxEventId, jobId: job.id },
-        "SLA breach check aborted: tenant is not active",
-      );
-      return;
-    }
+    const active = await validateActiveTenant(tenantId, "SLA breach check", {
+      instanceId,
+      stateName,
+      outboxEventId,
+      jobId: job.id,
+    });
+    if (!active) return;
 
     // Warn if the job fired significantly later than its scheduled fireAt.
     // This happens when BullMQ was down and the job was delayed on recovery.

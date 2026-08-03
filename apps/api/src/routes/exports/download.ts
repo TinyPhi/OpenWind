@@ -62,11 +62,19 @@ router.get(
     const state = await job.getState();
 
     if (state === "completed") {
-      const result = job.returnvalue as { downloadUrl?: string } | null;
+      const result = job.returnvalue as {
+        downloadUrl?: string;
+        error?: string;
+      } | null;
       // returnvalue is null when removeOnComplete TTL has expired
       if (!result?.downloadUrl) {
         return c.json(
-          { data: { status: "failed", error: "EXPORT_EXPIRED" } },
+          {
+            data: {
+              status: "failed",
+              error: result?.error ?? "EXPORT_EXPIRED",
+            },
+          },
           200,
         );
       }

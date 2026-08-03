@@ -655,6 +655,12 @@ export async function updateWorkflowState(
   return rowToState(row);
 }
 
+/**
+ * Deletes a workflow state.
+ * WARNING: The `db` parameter must be an active transaction (Tx) to ensure the
+ * parent-first row locks (.for("update")) hold for the duration of the checks
+ * and delete, preventing TOCTOU race conditions (#311).
+ */
 export async function deleteWorkflowState(
   db: DbOrTx,
   tenantId: string,
@@ -664,6 +670,17 @@ export async function deleteWorkflowState(
 ): Promise<void> {
   await assertWorkflowOwned(db, tenantId, workflowId, caller);
 
+  // 1. Lock parent workflow row first to prevent lock-ordering deadlocks (#311)
+  const [wf] = await db
+    .select({ initialState: workflows.initialState })
+    .from(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)))
+    .for("update")
+    .limit(1);
+
+  if (!wf) throw new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId });
+
+  // 2. Lock child state row second
   const [state] = await db
     .select({ name: workflowStates.name })
     .from(workflowStates)
@@ -674,9 +691,15 @@ export async function deleteWorkflowState(
         eq(workflowStates.tenantId, tenantId),
       ),
     )
+    .for("update")
     .limit(1);
 
   if (!state) throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", { stateId });
+
+  // Block if this state is the workflow's designated initialState (#310)
+  if (wf.initialState === state.name) {
+    throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
+  }
 
   // Block if any transition references this state
   const [ref] = await db

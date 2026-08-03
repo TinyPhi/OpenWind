@@ -22,7 +22,8 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import ExcelJS from "exceljs";
 import { stringify } from "csv-stringify/sync";
-import { withTenantContext, isTenantActive } from "@platform/db";
+import { withTenantContext } from "@platform/db";
+import { validateActiveTenant } from "./tenant-guard.js";
 import {
   getEntityType,
   listEntityFields,
@@ -148,14 +149,17 @@ export const exportWorker = new Worker<ExportJobPayload, ExportJobResult>(
       "export job started",
     );
 
-    // Verify tenant is active
-    const active = await isTenantActive(tenantId);
+    const active = await validateActiveTenant(tenantId, "export job", {
+      entityTypeId,
+      jobId: job.id,
+    });
     if (!active) {
-      logger.warn(
-        { tenantId, entityTypeId, jobId: job.id },
-        "export job aborted: tenant is not active",
-      );
-      return { downloadUrl: "", format, rowCount: 0 };
+      return {
+        downloadUrl: "",
+        error: "TENANT_DEACTIVATED",
+        format,
+        rowCount: 0,
+      };
     }
 
     const result = await withTenantContext(tenantId, async (tx) => {
