@@ -27,6 +27,7 @@
 ### Next
 
 - Revisit #198 once PR #298 merges — likely closeable then, modulo the 2 deferred items.
+
 ## 2026-08-02 — #199 PR review fixes (PrabhuVijit)
 
 **Session type:** Review response (same branch, `feat/PLAT-199-button-primitive`)
