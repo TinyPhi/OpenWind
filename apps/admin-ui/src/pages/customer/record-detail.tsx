@@ -2976,6 +2976,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                           field={f}
                           value={editValues[f.name]}
                           classPrefix="portal"
+                          moduleSlug={typeSlug ?? "unknown"}
+                          entityId={id}
                           onChange={(v) =>
                             setEditValues((p) => ({ ...p, [f.name]: v }))
                           }
