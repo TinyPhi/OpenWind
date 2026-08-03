@@ -190,4 +190,34 @@ describe("Button", () => {
     fireEvent.click(link);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it("blocks pointer interaction on a disabled asChild element, since the disabled attribute does nothing on a non-button tag", () => {
+    render(
+      <Button asChild disabled>
+        <a href="/workflows">Back</a>
+      </Button>,
+    );
+    const link = screen.getByRole("link", {
+      name: "Back",
+    }) as HTMLAnchorElement;
+    expect(link.style.opacity).toBe("0.5");
+    // The actual click-blocker: Radix Slot always runs a child's own click
+    // handler (e.g. a router <Link>'s internal navigate) before Button's, so
+    // pointer-events is what stops a disabled asChild link from being
+    // clickable in a real browser — a JS onClick guard alone cannot.
+    expect(link.style.pointerEvents).toBe("none");
+    expect(link.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("never invokes Button's own onClick when disabled, asChild or not", () => {
+    const onClick = vi.fn();
+    render(
+      <Button asChild disabled onClick={onClick}>
+        <a href="/workflows">Back</a>
+      </Button>,
+    );
+    const link = screen.getByRole("link", { name: "Back" });
+    fireEvent.click(link);
+    expect(onClick).not.toHaveBeenCalled();
+  });
 });
