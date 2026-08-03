@@ -100,14 +100,16 @@ describe("buildNotificationContent", () => {
     expect(content.body).toBe("Outbound handoff failed after 3 attempts");
   });
 
-  it("keeps plain HTML entity characters (like O'Brien and Smith & Sons) as plain text while stripping HTML tags", async () => {
+  it("keeps plain HTML entity characters (like O'Brien and Smith & Sons) as plain text while stripping HTML tag characters", async () => {
     const content = await buildNotificationContent("comment.mentioned", {
       tenantId: "t-1",
       instanceId: "inst-1",
       actorName: "O'Brien <script>alert(1)</script>",
       reason: undefined,
     });
-    expect(content.body).toBe("O'Brien alert(1) mentioned you in a comment");
+    expect(content.body).toBe(
+      "O'Brien scriptalert(1)/script mentioned you in a comment",
+    );
 
     const errorContent = await buildNotificationContent("system.error", {
       tenantId: "t-1",
@@ -115,7 +117,9 @@ describe("buildNotificationContent", () => {
       actorName: "System",
       reason: "Failed: <img src=x onerror=alert(2)> error & warning",
     });
-    expect(errorContent.body).toBe("Failed:  error & warning");
+    expect(errorContent.body).toBe(
+      "Failed: img src=x onerror=alert(2) error & warning",
+    );
   });
 
   it("throws for an unrecognized event type rather than writing a blank notification", async () => {

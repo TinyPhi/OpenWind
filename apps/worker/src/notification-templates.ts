@@ -64,7 +64,7 @@ export async function buildNotificationContent(
 
   const sanitizeString = (str: unknown): string => {
     if (typeof str !== "string") return "";
-    return str.replace(/<[^>]*>/g, "");
+    return str.replace(/[<>]/g, "");
   };
 
   const actorName = sanitizeString(params.actorName);

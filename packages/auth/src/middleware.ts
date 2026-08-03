@@ -326,7 +326,7 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           name: string | null | undefined,
         ): string | null => {
           if (!name) return null;
-          return name.replace(/<[^>]*>/g, "");
+          return name.replace(/[<>]/g, "");
         };
 
         const nextEmail = auth.email || null;
