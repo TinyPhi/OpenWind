@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-08-03 — security batch 3 (PR #312): Group D follow-ups
+
+**Session type:** Bug fix, security follow-up
+**PR:** #312 — closes #306 (deduped tenant validation), #308 (export error mislabeling), #309
+(unified `system.error` payload schemas), #310 (`initialState` delete guard), #311 (TOCTOU row
+locking in `deleteWorkflowState`). #247 (notification HTML escaping) is explicitly **not** closed
+by this PR — deferred to future outbound-HTML-email-sink work per the PR's own description.
+
+---
+
 ## 2026-08-03 — issue hygiene (#284, #289, #301) + #303/#304 cleanup
 
 **Session type:** Issue triage + bug fix (Plan → Code → Review → Docs → Ship)
@@ -51,6 +61,36 @@ keyword), #303 and #304 (implemented and closed this session)
 
 - #296 needs a human-defined load-test target (concurrent tenants × req/s) before it can be
   picked up.
+
+---
+
+## 2026-08-03 — roadmap-tracker.md + pending-review-findings.md reconciliation
+
+**Session type:** Docs reconciliation (no source changes)
+**Branch:** `docs/PLAT-roadmap-reconciliation-0803`
+
+Both tracker docs had drifted from actual `gh` state — a 2026-08-01 snapshot was already stale by
+2026-08-03, and after merging `main` back in, a second pass caught `main`'s own docs commit making
+the same kind of mistake (Group D's issue list in `roadmap-tracker.md` dropped #227/#249; PR #312
+was wrongly credited with closing #247 despite its own body saying otherwise). Fixed both.
+
+- `pending-review-findings.md`: deleted rows for closed issues per the doc's own stated rule
+  (delete, don't mark done); reframed #192/#198 from "needs a person" to "open by deliberate
+  maintainer decision"; corrected #200 from "untouched" — PR #272 shipped i18n scaffolding + 2
+  converted screens 2026-07-31, ~55 files still remain.
+- `roadmap-tracker.md`: cut the header's cascading multi-week "Previously:" narrative down to a
+  current-state summary — that history already lives here, session by session; duplicating it in
+  the tracker's header was pure drift risk with no reader benefit.
+- Cross-referenced every branch left on disk against `gh pr list --state merged` as a side effect;
+  found and deleted 41 fully-merged local branches (10 true git-ancestors, 31 squash-merged) plus
+  30 remote branches on `origin`, none of which had a live worktree or unique unmerged content.
+
+### Next
+
+- #165/#163/#161 (module-registry cluster) is unstarted, informally assigned to Tushar Sharma via
+  issue-comment `@mentions` — no PR yet.
+
+---
 
 ## 2026-08-02 — issue hygiene sweep: #192, #194, #198
 
