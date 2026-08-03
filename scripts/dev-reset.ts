@@ -1,5 +1,14 @@
 import readline from "readline";
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
+
+try {
+  execSync("docker --version", { stdio: "ignore" });
+} catch {
+  console.error(
+    "\x1b[31mError: docker CLI not found in PATH. Please ensure Docker is installed and running.\x1b[0m",
+  );
+  process.exit(1);
+}
 
 const rl = readline.createInterface({
   input: process.stdin,

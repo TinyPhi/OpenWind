@@ -196,19 +196,21 @@ describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () 
     await makeApp().request("/whoami", {
       headers: { Authorization: `Bearer ${RAW_KEY_A}` },
     });
-
-    let row: typeof apiKeys.$inferSelect | undefined = undefined;
-    for (let i = 0; i < 20; i++) {
-      const [res] = await withTenantContext(TENANT_A, (tx) =>
-        tx.select().from(apiKeys).where(eq(apiKeys.id, keyAId)),
+    // The middleware writes lastUsedAt fire-and-forget (#124 -- best-effort,
+    // never blocks the request), so there's no synchronization point between
+    // the response resolving and the write landing. Poll instead of reading
+    // once immediately, which races the write under load.
+    let row: { lastUsedAt: Date | null } | undefined;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      [row] = await withTenantContext(TENANT_A, (tx) =>
+        tx
+          .select({ lastUsedAt: apiKeys.lastUsedAt })
+          .from(apiKeys)
+          .where(eq(apiKeys.id, keyAId)),
       );
-      row = res;
-      if (row?.lastUsedAt !== null) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (row?.lastUsedAt) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
-
     expect(row?.lastUsedAt).not.toBeNull();
   });
 
