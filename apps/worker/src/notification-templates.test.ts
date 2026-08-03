@@ -100,6 +100,28 @@ describe("buildNotificationContent", () => {
     expect(content.body).toBe("Outbound handoff failed after 3 attempts");
   });
 
+  it("escapes HTML characters in actorName and reason to prevent XSS injection", async () => {
+    const content = await buildNotificationContent("comment.mentioned", {
+      tenantId: "t-1",
+      instanceId: "inst-1",
+      actorName: "<script>alert(1)</script>",
+      reason: undefined,
+    });
+    expect(content.body).toBe(
+      "&lt;script&gt;alert(1)&lt;/script&gt; mentioned you in a comment",
+    );
+
+    const errorContent = await buildNotificationContent("system.error", {
+      tenantId: "t-1",
+      instanceId: undefined,
+      actorName: "System",
+      reason: "Failed: <img src=x onerror=alert(2)>",
+    });
+    expect(errorContent.body).toBe(
+      "Failed: &lt;img src=x onerror=alert(2)&gt;",
+    );
+  });
+
   it("throws for an unrecognized event type rather than writing a blank notification", async () => {
     await expect(
       buildNotificationContent("unknown.event", {

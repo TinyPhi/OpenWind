@@ -45,6 +45,15 @@ export interface NotificationContent {
   link: string | null;
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 // Fixed, hardcoded templates — not tenant-configurable (docs/specs/
 // in-app-notification-hub.md). Never interpolate raw free-text user content
 // (e.g. comment bodies) — only identifiers/names — to avoid leaking data
@@ -62,41 +71,44 @@ export async function buildNotificationContent(
     ? await buildRecordLink(params.tenantId, params.instanceId)
     : null;
 
+  const actorName = escapeHtml(params.actorName);
+  const reason = params.reason ? escapeHtml(params.reason) : undefined;
+
   switch (eventType) {
     case "entity.assigned":
       return {
         title: "New assignment",
-        body: `${params.actorName} assigned you a ticket`,
+        body: `${actorName} assigned you a ticket`,
         link,
       };
     case "comment.mentioned":
       return {
         title: "Comment mention",
-        body: `${params.actorName} mentioned you in a comment`,
+        body: `${actorName} mentioned you in a comment`,
         link,
       };
     case "comment.mention_access_granted":
       return {
         title: "Access granted via mention",
-        body: `${params.actorName} granted you access to this ticket via a comment mention`,
+        body: `${actorName} granted you access to this ticket via a comment mention`,
         link,
       };
     case "comment.replied":
       return {
         title: "New reply",
-        body: `${params.actorName} replied to your comment`,
+        body: `${actorName} replied to your comment`,
         link,
       };
     case "access.granted":
       return {
         title: "Access granted",
-        body: `${params.actorName} granted you access to a ticket`,
+        body: `${actorName} granted you access to a ticket`,
         link,
       };
     case "access.revoked":
       return {
         title: "Access revoked",
-        body: `${params.actorName} revoked your access to a ticket`,
+        body: `${actorName} revoked your access to a ticket`,
         link,
       };
     case "workflow.sla_breached":
@@ -108,7 +120,7 @@ export async function buildNotificationContent(
     case "system.error":
       return {
         title: "System error",
-        body: params.reason ?? "A system error occurred",
+        body: reason ?? "A system error occurred",
         link: "/admin/system-logs",
       };
     default:
