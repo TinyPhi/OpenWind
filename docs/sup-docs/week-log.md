@@ -5,6 +5,46 @@
 
 ---
 
+## 2026-08-03 — roadmap-tracker.md + pending-review-findings.md reconciliation
+
+**Session type:** Docs reconciliation (no source changes)
+**Branch:** `docs/PLAT-roadmap-reconciliation-0803`
+
+### Why
+
+Both tracker docs had drifted from actual `gh` state within a single day — PRs merge fast enough
+that a 2026-08-01 snapshot was already stale by 2026-08-03. Caught while answering an unrelated
+status question; fixed before it compounded further.
+
+### Completed this session
+
+- Confirmed via `gh` and folded into `roadmap-tracker.md`: security Group H merged (PR #294,
+  2026-08-01); #199 got `Button`/`IconButton` (PR #295, 2026-08-02); #196 closed and #296 split off
+  (PR #297, 2026-08-02); a11y wave 2 / #284 merged (PR #298, 2026-08-03); #289 file/files widgets
+  merged (PR #299, 2026-08-03); #62 closure and #301 fix already logged in a prior entry. Security
+  Group D (PR #305 — closes #226, #227, #230, #233, #249, #264, #265) and #303/#304 (PR #307) are
+  currently open, awaiting review — both flagged as the top outstanding items.
+- Updated `pending-review-findings.md` per its own stated rule: deleted rows for #194, #196, #197,
+  #201 (all closed since 2026-07-24), and corrected the framing on #192 and #198 — both are open by
+  a deliberate maintainer scope decision (RPO/RTO policy; 2 deferred non-modal UI elements),
+  not neglect as the "just needs a person" framing implied.
+- Verified the ADR backlog section still holds: no `.claude/context/phase-3-primer.md` yet, no
+  ADR-002 addendum, no ADR beyond ADR-007 — none of that section needed a change.
+
+### Verification
+
+- Docs-only change; `pnpm typecheck`/`lint`/`test` not applicable.
+- Every issue number referenced was checked against `gh issue view <N> --json state,comments`
+  before writing, not assumed from a prior doc's claim.
+
+### Next
+
+- #305 and #307 are the two open PRs; reviewing/merging those is the next concrete action.
+- #165/#163/#161 (module-registry cluster) is unstarted, informally assigned to Tushar Sharma via
+  issue-comment `@mentions` — no PR yet.
+
+---
+
 ## 2026-08-02 — issue hygiene sweep: #192, #194, #198
 
 **Session type:** Issue triage (no source changes)
