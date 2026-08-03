@@ -79,7 +79,7 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
           {
             error: err.code,
             message:
-              "Cannot delete: state is referenced by one or more transitions",
+              "Cannot delete: state is in use (has a live entity instance or is referenced by a transition)",
           },
           409,
         ) as Response;
