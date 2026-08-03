@@ -8,6 +8,12 @@ import {
   DialogTitle,
   Button,
   DIALOG_CONTENT_RESET,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
@@ -453,36 +459,38 @@ export function EntityTypeDetail(): React.ReactElement {
             No fields defined for this entity type.
           </div>
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ width: "40px" }}>#</th>
-                <th>Label</th>
-                <th>Field Name</th>
-                <th>Type</th>
-                <th>Required</th>
-                <th>Indexed</th>
-                <th>System</th>
-                <th style={{ width: "48px" }}></th>
-                <th style={{ width: "48px" }}></th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table scroll={false}>
+            <TableHeader>
+              <TableRow>
+                <TableHead style={{ width: "40px" }}>#</TableHead>
+                <TableHead>Label</TableHead>
+                <TableHead>Field Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Required</TableHead>
+                <TableHead>Indexed</TableHead>
+                <TableHead>System</TableHead>
+                <TableHead style={{ width: "48px" }}></TableHead>
+                <TableHead style={{ width: "48px" }}></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {sortedFields.map((field) => {
                 const style =
                   FIELD_TYPE_STYLE[field.fieldType] ?? FALLBACK_STYLE;
                 return (
-                  <tr key={field.id}>
-                    <td
+                  <TableRow key={field.id}>
+                    <TableCell
                       style={{ color: "var(--text-muted)", fontSize: "12px" }}
                     >
                       {field.sortOrder}
-                    </td>
-                    <td style={{ fontWeight: 500 }}>{field.label}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell style={{ fontWeight: 500 }}>
+                      {field.label}
+                    </TableCell>
+                    <TableCell>
                       <code className="code-inline">{field.name}</code>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <span
                         className="badge"
                         style={{
@@ -493,29 +501,29 @@ export function EntityTypeDetail(): React.ReactElement {
                       >
                         {field.fieldType}
                       </span>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {field.isRequired ? (
                         <span className="badge badge-warning">Required</span>
                       ) : (
                         <span className="text-muted-sm">—</span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {field.isIndexed ? (
                         <span className="badge badge-success">Yes</span>
                       ) : (
                         <span className="text-muted-sm">—</span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {field.isSystem ? (
                         <span className="badge badge-muted">System</span>
                       ) : (
                         <span className="text-muted-sm">—</span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <button
                         className="btn-edit-sm"
                         onClick={() => openEditField(field)}
@@ -523,8 +531,8 @@ export function EntityTypeDetail(): React.ReactElement {
                       >
                         ✎
                       </button>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {!field.isSystem && (
                         <Button
                           variant="danger"
@@ -542,12 +550,12 @@ export function EntityTypeDetail(): React.ReactElement {
                           {deletingFieldId === field.id ? "…" : "✕"}
                         </Button>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
       </div>
 
