@@ -1,8 +1,13 @@
 import React, { useState, useMemo } from "react";
 import { useList } from "@refinedev/core";
-import { Dialog, DialogContent, DialogTitle } from "@platform/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogClose,
+  Button,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
-import { Button } from "@platform/ui";
 
 type Module = {
   id: string;
@@ -582,21 +587,24 @@ export function Modules(): React.ReactElement {
                     `Pre-built ${previewTarget.name.toLowerCase()} workflow template`}
                 </div>
               </div>
-              <button
-                onClick={() => setPreviewTarget(null)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: "22px",
-                  cursor: "pointer",
-                  lineHeight: 1,
-                  padding: "0 4px",
-                  flexShrink: 0,
-                }}
-              >
-                ×
-              </button>
+              <DialogClose asChild>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    fontSize: "22px",
+                    cursor: "pointer",
+                    lineHeight: 1,
+                    padding: "0 4px",
+                    flexShrink: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </DialogClose>
             </div>
 
             {/* scrollable body */}
@@ -934,21 +942,24 @@ export function Modules(): React.ReactElement {
                   to use.
                 </div>
               </div>
-              <button
-                onClick={closeForkModal}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: "20px",
-                  cursor: "pointer",
-                  lineHeight: 1,
-                  padding: "0 4px",
-                  flexShrink: 0,
-                }}
-              >
-                ×
-              </button>
+              <DialogClose asChild>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    fontSize: "20px",
+                    cursor: "pointer",
+                    lineHeight: 1,
+                    padding: "0 4px",
+                    flexShrink: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </DialogClose>
             </div>
 
             {/* modal body */}
