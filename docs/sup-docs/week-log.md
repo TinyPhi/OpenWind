@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-02 — issue hygiene sweep: #192, #194, #198
+
+**Session type:** Issue triage (no source changes)
+**Issues:** #194 (closed), #192 and #198 (verified, left open with status comments)
+
+### Completed this session
+
+- Verified 3 issues flagged as candidates for closure against their merged PRs' actual bodies
+  rather than assuming "PR merged" = "issue resolved":
+  - **#192** (backup runbook) — PR #286 merged, but its own description explicitly reserves the
+    issue for a maintainer RPO/RTO + cron-schedule decision. Left open, no change needed (already
+    accurately represented).
+  - **#194** (e2e harness) — PR #287 merged and satisfies the issue's own stated completion bar
+    ("even one real passing e2e spec"). Closed with a comment noting broader coverage remains an
+    unscoped, available follow-on.
+  - **#198** (modal a11y, systemic) — wave 1 (#285) merged but wave 2 (#284/PR #298) is still
+    open/unmerged, so the issue's systemic bar isn't met yet. Left open with a status comment
+    (not closed) pointing at the 2 explicitly-deferred items once #298 lands.
+
+### Next
+
+- Revisit #198 once PR #298 merges — likely closeable then, modulo the 2 deferred items.
+
 ## 2026-08-02 — #199 PR review fixes (PrabhuVijit)
 
 **Session type:** Review response (same branch, `feat/PLAT-199-button-primitive`)
@@ -113,6 +136,82 @@
 
 - #199 remains open for a `Table`/design-token layer if/when a second consuming app exists
   (`apps/portal` was removed in PR #211 — currently only one frontend app).
+
+---
+
+## 2026-08-02 — #289 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `feat/PLAT-289-file-field-widgets`)
+**Issues:** #289 (PR #299)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #299 review, both required bugs:
+  - **Visual duplicate in edit mode**: once a staged upload's id also appeared in
+    `existingFiles` (the entity's attachment list, fetched after `POST /files` associated the
+    file), both `StagedFileChip` and `FileChip` rendered for the same file. Fixed by filtering
+    `stagedFiles` to exclude ids already present in `existingFiles` before rendering.
+  - **`cleanFileIds` effect fired on every render**: `cleanFileIds` is a fresh array reference
+    each render (computed inline in `useFileUpload`), so `useEffect(..., [cleanFileIds])` never
+    actually skipped a render. Changed to `[cleanFileIds.join(",")]`, matching the same pattern
+    already used one effect above for `currentIds`.
+- Also addressed all 3 "recommended before merge" items: a single-mode race guard (block a
+  second upload from starting while the first is still mid-scan), an inline comment on the
+  `fetchWithAuth` return-type assertion (code-style rule), and converting the two structural
+  layout `<div style={{...}}>`s to CSS classes (`ffp-container`/`ffp-chip-row` in `index.css`,
+  matching `file-attachment.tsx`'s `fa-*` convention).
+- Added the requested test confirming `StagedFileChip` is suppressed once the same id appears in
+  `existingFiles`.
+
+### Verification
+
+- `pnpm --filter @platform/admin-ui typecheck && lint && test` — green (101/101 tests, up from
+  100).
+- **Caught and reverted a mistake in this session**: ran `prettier --write` on the whole
+  `apps/admin-ui/src/index.css` to format the 2 new CSS classes, not realizing this project's
+  `format:check` only covers `.ts/.tsx/.md/.json` (not `.css`) — it rewrote ~4000 unrelated lines
+  across the entire file. Reverted immediately via `git checkout`, re-added just the 2 intended
+  lines by hand.
+
+---
+
+## 2026-08-02 — #289 file/files field-type widgets for FieldInput
+
+**Session type:** Frontend feature (Plan → Code → Review → Docs → Ship)
+**Branch:** `feat/PLAT-289-file-field-widgets`
+**Issues:** #289
+
+### Completed this session
+
+- Added `FileFieldPicker` (`apps/admin-ui/src/components/file-field-picker.tsx`) — a
+  self-fetching widget for `file`/`files` fields, mirroring the `UserRefPicker`/`EntityRefPicker`
+  pattern (#197/PR #288): `useFileUpload` calls hooks internally, so it must live in its own
+  component mounted from `FieldInput`'s switch, never inline in a switch case. Reuses the
+  existing upload flow end-to-end — `useFileUpload`, `AttachmentUploadZone`, `StagedFileChip`,
+  `FileChip`, `FilePreviewModal` — no new upload/scan logic.
+- Wired `case "file"`/`case "files"` into `field-input.tsx` (`multiple` derived from
+  `field.fieldType`), replacing the previous silent fallthrough to a plain, freely-editable text
+  input — the bug #289 exists to fix.
+- Threaded the new required `moduleSlug`/`entityId` props through all 4 `FieldInput` call sites.
+  `record-detail.tsx`/`record-create.tsx` already computed a `moduleSlug` for their own
+  attachments section — reused directly. `instance-detail.tsx`/`instance-create.tsx` had no such
+  concept before (entity types can have `moduleId: null` for core/module-less types) — added a
+  `modules.find(m => m.id === type?.moduleId)?.slug ?? "platform"` derivation via
+  `useEntityTypes()`.
+- Field-level "remove" only clears the field's own reference (`onChange`) — it never deletes the
+  underlying file record, since the same file may legitimately still appear in the entity's
+  general attachments list (confirmed `GET /entities/:id/attachments` is generic,
+  entity-engine-level, not module-specific).
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green.
+- `pnpm --filter @platform/admin-ui test` — 100/100 pass (10 new: 8 `file-field-picker.test.tsx`
+  - 2 new `field-input.test.tsx` cases for the `file`/`files` delegation).
+- No full-browser visual check possible in this sandbox (same environment gap as the #199/#284
+  sessions) — substituted with component tests + manual diff review.
+
+---
 
 ## 2026-08-01 — #196 perf scale-risk backlog: closed
 
