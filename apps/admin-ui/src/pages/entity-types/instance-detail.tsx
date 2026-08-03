@@ -4,6 +4,7 @@ import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { UserPicker } from "../../components/user-picker.js";
 import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
+import { Button } from "@platform/ui";
 
 type EntityField = {
   id: string;
@@ -309,12 +310,12 @@ export function EntityInstanceDetail(): React.ReactElement {
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px" }}>
-          <button className="btn-secondary" onClick={() => setStateModal(true)}>
+          <Button variant="secondary" onClick={() => setStateModal(true)}>
             Change State
-          </button>
+          </Button>
           {!editing && (
-            <button
-              className="btn-primary"
+            <Button
+              variant="primary"
               onClick={() => {
                 setEditValues(record.fields);
                 setCurrentState(record.currentState ?? "");
@@ -323,7 +324,7 @@ export function EntityInstanceDetail(): React.ReactElement {
               }}
             >
               Edit Fields
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -406,20 +407,20 @@ export function EntityInstanceDetail(): React.ReactElement {
           <span style={{ fontWeight: 600 }}>Fields</span>
           {editing && (
             <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => setEditing(false)}
                 disabled={saving}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => void saveEdit()}
                 disabled={saving}
               >
                 {saving ? "Saving…" : "Save"}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -758,22 +759,22 @@ export function EntityInstanceDetail(): React.ReactElement {
               </div>
             </div>
             <div className="modal-footer">
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setStateModal(false);
                   setStateError(null);
                 }}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 disabled={!selectedState || settingState}
                 onClick={() => void handleSetState()}
               >
                 {settingState ? "Updating…" : "Update State"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { useList } from "@refinedev/core";
 import { Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
+import { Button } from "@platform/ui";
 
 type EntityType = {
   id: string;
@@ -99,9 +100,9 @@ export function EntityTypes(): React.ReactElement {
         </div>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <div className="stat-pill">{types.length} types</div>
-          <button className="btn-primary" onClick={() => setShowModal(true)}>
+          <Button variant="primary" onClick={() => setShowModal(true)}>
             + New Entity Type
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -314,16 +315,16 @@ export function EntityTypes(): React.ReactElement {
                 </div>
               </div>
               <div className="modal-footer">
-                <button
+                <Button
                   type="button"
-                  className="btn-secondary"
+                  variant="secondary"
                   onClick={() => setShowModal(false)}
                 >
                   Cancel
-                </button>
-                <button type="submit" className="btn-primary" disabled={saving}>
+                </Button>
+                <Button type="submit" variant="primary" disabled={saving}>
                   {saving ? "Creating…" : "Create Entity Type"}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

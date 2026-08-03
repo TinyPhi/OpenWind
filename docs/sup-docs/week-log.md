@@ -5,6 +5,92 @@
 
 ---
 
+## 2026-08-02 — #199 PR review fixes (PrabhuVijit)
+
+**Session type:** Review response (same branch, `feat/PLAT-199-button-primitive`)
+**Issues:** #199 (PR #295)
+
+### Completed this session
+
+- Addressed PrabhuVijit's PR #295 review: `IconButton.baseStyle` was missing 3 properties the
+  original `.icon-btn` CSS had — `flexShrink: 0` (blocking; without it, icon buttons in
+  space-constrained flex rows could shrink below their intended 30×30 size — confirmed at least
+  one call site had already worked around it locally rather than at the source), `padding: 0`,
+  and `outline: "none"` (prevents a double focus indicator now that a custom box-shadow ring
+  drives focus styling). All three added.
+- Added the same keyboard focus indicator to `Button` (it only existed on `IconButton` before) —
+  `onFocus`/`onBlur` + box-shadow ring, `outline: "none"` on the base style.
+- Added missing `aria-label` to the 4 flagged `IconButton` usages in
+  `automations/wizard/step-conditions.tsx`/`step-actions.tsx`.
+- Added the flagged test gap: primary/danger variant hover transitions, plus a `Button` focus-ring
+  test.
+- Filed **#303** for the "4 `<Link>` sites will drift from `Button`" follow-up (a real
+  `asChild`/Radix-`Slot` design decision, not a quick fix) rather than fixing it in this pass.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint` — green, repo-wide.
+- `pnpm --filter @platform/ui test` — 32/32 pass (up from 18, all new/updated tests included).
+- `pnpm --filter @platform/admin-ui test` — 90/90 pass, no regressions.
+- Still holding on the reviewer's recommended pre-merge human visual smoke test.
+
+---
+
+## 2026-08-01 — packages/ui: Button/IconButton primitive (#199)
+
+**Session type:** Frontend architecture (Plan → Code → Review → Docs → Ship)
+**Branch:** `feat/PLAT-199-button-primitive`
+**Issues:** #199
+
+### Completed this session
+
+- Investigated #199 ("`packages/ui` is hollow") and found the premise partly stale: `Dialog`/
+  `AlertDialog` (#273) and the `FieldInput`/`UserRefPicker`/`EntityRefPicker` consolidation (#288)
+  were already correctly layered — generic Radix-based primitives in `packages/ui`, admin-ui-
+  specific widgets (tied to entity-engine field types and API routes) staying in
+  `apps/admin-ui/src/components/`, per the dependency rule. Moving the latter into `packages/ui`
+  would have been the wrong fix.
+- The real remaining gap: no `Button` primitive, despite 17 admin-ui pages each hand-rolling
+  `<button className="btn-primary/btn-secondary/btn/btn-sm/btn-danger-sm/icon-btn-*">` against
+  hand-written CSS in `index.css`. Added `Button` (variant: primary/secondary/danger, size:
+  default/sm) and `IconButton` (variant: default/edit/delete/ghost) to `packages/ui`, styled with
+  inline `React.CSSProperties` referencing the same design tokens `Dialog` already established
+  (no CSS/asset pipeline in this package) — hover/focus/active state tracked via local React state
+  since inline styles can't express pseudo-classes.
+- Migrated all 17 identified pages (dispatched as 5 parallel subagent groups, each on disjoint
+  files to avoid conflicting edits). ~136 button call sites converted. Deferred, unchanged:
+  `btn-icon`/`btn-edit-sm` (1 usage each, ambiguous one-offs — same precedent as #288 deferring
+  `file`/`files` widgets) and 4 `<Link>` elements styled as buttons (`Button` renders `<button>`,
+  not `<a>` — out of scope for a className swap).
+- Removed the now-dead `.btn`/`.btn-primary`/`.btn-primary-sm`/`.btn-sm`/`.btn-danger-sm`/
+  `.icon-btn*` CSS rules from `index.css`. Kept `.btn-secondary` (still used by the 4 `<Link>`s),
+  `.btn-icon`/`.btn-edit-sm` (deferred). One disclosed, intentional visual change: two divergent
+  "small primary button" CSS rules existed pre-change (`.btn-primary-sm` vs `.btn-primary.btn-sm`,
+  different padding) — `Button` implements one canonical version, same precedent as #288's
+  currency-field consolidation note.
+
+### Verification
+
+- `pnpm typecheck && pnpm lint && pnpm test` — green repo-wide, except 5 pre-existing
+  `apps/api` isolation-test failures confirmed identical on a clean `main` checkout (this sandbox's
+  Docker stack is only partially up — Postgres/Redis/MinIO running, no PgBouncer/OpenBao/Zitadel/
+  worker containers — unrelated to this frontend-only diff).
+- `pnpm test:isolation` — same pre-existing environmental gap, not run to completion; blocker
+  surfaced rather than silently skipped, per `definition-of-done.md`.
+- New `packages/ui` tests: `button.test.tsx` (9 tests), `icon-button.test.tsx` (9 tests) — both
+  green. `apps/admin-ui`'s existing 90-test suite still green (14 files).
+- No full-browser visual smoke test was possible in this sandbox (no `chromium-cli`/Playwright
+  available, no network to install one, no Zitadel container for an authenticated session) —
+  substituted with: dev server boots clean, all migrated page modules transform through Vite's
+  dev pipeline without error, and manual diff review of every migrated file.
+
+### Next
+
+- #199 remains open for a `Table`/design-token layer if/when a second consuming app exists
+  (`apps/portal` was removed in PR #211 — currently only one frontend app).
+
+---
+
 ## 2026-08-02 — #289 PR review fixes (PrabhuVijit)
 
 **Session type:** Review response (same branch, `feat/PLAT-289-file-field-widgets`)
