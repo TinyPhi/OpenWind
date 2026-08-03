@@ -674,9 +674,22 @@ export async function deleteWorkflowState(
         eq(workflowStates.tenantId, tenantId),
       ),
     )
+    .for("update")
     .limit(1);
 
   if (!state) throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", { stateId });
+
+  // Block if this state is the workflow's designated initialState (#310)
+  const [wf] = await db
+    .select({ initialState: workflows.initialState })
+    .from(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)))
+    .for("update")
+    .limit(1);
+
+  if (wf?.initialState === state.name) {
+    throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
+  }
 
   // Block if any transition references this state
   const [ref] = await db

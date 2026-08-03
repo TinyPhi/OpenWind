@@ -160,4 +160,41 @@ describe("deleteWorkflowState — instance-in-use guard (#301)", () => {
       .limit(1);
     expect(row?.id).toBe(occupiedStateId);
   });
+
+  it("throws WORKFLOW_STATE_IN_USE when trying to delete a state designated as the workflow's initialState", async () => {
+    // Create a new workflow where initialState is 'abandoned_initial'
+    const [wf] = await db
+      .insert(workflows)
+      .values({
+        tenantId: TENANT,
+        entityTypeId,
+        name: "Initial State Delete Guard Test Workflow",
+        initialState: "abandoned_initial",
+        createdBy: CALLER.userId,
+      })
+      .returning();
+    if (!wf) throw new Error("workflow insert failed");
+
+    const [state] = await db
+      .insert(workflowStates)
+      .values({
+        tenantId: TENANT,
+        workflowId: wf.id,
+        name: "abandoned_initial",
+        label: "Abandoned Initial",
+        sortOrder: 0,
+      })
+      .returning();
+    if (!state) throw new Error("state insert failed");
+
+    await withTenantContext(TENANT, async (tx) => {
+      await expect(
+        deleteWorkflowState(tx, TENANT, wf.id, state.id, CALLER),
+      ).rejects.toMatchObject({ code: "WORKFLOW_STATE_IN_USE" });
+    });
+
+    // Cleanup the test workflow and state
+    await db.delete(workflowStates).where(eq(workflowStates.id, state.id));
+    await db.delete(workflows).where(eq(workflows.id, wf.id));
+  });
 });
