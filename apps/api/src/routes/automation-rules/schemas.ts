@@ -75,6 +75,7 @@ const WebhookActionConfigSchema = z.object({
   method: z.enum(["POST", "PUT", "PATCH"]).optional(),
   headers: z.record(z.string()).optional(),
   includePayload: z.boolean().optional(),
+  sendFields: z.array(z.string()).optional(),
   timeoutMs: z.number().int().positive().optional(),
 });
 

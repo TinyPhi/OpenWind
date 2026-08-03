@@ -21,6 +21,11 @@ export function handleAutomationError(c: Context, err: unknown): Response {
           { error: err.code, message: "Not found" },
           404,
         ) as Response;
+      case "NOTIFY_LINK_INVALID":
+        return c.json(
+          { error: err.code, message: "Invalid notify link URL or origin" },
+          400,
+        ) as Response;
       case "RULE_CREATE_FAILED":
         logger.error({ err }, "Automation rule create failed unexpectedly");
         return c.json(

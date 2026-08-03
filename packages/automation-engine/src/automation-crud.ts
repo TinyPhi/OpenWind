@@ -10,6 +10,20 @@ import type {
   ActionConfig,
 } from "./types.js";
 import { AutomationError } from "./types.js";
+import { validateNotifyLink } from "./actions/notify.js";
+import { env } from "@platform/config";
+
+async function validateRuleActions(actions?: ActionConfig[]): Promise<void> {
+  if (!actions) return;
+  for (const action of actions) {
+    if (action.type === "notify") {
+      const link = action.config.payload?.link;
+      if (typeof link === "string") {
+        await validateNotifyLink(link, env.SSRF_BLOCK_CIDRS);
+      }
+    }
+  }
+}
 
 function rowToRule(r: typeof automationRules.$inferSelect): AutomationRule {
   return {
@@ -34,6 +48,7 @@ export async function createAutomationRule(
   tenantId: string,
   input: CreateAutomationRuleInput,
 ): Promise<AutomationRule> {
+  await validateRuleActions(input.actions);
   const [row] = await db
     .insert(automationRules)
     .values({
@@ -108,6 +123,7 @@ export async function updateAutomationRule(
   id: string,
   input: UpdateAutomationRuleInput,
 ): Promise<AutomationRule> {
+  await validateRuleActions(input.actions);
   const now = new Date();
   const updates: Partial<typeof automationRules.$inferInsert> = {
     updatedAt: now,

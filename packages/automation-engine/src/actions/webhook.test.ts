@@ -326,3 +326,73 @@ describe("executeWebhookAction — protocol dispatch", () => {
     expect(mockHttpsRequest).not.toHaveBeenCalled();
   });
 });
+
+describe("executeWebhookAction — payload customization & filtering", () => {
+  it("defaults to includePayload: false (sends empty object)", async () => {
+    const { promise } = await startAction("https://webhook.example.com/hook");
+    fakeOnResponse!({ statusCode: 200, resume: vi.fn() });
+    await promise;
+
+    const mockReq = vi.mocked(mockHttpsRequest).mock.results[0]?.value;
+    expect(mockReq.write).toHaveBeenCalledWith("{}");
+  });
+
+  it("sends full payload when includePayload: true", async () => {
+    const { promise } = await startAction("https://webhook.example.com/hook", {
+      includePayload: true,
+    });
+    fakeOnResponse!({ statusCode: 200, resume: vi.fn() });
+    await promise;
+
+    const mockReq = vi.mocked(mockHttpsRequest).mock.results[0]?.value;
+    expect(mockReq.write).toHaveBeenCalledWith(JSON.stringify(TRIGGER_EVENT));
+  });
+
+  it("filters entity.created fields using sendFields allowlist", async () => {
+    const entityCreatedEvent: TriggerEvent = {
+      eventType: "entity.created",
+      version: 1,
+      tenantId: "tenant-abc",
+      instanceId: "inst-1",
+      entityTypeId: "et-1",
+      fields: {
+        pii_ssn: "123-45-678",
+        public_name: "OpenWind",
+      },
+      createdBy: null,
+    };
+
+    const req = buildFakeReq();
+    mockHttpsRequest.mockImplementation(
+      (
+        _opts: unknown,
+        cb: (res: { statusCode: number; resume: () => void }) => void,
+      ) => {
+        fakeOnResponse = cb;
+        return req;
+      },
+    );
+
+    const promise = executeWebhookAction(
+      "tenant-abc",
+      "rule-1",
+      entityCreatedEvent,
+      {
+        url: "https://webhook.example.com/hook",
+        includePayload: true,
+        sendFields: ["public_name"],
+      },
+    );
+    await Promise.resolve();
+
+    fakeOnResponse!({ statusCode: 200, resume: vi.fn() });
+    await promise;
+
+    expect(req.write).toHaveBeenCalledWith(
+      JSON.stringify({
+        ...entityCreatedEvent,
+        fields: { public_name: "OpenWind" },
+      }),
+    );
+  });
+});
