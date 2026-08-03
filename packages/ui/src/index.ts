@@ -30,3 +30,19 @@ export {
   AlertDialogAction,
   AlertDialogCancel,
 } from "./alert-dialog.js";
+export {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "./table.js";
+export type {
+  TableProps,
+  TableHeaderProps,
+  TableBodyProps,
+  TableRowProps,
+  TableHeadProps,
+  TableCellProps,
+} from "./table.js";
