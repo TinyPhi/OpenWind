@@ -109,6 +109,15 @@ export type ListEntitiesInput = {
   entityTypeId: string;
   state?: string | undefined;
   assignedTo?: string | undefined;
+  /**
+   * Non-privileged-caller scoping: matches instances where this user is
+   * createdBy, assignedTo, or holds an __accessUsers ACL grant — not
+   * assignedTo alone. Callers must derive this only from the authenticated
+   * userId, never from a request query parameter (see
+   * apps/api/src/routes/entities/list.ts's "query param cannot override
+   * scope" guard) — passing it alongside `assignedTo` applies both as an AND.
+   */
+  scopeToUserId?: string | undefined;
   fieldFilters?: Record<string, unknown> | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;

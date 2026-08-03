@@ -5,6 +5,73 @@
 
 ---
 
+## 2026-07-31 — open workflow visibility & ticket creation to all tenant users
+
+**Session type:** New feature (not on the tracked #120–#129 backlog)
+**Branch:** `tushar`
+
+### Completed this session
+
+- Spec + task plan: `docs/specs/workflow-open-ticket-creation.md`,
+  `docs/specs/workflow-open-ticket-creation-tasks.md`. Previously only a
+  workflow's `createdBy`/`assignedTo[]` admins (ADR-006's ownership model)
+  could create tickets in it — `GET /workflows?entityTypeId=X` came back
+  empty for every other tenant user, silently degrading the create-ticket
+  form. Fix opens ticket-creation-purpose workflow resolution to any
+  authenticated tenant user, while workflow settings/config
+  (`PATCH`/`DELETE /admin/workflows/:id`) and the ownership-filtered
+  workflow-management list stay exactly as gated.
+- **`packages/workflow-engine/src/workflow-crud.ts`**: added a shared
+  `visibilityFor()` helper applied to both `listWorkflows` and
+  `listWorkflowsSummary` — drops the ownership filter only when
+  `entityTypeId` is present (the ticket-creation-resolution shape), keeps it
+  for bare calls (the management-list shape). Correction made mid-implementation:
+  the spec initially assumed `listWorkflowsSummary` was the reachable
+  function; tracing actual frontend call sites showed no caller ever passes
+  `summary=true`, so both real-traffic paths (creation resolution and the
+  management list) go through `listWorkflows` — fixed both functions
+  identically. `getWorkflowByEntityTypeId` (a separate function backing
+  field-schema-edit rights AND `GET /entities`'s list-privilege escalation)
+  is untouched, with a regression test.
+- **`apps/api/src/routes/entities/create.ts`**: `assignedTo` now validated
+  against `listUserIdsWithRole(orgId, "user")` — same pool `GET
+/platform/users` exposes — rejecting (422) a nonexistent id, an
+  agent/admin account, or a cross-tenant id; fails closed if `orgId` is
+  absent.
+- **`packages/entity-engine/src/types.ts` + `engine.ts` + `apps/api/src/routes/entities/list.ts`**:
+  fixed `GET /entities`'s non-privileged scoping, previously `assignedTo`
+  only (so a user who created a ticket but wasn't its assignee lost track of
+  it). New `ListEntitiesInput.scopeToUserId` field (engine) plus a route
+  change to pass it instead of collapsing to `assignedTo: userId` — this was
+  a two-file fix caught during the pre-implementation security pass (fixing
+  only the engine side would have shipped a no-op, since the route never
+  forwarded anything else). Preserves the existing "query param cannot
+  override scope" property, with an explicit regression test.
+- Pre-implementation `/security-review` pass (before any code was written)
+  and a second review after implementation — no HIGH/MEDIUM findings either
+  pass. STRIDE notes recorded in the spec (ticket-spam/DoS accepted as
+  explicit out-of-scope; spoofing/repudiation/inappropriate-assignment
+  closed by the `assignedTo` validation).
+
+### Verification
+
+- pnpm typecheck: PASS (entity-engine, workflow-engine, api)
+- pnpm lint: PASS (`--max-warnings=0`, same 3 packages)
+- pnpm test: PASS — workflow-crud 9/9, entity-engine 191/191,
+  workflow-engine 79/79, api 542/548 (6 pre-existing failures in
+  `upload-flow`/`view-configs`/`modules` integration tests, confirmed via
+  `git stash` to fail identically on the unmodified branch — unrelated
+  missing test-DB/timeout issues, not caused by this change)
+- pnpm test:isolation: PASS — 30 files, 207/207, run against a real
+  `platform_test` Postgres DB (RLS on `workflows`/`workflow_states`/
+  `workflow_transitions`/`entity_instances` unaffected)
+
+### Next
+
+- Commit + PR for this branch's workflow-access changes.
+
+---
+
 ## 2026-07-27 — local-disk file storage (replace S3/MinIO)
 
 **Session type:** New feature (not on the tracked #120–#129 backlog)

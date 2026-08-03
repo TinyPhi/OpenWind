@@ -868,6 +868,16 @@ export async function listEntities(
   if (input.assignedTo !== undefined) {
     conditions.push(eq(entityInstances.assignedTo, input.assignedTo));
   }
+  if (input.scopeToUserId !== undefined) {
+    // or() with 3 fixed args is always defined — the `| undefined` in its
+    // return type only covers the zero-args case, which never happens here.
+    const scopeCondition = or(
+      eq(entityInstances.createdBy, input.scopeToUserId),
+      eq(entityInstances.assignedTo, input.scopeToUserId),
+      sql`${entityInstances.fields}->'__accessUsers' ? ${input.scopeToUserId}`,
+    );
+    if (scopeCondition) conditions.push(scopeCondition);
+  }
   if (
     input.fieldFilters !== undefined &&
     Object.keys(input.fieldFilters).length > 0

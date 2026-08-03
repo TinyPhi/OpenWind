@@ -541,8 +541,7 @@ export function CustomerRecordCreate(): React.ReactElement {
   const { stagedFiles, addFiles, removeFile, pendingCount, cleanFileIds } =
     useFileUpload({ moduleSlug: typeSlug ?? "unknown" });
 
-  const selectedWorkflow = workflows.find((w) => w.id === workflowId);
-  const availableStates = selectedWorkflow?.states ?? [];
+  const currentWorkflowName = workflows.find((w) => w.id === workflowId)?.name;
 
   useEffect(() => {
     if (workflowId) {
@@ -659,7 +658,11 @@ export function CustomerRecordCreate(): React.ReactElement {
       >
         ← {entityType?.plural ?? "Records"}
       </button>
-      <h1 className="portal-page-title">New {entityType?.name}</h1>
+      <h1 className="portal-page-title">
+        {currentWorkflowName
+          ? `Create New Ticket in '${currentWorkflowName}'`
+          : `New ${entityType?.name ?? "Ticket"}`}
+      </h1>
       <form
         onSubmit={(e) => void handleSubmit(e)}
         className="portal-form"
@@ -678,22 +681,6 @@ export function CustomerRecordCreate(): React.ReactElement {
               {workflows.map((wf) => (
                 <option key={wf.id} value={wf.id}>
                   {wf.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        {workflowId && availableStates.length > 0 && (
-          <div className="portal-field-group">
-            <label className="portal-field-label">State</label>
-            <select
-              className="portal-input"
-              value={currentState}
-              onChange={(e) => setCurrentState(e.target.value)}
-            >
-              {availableStates.map((st) => (
-                <option key={st.id} value={st.name}>
-                  {st.label}
                 </option>
               ))}
             </select>
@@ -759,7 +746,7 @@ export function CustomerRecordCreate(): React.ReactElement {
             disabled={saving || pendingCount > 0}
             title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
           >
-            {saving ? "Creating…" : `Create ${entityType?.name ?? "Record"}`}
+            {saving ? "Creating…" : "Create Ticket"}
           </button>
         </div>
       </form>

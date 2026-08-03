@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, asc, inArray, count, sql } from "drizzle-orm";
+import { eq, and, or, isNull, asc, inArray, count } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import {
   workflows,
@@ -77,16 +77,6 @@ function rowToTransition(
 
 function visibleTo(tenantId: string): ReturnType<typeof or> {
   return or(isNull(workflows.tenantId), eq(workflows.tenantId, tenantId));
-}
-
-// Matches rows where the caller is the creator or a member of assigned_to.
-// System template rows (tenantId=null) have no owner and are handled
-// separately by visibleTo — every tenant user can read those.
-function ownedByCaller(caller: WorkflowCaller): ReturnType<typeof or> {
-  return or(
-    eq(workflows.createdBy, caller.userId),
-    sql`${workflows.assignedTo} @> ARRAY[${caller.userId}]::text[]`,
-  );
 }
 
 // ── Workflow CRUD ─────────────────────────────────────────────────────────────
@@ -205,16 +195,21 @@ export async function getWorkflow(
 
 // Lightweight variant for callers that only need id/name/entityTypeId (e.g. slug
 // resolution) — skips the states/transitions/record-count joins list() does.
+//
+// Listing (with or without entityTypeId) is tenant-wide for every authenticated
+// member — any tenant user can see every workflow that exists. Ownership
+// (createdBy/assignedTo[]) gates *mutating* a workflow's settings
+// (assertWorkflowOwned / updateWorkflow / deleteWorkflow), not listing it.
 export async function listWorkflowsSummary(
   db: DbOrTx,
   tenantId: string,
-  caller: WorkflowCaller,
+  // Accepted for API-shape consistency with other workflow-crud functions —
+  // listing is tenant-wide for every caller, see the comment above.
+  _caller: WorkflowCaller,
   entityTypeId?: string,
   activeOnly?: boolean,
 ): Promise<WorkflowDefinition[]> {
-  const visibility = caller.isGlobalAdmin
-    ? visibleTo(tenantId)
-    : or(isNull(workflows.tenantId), ownedByCaller(caller));
+  const visibility = visibleTo(tenantId);
 
   const baseFilter = entityTypeId
     ? and(eq(workflows.entityTypeId, entityTypeId), visibility)
@@ -251,13 +246,13 @@ export async function listWorkflowSlugs(
 export async function listWorkflows(
   db: DbOrTx,
   tenantId: string,
-  caller: WorkflowCaller,
+  // Accepted for API-shape consistency with other workflow-crud functions —
+  // listing is tenant-wide for every caller, see listWorkflowsSummary's comment.
+  _caller: WorkflowCaller,
   entityTypeId?: string,
   activeOnly?: boolean,
 ): Promise<WorkflowFull[]> {
-  const visibility = caller.isGlobalAdmin
-    ? visibleTo(tenantId)
-    : or(isNull(workflows.tenantId), ownedByCaller(caller));
+  const visibility = visibleTo(tenantId);
 
   const baseFilter = entityTypeId
     ? and(eq(workflows.entityTypeId, entityTypeId), visibility)

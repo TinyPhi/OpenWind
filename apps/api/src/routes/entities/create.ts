@@ -6,6 +6,7 @@ import { tenantUsers, withTenantContext } from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { listUserIdsWithRole } from "../../lib/zitadel-management.js";
 
 const CreateEntitySchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -21,8 +22,32 @@ export const createEntityHandler = factory.createHandlers(
   requireRole("admin", "agent", "user"),
   zValidator("json", CreateEntitySchema),
   async (c) => {
-    const { tenantId, userId } = c.get("auth");
+    const { tenantId, userId, orgId } = c.get("auth");
     const input = c.req.valid("json");
+
+    // assignedTo must resolve to a real tenant member holding the "user" role —
+    // the same pool GET /platform/users exposes. Role membership is Zitadel-side
+    // (tenant_users has no role column), scoped by orgId, so this also rejects a
+    // cross-tenant user id (they simply won't appear in this org's role set).
+    // Fail closed (no orgId → reject) rather than silently skipping the check.
+    if (input.assignedTo !== undefined) {
+      const usersWithRole = orgId
+        ? await listUserIdsWithRole(orgId, "user")
+        : new Set<string>();
+      if (!usersWithRole.has(input.assignedTo)) {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "Validation failed",
+            fields: {
+              assignedTo:
+                "Must be an existing tenant member with the 'user' role",
+            },
+          },
+          422,
+        );
+      }
+    }
 
     try {
       const [dbUser] = await withTenantContext(tenantId, (tx) =>

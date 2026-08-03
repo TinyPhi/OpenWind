@@ -25,7 +25,6 @@ import { AdminRecords } from "./pages/records/index.js";
 import { WorkflowRecords } from "./pages/records/workflow-records.js";
 import { Settings } from "./pages/settings.js";
 import { UsersPage } from "./pages/users.js";
-import { CustomerRecordList } from "./pages/customer/record-list.js";
 import { CustomerRecordCreate } from "./pages/customer/record-create.js";
 import { CustomerRecordDetail } from "./pages/customer/record-detail.js";
 import { Automations } from "./pages/automations/index.js";
@@ -123,7 +122,6 @@ export function App(): React.ReactElement {
             />
 
             {/* Customer routes */}
-            <Route path="/records/:typeSlug" element={<CustomerRecordList />} />
             <Route
               path="/records/:typeSlug/new"
               element={<CustomerRecordCreate />}
@@ -165,6 +163,10 @@ export function App(): React.ReactElement {
             </Route>
 
             <Route path="/home" element={<Navigate to="/records" replace />} />
+
+            {/* Catch-all — an unmatched path (removed route, typo, stale
+                bookmark) redirects to Records instead of rendering blank. */}
+            <Route path="*" element={<Navigate to="/records" replace />} />
           </Route>
         </Routes>
       </Refine>

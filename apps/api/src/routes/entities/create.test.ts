@@ -7,6 +7,7 @@ import type * as EntityEngine from "@platform/entity-engine";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockCreateEntity = vi.fn();
+const mockListUserIdsWithRole = vi.fn();
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -17,12 +18,17 @@ vi.mock("@platform/auth", () => ({
         userId: "u-bbb",
         roles: ["admin"],
         email: "test@example.com",
+        orgId: "org-ccc",
       });
       await next();
     },
   requireRole: () => async (_c: Context, next: Next) => {
     await next();
   },
+}));
+
+vi.mock("../../lib/zitadel-management.js", () => ({
+  listUserIdsWithRole: (...args: unknown[]) => mockListUserIdsWithRole(...args),
 }));
 
 const mockTx = {
@@ -86,7 +92,10 @@ function validBody(overrides: Record<string, unknown> = {}) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /entities", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUserIdsWithRole.mockResolvedValue(new Set());
+  });
 
   it("returns 201 with the created instance on success", async () => {
     mockCreateEntity.mockResolvedValue(fakeInstance);
@@ -162,5 +171,81 @@ describe("POST /entities", () => {
     });
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /entities — assignedTo validation (R3)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("succeeds when assignedTo is a real tenant member holding the 'user' role", async () => {
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
+    mockCreateEntity.mockResolvedValue(fakeInstance);
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ assignedTo: "u-target" }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockListUserIdsWithRole).toHaveBeenCalledWith("org-ccc", "user");
+    expect(mockCreateEntity).toHaveBeenCalled();
+  });
+
+  it("returns 422 when assignedTo does not exist / isn't a 'user'-role member", async () => {
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["some-other-user"]));
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ assignedTo: "u-nonexistent" }),
+    });
+
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("VALIDATION_ERROR");
+    expect(json.fields.assignedTo).toBeDefined();
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 when assignedTo is an agent/admin account (not in the role='user' set)", async () => {
+    // listUserIdsWithRole(orgId, "user") only ever returns role="user" ids —
+    // an agent/admin id simply never appears in this set.
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-some-user"]));
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ assignedTo: "u-agent-account" }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 for a cross-tenant assignedTo id (not present in this org's role set)", async () => {
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-same-tenant"]));
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ assignedTo: "u-other-tenant-user" }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("does not call listUserIdsWithRole when assignedTo is omitted", async () => {
+    mockCreateEntity.mockResolvedValue(fakeInstance);
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody(),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockListUserIdsWithRole).not.toHaveBeenCalled();
   });
 });
