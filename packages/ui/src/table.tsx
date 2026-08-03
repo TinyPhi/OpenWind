@@ -1,11 +1,11 @@
 import * as React from "react";
+import { TOKENS } from "./tokens.js";
 
 /**
  * Mirrors apps/admin-ui/src/index.css's .data-table/.table-scroll/
  * .table-row-clickable rules. Ships no CSS of its own (tsc-only build, see
- * button.tsx/dialog.tsx) -- inline styles reading the same CSS custom
- * properties instead, with literal fallbacks so the primitive still renders
- * sensibly in a consumer with no design tokens defined.
+ * button.tsx/dialog.tsx) -- inline styles reading TOKENS (see tokens.ts)
+ * instead of a stylesheet.
  *
  * Two accepted deviations from the source CSS (same "documented tradeoff,
  * not a bug" pattern as Button/IconButton's focus-visible approximation):
@@ -38,8 +38,8 @@ const headCellStyle: React.CSSProperties = {
   fontWeight: 600,
   textTransform: "uppercase",
   letterSpacing: "0.6px",
-  color: "var(--text-muted, hsl(222, 8%, 56%))",
-  borderBottom: "1px solid var(--border-color, hsla(222, 12%, 40%, 0.35))",
+  color: TOKENS.textMuted,
+  borderBottom: `1px solid ${TOKENS.borderColor}`,
 };
 
 const bodyCellStyle: React.CSSProperties = {
@@ -50,11 +50,11 @@ const bodyCellStyle: React.CSSProperties = {
 
 const clickableRowStyle: React.CSSProperties = {
   cursor: "pointer",
-  transition: "background-color var(--transition-fast, 0.15s ease)",
+  transition: `background-color ${TOKENS.transitionFast}`,
 };
 
 const rowHoverStyle: React.CSSProperties = {
-  backgroundColor: "var(--bg-tertiary, hsl(222, 14%, 23%))",
+  backgroundColor: TOKENS.bgTertiary,
 };
 
 export interface TableProps extends React.TableHTMLAttributes<HTMLTableElement> {

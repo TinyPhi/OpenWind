@@ -8,6 +8,7 @@ import {
   TableHead,
   TableCell,
 } from "./table.js";
+import { TOKENS } from "./tokens.js";
 
 afterEach(() => {
   cleanup();
@@ -86,9 +87,7 @@ describe("Table", () => {
     expect(row.style.cursor).toBe("pointer");
 
     fireEvent.mouseEnter(row);
-    expect(row.style.backgroundColor).toBe(
-      "var(--bg-tertiary, hsl(222, 14%, 23%))",
-    );
+    expect(row.style.backgroundColor).toBe(TOKENS.bgTertiary);
 
     fireEvent.mouseLeave(row);
     expect(row.style.backgroundColor).toBe("");
