@@ -1,5 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { Button } from "@platform/ui";
+import {
+  Button,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@platform/ui";
 import {
   listSystemLogs,
   type SystemLogEntry,
@@ -78,39 +86,26 @@ export function SystemLogsPage(): React.ReactElement {
           className="data-panel"
           style={{ overflowX: "auto", overflowY: "hidden" }}
         >
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+          <Table scroll={false}>
+            <TableHeader>
+              <TableRow>
                 {["", "Title", "Details", "Occurred", "ID"].map((h) => (
-                  <th
+                  <TableHead
                     key={h}
                     style={{
-                      textAlign: "left",
                       padding: "10px 16px",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "var(--text-muted)",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      background: "var(--surface-secondary, var(--bg-subtle))",
                       whiteSpace: "nowrap",
                     }}
                   >
                     {h}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log, i) => (
-                <tr
-                  key={log.id}
-                  style={{
-                    borderBottom:
-                      i < logs.length - 1 ? "1px solid var(--border)" : "none",
-                  }}
-                >
-                  <td style={{ padding: "12px 16px", width: "1%" }}>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell style={{ padding: "12px 16px", width: "1%" }}>
                     <div
                       style={{
                         width: "8px",
@@ -120,8 +115,8 @@ export function SystemLogsPage(): React.ReactElement {
                       }}
                       title="Urgent — system error"
                     />
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "14px",
@@ -131,8 +126,8 @@ export function SystemLogsPage(): React.ReactElement {
                     }}
                   >
                     {log.title}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "13px",
@@ -142,8 +137,8 @@ export function SystemLogsPage(): React.ReactElement {
                     }}
                   >
                     {log.body}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "13px",
@@ -153,8 +148,8 @@ export function SystemLogsPage(): React.ReactElement {
                     title={new Date(log.createdAt).toLocaleString()}
                   >
                     {relativeTime(log.createdAt)}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "11px",
@@ -164,11 +159,11 @@ export function SystemLogsPage(): React.ReactElement {
                     }}
                   >
                     {log.id}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
 
           <div
             style={{
