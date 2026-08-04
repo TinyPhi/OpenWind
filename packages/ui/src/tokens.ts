@@ -22,11 +22,16 @@ export const TOKENS = {
   accentPrimary: "var(--accent-primary, hsl(250, 84%, 66%))",
   bgElevated: "var(--bg-elevated, hsl(222, 15%, 22%))",
   bgSecondary: "var(--bg-secondary, hsl(222, 15%, 18%))",
-  bgTertiary: "var(--bg-tertiary, hsl(222, 15%, 16%))",
+  bgTertiary: "var(--bg-tertiary, hsl(222, 14%, 23%))",
   borderColor: "var(--border-color, hsla(222, 12%, 40%, 0.35))",
   borderFocus: "var(--border-focus, hsla(250, 84%, 66%, 0.35))",
   danger: "var(--danger, hsl(350, 80%, 60%))",
-  mutedHover: "var(--muted-hover, hsl(210, 40%, 90%))",
+  // --muted-hover is never defined in index.css (any theme) -- its old
+  // hardcoded fallback (hsl(210, 40%, 90%), near-white) put unreadable
+  // near-white AlertDialogCancel text on a near-white hover background
+  // (PR #320 review). Reuses bgTertiary's fallback instead of inventing
+  // another undefined-token literal.
+  mutedHover: "var(--muted-hover, hsl(222, 14%, 23%))",
   radiusLg: "var(--radius-lg, 20px)",
   radiusSm: "var(--radius-sm, 6px)",
   ring: "var(--ring, hsl(215, 90%, 60%))",
