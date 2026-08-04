@@ -29,6 +29,33 @@ Scope = the package or area changed. Message describes the effect, not the mecha
 
 ---
 
+## PR title escape tokens (contribution guardrails)
+
+CI's "Contribution guardrails" workflow (`scripts/check-contribution-guardrails.sh`) requires
+source changes to ship with tests, and new tables/routes to ship isolation tests. A genuinely
+exempt change (e.g. re-landing already-tested content, a docs/config-only diff, a comment-only
+suppression) is waived by putting one of these tokens in the **PR title**, with a one-line reason
+after it:
+
+```
+[skip-tests-check]
+[skip-isolation-check]
+```
+
+Two failure modes have caused repeat CI failures on otherwise-correct usage:
+
+- **The token match is a literal, case-sensitive `grep`.** `[Skip-Tests-Check]`,
+  `[SKIP-TESTS-CHECK]`, or `(skip-tests-check)` do **not** match — write it exactly as shown
+  above, lowercase, square brackets.
+- **Editing an already-open PR's title does not re-trigger the check.** The workflow fires on
+  `pull_request: [opened, synchronize, reopened]` — not `edited` (and editing `.github/workflows/`
+  is off-limits per this file's parent — never "fix" this by adding `edited` to the trigger
+  yourself). If you add the token to an existing PR's title, the stale run will still show
+  failed; either push a new commit (`synchronize`) or `gh pr close <n> && gh pr reopen <n>` to
+  force a fresh event that picks up the new title.
+
+---
+
 ## Parallel agent worktrees
 
 When running multiple agents simultaneously against this codebase, each agent needs
