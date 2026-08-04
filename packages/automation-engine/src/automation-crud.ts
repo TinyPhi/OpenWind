@@ -13,13 +13,29 @@ import { AutomationError } from "./types.js";
 import { validateNotifyLink } from "./actions/notify.js";
 import { env } from "@platform/config";
 
-async function validateRuleActions(actions?: ActionConfig[]): Promise<void> {
+async function validateRuleActions(
+  triggerType: string,
+  actions?: ActionConfig[],
+): Promise<void> {
   if (!actions) return;
   for (const action of actions) {
     if (action.type === "notify") {
       const link = action.config.payload?.link;
       if (typeof link === "string") {
         await validateNotifyLink(link, env.SSRF_BLOCK_CIDRS);
+      }
+    } else if (action.type === "webhook") {
+      if (triggerType === "entity.created") {
+        const config = action.config;
+        if (
+          config.includePayload &&
+          (!config.sendFields || config.sendFields.length === 0)
+        ) {
+          throw new AutomationError("INVALID_EVENT_PAYLOAD", {
+            reason:
+              "sendFields must be configured and non-empty when includePayload is true for entity.created trigger",
+          });
+        }
       }
     }
   }
@@ -48,7 +64,7 @@ export async function createAutomationRule(
   tenantId: string,
   input: CreateAutomationRuleInput,
 ): Promise<AutomationRule> {
-  await validateRuleActions(input.actions);
+  await validateRuleActions(input.triggerType, input.actions);
   const [row] = await db
     .insert(automationRules)
     .values({
@@ -123,7 +139,10 @@ export async function updateAutomationRule(
   id: string,
   input: UpdateAutomationRuleInput,
 ): Promise<AutomationRule> {
-  await validateRuleActions(input.actions);
+  const existing = await getAutomationRule(db, tenantId, id);
+  const triggerType = input.triggerType ?? existing.triggerType;
+  const actions = input.actions ?? existing.actions;
+  await validateRuleActions(triggerType, actions);
   const now = new Date();
   const updates: Partial<typeof automationRules.$inferInsert> = {
     updatedAt: now,
