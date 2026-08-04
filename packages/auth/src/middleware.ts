@@ -322,8 +322,15 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           )
           .limit(1);
 
+        const sanitizeDisplayName = (
+          name: string | null | undefined,
+        ): string | null => {
+          if (!name) return null;
+          return name.replace(/[<>]/g, "");
+        };
+
         const nextEmail = auth.email || null;
-        const nextDisplayName = auth.displayName || null;
+        const nextDisplayName = sanitizeDisplayName(auth.displayName);
 
         if (
           existing?.email === nextEmail &&

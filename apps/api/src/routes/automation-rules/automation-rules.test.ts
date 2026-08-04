@@ -84,7 +84,7 @@ function makeApp() {
 describe("POST /automation-rules", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns 201 with created rule", async () => {
+  it("returns 201 with created rule and preserves payload.link", async () => {
     mockCreate.mockResolvedValue(fakeRule);
 
     const res = await makeApp().request("/", {
@@ -97,7 +97,11 @@ describe("POST /automation-rules", () => {
         actions: [
           {
             type: "notify",
-            config: { recipientId: "u-aaa", channel: ["email"] },
+            config: {
+              recipientId: "u-aaa",
+              channel: ["email"],
+              payload: { link: "/entities/abc" },
+            },
           },
         ],
       }),
@@ -112,6 +116,15 @@ describe("POST /automation-rules", () => {
       expect.objectContaining({
         name: "Close on transition",
         triggerType: "workflow.transitioned",
+        actions: [
+          expect.objectContaining({
+            config: expect.objectContaining({
+              payload: expect.objectContaining({
+                link: "/entities/abc",
+              }),
+            }),
+          }),
+        ],
       }),
     );
   });
@@ -143,6 +156,61 @@ describe("POST /automation-rules", () => {
       }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when create rejects with NOTIFY_LINK_INVALID", async () => {
+    const { AutomationError } = await import("@platform/automation-engine");
+    mockCreate.mockRejectedValue(new AutomationError("NOTIFY_LINK_INVALID"));
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Close on transition",
+        triggerType: "workflow.transitioned",
+        triggerConfig: {},
+        actions: [
+          {
+            type: "notify",
+            config: { recipientId: "u-aaa", channel: ["email"] },
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe("NOTIFY_LINK_INVALID");
+  });
+
+  it("returns 400 when create rejects with INVALID_EVENT_PAYLOAD", async () => {
+    const { AutomationError } = await import("@platform/automation-engine");
+    mockCreate.mockRejectedValue(
+      new AutomationError("INVALID_EVENT_PAYLOAD", {
+        reason: "Missing sendFields",
+      }),
+    );
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Close on transition",
+        triggerType: "workflow.transitioned",
+        triggerConfig: {},
+        actions: [
+          {
+            type: "notify",
+            config: { recipientId: "u-aaa", channel: ["email"] },
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe("INVALID_EVENT_PAYLOAD");
+    expect(json.message).toBe("Missing sendFields");
   });
 });
 

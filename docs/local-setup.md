@@ -117,26 +117,34 @@ there are always correctly scoped.)
 ### Resetting everything
 
 ```bash
-docker compose down -v                              # stop app containers, wipe their volumes
-(cd ../zitadel && docker compose down -v)            # wipe Zitadel's volume too
-rm .env.local                                        # remove generated credentials
+pnpm dev:reset      # confirms, then wipes both volumes + .env.local
 setup.bat   # or ./setup.sh                          # full setup again from scratch
 ```
 
-> Wipe **both** volumes together. If only the OpenWind side is wiped, the old
-> Zitadel instance still has the previous OIDC app/client secret, which no
-> longer matches what the fresh bootstrap will write to `.env.local` — and
-> login breaks. Same problem in reverse if only Zitadel is wiped.
->
-> If you're resetting a non-default checkout, `export COMPOSE_PROJECT_NAME=...`
-> first (see above) so `docker compose down -v` targets the right volumes.
+`pnpm dev:reset` exists because `docker compose down` (keeps volumes) and
+`docker compose down -v` (wipes them) are easy to confuse — picking the wrong
+one either leaves stale containers around or silently deletes all local data.
+It requires typing `reset` to confirm, then always wipes **both** volumes
+together — if only the OpenWind side is wiped, the old Zitadel instance still
+has the previous OIDC app/client secret, which no longer matches what the
+fresh bootstrap will write to `.env.local`, and login breaks. Same problem in
+reverse if only Zitadel is wiped.
+
+If you'd rather run the steps yourself (e.g. a non-default checkout where
+`COMPOSE_PROJECT_NAME` isn't exported — see above):
+
+```bash
+docker compose down -v                              # stop app containers, wipe their volumes
+(cd ../zitadel && docker compose down -v)            # wipe Zitadel's volume too
+rm .env.local                                        # remove generated credentials
+```
 
 ### Day-to-day commands
 
 ```bash
 pnpm dev                               # start API + frontend with hot reload (outside Docker)
 docker compose up -d                   # start OpenWind's own services in Docker
-docker compose down                    # stop (data preserved)
+pnpm dev:down                          # stop (data preserved) — alias for `docker compose down`
 docker compose logs -f ow-backend      # tail API logs
 docker compose restart ow-frontend     # restart one container
 ```
@@ -231,9 +239,9 @@ Setup does not need to re-run for code updates — only for a full reset.
 ### Resetting production
 
 ```bash
-docker compose down -v
-(cd ../zitadel && docker compose down -v)
-rm .env.local
+pnpm dev:reset      # confirms, then wipes both volumes + .env.local — see the
+                    # local-dev "Resetting everything" section above for why
+                    # this always wipes both sides together
 # re-export the Step 3 env vars (or re-source .env.server), then:
 ./setup.sh
 ```

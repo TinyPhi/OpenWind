@@ -10,8 +10,76 @@ import {
 import { logger } from "@platform/logger";
 import type { TriggerEvent } from "../event-schemas.js";
 import type { NotifyConfig } from "../types.js";
+import { validateWebhookUrl } from "../ssrf-guard.js";
+import { env } from "@platform/config";
+import { AutomationError } from "../types.js";
 
 export type { NotifyConfig };
+
+/**
+ * Validates a notify action link URL.
+ * Permitted:
+ *  1. Relative path starting with "/" (but not "//")
+ *  2. Absolute http/https URL matching env.APP_URL's host or subdomain,
+ *     AND passing the SSRF guard check.
+ */
+export async function validateNotifyLink(
+  link: string,
+  extraBlockCidrs: string[] = [],
+): Promise<void> {
+  if (link.startsWith("/") && !link.startsWith("//")) {
+    return;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(link);
+  } catch {
+    throw new AutomationError("NOTIFY_LINK_INVALID", {
+      link,
+      reason: "invalid-url",
+    });
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new AutomationError("NOTIFY_LINK_INVALID", {
+      link,
+      reason: "scheme-not-allowed",
+      scheme: parsed.protocol,
+    });
+  }
+
+  if (env.APP_URL) {
+    try {
+      const appUrlParsed = new URL(env.APP_URL);
+      const linkHost = parsed.hostname.toLowerCase();
+      const appHost = appUrlParsed.hostname.toLowerCase();
+      const isAllowedDomain =
+        linkHost === appHost || linkHost.endsWith("." + appHost);
+      if (!isAllowedDomain) {
+        throw new AutomationError("NOTIFY_LINK_INVALID", {
+          link,
+          reason: "origin-not-allowed",
+        });
+      }
+    } catch {
+      throw new AutomationError("NOTIFY_LINK_INVALID", {
+        link,
+        reason: "app-url-parse-failed",
+      });
+    }
+  }
+
+  try {
+    await validateWebhookUrl(link, extraBlockCidrs);
+  } catch (err) {
+    throw new AutomationError("NOTIFY_LINK_INVALID", {
+      link,
+      reason: "ssrf-blocked",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 // Routes tenant-authored "notify" actions through the same in-app
 // notification hub as the 6 fixed system triggers (docs/specs/
@@ -73,6 +141,10 @@ export async function executeNotifyAction(
       ? payload["body"]
       : "You have a new notification";
   const link = typeof payload["link"] === "string" ? payload["link"] : null;
+
+  if (link) {
+    await validateNotifyLink(link, env.SSRF_BLOCK_CIDRS);
+  }
 
   const notificationId = deriveNotificationId(
     tenantId,
