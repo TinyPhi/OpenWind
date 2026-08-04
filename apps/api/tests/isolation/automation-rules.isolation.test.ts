@@ -12,6 +12,8 @@
  * Uses a real Postgres database (no mocks). Two isolated tenants (A and B).
  */
 
+process.env.APP_URL = "https://platform.example.com";
+
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
