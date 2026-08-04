@@ -264,7 +264,10 @@ human PRs are gated by CI exactly as documented above. You never need Claude Cod
 The **Contribution guardrails** CI workflow enforces the same intent for _everyone_ (not just Claude
 Code users): source changes should ship with tests, new tables/routes need isolation tests, and
 `modules/` stays TypeScript-free. For a genuinely exempt change, put `[skip-tests-check]` or
-`[skip-isolation-check]` in the PR title with a one-line reason.
+`[skip-isolation-check]` **exactly as written — lowercase, square brackets** — in the PR title
+with a one-line reason; the check is a literal case-sensitive match. Note also that the workflow
+triggers on PR open/push/reopen, not on a title edit alone — if you add the token to an
+already-open PR, push a commit or close/reopen the PR to get a fresh check run.
 
 ---
 
