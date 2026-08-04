@@ -12,10 +12,18 @@ import {
 } from "./pagination.js";
 import type { CursorPage } from "./pagination.js";
 
+export const RELATION_REFERENCES = "references";
+export const RELATION_REFERENCED_BY = "referenced_by";
+
 export type CreateRelationInput = {
   fromInstanceId: string;
   toInstanceId: string;
   relationType: string;
+};
+
+export type CreateReferenceLinkInput = {
+  fromInstanceId: string;
+  toInstanceId: string;
 };
 
 export type ListRelationsInput = {
@@ -87,6 +95,106 @@ export async function createRelation(
   return rowToRelation(row);
 }
 
+/**
+ * Create a bidirectional, workflow-agnostic reference link between two
+ * instances of any entity type / workflow / module. Unlike createChildRelation,
+ * this performs no depth/cap/cycle validation — it is a pure navigational
+ * pointer with no effect on either instance's workflow.
+ */
+export async function createReferenceLink(
+  db: DbOrTx,
+  tenantId: string,
+  input: CreateReferenceLinkInput,
+): Promise<{ relations: EntityRelation[] }> {
+  const { fromInstanceId, toInstanceId } = input;
+
+  if (fromInstanceId === toInstanceId) {
+    throw new EntityError("RELATION_SELF_LINK", { instanceId: fromInstanceId });
+  }
+
+  const [fromInstance] = await db
+    .select({ id: entityInstances.id })
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.id, fromInstanceId),
+        eq(entityInstances.tenantId, tenantId),
+        isNull(entityInstances.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!fromInstance) {
+    throw new EntityError("RELATION_TARGET_NOT_FOUND", {
+      instanceId: fromInstanceId,
+    });
+  }
+
+  const [toInstance] = await db
+    .select({ id: entityInstances.id })
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.id, toInstanceId),
+        eq(entityInstances.tenantId, tenantId),
+        isNull(entityInstances.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!toInstance) {
+    throw new EntityError("RELATION_TARGET_NOT_FOUND", {
+      instanceId: toInstanceId,
+    });
+  }
+
+  const [existing] = await db
+    .select({ id: entityRelations.id })
+    .from(entityRelations)
+    .where(
+      and(
+        eq(entityRelations.tenantId, tenantId),
+        eq(entityRelations.fromInstanceId, fromInstanceId),
+        eq(entityRelations.toInstanceId, toInstanceId),
+        eq(entityRelations.relationType, RELATION_REFERENCES),
+        isNull(entityRelations.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    throw new EntityError("RELATION_ALREADY_EXISTS", {
+      fromInstanceId,
+      toInstanceId,
+    });
+  }
+
+  const relationRows = await db
+    .insert(entityRelations)
+    .values([
+      {
+        tenantId,
+        fromInstanceId,
+        toInstanceId,
+        relationType: RELATION_REFERENCES,
+      },
+      {
+        tenantId,
+        fromInstanceId: toInstanceId,
+        toInstanceId: fromInstanceId,
+        relationType: RELATION_REFERENCED_BY,
+      },
+    ])
+    .returning();
+
+  logger.info(
+    { tenantId, fromInstanceId, toInstanceId },
+    "Reference link created",
+  );
+
+  return { relations: relationRows.map(rowToRelation) };
+}
+
 export async function listRelations(
   db: DbOrTx,
   tenantId: string,
@@ -145,6 +253,74 @@ export async function listRelations(
     hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
 
   return { data: data.map(rowToRelation), nextCursor };
+}
+
+/**
+ * Load a reference relation row (references or referenced_by) scoped to the
+ * tenant, for callers that need to authorize before deleting it.
+ */
+export async function getReferenceRelation(
+  db: DbOrTx,
+  tenantId: string,
+  relationId: string,
+): Promise<EntityRelation | null> {
+  const [row] = await db
+    .select()
+    .from(entityRelations)
+    .where(
+      and(
+        eq(entityRelations.id, relationId),
+        eq(entityRelations.tenantId, tenantId),
+        or(
+          eq(entityRelations.relationType, RELATION_REFERENCES),
+          eq(entityRelations.relationType, RELATION_REFERENCED_BY),
+        ),
+        isNull(entityRelations.deletedAt),
+      ),
+    )
+    .limit(1);
+  return row ? rowToRelation(row) : null;
+}
+
+/**
+ * Soft-delete a reference link — both the given row and its mirrored
+ * counterpart (references <-> referenced_by) on the other instance.
+ */
+export async function deleteReferenceLink(
+  db: DbOrTx,
+  tenantId: string,
+  relationId: string,
+): Promise<void> {
+  const relation = await getReferenceRelation(db, tenantId, relationId);
+  if (!relation) throw new EntityError("RELATION_NOT_FOUND", { relationId });
+
+  const mirrorType =
+    relation.relationType === RELATION_REFERENCES
+      ? RELATION_REFERENCED_BY
+      : RELATION_REFERENCES;
+
+  await db
+    .update(entityRelations)
+    .set({ deletedAt: sql`now()` })
+    .where(eq(entityRelations.id, relation.id));
+
+  await db
+    .update(entityRelations)
+    .set({ deletedAt: sql`now()` })
+    .where(
+      and(
+        eq(entityRelations.tenantId, tenantId),
+        eq(entityRelations.fromInstanceId, relation.toInstanceId),
+        eq(entityRelations.toInstanceId, relation.fromInstanceId),
+        eq(entityRelations.relationType, mirrorType),
+        isNull(entityRelations.deletedAt),
+      ),
+    );
+
+  logger.info(
+    { tenantId, relationId: relation.id },
+    "Reference link soft-deleted",
+  );
 }
 
 export async function deleteRelation(

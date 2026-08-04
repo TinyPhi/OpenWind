@@ -51,10 +51,16 @@ export {
   createRelation,
   listRelations,
   deleteRelation,
+  createReferenceLink,
+  getReferenceRelation,
+  deleteReferenceLink,
+  RELATION_REFERENCES,
+  RELATION_REFERENCED_BY,
 } from "./entity-relations.js";
 export type {
   CreateRelationInput,
   ListRelationsInput,
+  CreateReferenceLinkInput,
 } from "./entity-relations.js";
 export {
   createChildRelation,

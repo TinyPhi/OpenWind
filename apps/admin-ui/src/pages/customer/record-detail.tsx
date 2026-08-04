@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { useEntityTypes } from "../../entity-type-context.js";
+import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
 import {
@@ -71,6 +71,27 @@ type WorkflowEvent = {
   triggeredAt: string;
   createdAt?: string;
   metadata?: Record<string, unknown>;
+};
+type LinkedTicket = {
+  relationId: string;
+  targetId: string;
+  title: string;
+  typeSlug: string | null;
+  workflowName: string | null;
+  linkedAt: string;
+  targetCreatedAt: string | null;
+  deleted: boolean;
+};
+type LinkCandidate = {
+  id: string;
+  workflowId: string;
+  title: string;
+  typeSlug: string | null;
+};
+type LinkWorkflowSummary = {
+  workflowId: string;
+  workflowName: string;
+  accessibleTicketCount: number;
 };
 type OrgUser = {
   userId: string;
@@ -1024,7 +1045,7 @@ async function pollFileScanStatus(
 export function CustomerRecordDetail(): React.ReactElement {
   const { typeSlug, id } = useParams<{ typeSlug: string; id: string }>();
   const navigate = useNavigate();
-  const { getTypeBySlug } = useEntityTypes();
+  const { getTypeBySlug, getTypeById } = useEntityTypes();
   const entityType = typeSlug ? getTypeBySlug(typeSlug) : undefined;
   const entityTypeId = entityType?.id;
 
@@ -1102,6 +1123,31 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [archiveConfirm, setArchiveConfirm] = useState<{
     childCount: number;
   } | null>(null);
+
+  // Linked tickets state — cross-workflow reference links (docs/specs/ticket-reference-linking.md).
+  // Unlike child tickets, these carry no workflow coupling: just navigation.
+  const [linkedTickets, setLinkedTickets] = useState<LinkedTicket[]>([]);
+  const [linkedTicketsLoading, setLinkedTicketsLoading] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  // Link picker is workflow-first: pick a workflow card, then a ticket within
+  // it, then confirm — smoother than searching a flat list of every
+  // accessible ticket across every workflow at once.
+  const [linkStep, setLinkStep] = useState<"workflows" | "tickets">(
+    "workflows",
+  );
+  const [linkWorkflows, setLinkWorkflows] = useState<LinkWorkflowSummary[]>([]);
+  const [linkTicketsByWorkflow, setLinkTicketsByWorkflow] = useState<
+    Record<string, LinkCandidate[]>
+  >({});
+  const [selectedLinkWorkflow, setSelectedLinkWorkflow] =
+    useState<LinkWorkflowSummary | null>(null);
+  const [pendingLinkTarget, setPendingLinkTarget] =
+    useState<LinkCandidate | null>(null);
+  const [linkQuery, setLinkQuery] = useState("");
+  const [linkCandidatesLoading, setLinkCandidatesLoading] = useState(false);
+  const [linkSubmitting, setLinkSubmitting] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [unlinkConfirm, setUnlinkConfirm] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
   // Access list — persisted from API as {userId, level, tag}[]
@@ -1618,6 +1664,199 @@ export function CustomerRecordDetail(): React.ReactElement {
     }
   }
 
+  function deriveTitle(inst: {
+    id: string;
+    fields: Record<string, unknown>;
+  }): string {
+    const titleField = ["subject", "title", "name"].find((k) => inst.fields[k]);
+    return titleField
+      ? String(inst.fields[titleField])
+      : `#${inst.id.slice(0, 8)}`;
+  }
+
+  function slugForEntityType(entityTypeId: string): string | null {
+    const et = getTypeById(entityTypeId);
+    return et ? toTypeSlug(et.plural || et.name) : null;
+  }
+
+  async function resolveWorkflowName(
+    workflowId: string,
+    cache: Map<string, string | null>,
+  ): Promise<string | null> {
+    if (cache.has(workflowId)) return cache.get(workflowId) ?? null;
+    try {
+      const res = (await fetchWithAuth(
+        `${API_URL}/workflows/${workflowId}`,
+      )) as { data: { name: string } };
+      cache.set(workflowId, res.data.name);
+      return res.data.name;
+    } catch {
+      cache.set(workflowId, null);
+      return null;
+    }
+  }
+
+  async function loadLinkedTickets(): Promise<void> {
+    if (!id) return;
+    setLinkedTicketsLoading(true);
+    try {
+      const [refs, refBy] = await Promise.all([
+        fetchWithAuth(
+          `${API_URL}/entities/${id}/relations?relationType=references&direction=from`,
+        ).catch(() => ({ data: [] })),
+        fetchWithAuth(
+          `${API_URL}/entities/${id}/relations?relationType=referenced_by&direction=from`,
+        ).catch(() => ({ data: [] })),
+      ]);
+      const rows = [
+        ...(
+          refs as {
+            data: { id: string; toInstanceId: string; createdAt: string }[];
+          }
+        ).data,
+        ...(
+          refBy as {
+            data: { id: string; toInstanceId: string; createdAt: string }[];
+          }
+        ).data,
+      ];
+
+      const workflowNameCache = new Map<string, string | null>();
+      const resolved = await Promise.all(
+        rows.map(async (row) => {
+          try {
+            const res = (await fetchWithAuth(
+              `${API_URL}/entities/${row.toInstanceId}`,
+            )) as { data: EntityInstance };
+            const inst = res.data;
+            const workflowName = inst.workflowId
+              ? await resolveWorkflowName(inst.workflowId, workflowNameCache)
+              : null;
+            return {
+              relationId: row.id,
+              targetId: row.toInstanceId,
+              title: deriveTitle(inst),
+              typeSlug: slugForEntityType(inst.entityTypeId),
+              workflowName,
+              linkedAt: row.createdAt,
+              targetCreatedAt: inst.createdAt,
+              deleted: !!inst.deletedAt,
+            };
+          } catch {
+            // Target no longer resolvable (soft-deleted and inaccessible, or
+            // removed) — still show the link, just marked unavailable (R7).
+            return {
+              relationId: row.id,
+              targetId: row.toInstanceId,
+              title: `#${row.toInstanceId.slice(0, 8)}`,
+              typeSlug: null,
+              workflowName: null,
+              linkedAt: row.createdAt,
+              targetCreatedAt: null,
+              deleted: true,
+            };
+          }
+        }),
+      );
+      setLinkedTickets(resolved);
+    } finally {
+      setLinkedTicketsLoading(false);
+    }
+  }
+
+  async function openLinkModal(): Promise<void> {
+    setShowLinkModal(true);
+    setLinkStep("workflows");
+    setSelectedLinkWorkflow(null);
+    setPendingLinkTarget(null);
+    setLinkQuery("");
+    setLinkError(null);
+    setLinkCandidatesLoading(true);
+    try {
+      const res = (await fetchWithAuth(`${API_URL}/entities/my-tickets`)) as {
+        data: {
+          workflows: {
+            workflowId: string;
+            workflowName: string;
+            accessibleTicketCount: number;
+          }[];
+          parentTickets: {
+            id: string;
+            workflowId: string;
+            fields: Record<string, unknown>;
+          }[];
+          childTickets: {
+            id: string;
+            workflowId: string;
+            fields: Record<string, unknown>;
+          }[];
+        };
+      };
+      const all = [...res.data.parentTickets, ...res.data.childTickets].filter(
+        (t) => t.id !== id,
+      );
+      const byWorkflow: Record<string, LinkCandidate[]> = {};
+      for (const t of all) {
+        if (!t.workflowId) continue;
+        (byWorkflow[t.workflowId] ??= []).push({
+          id: t.id,
+          workflowId: t.workflowId,
+          title: deriveTitle(t),
+          typeSlug: null,
+        });
+      }
+      setLinkTicketsByWorkflow(byWorkflow);
+      setLinkWorkflows(
+        res.data.workflows.filter(
+          (w) => (byWorkflow[w.workflowId] ?? []).length > 0,
+        ),
+      );
+    } catch {
+      setLinkTicketsByWorkflow({});
+      setLinkWorkflows([]);
+    } finally {
+      setLinkCandidatesLoading(false);
+    }
+  }
+
+  async function submitLink(toInstanceId: string): Promise<void> {
+    if (!id || linkSubmitting) return;
+    setLinkSubmitting(true);
+    setLinkError(null);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/references`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toInstanceId }),
+      });
+      setShowLinkModal(false);
+      setPendingLinkTarget(null);
+      void loadLinkedTickets();
+    } catch (err) {
+      setLinkError(
+        err instanceof Error ? err.message : "Failed to create link",
+      );
+    } finally {
+      setLinkSubmitting(false);
+    }
+  }
+
+  async function unlinkTicket(relationId: string): Promise<void> {
+    if (!id) return;
+    try {
+      await fetchWithAuth(
+        `${API_URL}/entities/${id}/references/${relationId}`,
+        {
+          method: "DELETE",
+        },
+      );
+      setUnlinkConfirm(null);
+      void loadLinkedTickets();
+    } catch {
+      /* best-effort */
+    }
+  }
+
   async function loadParentRecord(parentId: string): Promise<void> {
     try {
       const res = await fetchWithAuth(`${API_URL}/entities/${parentId}`).catch(
@@ -2004,6 +2243,8 @@ export function CustomerRecordDetail(): React.ReactElement {
     setComments([]);
     setChildren([]);
     setChildrenLoading(false);
+    setLinkedTickets([]);
+    setLinkedTicketsLoading(false);
     setHistoryEvents([]);
     setHistoryLoaded(false);
     setAttachments([]);
@@ -2043,6 +2284,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   useEffect(() => {
     if (!record) return;
     void loadChildren();
+    void loadLinkedTickets();
     if (record.parentId) {
       void loadParentRecord(record.parentId);
     } else {
@@ -3915,6 +4157,133 @@ export function CustomerRecordDetail(): React.ReactElement {
           )}
           {/* end depth-limit guard */}
 
+          {/* Linked tickets — cross-workflow references, no workflow coupling */}
+          <div className="rcd-sidebar-section">
+            <div className="rcd-sidebar-hdr">
+              <span className="rcd-sidebar-hdr-title">
+                Linked tickets
+                {linkedTickets.length > 0 && (
+                  <span className="rcd-sidebar-count">
+                    {linkedTickets.length}
+                  </span>
+                )}
+              </span>
+              {!record.deletedAt && (
+                <button
+                  type="button"
+                  className="rcd-sidebar-add"
+                  onClick={() => void openLinkModal()}
+                >
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  Link
+                </button>
+              )}
+            </div>
+            <div className="rcd-sidebar-body">
+              {linkedTicketsLoading ? (
+                <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
+                  Loading…
+                </p>
+              ) : linkedTickets.length === 0 ? (
+                <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
+                  No linked tickets yet.
+                </p>
+              ) : (
+                <div className="rcd-sidebar-children">
+                  {linkedTickets.map((lt) =>
+                    lt.deleted || !lt.typeSlug ? (
+                      <div
+                        key={lt.relationId}
+                        className="rcd-child-card rcd-child-card-closed"
+                        style={{ opacity: 0.6, cursor: "default" }}
+                      >
+                        <div className="rcd-child-card-title-row">
+                          <span className="rcd-child-card-title">
+                            Linked ticket (deleted)
+                          </span>
+                          <button
+                            type="button"
+                            className="rcd-sidebar-add"
+                            onClick={() => setUnlinkConfirm(lt.relationId)}
+                          >
+                            Unlink
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        key={lt.relationId}
+                        className="rcd-child-card"
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 8,
+                        }}
+                      >
+                        <Link
+                          to={`/records/${lt.typeSlug}/${lt.targetId}`}
+                          style={{ flex: 1, minWidth: 0 }}
+                        >
+                          <div className="rcd-child-card-title-row">
+                            <span className="rcd-child-card-title">
+                              {lt.title}
+                            </span>
+                            <span className="rcd-child-id">
+                              #{lt.targetId.slice(0, 6)}
+                            </span>
+                          </div>
+                          <div className="rcd-child-card-meta">
+                            {lt.workflowName && (
+                              <span className="rcd-child-state">
+                                {lt.workflowName}
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "11px",
+                              color: "var(--text-muted)",
+                              marginTop: 4,
+                            }}
+                          >
+                            Linked {new Date(lt.linkedAt).toLocaleDateString()}
+                            {lt.targetCreatedAt &&
+                              ` · Created ${new Date(
+                                lt.targetCreatedAt,
+                              ).toLocaleDateString()}`}
+                          </div>
+                        </Link>
+                        <button
+                          type="button"
+                          className="rcd-sidebar-add"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setUnlinkConfirm(lt.relationId);
+                          }}
+                        >
+                          Unlink
+                        </button>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* People with access — always visible */}
           <div className="rcd-sidebar-section">
             <div className="rcd-sidebar-hdr">
@@ -4623,6 +4992,245 @@ export function CustomerRecordDetail(): React.ReactElement {
                 onClick={() => void createChild()}
               >
                 {creatingChild ? "Creating…" : "Create sub-task"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Link ticket modal ────────────────────────────── */}
+      {showLinkModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setShowLinkModal(false);
+            setLinkQuery("");
+            setLinkError(null);
+          }}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">
+                {linkStep === "tickets" && (
+                  <button
+                    type="button"
+                    className="rcd-bc-link"
+                    style={{ marginRight: 8 }}
+                    onClick={() => {
+                      setLinkStep("workflows");
+                      setSelectedLinkWorkflow(null);
+                      setLinkQuery("");
+                    }}
+                  >
+                    ←
+                  </button>
+                )}
+                {linkStep === "workflows"
+                  ? "Link ticket — choose a workflow"
+                  : `Link ticket — ${selectedLinkWorkflow?.workflowName ?? ""}`}
+              </h3>
+              <button
+                className="modal-close"
+                onClick={() => {
+                  setShowLinkModal(false);
+                  setLinkQuery("");
+                  setLinkError(null);
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              {linkError && (
+                <div
+                  className="portal-alert-error"
+                  style={{ marginBottom: "12px" }}
+                >
+                  {linkError}
+                </div>
+              )}
+              {linkCandidatesLoading ? (
+                <p className="rcd-sidebar-hint">Loading…</p>
+              ) : linkStep === "workflows" ? (
+                linkWorkflows.length === 0 ? (
+                  <p className="rcd-sidebar-hint">
+                    No workflows with accessible tickets found.
+                  </p>
+                ) : (
+                  <div className="rcd-sidebar-children">
+                    {linkWorkflows.map((w) => (
+                      <button
+                        key={w.workflowId}
+                        type="button"
+                        className="rcd-child-card"
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          cursor: "pointer",
+                        }}
+                        onClick={() => {
+                          setSelectedLinkWorkflow(w);
+                          setLinkStep("tickets");
+                          setLinkQuery("");
+                        }}
+                      >
+                        <div className="rcd-child-card-title-row">
+                          <span className="rcd-child-card-title">
+                            {w.workflowName}
+                          </span>
+                          <span className="rcd-sidebar-count">
+                            {(linkTicketsByWorkflow[w.workflowId] ?? []).length}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">
+                      Search tickets in {selectedLinkWorkflow?.workflowName}
+                    </label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      placeholder="Search by title…"
+                      value={linkQuery}
+                      onChange={(e) => setLinkQuery(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  {(() => {
+                    const alreadyLinked = new Set(
+                      linkedTickets.map((lt) => lt.targetId),
+                    );
+                    const q = linkQuery.trim().toLowerCase();
+                    const matches = (
+                      linkTicketsByWorkflow[
+                        selectedLinkWorkflow?.workflowId ?? ""
+                      ] ?? []
+                    )
+                      .filter((c) => !alreadyLinked.has(c.id))
+                      .filter((c) => !q || c.title.toLowerCase().includes(q))
+                      .slice(0, 25);
+                    if (matches.length === 0) {
+                      return (
+                        <p className="rcd-sidebar-hint">
+                          No matching tickets found in this workflow.
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="rcd-sidebar-children">
+                        {matches.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="rcd-child-card"
+                            style={{
+                              width: "100%",
+                              textAlign: "left",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => setPendingLinkTarget(c)}
+                          >
+                            <div className="rcd-child-card-title-row">
+                              <span className="rcd-child-card-title">
+                                {c.title}
+                              </span>
+                              <span className="rcd-child-id">
+                                #{c.id.slice(0, 6)}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm link ─────────────────────────────────── */}
+      {pendingLinkTarget && (
+        <div
+          className="modal-overlay"
+          onClick={() => !linkSubmitting && setPendingLinkTarget(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Link this ticket?</h3>
+              <button
+                className="modal-close"
+                onClick={() => setPendingLinkTarget(null)}
+                disabled={linkSubmitting}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                Link to <strong>{pendingLinkTarget.title}</strong> in{" "}
+                {selectedLinkWorkflow?.workflowName}? This only creates a
+                reference — neither ticket's workflow, state, or history is
+                affected.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn-secondary"
+                onClick={() => setPendingLinkTarget(null)}
+                disabled={linkSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                disabled={linkSubmitting}
+                onClick={() => void submitLink(pendingLinkTarget.id)}
+              >
+                {linkSubmitting ? "Linking…" : "Link ticket"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unlink confirm ───────────────────────────────── */}
+      {unlinkConfirm && (
+        <div className="modal-overlay" onClick={() => setUnlinkConfirm(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Remove link?</h3>
+              <button
+                className="modal-close"
+                onClick={() => setUnlinkConfirm(null)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                This only removes the reference between the two tickets —
+                neither ticket's workflow, state, or history is affected.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn-secondary"
+                onClick={() => setUnlinkConfirm(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => void unlinkTicket(unlinkConfirm)}
+              >
+                Remove link
               </button>
             </div>
           </div>
