@@ -36,8 +36,9 @@ overrides:
   # failure, literal backslash authority delimiter) — pulled in via commitlint's ajv dep
   # GHSA-7p8r-x3mc-p8w7: fast-uri host confusion via backslash authority introducer
   "fast-uri": ">=3.1.4 <4.0.0 || >=4.1.2"
-  # GHSA-4cwx-7wf7-3272 / GHSA-m8rv-5g2x-5cg5 / GHSA-jr45-8vmc-qm54 / GHSA-v3r7-h72x-cjcm: undici security vulnerability fixes
-  undici: ">=7.29.0"
+  # GHSA-4cwx-7wf7-3272 / GHSA-m8rv-5g2x-5cg5 / GHSA-jr45-8vmc-qm54 / GHSA-v3r7-h72x-cjcm: undici security vulnerability fixes.
+  # Bounded to <8 to prevent major upgrades breaking jsdom's internal file imports.
+  undici: ">=7.29.0 <8"
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
   # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths
   postcss: ">=8.5.18"
