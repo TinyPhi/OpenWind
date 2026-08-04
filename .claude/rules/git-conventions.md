@@ -54,6 +54,15 @@ Two failure modes have caused repeat CI failures on otherwise-correct usage:
   failed; either push a new commit (`synchronize`) or `gh pr close <n> && gh pr reopen <n>` to
   force a fresh event that picks up the new title.
 
+**Check this before running `gh pr create`, not after CI fails on it.** If `git diff` for your
+branch touches no `*.test.*`/`*.spec.*`/`tests/**` file, the tests-with-code check _will_ fail —
+that's not a maybe. Decide right then whether the change is genuinely test-exempt (pure
+presentational refactor of an already-untested file, docs-only, comment-only suppression) and
+put `[skip-tests-check]` in the **initial** PR title. Reaching for the token reactively, after
+watching the job fail, means a second round-trip (edit title, close/reopen) that a 10-second check
+upfront avoids entirely. This has already happened twice on this project — the token being
+correct-when-eventually-applied is not the same as remembering to apply it before opening the PR.
+
 ---
 
 ## Parallel agent worktrees
@@ -82,6 +91,9 @@ Each agent reads and writes only its own worktree. Write status back to
 
 ## PR checklist
 
+- [ ] **Before opening**: does the diff touch any `*.test.*`/`*.spec.*`/`tests/**` file? If not,
+      either add one or put `[skip-tests-check]` (exact case, see above) in the PR title
+      **now** — don't wait for the guardrails job to fail and tell you.
 - [ ] Tests included (coverage does not drop)
 - [ ] Isolation tests added/updated if new tables or routes added
 - [ ] ADR updated or created for significant architectural decisions
