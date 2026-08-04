@@ -6,6 +6,8 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  TOKENS,
+  useHoverStyle,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
@@ -62,6 +64,172 @@ function avatarColor(userId: string): string {
     hash |= 0;
   }
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? "#6366f1";
+}
+
+interface UserRowProps {
+  user: User;
+  isAdmin: boolean;
+}
+
+function UserRow({ user, isAdmin }: UserRowProps): React.ReactElement {
+  const color = avatarColor(user.userId);
+  const rowHover = useHoverStyle({
+    base: { background: "" },
+    hover: { background: TOKENS.bgTertiary },
+  });
+  const iconHover = useHoverStyle({
+    base: { background: "", color: TOKENS.textMuted },
+    hover: { background: TOKENS.bgTertiary, color: TOKENS.accentPrimary },
+  });
+
+  return (
+    <TableRow
+      style={rowHover.style}
+      onMouseEnter={rowHover.onMouseEnter}
+      onMouseLeave={rowHover.onMouseLeave}
+    >
+      <TableCell style={{ padding: "12px 16px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+          }}
+        >
+          <div
+            style={{
+              width: "32px",
+              height: "32px",
+              borderRadius: "50%",
+              background: color,
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "12px",
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            {initials(user.displayName)}
+          </div>
+          <span
+            style={{
+              fontSize: "14px",
+              fontWeight: 500,
+              color: TOKENS.textPrimary,
+            }}
+          >
+            {user.displayName}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell
+        style={{
+          padding: "12px 16px",
+          fontSize: "13px",
+          color: TOKENS.textSecondary,
+        }}
+      >
+        {user.loginName}
+      </TableCell>
+      <TableCell
+        style={{
+          padding: "12px 16px",
+          fontSize: "13px",
+          color: TOKENS.textSecondary,
+        }}
+      >
+        {user.email}
+      </TableCell>
+      <TableCell style={{ padding: "12px 16px" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "6px",
+            flexWrap: "wrap",
+          }}
+        >
+          {(user.roles ?? []).length === 0 ? (
+            <span
+              style={{
+                fontSize: "12px",
+                color: TOKENS.textMuted,
+              }}
+            >
+              —
+            </span>
+          ) : (
+            (user.roles ?? []).map((role) => (
+              <span
+                key={role}
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  padding: "2px 8px",
+                  borderRadius: "999px",
+                  background: TOKENS.bgTertiary,
+                  color: TOKENS.textSecondary,
+                  textTransform: "capitalize",
+                }}
+              >
+                {role}
+              </span>
+            ))
+          )}
+        </div>
+      </TableCell>
+      <TableCell
+        style={{
+          padding: "12px 16px",
+          fontSize: "11px",
+          color: TOKENS.textMuted,
+          fontFamily: "monospace",
+        }}
+      >
+        {user.userId}
+      </TableCell>
+      {isAdmin && (
+        <TableCell style={{ padding: "12px 16px", textAlign: "right" }}>
+          <a
+            href={zitadelUserUrl(user.userId)}
+            target="_blank"
+            rel="noreferrer"
+            title="Open in Zitadel"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "28px",
+              height: "28px",
+              borderRadius: "6px",
+              textDecoration: "none",
+              transition: "background 0.15s, color 0.15s",
+              ...iconHover.style,
+            }}
+            onMouseEnter={iconHover.onMouseEnter}
+            onMouseLeave={iconHover.onMouseLeave}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+              />
+            </svg>
+          </a>
+        </TableCell>
+      )}
+    </TableRow>
+  );
 }
 
 export function UsersPage(): React.ReactElement {
@@ -208,186 +376,17 @@ export function UsersPage(): React.ReactElement {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((u) => {
-                const color = avatarColor(u.userId);
-                return (
-                  <TableRow
-                    key={u.userId}
-                    onMouseEnter={(e) => {
-                      (
-                        e.currentTarget as HTMLTableRowElement
-                      ).style.background =
-                        "var(--bg-tertiary, hsl(222, 15%, 16%))";
-                    }}
-                    onMouseLeave={(e) => {
-                      (
-                        e.currentTarget as HTMLTableRowElement
-                      ).style.background = "";
-                    }}
-                  >
-                    <TableCell style={{ padding: "12px 16px" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: "32px",
-                            height: "32px",
-                            borderRadius: "50%",
-                            background: color,
-                            color: "#fff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {initials(u.displayName)}
-                        </div>
-                        <span
-                          style={{
-                            fontSize: "14px",
-                            fontWeight: 500,
-                            color: "var(--text-primary)",
-                          }}
-                        >
-                          {u.displayName}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell
-                      style={{
-                        padding: "12px 16px",
-                        fontSize: "13px",
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      {u.loginName}
-                    </TableCell>
-                    <TableCell
-                      style={{
-                        padding: "12px 16px",
-                        fontSize: "13px",
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      {u.email}
-                    </TableCell>
-                    <TableCell style={{ padding: "12px 16px" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "6px",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {(u.roles ?? []).length === 0 ? (
-                          <span
-                            style={{
-                              fontSize: "12px",
-                              color: "var(--text-muted)",
-                            }}
-                          >
-                            —
-                          </span>
-                        ) : (
-                          (u.roles ?? []).map((role) => (
-                            <span
-                              key={role}
-                              style={{
-                                fontSize: "11px",
-                                fontWeight: 600,
-                                padding: "2px 8px",
-                                borderRadius: "999px",
-                                background:
-                                  "var(--bg-tertiary, hsl(222, 15%, 16%))",
-                                color: "var(--text-secondary)",
-                                textTransform: "capitalize",
-                              }}
-                            >
-                              {role}
-                            </span>
-                          ))
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell
-                      style={{
-                        padding: "12px 16px",
-                        fontSize: "11px",
-                        color: "var(--text-muted)",
-                        fontFamily: "monospace",
-                      }}
-                    >
-                      {u.userId}
-                    </TableCell>
-                    {isAdmin && (
-                      <TableCell
-                        style={{ padding: "12px 16px", textAlign: "right" }}
-                      >
-                        <a
-                          href={zitadelUserUrl(u.userId)}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Open in Zitadel"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: "28px",
-                            height: "28px",
-                            borderRadius: "6px",
-                            color: "var(--text-muted)",
-                            textDecoration: "none",
-                            transition: "background 0.15s, color 0.15s",
-                          }}
-                          onMouseEnter={(e) => {
-                            const el = e.currentTarget as HTMLAnchorElement;
-                            el.style.background =
-                              "var(--bg-tertiary, hsl(222, 15%, 16%))";
-                            el.style.color = "var(--accent, #6366f1)";
-                          }}
-                          onMouseLeave={(e) => {
-                            const el = e.currentTarget as HTMLAnchorElement;
-                            el.style.background = "";
-                            el.style.color = "var(--text-muted)";
-                          }}
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-                            />
-                          </svg>
-                        </a>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })}
+              {filtered.map((u) => (
+                <UserRow key={u.userId} user={u} isAdmin={isAdmin} />
+              ))}
             </TableBody>
           </Table>
           <div
             style={{
               padding: "10px 16px",
               fontSize: "12px",
-              color: "var(--text-muted)",
-              borderTop: "1px solid var(--border)",
+              color: TOKENS.textMuted,
+              borderTop: `1px solid ${TOKENS.borderColor}`,
             }}
           >
             {filtered.length} user{filtered.length !== 1 ? "s" : ""}

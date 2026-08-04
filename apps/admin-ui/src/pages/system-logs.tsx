@@ -7,6 +7,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  TOKENS,
 } from "@platform/ui";
 import {
   listSystemLogs,
@@ -111,7 +112,7 @@ export function SystemLogsPage(): React.ReactElement {
                         width: "8px",
                         height: "8px",
                         borderRadius: "50%",
-                        background: "#ef4444",
+                        background: TOKENS.danger,
                       }}
                       title="Urgent — system error"
                     />
@@ -121,7 +122,7 @@ export function SystemLogsPage(): React.ReactElement {
                       padding: "12px 16px",
                       fontSize: "14px",
                       fontWeight: 600,
-                      color: "var(--text-primary)",
+                      color: TOKENS.textPrimary,
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -131,7 +132,7 @@ export function SystemLogsPage(): React.ReactElement {
                     style={{
                       padding: "12px 16px",
                       fontSize: "13px",
-                      color: "var(--text-secondary)",
+                      color: TOKENS.textSecondary,
                       wordBreak: "break-word",
                       minWidth: "320px",
                     }}
@@ -142,7 +143,7 @@ export function SystemLogsPage(): React.ReactElement {
                     style={{
                       padding: "12px 16px",
                       fontSize: "13px",
-                      color: "var(--text-secondary)",
+                      color: TOKENS.textSecondary,
                       whiteSpace: "nowrap",
                     }}
                     title={new Date(log.createdAt).toLocaleString()}
@@ -153,7 +154,7 @@ export function SystemLogsPage(): React.ReactElement {
                     style={{
                       padding: "12px 16px",
                       fontSize: "11px",
-                      color: "var(--text-muted)",
+                      color: TOKENS.textMuted,
                       fontFamily: "monospace",
                       whiteSpace: "nowrap",
                     }}
@@ -169,8 +170,8 @@ export function SystemLogsPage(): React.ReactElement {
             style={{
               padding: "10px 16px",
               fontSize: "12px",
-              color: "var(--text-muted)",
-              borderTop: "1px solid var(--border)",
+              color: TOKENS.textMuted,
+              borderTop: `1px solid ${TOKENS.borderColor}`,
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
