@@ -62,8 +62,13 @@ export async function buildNotificationContent(
     ? await buildRecordLink(params.tenantId, params.instanceId)
     : null;
 
-  const actorName = params.actorName;
-  const reason = params.reason;
+  const sanitizeString = (str: unknown): string => {
+    if (typeof str !== "string") return "";
+    return str.replace(/[<>]/g, "");
+  };
+
+  const actorName = sanitizeString(params.actorName);
+  const reason = sanitizeString(params.reason);
 
   switch (eventType) {
     case "entity.assigned":
@@ -111,7 +116,7 @@ export async function buildNotificationContent(
     case "system.error":
       return {
         title: "System error",
-        body: reason ?? "A system error occurred",
+        body: reason || "A system error occurred",
         link: "/admin/system-logs",
       };
     default:

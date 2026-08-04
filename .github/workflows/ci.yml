@@ -151,6 +151,7 @@ jobs:
       ZITADEL_AUDIENCE: platform-api
       NOVU_API_KEY: test_key
       NOVU_API_URL: http://localhost:3010
+      APP_URL: https://platform.example.com
 
     steps:
       - uses: actions/checkout@v4
@@ -240,6 +241,7 @@ jobs:
       DATABASE_MIGRATION_URL: postgresql://platform:platform_test_password@localhost:5432/platform_test
       REDIS_URL: redis://localhost:6379
       NODE_ENV: test
+      APP_URL: https://platform.example.com
 
     steps:
       - uses: actions/checkout@v4

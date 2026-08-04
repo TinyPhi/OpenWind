@@ -33,6 +33,17 @@ vi.mock("bullmq", () => ({
   },
 }));
 
+vi.mock("../ssrf-guard.js", () => ({
+  validateWebhookUrl: vi.fn().mockResolvedValue("1.2.3.4"),
+}));
+
+vi.mock("@platform/config", () => ({
+  env: {
+    APP_URL: "https://platform.example.com",
+    SSRF_BLOCK_CIDRS: [],
+  },
+}));
+
 const { executeNotifyAction } = await import("./notify.js");
 
 const EVENT = {} as TriggerEvent;
@@ -210,5 +221,42 @@ describe("executeNotifyAction", () => {
 
     expect(mockQueueAdd).not.toHaveBeenCalled();
     expect(insertedRows).toHaveLength(2);
+  });
+
+  describe("link validation", () => {
+    it("allows relative links starting with /", async () => {
+      const { validateNotifyLink } = await import("./notify.js");
+      await expect(
+        validateNotifyLink("/entities/abc"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("allows absolute links matching APP_URL's host or subdomain", async () => {
+      const { validateNotifyLink } = await import("./notify.js");
+      await expect(
+        validateNotifyLink("https://platform.example.com/entities/abc"),
+      ).resolves.toBeUndefined();
+      await expect(
+        validateNotifyLink("https://sub.platform.example.com/entities/abc"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("blocks absolute links to other domains", async () => {
+      const { validateNotifyLink } = await import("./notify.js");
+      await expect(
+        validateNotifyLink("https://google.com/entities/abc"),
+      ).rejects.toThrow();
+    });
+
+    it("blocks absolute links matching SSRF blocked ranges", async () => {
+      const { validateNotifyLink } = await import("./notify.js");
+      const { validateWebhookUrl } = await import("../ssrf-guard.js");
+      vi.mocked(validateWebhookUrl).mockRejectedValueOnce(
+        new Error("SSRF_BLOCKED"),
+      );
+      await expect(
+        validateNotifyLink("https://platform.example.com/entities/abc"),
+      ).rejects.toThrow();
+    });
   });
 });

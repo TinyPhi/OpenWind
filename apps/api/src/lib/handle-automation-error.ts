@@ -5,7 +5,7 @@ import { logger } from "@platform/logger";
 // module identity issues when dist and src are loaded by different module loaders.
 function isAutomationError(
   err: unknown,
-): err is { name: string; code: string } {
+): err is { name: string; code: string; meta?: Record<string, unknown> } {
   return (
     err instanceof Error &&
     err.name === "AutomationError" &&
@@ -20,6 +20,19 @@ export function handleAutomationError(c: Context, err: unknown): Response {
         return c.json(
           { error: err.code, message: "Not found" },
           404,
+        ) as Response;
+      case "NOTIFY_LINK_INVALID":
+        return c.json(
+          { error: err.code, message: "Invalid notify link URL or origin" },
+          400,
+        ) as Response;
+      case "INVALID_EVENT_PAYLOAD":
+        return c.json(
+          {
+            error: err.code,
+            message: err.meta?.reason ?? "Invalid event payload config",
+          },
+          400,
         ) as Response;
       case "RULE_CREATE_FAILED":
         logger.error({ err }, "Automation rule create failed unexpectedly");

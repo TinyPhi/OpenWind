@@ -28,6 +28,7 @@ export default defineConfig({
       ANTHROPIC_API_KEY: "test",
       OPENBAO_ADDR: "http://localhost:8200",
       OPENBAO_TOKEN: "dev-root-token",
+      APP_URL: "https://platform.example.com",
     },
     server: {
       deps: {
