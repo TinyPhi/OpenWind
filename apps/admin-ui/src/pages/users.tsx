@@ -1,4 +1,12 @@
 import React, { useEffect, useState } from "react";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
 
@@ -176,15 +184,9 @@ export function UsersPage(): React.ReactElement {
           className="data-panel"
           style={{ overflowX: "auto", overflowY: "hidden" }}
         >
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              whiteSpace: "nowrap",
-            }}
-          >
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+          <Table scroll={false} style={{ whiteSpace: "nowrap" }}>
+            <TableHeader>
+              <TableRow>
                 {[
                   "Name",
                   "Login",
@@ -193,41 +195,29 @@ export function UsersPage(): React.ReactElement {
                   "User ID",
                   ...(isAdmin ? [""] : []),
                 ].map((h) => (
-                  <th
+                  <TableHead
                     key={h}
                     style={{
-                      textAlign: "left",
                       padding: "10px 16px",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "var(--text-muted)",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      background: "var(--surface-secondary, var(--bg-subtle))",
                       whiteSpace: "nowrap",
                     }}
                   >
                     {h}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((u, i) => {
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((u) => {
                 const color = avatarColor(u.userId);
                 return (
-                  <tr
+                  <TableRow
                     key={u.userId}
-                    style={{
-                      borderBottom:
-                        i < filtered.length - 1
-                          ? "1px solid var(--border)"
-                          : "none",
-                    }}
                     onMouseEnter={(e) => {
                       (
                         e.currentTarget as HTMLTableRowElement
-                      ).style.background = "var(--bg-subtle)";
+                      ).style.background =
+                        "var(--bg-tertiary, hsl(222, 15%, 16%))";
                     }}
                     onMouseLeave={(e) => {
                       (
@@ -235,7 +225,7 @@ export function UsersPage(): React.ReactElement {
                       ).style.background = "";
                     }}
                   >
-                    <td style={{ padding: "12px 16px" }}>
+                    <TableCell style={{ padding: "12px 16px" }}>
                       <div
                         style={{
                           display: "flex",
@@ -270,8 +260,8 @@ export function UsersPage(): React.ReactElement {
                           {u.displayName}
                         </span>
                       </div>
-                    </td>
-                    <td
+                    </TableCell>
+                    <TableCell
                       style={{
                         padding: "12px 16px",
                         fontSize: "13px",
@@ -279,8 +269,8 @@ export function UsersPage(): React.ReactElement {
                       }}
                     >
                       {u.loginName}
-                    </td>
-                    <td
+                    </TableCell>
+                    <TableCell
                       style={{
                         padding: "12px 16px",
                         fontSize: "13px",
@@ -288,8 +278,8 @@ export function UsersPage(): React.ReactElement {
                       }}
                     >
                       {u.email}
-                    </td>
-                    <td style={{ padding: "12px 16px" }}>
+                    </TableCell>
+                    <TableCell style={{ padding: "12px 16px" }}>
                       <div
                         style={{
                           display: "flex",
@@ -315,7 +305,8 @@ export function UsersPage(): React.ReactElement {
                                 fontWeight: 600,
                                 padding: "2px 8px",
                                 borderRadius: "999px",
-                                background: "var(--bg-subtle)",
+                                background:
+                                  "var(--bg-tertiary, hsl(222, 15%, 16%))",
                                 color: "var(--text-secondary)",
                                 textTransform: "capitalize",
                               }}
@@ -325,8 +316,8 @@ export function UsersPage(): React.ReactElement {
                           ))
                         )}
                       </div>
-                    </td>
-                    <td
+                    </TableCell>
+                    <TableCell
                       style={{
                         padding: "12px 16px",
                         fontSize: "11px",
@@ -335,9 +326,11 @@ export function UsersPage(): React.ReactElement {
                       }}
                     >
                       {u.userId}
-                    </td>
+                    </TableCell>
                     {isAdmin && (
-                      <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                      <TableCell
+                        style={{ padding: "12px 16px", textAlign: "right" }}
+                      >
                         <a
                           href={zitadelUserUrl(u.userId)}
                           target="_blank"
@@ -356,7 +349,8 @@ export function UsersPage(): React.ReactElement {
                           }}
                           onMouseEnter={(e) => {
                             const el = e.currentTarget as HTMLAnchorElement;
-                            el.style.background = "var(--bg-subtle)";
+                            el.style.background =
+                              "var(--bg-tertiary, hsl(222, 15%, 16%))";
                             el.style.color = "var(--accent, #6366f1)";
                           }}
                           onMouseLeave={(e) => {
@@ -381,13 +375,13 @@ export function UsersPage(): React.ReactElement {
                             />
                           </svg>
                         </a>
-                      </td>
+                      </TableCell>
                     )}
-                  </tr>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           <div
             style={{
               padding: "10px 16px",
