@@ -3,7 +3,7 @@ import { useGetIdentity } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
-import { Button } from "@platform/ui";
+import { Button, useHoverStyle } from "@platform/ui";
 
 type WorkflowState = {
   name: string;
@@ -166,12 +166,17 @@ function KpiCard({
   onClick?: () => void;
   spark?: number[];
 }): React.ReactElement {
+  const cardHover = useHoverStyle({
+    base: { borderColor: withAlpha(color, 0.25), boxShadow: "none" },
+    hover: { borderColor: color, boxShadow: `0 4px 20px ${color}33` },
+  });
+
   return (
     <div
       onClick={onClick}
       style={{
         background: withAlpha(color, 0.1),
-        border: `1px solid ${withAlpha(color, 0.25)}`,
+        border: "1px solid",
         borderRadius: "var(--radius-md)",
         padding: "20px 22px",
         cursor: onClick ? "pointer" : "default",
@@ -181,21 +186,10 @@ function KpiCard({
         transition: "border-color .15s, box-shadow .15s",
         position: "relative",
         overflow: "hidden",
+        ...cardHover.style,
       }}
-      onMouseEnter={(e) => {
-        if (onClick) {
-          (e.currentTarget as HTMLDivElement).style.borderColor = color;
-          (e.currentTarget as HTMLDivElement).style.boxShadow =
-            `0 4px 20px ${color}33`;
-        }
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = withAlpha(
-          color,
-          0.25,
-        );
-        (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
-      }}
+      onMouseEnter={onClick ? cardHover.onMouseEnter : undefined}
+      onMouseLeave={onClick ? cardHover.onMouseLeave : undefined}
     >
       {/* icon */}
       <div

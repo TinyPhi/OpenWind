@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { TOKENS, useHoverStyle } from "@platform/ui";
 import {
   listNotifications,
   markNotificationRead,
@@ -36,6 +37,10 @@ export function NotificationBell(): React.ReactElement {
   const [panelHeight, setPanelHeight] = useState(420);
   const containerRef = useRef<HTMLDivElement>(null);
   const resizeStartRef = useRef<{ y: number; height: number } | null>(null);
+  const bellHover = useHoverStyle({
+    base: { background: "transparent", color: TOKENS.textSecondary },
+    hover: { background: TOKENS.bgTertiary, color: TOKENS.textPrimary },
+  });
 
   const MIN_PANEL_HEIGHT = 240;
   const MAX_PANEL_HEIGHT = 720;
@@ -151,23 +156,12 @@ export function NotificationBell(): React.ReactElement {
           height: "32px",
           borderRadius: "8px",
           border: "none",
-          background: "transparent",
-          color: "var(--text-secondary)",
           cursor: "pointer",
           transition: "background .15s, color .15s",
+          ...bellHover.style,
         }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.background =
-            "var(--bg-tertiary)";
-          (e.currentTarget as HTMLButtonElement).style.color =
-            "var(--text-primary)";
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.background =
-            "transparent";
-          (e.currentTarget as HTMLButtonElement).style.color =
-            "var(--text-secondary)";
-        }}
+        onMouseEnter={bellHover.onMouseEnter}
+        onMouseLeave={bellHover.onMouseLeave}
       >
         {BELL_ICON}
         {unreadCount > 0 && (

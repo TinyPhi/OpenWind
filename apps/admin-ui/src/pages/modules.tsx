@@ -6,6 +6,8 @@ import {
   DialogTitle,
   DialogClose,
   Button,
+  TOKENS,
+  useHoverStyle,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 
@@ -1103,22 +1105,34 @@ function ModuleCard({
   onFork: (mod: Module) => void;
   onPreview: (mod: Module) => void;
 }): React.ReactElement {
-  const [hovered, setHovered] = useState(false);
+  const cardHover = useHoverStyle({
+    base: {
+      border: `1px solid ${TOKENS.borderColor}`,
+      boxShadow: "var(--shadow-sm)",
+    },
+    hover: {
+      border: `1px solid ${accent}55`,
+      boxShadow: `0 4px 20px ${accent}22`,
+    },
+  });
+  const previewButtonHover = useHoverStyle({
+    base: { background: TOKENS.bgTertiary, color: TOKENS.textMuted },
+    hover: { background: TOKENS.bgSecondary, color: TOKENS.textPrimary },
+  });
 
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={cardHover.onMouseEnter}
+      onMouseLeave={cardHover.onMouseLeave}
       style={{
         background: `color-mix(in srgb, ${accent} 8%, var(--bg-card))`,
-        border: `1px solid ${hovered ? accent + "55" : "var(--border-color)"}`,
         borderRadius: "var(--radius-md)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
         transition: "border-color .15s, box-shadow .15s",
-        boxShadow: hovered ? `0 4px 20px ${accent}22` : "var(--shadow-sm)",
         position: "relative",
+        ...cardHover.style,
       }}
     >
       {/* top accent stripe */}
@@ -1299,24 +1313,13 @@ function ModuleCard({
               width: "30px",
               height: "30px",
               borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border-color)",
-              background: "var(--bg-tertiary)",
-              color: "var(--text-muted)",
+              border: `1px solid ${TOKENS.borderColor}`,
               cursor: "pointer",
               transition: "background .15s, color .15s",
+              ...previewButtonHover.style,
             }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "var(--bg-secondary)";
-              (e.currentTarget as HTMLButtonElement).style.color =
-                "var(--text-primary)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "var(--bg-tertiary)";
-              (e.currentTarget as HTMLButtonElement).style.color =
-                "var(--text-muted)";
-            }}
+            onMouseEnter={previewButtonHover.onMouseEnter}
+            onMouseLeave={previewButtonHover.onMouseLeave}
           >
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
               <path
