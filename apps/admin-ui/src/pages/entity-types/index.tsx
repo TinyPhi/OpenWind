@@ -8,6 +8,12 @@ import {
   DialogTitle,
   Button,
   DIALOG_CONTENT_RESET,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
@@ -121,26 +127,26 @@ export function EntityTypes(): React.ReactElement {
         </div>
       ) : (
         <div className="data-panel">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Plural</th>
-                <th>Module</th>
-                <th>Custom Fields</th>
-                <th>Created</th>
-                <th style={{ width: "80px" }}>Records</th>
-                <th style={{ width: "40px" }}></th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table scroll={false}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Plural</TableHead>
+                <TableHead>Module</TableHead>
+                <TableHead>Custom Fields</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead style={{ width: "80px" }}>Records</TableHead>
+                <TableHead style={{ width: "40px" }}></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {types.map((type) => (
-                <tr
+                <TableRow
                   key={type.id}
-                  className="table-row-clickable"
+                  clickable
                   onClick={() => navigate(`/entity-types/${type.id}`)}
                 >
-                  <td>
+                  <TableCell>
                     <div
                       style={{
                         display: "flex",
@@ -159,11 +165,11 @@ export function EntityTypes(): React.ReactElement {
                       )}
                       <span style={{ fontWeight: 600 }}>{type.name}</span>
                     </div>
-                  </td>
-                  <td style={{ color: "var(--text-secondary)" }}>
+                  </TableCell>
+                  <TableCell style={{ color: "var(--text-secondary)" }}>
                     {type.plural}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {type.moduleId ? (
                       <span className="badge badge-primary">
                         {type.moduleId}
@@ -175,18 +181,20 @@ export function EntityTypes(): React.ReactElement {
                         custom
                       </span>
                     )}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <span
                       className={`badge ${type.allowCustomFields ? "badge-success" : "badge-muted"}`}
                     >
                       {type.allowCustomFields ? "Yes" : "No"}
                     </span>
-                  </td>
-                  <td style={{ color: "var(--text-muted)", fontSize: "13px" }}>
+                  </TableCell>
+                  <TableCell
+                    style={{ color: "var(--text-muted)", fontSize: "13px" }}
+                  >
                     {new Date(type.createdAt).toLocaleDateString()}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <Button
                       asChild
                       variant="secondary"
@@ -203,8 +211,8 @@ export function EntityTypes(): React.ReactElement {
                         Records
                       </Link>
                     </Button>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <button
                       className="btn-icon"
                       onClick={(e) => {
@@ -214,11 +222,11 @@ export function EntityTypes(): React.ReactElement {
                     >
                       →
                     </button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 

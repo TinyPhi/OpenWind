@@ -1,6 +1,15 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Button, IconButton } from "@platform/ui";
+import {
+  Button,
+  IconButton,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 
@@ -153,149 +162,147 @@ export function Automations(): React.ReactElement {
           </Button>
         </div>
       ) : (
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Trigger</th>
-                <th>Actions</th>
-                <th>Priority</th>
-                <th>Enabled</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((rule) => {
-                const triggerColor =
-                  TRIGGER_COLORS[rule.triggerType] ?? "var(--accent-primary)";
-                return (
-                  <tr key={rule.id}>
-                    <td>
-                      <Link
-                        to={`/automations/${rule.id}/edit`}
-                        style={{
-                          fontWeight: 600,
-                          color: "var(--text-primary)",
-                          textDecoration: "none",
-                        }}
-                      >
-                        {rule.name}
-                      </Link>
-                    </td>
-                    <td>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Trigger</TableHead>
+              <TableHead>Actions</TableHead>
+              <TableHead>Priority</TableHead>
+              <TableHead>Enabled</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rules.map((rule) => {
+              const triggerColor =
+                TRIGGER_COLORS[rule.triggerType] ?? "var(--accent-primary)";
+              return (
+                <TableRow key={rule.id}>
+                  <TableCell>
+                    <Link
+                      to={`/automations/${rule.id}/edit`}
+                      style={{
+                        fontWeight: 600,
+                        color: "var(--text-primary)",
+                        textDecoration: "none",
+                      }}
+                    >
+                      {rule.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className="badge"
+                      style={{
+                        background: `${triggerColor}22`,
+                        color: triggerColor,
+                        border: `1px solid ${triggerColor}44`,
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        padding: "2px 8px",
+                        borderRadius: "20px",
+                      }}
+                    >
+                      {TRIGGER_LABELS[rule.triggerType] ?? rule.triggerType}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      style={{ color: "var(--text-muted)", fontSize: "13px" }}
+                    >
+                      {rule.actions.length}{" "}
+                      {rule.actions.length === 1 ? "action" : "actions"}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      style={{
+                        color: "var(--text-secondary)",
+                        fontSize: "13px",
+                      }}
+                    >
+                      {rule.priority}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <button
+                      className={`form-checkbox ${rule.isEnabled ? "checked" : ""}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        background: "none",
+                        border: "none",
+                        cursor: togglingId === rule.id ? "wait" : "pointer",
+                        padding: "2px 0",
+                        color: rule.isEnabled
+                          ? "var(--success)"
+                          : "var(--text-muted)",
+                        fontWeight: 600,
+                        fontSize: "12px",
+                        opacity: togglingId === rule.id ? 0.5 : 1,
+                      }}
+                      disabled={togglingId === rule.id}
+                      onClick={() => void handleToggle(rule)}
+                      title={rule.isEnabled ? "Disable rule" : "Enable rule"}
+                    >
                       <span
-                        className="badge"
                         style={{
-                          background: `${triggerColor}22`,
-                          color: triggerColor,
-                          border: `1px solid ${triggerColor}44`,
-                          fontSize: "11px",
-                          fontWeight: 600,
-                          padding: "2px 8px",
-                          borderRadius: "20px",
-                        }}
-                      >
-                        {TRIGGER_LABELS[rule.triggerType] ?? rule.triggerType}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        style={{ color: "var(--text-muted)", fontSize: "13px" }}
-                      >
-                        {rule.actions.length}{" "}
-                        {rule.actions.length === 1 ? "action" : "actions"}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        style={{
-                          color: "var(--text-secondary)",
-                          fontSize: "13px",
-                        }}
-                      >
-                        {rule.priority}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className={`form-checkbox ${rule.isEnabled ? "checked" : ""}`}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          background: "none",
-                          border: "none",
-                          cursor: togglingId === rule.id ? "wait" : "pointer",
-                          padding: "2px 0",
-                          color: rule.isEnabled
+                          display: "inline-block",
+                          width: "28px",
+                          height: "16px",
+                          borderRadius: "8px",
+                          background: rule.isEnabled
                             ? "var(--success)"
-                            : "var(--text-muted)",
-                          fontWeight: 600,
-                          fontSize: "12px",
-                          opacity: togglingId === rule.id ? 0.5 : 1,
+                            : "var(--border-color)",
+                          position: "relative",
+                          transition: "background 0.2s",
+                          flexShrink: 0,
                         }}
-                        disabled={togglingId === rule.id}
-                        onClick={() => void handleToggle(rule)}
-                        title={rule.isEnabled ? "Disable rule" : "Enable rule"}
                       >
                         <span
                           style={{
-                            display: "inline-block",
-                            width: "28px",
-                            height: "16px",
-                            borderRadius: "8px",
-                            background: rule.isEnabled
-                              ? "var(--success)"
-                              : "var(--border-color)",
-                            position: "relative",
-                            transition: "background 0.2s",
-                            flexShrink: 0,
+                            display: "block",
+                            width: "12px",
+                            height: "12px",
+                            borderRadius: "50%",
+                            background: "#fff",
+                            position: "absolute",
+                            top: "2px",
+                            left: rule.isEnabled ? "14px" : "2px",
+                            transition: "left 0.2s",
                           }}
-                        >
-                          <span
-                            style={{
-                              display: "block",
-                              width: "12px",
-                              height: "12px",
-                              borderRadius: "50%",
-                              background: "#fff",
-                              position: "absolute",
-                              top: "2px",
-                              left: rule.isEnabled ? "14px" : "2px",
-                              transition: "left 0.2s",
-                            }}
-                          />
-                        </span>
-                        {rule.isEnabled ? "On" : "Off"}
-                      </button>
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <IconButton
-                          variant="edit"
-                          title="Edit rule"
-                          onClick={() =>
-                            void navigate(`/automations/${rule.id}/edit`)
-                          }
-                        >
-                          ✏
-                        </IconButton>
-                        <IconButton
-                          variant="delete"
-                          title="Delete rule"
-                          onClick={() => setConfirmDelete(rule)}
-                        >
-                          🗑
-                        </IconButton>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                        />
+                      </span>
+                      {rule.isEnabled ? "On" : "Off"}
+                    </button>
+                  </TableCell>
+                  <TableCell>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <IconButton
+                        variant="edit"
+                        title="Edit rule"
+                        onClick={() =>
+                          void navigate(`/automations/${rule.id}/edit`)
+                        }
+                      >
+                        ✏
+                      </IconButton>
+                      <IconButton
+                        variant="delete"
+                        title="Delete rule"
+                        onClick={() => setConfirmDelete(rule)}
+                      >
+                        🗑
+                      </IconButton>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
 
       {/* Delete confirm modal */}

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { TOKENS } from "./tokens.js";
 
 /**
  * Mirrors apps/admin-ui/src/index.css's .icon-btn/.icon-btn-edit/
@@ -40,12 +41,12 @@ const variantStyle: Record<IconButtonVariant, React.CSSProperties> = {
     borderColor: "hsla(210, 80%, 55%, 0.2)",
   },
   delete: {
-    color: "var(--danger, hsl(350, 80%, 60%))",
+    color: TOKENS.danger,
     background: "hsla(350, 80%, 60%, 0.08)",
     borderColor: "hsla(350, 80%, 60%, 0.2)",
   },
   ghost: {
-    color: "var(--text-muted, hsl(222, 8%, 56%))",
+    color: TOKENS.textMuted,
     background: "transparent",
     borderColor: "transparent",
   },
@@ -62,13 +63,13 @@ const variantHoverStyle: Record<IconButtonVariant, React.CSSProperties> = {
     borderColor: "hsla(350, 80%, 60%, 0.35)",
   },
   ghost: {
-    background: "var(--bg-tertiary, hsl(222, 15%, 16%))",
-    color: "var(--text-secondary, hsl(222, 10%, 75%))",
+    background: TOKENS.bgTertiary,
+    color: TOKENS.textSecondary,
   },
 };
 
 const focusStyle: React.CSSProperties = {
-  boxShadow: "0 0 0 3px var(--border-focus, hsla(250, 84%, 66%, 0.35))",
+  boxShadow: `0 0 0 3px ${TOKENS.borderFocus}`,
 };
 
 const activeStyle: React.CSSProperties = {

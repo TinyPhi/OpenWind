@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
+import { TOKENS } from "./tokens.js";
 
 /** See dialog.tsx's header comment — same design-token contract applies here. */
 
@@ -33,23 +34,23 @@ const AlertDialogOverlay = React.forwardRef<
 });
 
 const contentStyle: React.CSSProperties = {
-  background: "var(--bg-secondary, hsl(222, 15%, 18%))",
-  border: "1px solid var(--border-color, hsla(222, 12%, 40%, 0.35))",
-  borderRadius: "var(--radius-lg, 20px)",
+  background: TOKENS.bgSecondary,
+  border: `1px solid ${TOKENS.borderColor}`,
+  borderRadius: TOKENS.radiusLg,
   width: "100%",
   maxWidth: 440,
   maxHeight: "90vh",
   overflowY: "auto",
-  boxShadow: "var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.6))",
+  boxShadow: TOKENS.shadowLg,
   padding: "20px 24px",
 };
 
 const ALERT_DIALOG_STYLES_ID = "ow-alert-dialog-styles";
 const ALERT_DIALOG_STYLES = `
   .ow-alert-action:hover { filter: brightness(0.9); }
-  .ow-alert-action:focus-visible { outline: 2px solid var(--ring, hsl(215, 90%, 60%)); outline-offset: 2px; }
-  .ow-alert-cancel:hover { background: var(--muted-hover, hsl(210, 40%, 90%)); }
-  .ow-alert-cancel:focus-visible { outline: 2px solid var(--ring, hsl(215, 90%, 60%)); outline-offset: 2px; }
+  .ow-alert-action:focus-visible { outline: 2px solid ${TOKENS.ring}; outline-offset: 2px; }
+  .ow-alert-cancel:hover { background: ${TOKENS.mutedHover}; }
+  .ow-alert-cancel:focus-visible { outline: 2px solid ${TOKENS.ring}; outline-offset: 2px; }
 `;
 
 function injectAlertDialogStyles(): void {
@@ -104,7 +105,7 @@ const AlertDialogTitle = React.forwardRef<
       style={{
         fontSize: 16,
         fontWeight: 700,
-        color: "var(--text-primary, hsl(0, 0%, 94%))",
+        color: TOKENS.textPrimary,
         margin: 0,
         ...style,
       }}
@@ -123,7 +124,7 @@ const AlertDialogDescription = React.forwardRef<
       ref={ref}
       style={{
         fontSize: 13,
-        color: "var(--text-muted, hsl(222, 8%, 56%))",
+        color: TOKENS.textMuted,
         marginTop: 4,
         ...style,
       }}
@@ -154,11 +155,11 @@ function AlertDialogFooter({
 
 const buttonBaseStyle: React.CSSProperties = {
   padding: "8px 16px",
-  borderRadius: "var(--radius-sm, 6px)",
+  borderRadius: TOKENS.radiusSm,
   fontSize: 13,
   fontWeight: 600,
   cursor: "pointer",
-  transition: "var(--transition-fast, 0.15s ease)",
+  transition: TOKENS.transitionFast,
   border: "1px solid transparent",
 };
 
@@ -172,7 +173,7 @@ const AlertDialogAction = React.forwardRef<
       className={["ow-alert-action", className].filter(Boolean).join(" ")}
       style={{
         ...buttonBaseStyle,
-        background: "var(--danger, hsl(350, 80%, 60%))",
+        background: TOKENS.danger,
         color: "hsl(0, 0%, 100%)",
         ...style,
       }}
@@ -193,8 +194,8 @@ const AlertDialogCancel = React.forwardRef<
       style={{
         ...buttonBaseStyle,
         background: "transparent",
-        color: "var(--text-primary, hsl(0, 0%, 94%))",
-        borderColor: "var(--border-color, hsla(222, 12%, 40%, 0.35))",
+        color: TOKENS.textPrimary,
+        borderColor: TOKENS.borderColor,
         ...style,
       }}
       {...props}
