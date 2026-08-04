@@ -31,7 +31,9 @@
     "setup-auth": "tsx scripts/setup-dev-auth.ts",
     "setup-bao": "tsx scripts/setup-dev-bao.ts",
     "seed:demo": "dotenv -e .env.local -- tsx scripts/seed-demo.ts",
-    "reset:data": "pnpm exec dotenv -e .env.local -- tsx scripts/reset-data.ts"
+    "reset:data": "pnpm exec dotenv -e .env.local -- tsx scripts/reset-data.ts",
+    "dev:down": "docker compose down",
+    "dev:reset": "tsx scripts/dev-reset.ts"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",
