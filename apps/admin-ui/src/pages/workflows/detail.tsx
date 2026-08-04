@@ -113,6 +113,7 @@ type WorkflowTransition = {
   allowedRoles: string[];
   requiresComment: boolean;
   requiresFields: string[];
+  sortOrder: number;
 };
 
 type WorkflowFull = {
@@ -1337,6 +1338,28 @@ export function WorkflowDetail(): React.ReactElement {
   const [inlineError, setInlineError] = useState<string | null>(null);
   const fieldSensors = useSensors(useSensor(PointerSensor));
 
+  const [settingInitialStateId, setSettingInitialStateId] = useState<
+    string | null
+  >(null);
+
+  async function handleSetInitialState(state: WorkflowState): Promise<void> {
+    if (!id) return;
+    setSettingInitialStateId(state.id);
+    try {
+      await fetchWithAuth(`${API_URL}/workflows/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ initialState: state.name }),
+      });
+      void refetch();
+    } catch (err) {
+      setInlineError(
+        err instanceof Error ? err.message : "Failed to set starting step",
+      );
+    } finally {
+      setSettingInitialStateId(null);
+    }
+  }
+
   const fetchFields = useCallback((entityTypeId: string): void => {
     setFieldsLoading(true);
     fetchWithAuth(`${API_URL}/entity-types/${entityTypeId}/fields`)
@@ -2364,6 +2387,32 @@ export function WorkflowDetail(): React.ReactElement {
                             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
                         </button>
+                        {state.name !== workflow.initialState &&
+                          !state.isTerminal && (
+                            <button
+                              className="icon-btn"
+                              disabled={settingInitialStateId === state.id}
+                              onClick={() => void handleSetInitialState(state)}
+                              title="Set as starting step"
+                            >
+                              {settingInitialStateId === state.id ? (
+                                <span style={{ fontSize: "11px" }}>…</span>
+                              ) : (
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polygon points="5 3 19 12 5 21 5 3" />
+                                </svg>
+                              )}
+                            </button>
+                          )}
                         {state.name !== workflow.initialState ? (
                           <button
                             className="icon-btn icon-btn-delete"
@@ -2449,152 +2498,113 @@ export function WorkflowDetail(): React.ReactElement {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th style={{ width: "40px" }}>#</th>
                     <th>Route</th>
                     <th className="wfd-table-hide-xs">Label</th>
-                    <th className="wfd-table-hide-xs">Who Can Do This</th>
                     <th className="wfd-table-hide-xs">Requirements</th>
                     <th style={{ width: "80px" }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {workflow.transitions.map((t) => (
-                    <tr key={t.id}>
-                      <td>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            flexWrap: "wrap",
-                          }}
+                  {[...workflow.transitions]
+                    .sort((a, b) => a.sortOrder - b.sortOrder)
+                    .map((t, i) => (
+                      <tr key={t.id}>
+                        <td
+                          className="text-muted-sm"
+                          style={{ fontWeight: 600 }}
                         >
-                          <code
-                            className="code-inline"
-                            style={{ fontSize: "11px" }}
-                          >
-                            {t.fromState}
-                          </code>
-                          <span
-                            style={{
-                              color: "var(--accent-primary)",
-                              fontWeight: 700,
-                              fontSize: "14px",
-                            }}
-                          >
-                            →
-                          </span>
-                          <code
-                            className="code-inline"
-                            style={{ fontSize: "11px" }}
-                          >
-                            {t.toState}
-                          </code>
-                        </div>
-                      </td>
-                      <td
-                        className="wfd-table-hide-xs"
-                        style={{ fontWeight: 500, fontSize: "13px" }}
-                      >
-                        {t.label || <span className="text-muted-sm">—</span>}
-                      </td>
-                      <td className="wfd-table-hide-xs">
-                        {t.allowedRoles.length === 0 ? (
-                          <span className="text-muted-sm">Any</span>
-                        ) : (
+                          {i + 1}
+                        </td>
+                        <td>
                           <div
                             style={{
                               display: "flex",
-                              gap: "4px",
+                              alignItems: "center",
+                              gap: "6px",
                               flexWrap: "wrap",
                             }}
                           >
-                            {t.allowedRoles.map((r) => (
-                              <span key={r} className="badge badge-primary">
-                                {r}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td className="wfd-table-hide-xs">
-                        {!t.requiresComment && t.requiresFields.length === 0 ? (
-                          <span className="text-muted-sm">—</span>
-                        ) : (
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "4px",
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            {t.requiresComment && (
-                              <span className="badge badge-warning">
-                                Comment
-                              </span>
-                            )}
-                            {t.requiresFields.length > 0 && (
-                              <span className="badge badge-warning">
-                                {t.requiresFields.length} detail
-                                {t.requiresFields.length > 1 ? "s" : ""}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "6px",
-                            justifyContent: "flex-end",
-                          }}
-                        >
-                          <button
-                            className="icon-btn icon-btn-edit"
-                            onClick={() => {
-                              setEditingTransition(t);
-                              setTransForm({
-                                fromState: t.fromState,
-                                toState: t.toState,
-                                label: t.label,
-                                allowedRoles: [...t.allowedRoles],
-                                requiresComment: t.requiresComment,
-                              });
-                              setTransError(null);
-                            }}
-                            title="Edit action"
-                          >
-                            <svg
-                              width="13"
-                              height="13"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
+                            <code
+                              className="code-inline"
+                              style={{ fontSize: "11px" }}
                             >
-                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
-                          </button>
-                          <button
-                            className="icon-btn icon-btn-delete"
-                            disabled={deletingTransId === t.id}
-                            onClick={() =>
-                              setConfirmDelete({
-                                message: `Delete action "${t.label || `${t.fromState} → ${t.toState}`}"?`,
-                                onConfirm: () => {
-                                  setConfirmDelete(null);
-                                  void handleDeleteTransition(t.id);
-                                },
-                              })
-                            }
-                            title="Delete action"
+                              {t.fromState}
+                            </code>
+                            <span
+                              style={{
+                                color: "var(--accent-primary)",
+                                fontWeight: 700,
+                                fontSize: "14px",
+                              }}
+                            >
+                              →
+                            </span>
+                            <code
+                              className="code-inline"
+                              style={{ fontSize: "11px" }}
+                            >
+                              {t.toState}
+                            </code>
+                          </div>
+                        </td>
+                        <td
+                          className="wfd-table-hide-xs"
+                          style={{ fontWeight: 500, fontSize: "13px" }}
+                        >
+                          {t.label || <span className="text-muted-sm">—</span>}
+                        </td>
+                        <td className="wfd-table-hide-xs">
+                          {!t.requiresComment &&
+                          t.requiresFields.length === 0 ? (
+                            <span className="text-muted-sm">—</span>
+                          ) : (
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "4px",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              {t.requiresComment && (
+                                <span className="badge badge-warning">
+                                  Comment
+                                </span>
+                              )}
+                              {t.requiresFields.length > 0 && (
+                                <span className="badge badge-warning">
+                                  {t.requiresFields.length} detail
+                                  {t.requiresFields.length > 1 ? "s" : ""}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td
+                          style={{ textAlign: "right", whiteSpace: "nowrap" }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "6px",
+                              justifyContent: "flex-end",
+                            }}
                           >
-                            {deletingTransId === t.id ? (
-                              <span style={{ fontSize: "11px" }}>…</span>
-                            ) : (
+                            <button
+                              className="icon-btn icon-btn-edit"
+                              onClick={() => {
+                                setEditingTransition(t);
+                                setTransForm({
+                                  fromState: t.fromState,
+                                  toState: t.toState,
+                                  label: t.label,
+                                  allowedRoles: [...t.allowedRoles],
+                                  requiresComment: t.requiresComment,
+                                });
+                                setTransError(null);
+                              }}
+                              title="Edit action"
+                            >
                               <svg
                                 width="13"
                                 height="13"
@@ -2605,16 +2615,47 @@ export function WorkflowDetail(): React.ReactElement {
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                               >
-                                <polyline points="3 6 5 6 21 6" />
-                                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                <path d="M10 11v6M14 11v6" />
+                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                               </svg>
-                            )}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            </button>
+                            <button
+                              className="icon-btn icon-btn-delete"
+                              disabled={deletingTransId === t.id}
+                              onClick={() =>
+                                setConfirmDelete({
+                                  message: `Delete action "${t.label || `${t.fromState} → ${t.toState}`}"?`,
+                                  onConfirm: () => {
+                                    setConfirmDelete(null);
+                                    void handleDeleteTransition(t.id);
+                                  },
+                                })
+                              }
+                              title="Delete action"
+                            >
+                              {deletingTransId === t.id ? (
+                                <span style={{ fontSize: "11px" }}>…</span>
+                              ) : (
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                                  <path d="M10 11v6M14 11v6" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>

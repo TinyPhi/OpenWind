@@ -104,24 +104,6 @@ export class ModuleService {
         isSystem: false,
         minPlan: "standard",
       },
-      {
-        slug: "nsi-amendment",
-        name: "NSI Amendment Request",
-        description:
-          "Non-Schedule Item amendment request lifecycle from internal review through Railway submission to approval",
-        version: "0.0.1",
-        isSystem: false,
-        minPlan: "standard",
-      },
-      {
-        slug: "sales-pipeline",
-        name: "Sales Pipeline & Enquiry Tracking",
-        description:
-          "Sales enquiry tracking from costing through internal approvals, quotation, and order outcome",
-        version: "0.0.1",
-        isSystem: false,
-        minPlan: "standard",
-      },
     ];
 
     logger.info({}, "Seeding modules registry...");

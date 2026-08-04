@@ -13,6 +13,7 @@ const UpdateWorkflowSchema = z.object({
   assignedTo: z.array(z.string()).optional(),
   maxChildDepth: z.number().int().min(0).max(10).nullable().optional(),
   maxChildrenPerParent: z.number().int().min(1).max(100).nullable().optional(),
+  initialState: z.string().min(1).max(100).optional(),
 });
 
 export const updateWorkflowHandler = factory.createHandlers(

@@ -53,7 +53,9 @@ export function CreateWorkflow(): React.ReactElement {
       })) as { data: { id: string } };
       const entityTypeId = etRes.data.id;
 
-      // Create workflow with a sensible default initial state
+      // Placeholder — no states exist yet, so this can't name a real one.
+      // addWorkflowState auto-heals initialState to whichever state is
+      // created first; PATCH /workflows/:id lets an admin repoint it later.
       await fetchWithAuth(`${API_URL}/workflows`, {
         method: "POST",
         body: JSON.stringify({

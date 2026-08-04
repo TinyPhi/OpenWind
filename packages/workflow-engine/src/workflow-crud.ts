@@ -68,6 +68,7 @@ function rowToTransition(
     conditions: (r.conditions as ConditionTree | null) ?? null,
     requiresComment: r.requiresComment,
     requiresFields: r.requiresFields,
+    sortOrder: r.sortOrder,
   };
 }
 
@@ -183,7 +184,7 @@ export async function getWorkflow(
           eq(workflowTransitions.tenantId, tenantId),
         ),
       )
-      .orderBy(asc(workflowTransitions.id)),
+      .orderBy(asc(workflowTransitions.sortOrder)),
   ]);
 
   return {
@@ -291,7 +292,7 @@ export async function listWorkflows(
           eq(workflowTransitions.tenantId, tenantId),
         ),
       )
-      .orderBy(asc(workflowTransitions.id)),
+      .orderBy(asc(workflowTransitions.sortOrder)),
     db
       .select({ workflowId: entityInstances.workflowId, total: count() })
       .from(entityInstances)
@@ -374,6 +375,29 @@ export async function updateWorkflow(
     });
   }
 
+  if (input.initialState !== undefined) {
+    // Must name a real, non-terminal state on this workflow — otherwise every
+    // new entity instance starts on a currentState no transition's fromState
+    // ever matches, leaving it permanently stuck (see issue found on the
+    // Tender1 workflow: initialState was left pointing at a state name that
+    // was never actually created).
+    const [target] = await db
+      .select({ isTerminal: workflowStates.isTerminal })
+      .from(workflowStates)
+      .where(
+        and(
+          eq(workflowStates.workflowId, workflowId),
+          eq(workflowStates.tenantId, tenantId),
+          eq(workflowStates.name, input.initialState),
+        ),
+      )
+      .limit(1);
+    if (!target || target.isTerminal)
+      throw new WorkflowError("WORKFLOW_INITIAL_STATE_INVALID", {
+        initialState: input.initialState,
+      });
+  }
+
   const updates: Partial<typeof workflows.$inferInsert> = {};
   if (input.isActive !== undefined) updates.isActive = input.isActive;
   if (input.assignedTo !== undefined) updates.assignedTo = input.assignedTo;
@@ -381,6 +405,8 @@ export async function updateWorkflow(
     updates.maxChildDepth = input.maxChildDepth ?? 1;
   if (input.maxChildrenPerParent !== undefined)
     updates.maxChildrenPerParent = input.maxChildrenPerParent ?? 10;
+  if (input.initialState !== undefined)
+    updates.initialState = input.initialState;
 
   if (Object.keys(updates).length === 0) {
     const [current] = await db
@@ -499,6 +525,22 @@ export async function addWorkflowState(
 ): Promise<WorkflowState> {
   await assertWorkflowOwned(db, tenantId, workflowId, caller);
 
+  // createWorkflow sets initialState to a guessed slug before any states
+  // exist (see apps/admin-ui create.tsx) — nothing renames a state to match
+  // it unless the user happens to pick that exact name, leaving initialState
+  // permanently orphaned. Auto-heal by pointing it at the workflow's first
+  // real state the moment one is created.
+  const [countRow] = await db
+    .select({ value: count() })
+    .from(workflowStates)
+    .where(
+      and(
+        eq(workflowStates.workflowId, workflowId),
+        eq(workflowStates.tenantId, tenantId),
+      ),
+    );
+  const existingStateCount = countRow?.value ?? 0;
+
   const [row] = await db
     .insert(workflowStates)
     .values({
@@ -514,6 +556,13 @@ export async function addWorkflowState(
     .returning();
 
   if (!row) throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND");
+
+  if (existingStateCount === 0 && !row.isTerminal) {
+    await db
+      .update(workflows)
+      .set({ initialState: row.name })
+      .where(eq(workflows.id, workflowId));
+  }
 
   logger.info(
     { tenantId, workflowId, stateId: row.id },

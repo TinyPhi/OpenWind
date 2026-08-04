@@ -100,6 +100,9 @@ export function Login(): React.ReactElement {
 
       {/* ── Main ── */}
       <main className="lp-main">
+        {/* Soft light source behind the card, tinted with the active accent
+            color so it matches whichever theme/accent the user has picked */}
+        <div className="lp-card-glow" aria-hidden="true" />
         <div className="lp-card">
           {/* Card header */}
           <div className="lp-card-head">

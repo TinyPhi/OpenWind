@@ -23,8 +23,6 @@ const MODULE_EMOJI: Record<string, string> = {
   invoicing: "🧾",
   procurement: "🛒",
   reimbursements: "💸",
-  "nsi-amendment": "🚆",
-  "sales-pipeline": "📈",
 };
 
 const MODULE_DEFAULT_NAMES: Record<string, string> = {
@@ -35,8 +33,6 @@ const MODULE_DEFAULT_NAMES: Record<string, string> = {
   projects: "Task Lifecycle",
   invoicing: "Invoice Lifecycle",
   procurement: "Purchase Approval",
-  "nsi-amendment": "NSI Amendment Request",
-  "sales-pipeline": "Sales Pipeline Tracker",
 };
 
 const MODULE_FEATURES: Record<string, string[]> = {
@@ -82,18 +78,6 @@ const MODULE_FEATURES: Record<string, string[]> = {
     "Vendor tracking",
     "Delivery confirmation",
   ],
-  "nsi-amendment": [
-    "Internal review sign-off",
-    "Document collection",
-    "Railway submission tracking",
-    "Follow-up reminders",
-  ],
-  "sales-pipeline": [
-    "Enquiry-to-order tracking",
-    "Costing & approvals",
-    "Follow-up reminders",
-    "Pipeline KPI dashboard",
-  ],
 };
 
 function SectionLabel({
@@ -125,8 +109,6 @@ const MODULE_COLOR: Record<string, string> = {
   projects: "hsl(185,80%,40%)",
   invoicing: "hsl(340,80%,58%)",
   procurement: "hsl(45,90%,48%)",
-  "nsi-amendment": "hsl(200,85%,45%)",
-  "sales-pipeline": "hsl(280,70%,55%)",
 };
 
 const MODULE_STATES: Record<
