@@ -278,4 +278,23 @@ describe("validateWebhookUrl — invalid input", () => {
     });
     expect(mockLookup).not.toHaveBeenCalled();
   });
+
+  it("allows permitted port 8080", async () => {
+    mockLookup.mockReturnValue(dnsResult(["1.2.3.4"]));
+    const ip = await validateWebhookUrl("http://example.com:8080/hook");
+    expect(ip).toBe("1.2.3.4");
+  });
+
+  it("blocks non-permitted port 6379 (Redis)", async () => {
+    await expect(
+      validateWebhookUrl("http://example.com:6379/hook"),
+    ).rejects.toMatchObject({
+      code: "WEBHOOK_SSRF_BLOCKED",
+      meta: expect.objectContaining({
+        reason: "port-not-allowed",
+        port: "6379",
+      }),
+    });
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
 });

@@ -45,6 +45,7 @@ const NotifyConfigSchema = z.object({
     .object({
       title: z.string().max(200).optional(),
       body: z.string().max(1000).optional(),
+      link: z.string().optional(),
     })
     .optional(),
   // Wizard UI display state — symbolic recipient roles ("assignee", "creator",
@@ -75,6 +76,7 @@ const WebhookActionConfigSchema = z.object({
   method: z.enum(["POST", "PUT", "PATCH"]).optional(),
   headers: z.record(z.string()).optional(),
   includePayload: z.boolean().optional(),
+  sendFields: z.array(z.string()).optional(),
   timeoutMs: z.number().int().positive().optional(),
 });
 

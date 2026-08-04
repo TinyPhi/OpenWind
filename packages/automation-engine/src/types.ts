@@ -65,6 +65,8 @@ export type WebhookActionConfig = {
   headers?: Record<string, string>;
   /** If true, include the full trigger event payload in the request body */
   includePayload?: boolean;
+  /** Field allow-list: when includePayload is true, specifies exactly which fields to share */
+  sendFields?: string[];
   timeoutMs?: number;
 };
 
@@ -119,7 +121,8 @@ export class AutomationError extends Error {
       | "WEBHOOK_SSRF_BLOCKED"
       | "DNS_RESOLUTION_TIMEOUT"
       | "UNKNOWN_ACTION_TYPE"
-      | "CIRCUIT_BREAKER_UNAVAILABLE",
+      | "CIRCUIT_BREAKER_UNAVAILABLE"
+      | "NOTIFY_LINK_INVALID",
     public readonly meta?: Record<string, unknown>,
   ) {
     super(code);
