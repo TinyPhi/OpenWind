@@ -236,6 +236,10 @@ describe("alertWorker processor (§R5, §R7)", () => {
       "notification:push",
       expect.stringContaining('"body":"Call the client back"'),
     );
+    expect(mockRedisPublish).toHaveBeenCalledWith(
+      "notification:push",
+      expect.stringContaining('"title":"Ticket alert"'),
+    );
   });
 
   it("enqueues the outbound handoff only when the kill switch is enabled", async () => {

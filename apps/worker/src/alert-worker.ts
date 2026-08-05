@@ -17,10 +17,10 @@
  * recipientsSnapshot for scope='all'), never re-derived from live ticket
  * access.
  *
- * Notification body is deliberately generic (no interpolation of the
- * alert's free-text note) — matches notification-templates.ts's existing
- * rule against putting raw user content into a channel with no read-access
- * check of its own. The note itself is visible in the ticket's alert list.
+ * Notification body is the alert's own free-text note verbatim — an
+ * intentional, scoped exception to notification-templates.ts's "never
+ * interpolate free-text user content" rule; see the inline comment at the
+ * title/body assignment below for the accepted-risk rationale.
  */
 
 import { Worker } from "bullmq";
