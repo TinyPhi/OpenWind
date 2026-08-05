@@ -9,6 +9,8 @@ import { setEntityStateHandler } from "./set-state.js";
 import { createRelationHandler } from "./create-relation.js";
 import { listRelationsHandler } from "./list-relations.js";
 import { deleteRelationHandler } from "./delete-relation.js";
+import { createReferenceHandler } from "./create-reference.js";
+import { deleteReferenceHandler } from "./delete-reference.js";
 import { searchEntitiesHandler } from "./search.js";
 import { bulkCreateHandler } from "./bulk-create.js";
 import { bulkUpdateHandler } from "./bulk-update.js";
@@ -71,6 +73,9 @@ router.post("/:id/comments", ...addCommentHandler);
 router.post("/:id/relations", ...createRelationHandler);
 router.get("/:id/relations", ...listRelationsHandler);
 router.delete("/:id/relations/:relationId", ...deleteRelationHandler);
+
+router.post("/:id/references", ...createReferenceHandler);
+router.delete("/:id/references/:relationId", ...deleteReferenceHandler);
 
 router.post("/:id/children", ...createChildHandler);
 router.get("/:id/children", ...listChildrenHandler);
