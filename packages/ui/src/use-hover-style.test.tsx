@@ -1,6 +1,12 @@
 import type * as React from "react";
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  renderHook,
+  screen,
+  fireEvent,
+  cleanup,
+} from "@testing-library/react";
 import { useHoverStyle } from "./use-hover-style.js";
 
 afterEach(() => {
@@ -53,5 +59,20 @@ describe("useHoverStyle", () => {
     fireEvent.mouseEnter(target);
     expect(target.style.background).toBe("yellow");
     expect(target.style.color).toBe("red");
+  });
+
+  it("returns referentially stable onMouseEnter/onMouseLeave across re-renders", () => {
+    const { result, rerender } = renderHook(
+      (props: { base: React.CSSProperties; hover: React.CSSProperties }) =>
+        useHoverStyle(props),
+      { initialProps: { base: { color: "red" }, hover: { color: "blue" } } },
+    );
+    const firstEnter = result.current.onMouseEnter;
+    const firstLeave = result.current.onMouseLeave;
+
+    rerender({ base: { color: "red" }, hover: { color: "blue" } });
+
+    expect(result.current.onMouseEnter).toBe(firstEnter);
+    expect(result.current.onMouseLeave).toBe(firstLeave);
   });
 });

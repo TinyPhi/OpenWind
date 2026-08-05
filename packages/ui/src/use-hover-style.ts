@@ -23,10 +23,12 @@ export function useHoverStyle({
   hover,
 }: UseHoverStyleOptions): HoverStyleProps {
   const [hovered, setHovered] = React.useState(false);
+  const onMouseEnter = React.useCallback(() => setHovered(true), []);
+  const onMouseLeave = React.useCallback(() => setHovered(false), []);
 
   return {
     style: hovered ? { ...base, ...hover } : base,
-    onMouseEnter: () => setHovered(true),
-    onMouseLeave: () => setHovered(false),
+    onMouseEnter,
+    onMouseLeave,
   };
 }
