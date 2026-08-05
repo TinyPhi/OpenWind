@@ -37,6 +37,7 @@ export interface WorkflowTransition {
   conditions: ConditionTree | null;
   requiresComment: boolean;
   requiresFields: string[];
+  sortOrder: number;
 }
 
 export interface WorkflowEvent {
@@ -106,6 +107,9 @@ export type UpdateWorkflowInput = {
   assignedTo?: string[] | undefined;
   maxChildDepth?: number | null | undefined;
   maxChildrenPerParent?: number | null | undefined;
+  /** Must name an existing, non-terminal state on this workflow — see
+   * updateWorkflow's validation and addWorkflowState's auto-heal. */
+  initialState?: string | undefined;
 };
 
 // Caller identity for per-workflow authorization checks (see authorization.ts).

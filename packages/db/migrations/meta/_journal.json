@@ -351,6 +351,13 @@
       "when": 1785542401000,
       "tag": "0049_outbox_events_rls",
       "breakpoints": false
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785542402000,
+      "tag": "0050_workflow_transitions_sort_order",
+      "breakpoints": false
     }
   ]
 }
