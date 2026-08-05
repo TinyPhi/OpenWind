@@ -102,6 +102,19 @@ export function handleEntityError(c: Context, err: unknown): Response {
           },
           422,
         ) as Response;
+      case "RELATION_SELF_LINK":
+        return c.json(
+          { error: err.code, message: "Cannot link a ticket to itself" },
+          422,
+        ) as Response;
+      case "RELATION_ALREADY_EXISTS":
+        return c.json(
+          {
+            error: err.code,
+            message: "A link already exists between these tickets",
+          },
+          409,
+        ) as Response;
       default:
         break;
     }
