@@ -11,7 +11,7 @@
  *   → connectorCredentials → apiKeys → tenantUsers → viewConfigs
  *   [audit log retained for compliance]
  *   → tenant.status = 'purged'
- *   then S3 objects purged (best-effort, outside DB transaction)
+ *   then on-disk files purged (best-effort, outside DB transaction)
  *
  * Each DB step uses `withTenantContext` so RLS policies pass for the target tenant.
  * Tables without RLS (tenants, admin_audit_log) use plain `db` or the passed transaction.
@@ -87,21 +87,11 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       return;
     }
 
-    // Collect file storage keys inside the transaction so we can purge S3 after commit.
-    let fileStorageKeys: string[] = [];
-
     await withTenantContext(tenantId, async (tx) => {
-      // M3: collect storage keys then DELETE file rows (not just mark deleted)
-      const fileRows = await tx
-        .select({ storageKey: files.storageKey })
-        .from(files)
-        .where(eq(files.tenantId, tenantId));
-      fileStorageKeys = fileRows.map((r) => r.storageKey);
+      // M3: DELETE file rows (not just mark deleted) — on-disk bytes are
+      // purged after commit via a recursive tenant-directory removal
       await tx.delete(files).where(eq(files.tenantId, tenantId));
-      logger.info(
-        { tenantId, count: fileStorageKeys.length },
-        "tenant-purge: file rows deleted",
-      );
+      logger.info({ tenantId }, "tenant-purge: file rows deleted");
 
       // M1: workflow transitions + states, scoped by both workflow ID and tenant_id
       // (the latter added in ADR-007 — kept alongside the workflow ID list rather
@@ -207,10 +197,8 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       "tenant-purge: DB purge complete — tenant marked purged",
     );
 
-    // M3: delete S3 objects after DB transaction commits (best-effort)
-    if (fileStorageKeys.length > 0) {
-      await deleteTenantFiles(fileStorageKeys);
-    }
+    // M3: delete on-disk files after DB transaction commits (best-effort)
+    await deleteTenantFiles(tenantId);
 
     logger.info({ tenantId }, "tenant-purge: complete");
   },

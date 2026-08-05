@@ -2,10 +2,11 @@
  * av-scan.test.ts
  *
  * Unit tests for the AV scan worker processor.
- * ClamAV, S3, and DB are fully mocked.
+ * ClamAV, disk I/O, and DB are fully mocked.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { EventEmitter } from "node:events";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
@@ -56,22 +57,8 @@ vi.mock("@platform/db", () => ({
   isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock("@aws-sdk/client-s3", () => ({
-  // Must use 'function' (not arrow) — vitest 4.x requires a constructable
-  // implementation when the mock is used with 'new'.
-  S3Client: vi.fn().mockImplementation(function () {
-    return {
-      send: vi.fn().mockResolvedValue({
-        Body: {
-          [Symbol.asyncIterator]: async function* () {
-            yield Buffer.from("test file content");
-          },
-        },
-      }),
-    };
-  }),
-  GetObjectCommand: vi.fn(),
-  DeleteObjectCommand: vi.fn(),
+vi.mock("@platform/files", () => ({
+  resolveStoragePath: (storageKey: string) => `/data/files/${storageKey}`,
 }));
 
 vi.mock("@platform/notifications", () => ({
@@ -82,11 +69,6 @@ vi.mock("@platform/config", () => ({
   env: {
     CLAMAV_HOST: "localhost",
     CLAMAV_PORT: 3310,
-    S3_ENDPOINT: "http://localhost:9000",
-    S3_BUCKET: "test",
-    S3_ACCESS_KEY: "key",
-    S3_SECRET_KEY: "secret",
-    REDIS_URL: "redis://localhost:6379",
   },
 }));
 
@@ -98,12 +80,29 @@ vi.mock("./queues.js", () => ({
   connection: {},
 }));
 
+// Fake readable file stream — a plain EventEmitter with a no-op destroy(),
+// driven manually per-test via emit("data"/"end"/"error").
+class FakeFileStream extends EventEmitter {
+  destroy = vi.fn();
+}
+let lastFileStream: FakeFileStream | undefined;
+
+vi.mock("node:fs", () => ({
+  default: {
+    createReadStream: vi.fn().mockImplementation(() => {
+      lastFileStream = new FakeFileStream();
+      return lastFileStream;
+    }),
+  },
+}));
+
 // Mock node:net for ClamAV TCP simulation
 const mockSocket = {
   connect: vi.fn(),
   write: vi.fn(),
   on: vi.fn(),
   setTimeout: vi.fn(),
+  destroy: vi.fn(),
 };
 
 vi.mock("node:net", () => ({
@@ -149,8 +148,32 @@ function makeJob(
   };
 }
 
+/** Wires the socket + fake file stream so scanWithClamav resolves "clean". */
+function simulateCleanScan(): void {
+  let endCallback: (() => void) | undefined;
+  let dataCallback: ((chunk: Buffer) => void) | undefined;
+  mockSocket.on.mockImplementation((event: string, cb: () => void) => {
+    if (event === "end") endCallback = cb;
+    if (event === "data") dataCallback = cb as (chunk: Buffer) => void;
+    return mockSocket;
+  });
+  mockSocket.connect.mockImplementation(
+    (_port: number, _host: string, cb: () => void) => {
+      queueMicrotask(() => {
+        cb(); // fires the connect callback (writes the INSTREAM header)
+        // Drive the fake file stream through its data/end lifecycle.
+        lastFileStream?.emit("data", Buffer.from("file bytes"));
+        lastFileStream?.emit("end");
+        if (dataCallback) dataCallback(Buffer.from("stream: OK\0"));
+        if (endCallback) endCallback();
+      });
+    },
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  lastFileStream = undefined;
   // Note: capturedProcessor is NOT reset here — Worker() fires once at import
   // time. Clearing it would destroy the only reference we have.
 });
@@ -177,29 +200,9 @@ describe("av-scan worker", () => {
     expect(mockDbUpdate).not.toHaveBeenCalled();
   });
 
-  it("simulates ClamAV clean response and marks file as clean", async () => {
+  it("streams the file from disk, simulates a ClamAV clean response, and marks the file clean", async () => {
     mockSelectReturning([{ id: "file-uuid-1", scanStatus: "pending" }]);
-
-    // Simulate ClamAV "clean" TCP response
-    let endCallback: (() => void) | undefined;
-    let dataCallback: ((chunk: Buffer) => void) | undefined;
-    mockSocket.on.mockImplementation((event: string, cb: () => void) => {
-      if (event === "end") endCallback = cb;
-      if (event === "data") dataCallback = cb as (chunk: Buffer) => void;
-      return mockSocket;
-    });
-    mockSocket.connect.mockImplementation(
-      (_port: number, _host: string, cb: () => void) => {
-        // Defer via queueMicrotask so that scanWithClamav registers its
-        // socket.on("data"/"end") handlers (synchronous, after socket.connect)
-        // before we fire the simulated ClamAV response.
-        queueMicrotask(() => {
-          cb(); // fire the connect callback (writes INSTREAM bytes)
-          if (dataCallback) dataCallback(Buffer.from("stream: OK\0"));
-          if (endCallback) endCallback();
-        });
-      },
-    );
+    simulateCleanScan();
 
     const setChain = { where: vi.fn().mockResolvedValue(undefined) };
     mockDbUpdate.mockReturnValue({ set: vi.fn().mockReturnValue(setChain) });

@@ -1,19 +1,20 @@
 /**
  * files.test.ts
  *
- * Unit tests for file routes.  All domain logic (initiateUpload, confirmUpload,
- * getDownloadUrl, deleteFile) and DB/S3/Redis calls are mocked.
+ * Unit tests for file routes.  All domain logic (saveUpload, getFileStream,
+ * deleteFile) and DB/disk/Redis calls are mocked.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
+import { Readable } from "node:stream";
+import type fs from "node:fs";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
 vi.mock("@platform/files", () => ({
-  initiateUpload: vi.fn(),
-  confirmUpload: vi.fn(),
-  getDownloadUrl: vi.fn(),
+  saveUpload: vi.fn(),
+  getFileStream: vi.fn(),
   deleteFile: vi.fn(),
   FileError: class FileError extends Error {
     constructor(
@@ -27,8 +28,8 @@ vi.mock("@platform/files", () => ({
 }));
 
 // download.ts looks up the file's bound entity (if any) before calling
-// getDownloadUrl, to enforce the entity's __accessUsers ACL. Default: no
-// row found, so the route falls through to getDownloadUrl unchanged --
+// getFileStream, to enforce the entity's __accessUsers ACL. Default: no
+// row found, so the route falls through to getFileStream unchanged --
 // matches these tests' existing expectations. Tests exercising the new
 // access-control behavior override this per-test.
 const mockFilesSelectResult: {
@@ -100,18 +101,14 @@ vi.mock("@platform/auth", () => ({
 vi.mock("@platform/config", () => ({
   env: {
     NODE_ENV: "test",
-    S3_ENDPOINT: "http://localhost:9000",
-    S3_BUCKET: "test",
-    S3_ACCESS_KEY: "key",
-    S3_SECRET_KEY: "secret",
+    FILES_STORAGE_PATH: "/data/files",
     REDIS_URL: "redis://localhost:6379",
   },
 }));
 
 import {
-  initiateUpload,
-  confirmUpload,
-  getDownloadUrl,
+  saveUpload,
+  getFileStream,
   deleteFile,
   FileError,
 } from "@platform/files";
@@ -136,6 +133,31 @@ function buildApp() {
   return app;
 }
 
+function makeUploadForm(
+  overrides: {
+    fileName?: string;
+    mimeType?: string;
+    content?: string;
+    moduleSlug?: string;
+    entityId?: string;
+  } = {},
+) {
+  const form = new FormData();
+  const file = new File(
+    [overrides.content ?? "file contents"],
+    overrides.fileName ?? "report.pdf",
+    { type: overrides.mimeType ?? "application/pdf" },
+  );
+  form.set("file", file);
+  form.set("moduleSlug", overrides.moduleSlug ?? "hrms");
+  if (overrides.entityId) form.set("entityId", overrides.entityId);
+  return form;
+}
+
+function makeStream(content = "file contents"): fs.ReadStream {
+  return Readable.from([Buffer.from(content)]) as unknown as fs.ReadStream;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockFilesSelectResult.length = 0;
@@ -143,159 +165,197 @@ beforeEach(() => {
   mockAuth = { tenantId: "tenant-1", userId: "user-1", roles: ["admin"] };
 });
 
-// ── POST /files — initiateUpload ──────────────────────────────────────────────
+// ── POST /files — saveUpload ──────────────────────────────────────────────────
 
 describe("POST /files", () => {
-  it("returns 201 with upload URL on success", async () => {
-    vi.mocked(initiateUpload).mockResolvedValue({
+  it("returns 201 with fileId on success", async () => {
+    vi.mocked(saveUpload).mockResolvedValue({
       fileId: "file-uuid-1",
-      uploadUrl: "https://s3.example.com/put",
-      uploadUrlExpiresAt: new Date("2026-01-01T01:00:00Z"),
-      storageKey: "tenants/t/files/file-uuid-1.pdf",
+      scanStatus: "pending",
     });
 
     const app = buildApp();
     const res = await app.request("/files", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        originalName: "report.pdf",
-        mimeType: "application/pdf",
-        sizeBytes: 1024,
-        moduleSlug: "hrms",
-      }),
+      body: makeUploadForm(),
     });
 
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.data.fileId).toBe("file-uuid-1");
-    expect(body.data.uploadUrl).toBe("https://s3.example.com/put");
+    expect(body.data.scanStatus).toBe("pending");
   });
 
-  it("returns 422 when initiateUpload throws FileError QUOTA_EXCEEDED", async () => {
-    vi.mocked(initiateUpload).mockRejectedValue(
+  it("returns 422 when saveUpload throws FileError QUOTA_EXCEEDED", async () => {
+    vi.mocked(saveUpload).mockRejectedValue(
       new FileError("QUOTA_EXCEEDED", { tenantId: "tenant-1" }),
     );
 
     const app = buildApp();
     const res = await app.request("/files", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        originalName: "huge.zip",
+      body: makeUploadForm({
+        fileName: "huge.zip",
         mimeType: "application/zip",
-        sizeBytes: 1024,
-        moduleSlug: "docs",
       }),
     });
 
-    // FileError bubbles to the global error handler → 500 (not mapped to 422 at route level)
-    // The route relies on the global error handler mapping unhandled FileErrors
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(422);
   });
 
-  it("returns 400 when sizeBytes exceeds 100 MB (Zod validation)", async () => {
-    const app = buildApp();
-    const res = await app.request("/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        originalName: "huge.pdf",
-        mimeType: "application/pdf",
-        sizeBytes: 200 * 1024 * 1024, // 200 MB — exceeds 100 MB limit
-        moduleSlug: "docs",
-      }),
-    });
-
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 400 for disallowed MIME types (allowlist validation)", async () => {
-    const app = buildApp();
-    const res = await app.request("/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        originalName: "script.exe",
-        mimeType: "application/x-msdownload",
-        sizeBytes: 1024,
-        moduleSlug: "docs",
-      }),
-    });
-
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 400 when required fields are missing", async () => {
-    const app = buildApp();
-    const res = await app.request("/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ originalName: "a.pdf" }),
-    });
-
-    expect(res.status).toBe(400);
-  });
-});
-
-// ── POST /files/:id/complete ──────────────────────────────────────────────────
-
-describe("POST /files/:id/complete", () => {
-  it("returns 200 on successful confirm", async () => {
-    vi.mocked(confirmUpload).mockResolvedValue(undefined);
-
-    const app = buildApp();
-    const res = await app.request(`/files/${EXISTING_FILE_ID}/complete`, {
-      method: "POST",
-    });
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.data.status).toBe("pending");
-  });
-
-  it("returns 404 when file not found", async () => {
-    vi.mocked(confirmUpload).mockRejectedValue(
-      new FileError("FILE_NOT_FOUND", { fileId: "missing" }),
+  it("returns 422 when file exceeds 100 MB (route-level size check)", async () => {
+    // Constructing a real 100MB+ File in a test is wasteful; instead confirm
+    // saveUpload's FILE_TOO_LARGE error maps to 422 (the size check itself is
+    // covered by @platform/files' own unit tests).
+    vi.mocked(saveUpload).mockRejectedValue(
+      new FileError("FILE_TOO_LARGE", { sizeBytes: 1 }),
     );
 
     const app = buildApp();
-    const res = await app.request(`/files/${MISSING_FILE_ID}/complete`, {
+    const res = await app.request("/files", {
       method: "POST",
+      body: makeUploadForm(),
     });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 422 for disallowed MIME types (allowlist validation)", async () => {
+    const app = buildApp();
+    const res = await app.request("/files", {
+      method: "POST",
+      body: makeUploadForm({
+        fileName: "script.exe",
+        mimeType: "application/x-msdownload",
+      }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(saveUpload).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when the file field is missing", async () => {
+    const form = new FormData();
+    form.set("moduleSlug", "hrms");
+
+    const app = buildApp();
+    const res = await app.request("/files", { method: "POST", body: form });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 422 when moduleSlug is missing", async () => {
+    const form = new FormData();
+    form.set("file", new File(["data"], "a.pdf", { type: "application/pdf" }));
+
+    const app = buildApp();
+    const res = await app.request("/files", { method: "POST", body: form });
+
+    expect(res.status).toBe(422);
   });
 });
 
 // ── GET /files/:id ────────────────────────────────────────────────────────────
 
 describe("GET /files/:id", () => {
-  it("returns 200 with download URL for a clean file", async () => {
-    vi.mocked(getDownloadUrl).mockResolvedValue({
-      downloadUrl: "https://s3.example.com/get",
-      downloadUrlExpiresAt: new Date("2026-01-01T02:00:00Z"),
+  it("streams bytes with the correct headers for a clean file", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 11,
     });
 
     const app = buildApp();
     const res = await app.request(`/files/${EXISTING_FILE_ID}`);
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.data.downloadUrl).toBe("https://s3.example.com/get");
+    expect(res.headers.get("content-type")).toBe("application/pdf");
+    expect(res.headers.get("content-disposition")).toContain("report.pdf");
+    const text = await res.text();
+    expect(text).toBe("hello world");
   });
 
   it("returns 404 for missing file", async () => {
-    vi.mocked(getDownloadUrl).mockRejectedValue(
-      new FileError("FILE_NOT_FOUND"),
-    );
+    vi.mocked(getFileStream).mockRejectedValue(new FileError("FILE_NOT_FOUND"));
 
     const app = buildApp();
     const res = await app.request(`/files/${MISSING_FILE_ID}`);
     expect(res.status).toBe(404);
   });
 
+  it("forces Content-Disposition attachment for SVG regardless of inline flag (#240)", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("<svg/>"),
+      originalName: "image.svg",
+      mimeType: "image/svg+xml",
+      sizeBytes: 6,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}?inline=1`);
+    expect(res.headers.get("content-disposition")).toMatch(/^attachment/);
+  });
+
+  it("allows non-SVG files to be served inline when requested", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}?inline=1`);
+    expect(res.headers.get("content-disposition")).toMatch(/^inline/);
+  });
+
+  it("strips CRLF from originalName to prevent header injection (#241)", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: "evil\r\nX-Injected: hdr.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).not.toContain("\r");
+    expect(disposition).not.toContain("\n");
+  });
+
+  it("strips double-quotes from originalName to prevent value termination (#241)", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: 'file"name.pdf',
+      mimeType: "application/pdf",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const filenameMatch = /filename="([^"]*)"/.exec(disposition);
+    expect(filenameMatch).not.toBeNull();
+    expect(filenameMatch![1]).not.toContain('"');
+  });
+
+  it("includes RFC 5987 filename* for Unicode filenames (#241)", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: "résumé.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).toContain("filename*=UTF-8''");
+  });
+
   it("returns 422 for pending file", async () => {
-    vi.mocked(getDownloadUrl).mockRejectedValue(
+    vi.mocked(getFileStream).mockRejectedValue(
       new FileError("FILE_PENDING_SCAN", { scanStatus: "pending" }),
     );
 
@@ -305,7 +365,7 @@ describe("GET /files/:id", () => {
   });
 
   it("returns 422 for quarantined file", async () => {
-    vi.mocked(getDownloadUrl).mockRejectedValue(
+    vi.mocked(getFileStream).mockRejectedValue(
       new FileError("FILE_QUARANTINED"),
     );
 
@@ -336,7 +396,7 @@ describe("GET /files/:id", () => {
     const res = await app.request(`/files/${EXISTING_FILE_ID}`);
 
     expect(res.status).toBe(404);
-    expect(getDownloadUrl).not.toHaveBeenCalled();
+    expect(getFileStream).not.toHaveBeenCalled();
   });
 
   it("returns 200 for a non-privileged user who owns the file's bound entity", async () => {
@@ -350,9 +410,11 @@ describe("GET /files/:id", () => {
       assignedTo: null,
       fields: {},
     });
-    vi.mocked(getDownloadUrl).mockResolvedValue({
-      downloadUrl: "https://s3.example.com/get",
-      downloadUrlExpiresAt: new Date("2026-01-01T02:00:00Z"),
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream(),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 13,
     });
 
     const app = buildApp();
@@ -372,9 +434,11 @@ describe("GET /files/:id", () => {
       assignedTo: "user-other",
       fields: {},
     });
-    vi.mocked(getDownloadUrl).mockResolvedValue({
-      downloadUrl: "https://s3.example.com/get",
-      downloadUrlExpiresAt: new Date("2026-01-01T02:00:00Z"),
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream(),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 13,
     });
 
     const app = buildApp();
@@ -386,9 +450,11 @@ describe("GET /files/:id", () => {
   it("allows the uploader to download their own unbound file (#224)", async () => {
     mockAuth = { tenantId: "tenant-1", userId: "user-owner", roles: ["user"] };
     mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
-    vi.mocked(getDownloadUrl).mockResolvedValue({
-      downloadUrl: "https://s3.example.com/get",
-      downloadUrlExpiresAt: new Date("2026-01-01T02:00:00Z"),
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream(),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 13,
     });
 
     const app = buildApp();
@@ -409,15 +475,17 @@ describe("GET /files/:id", () => {
     const res = await app.request(`/files/${EXISTING_FILE_ID}`);
 
     expect(res.status).toBe(404);
-    expect(getDownloadUrl).not.toHaveBeenCalled();
+    expect(getFileStream).not.toHaveBeenCalled();
   });
 
   it("allows admin to download any unbound file (#224)", async () => {
     mockAuth = { tenantId: "tenant-1", userId: "user-admin", roles: ["admin"] };
     mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
-    vi.mocked(getDownloadUrl).mockResolvedValue({
-      downloadUrl: "https://s3.example.com/get",
-      downloadUrlExpiresAt: new Date("2026-01-01T02:00:00Z"),
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream(),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 13,
     });
 
     const app = buildApp();

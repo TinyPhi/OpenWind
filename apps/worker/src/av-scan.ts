@@ -5,24 +5,24 @@
  *
  * For each job:
  *  1. Fetch the file row — skip if already clean/quarantined/deleted (idempotent)
- *  2. Download the S3 object into a Buffer
- *  3. Send bytes to ClamAV via raw TCP (INSTREAM protocol on port 3310)
- *  4. Transition scan_status: pending → clean | quarantined | scan_failed
- *  5. On quarantine: alert tenant admin via @platform/notifications
- *  6. On scan_failed after max retries: emit system.error outbox event
+ *  2. Stream the on-disk file to ClamAV via raw TCP (INSTREAM protocol on port 3310)
+ *  3. Transition scan_status: pending → clean | quarantined | scan_failed
+ *  4. On quarantine: alert tenant admin via @platform/notifications
+ *  5. On scan_failed after max retries: emit system.error outbox event
  *
  * Retry schedule (exponential backoff): 1s, 2s, 4s, 8s, 16s (max 5 attempts).
  * The scan_failed status is only written on the final attempt.
  */
 
+import fs from "node:fs";
 import net from "node:net";
 import { Worker } from "bullmq";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { eq, and } from "drizzle-orm";
 import { db, files, outboxEvents } from "@platform/db";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import { sendNotification } from "@platform/notifications";
+import { resolveStoragePath } from "@platform/files";
 import { connection } from "./queues.js";
 import { validateActiveTenant } from "./tenant-guard.js";
 
@@ -34,50 +34,45 @@ type AvScanJob = {
   storageKey: string;
 };
 
-// ── S3 client (lazily initialised — avoids top-level instantiation in tests) ──
-
-let _s3: S3Client | undefined;
-function getS3(): S3Client {
-  _s3 ??= new S3Client({
-    endpoint: env.S3_ENDPOINT,
-    region: "us-east-1",
-    credentials: {
-      accessKeyId: env.S3_ACCESS_KEY,
-      secretAccessKey: env.S3_SECRET_KEY,
-    },
-    forcePathStyle: true,
-  });
-  return _s3;
-}
-
 // ── ClamAV INSTREAM protocol ──────────────────────────────────────────────────
 
 /**
- * Scan `data` against ClamAV using the INSTREAM protocol.
+ * Scan the file at `absPath` against ClamAV using the INSTREAM protocol,
+ * streaming it in rather than buffering the whole file into memory first.
  * Returns "clean" or "infected".
- * Throws on connection failure or protocol error (triggers job retry).
+ * Throws on connection/read failure or protocol error (triggers job retry).
  */
-function scanWithClamav(data: Buffer): Promise<"clean" | "infected"> {
+function scanWithClamav(absPath: string): Promise<"clean" | "infected"> {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let response = "";
+    let settled = false;
+
+    const fail = (err: Error): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      fileStream.destroy();
+      reject(err);
+    };
+
+    const fileStream = fs.createReadStream(absPath, { highWaterMark: 8192 });
 
     socket.connect(env.CLAMAV_PORT, env.CLAMAV_HOST, () => {
       // INSTREAM: zINSTREAM\0, then chunks as 4-byte big-endian length + data, then 4 zero bytes
       socket.write("zINSTREAM\0");
+    });
 
-      const chunkSize = 8192;
-      let offset = 0;
-      while (offset < data.length) {
-        const chunk = data.slice(offset, offset + chunkSize);
-        const len = Buffer.alloc(4);
-        len.writeUInt32BE(chunk.length, 0);
-        socket.write(len);
-        socket.write(chunk);
-        offset += chunkSize;
-      }
+    fileStream.on("error", fail);
 
-      // Send terminator
+    fileStream.on("data", (chunk: Buffer) => {
+      const len = Buffer.alloc(4);
+      len.writeUInt32BE(chunk.length, 0);
+      socket.write(len);
+      socket.write(chunk);
+    });
+
+    fileStream.on("end", () => {
       const terminator = Buffer.alloc(4);
       terminator.writeUInt32BE(0, 0);
       socket.write(terminator);
@@ -88,6 +83,8 @@ function scanWithClamav(data: Buffer): Promise<"clean" | "infected"> {
     });
 
     socket.on("end", () => {
+      if (settled) return;
+      settled = true;
       // Response format: "stream: OK\0" or "stream: <virus name> FOUND\0"
       const clean = response.includes("OK");
       const infected = response.includes("FOUND");
@@ -100,13 +97,10 @@ function scanWithClamav(data: Buffer): Promise<"clean" | "infected"> {
       }
     });
 
-    socket.on("error", (err) => {
-      reject(err);
-    });
+    socket.on("error", fail);
 
     socket.setTimeout(30_000, () => {
-      socket.destroy();
-      reject(new Error("ClamAV connection timed out"));
+      fail(new Error("ClamAV connection timed out"));
     });
   });
 }
@@ -154,24 +148,8 @@ export const avScanWorker = new Worker<AvScanJob>(
       return;
     }
 
-    // Download from S3
-    const s3Obj = await getS3().send(
-      new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: storageKey }),
-    );
-
-    if (!s3Obj.Body) {
-      throw new Error(`av-scan: empty S3 body for key ${storageKey}`);
-    }
-
-    // Collect stream into Buffer
-    const chunks: Buffer[] = [];
-    for await (const chunk of s3Obj.Body as AsyncIterable<Uint8Array>) {
-      chunks.push(Buffer.from(chunk));
-    }
-    const fileBuffer = Buffer.concat(chunks);
-
-    // Scan
-    const verdict = await scanWithClamav(fileBuffer);
+    // Scan — streamed directly from disk, never buffered whole into memory
+    const verdict = await scanWithClamav(resolveStoragePath(storageKey));
 
     if (verdict === "clean") {
       await db

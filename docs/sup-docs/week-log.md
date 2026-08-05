@@ -810,6 +810,82 @@ was wrongly credited with closing #247 despite its own body saying otherwise). F
 
 ---
 
+## 2026-07-27 — local-disk file storage (replace S3/MinIO)
+
+**Session type:** New feature (not on the tracked #120–#129 backlog)
+**Branch:** `media` (off `tushar`)
+
+### Completed this session
+
+- Spec + task plan: `docs/specs/local-disk-file-storage.md`,
+  `docs/specs/local-disk-file-storage-tasks.md`. Replaces `@platform/files`'
+  S3/MinIO backend — presigned URLs broke on the real server
+  (`S3_PUBLIC_URL=localhost:9000` only resolves in local dev).
+- **`packages/files`**: `saveUpload`/`getFileStream`/`deleteFile`/
+  `deleteTenantFiles` replace `initiateUpload`/`confirmUpload`/
+  `getDownloadUrl` — direct `fs` calls (temp-file-then-rename for atomic
+  writes) instead of S3 SDK calls. Same quota/RLS/metadata model, unchanged.
+- **API routes**: `POST /files` collapsed from a two-step
+  initiate+presigned-PUT+complete flow into one multipart upload; `GET
+/files/:id` now streams bytes directly (with the same tenant+entity-ACL
+  gate) instead of redirecting to a presigned URL.
+- **`apps/worker/src/av-scan.ts`**: streams the file from disk into ClamAV's
+  INSTREAM protocol instead of downloading from S3 into a buffer first.
+  `file-cleanup.ts`/`tenant-purge.ts` also switched from S3 deletes to
+  `fs.unlink`/recursive `fs.rm`.
+- **admin-ui**: upload hook (`use-file-upload.ts`) switched to one-shot
+  multipart POST; download/preview code (`file-attachment.tsx`) switched
+  from following a presigned URL to fetching bytes as a Blob (binary
+  downloads now require the `Authorization` header, which plain
+  `<img>`/`<embed>` src attributes can't send). A duplicated upload path in
+  `record-detail.tsx`'s customer attachment uploader got the same fix, plus
+  a poll-for-`clean`-before-attach fix — `POST /entities/:id/attachments`
+  (which writes the `file_attached` history event) requires `scanStatus ===
+"clean"`, but the frontend was calling it immediately after upload, before
+  the async AV scan finished, so the history event silently 422'd and never
+  got written even though the file itself already showed up in the
+  attachment list.
+- **Infra**: `docker-compose.yml`'s `minio`/`minio-init` commented out;
+  `FILES_STORAGE_PATH_HOST` (new, defaults to `../openwind-files`, sibling
+  to the repo checkout — same value works on a laptop or a server)
+  bind-mounted into `ow-backend`/`ow-worker` at `/data/files`.
+
+### Verification
+
+- pnpm typecheck: PASS (packages/files, packages/config, apps/api,
+  apps/worker, apps/admin-ui)
+- pnpm test: PASS — packages/files (17), apps/worker (70), apps/api files
+  unit tests (16) + integration tests (11, run against a real Redis/Postgres
+  once the pre-existing `.env.local` `SKIP_AV_SCAN=true`/no-host-Redis-port
+  local-dev quirks were worked around), apps/admin-ui (53)
+- pnpm test:isolation: not re-run this session (no RLS/schema changes —
+  `files` table untouched)
+- Manual end-to-end: built and ran the full `docker compose up -d` stack;
+  verified write→read-back→stream-download→delete→404-after-delete against
+  the real running containers (real Postgres, real bind-mounted disk, real
+  RLS), confirmed the bind-mount is visible on the host filesystem, and
+  confirmed persistence across `docker compose down`/`up`. Also manually
+  exercised upload/delete/history-timeline in the browser on the ticket
+  detail page.
+- One real bug caught and fixed mid-session: `saveUpload`'s `SKIP_AV_SCAN`
+  dev-shortcut branch updated the `files` row without setting the RLS
+  tenant-context GUC first (a regression from the old `confirmUpload`, which
+  had that context already open in its own transaction) — fixed by wrapping
+  it in a `db.transaction` with `set_config('app.tenant_id', ...)`.
+
+### Next
+
+- Not yet pushed/PR'd as of this entry — pending `git push` to `media`.
+- `.env.server`/production deployment still needs `FILES_STORAGE_PATH_HOST`
+  set (or left to its sibling-directory default) on the real server before
+  the next deploy.
+
+### Open questions
+
+- None blocking.
+
+---
+
 ## 2026-07-25 — global outbound-notifications kill switch (dev session)
 
 **Session type:** New feature (not on the tracked #120–#129 backlog)

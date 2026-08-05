@@ -2,7 +2,7 @@
  * file-cleanup.test.ts
  *
  * Unit tests for the file cleanup worker.
- * DB and S3 are fully mocked.
+ * DB and disk I/O are fully mocked.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -28,17 +28,16 @@ vi.mock("bullmq", () => ({
   })),
 }));
 
-const mockS3Send = vi.fn().mockResolvedValue(undefined);
+const mockUnlink = vi.fn().mockResolvedValue(undefined);
 
-vi.mock("@aws-sdk/client-s3", () => ({
-  // Must use 'function' (not arrow) — vitest 4.x requires a constructable
-  // implementation when the mock is used with 'new'.
-  S3Client: vi.fn().mockImplementation(function () {
-    return {
-      send: (...args: unknown[]) => mockS3Send(...args),
-    };
-  }),
-  DeleteObjectCommand: vi.fn(),
+vi.mock("node:fs/promises", () => ({
+  default: {
+    unlink: (...args: unknown[]) => mockUnlink(...args),
+  },
+}));
+
+vi.mock("@platform/files", () => ({
+  resolveStoragePath: (storageKey: string) => `/data/files/${storageKey}`,
 }));
 
 const mockDbSelect = vi.fn();
@@ -56,16 +55,6 @@ vi.mock("@platform/db", () => ({
     tenantId: "tenantId",
     scanStatus: "scanStatus",
     createdAt: "createdAt",
-  },
-}));
-
-vi.mock("@platform/config", () => ({
-  env: {
-    S3_ENDPOINT: "http://localhost:9000",
-    S3_BUCKET: "test",
-    S3_ACCESS_KEY: "key",
-    S3_SECRET_KEY: "secret",
-    REDIS_URL: "redis://localhost:6379",
   },
 }));
 
@@ -103,6 +92,7 @@ function mockDelete() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockUnlink.mockResolvedValue(undefined);
   // Note: capturedProcessor is NOT reset here — Worker() fires once at import
   // time. Clearing it would destroy the only reference we have.
 });
@@ -118,11 +108,11 @@ describe("file-cleanup worker", () => {
     expect(capturedProcessor).toBeDefined();
     await capturedProcessor!();
 
-    expect(mockS3Send).not.toHaveBeenCalled();
+    expect(mockUnlink).not.toHaveBeenCalled();
     expect(mockDbDelete).not.toHaveBeenCalled();
   });
 
-  it("purges stale files: deletes S3 object, releases quota, deletes row", async () => {
+  it("purges stale files: deletes on-disk file, releases quota, deletes row", async () => {
     mockSelect([
       {
         id: "file-1",
@@ -135,11 +125,11 @@ describe("file-cleanup worker", () => {
 
     await capturedProcessor!();
 
-    expect(mockS3Send).toHaveBeenCalledTimes(1);
+    expect(mockUnlink).toHaveBeenCalledTimes(1);
     expect(mockDbDelete).toHaveBeenCalledTimes(1); // row deletion
   });
 
-  it("continues purging remaining files if one S3 deletion fails", async () => {
+  it("continues purging remaining files if one on-disk deletion fails", async () => {
     mockSelect([
       {
         id: "file-1",
@@ -154,14 +144,14 @@ describe("file-cleanup worker", () => {
         sizeBytes: 2048,
       },
     ]);
-    mockS3Send
-      .mockRejectedValueOnce(new Error("S3 error"))
+    mockUnlink
+      .mockRejectedValueOnce(new Error("disk error"))
       .mockResolvedValue(undefined);
     mockDelete();
 
     await capturedProcessor!();
 
-    // Both files should have their rows deleted even though first S3 call failed
+    // Both files should have their rows deleted even though first unlink call failed
     expect(mockDbDelete).toHaveBeenCalledTimes(2);
   });
 
@@ -178,7 +168,7 @@ describe("file-cleanup worker", () => {
 
     await capturedProcessor!();
 
-    expect(mockS3Send).toHaveBeenCalledTimes(5);
+    expect(mockUnlink).toHaveBeenCalledTimes(5);
     expect(mockDbDelete).toHaveBeenCalledTimes(5);
   });
 });

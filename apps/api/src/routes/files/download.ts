@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { Readable } from "node:stream";
 import { zValidator } from "../../lib/validator.js";
 import { requireAuth, requireRole } from "@platform/auth";
 import { files, entityInstances, withTenantContext } from "@platform/db";
 import { and, eq } from "drizzle-orm";
-import { getDownloadUrl, FileError } from "@platform/files";
+import { getFileStream, FileError } from "@platform/files";
 import { factory } from "./factory.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 
@@ -77,9 +78,32 @@ export const getDownloadUrlHandler = factory.createHandlers(
       }
 
       const result = await withTenantContext(tenantId, (tx) =>
-        getDownloadUrl(tx, tenantId, fileId, inline),
+        getFileStream(tx, tenantId, fileId),
       );
-      return c.json({ data: result });
+
+      // Strip characters that can break or inject the Content-Disposition header:
+      // \r\n ends the header line and lets an attacker inject arbitrary headers;
+      // " closes the quoted filename value early; bidirectional-override Unicode
+      // chars (U+200E/F, U+202A–E) can reverse the displayed filename in browsers
+      // to make "malware.exe" appear as "malware.pdf". (#241)
+      const safeFilename = result.originalName
+        .replace(/[\r\n"]/g, "_")
+        .replace(/[‎‏‪-‮]/g, "");
+
+      // SVG files are active documents — browsers execute their JavaScript in the
+      // page origin. Force attachment even when the caller requests inline display
+      // to prevent a stored-XSS attack via a crafted SVG upload. (#240)
+      const isSvg =
+        result.mimeType === "image/svg+xml" || result.mimeType.includes("svg");
+      const dispositionType = inline && !isSvg ? "inline" : "attachment";
+
+      c.header("Content-Type", result.mimeType);
+      c.header("Content-Length", String(result.sizeBytes));
+      c.header(
+        "Content-Disposition",
+        `${dispositionType}; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(result.originalName)}`,
+      );
+      return c.body(Readable.toWeb(result.stream) as ReadableStream);
     } catch (err: unknown) {
       if (err instanceof FileError) {
         switch (err.code) {
