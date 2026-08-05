@@ -98,7 +98,10 @@ vi.mock("@platform/auth", () => ({
 }));
 
 vi.mock("@platform/config", () => ({
-  env: { NOTIFICATION_SERVICE_URL: "https://outbound.example/hook" },
+  env: {
+    NOTIFICATION_SERVICE_URL: "https://outbound.example/hook",
+    APP_URL: "https://openwind.example.com",
+  },
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -149,6 +152,45 @@ describe("notification outbound worker: de-dupe gate", () => {
     expect(mockUpdate).toHaveBeenCalledWith(expect.anything());
     // Two update() calls: the "attempted" claim and the final "sent" update.
     expect(mockUpdate.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("includes tenantId in the outbound payload (regression: the external service rejects requests missing it)", async () => {
+    claimedRows = [{ title: "T", body: "B", link: null }];
+
+    await capturedProcessor?.({
+      data: { notificationId: "n-6", tenantId: "t-6" },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const sentPayload = JSON.parse(init.body) as Record<string, unknown>;
+    expect(sentPayload["tenantId"]).toBe("t-6");
+  });
+
+  it("resolves a relative notification link to a full URL using APP_URL", async () => {
+    claimedRows = [{ title: "T", body: "B", link: "/records/tender1/abc-123" }];
+
+    await capturedProcessor?.({
+      data: { notificationId: "n-7", tenantId: "t-7" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const sentPayload = JSON.parse(init.body) as Record<string, unknown>;
+    expect(sentPayload["link"]).toBe(
+      "https://openwind.example.com/records/tender1/abc-123",
+    );
+  });
+
+  it("passes through a null link unchanged", async () => {
+    claimedRows = [{ title: "T", body: "B", link: null }];
+
+    await capturedProcessor?.({
+      data: { notificationId: "n-8", tenantId: "t-8" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const sentPayload = JSON.parse(init.body) as Record<string, unknown>;
+    expect(sentPayload["link"]).toBeNull();
   });
 });
 

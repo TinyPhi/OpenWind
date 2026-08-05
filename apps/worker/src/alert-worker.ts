@@ -93,13 +93,25 @@ export const alertWorker = new Worker<AlertJobData>(
       // second SELECT after insert just to read defaultNow() back).
       const createdAt = new Date();
 
+      // Alerts are an intentional, scoped exception to notification-templates.ts's
+      // "never interpolate free-text user content" rule: the note is written by
+      // the alert's own creator for themselves or their chosen audience (not
+      // arbitrary third-party content like a comment body), and the feature is
+      // useless if the recipient can't tell what the alert is about without
+      // opening the ticket. Accepted risk: a scope='all' recipient whose ticket
+      // access is revoked after being snapshotted but before a still-pending
+      // alert fires would still see the note via email, which has no
+      // independent read-access check.
+      const title = `${alert.note} alert`;
+      const body = `${alert.note} alert`;
+
       const insertedNotifications = await tx
         .insert(notifications)
         .values({
           tenantId,
           type: "ticket.alert",
-          title: "Ticket alert",
-          body: "A reminder you set on this ticket is due",
+          title,
+          body,
           link: null, // filled in below once resolved — see instanceLink
           createdAt,
         })
@@ -131,6 +143,8 @@ export const alertWorker = new Worker<AlertJobData>(
         instanceId: alert.instanceId,
         recipients: uniqueRecipients,
         createdAt,
+        title,
+        body,
       };
     });
 
@@ -177,8 +191,8 @@ export const alertWorker = new Worker<AlertJobData>(
               notification: {
                 id: fired.notificationId,
                 type: "ticket.alert",
-                title: "Ticket alert",
-                body: "A reminder you set on this ticket is due",
+                title: fired.title,
+                body: fired.body,
                 link,
                 createdAt: fired.createdAt.toISOString(),
               },
