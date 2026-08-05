@@ -102,8 +102,8 @@ export const alertWorker = new Worker<AlertJobData>(
       // access is revoked after being snapshotted but before a still-pending
       // alert fires would still see the note via email, which has no
       // independent read-access check.
-      const title = `${alert.note} alert`;
-      const body = `${alert.note} alert`;
+      const title = "Ticket alert";
+      const body = alert.note;
 
       const insertedNotifications = await tx
         .insert(notifications)

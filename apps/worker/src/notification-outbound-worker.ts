@@ -39,6 +39,12 @@ interface OutboundPayload {
  * clickable URL — resolved against APP_URL (config-driven; same var already
  * used for CORS_ORIGIN) rather than hardcoding a host here.
  */
+// notifications.link is always app-relative by construction (every writer in
+// this codebase stores a path like "/records/...", never a full URL) — an
+// already-absolute link would only reach here from a future writer breaking
+// that convention. new URL(link, APP_URL) passes an absolute link through
+// unchanged (its own origin wins over the base), which is the right fallback
+// if that ever happens, but is not something this function actively guards.
 function toAbsoluteLink(link: string | null): string | null {
   if (!link) return null;
   if (!env.APP_URL) {

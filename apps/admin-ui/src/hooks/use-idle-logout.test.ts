@@ -104,6 +104,19 @@ describe("useIdleLogout — config-driven via env (no explicit timeoutMs overrid
     addSpy.mockRestore();
   });
 
+  it("an explicit timeoutMs override does not re-enable the hook when VITE_IDLE_LOGOUT_ENABLED=false — the toggle is independent of the duration override", async () => {
+    import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = "false";
+    const addSpy = vi.spyOn(window, "addEventListener");
+
+    renderHook(() => useIdleLogout(5000), { wrapper });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(mockLogout).not.toHaveBeenCalled();
+    expect(addSpy).not.toHaveBeenCalledWith("mousemove", expect.any(Function));
+
+    addSpy.mockRestore();
+  });
+
   it("defaults to enabled with a 5-minute timeout when neither env var is set", async () => {
     import.meta.env["VITE_IDLE_LOGOUT_ENABLED"] = undefined;
     import.meta.env["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] = undefined;
