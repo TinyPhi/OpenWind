@@ -2553,7 +2553,11 @@ select.form-input {
 .rcd-page {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 56px);
+  /* .main-content (the direct parent) is already flex:1 inside a height:100vh
+     app shell, so it has a definite, exact height — filling 100% of it (rather
+     than re-deriving the viewport math here, which drifts from the real header
+     height) is what lets .rcd-two-col below fill the rest with flex:1. */
+  height: 100%;
   overflow-y: auto;
   padding-bottom: 32px;
   background: var(--bg-secondary);
@@ -2591,16 +2595,25 @@ select.form-input {
 .rcd-cards {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   padding: 12px 24px 0;
 }
 
 /* ── Two-column area below the detail card ── */
+/* Was a fixed 620px. rcd-page now has a definite height (see above), so
+   flex:1 here fills exactly whatever is left after the breadcrumb nav and
+   detail card — no viewport-math guessing, and both columns' bottoms land on
+   the same line since they stretch (align-items:stretch) to this container's
+   real height instead of an arbitrary fixed or guessed one. min-height:0
+   lets it shrink below its content's natural size so the inner cards' own
+   scrollbars (not the page's) handle overflow. */
 .rcd-two-col {
   display: flex;
   gap: 14px;
   align-items: stretch;
   padding: 14px 24px 0;
-  height: 620px; /* fixed container — both columns fill this exactly */
+  flex: 1;
+  min-height: 0;
 }
 .rcd-two-col > .rcd-card.rcd-activity-card {
   flex: 7;
@@ -2624,8 +2637,13 @@ select.form-input {
   border-radius: 14px;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+  /* flex:1 on every section (sub-tasks, linked tickets, access) splits the
+     sidebar's height equally between however many are present — adaptive to
+     the sidebar's real height, not a fixed value. min-height keeps a section
+     usable (header + a couple of rows visible) if the sidebar as a whole is
+     short; each section's own rcd-sidebar-body scrolls internally past that. */
   flex: 1;
-  min-height: 0;
+  min-height: 160px;
   display: flex;
   flex-direction: column;
 }
@@ -3646,7 +3664,7 @@ select.form-input {
 
 /* Responsive */
 @media (max-width: 900px) {
-  .rcd-two-col { flex-direction: column; height: auto; }
+  .rcd-two-col { flex-direction: column; min-height: 0; height: auto; }
   .rcd-two-col > .rcd-card.rcd-activity-card { flex: none; height: 520px; }
   .rcd-sidebar { flex: none; height: auto; }
   .rcd-sidebar-section { flex: none; min-height: 200px; max-height: 320px; }
