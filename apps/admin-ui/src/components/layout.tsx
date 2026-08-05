@@ -212,7 +212,9 @@ export function Layout({
   });
   const signOutHover = useHoverStyle({
     base: { background: "none" },
-    hover: { background: "hsla(350,80%,60%,.1)" },
+    hover: {
+      background: `color-mix(in srgb, ${TOKENS.danger} 10%, transparent)`,
+    },
   });
 
   useEffect(() => {

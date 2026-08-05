@@ -1111,8 +1111,8 @@ function ModuleCard({
       boxShadow: "var(--shadow-sm)",
     },
     hover: {
-      border: `1px solid ${accent}55`,
-      boxShadow: `0 4px 20px ${accent}22`,
+      border: `1px solid color-mix(in srgb, ${accent} 33%, transparent)`,
+      boxShadow: `0 4px 20px color-mix(in srgb, ${accent} 13%, transparent)`,
     },
   });
   const previewButtonHover = useHoverStyle({

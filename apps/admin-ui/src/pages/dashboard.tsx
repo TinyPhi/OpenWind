@@ -168,7 +168,10 @@ function KpiCard({
 }): React.ReactElement {
   const cardHover = useHoverStyle({
     base: { borderColor: withAlpha(color, 0.25), boxShadow: "none" },
-    hover: { borderColor: color, boxShadow: `0 4px 20px ${color}33` },
+    hover: {
+      borderColor: color,
+      boxShadow: `0 4px 20px ${withAlpha(color, 0.2)}`,
+    },
   });
 
   return (
