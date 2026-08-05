@@ -31,6 +31,8 @@ import {
   AlertDialogCancel,
   Button,
   DIALOG_CONTENT_RESET,
+  TOKENS,
+  useHoverStyle,
 } from "@platform/ui";
 
 type EntityField = {
@@ -119,6 +121,9 @@ type OrgUser = {
   displayName: string | null;
   loginName?: string;
 };
+
+type AccessLevel = "read_only" | "read_comment" | "read_write";
+type AccessTag = "creator" | "assigned" | "mention" | "manual";
 
 /* ── Field display ───────────────────────────────────────────── */
 function FieldValue({
@@ -916,6 +921,189 @@ async function pollFileScanStatus(
   return "scan_failed";
 }
 
+function AccessUserRow({
+  user,
+  isAdminOrAgent,
+  isRecordDeleted,
+  onChangeAccess,
+}: {
+  user: OrgUser & { level: AccessLevel; tag: AccessTag };
+  isAdminOrAgent: boolean;
+  isRecordDeleted: boolean;
+  onChangeAccess: (payload: {
+    userId: string;
+    displayName: string;
+    currentLevel: AccessLevel;
+    isAssigned: boolean;
+    isCreator: boolean;
+  }) => void;
+}): React.ReactElement {
+  const name = user.displayName ?? user.email;
+  const initials = name
+    .split(" ")
+    .slice(0, 2)
+    .map((p) => p[0] ?? "")
+    .join("")
+    .toUpperCase();
+  const isCreator = user.tag === "creator";
+  const isAssigned = user.tag === "assigned";
+
+  // Badge text + colors
+  let badgeLabel = "Access";
+  let badgeBg = "#f3f4f6";
+  let badgeColor = "var(--text-muted, #6b7280)";
+  let badgeBorder = "#e5e7eb";
+  if (isCreator) {
+    badgeLabel = "Creator";
+    badgeBg = "#ede9fe";
+    badgeColor = "#7c3aed";
+    badgeBorder = "#c4b5fd";
+  } else if (isAssigned) {
+    badgeLabel = "Assigned";
+    badgeBg = "var(--accent-color, #6366f1)18";
+    badgeColor = "var(--accent-color, #6366f1)";
+    badgeBorder = "var(--accent-color, #6366f1)40";
+  } else if (user.level === "read_comment") {
+    badgeLabel = "Comment";
+    badgeBg = "#eff6ff";
+    badgeColor = "#2563eb";
+    badgeBorder = "#bfdbfe";
+  } else if (user.level === "read_only") {
+    badgeLabel = "Read Only";
+    badgeBg = "#f9fafb";
+    badgeColor = "#6b7280";
+    badgeBorder = "#d1d5db";
+  }
+
+  const removeHover = useHoverStyle({
+    base: { color: "var(--text-muted, #9ca3af)", borderColor: "transparent" },
+    hover: { color: TOKENS.danger, borderColor: "#fca5a5" },
+  });
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "8px 10px",
+        background: "var(--bg-card, #ffffff)",
+        border: "1px solid var(--border-color, #e5e7eb)",
+        borderRadius: "8px",
+      }}
+    >
+      <span
+        style={{
+          flexShrink: 0,
+          width: "32px",
+          height: "32px",
+          borderRadius: "50%",
+          background: isCreator ? "#7c3aed" : "var(--accent-color, #6366f1)",
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "12px",
+          fontWeight: 700,
+        }}
+      >
+        {initials}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            color: "var(--text-primary, #111827)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {name}
+        </div>
+        {user.displayName && (
+          <div
+            style={{
+              fontSize: "11px",
+              color: "var(--text-muted, #6b7280)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {user.email}
+          </div>
+        )}
+      </div>
+      <span
+        style={{
+          flexShrink: 0,
+          fontSize: "10px",
+          fontWeight: 600,
+          padding: "2px 6px",
+          borderRadius: "4px",
+          background: badgeBg,
+          color: badgeColor,
+          border: `1px solid ${badgeBorder}`,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
+        {badgeLabel}
+      </span>
+      {/* Edit access button — hidden for creator and assignee:
+          both are virtual entries synthesized by get-access.ts
+          (always read_write, no real __accessUsers row), so
+          update-access.ts/revoke-access.ts 404 on them —
+          there's nothing to update or revoke. */}
+      {isAdminOrAgent && !isRecordDeleted && !isCreator && !isAssigned && (
+        <button
+          type="button"
+          title="Change access"
+          onClick={() =>
+            onChangeAccess({
+              userId: user.userId,
+              displayName: name,
+              currentLevel: user.level,
+              isAssigned,
+              isCreator,
+            })
+          }
+          style={{
+            flexShrink: 0,
+            background: "none",
+            border: "1px solid",
+            borderRadius: "5px",
+            cursor: "pointer",
+            padding: "3px 5px",
+            fontSize: "14px",
+            lineHeight: 1,
+            ...removeHover.style,
+          }}
+          onMouseEnter={removeHover.onMouseEnter}
+          onMouseLeave={removeHover.onMouseLeave}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 export function CustomerRecordDetail(): React.ReactElement {
   const { typeSlug, id } = useParams<{ typeSlug: string; id: string }>();
@@ -1026,8 +1214,6 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
   // Access list — persisted from API as {userId, level, tag}[]
-  type AccessLevel = "read_only" | "read_comment" | "read_write";
-  type AccessTag = "creator" | "assigned" | "mention" | "manual";
   type AccessEntry = { userId: string; level: AccessLevel; tag: AccessTag };
   const [accessList, setAccessList] = useState<AccessEntry[]>([]);
 
@@ -4153,188 +4339,18 @@ export function CustomerRecordDetail(): React.ReactElement {
                     gap: "6px",
                   }}
                 >
-                  {accessUsers.map((u) => {
-                    const name = u.displayName ?? u.email;
-                    const initials = name
-                      .split(" ")
-                      .slice(0, 2)
-                      .map((p) => p[0] ?? "")
-                      .join("")
-                      .toUpperCase();
-                    const isCreator = u.tag === "creator";
-                    const isAssigned = u.tag === "assigned";
-
-                    // Badge text + colors
-                    let badgeLabel = "Access";
-                    let badgeBg = "#f3f4f6";
-                    let badgeColor = "var(--text-muted, #6b7280)";
-                    let badgeBorder = "#e5e7eb";
-                    if (isCreator) {
-                      badgeLabel = "Creator";
-                      badgeBg = "#ede9fe";
-                      badgeColor = "#7c3aed";
-                      badgeBorder = "#c4b5fd";
-                    } else if (isAssigned) {
-                      badgeLabel = "Assigned";
-                      badgeBg = "var(--accent-color, #6366f1)18";
-                      badgeColor = "var(--accent-color, #6366f1)";
-                      badgeBorder = "var(--accent-color, #6366f1)40";
-                    } else if (u.level === "read_comment") {
-                      badgeLabel = "Comment";
-                      badgeBg = "#eff6ff";
-                      badgeColor = "#2563eb";
-                      badgeBorder = "#bfdbfe";
-                    } else if (u.level === "read_only") {
-                      badgeLabel = "Read Only";
-                      badgeBg = "#f9fafb";
-                      badgeColor = "#6b7280";
-                      badgeBorder = "#d1d5db";
-                    }
-
-                    return (
-                      <div
-                        key={u.userId}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          padding: "8px 10px",
-                          background: "var(--bg-card, #ffffff)",
-                          border: "1px solid var(--border-color, #e5e7eb)",
-                          borderRadius: "8px",
-                        }}
-                      >
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            width: "32px",
-                            height: "32px",
-                            borderRadius: "50%",
-                            background: isCreator
-                              ? "#7c3aed"
-                              : "var(--accent-color, #6366f1)",
-                            color: "#fff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {initials}
-                        </span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div
-                            style={{
-                              fontSize: "13px",
-                              fontWeight: 600,
-                              color: "var(--text-primary, #111827)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {name}
-                          </div>
-                          {u.displayName && (
-                            <div
-                              style={{
-                                fontSize: "11px",
-                                color: "var(--text-muted, #6b7280)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {u.email}
-                            </div>
-                          )}
-                        </div>
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            fontSize: "10px",
-                            fontWeight: 600,
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                            background: badgeBg,
-                            color: badgeColor,
-                            border: `1px solid ${badgeBorder}`,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.04em",
-                          }}
-                        >
-                          {badgeLabel}
-                        </span>
-                        {/* Edit access button — hidden for creator and assignee:
-                            both are virtual entries synthesized by get-access.ts
-                            (always read_write, no real __accessUsers row), so
-                            update-access.ts/revoke-access.ts 404 on them —
-                            there's nothing to update or revoke. */}
-                        {isAdminOrAgent &&
-                          !record.deletedAt &&
-                          !isCreator &&
-                          !isAssigned && (
-                            <button
-                              type="button"
-                              title="Change access"
-                              onClick={() => {
-                                setAccessChangeModal({
-                                  userId: u.userId,
-                                  displayName: name,
-                                  currentLevel: u.level,
-                                  isAssigned,
-                                  isCreator,
-                                });
-                                setAccessChangeSelection(u.level);
-                              }}
-                              style={{
-                                flexShrink: 0,
-                                background: "none",
-                                border: "1px solid transparent",
-                                borderRadius: "5px",
-                                cursor: "pointer",
-                                padding: "3px 5px",
-                                color: "var(--text-muted, #9ca3af)",
-                                fontSize: "14px",
-                                lineHeight: 1,
-                              }}
-                              onMouseEnter={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.color = "#ef4444";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.borderColor = "#fca5a5";
-                              }}
-                              onMouseLeave={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.color = "var(--text-muted, #9ca3af)";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.borderColor = "transparent";
-                              }}
-                            >
-                              <svg
-                                width="12"
-                                height="12"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <line x1="18" y1="6" x2="6" y2="18" />
-                                <line x1="6" y1="6" x2="18" y2="18" />
-                              </svg>
-                            </button>
-                          )}
-                      </div>
-                    );
-                  })}
+                  {accessUsers.map((u) => (
+                    <AccessUserRow
+                      key={u.userId}
+                      user={u}
+                      isAdminOrAgent={isAdminOrAgent}
+                      isRecordDeleted={!!record.deletedAt}
+                      onChangeAccess={(payload) => {
+                        setAccessChangeModal(payload);
+                        setAccessChangeSelection(payload.currentLevel);
+                      }}
+                    />
+                  ))}
                 </div>
               )}
             </div>
