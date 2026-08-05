@@ -1,5 +1,6 @@
 import React from "react";
 import { userManager } from "../authProvider.js";
+import { getSavedAccent, hslToHex } from "../lib/theme.js";
 
 function SunIcon(): React.ReactElement {
   return (
@@ -66,7 +67,15 @@ export function Login(): React.ReactElement {
   async function handleLogin(): Promise<void> {
     setLoading(true);
     await userManager.removeUser();
-    await userManager.signinRedirect({ prompt: "login" });
+    const accent = getSavedAccent();
+    await userManager.signinRedirect({
+      prompt: "login",
+      extraQueryParams: {
+        primary_origin: window.location.origin,
+        primary_color: hslToHex(accent.h, accent.s, accent.l),
+        theme,
+      },
+    });
   }
 
   const isDark = theme === "dark";
