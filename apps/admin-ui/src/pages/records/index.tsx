@@ -6,7 +6,7 @@ import { useEntityTypes } from "../../entity-type-context.js";
 import type { EntityType } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { resolveCardIcon } from "../../lib/icon.js";
-import { Button } from "@platform/ui";
+import { Button, useHoverStyle } from "@platform/ui";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -435,6 +435,183 @@ type CardItem = {
   filterParam?: string;
 };
 
+function WorkflowCard({
+  item,
+  onNavigate,
+}: {
+  item: CardItem;
+  onNavigate: (slug: string, filterParam?: string) => void;
+}): React.ReactElement {
+  const et = item.etMap.get(item.entityTypeId);
+  const activeStates = item.states.filter((s) => !s.isTerminal);
+  const terminalStates = item.states.filter((s) => s.isTerminal);
+  const cardHover = useHoverStyle({
+    base: { transform: "translateY(0)", boxShadow: "var(--shadow-sm)" },
+    hover: { transform: "translateY(-3px)", boxShadow: "var(--shadow-lg)" },
+  });
+
+  return (
+    <div
+      onClick={() => onNavigate(item.slug, item.filterParam)}
+      style={{
+        height: "320px",
+        display: "flex",
+        flexDirection: "column",
+        borderRadius: "16px",
+        overflow: "hidden",
+        cursor: "pointer",
+        border: "1px solid var(--border-color)",
+        background: "var(--bg-secondary)",
+        transition: "transform .15s, box-shadow .15s",
+        ...cardHover.style,
+      }}
+      onMouseEnter={cardHover.onMouseEnter}
+      onMouseLeave={cardHover.onMouseLeave}
+    >
+      {/* Gradient header — fixed height, top half */}
+      <div
+        style={{
+          height: "160px",
+          flexShrink: 0,
+          background: item.gradient,
+          padding: "24px 24px 20px",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {item.count > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              top: "12px",
+              right: "12px",
+              background: "rgba(255,255,255,.25)",
+              backdropFilter: "blur(4px)",
+              borderRadius: "20px",
+              padding: "2px 10px",
+              fontSize: "11px",
+              fontWeight: 600,
+              color: "#fff",
+            }}
+          >
+            {item.count} {item.countLabel}
+            {item.count !== 1 ? "s" : ""}
+          </div>
+        )}
+        <div style={{ fontSize: "32px", marginBottom: "8px" }}>
+          {resolveCardIcon(et?.icon)}
+        </div>
+        <div
+          style={{
+            fontSize: "18px",
+            fontWeight: 700,
+            color: "#fff",
+            lineHeight: 1.2,
+          }}
+        >
+          {item.name}
+        </div>
+        {item.states.length > 0 && (
+          <div
+            style={{
+              fontSize: "12px",
+              color: "rgba(255,255,255,.75)",
+              marginTop: "4px",
+            }}
+          >
+            {item.states.length} states · {item.transitionCount} transitions
+          </div>
+        )}
+      </div>
+
+      {/* Card body — bottom half, fills remaining fixed height */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          padding: "16px 20px 20px",
+          overflow: "hidden",
+        }}
+      >
+        {item.states.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              gap: "6px",
+              flexWrap: "wrap",
+              marginBottom: "16px",
+            }}
+          >
+            {activeStates.slice(0, 4).map((s) => (
+              <span
+                key={s.name}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: "2px 8px",
+                  borderRadius: "20px",
+                  fontSize: "11px",
+                  fontWeight: 500,
+                  background: s.color ? `${s.color}22` : "var(--bg-tertiary)",
+                  color: s.color ?? "var(--text-muted)",
+                  border: `1px solid ${s.color ? `${s.color}44` : "var(--border-color)"}`,
+                }}
+              >
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    background: s.color ?? "var(--text-muted)",
+                    flexShrink: 0,
+                  }}
+                />
+                {s.label}
+              </span>
+            ))}
+            {terminalStates.length > 0 && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: "2px 8px",
+                  borderRadius: "20px",
+                  fontSize: "11px",
+                  color: "var(--text-muted)",
+                  background: "var(--bg-tertiary)",
+                  border: "1px solid var(--border-color)",
+                }}
+              >
+                ⬡ {terminalStates[0]?.label}
+              </span>
+            )}
+          </div>
+        )}
+
+        <Button
+          variant="primary"
+          style={{
+            width: "100%",
+            justifyContent: "center",
+            marginTop: "auto",
+            flexShrink: 0,
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate(item.slug, item.filterParam);
+          }}
+        >
+          View Records →
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function WorkflowCardGrid({
   items,
   onNavigate,
@@ -450,186 +627,9 @@ function WorkflowCardGrid({
         gap: "20px",
       }}
     >
-      {items.map((item) => {
-        const et = item.etMap.get(item.entityTypeId);
-        const activeStates = item.states.filter((s) => !s.isTerminal);
-        const terminalStates = item.states.filter((s) => s.isTerminal);
-
-        return (
-          <div
-            key={item.id}
-            onClick={() => onNavigate(item.slug, item.filterParam)}
-            style={{
-              height: "320px",
-              display: "flex",
-              flexDirection: "column",
-              borderRadius: "16px",
-              overflow: "hidden",
-              cursor: "pointer",
-              border: "1px solid var(--border-color)",
-              background: "var(--bg-secondary)",
-              transition: "transform .15s, box-shadow .15s",
-              boxShadow: "var(--shadow-sm)",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLDivElement).style.transform =
-                "translateY(-3px)";
-              (e.currentTarget as HTMLDivElement).style.boxShadow =
-                "var(--shadow-lg)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLDivElement).style.transform =
-                "translateY(0)";
-              (e.currentTarget as HTMLDivElement).style.boxShadow =
-                "var(--shadow-sm)";
-            }}
-          >
-            {/* Gradient header — fixed height, top half */}
-            <div
-              style={{
-                height: "160px",
-                flexShrink: 0,
-                background: item.gradient,
-                padding: "24px 24px 20px",
-                position: "relative",
-                overflow: "hidden",
-              }}
-            >
-              {item.count > 0 && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "12px",
-                    right: "12px",
-                    background: "rgba(255,255,255,.25)",
-                    backdropFilter: "blur(4px)",
-                    borderRadius: "20px",
-                    padding: "2px 10px",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    color: "#fff",
-                  }}
-                >
-                  {item.count} {item.countLabel}
-                  {item.count !== 1 ? "s" : ""}
-                </div>
-              )}
-              <div style={{ fontSize: "32px", marginBottom: "8px" }}>
-                {resolveCardIcon(et?.icon)}
-              </div>
-              <div
-                style={{
-                  fontSize: "18px",
-                  fontWeight: 700,
-                  color: "#fff",
-                  lineHeight: 1.2,
-                }}
-              >
-                {item.name}
-              </div>
-              {item.states.length > 0 && (
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "rgba(255,255,255,.75)",
-                    marginTop: "4px",
-                  }}
-                >
-                  {item.states.length} states · {item.transitionCount}{" "}
-                  transitions
-                </div>
-              )}
-            </div>
-
-            {/* Card body — bottom half, fills remaining fixed height */}
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                display: "flex",
-                flexDirection: "column",
-                padding: "16px 20px 20px",
-                overflow: "hidden",
-              }}
-            >
-              {item.states.length > 0 && (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "6px",
-                    flexWrap: "wrap",
-                    marginBottom: "16px",
-                  }}
-                >
-                  {activeStates.slice(0, 4).map((s) => (
-                    <span
-                      key={s.name}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "4px",
-                        padding: "2px 8px",
-                        borderRadius: "20px",
-                        fontSize: "11px",
-                        fontWeight: 500,
-                        background: s.color
-                          ? `${s.color}22`
-                          : "var(--bg-tertiary)",
-                        color: s.color ?? "var(--text-muted)",
-                        border: `1px solid ${s.color ? `${s.color}44` : "var(--border-color)"}`,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: "6px",
-                          height: "6px",
-                          borderRadius: "50%",
-                          background: s.color ?? "var(--text-muted)",
-                          flexShrink: 0,
-                        }}
-                      />
-                      {s.label}
-                    </span>
-                  ))}
-                  {terminalStates.length > 0 && (
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "4px",
-                        padding: "2px 8px",
-                        borderRadius: "20px",
-                        fontSize: "11px",
-                        color: "var(--text-muted)",
-                        background: "var(--bg-tertiary)",
-                        border: "1px solid var(--border-color)",
-                      }}
-                    >
-                      ⬡ {terminalStates[0]?.label}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <Button
-                variant="primary"
-                style={{
-                  width: "100%",
-                  justifyContent: "center",
-                  marginTop: "auto",
-                  flexShrink: 0,
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNavigate(item.slug, item.filterParam);
-                }}
-              >
-                View Records →
-              </Button>
-            </div>
-          </div>
-        );
-      })}
+      {items.map((item) => (
+        <WorkflowCard key={item.id} item={item} onNavigate={onNavigate} />
+      ))}
     </div>
   );
 }

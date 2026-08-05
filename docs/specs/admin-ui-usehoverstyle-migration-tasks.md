@@ -33,11 +33,11 @@ already per-item.
 
 | task                                                                                                                             | requirement | status |
 | -------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T5: Extract + migrate `user-picker.tsx`'s 2 list-row pairs; migrate its 1 static pair                                            | R1, R2      | todo   |
-| T6: Extract + migrate `dashboard.tsx`'s remaining 4 `.map()`-based pairs (perf row, record row, quick-link, quick-action)        | R1, R2      | todo   |
-| T7: Extract + migrate `records/index.tsx`'s `WorkflowCardGrid` card hover                                                        | R1, R2      | todo   |
-| T8: Extract + migrate `workflows/detail.tsx`'s remove-assignee button                                                            | R1, R2      | todo   |
-| T8a: Manual smoke pass on `user-picker.tsx`, `dashboard.tsx`, `records/index.tsx`, `workflows/detail.tsx` + phase exit condition | R1, R2, R4  | todo   |
+| T5: Extract + migrate `user-picker.tsx`'s 2 list-row pairs; migrate its 1 static pair                                            | R1, R2      | done   |
+| T6: Extract + migrate `dashboard.tsx`'s remaining 4 `.map()`-based pairs (perf row, record row, quick-link, quick-action)        | R1, R2      | done   |
+| T7: Extract + migrate `records/index.tsx`'s `WorkflowCardGrid` card hover                                                        | R1, R2      | done   |
+| T8: Extract + migrate `workflows/detail.tsx`'s remove-assignee button                                                            | R1, R2      | done   |
+| T8a: Manual smoke pass on `user-picker.tsx`, `dashboard.tsx`, `records/index.tsx`, `workflows/detail.tsx` + phase exit condition | R1, R2, R4  | done   |
 
 ---
 

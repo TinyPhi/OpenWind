@@ -48,6 +48,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  useHoverStyle,
 } from "@platform/ui";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
@@ -515,6 +516,10 @@ function SortableStateNode({
     isDragging,
   } = useSortable({ id: state.id });
   const accent = state.color ?? "var(--accent-primary)";
+  const dragHandleHover = useHoverStyle({
+    base: { boxShadow: "none" },
+    hover: { boxShadow: `0 0 0 3px ${accent}44` },
+  });
 
   function handleRef(el: HTMLDivElement | null): void {
     // useSortable.setNodeRef expects Element | null; our custom map stores HTMLDivElement.
@@ -554,19 +559,15 @@ function SortableStateNode({
             position: "relative",
             cursor: "pointer",
             transition: "box-shadow 0.15s",
+            ...dragHandleHover.style,
           }}
           onClick={(e) => {
             e.stopPropagation();
             onEdit();
           }}
           title="Click to edit step"
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLDivElement).style.boxShadow =
-              `0 0 0 3px ${accent}44`;
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
-          }}
+          onMouseEnter={dragHandleHover.onMouseEnter}
+          onMouseLeave={dragHandleHover.onMouseLeave}
         >
           <span
             style={{
@@ -1004,6 +1005,137 @@ function SectionHeader({
         )}
       </div>
       {action}
+    </div>
+  );
+}
+
+function AssignedUserChip({
+  userId,
+  user,
+  isCreator,
+  canRemove,
+  savingAssign,
+  onRemove,
+}: {
+  userId: string;
+  user: UserOption | undefined;
+  isCreator: boolean;
+  canRemove: boolean;
+  savingAssign: boolean;
+  onRemove: () => void;
+}): React.ReactElement {
+  const displayName = String(user?.displayName ?? userId);
+  const initials = displayName
+    .split(" ")
+    .slice(0, 2)
+    .map((p) => p[0] ?? "")
+    .join("")
+    .toUpperCase();
+  const removeHover = useHoverStyle({
+    base: { background: "none", color: "var(--text-muted)" },
+    hover: { background: "hsla(0,84%,60%,.12)", color: "var(--danger)" },
+  });
+
+  return (
+    <div
+      title={user?.email ?? user?.loginName ?? userId}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "6px 8px 6px 6px",
+        background: "var(--bg-tertiary)",
+        border: "1px solid var(--border-color)",
+        borderRadius: "999px",
+        maxWidth: "100%",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "24px",
+          height: "24px",
+          borderRadius: "50%",
+          background: "var(--accent-primary)",
+          color: "#fff",
+          fontSize: "10px",
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </span>
+      <span
+        style={{
+          fontSize: "13px",
+          fontWeight: 600,
+          color: "var(--text-primary)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          maxWidth: "160px",
+        }}
+      >
+        {displayName}
+      </span>
+      <span
+        style={{
+          fontSize: "10px",
+          fontWeight: 700,
+          color: isCreator ? "var(--text-secondary)" : "var(--accent-primary)",
+          background: isCreator
+            ? "var(--bg-secondary)"
+            : "hsla(250,84%,60%,.1)",
+          border: isCreator
+            ? "1px solid var(--border-color)"
+            : "1px solid hsla(250,84%,60%,.2)",
+          borderRadius: "999px",
+          padding: "2px 8px",
+          whiteSpace: "nowrap",
+          flexShrink: 0,
+        }}
+      >
+        {isCreator ? "Creator" : "Admin"}
+      </span>
+      {canRemove && (
+        <button
+          type="button"
+          disabled={savingAssign}
+          onClick={onRemove}
+          title={
+            isCreator ? "Remove creator (global admin only)" : "Remove admin"
+          }
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "20px",
+            height: "20px",
+            borderRadius: "50%",
+            border: "none",
+            cursor: savingAssign ? "not-allowed" : "pointer",
+            flexShrink: 0,
+            opacity: savingAssign ? 0.5 : 1,
+            transition: "background 0.12s, color 0.12s",
+            ...removeHover.style,
+          }}
+          onMouseEnter={removeHover.onMouseEnter}
+          onMouseLeave={removeHover.onMouseLeave}
+        >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -2778,16 +2910,6 @@ export function WorkflowDetail(): React.ReactElement {
               >
                 {assignedTo.map((userId) => {
                   const u = orgUsers.find((o) => o.userId === userId);
-                  // `displayName`/`userId` are expected to be strings, but
-                  // user data can be malformed upstream (missing profile
-                  // fields) — coerce so a bad row can't blank the whole page.
-                  const displayName = String(u?.displayName ?? userId);
-                  const initials = displayName
-                    .split(" ")
-                    .slice(0, 2)
-                    .map((p) => p[0] ?? "")
-                    .join("")
-                    .toUpperCase();
                   const isCreator = userId === workflow.createdBy;
                   // Creator is only removable by a global admin (never by
                   // themselves, never by a fellow non-creator admin).
@@ -2795,128 +2917,19 @@ export function WorkflowDetail(): React.ReactElement {
                     isAdminListEditor && !(isCreator && !isAdmin);
 
                   return (
-                    <div
+                    <AssignedUserChip
                       key={userId}
-                      title={u?.email ?? u?.loginName ?? userId}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        padding: "6px 8px 6px 6px",
-                        background: "var(--bg-tertiary)",
-                        border: "1px solid var(--border-color)",
-                        borderRadius: "999px",
-                        maxWidth: "100%",
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          width: "24px",
-                          height: "24px",
-                          borderRadius: "50%",
-                          background: "var(--accent-primary)",
-                          color: "#fff",
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {initials}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          color: "var(--text-primary)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          maxWidth: "160px",
-                        }}
-                      >
-                        {displayName}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          color: isCreator
-                            ? "var(--text-secondary)"
-                            : "var(--accent-primary)",
-                          background: isCreator
-                            ? "var(--bg-secondary)"
-                            : "hsla(250,84%,60%,.1)",
-                          border: isCreator
-                            ? "1px solid var(--border-color)"
-                            : "1px solid hsla(250,84%,60%,.2)",
-                          borderRadius: "999px",
-                          padding: "2px 8px",
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {isCreator ? "Creator" : "Admin"}
-                      </span>
-                      {canRemove && (
-                        <button
-                          type="button"
-                          disabled={savingAssign}
-                          onClick={() =>
-                            void handleAssign(
-                              assignedTo.filter((id) => id !== userId),
-                            )
-                          }
-                          title={
-                            isCreator
-                              ? "Remove creator (global admin only)"
-                              : "Remove admin"
-                          }
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: "20px",
-                            height: "20px",
-                            borderRadius: "50%",
-                            background: "none",
-                            border: "none",
-                            cursor: savingAssign ? "not-allowed" : "pointer",
-                            color: "var(--text-muted)",
-                            flexShrink: 0,
-                            opacity: savingAssign ? 0.5 : 1,
-                            transition: "background 0.12s, color 0.12s",
-                          }}
-                          onMouseEnter={(e) => {
-                            (
-                              e.currentTarget as HTMLButtonElement
-                            ).style.background = "hsla(0,84%,60%,.12)";
-                            (e.currentTarget as HTMLButtonElement).style.color =
-                              "var(--danger)";
-                          }}
-                          onMouseLeave={(e) => {
-                            (
-                              e.currentTarget as HTMLButtonElement
-                            ).style.background = "none";
-                            (e.currentTarget as HTMLButtonElement).style.color =
-                              "var(--text-muted)";
-                          }}
-                        >
-                          <svg
-                            width="11"
-                            height="11"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                          >
-                            <path d="M18 6L6 18M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
+                      userId={userId}
+                      user={u}
+                      isCreator={isCreator}
+                      canRemove={canRemove}
+                      savingAssign={savingAssign}
+                      onRemove={() =>
+                        void handleAssign(
+                          assignedTo.filter((id) => id !== userId),
+                        )
+                      }
+                    />
                   );
                 })}
               </div>
