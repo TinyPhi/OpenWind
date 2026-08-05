@@ -111,11 +111,11 @@ half; Phase C is the bonus fix + full verification.
 | T3  | Migrate `modules.tsx`'s `ModuleCard`/preview button (2 pairs, no extraction — already per-item) | A     | done   | —       |
 | T4  | Migrate `dashboard.tsx`'s `KpiCard` (no extraction — already per-item)                          | A     | done   | —       |
 | T4a | Manual smoke pass on T1-T4's 3 files + phase A exit condition                                   | A     | done   | T1-T4   |
-| T5  | Extract + migrate `user-picker.tsx`'s 2 list-row pairs; migrate its 1 static pair               | B     | todo   | T4a     |
-| T6  | Extract + migrate `dashboard.tsx`'s remaining 4 `.map()`-based pairs                            | B     | todo   | T4a     |
-| T7  | Extract + migrate `records/index.tsx`'s `WorkflowCardGrid` card hover                           | B     | todo   | T4a     |
-| T8  | Extract + migrate `workflows/detail.tsx`'s remove-assignee button                               | B     | todo   | T4a     |
-| T8a | Manual smoke pass on T5-T8's 4 files + phase B exit condition                                   | B     | todo   | T5-T8   |
+| T5  | Extract + migrate `user-picker.tsx`'s 2 list-row pairs; migrate its 1 static pair               | B     | done   | T4a     |
+| T6  | Extract + migrate `dashboard.tsx`'s remaining 4 `.map()`-based pairs                            | B     | done   | T4a     |
+| T7  | Extract + migrate `records/index.tsx`'s `WorkflowCardGrid` card hover                           | B     | done   | T4a     |
+| T8  | Extract + migrate `workflows/detail.tsx`'s remove-assignee button                               | B     | done   | T4a     |
+| T8a | Manual smoke pass on T5-T8's 4 files + phase B exit condition                                   | B     | done   | T5-T8   |
 | T9  | Extract + migrate `customer/record-create.tsx` (both pairs)                                     | C     | todo   | T8a     |
 | T10 | Extract + migrate `customer/record-detail.tsx` (1 pair) + bonus hex-to-`TOKENS.danger` fix (R3) | C     | todo   | T8a     |
 | T11 | Extract + migrate `customer/record-list.tsx` (1 pair)                                           | C     | todo   | T8a     |
