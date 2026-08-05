@@ -40,7 +40,14 @@ const ALLOWED_MIME_TYPES = new Set([
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 const UploadFieldsSchema = z.object({
-  moduleSlug: z.string().min(1).max(100),
+  // Kebab-case only (matches @modules/kebab-case convention) — this segment
+  // is embedded verbatim into the on-disk storage path by buildStorageKey,
+  // so it must never contain path separators or ".." traversal sequences.
+  moduleSlug: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-z0-9-]+$/),
   entityId: z.string().uuid().optional(),
 });
 
