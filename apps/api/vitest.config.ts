@@ -59,6 +59,14 @@ export default defineConfig({
       ZITADEL_INTROSPECTION_CLIENT_ID: "test-client-id",
       ZITADEL_INTROSPECTION_CLIENT_SECRET: "test-client-secret",
       NOVU_API_KEY: "test",
+      // Still required by @platform/config's schema — apps/worker/src/export-worker.ts
+      // uploads bulk exports to S3 and hasn't moved to local-disk storage (only file
+      // attachments did). Not read by anything under apps/api's own tests, but the
+      // schema validates the whole process env eagerly on import.
+      S3_ENDPOINT: "http://localhost:9000",
+      S3_BUCKET: "test",
+      S3_ACCESS_KEY: "test",
+      S3_SECRET_KEY: "test",
       // Schema default is /data/files (the container bind-mount target) --
       // unwritable outside ow-backend/ow-worker's containers, which breaks
       // integration/upload-flow.test.ts and integration/quarantine-flow.test.ts
