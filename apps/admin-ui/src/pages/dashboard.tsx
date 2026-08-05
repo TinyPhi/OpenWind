@@ -3,7 +3,7 @@ import { useGetIdentity } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
-import { Button, useHoverStyle } from "@platform/ui";
+import { Button, TOKENS, useHoverStyle } from "@platform/ui";
 
 type WorkflowState = {
   name: string;
@@ -48,6 +48,16 @@ type Module = {
   slug: string;
   name: string;
   installed: boolean;
+};
+
+type RecentRecord = {
+  title: string;
+  workflowName: string;
+  workflowSlug: string;
+  state: string | null;
+  color: string | null;
+  createdAt: string | undefined;
+  assigneeLabel: string | null;
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -501,6 +511,420 @@ function SectionHeader({
   );
 }
 
+function WorkflowPerfRow({
+  stat,
+  index,
+  onClick,
+}: {
+  stat: WorkflowStat;
+  index: number;
+  onClick: () => void;
+}): React.ReactElement {
+  const palette = WORKFLOW_COLORS[index % WORKFLOW_COLORS.length];
+  const rowHover = useHoverStyle({
+    base: { background: "transparent" },
+    hover: { background: TOKENS.bgSecondary },
+  });
+
+  return (
+    <div
+      className="dash-perf-row"
+      onClick={onClick}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 60px 60px 60px 160px 60px",
+        gap: "0 12px",
+        padding: "12px 10px",
+        borderBottom: "1px solid var(--border-color)",
+        cursor: "pointer",
+        transition: "background .12s",
+        alignItems: "center",
+        ...rowHover.style,
+      }}
+      onMouseEnter={rowHover.onMouseEnter}
+      onMouseLeave={rowHover.onMouseLeave}
+    >
+      {/* name + states */}
+      <div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "4px",
+          }}
+        >
+          <div
+            style={{
+              width: "8px",
+              height: "8px",
+              borderRadius: "50%",
+              background: palette?.accent ?? "var(--accent-primary)",
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+            }}
+          >
+            {stat.workflow.name}
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: "4px",
+            flexWrap: "wrap",
+            paddingLeft: "16px",
+          }}
+        >
+          {stat.workflow.states
+            .filter((st) => !st.isTerminal)
+            .slice(0, 4)
+            .map((st) => (
+              <span
+                key={st.name}
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 500,
+                  padding: "1px 6px",
+                  borderRadius: "3px",
+                  background: st.color ? `${st.color}1a` : "var(--bg-tertiary)",
+                  color: st.color ?? "var(--text-muted)",
+                  border: `1px solid ${st.color ?? "var(--border-color)"}33`,
+                }}
+              >
+                {st.label}
+              </span>
+            ))}
+        </div>
+      </div>
+
+      {/* total */}
+      <span
+        className="dash-perf-col-num"
+        style={{
+          textAlign: "right",
+          fontSize: "14px",
+          fontWeight: 700,
+          color: "var(--text-primary)",
+        }}
+      >
+        {stat.total}
+      </span>
+
+      {/* open */}
+      <span
+        className="dash-perf-col-num"
+        style={{
+          textAlign: "right",
+          fontSize: "13px",
+          fontWeight: 600,
+          color: "hsl(35,90%,55%)",
+        }}
+      >
+        {stat.open}
+      </span>
+
+      {/* closed */}
+      <span
+        className="dash-perf-col-num"
+        style={{
+          textAlign: "right",
+          fontSize: "13px",
+          fontWeight: 600,
+          color: "hsl(150,75%,45%)",
+        }}
+      >
+        {stat.closed}
+      </span>
+
+      {/* progress */}
+      <div className="dash-perf-col-bar">
+        <ProgressBar
+          value={stat.closed}
+          total={stat.total}
+          color={palette?.accent ?? "var(--accent-primary)"}
+        />
+      </div>
+
+      {/* active badge */}
+      <div
+        className="dash-perf-col-status"
+        style={{ display: "flex", justifyContent: "center" }}
+      >
+        <span
+          style={{
+            fontSize: "10px",
+            fontWeight: 600,
+            padding: "2px 8px",
+            borderRadius: "20px",
+            background: stat.workflow.isActive
+              ? "hsla(150,75%,40%,.12)"
+              : "hsla(225,12%,40%,.1)",
+            color: stat.workflow.isActive
+              ? "hsl(150,75%,45%)"
+              : "var(--text-muted)",
+            border: stat.workflow.isActive
+              ? "1px solid hsla(150,75%,40%,.25)"
+              : "1px solid var(--border-color)",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {stat.workflow.isActive ? "Active" : "Off"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RecentRecordRow({
+  record,
+  isLast,
+  onClick,
+}: {
+  record: RecentRecord;
+  isLast: boolean;
+  onClick: () => void;
+}): React.ReactElement {
+  const rowHover = useHoverStyle({
+    base: { background: "transparent" },
+    hover: { background: TOKENS.bgSecondary },
+  });
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        padding: "10px 8px",
+        borderBottom: isLast ? "none" : "1px solid var(--border-color)",
+        cursor: "pointer",
+        transition: "background .1s",
+        borderRadius: "4px",
+        ...rowHover.style,
+      }}
+      onMouseEnter={rowHover.onMouseEnter}
+      onMouseLeave={rowHover.onMouseLeave}
+    >
+      {/* state dot */}
+      <div
+        style={{
+          width: "8px",
+          height: "8px",
+          borderRadius: "50%",
+          background: record.color ?? "var(--text-muted)",
+          flexShrink: 0,
+        }}
+      />
+      {/* title + workflow name */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {record.title}
+        </div>
+        <div
+          style={{
+            fontSize: "11px",
+            color: "var(--text-muted)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {record.workflowName}
+        </div>
+      </div>
+      {/* assignee avatar */}
+      {record.assigneeLabel && (
+        <span
+          title={record.assigneeLabel}
+          style={{
+            width: "20px",
+            height: "20px",
+            borderRadius: "50%",
+            background: "var(--bg-tertiary)",
+            border: "1px solid var(--border-color)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "10px",
+            fontWeight: 700,
+            color: "var(--text-secondary)",
+            flexShrink: 0,
+          }}
+        >
+          {record.assigneeLabel.slice(0, 1).toUpperCase()}
+        </span>
+      )}
+      {/* state badge */}
+      {record.state && (
+        <span
+          style={{
+            fontSize: "11px",
+            fontWeight: 600,
+            padding: "2px 8px",
+            borderRadius: "20px",
+            background: record.color
+              ? `${record.color}18`
+              : "var(--bg-tertiary)",
+            color: record.color ?? "var(--text-muted)",
+            border: `1px solid ${record.color ?? "var(--border-color)"}33`,
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+        >
+          {record.state}
+        </span>
+      )}
+      {/* date */}
+      {record.createdAt && (
+        <span
+          style={{
+            fontSize: "11px",
+            color: "var(--text-muted)",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            marginLeft: "4px",
+          }}
+        >
+          {relativeTime(record.createdAt)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SummaryLinkRow({
+  icon,
+  label,
+  value,
+  loading,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  value: number;
+  loading: boolean;
+  onClick: () => void;
+}): React.ReactElement {
+  const rowHover = useHoverStyle({
+    base: { background: "transparent" },
+    hover: { background: TOKENS.bgSecondary },
+  });
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "10px 6px",
+        borderBottom: "1px solid var(--border-color)",
+        cursor: "pointer",
+        transition: "background .1s",
+        borderRadius: "4px",
+        ...rowHover.style,
+      }}
+      onMouseEnter={rowHover.onMouseEnter}
+      onMouseLeave={rowHover.onMouseLeave}
+    >
+      <span style={{ fontSize: "16px", flexShrink: 0 }}>{icon}</span>
+      <span
+        style={{
+          flex: 1,
+          fontSize: "13px",
+          color: "var(--text-secondary)",
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: "14px",
+          fontWeight: 700,
+          color: "var(--text-primary)",
+        }}
+      >
+        {loading ? "—" : value}
+      </span>
+    </div>
+  );
+}
+
+function QuickActionButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+}): React.ReactElement {
+  const buttonHover = useHoverStyle({
+    base: {
+      borderColor: TOKENS.borderColor,
+      color: TOKENS.textSecondary,
+      background: TOKENS.bgSecondary,
+    },
+    hover: {
+      borderColor: TOKENS.accentPrimary,
+      color: TOKENS.accentPrimary,
+      background: "hsla(250,84%,60%,.06)",
+    },
+  });
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "9px 12px",
+        borderRadius: "var(--radius-sm)",
+        border: "1px solid",
+        fontSize: "13px",
+        fontWeight: 500,
+        cursor: "pointer",
+        textAlign: "left",
+        transition: "border-color .12s, color .12s, background .12s",
+        width: "100%",
+        ...buttonHover.style,
+      }}
+      onMouseEnter={buttonHover.onMouseEnter}
+      onMouseLeave={buttonHover.onMouseLeave}
+    >
+      <span style={{ fontSize: "15px" }}>{icon}</span>
+      {label}
+      <span
+        style={{
+          marginLeft: "auto",
+          color: "var(--text-muted)",
+          fontSize: "14px",
+        }}
+      >
+        →
+      </span>
+    </button>
+  );
+}
+
 // ── main Dashboard ────────────────────────────────────────────────────────────
 
 export function Dashboard(): React.ReactElement {
@@ -590,15 +1014,6 @@ export function Dashboard(): React.ReactElement {
   const activeWorkflows = stats.filter((s) => s.workflow.isActive).length;
 
   // recent records across all workflows (latest 8)
-  type RecentRecord = {
-    title: string;
-    workflowName: string;
-    workflowSlug: string;
-    state: string | null;
-    color: string | null;
-    createdAt: string | undefined;
-    assigneeLabel: string | null;
-  };
   const recentRecords: RecentRecord[] = stats
     .flatMap((s) =>
       s.records.map((r) => {
@@ -934,176 +1349,16 @@ export function Dashboard(): React.ReactElement {
                 </div>
 
                 {/* rows */}
-                {stats.map((s, i) => {
-                  const palette = WORKFLOW_COLORS[i % WORKFLOW_COLORS.length];
-                  return (
-                    <div
-                      key={s.workflow.id}
-                      className="dash-perf-row"
-                      onClick={() =>
-                        navigate(
-                          `/workflows/${slugify(s.workflow.name)}/records`,
-                        )
-                      }
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 60px 60px 60px 160px 60px",
-                        gap: "0 12px",
-                        padding: "12px 10px",
-                        borderBottom: "1px solid var(--border-color)",
-                        cursor: "pointer",
-                        transition: "background .12s",
-                        alignItems: "center",
-                      }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLDivElement).style.background =
-                          "var(--bg-secondary)";
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLDivElement).style.background =
-                          "transparent";
-                      }}
-                    >
-                      {/* name + states */}
-                      <div>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            marginBottom: "4px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: "8px",
-                              height: "8px",
-                              borderRadius: "50%",
-                              background:
-                                palette?.accent ?? "var(--accent-primary)",
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span
-                            style={{
-                              fontSize: "13px",
-                              fontWeight: 600,
-                              color: "var(--text-primary)",
-                            }}
-                          >
-                            {s.workflow.name}
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "4px",
-                            flexWrap: "wrap",
-                            paddingLeft: "16px",
-                          }}
-                        >
-                          {s.workflow.states
-                            .filter((st) => !st.isTerminal)
-                            .slice(0, 4)
-                            .map((st) => (
-                              <span
-                                key={st.name}
-                                style={{
-                                  fontSize: "10px",
-                                  fontWeight: 500,
-                                  padding: "1px 6px",
-                                  borderRadius: "3px",
-                                  background: st.color
-                                    ? `${st.color}1a`
-                                    : "var(--bg-tertiary)",
-                                  color: st.color ?? "var(--text-muted)",
-                                  border: `1px solid ${st.color ?? "var(--border-color)"}33`,
-                                }}
-                              >
-                                {st.label}
-                              </span>
-                            ))}
-                        </div>
-                      </div>
-
-                      {/* total */}
-                      <span
-                        className="dash-perf-col-num"
-                        style={{
-                          textAlign: "right",
-                          fontSize: "14px",
-                          fontWeight: 700,
-                          color: "var(--text-primary)",
-                        }}
-                      >
-                        {s.total}
-                      </span>
-
-                      {/* open */}
-                      <span
-                        className="dash-perf-col-num"
-                        style={{
-                          textAlign: "right",
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          color: "hsl(35,90%,55%)",
-                        }}
-                      >
-                        {s.open}
-                      </span>
-
-                      {/* closed */}
-                      <span
-                        className="dash-perf-col-num"
-                        style={{
-                          textAlign: "right",
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          color: "hsl(150,75%,45%)",
-                        }}
-                      >
-                        {s.closed}
-                      </span>
-
-                      {/* progress */}
-                      <div className="dash-perf-col-bar">
-                        <ProgressBar
-                          value={s.closed}
-                          total={s.total}
-                          color={palette?.accent ?? "var(--accent-primary)"}
-                        />
-                      </div>
-
-                      {/* active badge */}
-                      <div
-                        className="dash-perf-col-status"
-                        style={{ display: "flex", justifyContent: "center" }}
-                      >
-                        <span
-                          style={{
-                            fontSize: "10px",
-                            fontWeight: 600,
-                            padding: "2px 8px",
-                            borderRadius: "20px",
-                            background: s.workflow.isActive
-                              ? "hsla(150,75%,40%,.12)"
-                              : "hsla(225,12%,40%,.1)",
-                            color: s.workflow.isActive
-                              ? "hsl(150,75%,45%)"
-                              : "var(--text-muted)",
-                            border: s.workflow.isActive
-                              ? "1px solid hsla(150,75%,40%,.25)"
-                              : "1px solid var(--border-color)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.04em",
-                          }}
-                        >
-                          {s.workflow.isActive ? "Active" : "Off"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
+                {stats.map((s, i) => (
+                  <WorkflowPerfRow
+                    key={s.workflow.id}
+                    stat={s}
+                    index={i}
+                    onClick={() =>
+                      navigate(`/workflows/${slugify(s.workflow.name)}/records`)
+                    }
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -1147,126 +1402,14 @@ export function Dashboard(): React.ReactElement {
                 style={{ display: "flex", flexDirection: "column", gap: "0" }}
               >
                 {recentRecords.map((r, idx) => (
-                  <div
+                  <RecentRecordRow
                     key={idx}
+                    record={r}
+                    isLast={idx === recentRecords.length - 1}
                     onClick={() =>
                       navigate(`/workflows/${r.workflowSlug}/records`)
                     }
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      padding: "10px 8px",
-                      borderBottom:
-                        idx < recentRecords.length - 1
-                          ? "1px solid var(--border-color)"
-                          : "none",
-                      cursor: "pointer",
-                      transition: "background .1s",
-                      borderRadius: "4px",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.background =
-                        "var(--bg-secondary)";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.background =
-                        "transparent";
-                    }}
-                  >
-                    {/* state dot */}
-                    <div
-                      style={{
-                        width: "8px",
-                        height: "8px",
-                        borderRadius: "50%",
-                        background: r.color ?? "var(--text-muted)",
-                        flexShrink: 0,
-                      }}
-                    />
-                    {/* title + workflow name */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          color: "var(--text-primary)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {r.title}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "11px",
-                          color: "var(--text-muted)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {r.workflowName}
-                      </div>
-                    </div>
-                    {/* assignee avatar */}
-                    {r.assigneeLabel && (
-                      <span
-                        title={r.assigneeLabel}
-                        style={{
-                          width: "20px",
-                          height: "20px",
-                          borderRadius: "50%",
-                          background: "var(--bg-tertiary)",
-                          border: "1px solid var(--border-color)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          color: "var(--text-secondary)",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {r.assigneeLabel.slice(0, 1).toUpperCase()}
-                      </span>
-                    )}
-                    {/* state badge */}
-                    {r.state && (
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 600,
-                          padding: "2px 8px",
-                          borderRadius: "20px",
-                          background: r.color
-                            ? `${r.color}18`
-                            : "var(--bg-tertiary)",
-                          color: r.color ?? "var(--text-muted)",
-                          border: `1px solid ${r.color ?? "var(--border-color)"}33`,
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {r.state}
-                      </span>
-                    )}
-                    {/* date */}
-                    {r.createdAt && (
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          color: "var(--text-muted)",
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                          marginLeft: "4px",
-                        }}
-                      >
-                        {relativeTime(r.createdAt)}
-                      </span>
-                    )}
-                  </div>
+                  />
                 ))}
               </div>
             )}
@@ -1308,50 +1451,14 @@ export function Dashboard(): React.ReactElement {
                   link: "/modules",
                 },
               ].map((item) => (
-                <div
+                <SummaryLinkRow
                   key={item.label}
+                  icon={item.icon}
+                  label={item.label}
+                  value={item.value}
+                  loading={loading}
                   onClick={() => navigate(item.link)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    padding: "10px 6px",
-                    borderBottom: "1px solid var(--border-color)",
-                    cursor: "pointer",
-                    transition: "background .1s",
-                    borderRadius: "4px",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.background =
-                      "var(--bg-secondary)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.background =
-                      "transparent";
-                  }}
-                >
-                  <span style={{ fontSize: "16px", flexShrink: 0 }}>
-                    {item.icon}
-                  </span>
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: "13px",
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    {item.label}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "14px",
-                      fontWeight: 700,
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    {loading ? "—" : item.value}
-                  </span>
-                </div>
+                />
               ))}
             </div>
           </div>
@@ -1388,51 +1495,12 @@ export function Dashboard(): React.ReactElement {
                 { label: "Browse Modules", path: "/modules", icon: "🧩" },
                 { label: "View Records", path: "/records", icon: "📋" },
               ].map((a) => (
-                <button
+                <QuickActionButton
                   key={a.path}
+                  icon={a.icon}
+                  label={a.label}
                   onClick={() => navigate(a.path)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    padding: "9px 12px",
-                    borderRadius: "var(--radius-sm)",
-                    background: "var(--bg-secondary)",
-                    border: "1px solid var(--border-color)",
-                    color: "var(--text-secondary)",
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition:
-                      "border-color .12s, color .12s, background .12s",
-                    width: "100%",
-                  }}
-                  onMouseEnter={(e) => {
-                    const el = e.currentTarget;
-                    el.style.borderColor = "var(--accent-primary)";
-                    el.style.color = "var(--accent-primary)";
-                    el.style.background = "hsla(250,84%,60%,.06)";
-                  }}
-                  onMouseLeave={(e) => {
-                    const el = e.currentTarget;
-                    el.style.borderColor = "var(--border-color)";
-                    el.style.color = "var(--text-secondary)";
-                    el.style.background = "var(--bg-secondary)";
-                  }}
-                >
-                  <span style={{ fontSize: "15px" }}>{a.icon}</span>
-                  {a.label}
-                  <span
-                    style={{
-                      marginLeft: "auto",
-                      color: "var(--text-muted)",
-                      fontSize: "14px",
-                    }}
-                  >
-                    →
-                  </span>
-                </button>
+                />
               ))}
             </div>
           </div>
