@@ -886,6 +886,67 @@ was wrongly credited with closing #247 despite its own body saying otherwise). F
 
 ---
 
+## 2026-07-27 (later) — production deploy + a real pre-existing bug it exposed
+
+**Session type:** Deploy of the above `media` branch to the `tushar` branch
+and the production server, plus a follow-up fix
+
+### Completed this session
+
+- Merged `media` into `tushar` (fast-forward), pushed, deleted `media`.
+- Deployed to the production server: `git pull`, rebuilt `ow-backend`,
+  `ow-frontend`, **and `ow-worker`** (the existing `server-up.sh` script only
+  rebuilds backend+frontend — had to run the `docker compose ... up -d
+--build` command manually with `ow-worker` included, since our AV-scan/
+  file-cleanup/tenant-purge changes live there). `--remove-orphans` cleanly
+  removed the now-unmanaged MinIO containers; confirmed the bucket was empty
+  first (`mc ls` — no migration needed).
+- **Found and fixed a real pre-existing production bug**, exposed for the
+  first time by this deploy: `apps/worker/src/av-scan.ts`'s DB queries (the
+  idempotency-check select, both `clean`/`quarantined` status updates, and
+  the failure-handler's update+outbox-insert) were bare `db.select()`/
+  `update()`/`insert()` calls, never wrapped in `withTenantContext`. Against
+  a real PgBouncer-pooled connection this throws `invalid input syntax for
+type uuid: ""` — the RLS policy's `app.tenant_id` GUC was unset/stale, and
+  casting the empty default to `uuid` fails outright (unlike a fresh direct
+  psql connection, where an unset custom GUC just returns `NULL` and the
+  query silently returns zero rows — which is why a manual `psql` repro
+  didn't reproduce it and a from-inside-the-app repro script was needed to
+  see the real `.cause`). This code was untouched by the S3→disk migration
+  itself (same shape before and after) — it never surfaced before because
+  uploads never reached the AV-scan queue under the old broken
+  presigned-URL flow. Fixed by wrapping every DB call in `av-scan.ts` with
+  `withTenantContext`, matching the convention everywhere else in the
+  codebase (`tenant-purge.ts` already did this correctly).
+- Logged as B1/B2 and promoted to a `§V` invariant in
+  `docs/specs/local-disk-file-storage.md`: any bare `db` call in tenant-scoped
+  worker code is a production bug, not just a lint nit — it breaks under
+  PgBouncer transaction pooling even though it may look fine against a
+  fresh, unpooled connection.
+
+### Verification
+
+- pnpm typecheck: PASS (apps/worker)
+- pnpm test: PASS — apps/worker (70, including updated `av-scan.test.ts`
+  mocking `withTenantContext`)
+- Manual: reproduced the exact failing query through the app's own DB client
+  inside the running `ow-worker` container on the server, confirmed the real
+  `PostgresError` cause, applied the fix, rebuilt `ow-worker` again
+
+### Next
+
+- Re-test the full upload → scan → clean → timeline flow on the live server
+  now that the worker fix is deployed.
+- Consider fixing `av-scan.ts`'s (and other worker code's) error logging to
+  include `err.cause`, not just `String(err)` — this bug's root cause was
+  invisible in the app's own logs and required a manual repro script to see.
+
+### Open questions
+
+- None blocking.
+
+---
+
 ## 2026-07-25 — global outbound-notifications kill switch (dev session)
 
 **Session type:** New feature (not on the tracked #120–#129 backlog)
