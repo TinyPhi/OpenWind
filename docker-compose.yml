@@ -164,6 +164,26 @@ services:
       timeout: 3s
       retries: 10
 
+  # ── ClamAV (antivirus scanning for uploaded files) ────────────────────────
+  # apps/worker/src/av-scan.ts streams each upload here over the INSTREAM TCP
+  # protocol before marking scanStatus "clean". Without this service the
+  # scan queue retries 5x then gives up (scanStatus stuck at "pending", then
+  # "scan_failed") — files are never downloadable.
+  # First boot downloads the virus signature database (freshclam) — can take
+  # a few minutes; start_period below gives it room before healthcheck fails.
+  clamav:
+    container_name: ow-clamav
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
   # ── MinIO (local S3) — NOT IN USE. packages/files stores on local disk now
   # (see docs/specs/local-disk-file-storage.md). Kept here commented out only
   # for reference / a possible future return to object storage.
@@ -381,6 +401,8 @@ services:
       # must be the same in-container path as ow-backend so the AV scan
       # worker reads bytes from the same place the API wrote them.
       FILES_STORAGE_PATH: /data/files
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
     dns:
       - 127.0.0.11
       - 1.1.1.1
@@ -395,6 +417,8 @@ services:
       redis:
         condition: service_healthy
       openbao:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     volumes:
       - "${FILES_STORAGE_PATH_HOST:-../openwind-files}:/data/files"
@@ -466,6 +490,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  clamav_data:
   novu_mongo_data:
   mailhog_data:
   # minio_data:  # unused — minio service is commented out, see above
