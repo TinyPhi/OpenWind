@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { eq } from "drizzle-orm";
 
 // ── DB mock helpers ───────────────────────────────────────────────────────────
 // Same mocking style as engine.test.ts: @platform/db and drizzle-orm are
@@ -78,8 +79,12 @@ vi.mock("./authorization.js", () => ({
   isWorkflowAdminListEditor: vi.fn(() => true),
 }));
 
-const { updateWorkflowState, listWorkflowsSummary } =
-  await import("./workflow-crud.js");
+const {
+  updateWorkflowState,
+  listWorkflows,
+  listWorkflowsSummary,
+  getWorkflowByEntityTypeId,
+} = await import("./workflow-crud.js");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -251,5 +256,85 @@ describe("updateWorkflowState — rename cascade", () => {
 
     // No writes should happen once the duplicate check fails.
     expect(updateCalls).toHaveLength(0);
+  });
+});
+
+describe("listWorkflows / listWorkflowsSummary — tenant-wide visibility", () => {
+  const NON_ADMIN_CALLER = { userId: "user-222", isGlobalAdmin: false };
+
+  it("listWorkflows: does not apply the ownership filter when entityTypeId is provided", async () => {
+    selectQueue = [() => []]; // rows.length === 0 short-circuits before the states/transitions/count selects
+    await listWorkflows(
+      dbMock as never,
+      TENANT_ID,
+      NON_ADMIN_CALLER,
+      "entity-type-1",
+    );
+
+    const ownershipCheck = vi
+      .mocked(eq)
+      .mock.calls.find(([, val]) => val === NON_ADMIN_CALLER.userId);
+    expect(ownershipCheck).toBeUndefined();
+  });
+
+  it("listWorkflows: also does not apply the ownership filter for a bare call (no entityTypeId) — listing is tenant-wide for every caller", async () => {
+    selectQueue = [() => []];
+    await listWorkflows(dbMock as never, TENANT_ID, NON_ADMIN_CALLER);
+
+    const ownershipCheck = vi
+      .mocked(eq)
+      .mock.calls.find(([, val]) => val === NON_ADMIN_CALLER.userId);
+    expect(ownershipCheck).toBeUndefined();
+  });
+
+  it("listWorkflows: returns an empty array, not an error, when no workflow governs the entity type", async () => {
+    selectQueue = [() => []];
+    const result = await listWorkflows(
+      dbMock as never,
+      TENANT_ID,
+      NON_ADMIN_CALLER,
+      "entity-type-ungoverned",
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("listWorkflowsSummary: does not apply the ownership filter when entityTypeId is provided", async () => {
+    selectQueue = [() => []];
+    await listWorkflowsSummary(
+      dbMock as never,
+      TENANT_ID,
+      NON_ADMIN_CALLER,
+      "entity-type-1",
+    );
+
+    const ownershipCheck = vi
+      .mocked(eq)
+      .mock.calls.find(([, val]) => val === NON_ADMIN_CALLER.userId);
+    expect(ownershipCheck).toBeUndefined();
+  });
+
+  it("listWorkflowsSummary: also does not apply the ownership filter for a bare call (no entityTypeId) — listing is tenant-wide for every caller", async () => {
+    selectQueue = [() => []];
+    await listWorkflowsSummary(dbMock as never, TENANT_ID, NON_ADMIN_CALLER);
+
+    const ownershipCheck = vi
+      .mocked(eq)
+      .mock.calls.find(([, val]) => val === NON_ADMIN_CALLER.userId);
+    expect(ownershipCheck).toBeUndefined();
+  });
+
+  it("getWorkflowByEntityTypeId takes no caller/ownership input — regression guard that it stays untouched by this change", async () => {
+    selectQueue = [
+      () => [{ id: WORKFLOW_ID, createdBy: "someone-else", assignedTo: [] }],
+    ];
+    const result = await getWorkflowByEntityTypeId(
+      dbMock as never,
+      TENANT_ID,
+      "entity-type-1",
+    );
+    // No caller/userId argument exists on this function's signature (TS-enforced);
+    // this asserts the runtime behavior matches: it returns whatever row matches
+    // tenant+entityType, with no ownership check applied at all — same as before.
+    expect(result?.id).toBe(WORKFLOW_ID);
   });
 });
