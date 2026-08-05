@@ -6,7 +6,7 @@ import { useEntityTypes } from "../../entity-type-context.js";
 import type { EntityType } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { resolveCardIcon } from "../../lib/icon.js";
-import { Button, useHoverStyle } from "@platform/ui";
+import { Button, TOKENS, useHoverStyle } from "@platform/ui";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -446,8 +446,10 @@ function WorkflowCard({
   const activeStates = item.states.filter((s) => !s.isTerminal);
   const terminalStates = item.states.filter((s) => s.isTerminal);
   const cardHover = useHoverStyle({
+    // shadow-sm has no TOKENS entry yet (only shadowLg is defined) -- left as
+    // a literal rather than inventing a new token for this fix.
     base: { transform: "translateY(0)", boxShadow: "var(--shadow-sm)" },
-    hover: { transform: "translateY(-3px)", boxShadow: "var(--shadow-lg)" },
+    hover: { transform: "translateY(-3px)", boxShadow: TOKENS.shadowLg },
   });
 
   return (

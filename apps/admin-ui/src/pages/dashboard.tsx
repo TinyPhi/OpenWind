@@ -3,7 +3,7 @@ import { useGetIdentity } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
-import { Button, useHoverStyle } from "@platform/ui";
+import { Button, TOKENS, useHoverStyle } from "@platform/ui";
 
 type WorkflowState = {
   name: string;
@@ -523,7 +523,7 @@ function WorkflowPerfRow({
   const palette = WORKFLOW_COLORS[index % WORKFLOW_COLORS.length];
   const rowHover = useHoverStyle({
     base: { background: "transparent" },
-    hover: { background: "var(--bg-secondary)" },
+    hover: { background: TOKENS.bgSecondary },
   });
 
   return (
@@ -693,7 +693,7 @@ function RecentRecordRow({
 }): React.ReactElement {
   const rowHover = useHoverStyle({
     base: { background: "transparent" },
-    hover: { background: "var(--bg-secondary)" },
+    hover: { background: TOKENS.bgSecondary },
   });
 
   return (
@@ -824,7 +824,7 @@ function SummaryLinkRow({
 }): React.ReactElement {
   const rowHover = useHoverStyle({
     base: { background: "transparent" },
-    hover: { background: "var(--bg-secondary)" },
+    hover: { background: TOKENS.bgSecondary },
   });
 
   return (
@@ -878,13 +878,13 @@ function QuickActionButton({
 }): React.ReactElement {
   const buttonHover = useHoverStyle({
     base: {
-      borderColor: "var(--border-color)",
-      color: "var(--text-secondary)",
-      background: "var(--bg-secondary)",
+      borderColor: TOKENS.borderColor,
+      color: TOKENS.textSecondary,
+      background: TOKENS.bgSecondary,
     },
     hover: {
-      borderColor: "var(--accent-primary)",
-      color: "var(--accent-primary)",
+      borderColor: TOKENS.accentPrimary,
+      color: TOKENS.accentPrimary,
       background: "hsla(250,84%,60%,.06)",
     },
   });

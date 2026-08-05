@@ -48,6 +48,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  TOKENS,
   useHoverStyle,
 } from "@platform/ui";
 
@@ -1024,6 +1025,9 @@ function AssignedUserChip({
   savingAssign: boolean;
   onRemove: () => void;
 }): React.ReactElement {
+  // `displayName`/`userId` are expected to be strings, but user data can be
+  // malformed upstream (missing profile fields) — coerce so a bad row can't
+  // blank the whole page.
   const displayName = String(user?.displayName ?? userId);
   const initials = displayName
     .split(" ")
@@ -1033,7 +1037,7 @@ function AssignedUserChip({
     .toUpperCase();
   const removeHover = useHoverStyle({
     base: { background: "none", color: "var(--text-muted)" },
-    hover: { background: "hsla(0,84%,60%,.12)", color: "var(--danger)" },
+    hover: { background: "hsla(0,84%,60%,.12)", color: TOKENS.danger },
   });
 
   return (
