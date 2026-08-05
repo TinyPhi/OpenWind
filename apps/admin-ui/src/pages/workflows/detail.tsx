@@ -2437,123 +2437,152 @@ export function WorkflowDetail(): React.ReactElement {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[...workflow.transitions]
-                  .sort((a, b) => a.sortOrder - b.sortOrder)
-                  .map((t, i) => (
-                    <TableRow key={t.id}>
-                      <TableCell
-                        className="text-muted-sm"
-                        style={{ fontWeight: 600 }}
+                {/* Already ORDER BY sort_order server-side (workflow-crud.ts) — no
+                    need to re-sort on every render. */}
+                {workflow.transitions.map((t, i) => (
+                  <TableRow key={t.id}>
+                    <TableCell
+                      className="text-muted-sm"
+                      style={{ fontWeight: 600 }}
+                    >
+                      {i + 1}
+                    </TableCell>
+                    <TableCell>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          flexWrap: "wrap",
+                        }}
                       >
-                        {i + 1}
-                      </TableCell>
-                      <TableCell>
+                        <code
+                          className="code-inline"
+                          style={{ fontSize: "11px" }}
+                        >
+                          {t.fromState}
+                        </code>
+                        <span
+                          style={{
+                            color: "var(--accent-primary)",
+                            fontWeight: 700,
+                            fontSize: "14px",
+                          }}
+                        >
+                          →
+                        </span>
+                        <code
+                          className="code-inline"
+                          style={{ fontSize: "11px" }}
+                        >
+                          {t.toState}
+                        </code>
+                      </div>
+                    </TableCell>
+                    <TableCell
+                      className="wfd-table-hide-xs"
+                      style={{ fontWeight: 500, fontSize: "13px" }}
+                    >
+                      {t.label || <span className="text-muted-sm">—</span>}
+                    </TableCell>
+                    <TableCell className="wfd-table-hide-xs">
+                      {t.allowedRoles.length === 0 ? (
+                        <span className="text-muted-sm">Any</span>
+                      ) : (
                         <div
                           style={{
                             display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
+                            gap: "4px",
                             flexWrap: "wrap",
                           }}
                         >
-                          <code
-                            className="code-inline"
-                            style={{ fontSize: "11px" }}
-                          >
-                            {t.fromState}
-                          </code>
-                          <span
-                            style={{
-                              color: "var(--accent-primary)",
-                              fontWeight: 700,
-                              fontSize: "14px",
-                            }}
-                          >
-                            →
-                          </span>
-                          <code
-                            className="code-inline"
-                            style={{ fontSize: "11px" }}
-                          >
-                            {t.toState}
-                          </code>
+                          {t.allowedRoles.map((r) => (
+                            <span key={r} className="badge badge-primary">
+                              {r}
+                            </span>
+                          ))}
                         </div>
-                      </TableCell>
-                      <TableCell
-                        className="wfd-table-hide-xs"
-                        style={{ fontWeight: 500, fontSize: "13px" }}
-                      >
-                        {t.label || <span className="text-muted-sm">—</span>}
-                      </TableCell>
-                      <TableCell className="wfd-table-hide-xs">
-                        {t.allowedRoles.length === 0 ? (
-                          <span className="text-muted-sm">Any</span>
-                        ) : (
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "4px",
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            {t.allowedRoles.map((r) => (
-                              <span key={r} className="badge badge-primary">
-                                {r}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="wfd-table-hide-xs">
-                        {!t.requiresComment && t.requiresFields.length === 0 ? (
-                          <span className="text-muted-sm">—</span>
-                        ) : (
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "4px",
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            {t.requiresComment && (
-                              <span className="badge badge-warning">
-                                Comment
-                              </span>
-                            )}
-                            {t.requiresFields.length > 0 && (
-                              <span className="badge badge-warning">
-                                {t.requiresFields.length} detail
-                                {t.requiresFields.length > 1 ? "s" : ""}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell
-                        style={{ textAlign: "right", whiteSpace: "nowrap" }}
-                      >
+                      )}
+                    </TableCell>
+                    <TableCell className="wfd-table-hide-xs">
+                      {!t.requiresComment && t.requiresFields.length === 0 ? (
+                        <span className="text-muted-sm">—</span>
+                      ) : (
                         <div
                           style={{
                             display: "flex",
-                            gap: "6px",
-                            justifyContent: "flex-end",
+                            gap: "4px",
+                            flexWrap: "wrap",
                           }}
                         >
-                          <IconButton
-                            variant="edit"
-                            onClick={() => {
-                              setEditingTransition(t);
-                              setTransForm({
-                                fromState: t.fromState,
-                                toState: t.toState,
-                                label: t.label,
-                                allowedRoles: [...t.allowedRoles],
-                                requiresComment: t.requiresComment,
-                              });
-                              setTransError(null);
-                            }}
-                            title="Edit action"
+                          {t.requiresComment && (
+                            <span className="badge badge-warning">Comment</span>
+                          )}
+                          {t.requiresFields.length > 0 && (
+                            <span className="badge badge-warning">
+                              {t.requiresFields.length} detail
+                              {t.requiresFields.length > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell
+                      style={{ textAlign: "right", whiteSpace: "nowrap" }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "6px",
+                          justifyContent: "flex-end",
+                        }}
+                      >
+                        <IconButton
+                          variant="edit"
+                          onClick={() => {
+                            setEditingTransition(t);
+                            setTransForm({
+                              fromState: t.fromState,
+                              toState: t.toState,
+                              label: t.label,
+                              allowedRoles: [...t.allowedRoles],
+                              requiresComment: t.requiresComment,
+                            });
+                            setTransError(null);
+                          }}
+                          title="Edit action"
+                        >
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           >
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </IconButton>
+                        <IconButton
+                          variant="delete"
+                          disabled={deletingTransId === t.id}
+                          onClick={() =>
+                            setConfirmDelete({
+                              message: `Delete action "${t.label || `${t.fromState} → ${t.toState}`}"?`,
+                              onConfirm: () => {
+                                setConfirmDelete(null);
+                                void handleDeleteTransition(t.id);
+                              },
+                            })
+                          }
+                          title="Delete action"
+                        >
+                          {deletingTransId === t.id ? (
+                            <span style={{ fontSize: "11px" }}>…</span>
+                          ) : (
                             <svg
                               width="13"
                               height="13"
@@ -2564,47 +2593,16 @@ export function WorkflowDetail(): React.ReactElement {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             >
-                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                              <path d="M10 11v6M14 11v6" />
                             </svg>
-                          </IconButton>
-                          <IconButton
-                            variant="delete"
-                            disabled={deletingTransId === t.id}
-                            onClick={() =>
-                              setConfirmDelete({
-                                message: `Delete action "${t.label || `${t.fromState} → ${t.toState}`}"?`,
-                                onConfirm: () => {
-                                  setConfirmDelete(null);
-                                  void handleDeleteTransition(t.id);
-                                },
-                              })
-                            }
-                            title="Delete action"
-                          >
-                            {deletingTransId === t.id ? (
-                              <span style={{ fontSize: "11px" }}>…</span>
-                            ) : (
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <polyline points="3 6 5 6 21 6" />
-                                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                <path d="M10 11v6M14 11v6" />
-                              </svg>
-                            )}
-                          </IconButton>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                          )}
+                        </IconButton>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}

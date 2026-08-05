@@ -529,6 +529,15 @@ async function assertWorkflowOwned(
   }
 }
 
+// If the first state ever created on a workflow is terminal, the auto-heal
+// below intentionally skips (a terminal initial state would make every new
+// entity instance start and end in the same state) — initialState stays
+// orphaned in that case, silently, with no error surfaced to the caller.
+// The next non-terminal state added still won't heal it either, since the
+// heal only fires when existingStateCount === 0. Callers relying on
+// initialState being valid after addWorkflowState should check
+// updateWorkflow's WORKFLOW_INITIAL_STATE_INVALID path or verify the
+// returned workflow's initialState explicitly.
 export async function addWorkflowState(
   db: DbOrTx,
   tenantId: string,
@@ -574,7 +583,9 @@ export async function addWorkflowState(
     await db
       .update(workflows)
       .set({ initialState: row.name })
-      .where(eq(workflows.id, workflowId));
+      .where(
+        and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)),
+      );
   }
 
   logger.info(
