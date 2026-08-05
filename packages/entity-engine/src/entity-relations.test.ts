@@ -60,7 +60,7 @@ vi.mock("@platform/logger", () => ({
 
 // ── Import AFTER mocks ────────────────────────────────────────────────────────
 
-const { createRelation, listRelations, deleteRelation } =
+const { createRelation, listRelations, deleteRelation, createReferenceLink } =
   await import("./entity-relations.js");
 
 const TENANT_ID = "tenant-aaa";
@@ -207,6 +207,93 @@ describe("listRelations", () => {
 
     expect(page.data).toHaveLength(1);
     expect(page.data[0]?.relationType).toBe("parent");
+  });
+});
+
+describe("createReferenceLink", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("creates a mirrored references/referenced_by pair for two different entity instances", async () => {
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: FROM_ID }])) // from exists
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: TO_ID }])) // to exists
+      .mockReturnValueOnce(makeQueryBuilder(() => [])); // no existing active link
+    mockInsertReturning.mockResolvedValue([
+      { ...fakeRelation, relationType: "references" },
+      {
+        ...fakeRelation,
+        id: "relation-ddd",
+        fromInstanceId: TO_ID,
+        toInstanceId: FROM_ID,
+        relationType: "referenced_by",
+      },
+    ]);
+
+    const result = await createReferenceLink(dbMock as never, TENANT_ID, {
+      fromInstanceId: FROM_ID,
+      toInstanceId: TO_ID,
+    });
+
+    expect(result.relations).toHaveLength(2);
+    expect(result.relations[0]?.relationType).toBe("references");
+    expect(result.relations[1]?.relationType).toBe("referenced_by");
+    expect(dbMock.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws RELATION_SELF_LINK when fromInstanceId equals toInstanceId", async () => {
+    await expect(
+      createReferenceLink(dbMock as never, TENANT_ID, {
+        fromInstanceId: FROM_ID,
+        toInstanceId: FROM_ID,
+      }),
+    ).rejects.toMatchObject({ code: "RELATION_SELF_LINK" });
+
+    expect(dbMock.select).not.toHaveBeenCalled();
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+
+  it("throws RELATION_TARGET_NOT_FOUND when fromInstance does not belong to tenant or is soft-deleted", async () => {
+    dbMock.select.mockReturnValueOnce(makeQueryBuilder(() => []));
+
+    await expect(
+      createReferenceLink(dbMock as never, TENANT_ID, {
+        fromInstanceId: "nonexistent",
+        toInstanceId: TO_ID,
+      }),
+    ).rejects.toMatchObject({ code: "RELATION_TARGET_NOT_FOUND" });
+
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+
+  it("throws RELATION_TARGET_NOT_FOUND when toInstance does not belong to tenant or is soft-deleted", async () => {
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: FROM_ID }]))
+      .mockReturnValueOnce(makeQueryBuilder(() => []));
+
+    await expect(
+      createReferenceLink(dbMock as never, TENANT_ID, {
+        fromInstanceId: FROM_ID,
+        toInstanceId: "nonexistent",
+      }),
+    ).rejects.toMatchObject({ code: "RELATION_TARGET_NOT_FOUND" });
+
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+
+  it("throws RELATION_ALREADY_EXISTS when an active references link already exists for this exact pair", async () => {
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: FROM_ID }]))
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: TO_ID }]))
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: RELATION_ID }]));
+
+    await expect(
+      createReferenceLink(dbMock as never, TENANT_ID, {
+        fromInstanceId: FROM_ID,
+        toInstanceId: TO_ID,
+      }),
+    ).rejects.toMatchObject({ code: "RELATION_ALREADY_EXISTS" });
+
+    expect(dbMock.insert).not.toHaveBeenCalled();
   });
 });
 

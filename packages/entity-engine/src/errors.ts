@@ -15,7 +15,9 @@ export type EntityErrorCode =
   | "CHILDREN_CAP_EXCEEDED"
   | "CHILD_CYCLE_DETECTED"
   | "CHILDREN_DISABLED"
-  | "ENTITY_HAS_ACTIVE_CHILDREN";
+  | "ENTITY_HAS_ACTIVE_CHILDREN"
+  | "RELATION_SELF_LINK"
+  | "RELATION_ALREADY_EXISTS";
 
 export class EntityError extends Error {
   constructor(
