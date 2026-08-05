@@ -200,6 +200,13 @@ export async function getWorkflow(
 // member — any tenant user can see every workflow that exists. Ownership
 // (createdBy/assignedTo[]) gates *mutating* a workflow's settings
 // (assertWorkflowOwned / updateWorkflow / deleteWorkflow), not listing it.
+//
+// This is a deliberate, signed-off widening of the bare/unscoped call beyond
+// what docs/specs/workflow-open-ticket-creation.md originally scoped (that
+// spec's §C/R1 said the unscoped management-list call would stay
+// ownership-filtered) — the records page's "discover any workflow in the
+// tenant, not just ones you own" feature for general users needs exactly
+// this tenant-wide bare-call behavior. See that spec's amendment note.
 export async function listWorkflowsSummary(
   db: DbOrTx,
   tenantId: string,

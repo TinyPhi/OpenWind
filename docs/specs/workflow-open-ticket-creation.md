@@ -7,9 +7,21 @@
 
 status: implemented
 created: 2026-07-31
-updated: 2026-07-31 (implemented — T1–T5 complete, see docs/sup-docs/week-log.md)
+updated: 2026-08-05 (amended — see §C amendment note; PR #337 review)
 
 ---
+
+> **Amendment (2026-08-05, PR #337 review):** the implementation widened the unscoped/bare
+> `GET /workflows` call (no `entityTypeId`) to tenant-wide visibility for every caller, not just
+> the `entityTypeId`-scoped ticket-creation-resolution path this spec originally scoped (§C had
+> said the bare call "stays ownership-filtered"). This was flagged in review as a spec violation.
+> On investigation it's a deliberate, necessary widening: `apps/admin-ui/src/pages/records/index.tsx`
+> merges the bare `GET /workflows` result with `GET /entities/my-tickets` so a general user can
+> discover and create the first ticket in a workflow they've never touched, not just ones they
+> already own tickets in — restoring ownership-filtering on the bare call breaks that feature.
+> Human-confirmed (Tushar Sharma, 2026-08-05): keep the tenant-wide bare-call behavior; this note
+> is the sign-off. §C/R1 below are left as originally written for historical context, superseded
+> by this note.
 
 ## §G Goal
 

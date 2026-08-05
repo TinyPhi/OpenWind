@@ -277,7 +277,7 @@ describe("listWorkflows / listWorkflowsSummary — tenant-wide visibility", () =
     expect(ownershipCheck).toBeUndefined();
   });
 
-  it("listWorkflows: also does not apply the ownership filter for a bare call (no entityTypeId) — listing is tenant-wide for every caller", async () => {
+  it("listWorkflows: also does not apply the ownership filter for a bare call (no entityTypeId) — a signed-off widening beyond the original spec's §C/R1 (see spec amendment note), needed by the records page's tenant-wide workflow-discovery feature for general users", async () => {
     selectQueue = [() => []];
     await listWorkflows(dbMock as never, TENANT_ID, NON_ADMIN_CALLER);
 
@@ -313,7 +313,7 @@ describe("listWorkflows / listWorkflowsSummary — tenant-wide visibility", () =
     expect(ownershipCheck).toBeUndefined();
   });
 
-  it("listWorkflowsSummary: also does not apply the ownership filter for a bare call (no entityTypeId) — listing is tenant-wide for every caller", async () => {
+  it("listWorkflowsSummary: also does not apply the ownership filter for a bare call (no entityTypeId) — same signed-off widening as listWorkflows above", async () => {
     selectQueue = [() => []];
     await listWorkflowsSummary(dbMock as never, TENANT_ID, NON_ADMIN_CALLER);
 
