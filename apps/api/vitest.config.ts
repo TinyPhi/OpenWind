@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
+import os from "os";
 
 const packages = path.resolve(__dirname, "../../packages");
 
@@ -58,10 +59,14 @@ export default defineConfig({
       ZITADEL_INTROSPECTION_CLIENT_ID: "test-client-id",
       ZITADEL_INTROSPECTION_CLIENT_SECRET: "test-client-secret",
       NOVU_API_KEY: "test",
-      S3_ENDPOINT: "http://localhost:9000",
-      S3_BUCKET: "test",
-      S3_ACCESS_KEY: "test",
-      S3_SECRET_KEY: "test",
+      // Schema default is /data/files (the container bind-mount target) --
+      // unwritable outside ow-backend/ow-worker's containers, which breaks
+      // integration/upload-flow.test.ts and integration/quarantine-flow.test.ts
+      // in CI and any local host-mode `pnpm test` run. os.tmpdir() is always
+      // writable and gitignored by nature (outside the repo).
+      FILES_STORAGE_PATH:
+        process.env["FILES_STORAGE_PATH"] ??
+        path.join(os.tmpdir(), "openwind-test-files"),
       ANTHROPIC_API_KEY: "test",
       OPENBAO_ADDR: "http://localhost:8200",
       OPENBAO_TOKEN: "dev-root-token",
