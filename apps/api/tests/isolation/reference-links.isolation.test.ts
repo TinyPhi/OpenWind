@@ -117,8 +117,36 @@ function makeApp(tenantId: string, userId: string, roles: string[]) {
 }
 
 describe("reference-link routes — real Postgres, RLS enforced", () => {
+  // Created once in beforeAll (not inside a test) — four tests below depend
+  // on these ids, and a shared setup that isn't itself a skippable `it`
+  // means those tests fail loudly on a real setup error instead of with a
+  // misleading "cannot read property 'id' of undefined" if the create test
+  // were skipped or reordered.
   let relationIdOnA: string; // "references" row, fromInstanceId = ticketA
   let relationIdOnB: string; // "referenced_by" row, fromInstanceId = ticketB
+  let createLinkData: { id: string; relationType: string }[];
+
+  beforeAll(async () => {
+    const res = await makeApp(TENANT_A, "isolation-agent", ["agent"]).request(
+      `/${ticketA}/references`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toInstanceId: ticketB }),
+      },
+    );
+    if (res.status !== 201) {
+      throw new Error(
+        `setup: expected 201 creating the shared reference link, got ${res.status}`,
+      );
+    }
+    const { data } = (await res.json()) as {
+      data: { id: string; relationType: string }[];
+    };
+    createLinkData = data;
+    relationIdOnA = data.find((r) => r.relationType === "references")!.id;
+    relationIdOnB = data.find((r) => r.relationType === "referenced_by")!.id;
+  });
 
   it("creator with access to both tickets can create a link", async () => {
     const res = await makeApp(TENANT_A, "owner-a", ["user"]).request(
@@ -133,22 +161,10 @@ describe("reference-link routes — real Postgres, RLS enforced", () => {
     expect(res.status).toBe(404);
   });
 
-  it("admin/agent can create a link between two unrelated tickets", async () => {
-    const res = await makeApp(TENANT_A, "isolation-agent", ["agent"]).request(
-      `/${ticketA}/references`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toInstanceId: ticketB }),
-      },
-    );
-    expect(res.status).toBe(201);
-    const { data } = (await res.json()) as {
-      data: { id: string; relationType: string }[];
-    };
-    expect(data).toHaveLength(2);
-    relationIdOnA = data.find((r) => r.relationType === "references")!.id;
-    relationIdOnB = data.find((r) => r.relationType === "referenced_by")!.id;
+  it("admin/agent can create a link between two unrelated tickets", () => {
+    expect(createLinkData).toHaveLength(2);
+    expect(relationIdOnA).toBeDefined();
+    expect(relationIdOnB).toBeDefined();
   });
 
   it("R6: creating a reference link emits no outbox event (no automation coupling)", async () => {

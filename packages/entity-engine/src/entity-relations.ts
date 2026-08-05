@@ -299,21 +299,23 @@ export async function deleteReferenceLink(
       ? RELATION_REFERENCED_BY
       : RELATION_REFERENCES;
 
-  await db
-    .update(entityRelations)
-    .set({ deletedAt: sql`now()` })
-    .where(eq(entityRelations.id, relation.id));
-
+  // Single UPDATE covering both the row and its mirror — atomic by
+  // construction (no transaction needed), so a crash between "delete A's
+  // side" and "delete B's side" can't leave one deleted and the other not
+  // (the spec's §V invariant applies to deletion, not just creation).
   await db
     .update(entityRelations)
     .set({ deletedAt: sql`now()` })
     .where(
-      and(
-        eq(entityRelations.tenantId, tenantId),
-        eq(entityRelations.fromInstanceId, relation.toInstanceId),
-        eq(entityRelations.toInstanceId, relation.fromInstanceId),
-        eq(entityRelations.relationType, mirrorType),
-        isNull(entityRelations.deletedAt),
+      or(
+        eq(entityRelations.id, relation.id),
+        and(
+          eq(entityRelations.tenantId, tenantId),
+          eq(entityRelations.fromInstanceId, relation.toInstanceId),
+          eq(entityRelations.toInstanceId, relation.fromInstanceId),
+          eq(entityRelations.relationType, mirrorType),
+          isNull(entityRelations.deletedAt),
+        ),
       ),
     );
 
