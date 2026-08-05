@@ -49,6 +49,11 @@ vi.mock("./redis.js", () => ({
   connection: {},
 }));
 
+const mockInstallCoreModules = vi.fn();
+vi.mock("../services/module-service.js", () => ({
+  ModuleService: { installCoreModules: mockInstallCoreModules },
+}));
+
 // Import AFTER mocks are set up
 const {
   provisionTenant,
@@ -59,6 +64,7 @@ const {
 
 const { writeAuditEntry } = await import("@platform/audit");
 const { invalidateTenantStatusCache } = await import("@platform/auth");
+const { logger } = await import("@platform/logger");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -105,18 +111,27 @@ beforeEach(() => {
 // ── provisionTenant ───────────────────────────────────────────────────────────
 
 describe("provisionTenant", () => {
-  it("inserts a new active tenant and writes a created audit entry", async () => {
+  it("inserts a new active tenant, installs core modules, and writes a created audit entry", async () => {
     // M4: single INSERT with onConflictDoNothing — no pre-check SELECT
     mockDbInsert.mockReturnValueOnce(
       makeInsertChain([{ id: TENANT_ID, slug: "acme" }]),
     );
+    mockInstallCoreModules.mockResolvedValueOnce({
+      succeeded: ["helpdesk", "crm"],
+      failed: [],
+    });
 
     const result = await provisionTenant(
       { name: "Acme Corp", slug: "acme", plan: "standard" },
       ACTOR_ID,
     );
 
-    expect(result).toEqual({ id: TENANT_ID, slug: "acme" });
+    expect(mockInstallCoreModules).toHaveBeenCalledWith(TENANT_ID);
+    expect(result).toEqual({
+      id: TENANT_ID,
+      slug: "acme",
+      modules: { succeeded: ["helpdesk", "crm"], failed: [] },
+    });
     expect(writeAuditEntry).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ action: "created", tenantId: TENANT_ID }),
@@ -133,6 +148,38 @@ describe("provisionTenant", () => {
         ACTOR_ID,
       ),
     ).rejects.toMatchObject({ code: "SLUG_TAKEN" });
+    expect(mockInstallCoreModules).not.toHaveBeenCalled();
+  });
+
+  // #163: one core module failing to install must not fail tenant creation
+  // as a whole — the tenant row is already committed and is a valid,
+  // recoverable state on its own. The failure must be surfaced in the
+  // response (and logged) rather than thrown as a bare 500.
+  it("does not throw when a core module fails to install — surfaces the failure in the result and logs it", async () => {
+    mockDbInsert.mockReturnValueOnce(
+      makeInsertChain([{ id: TENANT_ID, slug: "acme" }]),
+    );
+    mockInstallCoreModules.mockResolvedValueOnce({
+      succeeded: ["helpdesk"],
+      failed: [{ slug: "crm", error: "connection reset" }],
+    });
+
+    const result = await provisionTenant(
+      { name: "Acme Corp", slug: "acme", plan: "standard" },
+      ACTOR_ID,
+    );
+
+    expect(result.modules).toEqual({
+      succeeded: ["helpdesk"],
+      failed: [{ slug: "crm", error: "connection reset" }],
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        failed: [{ slug: "crm", error: "connection reset" }],
+      }),
+      expect.stringContaining("core modules failing"),
+    );
   });
 });
 

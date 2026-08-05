@@ -51,6 +51,12 @@ export const modules = pgTable("modules", {
   // separate superadmin tier); not per-tenant. Defaults to true so existing
   // behavior (every seeded module visible) is unchanged.
   isVisible: boolean("is_visible").default(true).notNull(),
+  // ADR-005: 'core' modules auto-install on tenant provisioning
+  // (tenant-lifecycle.ts's provisionTenant); 'optional' modules require a
+  // manual install via the Templates page. Enforced at the DB layer by a
+  // CHECK constraint (migration 0050) — Drizzle's text() type doesn't model
+  // the enum, so keep this in sync with that CHECK if values ever change.
+  category: text("category").default("optional").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
