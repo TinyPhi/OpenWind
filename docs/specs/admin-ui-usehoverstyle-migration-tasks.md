@@ -48,10 +48,10 @@ already per-item.
 
 | task                                                                                     | requirement | status |
 | ---------------------------------------------------------------------------------------- | ----------- | ------ |
-| T9: Extract + migrate `customer/record-create.tsx` (2 pairs)                             | R1, R2      | todo   |
-| T10: Extract + migrate `customer/record-detail.tsx` (1 pair) + bonus `TOKENS.danger` fix | R1, R2, R3  | todo   |
-| T11: Extract + migrate `customer/record-list.tsx` (1 pair)                               | R1, R2      | todo   |
-| T12: Manual smoke pass on all 3 customer files + full repo exit condition                | R4          | todo   |
+| T9: Extract + migrate `customer/record-create.tsx` (2 pairs)                             | R1, R2      | done   |
+| T10: Extract + migrate `customer/record-detail.tsx` (1 pair) + bonus `TOKENS.danger` fix | R1, R2, R3  | done   |
+| T11: Extract + migrate `customer/record-list.tsx` (1 pair)                               | R1, R2      | done   |
+| T12: Manual smoke pass on all 3 customer files + full repo exit condition                | R4          | done   |
 
 ---
 
