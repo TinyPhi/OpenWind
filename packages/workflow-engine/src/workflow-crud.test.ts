@@ -389,6 +389,7 @@ describe("updateWorkflow — initialState validation", () => {
     expect(workflowUpdate?.setVals).toEqual({
       initialState: "in_progress",
     });
+    expect(JSON.stringify(workflowUpdate?.whereArgs)).toContain(TENANT_ID);
   });
 
   it("throws WORKFLOW_INITIAL_STATE_INVALID for a terminal state name", async () => {

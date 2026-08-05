@@ -434,7 +434,7 @@ export async function updateWorkflow(
   const [updated] = await db
     .update(workflows)
     .set(updates)
-    .where(eq(workflows.id, workflowId))
+    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)))
     .returning();
 
   if (!updated) throw new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId });
