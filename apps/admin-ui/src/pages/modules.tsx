@@ -20,6 +20,9 @@ type Module = {
   isSystem: boolean;
   minPlan: string;
   installed: boolean;
+  // ADR-005: 'core' modules auto-install on tenant provisioning; 'optional'
+  // modules (currently just tender) require a manual install/fork here.
+  category: "core" | "optional";
 };
 
 // ── static metadata ───────────────────────────────────────────────────────────
@@ -498,22 +501,45 @@ export function Modules(): React.ReactElement {
           )}
         </div>
       ) : (
-        <div className="mod-grid">
-          {filtered.map((mod) => {
-            const accent = MODULE_COLOR[mod.slug] ?? "var(--accent-primary)";
-            const features = MODULE_FEATURES[mod.slug] ?? [];
+        <>
+          {(["core", "optional"] as const).map((category) => {
+            const group = filtered.filter((m) => m.category === category);
+            if (group.length === 0) return null;
             return (
-              <ModuleCard
-                key={mod.slug}
-                mod={mod}
-                accent={accent}
-                features={features}
-                onFork={openForkModal}
-                onPreview={setPreviewTarget}
-              />
+              <div key={category} style={{ marginBottom: "24px" }}>
+                <h3
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    color: "var(--text-muted)",
+                    margin: "0 0 12px",
+                  }}
+                >
+                  {category === "core" ? "Core" : "Optional"}
+                </h3>
+                <div className="mod-grid">
+                  {group.map((mod) => {
+                    const accent =
+                      MODULE_COLOR[mod.slug] ?? "var(--accent-primary)";
+                    const features = MODULE_FEATURES[mod.slug] ?? [];
+                    return (
+                      <ModuleCard
+                        key={mod.slug}
+                        mod={mod}
+                        accent={accent}
+                        features={features}
+                        onFork={openForkModal}
+                        onPreview={setPreviewTarget}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
             );
           })}
-        </div>
+        </>
       )}
 
       {/* ── Preview modal ────────────────────────────────────────────────── */}
@@ -1192,7 +1218,11 @@ function ModuleCard({
             >
               {mod.name}
             </span>
-            {mod.isSystem && (
+            {/* ADR-005: category-driven, unlike the old isSystem-driven Core
+                badge this replaces — isSystem is hardcoded false for every
+                seeded module (see ModuleService.seedRegistry), so that badge
+                never actually rendered. This one reflects a real signal. */}
+            {mod.category === "core" && (
               <span
                 className="badge badge-primary"
                 style={{ fontSize: "10px" }}

@@ -358,6 +358,13 @@
       "when": 1785542402000,
       "tag": "0050_workflow_transitions_sort_order",
       "breakpoints": false
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1785542403000,
+      "tag": "0051_module_category",
+      "breakpoints": false
     }
   ]
 }

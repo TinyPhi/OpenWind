@@ -270,6 +270,124 @@ describe("Module System Integration Tests", () => {
   });
 });
 
+// ── seed SQL idempotency (issue #161) ────────────────────────────────────────
+//
+// installModule's "already installed" guard only checks tenant.config's
+// installed_modules list *before* running seed SQL — it does not protect
+// against a retry when seed SQL ran but the config update (the final step)
+// never landed (network blip, process crash, or — relevant to #163/#165 —
+// one core module failing mid-loop during tenant provisioning while the
+// tenant row and other modules already committed). Before #161's fix, the
+// six non-helpdesk standard modules' seed SQL had no WHERE NOT EXISTS/ON
+// CONFLICT guard at all, so a retry silently duplicated every row. Simulate
+// that retry by installing, then clearing installed_modules to mimic the
+// final step never having landed, then installing again.
+
+describe("standard module seed SQL idempotency (#161 regression)", () => {
+  const STANDARD_MODULES = [
+    "crm",
+    "hrms",
+    "invoicing",
+    "procurement",
+    "projects",
+    "reimbursements",
+  ];
+  const TENANT_IDS: Record<string, string> = {
+    crm: "00000000-0000-0000-0000-000000000161",
+    hrms: "00000000-0000-0000-0000-000000000162",
+    invoicing: "00000000-0000-0000-0000-000000000163",
+    procurement: "00000000-0000-0000-0000-000000000164",
+    projects: "00000000-0000-0000-0000-000000000165",
+    reimbursements: "00000000-0000-0000-0000-000000000166",
+  };
+
+  beforeAll(async () => {
+    for (const slug of STANDARD_MODULES) {
+      const id = TENANT_IDS[slug]!;
+      await db
+        .insert(tenants)
+        .values({
+          id,
+          name: `Test #161 Tenant ${slug}`,
+          slug: `test-161-tenant-${slug}`,
+          plan: "standard",
+          status: "active",
+          config: {},
+        })
+        .onConflictDoNothing();
+    }
+    await ModuleService.seedRegistry();
+  });
+
+  afterAll(async () => {
+    for (const slug of STANDARD_MODULES) {
+      const id = TENANT_IDS[slug]!;
+      const wfs = await db
+        .select()
+        .from(workflows)
+        .where(eq(workflows.tenantId, id));
+      for (const wf of wfs) {
+        await db
+          .delete(workflowTransitions)
+          .where(eq(workflowTransitions.workflowId, wf.id));
+        await db
+          .delete(workflowStates)
+          .where(eq(workflowStates.workflowId, wf.id));
+      }
+      await db.delete(workflows).where(eq(workflows.tenantId, id));
+      await db.delete(entityFields).where(eq(entityFields.tenantId, id));
+      await db.delete(entityTypes).where(eq(entityTypes.tenantId, id));
+      await db.delete(tenants).where(eq(tenants.id, id));
+    }
+  });
+
+  it.each(STANDARD_MODULES)(
+    "retrying %s's install after the config-update step never landed produces no duplicate rows",
+    async (slug) => {
+      const tenantId = TENANT_IDS[slug]!;
+
+      await ModuleService.installModule(tenantId, slug);
+
+      const typesAfterFirst = await db
+        .select()
+        .from(entityTypes)
+        .where(eq(entityTypes.tenantId, tenantId));
+      expect(typesAfterFirst.length).toBeGreaterThan(0);
+
+      // Simulate the config-update step never having landed — the only
+      // signal installModule uses to decide whether to skip re-seeding.
+      await db
+        .update(tenants)
+        .set({ config: {} })
+        .where(eq(tenants.id, tenantId));
+
+      await ModuleService.installModule(tenantId, slug);
+
+      const typesAfterRetry = await db
+        .select()
+        .from(entityTypes)
+        .where(eq(entityTypes.tenantId, tenantId));
+      const namesCount = new Map<string, number>();
+      for (const t of typesAfterRetry) {
+        namesCount.set(t.name, (namesCount.get(t.name) ?? 0) + 1);
+      }
+      for (const [name, count] of namesCount) {
+        expect(
+          count,
+          `expected exactly one "${name}" entity type for ${slug} after retry`,
+        ).toBe(1);
+      }
+      expect(typesAfterRetry.length).toBe(typesAfterFirst.length);
+
+      const wfs = await db
+        .select()
+        .from(workflows)
+        .where(eq(workflows.tenantId, tenantId));
+      expect(wfs).toHaveLength(1);
+    },
+  );
+});
+
 // ── workflowName rename (issue #170) ─────────────────────────────────────────
 //
 // installModule's rename step resolves "the workflow this module just
