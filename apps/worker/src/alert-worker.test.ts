@@ -210,6 +210,38 @@ describe("alertWorker processor (§R5, §R7)", () => {
     );
   });
 
+  it("derives the notification body from the alert's note, with a fixed title (regression: recipients must see what the alert is about, not a generic message, and title/body must not be identical strings)", async () => {
+    mockTxSelectLimit.mockResolvedValueOnce([
+      alertRow({ note: "Follow up with vendor" }),
+    ]);
+
+    await capturedProcessor!(makeJob());
+
+    expect(mockTxInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Ticket alert",
+        body: "Follow up with vendor",
+      }),
+    );
+  });
+
+  it("publishes the same note-derived body in the live push as was written to the DB", async () => {
+    mockTxSelectLimit.mockResolvedValueOnce([
+      alertRow({ note: "Call the client back" }),
+    ]);
+
+    await capturedProcessor!(makeJob());
+
+    expect(mockRedisPublish).toHaveBeenCalledWith(
+      "notification:push",
+      expect.stringContaining('"body":"Call the client back"'),
+    );
+    expect(mockRedisPublish).toHaveBeenCalledWith(
+      "notification:push",
+      expect.stringContaining('"title":"Ticket alert"'),
+    );
+  });
+
   it("enqueues the outbound handoff only when the kill switch is enabled", async () => {
     const { notifyOutboundQueue } = await import("./queues.js");
     mockTxSelectLimit.mockResolvedValueOnce([alertRow()]);

@@ -17,10 +17,10 @@
  * recipientsSnapshot for scope='all'), never re-derived from live ticket
  * access.
  *
- * Notification body is deliberately generic (no interpolation of the
- * alert's free-text note) — matches notification-templates.ts's existing
- * rule against putting raw user content into a channel with no read-access
- * check of its own. The note itself is visible in the ticket's alert list.
+ * Notification body is the alert's own free-text note verbatim — an
+ * intentional, scoped exception to notification-templates.ts's "never
+ * interpolate free-text user content" rule; see the inline comment at the
+ * title/body assignment below for the accepted-risk rationale.
  */
 
 import { Worker } from "bullmq";
@@ -93,13 +93,25 @@ export const alertWorker = new Worker<AlertJobData>(
       // second SELECT after insert just to read defaultNow() back).
       const createdAt = new Date();
 
+      // Alerts are an intentional, scoped exception to notification-templates.ts's
+      // "never interpolate free-text user content" rule: the note is written by
+      // the alert's own creator for themselves or their chosen audience (not
+      // arbitrary third-party content like a comment body), and the feature is
+      // useless if the recipient can't tell what the alert is about without
+      // opening the ticket. Accepted risk: a scope='all' recipient whose ticket
+      // access is revoked after being snapshotted but before a still-pending
+      // alert fires would still see the note via email, which has no
+      // independent read-access check.
+      const title = "Ticket alert";
+      const body = alert.note;
+
       const insertedNotifications = await tx
         .insert(notifications)
         .values({
           tenantId,
           type: "ticket.alert",
-          title: "Ticket alert",
-          body: "A reminder you set on this ticket is due",
+          title,
+          body,
           link: null, // filled in below once resolved — see instanceLink
           createdAt,
         })
@@ -131,6 +143,8 @@ export const alertWorker = new Worker<AlertJobData>(
         instanceId: alert.instanceId,
         recipients: uniqueRecipients,
         createdAt,
+        title,
+        body,
       };
     });
 
@@ -177,8 +191,8 @@ export const alertWorker = new Worker<AlertJobData>(
               notification: {
                 id: fired.notificationId,
                 type: "ticket.alert",
-                title: "Ticket alert",
-                body: "A reminder you set on this ticket is due",
+                title: fired.title,
+                body: fired.body,
                 link,
                 createdAt: fired.createdAt.toISOString(),
               },
