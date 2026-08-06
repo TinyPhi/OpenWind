@@ -11,6 +11,12 @@ COPY apps/admin-ui/ apps/admin-ui/
 
 RUN pnpm install --frozen-lockfile
 
+# Build workspace package dists so internal imports (e.g. @platform/ui) resolve
+# at runtime — dist/ is .dockerignore'd, so without this step every workspace
+# package's compiled output is missing from a freshly-built image, mirroring
+# apps/api/Dockerfile's build step.
+RUN pnpm exec turbo run build --filter=@platform/admin-ui^...
+
 EXPOSE 3001
 
 # Source is mounted as a volume at runtime — Vite watches for changes and HMRs
