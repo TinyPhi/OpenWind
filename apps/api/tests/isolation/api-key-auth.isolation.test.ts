@@ -18,7 +18,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { sql, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { db, withTenantContext, apiKeys, tenants } from "@platform/db";
-import { requireAuth, hashApiKey } from "@platform/auth";
+import { requireAuth, hashApiKey, hashApiKeyArgon2 } from "@platform/auth";
 import type { AuthContext } from "@platform/auth";
 
 const TENANT_A = "aaaaaaaa-0000-4000-a000-000000000033";
@@ -26,9 +26,12 @@ const TENANT_B = "bbbbbbbb-0000-4000-b000-000000000034";
 
 const RAW_KEY_A = "sk_isolation_test_tenant_a";
 const RAW_KEY_B = "sk_isolation_test_tenant_b";
+// Key C: inserted with argon2id hash (simulates a key created after migration 0047)
+const RAW_KEY_C = "sk_isolation_test_argon2_key";
 
 let keyAId: string;
 let keyBId: string;
+let keyCId: string;
 
 beforeAll(async () => {
   // requireAuth's tenant-status check (resolveTenantStatus) reads the plain
@@ -69,9 +72,24 @@ beforeAll(async () => {
       })
       .returning(),
   );
-  if (!rowA || !rowB) throw new Error("api key insert failed");
+  // Key C: stored with both SHA-256 and argon2id hash (migration 0047 path)
+  const keyHashArgon2C = await hashApiKeyArgon2(RAW_KEY_C);
+  const [rowC] = await withTenantContext(TENANT_A, (tx) =>
+    tx
+      .insert(apiKeys)
+      .values({
+        tenantId: TENANT_A,
+        name: "isolation-test-argon2",
+        keyHash: hashApiKey(RAW_KEY_C),
+        keyHashArgon2: keyHashArgon2C,
+        scopes: ["agent"],
+      })
+      .returning(),
+  );
+  if (!rowA || !rowB || !rowC) throw new Error("api key insert failed");
   keyAId = rowA.id;
   keyBId = rowB.id;
+  keyCId = rowC.id;
 });
 
 afterAll(async () => {
@@ -80,6 +98,9 @@ afterAll(async () => {
   );
   await withTenantContext(TENANT_B, (tx) =>
     tx.delete(apiKeys).where(eq(apiKeys.id, keyBId)),
+  );
+  await withTenantContext(TENANT_A, (tx) =>
+    tx.delete(apiKeys).where(eq(apiKeys.id, keyCId)),
   );
   await db.delete(tenants).where(eq(tenants.id, TENANT_A));
   await db.delete(tenants).where(eq(tenants.id, TENANT_B));
@@ -125,6 +146,27 @@ describe("resolve_api_key_by_hash (migration 0031)", () => {
     );
     expect(Object.keys(rows[0] ?? {})).not.toContain("key_hash");
   });
+
+  it("returns key_hash_argon2 when the key was stored with one (migration 0047)", async () => {
+    const rows = await db.execute<{
+      id: string;
+      tenant_id: string;
+      scopes: string[];
+      key_hash_argon2: string | null;
+    }>(
+      sql`select * from resolve_api_key_by_hash(${hashApiKey(RAW_KEY_C)}::text)`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(keyCId);
+    expect(rows[0]?.key_hash_argon2).toBeTruthy();
+  });
+
+  it("returns null key_hash_argon2 for legacy keys stored without one", async () => {
+    const rows = await db.execute<{ key_hash_argon2: string | null }>(
+      sql`select * from resolve_api_key_by_hash(${hashApiKey(RAW_KEY_A)}::text)`,
+    );
+    expect(rows[0]?.key_hash_argon2).toBeNull();
+  });
 });
 
 describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () => {
@@ -154,9 +196,58 @@ describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () 
     await makeApp().request("/whoami", {
       headers: { Authorization: `Bearer ${RAW_KEY_A}` },
     });
-    const [row] = await withTenantContext(TENANT_A, (tx) =>
-      tx.select().from(apiKeys).where(eq(apiKeys.id, keyAId)),
-    );
+    // The middleware writes lastUsedAt fire-and-forget (#124 -- best-effort,
+    // never blocks the request), so there's no synchronization point between
+    // the response resolving and the write landing. Poll instead of reading
+    // once immediately, which races the write under load.
+    let row: { lastUsedAt: Date | null } | undefined;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      [row] = await withTenantContext(TENANT_A, (tx) =>
+        tx
+          .select({ lastUsedAt: apiKeys.lastUsedAt })
+          .from(apiKeys)
+          .where(eq(apiKeys.id, keyAId)),
+      );
+      if (row?.lastUsedAt) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
     expect(row?.lastUsedAt).not.toBeNull();
+  });
+
+  it("authenticates a key stored with argon2id hash — end-to-end migration 0047 path (#238)", async () => {
+    const res = await makeApp().request("/whoami", {
+      headers: { Authorization: `Bearer ${RAW_KEY_C}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { auth: AuthContext };
+    expect(body.auth.tenantId).toBe(TENANT_A);
+  });
+
+  // #195: requireAuth() now runs a post-auth, tenant-scoped rate-limit check
+  // (packages/redis's checkRateLimit, keyed on the verified auth.tenantId)
+  // before calling next(). It fails open on a Redis error, so this doesn't
+  // assert on real bucketing here — this repo's dev/CI Redis container has no
+  // host port mapping by design (docker-compose.yml), so a host-run isolation
+  // suite can't reach it at all. The actual sliding-window bucketing logic is
+  // unit-tested with a mocked Redis pipeline in packages/redis/src/
+  // rate-limit.test.ts and packages/auth/src/middleware.test.ts. What IS
+  // verified here, against real Postgres, is the thing an isolation suite
+  // exists to catch: the new stage must never cross-contaminate tenants —
+  // each tenant's request still authenticates to its own tenantId end-to-end.
+  it("tenant A and tenant B each authenticate to their own tenantId through the added rate-limit stage", async () => {
+    const [resA, resB] = await Promise.all([
+      makeApp().request("/whoami", {
+        headers: { Authorization: `Bearer ${RAW_KEY_A}` },
+      }),
+      makeApp().request("/whoami", {
+        headers: { Authorization: `Bearer ${RAW_KEY_B}` },
+      }),
+    ]);
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    const bodyA = (await resA.json()) as { auth: AuthContext };
+    const bodyB = (await resB.json()) as { auth: AuthContext };
+    expect(bodyA.auth.tenantId).toBe(TENANT_A);
+    expect(bodyB.auth.tenantId).toBe(TENANT_B);
   });
 });

@@ -1,13 +1,12 @@
 import { Queue } from "bullmq";
-import type {
-  ExportJobPayload,
-  ExportJobResult,
+import {
+  type ExportJobPayload,
+  type ExportJobResult,
+  PII_EXPORT_ROLES,
 } from "@platform/entity-engine";
 import { connection } from "./redis.js";
 
-export { type ExportJobPayload, type ExportJobResult };
-
-export const PII_EXPORT_ROLES = new Set(["pii_export", "admin", "superadmin"]);
+export { type ExportJobPayload, type ExportJobResult, PII_EXPORT_ROLES };
 
 export const exportQueue = new Queue<ExportJobPayload, ExportJobResult>(
   "export",

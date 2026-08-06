@@ -135,6 +135,20 @@ export async function validateWebhookUrl(
     });
   }
 
+  // 1b. Validate destination port (issue #250)
+  const ALLOWED_PORTS = new Set([80, 443, 8080, 8443]);
+  const portStr = parsed.port;
+  if (portStr) {
+    const portNum = Number(portStr);
+    if (isNaN(portNum) || !ALLOWED_PORTS.has(portNum)) {
+      throw new AutomationError("WEBHOOK_SSRF_BLOCKED", {
+        url,
+        reason: "port-not-allowed",
+        port: portStr,
+      });
+    }
+  }
+
   const hostname = parsed.hostname;
 
   // 2. Parse extra operator-configured CIDRs

@@ -84,6 +84,7 @@ vi.mock("@platform/db", () => ({
     tenantId: "tenantId",
   },
   outboxEvents: {},
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -190,6 +191,20 @@ describe("notification outbound worker: de-dupe gate", () => {
     const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
     const sentPayload = JSON.parse(init.body) as Record<string, unknown>;
     expect(sentPayload["link"]).toBeNull();
+  });
+
+  it("passes through an already-absolute link unchanged (its own origin wins over APP_URL)", async () => {
+    claimedRows = [
+      { title: "T", body: "B", link: "https://other-host.example/x" },
+    ];
+
+    await capturedProcessor?.({
+      data: { notificationId: "n-9", tenantId: "t-9" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const sentPayload = JSON.parse(init.body) as Record<string, unknown>;
+    expect(sentPayload["link"]).toBe("https://other-host.example/x");
   });
 });
 

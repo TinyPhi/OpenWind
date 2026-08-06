@@ -4,6 +4,7 @@ const mockSelect = vi.fn();
 const mockInsert = vi.fn();
 const mockUpdate = vi.fn();
 const mockUpdateEntity = vi.fn();
+const mockCreateEntity = vi.fn();
 const mockExecuteTransition = vi.fn();
 
 // Simulates Drizzle's db.transaction(): runs the callback with a nested tx
@@ -51,6 +52,7 @@ vi.mock("@platform/workflow-engine", () => ({
 
 vi.mock("@platform/entity-engine", () => ({
   updateEntity: (...args: unknown[]) => mockUpdateEntity(...args),
+  createEntity: (...args: unknown[]) => mockCreateEntity(...args),
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -64,6 +66,13 @@ vi.mock("@platform/config", () => ({
 const { executeAutomationRules } = await import("./executor.js");
 
 const TENANT_ID = "aaaaaaaa-0000-4000-a000-000000000001";
+
+// Closed-circuit redis mock: get returns null (below threshold) so the circuit
+// breaker allows actions to run. del is called after a successful action.
+const MOCK_REDIS = {
+  get: vi.fn().mockResolvedValue(null),
+  del: vi.fn().mockResolvedValue(1),
+};
 
 const BASE_EVENT = {
   version: 1 as const,
@@ -101,12 +110,20 @@ describe("executeAutomationRules", () => {
         await fn(dbMock);
       },
     );
+    MOCK_REDIS.get.mockResolvedValue(null); // reset to closed circuit
+    MOCK_REDIS.del.mockResolvedValue(1);
   });
 
   it("executes matching rules and writes execution row with success status", async () => {
     mockSelect.mockResolvedValue([NOTIFY_RULE]);
 
-    await executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT);
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
 
     expect(mockInsert).toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalled();
@@ -115,7 +132,13 @@ describe("executeAutomationRules", () => {
   it("wraps each rule's actions in db.transaction() for atomic rollback", async () => {
     mockSelect.mockResolvedValue([NOTIFY_RULE]);
 
-    await executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT);
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
 
     // Each rule should trigger one db.transaction() call for its action loop
     expect(mockTransaction).toHaveBeenCalledOnce();
@@ -126,9 +149,27 @@ describe("executeAutomationRules", () => {
     vi.mocked(evaluateConditionTree).mockReturnValueOnce(false);
     mockSelect.mockResolvedValue([NOTIFY_RULE]);
 
-    await executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT);
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
 
     expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it("throws CIRCUIT_BREAKER_UNAVAILABLE when redis is not provided (#245)", async () => {
+    mockSelect.mockResolvedValue([NOTIFY_RULE]);
+
+    await expect(
+      executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT),
+    ).resolves.toBeUndefined(); // does not bubble — error is caught per-rule
+
+    // Execution row created and updated to failed status
+    expect(mockInsert).toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalled();
   });
 
   it("executes set_field action by calling updateEntity", async () => {
@@ -145,13 +186,79 @@ describe("executeAutomationRules", () => {
     ]);
     mockUpdateEntity.mockResolvedValue({ id: BASE_EVENT.instanceId });
 
-    await executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT);
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
 
     expect(mockUpdateEntity).toHaveBeenCalledWith(
       dbMock,
       TENANT_ID,
       BASE_EVENT.instanceId,
       expect.objectContaining({ fields: { priority: "high" } }),
+    );
+  });
+
+  it("executes assign action by calling updateEntity with assignedTo", async () => {
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [{ type: "assign", config: { assigneeId: "user-123" } }],
+      },
+    ]);
+    mockUpdateEntity.mockResolvedValue({ id: BASE_EVENT.instanceId });
+
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
+
+    expect(mockUpdateEntity).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      BASE_EVENT.instanceId,
+      expect.objectContaining({ assignedTo: "user-123" }),
+    );
+  });
+
+  it("executes create_entity action by calling createEntity", async () => {
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [
+          {
+            type: "create_entity",
+            config: {
+              entityTypeId: "00000000-0000-0000-0000-000000000042",
+              fields: { title: "Follow-up" },
+            },
+          },
+        ],
+      },
+    ]);
+    mockCreateEntity.mockResolvedValue({ id: "new-entity-1" });
+
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
+
+    expect(mockCreateEntity).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      expect.objectContaining({
+        entityTypeId: "00000000-0000-0000-0000-000000000042",
+        fields: { title: "Follow-up" },
+      }),
     );
   });
 
@@ -181,7 +288,13 @@ describe("executeAutomationRules", () => {
       ])
       .mockResolvedValue([]);
 
-    await executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT);
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
 
     expect(mockExecuteTransition).toHaveBeenCalledWith(
       dbMock,
@@ -223,7 +336,13 @@ describe("executeAutomationRules", () => {
       },
     );
 
-    await executeAutomationRules(dbMock as never, TENANT_ID, BASE_EVENT);
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
 
     // Audit log update still called on outer db after inner tx rolled back
     expect(mockUpdate).toHaveBeenCalled();

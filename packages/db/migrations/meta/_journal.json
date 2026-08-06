@@ -334,8 +334,29 @@
     {
       "idx": 47,
       "version": "7",
-      "when": 1783417696000,
-      "tag": "0047_workflow_transitions_sort_order",
+      "when": 1785511200000,
+      "tag": "0047_api_key_argon2_hash",
+      "breakpoints": false
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1785542400000,
+      "tag": "0048_rls_with_check",
+      "breakpoints": false
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1785542401000,
+      "tag": "0049_outbox_events_rls",
+      "breakpoints": false
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785542402000,
+      "tag": "0050_workflow_transitions_sort_order",
       "breakpoints": false
     }
   ]

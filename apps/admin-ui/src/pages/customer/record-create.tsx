@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
 import {
   AttachmentUploadZone,
   StagedFileChip,
 } from "../../components/file-attachment.js";
+import { TOKENS, useHoverStyle } from "@platform/ui";
 
 type UserOption = {
   userId: string;
@@ -22,6 +24,130 @@ function initials(name: string): string {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+function UnassignedRow({
+  onSelect,
+}: {
+  onSelect: () => void;
+}): React.ReactElement {
+  const rowHover = useHoverStyle({
+    base: { background: "" },
+    hover: { background: TOKENS.bgSecondary },
+  });
+
+  return (
+    <div
+      onClick={onSelect}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "9px 12px",
+        cursor: "pointer",
+        color: "var(--text-tertiary)",
+        fontSize: "13px",
+        borderBottom: "1px solid var(--border-primary)",
+        ...rowHover.style,
+      }}
+      onMouseEnter={rowHover.onMouseEnter}
+      onMouseLeave={rowHover.onMouseLeave}
+    >
+      Unassigned
+    </div>
+  );
+}
+
+function UserOptionRow({
+  user,
+  isSelected,
+  onSelect,
+}: {
+  user: UserOption;
+  isSelected: boolean;
+  onSelect: () => void;
+}): React.ReactElement {
+  const rowHover = useHoverStyle({
+    base: { background: isSelected ? TOKENS.bgSecondary : "" },
+    hover: { background: TOKENS.bgSecondary },
+  });
+
+  return (
+    <div
+      onClick={onSelect}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "9px 12px",
+        cursor: "pointer",
+        ...rowHover.style,
+      }}
+      onMouseEnter={rowHover.onMouseEnter}
+      onMouseLeave={rowHover.onMouseLeave}
+    >
+      <span
+        style={{
+          width: "30px",
+          height: "30px",
+          borderRadius: "50%",
+          background: "var(--accent-primary)",
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "11px",
+          fontWeight: 600,
+          flexShrink: 0,
+          opacity: isSelected ? 1 : 0.85,
+        }}
+      >
+        {initials(user.displayName)}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontWeight: 500,
+            fontSize: "13px",
+            color: "var(--text-primary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {user.displayName}
+        </div>
+        <div
+          style={{
+            fontSize: "11px",
+            color: "var(--text-tertiary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {user.loginName}
+        </div>
+      </div>
+      {isSelected && (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <path
+            d="M2 7l3.5 3.5L12 3"
+            stroke="var(--accent-primary)"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+    </div>
+  );
 }
 
 function UserPicker({
@@ -213,28 +339,7 @@ function UserPicker({
             />
           </div>
           <div style={{ maxHeight: "220px", overflowY: "auto" }}>
-            <div
-              onClick={() => handleSelect("")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "9px 12px",
-                cursor: "pointer",
-                color: "var(--text-tertiary)",
-                fontSize: "13px",
-                borderBottom: "1px solid var(--border-primary)",
-              }}
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLDivElement).style.background =
-                  "var(--bg-secondary)")
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLDivElement).style.background = "")
-              }
-            >
-              Unassigned
-            </div>
+            <UnassignedRow onSelect={() => handleSelect("")} />
             {filtered.length === 0 ? (
               <div
                 style={{
@@ -248,87 +353,12 @@ function UserPicker({
               </div>
             ) : (
               filtered.map((u) => (
-                <div
+                <UserOptionRow
                   key={u.userId}
-                  onClick={() => handleSelect(u.userId)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    padding: "9px 12px",
-                    cursor: "pointer",
-                    background: u.userId === value ? "var(--bg-secondary)" : "",
-                  }}
-                  onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      "var(--bg-secondary)")
-                  }
-                  onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      u.userId === value ? "var(--bg-secondary)" : "")
-                  }
-                >
-                  <span
-                    style={{
-                      width: "30px",
-                      height: "30px",
-                      borderRadius: "50%",
-                      background: "var(--accent-primary)",
-                      color: "#fff",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      flexShrink: 0,
-                      opacity: u.userId === value ? 1 : 0.85,
-                    }}
-                  >
-                    {initials(u.displayName)}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontWeight: 500,
-                        fontSize: "13px",
-                        color: "var(--text-primary)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {u.displayName}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--text-tertiary)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {u.loginName}
-                    </div>
-                  </div>
-                  {u.userId === value && (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 14 14"
-                      fill="none"
-                      style={{ flexShrink: 0 }}
-                    >
-                      <path
-                        d="M2 7l3.5 3.5L12 3"
-                        stroke="var(--accent-primary)"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </div>
+                  user={u}
+                  isSelected={u.userId === value}
+                  onSelect={() => handleSelect(u.userId)}
+                />
               ))
             )}
           </div>
@@ -356,158 +386,6 @@ type WorkflowDef = {
   initialState: string;
   states?: Array<{ id: string; name: string; label: string }>;
 };
-
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  field: EntityField;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}): React.ReactElement {
-  const strVal = value === null || value === undefined ? "" : String(value);
-  switch (field.fieldType) {
-    case "boolean":
-      return (
-        <label className="portal-checkbox">
-          <input
-            type="checkbox"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          <span>{field.label}</span>
-        </label>
-      );
-    case "number":
-      return (
-        <input
-          className="portal-input"
-          type="number"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) =>
-            onChange(e.target.value === "" ? null : Number(e.target.value))
-          }
-        />
-      );
-    case "currency": {
-      const currVal =
-        value !== null && typeof value === "object"
-          ? (value as { amount?: unknown; currency?: unknown })
-          : { amount: "", currency: "" };
-      const amountStr =
-        currVal.amount === null || currVal.amount === undefined
-          ? ""
-          : String(currVal.amount);
-      const currencyStr =
-        currVal.currency === null || currVal.currency === undefined
-          ? ""
-          : String(currVal.currency);
-      const allowed = field.config.allowedCurrencies ?? [];
-      const currencies =
-        allowed.length > 0 ? allowed : ["USD", "EUR", "GBP", "INR", "AED"];
-      return (
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            className="portal-input"
-            type="number"
-            placeholder="0.00"
-            value={amountStr}
-            required={field.isRequired}
-            style={{ flex: 1 }}
-            onChange={(e) =>
-              onChange({
-                amount: e.target.value === "" ? null : Number(e.target.value),
-                currency: currencyStr || currencies[0],
-              })
-            }
-          />
-          <select
-            className="portal-input"
-            value={currencyStr || currencies[0]}
-            style={{ width: "90px" }}
-            onChange={(e) =>
-              onChange({
-                amount: amountStr === "" ? null : Number(amountStr),
-                currency: e.target.value,
-              })
-            }
-          >
-            {currencies.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
-    }
-    case "date":
-      return (
-        <input
-          className="portal-input"
-          type="date"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "datetime":
-      return (
-        <input
-          className="portal-input"
-          type="datetime-local"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "enum":
-    case "multi_enum": {
-      const opts = (field.config.options ?? []).map((o) =>
-        typeof o === "string"
-          ? { label: o, value: o }
-          : { label: o.label, value: o.value },
-      );
-      return (
-        <select
-          className="portal-input"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        >
-          <option value="">Select…</option>
-          {opts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    case "longtext":
-      return (
-        <textarea
-          className="portal-input portal-textarea"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-          rows={4}
-        />
-      );
-    default:
-      return (
-        <input
-          className="portal-input"
-          type="text"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-  }
-}
 
 export function CustomerRecordCreate(): React.ReactElement {
   const { typeSlug } = useParams<{ typeSlug: string }>();
@@ -703,6 +581,10 @@ export function CustomerRecordCreate(): React.ReactElement {
             <FieldInput
               field={field}
               value={fieldValues[field.name]}
+              classPrefix="portal"
+              required={field.isRequired}
+              moduleSlug={typeSlug ?? "unknown"}
+              entityId={undefined}
               onChange={(v) =>
                 setFieldValues((p) => ({ ...p, [field.name]: v }))
               }

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
+import { FieldInput } from "../../components/field-input.js";
+import { Button } from "@platform/ui";
 
 type EntityField = {
   id: string;
@@ -29,170 +31,13 @@ type EntityTypeMeta = {
   plural: string;
 };
 
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  field: EntityField;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}): React.ReactElement {
-  const strVal = value === null || value === undefined ? "" : String(value);
-  switch (field.fieldType) {
-    case "boolean":
-      return (
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          <span>{field.label}</span>
-        </label>
-      );
-    case "number":
-      return (
-        <input
-          className="form-input"
-          type="number"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) =>
-            onChange(e.target.value === "" ? null : Number(e.target.value))
-          }
-        />
-      );
-    case "currency": {
-      const currVal =
-        value !== null && typeof value === "object"
-          ? (value as { amount?: unknown; currency?: unknown })
-          : { amount: "", currency: "" };
-      const amountStr =
-        currVal.amount === null || currVal.amount === undefined
-          ? ""
-          : String(currVal.amount);
-      const currencyStr =
-        currVal.currency === null || currVal.currency === undefined
-          ? ""
-          : String(currVal.currency);
-      const allowed = field.config.allowedCurrencies ?? [];
-      const currencies =
-        allowed.length > 0 ? allowed : ["USD", "EUR", "GBP", "INR", "AED"];
-      return (
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            className="form-input"
-            type="number"
-            placeholder="0.00"
-            value={amountStr}
-            required={field.isRequired}
-            style={{ flex: 1 }}
-            onChange={(e) =>
-              onChange({
-                amount: e.target.value === "" ? null : Number(e.target.value),
-                currency: currencyStr || currencies[0],
-              })
-            }
-          />
-          <select
-            className="form-input"
-            value={currencyStr || currencies[0]}
-            style={{ width: "90px" }}
-            onChange={(e) =>
-              onChange({
-                amount: amountStr === "" ? null : Number(amountStr),
-                currency: e.target.value,
-              })
-            }
-          >
-            {currencies.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
-    }
-    case "date":
-      return (
-        <input
-          className="form-input"
-          type="date"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "datetime":
-      return (
-        <input
-          className="form-input"
-          type="datetime-local"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "enum":
-    case "multi_enum": {
-      const opts = (field.config.options ?? []).map((o) =>
-        typeof o === "string"
-          ? { label: o, value: o }
-          : { label: o.label, value: o.value },
-      );
-      return (
-        <select
-          className="form-input"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        >
-          <option value="">Select…</option>
-          {opts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    case "longtext":
-      return (
-        <textarea
-          className="form-input"
-          value={strVal}
-          required={field.isRequired}
-          rows={4}
-          style={{ resize: "vertical" }}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    default:
-      return (
-        <input
-          className="form-input"
-          type="text"
-          value={strVal}
-          required={field.isRequired}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-  }
-}
-
 export function EntityInstanceCreate(): React.ReactElement {
   const { id: entityTypeId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getTypeById } = useEntityTypes();
+  const { getTypeById, modules } = useEntityTypes();
+  const moduleSlug =
+    modules.find((m) => m.id === getTypeById(entityTypeId ?? "")?.moduleId)
+      ?.slug ?? "platform";
 
   const [entityType, setEntityType] = useState<EntityTypeMeta | null>(null);
   const [fields, setFields] = useState<EntityField[]>([]);
@@ -413,6 +258,9 @@ export function EntityInstanceCreate(): React.ReactElement {
               <FieldInput
                 field={f}
                 value={fieldValues[f.name]}
+                required={f.isRequired}
+                moduleSlug={moduleSlug}
+                entityId={undefined}
                 onChange={(v) => setFieldValues((p) => ({ ...p, [f.name]: v }))}
               />
             </div>
@@ -433,15 +281,12 @@ export function EntityInstanceCreate(): React.ReactElement {
             marginTop: "24px",
           }}
         >
-          <Link
-            to={`/entity-types/${entityTypeId ?? ""}`}
-            className="btn-secondary"
-          >
-            Cancel
-          </Link>
-          <button type="submit" className="btn-primary" disabled={saving}>
+          <Button asChild variant="secondary">
+            <Link to={`/entity-types/${entityTypeId ?? ""}`}>Cancel</Link>
+          </Button>
+          <Button type="submit" variant="primary" disabled={saving}>
             {saving ? "Creating…" : `Create ${typeName}`}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

@@ -1,6 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import { and, eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
+import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
 import type { Context, Next, MiddlewareHandler } from "hono";
 import { env } from "@platform/config";
 import type { DbOrTx } from "@platform/db";
@@ -12,6 +13,7 @@ import {
   withTenantContext,
 } from "@platform/db";
 import { logger } from "@platform/logger";
+import { getRedis, checkRateLimit } from "@platform/redis";
 import { verifyJwt, extractAuthContext } from "./jwks.js";
 import { introspectToken } from "./introspection.js";
 import type { AuthContext } from "./types.js";
@@ -19,6 +21,53 @@ import {
   getCachedTenantStatus,
   setCachedTenantStatus,
 } from "./tenant-status-cache.js";
+
+const TENANT_RATE_LIMIT_WINDOW_SECONDS = 60;
+
+/**
+ * Post-auth, tenant-scoped rate limit (#195). Runs only after the JWT/API-key
+ * has been verified, so unlike the pre-auth IP-based stage (apps/api's
+ * rate-limit middleware), the key here is unforgeable — a client cannot get
+ * a fresh bucket by varying an unverified claim. Returns a 429 Response when
+ * exceeded, or null to let the caller proceed.
+ *
+ * checkRateLimit itself already fails open (bounded timeout, never throws —
+ * see packages/redis/src/rate-limit.ts). The try/catch here is a second,
+ * independent layer: this runs on every authenticated request across the
+ * whole API, so if that contract were ever violated by a future change, the
+ * failure mode must still be "request proceeds," never "500s the entire API."
+ */
+async function enforceTenantRateLimit(
+  c: Context<AuthVariables>,
+  tenantId: string,
+): Promise<Response | null> {
+  try {
+    const { allowed, remaining, resetAt } = await checkRateLimit(
+      getRedis(),
+      `rl:tenant:${tenantId}`,
+      env.RATE_LIMIT_TENANT_PER_MIN,
+      TENANT_RATE_LIMIT_WINDOW_SECONDS,
+    );
+
+    c.header("x-ratelimit-limit", String(env.RATE_LIMIT_TENANT_PER_MIN));
+    c.header("x-ratelimit-remaining", String(remaining));
+    c.header("x-ratelimit-reset", String(resetAt));
+
+    if (!allowed) {
+      return c.json(
+        { error: "RATE_LIMITED", message: "Too many requests" },
+        429,
+      );
+    }
+    return null;
+  } catch (err) {
+    logger.warn(
+      { err, tenantId },
+      "auth: tenant rate-limit check failed unexpectedly — failing open",
+    );
+    return null;
+  }
+}
 
 type AuthVariables = { Variables: { auth: AuthContext } };
 
@@ -159,6 +208,8 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           );
         }
         c.set("auth", auth);
+        const rateLimited = await enforceTenantRateLimit(c, auth.tenantId);
+        if (rateLimited) return rateLimited;
         await next();
         return;
       }
@@ -238,6 +289,9 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         return c.json({ error: "TENANT_NOT_FOUND", message: "Not found" }, 404);
       }
 
+      const rateLimited = await enforceTenantRateLimit(c, auth.tenantId);
+      if (rateLimited) return rateLimited;
+
       // Upsert the verified user into tenant_users BEFORE calling next().
       // This must complete before the route handler runs so that
       // validateUserRefs() can find the user on their very first request
@@ -268,8 +322,15 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           )
           .limit(1);
 
+        const sanitizeDisplayName = (
+          name: string | null | undefined,
+        ): string | null => {
+          if (!name) return null;
+          return name.replace(/[<>]/g, "");
+        };
+
         const nextEmail = auth.email || null;
-        const nextDisplayName = auth.displayName || null;
+        const nextDisplayName = sanitizeDisplayName(auth.displayName);
 
         if (
           existing?.email === nextEmail &&
@@ -436,6 +497,37 @@ export async function lookupTenantIdByOrgId(
   return tenantId;
 }
 
+// Argon2id verification is intentionally slow (~50–100 ms). Cache the result
+// keyed by SHA-256(rawKey) so repeated requests with the same key only pay
+// that cost once per TTL window.
+const ARGON2_VERIFY_CACHE_TTL_MS = 60_000;
+// Sweep expired entries when the map reaches this size to prevent unbounded
+// growth under adversarial load (many unique invalid keys, each one entry).
+const ARGON2_VERIFY_CACHE_MAX_ENTRIES = 10_000;
+const _argon2VerifyCache = new Map<string, { valid: boolean; exp: number }>();
+
+async function verifyArgon2(
+  rawKey: string,
+  storedHash: string,
+): Promise<boolean> {
+  const cacheKey = hashApiKey(rawKey); // SHA-256 — never the raw key
+  const cached = _argon2VerifyCache.get(cacheKey);
+  if (cached && Date.now() < cached.exp) return cached.valid;
+
+  const valid = await argon2Verify(storedHash, rawKey);
+  if (_argon2VerifyCache.size >= ARGON2_VERIFY_CACHE_MAX_ENTRIES) {
+    const now = Date.now();
+    for (const [k, v] of _argon2VerifyCache) {
+      if (now >= v.exp) _argon2VerifyCache.delete(k);
+    }
+  }
+  _argon2VerifyCache.set(cacheKey, {
+    valid,
+    exp: Date.now() + ARGON2_VERIFY_CACHE_TTL_MS,
+  });
+  return valid;
+}
+
 async function resolveApiKey(
   db: DbOrTx,
   rawKey: string,
@@ -445,22 +537,28 @@ async function resolveApiKey(
   // (#124-adjacent bug) api_keys has an RLS policy requiring app.tenant_id,
   // but we don't know the tenant until AFTER this lookup succeeds — so it
   // can't go through withTenantContext like every other tenant-scoped query.
-  // resolve_api_key_by_hash (migration 0031) is a narrowly-scoped
+  // resolve_api_key_by_hash (migration 0031/0047) is a narrowly-scoped
   // SECURITY DEFINER function that bypasses RLS for this one lookup-by-secret
-  // and returns only id/tenant_id/scopes, never key_hash itself.
-  // L-2: explicit columns, not SELECT * — safe today (the function returns
-  // only id/tenant_id/scopes) but a future column added to the function's
-  // RETURNS TABLE shouldn't be silently received here.
+  // and returns only id/tenant_id/scopes/key_hash_argon2, never key_hash itself.
   const result = await db.execute<{
     id: string;
     tenant_id: string;
     scopes: string[];
+    key_hash_argon2: string | null;
   }>(
-    sql`select id, tenant_id, scopes from resolve_api_key_by_hash(${keyHash}::text)`,
+    sql`select id, tenant_id, scopes, key_hash_argon2 from resolve_api_key_by_hash(${keyHash}::text)`,
   );
   const row = result[0];
 
   if (!row) return null;
+
+  // Argon2id verification for keys created after migration 0047. Legacy keys
+  // (key_hash_argon2 IS NULL) pass on SHA-256 match alone and should be
+  // rotated to gain the stronger hash. (#237)
+  if (row.key_hash_argon2) {
+    const valid = await verifyArgon2(rawKey, row.key_hash_argon2);
+    if (!valid) return null;
+  }
 
   // Now that the tenant is known, this write goes through the normal
   // RLS-compliant path. Best-effort: don't block the request on it.
@@ -485,6 +583,16 @@ async function resolveApiKey(
   };
 }
 
+// SHA-256 here is a fast lookup/cache-key hash (indexed exact-match DB lookup
+// in resolve_api_key_by_hash; cache key in verifyArgon2), not the security
+// verification boundary — that's argon2id (hashApiKeyArgon2/verifyArgon2,
+// #237/PR #281) for keys created after migration 0047. Legacy (pre-0047) keys
+// still authenticate on SHA-256 match alone until rotated — a documented,
+// accepted interim state (see #291), not a missed control.
 export function hashApiKey(rawKey: string): string {
-  return createHash("sha256").update(rawKey).digest("hex");
+  return createHash("sha256").update(rawKey).digest("hex"); // lgtm[js/insufficient-password-hash] -- lookup/cache-key hash only, see #291
+}
+
+export function hashApiKeyArgon2(rawKey: string): Promise<string> {
+  return argon2Hash(rawKey);
 }

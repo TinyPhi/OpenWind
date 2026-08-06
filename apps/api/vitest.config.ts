@@ -24,6 +24,7 @@ export default defineConfig({
         "automation-engine/src/index.ts",
       ),
       "@platform/logger": path.join(packages, "logger/src/index.ts"),
+      "@platform/redis": path.join(packages, "redis/src/index.ts"),
       "@platform/auth": path.join(packages, "auth/src/index.ts"),
       "@platform/db": path.join(packages, "db/src/index.ts"),
       "@platform/config": path.join(packages, "config/src/index.ts"),
@@ -37,6 +38,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    fileParallelism: false,
     // Provide all required @platform/config env vars so tests don't need to
     // vi.mock the config module. CI job env vars take precedence over these
     // defaults when set (e.g. the real DATABASE_URL in integration jobs).
@@ -63,6 +65,7 @@ export default defineConfig({
       ANTHROPIC_API_KEY: "test",
       OPENBAO_ADDR: "http://localhost:8200",
       OPENBAO_TOKEN: "dev-root-token",
+      APP_URL: "https://platform.example.com",
     },
   },
 });

@@ -43,7 +43,13 @@ export async function executeWebhookAction(
   config: WebhookActionConfig,
   options: WebhookActionOptions = {},
 ): Promise<void> {
-  const { url, method = "POST", headers = {}, includePayload = true } = config;
+  const {
+    url,
+    method = "POST",
+    headers = {},
+    includePayload = false,
+    sendFields,
+  } = config;
   const timeoutMs = Math.min(
     config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     MAX_TIMEOUT_MS,
@@ -63,7 +69,36 @@ export async function executeWebhookAction(
   }
 
   // ── 2. Build request body ─────────────────────────────────────────────────
-  const body = includePayload ? JSON.stringify(event) : "{}";
+  let payload: Record<string, unknown> = {};
+  if (includePayload) {
+    if (event.eventType === "entity.created") {
+      const filteredFields: Record<string, unknown> = {};
+      if (sendFields) {
+        for (const f of sendFields) {
+          if (f in event.fields) {
+            filteredFields[f] = event.fields[f];
+          }
+        }
+      }
+      payload = {
+        ...event,
+        fields: filteredFields,
+      };
+    } else {
+      payload = event as unknown as Record<string, unknown>;
+    }
+  }
+  const body = JSON.stringify(payload);
+
+  const fieldCount =
+    includePayload && event.eventType === "entity.created"
+      ? Object.keys(payload.fields as Record<string, unknown>).length
+      : 0;
+
+  logger.info(
+    { tenantId, ruleId, url, fieldCount },
+    "automation: dispatching webhook action",
+  );
 
   // ── 3. Construct a one-shot Agent with lookup pinned to the validated IP ──
   // This prevents DNS rebinding: Node's net.createConnection would otherwise

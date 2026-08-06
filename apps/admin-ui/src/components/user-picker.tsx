@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { TOKENS, useHoverStyle } from "@platform/ui";
 
 export interface UserOption {
   userId: string;
@@ -8,12 +9,118 @@ export interface UserOption {
   loginName?: string;
 }
 
+function initials(name: string): string {
+  return name
+    .split(" ")
+    .slice(0, 2)
+    .map((p) => p[0] ?? "")
+    .join("")
+    .toUpperCase();
+}
+
 interface Props {
   users: UserOption[];
   value: string | null;
   onChange: (userId: string | null) => void;
   placeholder?: string;
   disabled?: boolean;
+}
+
+interface UserOptionRowProps {
+  user: UserOption;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+function UserOptionRow({
+  user,
+  isSelected,
+  onSelect,
+}: UserOptionRowProps): React.ReactElement {
+  const rowHover = useHoverStyle({
+    base: { background: "none" },
+    hover: { background: TOKENS.bgTertiary },
+  });
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        width: "100%",
+        padding: "8px 12px",
+        border: "none",
+        cursor: "pointer",
+        fontSize: "13px",
+        color: "var(--text-primary)",
+        textAlign: "left",
+        ...(isSelected
+          ? { background: "var(--accent-primary)1a" }
+          : rowHover.style),
+      }}
+      onMouseEnter={isSelected ? undefined : rowHover.onMouseEnter}
+      onMouseLeave={isSelected ? undefined : rowHover.onMouseLeave}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "26px",
+          height: "26px",
+          borderRadius: "50%",
+          background: isSelected
+            ? "var(--accent-primary)"
+            : "var(--bg-tertiary)",
+          color: isSelected ? "#fff" : "var(--text-secondary)",
+          fontSize: "10px",
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        {initials(user.displayName)}
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            fontWeight: 500,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {user.displayName}
+        </div>
+        <div
+          style={{
+            fontSize: "11px",
+            color: "var(--text-muted)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {user.email || user.loginName}
+        </div>
+      </div>
+      {isSelected && (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--accent-primary)"
+          strokeWidth="2.5"
+          style={{ marginLeft: "auto", flexShrink: 0 }}
+        >
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+      )}
+    </button>
+  );
 }
 
 export function UserPicker({
@@ -29,6 +136,10 @@ export function UserPicker({
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const unassignHover = useHoverStyle({
+    base: { background: "none" },
+    hover: { background: TOKENS.bgTertiary },
+  });
 
   const selected = users.find((u) => u.userId === value) ?? null;
 
@@ -60,15 +171,6 @@ export function UserPicker({
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
-
-  function initials(name: string): string {
-    return name
-      .split(" ")
-      .slice(0, 2)
-      .map((p) => p[0] ?? "")
-      .join("")
-      .toUpperCase();
-  }
 
   return (
     <div ref={containerRef} style={{ position: "relative", minWidth: "220px" }}>
@@ -257,22 +359,16 @@ export function UserPicker({
                     gap: "8px",
                     width: "100%",
                     padding: "8px 12px",
-                    background: "none",
                     border: "none",
                     cursor: "pointer",
                     fontSize: "13px",
                     color: "var(--text-muted)",
                     textAlign: "left",
                     borderBottom: "1px solid var(--border-color)",
+                    ...unassignHover.style,
                   }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      "var(--bg-tertiary)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      "none";
-                  }}
+                  onMouseEnter={unassignHover.onMouseEnter}
+                  onMouseLeave={unassignHover.onMouseLeave}
                 >
                   <svg
                     width="14"
@@ -301,99 +397,16 @@ export function UserPicker({
                 </div>
               ) : (
                 filtered.map((u) => (
-                  <button
+                  <UserOptionRow
                     key={u.userId}
-                    type="button"
-                    onClick={() => {
+                    user={u}
+                    isSelected={u.userId === value}
+                    onSelect={() => {
                       onChange(u.userId);
                       setOpen(false);
                       setQuery("");
                     }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                      width: "100%",
-                      padding: "8px 12px",
-                      background:
-                        u.userId === value ? "var(--accent-primary)1a" : "none",
-                      border: "none",
-                      cursor: "pointer",
-                      fontSize: "13px",
-                      color: "var(--text-primary)",
-                      textAlign: "left",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (u.userId !== value)
-                        (
-                          e.currentTarget as HTMLButtonElement
-                        ).style.background = "var(--bg-tertiary)";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (u.userId !== value)
-                        (
-                          e.currentTarget as HTMLButtonElement
-                        ).style.background = "none";
-                    }}
-                  >
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "26px",
-                        height: "26px",
-                        borderRadius: "50%",
-                        background:
-                          u.userId === value
-                            ? "var(--accent-primary)"
-                            : "var(--bg-tertiary)",
-                        color:
-                          u.userId === value ? "#fff" : "var(--text-secondary)",
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {initials(u.displayName)}
-                    </span>
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontWeight: 500,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {u.displayName}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "11px",
-                          color: "var(--text-muted)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {u.email || u.loginName}
-                      </div>
-                    </div>
-                    {u.userId === value && (
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="var(--accent-primary)"
-                        strokeWidth="2.5"
-                        style={{ marginLeft: "auto", flexShrink: 0 }}
-                      >
-                        <path d="M20 6L9 17l-5-5" />
-                      </svg>
-                    )}
-                  </button>
+                  />
                 ))
               )}
             </div>
@@ -410,6 +423,103 @@ interface MultiProps {
   onChange: (userIds: string[]) => void;
   placeholder?: string;
   disabled?: boolean;
+}
+
+interface MultiUserOptionRowProps {
+  user: UserOption;
+  isChecked: boolean;
+  onToggle: () => void;
+}
+
+function MultiUserOptionRow({
+  user,
+  isChecked,
+  onToggle,
+}: MultiUserOptionRowProps): React.ReactElement {
+  const rowHover = useHoverStyle({
+    base: { background: "none" },
+    hover: { background: TOKENS.bgTertiary },
+  });
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        width: "100%",
+        padding: "8px 12px",
+        border: "none",
+        cursor: "pointer",
+        fontSize: "13px",
+        color: "var(--text-primary)",
+        textAlign: "left",
+        ...(isChecked
+          ? { background: "var(--accent-primary)1a" }
+          : rowHover.style),
+      }}
+      onMouseEnter={isChecked ? undefined : rowHover.onMouseEnter}
+      onMouseLeave={isChecked ? undefined : rowHover.onMouseLeave}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "26px",
+          height: "26px",
+          borderRadius: "50%",
+          background: isChecked
+            ? "var(--accent-primary)"
+            : "var(--bg-tertiary)",
+          color: isChecked ? "#fff" : "var(--text-secondary)",
+          fontSize: "10px",
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        {initials(user.displayName)}
+      </span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div
+          style={{
+            fontWeight: 500,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {user.displayName}
+        </div>
+        <div
+          style={{
+            fontSize: "11px",
+            color: "var(--text-muted)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {user.email || user.loginName}
+        </div>
+      </div>
+      {isChecked && (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--accent-primary)"
+          strokeWidth="2.5"
+          style={{ flexShrink: 0 }}
+        >
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+      )}
+    </button>
+  );
 }
 
 export function MultiUserPicker({
@@ -471,15 +581,6 @@ export function MultiUserPicker({
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
-
-  function initials(name: string): string {
-    return name
-      .split(" ")
-      .slice(0, 2)
-      .map((p) => p[0] ?? "")
-      .join("")
-      .toUpperCase();
-  }
 
   function toggle(userId: string): void {
     setPending((prev) =>
@@ -645,99 +746,14 @@ export function MultiUserPicker({
                   No users found
                 </div>
               ) : (
-                filtered.map((u) => {
-                  const checked = pending.includes(u.userId);
-                  return (
-                    <button
-                      key={u.userId}
-                      type="button"
-                      onClick={() => toggle(u.userId)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "10px",
-                        width: "100%",
-                        padding: "8px 12px",
-                        background: checked
-                          ? "var(--accent-primary)1a"
-                          : "none",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: "13px",
-                        color: "var(--text-primary)",
-                        textAlign: "left",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!checked)
-                          (
-                            e.currentTarget as HTMLButtonElement
-                          ).style.background = "var(--bg-tertiary)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!checked)
-                          (
-                            e.currentTarget as HTMLButtonElement
-                          ).style.background = "none";
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          width: "26px",
-                          height: "26px",
-                          borderRadius: "50%",
-                          background: checked
-                            ? "var(--accent-primary)"
-                            : "var(--bg-tertiary)",
-                          color: checked ? "#fff" : "var(--text-secondary)",
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {initials(u.displayName)}
-                      </span>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div
-                          style={{
-                            fontWeight: 500,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {u.displayName}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: "11px",
-                            color: "var(--text-muted)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {u.email || u.loginName}
-                        </div>
-                      </div>
-                      {checked && (
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="var(--accent-primary)"
-                          strokeWidth="2.5"
-                          style={{ flexShrink: 0 }}
-                        >
-                          <path d="M20 6L9 17l-5-5" />
-                        </svg>
-                      )}
-                    </button>
-                  );
-                })
+                filtered.map((u) => (
+                  <MultiUserOptionRow
+                    key={u.userId}
+                    user={u}
+                    isChecked={pending.includes(u.userId)}
+                    onToggle={() => toggle(u.userId)}
+                  />
+                ))
               )}
             </div>
           </div>,

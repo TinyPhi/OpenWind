@@ -2,7 +2,7 @@ import { zValidator } from "../../lib/validator.js";
 import { logger } from "@platform/logger";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   workflowEvents,
   entityInstances,
@@ -38,6 +38,7 @@ const AddCommentSchema = z.object({
 
 export const addCommentHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   zValidator("json", AddCommentSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";

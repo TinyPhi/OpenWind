@@ -20,21 +20,25 @@ const mockTxExecute = vi.fn().mockResolvedValue([]);
 const mockTxInsertValues = vi.fn().mockResolvedValue([]);
 const mockTxInsert = vi.fn(() => ({ values: mockTxInsertValues }));
 
-const mockTransaction = vi.fn(async (fn: (tx: unknown) => Promise<void>) => {
-  await fn({
-    select: mockTxSelect,
-    insert: mockTxInsert,
-    execute: mockTxExecute,
-  });
-});
-
-const dbMock = { transaction: mockTransaction };
+const mockWithTenantContext = vi.fn(
+  async (_tenantId: string, fn: (tx: unknown) => Promise<void>) => {
+    await fn({
+      select: mockTxSelect,
+      insert: mockTxInsert,
+      execute: mockTxExecute,
+    });
+  },
+);
 
 vi.mock("@platform/db", () => ({
-  db: dbMock,
+  withTenantContext: (...args: unknown[]) =>
+    mockWithTenantContext(
+      ...(args as Parameters<typeof mockWithTenantContext>),
+    ),
   outboxEvents: "outbox_events_mock",
   entityInstances: "entity_instances_mock",
   deadLetterEvents: "dead_letter_events_mock",
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -162,15 +166,18 @@ describe("slaBreacher processor", () => {
     expect(payload).not.toHaveProperty("occurredAt");
   });
 
-  it("wraps guard SELECT and INSERT in a single transaction (G1)", async () => {
+  it("wraps guard SELECT and INSERT in withTenantContext scoped to job tenantId (G1 + #243)", async () => {
     mockTxSelectLimit.mockResolvedValueOnce([
       { currentState: "in_review", entityTypeId: "etype-aaa" },
     ]);
 
     await capturedProcessor!(BASE_JOB);
 
-    // Both SELECT and INSERT go through the tx object, not the top-level db
-    expect(mockTransaction).toHaveBeenCalledOnce();
+    // withTenantContext establishes SET LOCAL ROLE app_user + tenant GUC
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      BASE_JOB.data.tenantId,
+      expect.any(Function),
+    );
     expect(mockTxSelect).toHaveBeenCalled();
     expect(mockTxInsert).toHaveBeenCalled();
   });
@@ -216,7 +223,7 @@ describe("slaBreacher processor", () => {
   });
 
   describe("retry exhaustion dead-letter (G2)", () => {
-    it("writes to dead_letter_events inside a transaction with set_config when job is exhausted", async () => {
+    it("writes to dead_letter_events via withTenantContext when job is exhausted (#243)", async () => {
       const exhaustedJob = makeJob({ attemptsMade: 3, attempts: 3 });
       const err = new Error("DB connection lost");
 
@@ -225,19 +232,15 @@ describe("slaBreacher processor", () => {
       }
 
       // The "failed" handler is fire-and-forget (void); flush the microtask
-      // queue so the transaction promise resolves before we assert.
+      // queue so the withTenantContext promise resolves before we assert.
       await Promise.resolve();
       await Promise.resolve();
 
-      // DLQ write goes through db.transaction() — not a bare db.insert()
-      expect(mockTransaction).toHaveBeenCalledTimes(
-        // processor transaction (called from beforeEach) + 1 DLQ transaction
-        mockTransaction.mock.calls.length,
-      );
-
-      // set_config must have been called to establish tenant context for RLS
-      expect(mockTxExecute).toHaveBeenCalledWith(
-        expect.objectContaining({ op: "sql" }),
+      // DLQ write goes through withTenantContext — not a bare db.insert() or
+      // manual set_config (withTenantContext handles role + GUC internally).
+      expect(mockWithTenantContext).toHaveBeenCalledWith(
+        "tenant-111",
+        expect.any(Function),
       );
 
       expect(mockTxInsert).toHaveBeenCalledWith("dead_letter_events_mock");
@@ -255,8 +258,7 @@ describe("slaBreacher processor", () => {
     it("does not write to dead_letter_events on non-exhausted failures", async () => {
       const nonExhaustedJob = makeJob({ attemptsMade: 1, attempts: 3 });
       const err = new Error("transient error");
-      // Reset transaction mock so we can count fresh calls
-      mockTransaction.mockClear();
+      mockWithTenantContext.mockClear();
 
       for (const handler of capturedFailedHandlers) {
         handler(nonExhaustedJob, err);
@@ -265,7 +267,7 @@ describe("slaBreacher processor", () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(mockTransaction).not.toHaveBeenCalled();
+      expect(mockWithTenantContext).not.toHaveBeenCalled();
     });
   });
 });

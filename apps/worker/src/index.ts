@@ -25,6 +25,7 @@ startOutboxPoller();
 startSlaScheduler();
 startAlertScheduler();
 startHealthServer();
+startAlertScheduler();
 startNotificationPoller();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)

@@ -11,7 +11,6 @@ import { listUserIdsWithRole } from "../../lib/zitadel-management.js";
 const CreateEntitySchema = z.object({
   entityTypeId: z.string().uuid(),
   fields: z.record(z.unknown()),
-  createdBy: z.string().optional(),
   assignedTo: z.string().optional(),
   workflowId: z.string().uuid().optional(),
   currentState: z.string().optional(),
@@ -77,8 +76,7 @@ export const createEntityHandler = factory.createHandlers(
           ...input,
           actorId: userId,
           actorName: actorName ?? undefined,
-          // Prefer createdBy from body if provided; fall back to authenticated user.
-          createdBy: input.createdBy ?? userId,
+          createdBy: userId,
         }),
       );
       return c.json({ data: instance }, 201);

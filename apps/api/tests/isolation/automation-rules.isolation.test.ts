@@ -37,7 +37,7 @@ beforeAll(async () => {
       triggerType: "entity.created",
       triggerConfig: {},
       conditions: null,
-      actions: [{ type: "notify", config: { channel: "email" } }],
+      actions: [{ type: "notify", config: { channel: ["email"] } }],
     }),
   );
   ruleAId = ruleA.id;
@@ -104,7 +104,7 @@ describe("automation-rules routes work at all now (#6 -- previously broken by RL
         name: "isolation-test-rule-b",
         triggerType: "entity.created",
         triggerConfig: {},
-        actions: [{ type: "notify", config: { channel: "email" } }],
+        actions: [{ type: "notify", config: { channel: ["email"] } }],
       }),
     });
 
@@ -159,5 +159,57 @@ describe("automation-rules routes work at all now (#6 -- previously broken by RL
     expect(res.status).toBe(200);
     const json = (await res.json()) as { data: { isEnabled: boolean } };
     expect(json.data.isEnabled).toBe(false);
+  });
+
+  it("POST / rejects with 400 Bad Request when notify actions have a malicious absolute link", async () => {
+    const res = await makeApp(TENANT_A).request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "malicious-link-rule",
+        triggerType: "entity.created",
+        triggerConfig: {},
+        actions: [
+          {
+            type: "notify",
+            config: {
+              recipientId: "u-aaa",
+              payload: {
+                title: "Warning",
+                body: "Body",
+                link: "https://evil.com/phishing",
+              },
+            },
+          },
+        ],
+      }),
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe("NOTIFY_LINK_INVALID");
+  });
+
+  it("POST / rejects with 400 Bad Request when webhook includePayload is true on entity.created without sendFields", async () => {
+    const res = await makeApp(TENANT_A).request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "empty-send-fields-rule",
+        triggerType: "entity.created",
+        triggerConfig: {},
+        actions: [
+          {
+            type: "webhook",
+            config: {
+              url: "https://platform.example.com/webhook",
+              includePayload: true,
+            },
+          },
+        ],
+      }),
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe("INVALID_EVENT_PAYLOAD");
   });
 });

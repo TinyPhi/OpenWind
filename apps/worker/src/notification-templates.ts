@@ -62,41 +62,49 @@ export async function buildNotificationContent(
     ? await buildRecordLink(params.tenantId, params.instanceId)
     : null;
 
+  const sanitizeString = (str: unknown): string => {
+    if (typeof str !== "string") return "";
+    return str.replace(/[<>]/g, "");
+  };
+
+  const actorName = sanitizeString(params.actorName);
+  const reason = sanitizeString(params.reason);
+
   switch (eventType) {
     case "entity.assigned":
       return {
         title: "New assignment",
-        body: `${params.actorName} assigned you a ticket`,
+        body: `${actorName} assigned you a ticket`,
         link,
       };
     case "comment.mentioned":
       return {
         title: "Comment mention",
-        body: `${params.actorName} mentioned you in a comment`,
+        body: `${actorName} mentioned you in a comment`,
         link,
       };
     case "comment.mention_access_granted":
       return {
         title: "Access granted via mention",
-        body: `${params.actorName} granted you access to this ticket via a comment mention`,
+        body: `${actorName} granted you access to this ticket via a comment mention`,
         link,
       };
     case "comment.replied":
       return {
         title: "New reply",
-        body: `${params.actorName} replied to your comment`,
+        body: `${actorName} replied to your comment`,
         link,
       };
     case "access.granted":
       return {
         title: "Access granted",
-        body: `${params.actorName} granted you access to a ticket`,
+        body: `${actorName} granted you access to a ticket`,
         link,
       };
     case "access.revoked":
       return {
         title: "Access revoked",
-        body: `${params.actorName} revoked your access to a ticket`,
+        body: `${actorName} revoked your access to a ticket`,
         link,
       };
     case "workflow.sla_breached":
@@ -108,7 +116,7 @@ export async function buildNotificationContent(
     case "system.error":
       return {
         title: "System error",
-        body: params.reason ?? "A system error occurred",
+        body: reason || "A system error occurred",
         link: "/admin/system-logs",
       };
     default:

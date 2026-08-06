@@ -10,6 +10,36 @@ import type {
   ActionConfig,
 } from "./types.js";
 import { AutomationError } from "./types.js";
+import { validateNotifyLink } from "./actions/notify.js";
+import { env } from "@platform/config";
+
+async function validateRuleActions(
+  triggerType: string,
+  actions?: ActionConfig[],
+): Promise<void> {
+  if (!actions) return;
+  for (const action of actions) {
+    if (action.type === "notify") {
+      const link = action.config.payload?.link;
+      if (typeof link === "string") {
+        await validateNotifyLink(link, env.SSRF_BLOCK_CIDRS);
+      }
+    } else if (action.type === "webhook") {
+      if (triggerType === "entity.created") {
+        const config = action.config;
+        if (
+          config.includePayload &&
+          (!config.sendFields || config.sendFields.length === 0)
+        ) {
+          throw new AutomationError("INVALID_EVENT_PAYLOAD", {
+            reason:
+              "sendFields must be configured and non-empty when includePayload is true for entity.created trigger",
+          });
+        }
+      }
+    }
+  }
+}
 
 function rowToRule(r: typeof automationRules.$inferSelect): AutomationRule {
   return {
@@ -34,6 +64,7 @@ export async function createAutomationRule(
   tenantId: string,
   input: CreateAutomationRuleInput,
 ): Promise<AutomationRule> {
+  await validateRuleActions(input.triggerType, input.actions);
   const [row] = await db
     .insert(automationRules)
     .values({
@@ -72,7 +103,12 @@ export async function getAutomationRule(
 export async function listAutomationRules(
   db: DbOrTx,
   tenantId: string,
-  filter?: { triggerType?: TriggerType; isEnabled?: boolean },
+  filter?: {
+    triggerType?: TriggerType;
+    isEnabled?: boolean;
+    limit?: number;
+    offset?: number;
+  },
 ): Promise<AutomationRule[]> {
   const conditions = [eq(automationRules.tenantId, tenantId)];
 
@@ -83,11 +119,16 @@ export async function listAutomationRules(
     conditions.push(eq(automationRules.isEnabled, filter.isEnabled));
   }
 
+  const limit = filter?.limit ?? 500;
+  const offset = filter?.offset ?? 0;
+
   const rows = await db
     .select()
     .from(automationRules)
     .where(and(...conditions))
-    .orderBy(automationRules.priority, automationRules.createdAt);
+    .orderBy(automationRules.priority, automationRules.createdAt)
+    .limit(limit)
+    .offset(offset);
 
   return rows.map(rowToRule);
 }
@@ -98,6 +139,10 @@ export async function updateAutomationRule(
   id: string,
   input: UpdateAutomationRuleInput,
 ): Promise<AutomationRule> {
+  const existing = await getAutomationRule(db, tenantId, id);
+  const triggerType = input.triggerType ?? existing.triggerType;
+  const actions = input.actions ?? existing.actions;
+  await validateRuleActions(triggerType, actions);
   const now = new Date();
   const updates: Partial<typeof automationRules.$inferInsert> = {
     updatedAt: now,

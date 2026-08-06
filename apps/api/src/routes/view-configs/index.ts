@@ -30,6 +30,7 @@ const PatchBodySchema = z.object({
 // GET /admin/view-configs/:entityType
 router.get(
   "/:entityType",
+  requireRole("agent", "admin"),
   zValidator("param", EntityTypeParamSchema),
   async (c) => {
     const auth = c.get("auth");

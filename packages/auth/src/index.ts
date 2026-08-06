@@ -3,6 +3,7 @@ export {
   requireRole,
   requireIntrospection,
   hashApiKey,
+  hashApiKeyArgon2,
   lookupTenantIdByOrgId,
 } from "./middleware.js";
 export {

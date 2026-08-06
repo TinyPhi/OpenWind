@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 
 function toWorkflowSlug(s: string): string {
@@ -166,20 +167,20 @@ export function CreateWorkflow(): React.ReactElement {
               borderTop: "1px solid var(--border-color)",
             }}
           >
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="secondary"
               onClick={() => navigate("/workflows")}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              className="btn-primary"
+              variant="primary"
               disabled={!isValid || saving}
             >
               {saving ? "Creating…" : "Create Workflow →"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

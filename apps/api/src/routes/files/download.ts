@@ -25,7 +25,7 @@ export const getDownloadUrlHandler = factory.createHandlers(
       // the download endpoint directly instead of going through the entity.
       const [file] = await withTenantContext(tenantId, (tx) =>
         tx
-          .select({ entityId: files.entityId })
+          .select({ entityId: files.entityId, uploadedBy: files.uploadedBy })
           .from(files)
           .where(and(eq(files.id, fileId), eq(files.tenantId, tenantId)))
           .limit(1),
@@ -64,17 +64,44 @@ export const getDownloadUrlHandler = factory.createHandlers(
             404,
           );
         }
+      } else if (file) {
+        // Unbound file: only the uploader or privileged roles may access it.
+        // Without this check any tenant member who knows the fileId can obtain
+        // a presigned URL for another user's unattached file. (#224 / #239)
+        const isPrivileged = roles.includes("admin") || roles.includes("agent");
+        if (!isPrivileged && file.uploadedBy !== userId) {
+          return c.json(
+            { error: "FILE_NOT_FOUND", message: "File not found" },
+            404,
+          );
+        }
       }
 
       const result = await withTenantContext(tenantId, (tx) =>
         getFileStream(tx, tenantId, fileId),
       );
 
+      // Strip characters that can break or inject the Content-Disposition header:
+      // \r\n ends the header line and lets an attacker inject arbitrary headers;
+      // " closes the quoted filename value early; bidirectional-override Unicode
+      // chars (U+200E/F, U+202A–E) can reverse the displayed filename in browsers
+      // to make "malware.exe" appear as "malware.pdf". (#241)
+      const safeFilename = result.originalName
+        .replace(/[\r\n"]/g, "_")
+        .replace(/[‎‏‪-‮]/g, "");
+
+      // SVG files are active documents — browsers execute their JavaScript in the
+      // page origin. Force attachment even when the caller requests inline display
+      // to prevent a stored-XSS attack via a crafted SVG upload. (#240)
+      const isSvg =
+        result.mimeType === "image/svg+xml" || result.mimeType.includes("svg");
+      const dispositionType = inline && !isSvg ? "inline" : "attachment";
+
       c.header("Content-Type", result.mimeType);
       c.header("Content-Length", String(result.sizeBytes));
       c.header(
         "Content-Disposition",
-        `${inline ? "inline" : "attachment"}; filename="${result.originalName}"`,
+        `${dispositionType}; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(result.originalName)}`,
       );
       return c.body(Readable.toWeb(result.stream) as ReadableStream);
     } catch (err: unknown) {

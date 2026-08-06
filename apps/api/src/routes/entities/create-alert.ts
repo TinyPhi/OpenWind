@@ -1,7 +1,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { eq, and, count } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   entityInstances,
   ticketAlerts,
@@ -24,6 +24,7 @@ const CreateAlertSchema = z.object({
 
 export const createAlertHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   zValidator("json", CreateAlertSchema),
   async (c) => {
     const instanceId = c.req.param("id") ?? "";

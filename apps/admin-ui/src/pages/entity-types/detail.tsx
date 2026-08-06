@@ -1,8 +1,26 @@
 import React, { useEffect, useState } from "react";
 import { useOne } from "@refinedev/core";
 import { useParams, Link } from "react-router-dom";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogTitle,
+  Button,
+  DIALOG_CONTENT_RESET,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
+import {
+  showAlert,
+  showConfirm,
+} from "../../components/global-alert-dialog.js";
 
 type EntityType = {
   id: string;
@@ -254,7 +272,7 @@ export function EntityTypeDetail(): React.ReactElement {
       });
       loadFields();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete field");
+      showAlert(err instanceof Error ? err.message : "Failed to delete field");
     } finally {
       setDeletingFieldId(null);
     }
@@ -361,17 +379,17 @@ export function EntityTypeDetail(): React.ReactElement {
         <Link to="/entity-types" className="back-link">
           ← Entity Types
         </Link>
-        <Link
-          to={`/entity-types/${id ?? ""}/records`}
-          className="btn-secondary"
+        <Button
+          asChild
+          variant="secondary"
           style={{
             fontSize: "13px",
             padding: "6px 14px",
             textDecoration: "none",
           }}
         >
-          View Records →
-        </Link>
+          <Link to={`/entity-types/${id ?? ""}/records`}>View Records →</Link>
+        </Button>
       </div>
 
       <div className="detail-header">
@@ -419,12 +437,13 @@ export function EntityTypeDetail(): React.ReactElement {
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <span className="badge badge-muted">{fields.length} fields</span>
             {entityType.allowCustomFields && (
-              <button
-                className="btn-primary btn-sm"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowAddField(true)}
               >
                 + Add Field
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -440,36 +459,38 @@ export function EntityTypeDetail(): React.ReactElement {
             No fields defined for this entity type.
           </div>
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ width: "40px" }}>#</th>
-                <th>Label</th>
-                <th>Field Name</th>
-                <th>Type</th>
-                <th>Required</th>
-                <th>Indexed</th>
-                <th>System</th>
-                <th style={{ width: "48px" }}></th>
-                <th style={{ width: "48px" }}></th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table scroll={false}>
+            <TableHeader>
+              <TableRow>
+                <TableHead style={{ width: "40px" }}>#</TableHead>
+                <TableHead>Label</TableHead>
+                <TableHead>Field Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Required</TableHead>
+                <TableHead>Indexed</TableHead>
+                <TableHead>System</TableHead>
+                <TableHead style={{ width: "48px" }}></TableHead>
+                <TableHead style={{ width: "48px" }}></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {sortedFields.map((field) => {
                 const style =
                   FIELD_TYPE_STYLE[field.fieldType] ?? FALLBACK_STYLE;
                 return (
-                  <tr key={field.id}>
-                    <td
+                  <TableRow key={field.id}>
+                    <TableCell
                       style={{ color: "var(--text-muted)", fontSize: "12px" }}
                     >
                       {field.sortOrder}
-                    </td>
-                    <td style={{ fontWeight: 500 }}>{field.label}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell style={{ fontWeight: 500 }}>
+                      {field.label}
+                    </TableCell>
+                    <TableCell>
                       <code className="code-inline">{field.name}</code>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <span
                         className="badge"
                         style={{
@@ -480,29 +501,29 @@ export function EntityTypeDetail(): React.ReactElement {
                       >
                         {field.fieldType}
                       </span>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {field.isRequired ? (
                         <span className="badge badge-warning">Required</span>
                       ) : (
                         <span className="text-muted-sm">—</span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {field.isIndexed ? (
                         <span className="badge badge-success">Yes</span>
                       ) : (
                         <span className="text-muted-sm">—</span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {field.isSystem ? (
                         <span className="badge badge-muted">System</span>
                       ) : (
                         <span className="text-muted-sm">—</span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <button
                         className="btn-edit-sm"
                         onClick={() => openEditField(field)}
@@ -510,28 +531,31 @@ export function EntityTypeDetail(): React.ReactElement {
                       >
                         ✎
                       </button>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {!field.isSystem && (
-                        <button
-                          className="btn-danger-sm"
+                        <Button
+                          variant="danger"
+                          size="sm"
                           disabled={deletingFieldId === field.id}
                           onClick={() => {
-                            if (confirm(`Delete field "${field.label}"?`)) {
-                              void handleDeleteField(field.id);
-                            }
+                            void showConfirm(
+                              `Delete field "${field.label}"?`,
+                            ).then((confirmed) => {
+                              if (confirmed) void handleDeleteField(field.id);
+                            });
                           }}
                           title="Delete field"
                         >
                           {deletingFieldId === field.id ? "…" : "✕"}
-                        </button>
+                        </Button>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
       </div>
 
@@ -598,231 +622,126 @@ export function EntityTypeDetail(): React.ReactElement {
         </div>
       )}
 
-      {showAddField && (
-        <div className="modal-overlay" onClick={() => setShowAddField(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+      <Dialog
+        open={showAddField}
+        onOpenChange={(next) => {
+          if (!next) setShowAddField(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">Add Field</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddField(false)}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
-            </div>
-            <form onSubmit={(e) => void handleAddField(e)}>
-              <div className="modal-body">
-                {fieldError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {fieldError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. Subject"
-                      value={fieldForm.label}
-                      onChange={(e) => {
-                        const label = e.target.value;
-                        const name = label
-                          .toLowerCase()
-                          .replace(/\s+/g, "_")
-                          .replace(/[^a-z0-9_]/g, "");
-                        setFieldForm((f) => ({ ...f, label, name }));
-                      }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Field Name *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. subject"
-                      value={fieldForm.name}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({ ...f, name: e.target.value }))
-                      }
-                      pattern="^[a-z_][a-z0-9_]*$"
-                      title="snake_case only"
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Field Type *</label>
-                    <select
-                      className="form-input"
-                      value={fieldForm.fieldType}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({
-                          ...f,
-                          fieldType: e.target.value as FieldTypeVal,
-                        }))
-                      }
-                    >
-                      {FIELD_TYPES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Sort Order</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={0}
-                      value={fieldForm.sortOrder}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({
-                          ...f,
-                          sortOrder: parseInt(e.target.value) || 0,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-                {(fieldForm.fieldType === "enum" ||
-                  fieldForm.fieldType === "multi_enum") && (
-                  <div className="form-group">
-                    <label className="form-label">Options</label>
-                    <EnumOptionsList
-                      rows={fieldForm.enumRows}
-                      onChange={(rows) =>
-                        setFieldForm((f) => ({ ...f, enumRows: rows }))
-                      }
-                    />
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: "24px" }}>
-                  <label className="form-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={fieldForm.isRequired}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({
-                          ...f,
-                          isRequired: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Required</span>
-                  </label>
-                  <label className="form-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={fieldForm.isIndexed}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({
-                          ...f,
-                          isIndexed: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Indexed</span>
-                  </label>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowAddField(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingField}
-                >
-                  {savingField ? "Adding…" : "Add Field"}
-                </button>
-              </div>
-            </form>
+            </DialogClose>
           </div>
-        </div>
-      )}
-      {/* ── Edit Field Modal ──────────────────────────────────────────── */}
-      {editingField && (
-        <div className="modal-overlay" onClick={() => setEditingField(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Edit Field — {editingField.label}</h3>
-              <button
-                className="modal-close"
-                onClick={() => setEditingField(null)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleSaveField(e)}>
-              <div className="modal-body">
-                {editError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {editError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      value={editForm.label}
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, label: e.target.value }))
-                      }
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Sort Order</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={0}
-                      value={editForm.sortOrder}
-                      onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          sortOrder: parseInt(e.target.value) || 0,
-                        }))
-                      }
-                    />
-                  </div>
+          <form onSubmit={(e) => void handleAddField(e)}>
+            <div className="modal-body">
+              {fieldError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {fieldError}
                 </div>
-
-                {(editingField.fieldType === "enum" ||
-                  editingField.fieldType === "multi_enum") && (
-                  <div className="form-group">
-                    <label className="form-label">Options</label>
-                    <EnumOptionsList
-                      rows={editForm.enumRows}
-                      onChange={(rows) =>
-                        setEditForm((f) => ({ ...f, enumRows: rows }))
-                      }
-                    />
-                  </div>
-                )}
-
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Label *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. Subject"
+                    value={fieldForm.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      const name = label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setFieldForm((f) => ({ ...f, label, name }));
+                    }}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Field Name *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. subject"
+                    value={fieldForm.name}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    pattern="^[a-z_][a-z0-9_]*$"
+                    title="snake_case only"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Field Type *</label>
+                  <select
+                    className="form-input"
+                    value={fieldForm.fieldType}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({
+                        ...f,
+                        fieldType: e.target.value as FieldTypeVal,
+                      }))
+                    }
+                  >
+                    {FIELD_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Sort Order</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    value={fieldForm.sortOrder}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({
+                        ...f,
+                        sortOrder: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              {(fieldForm.fieldType === "enum" ||
+                fieldForm.fieldType === "multi_enum") && (
+                <div className="form-group">
+                  <label className="form-label">Options</label>
+                  <EnumOptionsList
+                    rows={fieldForm.enumRows}
+                    onChange={(rows) =>
+                      setFieldForm((f) => ({ ...f, enumRows: rows }))
+                    }
+                  />
+                </div>
+              )}
+              <div style={{ display: "flex", gap: "24px" }}>
                 <label className="form-checkbox">
                   <input
                     type="checkbox"
-                    checked={editForm.isRequired}
+                    checked={fieldForm.isRequired}
                     onChange={(e) =>
-                      setEditForm((f) => ({
+                      setFieldForm((f) => ({
                         ...f,
                         isRequired: e.target.checked,
                       }))
@@ -830,27 +749,142 @@ export function EntityTypeDetail(): React.ReactElement {
                   />
                   <span>Required</span>
                 </label>
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={fieldForm.isIndexed}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({
+                        ...f,
+                        isIndexed: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Indexed</span>
+                </label>
               </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setEditingField(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingEdit}
-                >
-                  {savingEdit ? "Saving…" : "Save changes"}
-                </button>
-              </div>
-            </form>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowAddField(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingField}>
+                {savingField ? "Adding…" : "Add Field"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      {/* ── Edit Field Modal ──────────────────────────────────────────── */}
+      <Dialog
+        open={editingField !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditingField(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">
+                Edit Field — {editingField?.label}
+              </h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
           </div>
-        </div>
-      )}
+          <form onSubmit={(e) => void handleSaveField(e)}>
+            <div className="modal-body">
+              {editError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {editError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Label *</label>
+                  <input
+                    className="form-input"
+                    value={editForm.label}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, label: e.target.value }))
+                    }
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Sort Order</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    value={editForm.sortOrder}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        sortOrder: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              {(editingField?.fieldType === "enum" ||
+                editingField?.fieldType === "multi_enum") && (
+                <div className="form-group">
+                  <label className="form-label">Options</label>
+                  <EnumOptionsList
+                    rows={editForm.enumRows}
+                    onChange={(rows) =>
+                      setEditForm((f) => ({ ...f, enumRows: rows }))
+                    }
+                  />
+                </div>
+              )}
+
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={editForm.isRequired}
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      isRequired: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Required</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditingField(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingEdit}>
+                {savingEdit ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

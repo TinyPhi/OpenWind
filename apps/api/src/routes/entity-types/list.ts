@@ -21,11 +21,7 @@ export const listEntityTypesHandler = factory.createHandlers(
 
     try {
       const page = await withTenantContext(tenantId, (tx) =>
-        listEntityTypes(tx, tenantId, {
-          moduleId,
-          cursor,
-          limit,
-        }),
+        listEntityTypes(tx, tenantId, { moduleId, cursor, limit }),
       );
       return c.json(page);
     } catch (err) {

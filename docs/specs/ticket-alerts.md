@@ -54,7 +54,8 @@ Indexes: `(tenant_id, instance_id)`, `(tenant_id, created_by)`.
 in the same transaction as the `ticket_alerts` insert.
 
 **BullMQ**: new queue `ticket-alerts` (same `defaultJobOptions` as `slaQueue`: `attempts:3`,
-exponential backoff). Job id: `alert:{alertId}` (deterministic, enables remove/reschedule).
+exponential backoff). Job id: `alert-{alertId}` (deterministic, enables remove/reschedule;
+dash not colon — BullMQ rejects colons in custom job IDs).
 
 **API routes** (under existing entity/ticket route namespace):
 

@@ -43,6 +43,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - JWT audience validation now fails closed instead of skipping the check when `ZITADEL_AUDIENCE` is unset
 - Automation recursion depth is now carried through the outbox payload, preventing `MAX_DEPTH` from being silently reset on outbox-routed automation loops
 - Auth middleware no longer force-writes `tenant_users` on every authenticated request (was an unconditional `onConflictDoUpdate`; now SELECT-then-conditional-write)
+- `loadEntityType` (entity engine internal helper) now applies an explicit tenant filter matching `loadEntityFields`, instead of relying on RLS alone — closes the last helper in `engine.ts` missing the mandatory second isolation layer (#220)
+- `deleteWorkflowState` checks if the deleted state is set as the workflow's `initialState` and throws `WORKFLOW_STATE_IN_USE` to block it (#310)
+- Export worker and download route handler propagate `TENANT_DEACTIVATED` error code instead of confusingly mislabeling it as `EXPORT_EXPIRED` (#308)
+- Background workers unified and deduplicated `isTenantActive` validation checks using a shared tenant guard (#306)
 
 ---
 
@@ -50,6 +54,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- **Rate limiter no longer buckets on an unverified JWT claim** (#195) — the pre-auth flood guard
+  used to decode (not verify) a bearer token's `org`/`sub` claim and bucket on it when present,
+  letting a client evade its rate limit entirely by varying an unforgeable claim per request. The
+  pre-auth stage now keys strictly on client IP; a new post-auth, tenant-scoped stage inside
+  `requireAuth()` (`@platform/auth`) enforces the real per-tenant limit (100 req/min default) on the
+  verified `auth.tenantId`, for both JWT and API-key traffic. Both stages share one sliding-window
+  Redis implementation (moved to `@platform/redis`), which now fails open within a bounded 250ms
+  timeout instead of potentially hanging a request if Redis is unreachable.
 - **RLS on entity_types, workflows, workflow_states, workflow_transitions** — these four tables
   previously had no database-level tenant isolation, relying solely on application-layer ownership
   checks. `entity_types`/`workflows` now enforce a nullable-tenant RLS policy pair (system/template
@@ -60,6 +72,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - **API error responses** — workflow and entity engine errors now return human-readable `message` fields instead of raw error codes. Affected codes: `INSTANCE_NOT_FOUND`, `TRANSITION_NOT_AVAILABLE`, `TRANSITION_FORBIDDEN`, `TRANSITION_LOCKED`, `CONDITION_NOT_MET`, `REQUIRED_FIELDS_MISSING`, `ENTITY_NOT_FOUND`, `FIELD_VALIDATION_FAILED`, and others. Clients that match on `error` code are unaffected; clients that display `message` directly will see improved copy.
+
+### Fixed
+
+- **Automation `assign`/`create_entity` actions were declared but never dispatched** (#191) — a
+  rule using either action type saved successfully and silently did nothing. Both are now wired
+  up: `assign` writes `assignedTo` via `updateEntity`; `create_entity` creates a new instance via
+  `createEntity`. See #218 for a known follow-up limitation this surfaces (unbounded recursion risk
+  for a self-triggering `create_entity` rule, since `entity.created`'s outbox payload doesn't carry
+  automation depth the way `entity.assigned`'s does).
 
 ### Added
 

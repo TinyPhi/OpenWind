@@ -83,6 +83,15 @@ export type CreateEntityInput = {
   assignedTo?: string | undefined;
   workflowId?: string | undefined;
   currentState?: string | undefined;
+  /**
+   * Automation-engine recursion depth (#120/#218), set only by
+   * executeCreateEntityAction when this creation is itself driven by an
+   * automation rule. Root callers (API routes) must never set this. When
+   * present, the resulting entity.created outbox event carries `depth + 1`
+   * so apps/worker/src/automation-worker.ts can enforce MAX_DEPTH across the
+   * async outbox hop instead of resetting to 0.
+   */
+  depth?: number | undefined;
 };
 
 export type UpdateEntityInput = {
@@ -177,6 +186,10 @@ export interface EntityCreatedEvent {
   entityTypeId: string;
   fields: Record<string, unknown>;
   createdBy: string | null;
+  // In-process recursion depth, set only when this creation was driven by
+  // the automation engine's create_entity action (#218) — see createEntity's
+  // `depth` input. Absent means depth 0 (a root-triggered creation).
+  depth?: number;
 }
 
 export interface EntityAssignedEvent {

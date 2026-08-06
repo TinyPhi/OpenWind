@@ -83,6 +83,7 @@ export function buildEntityCreatedPayload(
   entityTypeId: string,
   fields: Record<string, unknown>,
   createdBy: string | null,
+  depth?: number,
 ): EntityCreatedEvent {
   return {
     eventType: "entity.created",
@@ -92,6 +93,10 @@ export function buildEntityCreatedPayload(
     entityTypeId,
     fields,
     createdBy,
+    // depth + 1 for the guard, mirroring buildEntityAssignedPayload's
+    // convention — only set when this creation was itself driven by an
+    // automation rule (#120/#218).
+    ...(depth !== undefined && { depth: depth + 1 }),
   };
 }
 
@@ -143,7 +148,7 @@ export async function createEntity(
   tenantId: string,
   input: CreateEntityInput,
 ): Promise<EntityInstance> {
-  const entityType = await loadEntityType(db, input.entityTypeId);
+  const entityType = await loadEntityType(db, input.entityTypeId, tenantId);
 
   const schema = await getValidationSchema(
     db,
@@ -264,11 +269,9 @@ export async function createEntity(
     });
   }
 
-  // Outbox events for automation triggers (#126). NOTE: automation rules on
-  // entity.created/entity.assigned can chain into create/update actions —
-  // this is the first path that makes the unbounded outbox-routed recursion
-  // gap (#120, MAX_DEPTH resets to 0 on the outbox path) actually reachable.
-  // #120 is tracked separately; not fixed here.
+  // Outbox events for automation triggers (#126). depth is threaded through
+  // (#218) so a self-triggering create_entity automation rule trips
+  // MAX_DEPTH on the outbox hop instead of silently resuming at depth 0.
   const outboxRows: Array<EntityCreatedEvent | EntityAssignedEvent> = [
     buildEntityCreatedPayload(
       tenantId,
@@ -276,6 +279,7 @@ export async function createEntity(
       row.entityTypeId,
       redactedFieldsForEvents,
       row.createdBy,
+      input.depth,
     ),
   ];
   if (row.assignedTo !== null) {
@@ -286,6 +290,7 @@ export async function createEntity(
         row.entityTypeId,
         row.assignedTo,
         resolveAssignedBy(input.actorId, row.createdBy),
+        input.depth,
       ),
     );
   }
@@ -432,7 +437,11 @@ export async function updateEntity(
       validatedFields = fullResult.data as Record<string, unknown>;
     }
 
-    const entityType = await loadEntityType(db, existing.entityTypeId);
+    const entityType = await loadEntityType(
+      db,
+      existing.entityTypeId,
+      tenantId,
+    );
     if (!isChildTicket) {
       const crossErrors = runCrossFieldValidators(
         entityType.name,
@@ -826,7 +835,7 @@ export async function deleteEntity(
   logger.info({ tenantId, instanceId }, "Entity soft-deleted");
 
   const [entityType, allFields] = await Promise.all([
-    loadEntityType(db, row.entityTypeId),
+    loadEntityType(db, row.entityTypeId, tenantId),
     loadEntityFields(db, row.entityTypeId, tenantId),
   ]);
 
@@ -869,6 +878,24 @@ export async function listEntities(
     conditions.push(eq(entityInstances.assignedTo, input.assignedTo));
   }
   if (input.scopeToUserId !== undefined) {
+    // Reuses the exact OR shape apps/api/src/routes/entities/my-tickets.ts
+    // already relies on (createdBy/assignedTo/__accessUsers), per
+    // docs/specs/workflow-open-ticket-creation.md §I.3 instruction #4 — not a
+    // new, separately-indexed path to the same data.
+    //
+    // entity_instances_fields_gin_idx uses jsonb_path_ops, which supports `@>`
+    // containment but not the `?` key-exists operator used in the third
+    // branch, so that branch is never index-assisted. EXPLAIN ANALYZE against
+    // 20k synthetic rows for one entity_type/tenant (2026-08-05, PR #337
+    // review): the planner uses entity_instances_tenant_type_idx
+    // (tenant_id, entity_type_id) to narrow the set first, then evaluates
+    // this OR as a linear filter over the narrowed rows — 2.8ms, no
+    // sequential scan of the full table. Same plan shape my-tickets.ts
+    // already produces, so this isn't a regression, just the same
+    // already-accepted tradeoff reused at a new call site. Revisit
+    // (e.g. an expression index on `fields->'__accessUsers'`, or migrating
+    // this branch to `@>` a normalized array column) if per-type row counts
+    // grow well past pilot scale.
     // or() with 3 fixed args is always defined — the `| undefined` in its
     // return type only covers the zero-args case, which never happens here.
     const scopeCondition = or(
@@ -964,7 +991,7 @@ export async function addEntityField(
   entityTypeId: string,
   field: Omit<EntityField, "id" | "tenantId">,
 ): Promise<EntityField> {
-  const entityType = await loadEntityType(db, entityTypeId);
+  const entityType = await loadEntityType(db, entityTypeId, tenantId);
 
   if (!entityType.allowCustomFields && entityType.tenantId !== null) {
     throw new EntityError("CUSTOM_FIELDS_NOT_ALLOWED", { entityTypeId });
@@ -1004,11 +1031,17 @@ export async function addEntityField(
 async function loadEntityType(
   db: DbOrTx,
   entityTypeId: string,
+  tenantId: string,
 ): Promise<EntityType> {
   const [row] = await db
     .select()
     .from(entityTypes)
-    .where(eq(entityTypes.id, entityTypeId))
+    .where(
+      and(
+        eq(entityTypes.id, entityTypeId),
+        or(isNull(entityTypes.tenantId), eq(entityTypes.tenantId, tenantId)),
+      ),
+    )
     .limit(1);
 
   if (!row) throw new EntityError("ENTITY_TYPE_NOT_FOUND", { entityTypeId });
@@ -1102,6 +1135,7 @@ export async function bulkCreateEntities(
     createdBy: string | null;
     actorId: string | undefined;
     entityFields: Array<{ name: string; sensitivity: AuditFieldSensitivity }>;
+    depth: number | undefined;
   }> = [];
 
   // Per-type cache: avoids O(N) DB calls for entityType + allFields when many
@@ -1118,7 +1152,7 @@ export async function bulkCreateEntities(
     const cached = typeMetaCache.get(entityTypeId);
     if (cached) return cached;
     const [entityType, allFields] = await Promise.all([
-      loadEntityType(db, entityTypeId),
+      loadEntityType(db, entityTypeId, tenantId),
       loadEntityFields(db, entityTypeId, tenantId),
     ]);
     const meta: TypeMeta = { entityType, allFields };
@@ -1196,6 +1230,7 @@ export async function bulkCreateEntities(
         name: f.name,
         sensitivity: f.sensitivity,
       })),
+      depth: input.depth,
     });
   }
 
@@ -1208,9 +1243,10 @@ export async function bulkCreateEntities(
   const created = rows.map(rowToInstance);
 
   // Outbox events for automation triggers (#126) — see createEntity for the
-  // #120 recursion-exposure note and the PII/financial redaction rationale.
-  // Sensitivity maps are cached per entity type (via typeMetaCache, already
-  // populated above) rather than rebuilt per row.
+  // PII/financial redaction rationale. depth is threaded through (#218) via
+  // auditMeta, the same parallel-array pattern already used for createdBy/
+  // actorId. Sensitivity maps are cached per entity type (via typeMetaCache,
+  // already populated above) rather than rebuilt per row.
   const sensitivityByType = new Map<string, Map<string, FieldSensitivity>>();
   function getSensitivityMap(
     entityTypeId: string,
@@ -1243,6 +1279,7 @@ export async function bulkCreateEntities(
           getSensitivityMap(row.entityTypeId),
         ),
         row.createdBy,
+        auditMeta[idx]?.depth,
       ),
     ];
     if (row.assignedTo !== null) {
@@ -1253,6 +1290,7 @@ export async function bulkCreateEntities(
           row.entityTypeId,
           row.assignedTo,
           resolveAssignedBy(auditMeta[idx]?.actorId, row.createdBy),
+          auditMeta[idx]?.depth,
         ),
       );
     }
@@ -1312,19 +1350,35 @@ export async function bulkUpdateEntities(
     payload: EntityAssignedEvent;
   }> = [];
 
+  // Fetch all rows in one query instead of one SELECT per item (#196 N+1) —
+  // mirrors bulkSetState's foundMap pattern below. Per-row UPDATEs still
+  // happen individually since each item's `fields`/`assignedTo` payload is
+  // heterogeneous (unlike bulkSetState's small set of distinct target
+  // states, which groups into one UPDATE per state) — batching those would
+  // need a VALUES-based multi-row UPDATE not used anywhere else in this
+  // file, so this fixes the read side only, per the confirmed-real half of
+  // #196.
+  const existingRows =
+    updates.length > 0
+      ? await db
+          .select()
+          .from(entityInstances)
+          .where(
+            and(
+              inArray(
+                entityInstances.id,
+                updates.map((u) => u.id),
+              ),
+              eq(entityInstances.tenantId, tenantId),
+              isNull(entityInstances.deletedAt),
+            ),
+          )
+      : [];
+  const existingMap = new Map(existingRows.map((r) => [r.id, r]));
+
   await Promise.all(
     updates.map(async ({ id, input }, i) => {
-      const [existing] = await db
-        .select()
-        .from(entityInstances)
-        .where(
-          and(
-            eq(entityInstances.id, id),
-            eq(entityInstances.tenantId, tenantId),
-            isNull(entityInstances.deletedAt),
-          ),
-        )
-        .limit(1);
+      const existing = existingMap.get(id);
 
       if (!existing) {
         errors.push({ index: i, id, code: "ENTITY_NOT_FOUND" });
@@ -1370,7 +1424,11 @@ export async function bulkUpdateEntities(
           return;
         }
 
-        const entityType = await loadEntityType(db, existing.entityTypeId);
+        const entityType = await loadEntityType(
+          db,
+          existing.entityTypeId,
+          tenantId,
+        );
         const crossErrors = runCrossFieldValidators(
           entityType.name,
           fullResult.data as Record<string, unknown>,
@@ -1488,7 +1546,7 @@ export async function bulkUpdateEntities(
           // Load entity type for audit — not needed for the fields update path
           // above (entityType is already available there) but needed here.
           const [bulkEntityType, bulkAllFields] = await Promise.all([
-            loadEntityType(db, existing.entityTypeId),
+            loadEntityType(db, existing.entityTypeId, tenantId),
             loadEntityFields(db, existing.entityTypeId, tenantId),
           ]);
           await fireEntityAuditHook({
@@ -1756,7 +1814,7 @@ export async function bulkSetState(
 
     if (!typeCache.has(prior.entityTypeId)) {
       const [et, ef] = await Promise.all([
-        loadEntityType(db, prior.entityTypeId),
+        loadEntityType(db, prior.entityTypeId, tenantId),
         loadEntityFields(db, prior.entityTypeId, tenantId),
       ]);
       typeCache.set(prior.entityTypeId, {
@@ -1904,7 +1962,7 @@ export async function setEntityState(
   }
 
   const [entityType, allFields] = await Promise.all([
-    loadEntityType(db, existing.entityTypeId),
+    loadEntityType(db, existing.entityTypeId, tenantId),
     loadEntityFields(db, existing.entityTypeId, tenantId),
   ]);
 

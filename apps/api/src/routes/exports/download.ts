@@ -44,7 +44,12 @@ router.get(
     // If the export included PII columns, require either the original requester
     // or a PII-capable role. This covers: role revoked after enqueue, and
     // within-tenant job ID enumeration by a lower-privilege user.
-    if (job.data.includePii) {
+    const jobIncludedPii =
+      job.data.includePii ??
+      job.data.requestedByRoles?.some((r) => PII_EXPORT_ROLES.has(r)) ??
+      false;
+
+    if (jobIncludedPii) {
       const canSeePii = roles.some((r) => PII_EXPORT_ROLES.has(r));
       if (!canSeePii && job.data.requestedBy !== userId) {
         return c.json(
@@ -57,11 +62,19 @@ router.get(
     const state = await job.getState();
 
     if (state === "completed") {
-      const result = job.returnvalue as { downloadUrl?: string } | null;
+      const result = job.returnvalue as {
+        downloadUrl?: string;
+        error?: string;
+      } | null;
       // returnvalue is null when removeOnComplete TTL has expired
       if (!result?.downloadUrl) {
         return c.json(
-          { data: { status: "failed", error: "EXPORT_EXPIRED" } },
+          {
+            data: {
+              status: "failed",
+              error: result?.error ?? "EXPORT_EXPIRED",
+            },
+          },
           200,
         );
       }

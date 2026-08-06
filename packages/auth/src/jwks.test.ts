@@ -11,9 +11,10 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+const mockCreateRemoteJWKSet = vi.fn(() => ({}));
 const mockJwtVerify = vi.fn();
 vi.mock("jose", () => ({
-  createRemoteJWKSet: vi.fn(() => ({})),
+  createRemoteJWKSet: (...args: unknown[]) => mockCreateRemoteJWKSet(...args),
   jwtVerify: (...args: unknown[]) => mockJwtVerify(...args),
 }));
 
@@ -93,11 +94,35 @@ describe("verifyJwt", () => {
     );
   });
 
+  it("uses clockTolerance of 5 seconds — not 30 (#255)", async () => {
+    mockJwtVerify.mockResolvedValueOnce({ payload: BASE_CLAIMS });
+
+    await verifyJwt("some.jwt.token");
+
+    expect(mockJwtVerify).toHaveBeenCalledWith(
+      "some.jwt.token",
+      expect.anything(),
+      expect.objectContaining({ clockTolerance: 5 }),
+    );
+  });
+
   it("returns null when jwtVerify rejects (e.g. audience mismatch)", async () => {
     mockJwtVerify.mockRejectedValueOnce(new Error("audience mismatch"));
 
     const result = await verifyJwt("some.jwt.token");
 
     expect(result).toBeNull();
+  });
+});
+
+describe("getJwks (#262)", () => {
+  it("creates the remote JWKS set with a 1-hour cacheMaxAge", async () => {
+    mockJwtVerify.mockResolvedValueOnce({ payload: BASE_CLAIMS });
+    await verifyJwt("trigger-jwks-init");
+
+    expect(mockCreateRemoteJWKSet).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ cacheMaxAge: 60 * 60 * 1000 }),
+    );
   });
 });

@@ -13,6 +13,7 @@ import { logger } from "@platform/logger";
 import { connection, notifyOutboundQueue } from "./queues.js";
 import { resolveRecipients } from "./notification-recipients.js";
 import { buildNotificationContent } from "./notification-templates.js";
+import { validateActiveTenant } from "./tenant-guard.js";
 
 interface NotificationJobData {
   outboxEventId: string;
@@ -51,6 +52,16 @@ export const notificationWorker = new Worker<NotificationJobData>(
   "notify",
   async (job) => {
     const { tenantId, eventType, payload } = job.data;
+
+    const active = await validateActiveTenant(
+      tenantId,
+      "Notification processing",
+      {
+        eventType,
+        jobId: job.id,
+      },
+    );
+    if (!active) return;
 
     const resolved = await resolveRecipients(tenantId, eventType, payload);
     // Invariant: a notifications row is never created without at least one

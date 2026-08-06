@@ -77,8 +77,8 @@ Refine + shadcn/ui. Reads `view_configs` to render generic entity list/detail/fo
 One generic `<EntityList>`, `<EntityDetail>`, `<EntityForm>` component serves all module
 entities. Single app serves both agent/admin and customer users — role-gated views based
 on JWT claims, not a separate deployment. There is no separate customer portal app;
-`apps/portal` still exists on disk but is stale/unused (see docker-compose.yml's comment
-on the admin-ui service).
+`apps/portal` source was removed in PR #211 — the directory exists only as a pnpm
+workspace stub with no source files.
 
 ### No-code builders (2D)
 

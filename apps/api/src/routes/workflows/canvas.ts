@@ -49,10 +49,6 @@ export const canvasSaveHandler = factory.createHandlers(
     const caller = toWorkflowCaller(auth);
 
     try {
-      // Explicit forbidden-vs-not-found split: same-tenant callers who aren't
-      // this workflow's admin get 403 (matches the pre-existing role-gate
-      // contract this route had), while a workflow in another tenant (or one
-      // that doesn't exist) still 404s via getWorkflow below.
       if (!caller.isGlobalAdmin) {
         const [row] = await withTenantContext(tenantId, (tx) =>
           tx
@@ -78,11 +74,8 @@ export const canvasSaveHandler = factory.createHandlers(
           })
         ) {
           return c.json(
-            {
-              error: "FORBIDDEN",
-              message: "You do not have permission to edit this workflow",
-            },
-            403,
+            { error: "NOT_FOUND", message: "Workflow not found" },
+            404,
           );
         }
       }

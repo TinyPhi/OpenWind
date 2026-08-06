@@ -6,6 +6,7 @@ import {
   requireRole,
   requireIntrospection,
   hashApiKey,
+  hashApiKeyArgon2,
 } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
 import { factory } from "./factory.js";
@@ -22,13 +23,38 @@ export const createApiKeyHandler = factory.createHandlers(
   zValidator("json", CreateApiKeySchema),
   async (c) => {
     const { name, scopes } = c.req.valid("json");
-    const { tenantId } = c.get("auth");
+    const { tenantId, roles } = c.get("auth");
+
+    // Scope ceiling: the creator may only mint a key whose every scope sits at
+    // or below their own highest role in the privilege hierarchy.  An admin
+    // can produce user/agent/admin-scoped keys but not superadmin-scoped ones.
+    // Unknown scope strings are rejected (no known privilege level). (#223)
+    const ROLE_LEVEL: Record<string, number> = {
+      user: 0,
+      agent: 1,
+      admin: 2,
+      superadmin: 3,
+    };
+    const creatorMax = Math.max(-1, ...roles.map((r) => ROLE_LEVEL[r] ?? -1));
+    for (const scope of scopes) {
+      const scopeLevel = ROLE_LEVEL[scope] ?? -1;
+      if (scopeLevel < 0 || scopeLevel > creatorMax) {
+        return c.json(
+          {
+            error: "FORBIDDEN",
+            message: "Cannot grant scope exceeding your own roles",
+          },
+          403,
+        );
+      }
+    }
 
     // Generate a cryptographically random key with a recognisable prefix.
     // The raw key is returned exactly once — after this the hash is all that
     // is stored.  The caller is responsible for storing it securely.
     const rawKey = `sk_live_${randomBytes(32).toString("base64url")}`;
     const keyHash = hashApiKey(rawKey);
+    const keyHashArgon2 = await hashApiKeyArgon2(rawKey);
 
     const [created] = await withTenantContext(tenantId, (tx) =>
       tx
@@ -37,6 +63,7 @@ export const createApiKeyHandler = factory.createHandlers(
           tenantId,
           name,
           keyHash,
+          keyHashArgon2,
           scopes,
         })
         .returning({

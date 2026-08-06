@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from "react";
 import {
+  Button,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  TOKENS,
+} from "@platform/ui";
+import {
   listSystemLogs,
   type SystemLogEntry,
 } from "../lib/system-logs-client.js";
@@ -77,104 +87,91 @@ export function SystemLogsPage(): React.ReactElement {
           className="data-panel"
           style={{ overflowX: "auto", overflowY: "hidden" }}
         >
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+          <Table scroll={false}>
+            <TableHeader>
+              <TableRow>
                 {["", "Title", "Details", "Occurred", "ID"].map((h) => (
-                  <th
+                  <TableHead
                     key={h}
                     style={{
-                      textAlign: "left",
                       padding: "10px 16px",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "var(--text-muted)",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      background: "var(--surface-secondary, var(--bg-subtle))",
                       whiteSpace: "nowrap",
                     }}
                   >
                     {h}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log, i) => (
-                <tr
-                  key={log.id}
-                  style={{
-                    borderBottom:
-                      i < logs.length - 1 ? "1px solid var(--border)" : "none",
-                  }}
-                >
-                  <td style={{ padding: "12px 16px", width: "1%" }}>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell style={{ padding: "12px 16px", width: "1%" }}>
                     <div
                       style={{
                         width: "8px",
                         height: "8px",
                         borderRadius: "50%",
-                        background: "#ef4444",
+                        background: TOKENS.danger,
                       }}
                       title="Urgent — system error"
                     />
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "14px",
                       fontWeight: 600,
-                      color: "var(--text-primary)",
+                      color: TOKENS.textPrimary,
                       whiteSpace: "nowrap",
                     }}
                   >
                     {log.title}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "13px",
-                      color: "var(--text-secondary)",
+                      color: TOKENS.textSecondary,
                       wordBreak: "break-word",
                       minWidth: "320px",
                     }}
                   >
                     {log.body}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "13px",
-                      color: "var(--text-secondary)",
+                      color: TOKENS.textSecondary,
                       whiteSpace: "nowrap",
                     }}
                     title={new Date(log.createdAt).toLocaleString()}
                   >
                     {relativeTime(log.createdAt)}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "11px",
-                      color: "var(--text-muted)",
+                      color: TOKENS.textMuted,
                       fontFamily: "monospace",
                       whiteSpace: "nowrap",
                     }}
                   >
                     {log.id}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
 
           <div
             style={{
               padding: "10px 16px",
               fontSize: "12px",
-              color: "var(--text-muted)",
-              borderTop: "1px solid var(--border)",
+              color: TOKENS.textMuted,
+              borderTop: `1px solid ${TOKENS.borderColor}`,
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
@@ -184,14 +181,14 @@ export function SystemLogsPage(): React.ReactElement {
               {logs.length} entr{logs.length !== 1 ? "ies" : "y"}
             </span>
             {cursor && (
-              <button
+              <Button
                 type="button"
-                className="btn btn-secondary"
+                variant="secondary"
                 onClick={loadMore}
                 disabled={loadingMore}
               >
                 {loadingMore ? "Loading…" : "Load more"}
-              </button>
+              </Button>
             )}
           </div>
         </div>

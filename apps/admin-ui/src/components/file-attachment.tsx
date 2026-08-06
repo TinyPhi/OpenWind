@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from "react";
 import { fetchRawWithAuth, API_URL } from "../lib/api.js";
 import type { StagedFile } from "../hooks/use-file-upload.js";
+import { ConfirmDeleteDialog } from "./confirm-delete-dialog.js";
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -257,54 +258,6 @@ function fileCardIcon(mimeType: string): React.ReactElement {
   );
 }
 
-/* ── DeleteConfirmModal ─────────────────────────────────────────── */
-
-function DeleteConfirmModal({
-  fileName,
-  onConfirm,
-  onCancel,
-}: {
-  fileName: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}): React.ReactElement {
-  return (
-    <div className="fa-del-backdrop" onClick={onCancel}>
-      <div className="fa-del-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="fa-del-icon">
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="3 6 5 6 21 6" />
-            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-            <path d="M10 11v6M14 11v6" />
-            <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
-          </svg>
-        </div>
-        <p className="fa-del-title">Delete attachment?</p>
-        <p className="fa-del-body">
-          <strong>{fileName}</strong> will be permanently removed.
-        </p>
-        <div className="fa-del-actions">
-          <button type="button" className="fa-del-cancel" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="fa-del-confirm" onClick={onConfirm}>
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── FileCard ───────────────────────────────────────────────────── */
 
 export function FileCard({
@@ -460,16 +413,21 @@ export function FileCard({
         </div>
       </div>
 
-      {confirmDelete && onDelete && (
-        <DeleteConfirmModal
-          fileName={file.originalName}
-          onConfirm={() => {
-            setConfirmDelete(false);
-            onDelete(file.id);
-          }}
-          onCancel={() => setConfirmDelete(false)}
-        />
-      )}
+      <ConfirmDeleteDialog
+        open={confirmDelete && !!onDelete}
+        title="Delete attachment?"
+        message={
+          <>
+            <strong>{file.originalName}</strong> will be permanently removed.
+          </>
+        }
+        busy={false}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          onDelete?.(file.id);
+        }}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </>
   );
 }

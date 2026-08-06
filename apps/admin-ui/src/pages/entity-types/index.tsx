@@ -1,6 +1,20 @@
 import React, { useState } from "react";
 import { useList } from "@refinedev/core";
 import { Link, useNavigate } from "react-router-dom";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogTitle,
+  Button,
+  DIALOG_CONTENT_RESET,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 
@@ -99,9 +113,9 @@ export function EntityTypes(): React.ReactElement {
         </div>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <div className="stat-pill">{types.length} types</div>
-          <button className="btn-primary" onClick={() => setShowModal(true)}>
+          <Button variant="primary" onClick={() => setShowModal(true)}>
             + New Entity Type
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -113,26 +127,26 @@ export function EntityTypes(): React.ReactElement {
         </div>
       ) : (
         <div className="data-panel">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Plural</th>
-                <th>Module</th>
-                <th>Custom Fields</th>
-                <th>Created</th>
-                <th style={{ width: "80px" }}>Records</th>
-                <th style={{ width: "40px" }}></th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table scroll={false}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Plural</TableHead>
+                <TableHead>Module</TableHead>
+                <TableHead>Custom Fields</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead style={{ width: "80px" }}>Records</TableHead>
+                <TableHead style={{ width: "40px" }}></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {types.map((type) => (
-                <tr
+                <TableRow
                   key={type.id}
-                  className="table-row-clickable"
+                  clickable
                   onClick={() => navigate(`/entity-types/${type.id}`)}
                 >
-                  <td>
+                  <TableCell>
                     <div
                       style={{
                         display: "flex",
@@ -151,11 +165,11 @@ export function EntityTypes(): React.ReactElement {
                       )}
                       <span style={{ fontWeight: 600 }}>{type.name}</span>
                     </div>
-                  </td>
-                  <td style={{ color: "var(--text-secondary)" }}>
+                  </TableCell>
+                  <TableCell style={{ color: "var(--text-secondary)" }}>
                     {type.plural}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {type.moduleId ? (
                       <span className="badge badge-primary">
                         {type.moduleId}
@@ -167,32 +181,38 @@ export function EntityTypes(): React.ReactElement {
                         custom
                       </span>
                     )}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <span
                       className={`badge ${type.allowCustomFields ? "badge-success" : "badge-muted"}`}
                     >
                       {type.allowCustomFields ? "Yes" : "No"}
                     </span>
-                  </td>
-                  <td style={{ color: "var(--text-muted)", fontSize: "13px" }}>
+                  </TableCell>
+                  <TableCell
+                    style={{ color: "var(--text-muted)", fontSize: "13px" }}
+                  >
                     {new Date(type.createdAt).toLocaleDateString()}
-                  </td>
-                  <td>
-                    <Link
-                      to={`/entity-types/${type.id}/records`}
-                      className="btn-secondary"
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      asChild
+                      variant="secondary"
                       style={{
                         fontSize: "12px",
                         padding: "4px 10px",
                         textDecoration: "none",
                       }}
-                      onClick={(e) => e.stopPropagation()}
                     >
-                      Records
-                    </Link>
-                  </td>
-                  <td>
+                      <Link
+                        to={`/entity-types/${type.id}/records`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Records
+                      </Link>
+                    </Button>
+                  </TableCell>
+                  <TableCell>
                     <button
                       className="btn-icon"
                       onClick={(e) => {
@@ -202,11 +222,11 @@ export function EntityTypes(): React.ReactElement {
                     >
                       →
                     </button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -238,97 +258,105 @@ export function EntityTypes(): React.ReactElement {
         </div>
       )}
 
-      {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+      <Dialog
+        open={showModal}
+        onOpenChange={(next) => {
+          if (!next) setShowModal(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">New Entity Type</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowModal(false)}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
-            </div>
-            <form onSubmit={(e) => void handleCreate(e)}>
-              <div className="modal-body">
-                {error && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {error}
-                  </div>
-                )}
-                <div className="form-group">
-                  <label className="form-label">Name *</label>
-                  <input
-                    className="form-input"
-                    placeholder="e.g. Support Ticket"
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, name: e.target.value }))
-                    }
-                    required
-                    autoFocus
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Plural *</label>
-                  <input
-                    className="form-input"
-                    placeholder="e.g. Support Tickets"
-                    value={form.plural}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, plural: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Icon (emoji)</label>
-                  <input
-                    className="form-input"
-                    placeholder="e.g. 🎫"
-                    value={form.icon}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, icon: e.target.value }))
-                    }
-                    style={{ maxWidth: "120px" }}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={form.allowCustomFields}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          allowCustomFields: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Allow custom fields</span>
-                  </label>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowModal(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary" disabled={saving}>
-                  {saving ? "Creating…" : "Create Entity Type"}
-                </button>
-              </div>
-            </form>
+            </DialogClose>
           </div>
-        </div>
-      )}
+          <form onSubmit={(e) => void handleCreate(e)}>
+            <div className="modal-body">
+              {error && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {error}
+                </div>
+              )}
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Support Ticket"
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Plural *</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Support Tickets"
+                  value={form.plural}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, plural: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Icon (emoji)</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. 🎫"
+                  value={form.icon}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, icon: e.target.value }))
+                  }
+                  style={{ maxWidth: "120px" }}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.allowCustomFields}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        allowCustomFields: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Allow custom fields</span>
+                </label>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving ? "Creating…" : "Create Entity Type"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

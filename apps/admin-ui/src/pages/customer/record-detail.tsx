@@ -2,7 +2,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
+import { FieldInput } from "../../components/field-input.js";
 import { userManager } from "../../authProvider.js";
+import {
+  showAlert,
+  showConfirm,
+} from "../../components/global-alert-dialog.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
 import {
   type AttachmentFile,
@@ -12,6 +17,23 @@ import {
   AttachmentUploadZone,
   FilePreviewModal,
 } from "../../components/file-attachment.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogClose,
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+  Button,
+  DIALOG_CONTENT_RESET,
+  TOKENS,
+  useHoverStyle,
+} from "@platform/ui";
 
 type EntityField = {
   id: string;
@@ -100,6 +122,9 @@ type OrgUser = {
   loginName?: string;
 };
 
+type AccessLevel = "read_only" | "read_comment" | "read_write";
+type AccessTag = "creator" | "assigned" | "mention" | "manual";
+
 /* ── Field display ───────────────────────────────────────────── */
 function FieldValue({
   value,
@@ -170,151 +195,6 @@ function FieldValue({
 }
 
 /* ── Field input (edit mode) ─────────────────────────────────── */
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  field: EntityField;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}): React.ReactElement {
-  const strVal = value === null || value === undefined ? "" : String(value);
-  switch (field.fieldType) {
-    case "boolean":
-      return (
-        <label className="portal-checkbox">
-          <input
-            type="checkbox"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          <span>{field.label}</span>
-        </label>
-      );
-    case "number":
-      return (
-        <input
-          className="portal-input"
-          type="number"
-          value={strVal}
-          onChange={(e) =>
-            onChange(e.target.value === "" ? null : Number(e.target.value))
-          }
-        />
-      );
-    case "currency": {
-      const currVal =
-        value !== null && typeof value === "object"
-          ? (value as { amount?: unknown; currency?: unknown })
-          : { amount: "", currency: "" };
-      const amountStr =
-        currVal.amount === null || currVal.amount === undefined
-          ? ""
-          : String(currVal.amount);
-      const currencyStr =
-        currVal.currency === null || currVal.currency === undefined
-          ? ""
-          : String(currVal.currency);
-      const allowed = field.config.allowedCurrencies ?? [];
-      const currencies =
-        allowed.length > 0 ? allowed : ["USD", "EUR", "GBP", "INR", "AED"];
-      return (
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            className="portal-input"
-            type="number"
-            placeholder="0.00"
-            value={amountStr}
-            style={{ flex: 1 }}
-            onChange={(e) =>
-              onChange({
-                amount: e.target.value === "" ? null : Number(e.target.value),
-                currency: currencyStr || currencies[0],
-              })
-            }
-          />
-          <select
-            className="portal-input"
-            value={currencyStr || currencies[0]}
-            style={{ width: "90px" }}
-            onChange={(e) =>
-              onChange({
-                amount: amountStr === "" ? null : Number(amountStr),
-                currency: e.target.value,
-              })
-            }
-          >
-            {currencies.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
-    }
-    case "date":
-      return (
-        <input
-          className="portal-input"
-          type="date"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "datetime":
-      return (
-        <input
-          className="portal-input"
-          type="datetime-local"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "enum":
-    case "multi_enum": {
-      const opts = (field.config.options ?? []).map((o) =>
-        typeof o === "string"
-          ? { label: o, value: o }
-          : { label: o.label, value: o.value },
-      );
-      return (
-        <select
-          className="portal-input"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        >
-          <option value="">Select…</option>
-          {opts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    case "longtext":
-      return (
-        <textarea
-          className="portal-input portal-textarea"
-          value={strVal}
-          rows={4}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    default:
-      return (
-        <input
-          className="portal-input"
-          type="text"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-  }
-}
-
 /* ── State badge with color ──────────────────────────────────── */
 function StateBadge({
   stateName,
@@ -1041,6 +921,189 @@ async function pollFileScanStatus(
   return "scan_failed";
 }
 
+function AccessUserRow({
+  user,
+  isAdminOrAgent,
+  isRecordDeleted,
+  onChangeAccess,
+}: {
+  user: OrgUser & { level: AccessLevel; tag: AccessTag };
+  isAdminOrAgent: boolean;
+  isRecordDeleted: boolean;
+  onChangeAccess: (payload: {
+    userId: string;
+    displayName: string;
+    currentLevel: AccessLevel;
+    isAssigned: boolean;
+    isCreator: boolean;
+  }) => void;
+}): React.ReactElement {
+  const name = user.displayName ?? user.email;
+  const initials = name
+    .split(" ")
+    .slice(0, 2)
+    .map((p) => p[0] ?? "")
+    .join("")
+    .toUpperCase();
+  const isCreator = user.tag === "creator";
+  const isAssigned = user.tag === "assigned";
+
+  // Badge text + colors
+  let badgeLabel = "Access";
+  let badgeBg = "#f3f4f6";
+  let badgeColor = "var(--text-muted, #6b7280)";
+  let badgeBorder = "#e5e7eb";
+  if (isCreator) {
+    badgeLabel = "Creator";
+    badgeBg = "#ede9fe";
+    badgeColor = "#7c3aed";
+    badgeBorder = "#c4b5fd";
+  } else if (isAssigned) {
+    badgeLabel = "Assigned";
+    badgeBg = "var(--accent-color, #6366f1)18";
+    badgeColor = "var(--accent-color, #6366f1)";
+    badgeBorder = "var(--accent-color, #6366f1)40";
+  } else if (user.level === "read_comment") {
+    badgeLabel = "Comment";
+    badgeBg = "#eff6ff";
+    badgeColor = "#2563eb";
+    badgeBorder = "#bfdbfe";
+  } else if (user.level === "read_only") {
+    badgeLabel = "Read Only";
+    badgeBg = "#f9fafb";
+    badgeColor = "#6b7280";
+    badgeBorder = "#d1d5db";
+  }
+
+  const removeHover = useHoverStyle({
+    base: { color: "var(--text-muted, #9ca3af)", borderColor: "transparent" },
+    hover: { color: TOKENS.danger, borderColor: "#fca5a5" },
+  });
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "8px 10px",
+        background: "var(--bg-card, #ffffff)",
+        border: "1px solid var(--border-color, #e5e7eb)",
+        borderRadius: "8px",
+      }}
+    >
+      <span
+        style={{
+          flexShrink: 0,
+          width: "32px",
+          height: "32px",
+          borderRadius: "50%",
+          background: isCreator ? "#7c3aed" : "var(--accent-color, #6366f1)",
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "12px",
+          fontWeight: 700,
+        }}
+      >
+        {initials}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            color: "var(--text-primary, #111827)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {name}
+        </div>
+        {user.displayName && (
+          <div
+            style={{
+              fontSize: "11px",
+              color: "var(--text-muted, #6b7280)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {user.email}
+          </div>
+        )}
+      </div>
+      <span
+        style={{
+          flexShrink: 0,
+          fontSize: "10px",
+          fontWeight: 600,
+          padding: "2px 6px",
+          borderRadius: "4px",
+          background: badgeBg,
+          color: badgeColor,
+          border: `1px solid ${badgeBorder}`,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
+        {badgeLabel}
+      </span>
+      {/* Edit access button — hidden for creator and assignee:
+          both are virtual entries synthesized by get-access.ts
+          (always read_write, no real __accessUsers row), so
+          update-access.ts/revoke-access.ts 404 on them —
+          there's nothing to update or revoke. */}
+      {isAdminOrAgent && !isRecordDeleted && !isCreator && !isAssigned && (
+        <button
+          type="button"
+          title="Change access"
+          onClick={() =>
+            onChangeAccess({
+              userId: user.userId,
+              displayName: name,
+              currentLevel: user.level,
+              isAssigned,
+              isCreator,
+            })
+          }
+          style={{
+            flexShrink: 0,
+            background: "none",
+            border: "1px solid",
+            borderRadius: "5px",
+            cursor: "pointer",
+            padding: "3px 5px",
+            fontSize: "14px",
+            lineHeight: 1,
+            ...removeHover.style,
+          }}
+          onMouseEnter={removeHover.onMouseEnter}
+          onMouseLeave={removeHover.onMouseLeave}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════ */
 export function CustomerRecordDetail(): React.ReactElement {
   const { typeSlug, id } = useParams<{ typeSlug: string; id: string }>();
@@ -1151,8 +1214,6 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
   // Access list — persisted from API as {userId, level, tag}[]
-  type AccessLevel = "read_only" | "read_comment" | "read_write";
-  type AccessTag = "creator" | "assigned" | "mention" | "manual";
   type AccessEntry = { userId: string; level: AccessLevel; tag: AccessTag };
   const [accessList, setAccessList] = useState<AccessEntry[]>([]);
 
@@ -2068,7 +2129,7 @@ export function CustomerRecordDetail(): React.ReactElement {
 
   async function cancelAlert(alertId: string): Promise<void> {
     if (!id) return;
-    if (!window.confirm("Cancel this alert?")) return;
+    if (!(await showConfirm("Cancel this alert?"))) return;
     setAlertsError(null);
     try {
       await fetchWithAuth(`${API_URL}/entities/${id}/alerts/${alertId}`, {
@@ -2960,76 +3021,44 @@ export function CustomerRecordDetail(): React.ReactElement {
       {/* ── Access-denied overlay ────────────────────────── */}
       {accessDenied && (
         <div className="rcd-access-overlay">
-          {confirmReqLevel !== null ? (
-            <div className="rcd-access-modal">
-              <h3 className="rcd-access-title">Request access?</h3>
-              <p className="rcd-access-body">
-                {confirmReqLevel === "read_comment"
-                  ? "This will send a request to the ticket owner for comment access. They will be able to approve or decline."
-                  : "This will send a request to the ticket owner for view access. They will be able to approve or decline."}
-              </p>
-              <div className="rcd-access-modal-actions">
-                <button
-                  type="button"
-                  className="portal-btn-secondary"
-                  onClick={() => setConfirmReqLevel(null)}
-                >
-                  Cancel
-                </button>
+          <div className="rcd-access-modal">
+            <div className="rcd-access-icon">🔒</div>
+            <h3 className="rcd-access-title">Access Restricted</h3>
+            <p className="rcd-access-body">
+              You don't have access to this ticket. You can request access from
+              the ticket owner.
+            </p>
+            {myAccessReqStatus === "pending" ? (
+              <div className="rcd-access-req-sent">
+                Access request sent — waiting for owner approval.
+              </div>
+            ) : myAccessReqStatus === "rejected" ? (
+              <div className="rcd-access-req-rejected">
+                Your access request was declined. You may request again.
+              </div>
+            ) : null}
+            <div className="rcd-access-modal-actions">
+              <button
+                type="button"
+                className="portal-btn-secondary"
+                onClick={() => navigate("/records")}
+              >
+                Go Back
+              </button>
+              {myAccessReqStatus !== "pending" && (
                 <button
                   type="button"
                   className="portal-btn-primary"
                   disabled={requestingAccess}
-                  onClick={() => {
-                    const lvl = confirmReqLevel;
-                    setConfirmReqLevel(null);
-                    void submitAccessRequest(lvl);
-                  }}
+                  onClick={() => setConfirmReqLevel("read_only")}
                 >
-                  {requestingAccess ? "Sending…" : "Send Request"}
+                  {myAccessReqStatus === "rejected"
+                    ? "Request Again"
+                    : "Request Access"}
                 </button>
-              </div>
+              )}
             </div>
-          ) : (
-            <div className="rcd-access-modal">
-              <div className="rcd-access-icon">🔒</div>
-              <h3 className="rcd-access-title">Access Restricted</h3>
-              <p className="rcd-access-body">
-                You don't have access to this ticket. You can request access
-                from the ticket owner.
-              </p>
-              {myAccessReqStatus === "pending" ? (
-                <div className="rcd-access-req-sent">
-                  Access request sent — waiting for owner approval.
-                </div>
-              ) : myAccessReqStatus === "rejected" ? (
-                <div className="rcd-access-req-rejected">
-                  Your access request was declined. You may request again.
-                </div>
-              ) : null}
-              <div className="rcd-access-modal-actions">
-                <button
-                  type="button"
-                  className="portal-btn-secondary"
-                  onClick={() => navigate("/records")}
-                >
-                  Go Back
-                </button>
-                {myAccessReqStatus !== "pending" && (
-                  <button
-                    type="button"
-                    className="portal-btn-primary"
-                    disabled={requestingAccess}
-                    onClick={() => setConfirmReqLevel("read_only")}
-                  >
-                    {myAccessReqStatus === "rejected"
-                      ? "Request Again"
-                      : "Request Access"}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -3407,6 +3436,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                         <FieldInput
                           field={f}
                           value={editValues[f.name]}
+                          classPrefix="portal"
+                          moduleSlug={typeSlug ?? "unknown"}
+                          entityId={id}
                           onChange={(v) =>
                             setEditValues((p) => ({ ...p, [f.name]: v }))
                           }
@@ -3586,7 +3618,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                                 DOC_MIMES_ATTACH.has(mimeType) &&
                                 file.size < 1024
                               ) {
-                                alert(
+                                showAlert(
                                   `"${file.name}" appears to be a cloud placeholder (${file.size} B) that hasn't been downloaded yet.\n\nIn File Explorer, right-click → "Always keep on this device", wait for it to download, then try again.`,
                                 );
                                 continue;
@@ -4309,188 +4341,18 @@ export function CustomerRecordDetail(): React.ReactElement {
                     gap: "6px",
                   }}
                 >
-                  {accessUsers.map((u) => {
-                    const name = u.displayName ?? u.email;
-                    const initials = name
-                      .split(" ")
-                      .slice(0, 2)
-                      .map((p) => p[0] ?? "")
-                      .join("")
-                      .toUpperCase();
-                    const isCreator = u.tag === "creator";
-                    const isAssigned = u.tag === "assigned";
-
-                    // Badge text + colors
-                    let badgeLabel = "Access";
-                    let badgeBg = "#f3f4f6";
-                    let badgeColor = "var(--text-muted, #6b7280)";
-                    let badgeBorder = "#e5e7eb";
-                    if (isCreator) {
-                      badgeLabel = "Creator";
-                      badgeBg = "#ede9fe";
-                      badgeColor = "#7c3aed";
-                      badgeBorder = "#c4b5fd";
-                    } else if (isAssigned) {
-                      badgeLabel = "Assigned";
-                      badgeBg = "var(--accent-color, #6366f1)18";
-                      badgeColor = "var(--accent-color, #6366f1)";
-                      badgeBorder = "var(--accent-color, #6366f1)40";
-                    } else if (u.level === "read_comment") {
-                      badgeLabel = "Comment";
-                      badgeBg = "#eff6ff";
-                      badgeColor = "#2563eb";
-                      badgeBorder = "#bfdbfe";
-                    } else if (u.level === "read_only") {
-                      badgeLabel = "Read Only";
-                      badgeBg = "#f9fafb";
-                      badgeColor = "#6b7280";
-                      badgeBorder = "#d1d5db";
-                    }
-
-                    return (
-                      <div
-                        key={u.userId}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          padding: "8px 10px",
-                          background: "var(--bg-card, #ffffff)",
-                          border: "1px solid var(--border-color, #e5e7eb)",
-                          borderRadius: "8px",
-                        }}
-                      >
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            width: "32px",
-                            height: "32px",
-                            borderRadius: "50%",
-                            background: isCreator
-                              ? "#7c3aed"
-                              : "var(--accent-color, #6366f1)",
-                            color: "#fff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {initials}
-                        </span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div
-                            style={{
-                              fontSize: "13px",
-                              fontWeight: 600,
-                              color: "var(--text-primary, #111827)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {name}
-                          </div>
-                          {u.displayName && (
-                            <div
-                              style={{
-                                fontSize: "11px",
-                                color: "var(--text-muted, #6b7280)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {u.email}
-                            </div>
-                          )}
-                        </div>
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            fontSize: "10px",
-                            fontWeight: 600,
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                            background: badgeBg,
-                            color: badgeColor,
-                            border: `1px solid ${badgeBorder}`,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.04em",
-                          }}
-                        >
-                          {badgeLabel}
-                        </span>
-                        {/* Edit access button — hidden for creator and assignee:
-                            both are virtual entries synthesized by get-access.ts
-                            (always read_write, no real __accessUsers row), so
-                            update-access.ts/revoke-access.ts 404 on them —
-                            there's nothing to update or revoke. */}
-                        {isAdminOrAgent &&
-                          !record.deletedAt &&
-                          !isCreator &&
-                          !isAssigned && (
-                            <button
-                              type="button"
-                              title="Change access"
-                              onClick={() => {
-                                setAccessChangeModal({
-                                  userId: u.userId,
-                                  displayName: name,
-                                  currentLevel: u.level,
-                                  isAssigned,
-                                  isCreator,
-                                });
-                                setAccessChangeSelection(u.level);
-                              }}
-                              style={{
-                                flexShrink: 0,
-                                background: "none",
-                                border: "1px solid transparent",
-                                borderRadius: "5px",
-                                cursor: "pointer",
-                                padding: "3px 5px",
-                                color: "var(--text-muted, #9ca3af)",
-                                fontSize: "14px",
-                                lineHeight: 1,
-                              }}
-                              onMouseEnter={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.color = "#ef4444";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.borderColor = "#fca5a5";
-                              }}
-                              onMouseLeave={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.color = "var(--text-muted, #9ca3af)";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.borderColor = "transparent";
-                              }}
-                            >
-                              <svg
-                                width="12"
-                                height="12"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <line x1="18" y1="6" x2="6" y2="18" />
-                                <line x1="6" y1="6" x2="18" y2="18" />
-                              </svg>
-                            </button>
-                          )}
-                      </div>
-                    );
-                  })}
+                  {accessUsers.map((u) => (
+                    <AccessUserRow
+                      key={u.userId}
+                      user={u}
+                      isAdminOrAgent={isAdminOrAgent}
+                      isRecordDeleted={!!record.deletedAt}
+                      onChangeAccess={(payload) => {
+                        setAccessChangeModal(payload);
+                        setAccessChangeSelection(payload.currentLevel);
+                      }}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -4502,496 +4364,711 @@ export function CustomerRecordDetail(): React.ReactElement {
       {/* close rcd-two-col */}
 
       {/* ── Access change modal (change level / remove) ──── */}
-      {accessChangeModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => setAccessChangeModal(null)}
+      <Dialog
+        open={accessChangeModal !== null}
+        onOpenChange={(next) => {
+          if (!next) setAccessChangeModal(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
         >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">
-                Change access — {accessChangeModal.displayName}
+                Change access — {accessChangeModal?.displayName}
               </h3>
-              <button
-                className="modal-close"
-                onClick={() => setAccessChangeModal(null)}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
-            </div>
-            <div className="modal-body">
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
-                  marginBottom: "12px",
-                }}
-              >
-                {(["read_only", "read_comment"] as const).map((level) => {
-                  const label = level === "read_only" ? "Read Only" : "Comment";
-                  const desc =
-                    level === "read_only"
-                      ? "Can view this ticket"
-                      : "Can view and post comments";
-                  const selected = accessChangeSelection === level;
-                  return (
-                    <label
-                      key={level}
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: "10px",
-                        padding: "10px 12px",
-                        border: `1.5px solid ${selected ? "#6366f1" : "rgba(255,255,255,0.12)"}`,
-                        borderRadius: "8px",
-                        cursor: "pointer",
-                        background: selected
-                          ? "rgba(99,102,241,0.15)"
-                          : "rgba(255,255,255,0.04)",
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="accessLevel"
-                        value={level}
-                        checked={selected}
-                        onChange={() => setAccessChangeSelection(level)}
-                        style={{ marginTop: "2px", accentColor: "#6366f1" }}
-                      />
-                      <span>
-                        <span
-                          style={{
-                            fontSize: "13px",
-                            fontWeight: 600,
-                            display: "block",
-                            color: "var(--text-primary, #f1f5f9)",
-                          }}
-                        >
-                          {label}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: "12px",
-                            color: "var(--text-muted, #94a3b8)",
-                          }}
-                        >
-                          {desc}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "10px",
-                    padding: "10px 12px",
-                    border: `1.5px solid ${accessChangeSelection === "remove" ? "#ef4444" : "rgba(255,255,255,0.12)"}`,
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    background:
-                      accessChangeSelection === "remove"
-                        ? "rgba(239,68,68,0.12)"
-                        : "rgba(255,255,255,0.04)",
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="accessLevel"
-                    value="remove"
-                    checked={accessChangeSelection === "remove"}
-                    onChange={() => setAccessChangeSelection("remove")}
-                    style={{ marginTop: "2px", accentColor: "#ef4444" }}
-                  />
-                  <span>
-                    <span
-                      style={{
-                        fontSize: "13px",
-                        fontWeight: 600,
-                        display: "block",
-                        color:
-                          accessChangeSelection === "remove"
-                            ? "#ef4444"
-                            : "var(--text-primary, #f1f5f9)",
-                      }}
-                    >
-                      Remove access
-                    </span>
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        color: "var(--text-muted, #94a3b8)",
-                      }}
-                    >
-                      {accessChangeModal.isAssigned
-                        ? "Will also unassign this user from the ticket"
-                        : "Remove all access to this ticket"}
-                    </span>
-                  </span>
-                </label>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn-secondary"
-                onClick={() => setAccessChangeModal(null)}
-                disabled={accessChangeSaving}
-              >
-                Cancel
-              </button>
-              <button
-                style={{
-                  background:
-                    accessChangeSelection === "remove"
-                      ? "#ef4444"
-                      : "var(--accent-color, #6366f1)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "7px 16px",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  cursor: accessChangeSaving ? "not-allowed" : "pointer",
-                  opacity: accessChangeSaving ? 0.7 : 1,
-                }}
-                disabled={accessChangeSaving}
-                onClick={() => void handleAccessChange()}
-              >
-                {accessChangeSaving
-                  ? "Saving…"
-                  : accessChangeSelection === "remove"
-                    ? "Remove access"
-                    : "Save changes"}
-              </button>
-            </div>
+            </DialogClose>
           </div>
-        </div>
-      )}
-
-      {/* ── Mention-grant confirmation modal ─────────────── */}
-      {pendingMentionGrant && (
-        <div
-          className="modal-overlay"
-          onClick={() => setPendingMentionGrant(null)}
-        >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Grant ticket access</h3>
-              <button
-                className="modal-close"
-                onClick={() => setPendingMentionGrant(null)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              {/* Yellow warning banner */}
-              <div
+          <div className="modal-body">
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                marginBottom: "12px",
+              }}
+            >
+              {(["read_only", "read_comment"] as const).map((level) => {
+                const label = level === "read_only" ? "Read Only" : "Comment";
+                const desc =
+                  level === "read_only"
+                    ? "Can view this ticket"
+                    : "Can view and post comments";
+                const selected = accessChangeSelection === level;
+                return (
+                  <label
+                    key={level}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "10px",
+                      padding: "10px 12px",
+                      border: `1.5px solid ${selected ? "#6366f1" : "rgba(255,255,255,0.12)"}`,
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      background: selected
+                        ? "rgba(99,102,241,0.15)"
+                        : "rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="accessLevel"
+                      value={level}
+                      checked={selected}
+                      onChange={() => setAccessChangeSelection(level)}
+                      style={{ marginTop: "2px", accentColor: "#6366f1" }}
+                    />
+                    <span>
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          display: "block",
+                          color: "var(--text-primary, #f1f5f9)",
+                        }}
+                      >
+                        {label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          color: "var(--text-muted, #94a3b8)",
+                        }}
+                      >
+                        {desc}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+              <label
                 style={{
                   display: "flex",
                   alignItems: "flex-start",
                   gap: "10px",
                   padding: "10px 12px",
-                  background: "#fffbeb",
-                  border: "1px solid #fde68a",
+                  border: `1.5px solid ${accessChangeSelection === "remove" ? "#ef4444" : "rgba(255,255,255,0.12)"}`,
                   borderRadius: "8px",
-                  marginBottom: "14px",
+                  cursor: "pointer",
+                  background:
+                    accessChangeSelection === "remove"
+                      ? "rgba(239,68,68,0.12)"
+                      : "rgba(255,255,255,0.04)",
                 }}
               >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#d97706"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ flexShrink: 0, marginTop: "1px" }}
-                  aria-hidden="true"
-                >
-                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                  <line x1="12" y1="9" x2="12" y2="13" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-                <div style={{ fontSize: "13px", color: "#92400e" }}>
-                  <strong>
-                    {pendingMentionGrant.newUsers
-                      .map((u) => u.displayName ?? u.email)
-                      .join(", ")}
-                  </strong>{" "}
-                  {pendingMentionGrant.newUsers.length === 1
-                    ? "doesn't"
-                    : "don't"}{" "}
-                  have access to this ticket yet. Choose what they can do before
-                  posting.
-                </div>
-              </div>
-              {/* Level picker */}
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-              >
-                {(
-                  [
-                    ["read_only", "Read Only", "Can view this ticket"],
-                    ["read_comment", "Comment", "Can view and post comments"],
-                  ] as const
-                ).map(([level, label, desc]) => {
-                  const selected = pendingMentionGrant.selectedLevel === level;
-                  return (
-                    <label
-                      key={level}
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: "10px",
-                        padding: "10px 12px",
-                        border: `1.5px solid ${selected ? "#6366f1" : "rgba(255,255,255,0.12)"}`,
-                        borderRadius: "8px",
-                        cursor: "pointer",
-                        background: selected
-                          ? "rgba(99,102,241,0.15)"
-                          : "rgba(255,255,255,0.04)",
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="mentionLevel"
-                        value={level}
-                        checked={selected}
-                        onChange={() =>
-                          setPendingMentionGrant((p) =>
-                            p ? { ...p, selectedLevel: level } : p,
-                          )
-                        }
-                        style={{ marginTop: "2px", accentColor: "#6366f1" }}
-                      />
-                      <span>
-                        <span
-                          style={{
-                            fontSize: "13px",
-                            fontWeight: 600,
-                            display: "block",
-                            color: "var(--text-primary, #f1f5f9)",
-                          }}
-                        >
-                          {label}
-                          {level === "read_comment" && (
-                            <span
-                              style={{
-                                fontWeight: 400,
-                                color: "var(--text-muted, #94a3b8)",
-                                marginLeft: "6px",
-                                fontSize: "12px",
-                              }}
-                            >
-                              recommended
-                            </span>
-                          )}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: "12px",
-                            color: "var(--text-muted, #94a3b8)",
-                          }}
-                        >
-                          {desc}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn-secondary"
-                onClick={() => setPendingMentionGrant(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  const { text, mentions, replyTo, selectedLevel } =
-                    pendingMentionGrant;
-                  setPendingMentionGrant(null);
-                  const existingIds = new Set(accessList.map((e) => e.userId));
-                  const mentionEntries = mentions.map((uid) => ({
-                    userId: uid,
-                    level: existingIds.has(uid)
-                      ? ((accessList.find((e) => e.userId === uid)?.level ??
-                          "read_comment") as AccessLevel)
-                      : selectedLevel,
-                  }));
-                  void doSubmitComment(
-                    text,
-                    mentionEntries,
-                    replyTo,
-                    pendingMentionGrant.fileIds ?? [],
-                  );
-                }}
-              >
-                Grant &amp; post
-              </button>
+                <input
+                  type="radio"
+                  name="accessLevel"
+                  value="remove"
+                  checked={accessChangeSelection === "remove"}
+                  onChange={() => setAccessChangeSelection("remove")}
+                  style={{ marginTop: "2px", accentColor: "#ef4444" }}
+                />
+                <span>
+                  <span
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      display: "block",
+                      color:
+                        accessChangeSelection === "remove"
+                          ? "#ef4444"
+                          : "var(--text-primary, #f1f5f9)",
+                    }}
+                  >
+                    Remove access
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-muted, #94a3b8)",
+                    }}
+                  >
+                    {accessChangeModal?.isAssigned
+                      ? "Will also unassign this user from the ticket"
+                      : "Remove all access to this ticket"}
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
-        </div>
-      )}
+          <div className="modal-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setAccessChangeModal(null)}
+              disabled={accessChangeSaving}
+            >
+              Cancel
+            </Button>
+            <button
+              style={{
+                background:
+                  accessChangeSelection === "remove"
+                    ? "#ef4444"
+                    : "var(--accent-color, #6366f1)",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px",
+                padding: "7px 16px",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: accessChangeSaving ? "not-allowed" : "pointer",
+                opacity: accessChangeSaving ? 0.7 : 1,
+              }}
+              disabled={accessChangeSaving}
+              onClick={() => void handleAccessChange()}
+            >
+              {accessChangeSaving
+                ? "Saving…"
+                : accessChangeSelection === "remove"
+                  ? "Remove access"
+                  : "Save changes"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-      {/* ── Archive confirmation modal ───────────────────── */}
-      {archiveConfirm && (
-        <div className="modal-overlay" onClick={() => setArchiveConfirm(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Archive this record?</h3>
-              <button
-                className="modal-close"
-                onClick={() => setArchiveConfirm(null)}
-              >
+      {/* ── Mention-grant confirmation modal ─────────────── */}
+      <Dialog
+        open={pendingMentionGrant !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingMentionGrant(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Grant ticket access</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            {/* Yellow warning banner */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "10px",
+                padding: "10px 12px",
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                borderRadius: "8px",
+                marginBottom: "14px",
+              }}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#d97706"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ flexShrink: 0, marginTop: "1px" }}
+                aria-hidden="true"
+              >
+                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <div style={{ fontSize: "13px", color: "#92400e" }}>
+                <strong>
+                  {(pendingMentionGrant?.newUsers ?? [])
+                    .map((u) => u.displayName ?? u.email)
+                    .join(", ")}
+                </strong>{" "}
+                {(pendingMentionGrant?.newUsers.length ?? 0) === 1
+                  ? "doesn't"
+                  : "don't"}{" "}
+                have access to this ticket yet. Choose what they can do before
+                posting.
+              </div>
             </div>
-            <div className="modal-body">
+            {/* Level picker */}
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+            >
+              {(
+                [
+                  ["read_only", "Read Only", "Can view this ticket"],
+                  ["read_comment", "Comment", "Can view and post comments"],
+                ] as const
+              ).map(([level, label, desc]) => {
+                const selected = pendingMentionGrant?.selectedLevel === level;
+                return (
+                  <label
+                    key={level}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "10px",
+                      padding: "10px 12px",
+                      border: `1.5px solid ${selected ? "#6366f1" : "rgba(255,255,255,0.12)"}`,
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      background: selected
+                        ? "rgba(99,102,241,0.15)"
+                        : "rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="mentionLevel"
+                      value={level}
+                      checked={selected}
+                      onChange={() =>
+                        setPendingMentionGrant((p) =>
+                          p ? { ...p, selectedLevel: level } : p,
+                        )
+                      }
+                      style={{ marginTop: "2px", accentColor: "#6366f1" }}
+                    />
+                    <span>
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          display: "block",
+                          color: "var(--text-primary, #f1f5f9)",
+                        }}
+                      >
+                        {label}
+                        {level === "read_comment" && (
+                          <span
+                            style={{
+                              fontWeight: 400,
+                              color: "var(--text-muted, #94a3b8)",
+                              marginLeft: "6px",
+                              fontSize: "12px",
+                            }}
+                          >
+                            recommended
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          color: "var(--text-muted, #94a3b8)",
+                        }}
+                      >
+                        {desc}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setPendingMentionGrant(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (!pendingMentionGrant) return;
+                const { text, mentions, replyTo, selectedLevel } =
+                  pendingMentionGrant;
+                setPendingMentionGrant(null);
+                const existingIds = new Set(accessList.map((e) => e.userId));
+                const mentionEntries = mentions.map((uid) => ({
+                  userId: uid,
+                  level: existingIds.has(uid)
+                    ? ((accessList.find((e) => e.userId === uid)?.level ??
+                        "read_comment") as AccessLevel)
+                    : selectedLevel,
+                }));
+                void doSubmitComment(
+                  text,
+                  mentionEntries,
+                  replyTo,
+                  pendingMentionGrant.fileIds ?? [],
+                );
+              }}
+            >
+              Grant &amp; post
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Archive confirmation modal ───────────────────── */}
+      <AlertDialog
+        open={archiveConfirm !== null}
+        onOpenChange={(next) => {
+          if (!next) setArchiveConfirm(null);
+        }}
+      >
+        <AlertDialogContent className="modal" style={DIALOG_CONTENT_RESET}>
+          <div className="modal-header">
+            <AlertDialogTitle asChild>
+              <h3 className="modal-title">Archive this record?</h3>
+            </AlertDialogTitle>
+          </div>
+          <div className="modal-body">
+            <AlertDialogDescription asChild>
               <p className="rcd-modal-desc">
                 This record has{" "}
                 <strong>
-                  {archiveConfirm.childCount} sub-task
-                  {archiveConfirm.childCount !== 1 ? "s" : ""}
+                  {archiveConfirm?.childCount ?? 0} sub-task
+                  {(archiveConfirm?.childCount ?? 0) !== 1 ? "s" : ""}
                 </strong>
                 . Archiving will also archive all of them. This can be undone
                 with Restore.
               </p>
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn-secondary"
-                onClick={() => setArchiveConfirm(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-primary rcd-btn-archive-confirm"
+            </AlertDialogDescription>
+          </div>
+          <AlertDialogFooter className="modal-footer">
+            <AlertDialogCancel asChild>
+              <Button variant="secondary">Cancel</Button>
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                variant="primary"
+                className="rcd-btn-archive-confirm"
                 disabled={archiving}
-                onClick={() => void archiveRecord(true)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void archiveRecord(true);
+                }}
               >
                 {archiving
                   ? "Archiving…"
-                  : `Archive all ${archiveConfirm.childCount + 1}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                  : `Archive all ${(archiveConfirm?.childCount ?? 0) + 1}`}
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Create sub-task modal ────────────────────────── */}
-      {showCreateChild && (
-        <div
-          className="modal-overlay"
-          onClick={() => {
+      <Dialog
+        open={showCreateChild}
+        onOpenChange={(next) => {
+          if (!next) {
             setShowCreateChild(false);
             setNewChildTitle("");
             setNewChildAssignedTo("");
             setNewChildDueDate("");
             setNewChildDescription("");
             setCreateChildError(null);
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">New sub-task</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            {createChildError && (
+              <div
+                className="portal-alert-error"
+                style={{ marginBottom: "12px" }}
+              >
+                {createChildError}
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Title *</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Sub-task title…"
+                value={newChildTitle}
+                onChange={(e) => setNewChildTitle(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Assign to</label>
+              <select
+                className="form-input"
+                value={newChildAssignedTo}
+                onChange={(e) => setNewChildAssignedTo(e.target.value)}
+              >
+                <option value="">Unassigned</option>
+                {users.map((u) => (
+                  <option key={u.userId} value={u.userId}>
+                    {u.displayName ?? u.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Due date</label>
+              <input
+                className="form-input"
+                type="date"
+                value={newChildDueDate}
+                onChange={(e) => setNewChildDueDate(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Description</label>
+              <textarea
+                className="form-input"
+                rows={3}
+                placeholder="What needs to be done…"
+                value={newChildDescription}
+                onChange={(e) => setNewChildDescription(e.target.value)}
+                style={{ resize: "vertical" }}
+              />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowCreateChild(false);
+                setNewChildTitle("");
+                setNewChildAssignedTo("");
+                setNewChildDueDate("");
+                setNewChildDescription("");
+                setCreateChildError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!newChildTitle.trim() || creatingChild}
+              onClick={() => void createChild()}
+            >
+              {creatingChild ? "Creating…" : "Create sub-task"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Link ticket modal ────────────────────────────── */}
+      {showLinkModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setShowLinkModal(false);
+            setLinkQuery("");
+            setLinkError(null);
           }}
         >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">New sub-task</h3>
+              <h3 className="modal-title">
+                {linkStep === "tickets" && (
+                  <button
+                    type="button"
+                    className="rcd-bc-link"
+                    style={{ marginRight: 8 }}
+                    onClick={() => {
+                      setLinkStep("workflows");
+                      setSelectedLinkWorkflow(null);
+                      setLinkQuery("");
+                    }}
+                  >
+                    ←
+                  </button>
+                )}
+                {linkStep === "workflows"
+                  ? "Link ticket — choose a workflow"
+                  : `Link ticket — ${selectedLinkWorkflow?.workflowName ?? ""}`}
+              </h3>
               <button
                 className="modal-close"
                 onClick={() => {
-                  setShowCreateChild(false);
-                  setNewChildTitle("");
-                  setNewChildAssignedTo("");
-                  setNewChildDueDate("");
-                  setNewChildDescription("");
-                  setCreateChildError(null);
+                  setShowLinkModal(false);
+                  setLinkQuery("");
+                  setLinkError(null);
                 }}
               >
                 ×
               </button>
             </div>
             <div className="modal-body">
-              {createChildError && (
+              {linkError && (
                 <div
                   className="portal-alert-error"
                   style={{ marginBottom: "12px" }}
                 >
-                  {createChildError}
+                  {linkError}
                 </div>
               )}
-              <div className="form-group">
-                <label className="form-label">Title *</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Sub-task title…"
-                  value={newChildTitle}
-                  onChange={(e) => setNewChildTitle(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Assign to</label>
-                <select
-                  className="form-input"
-                  value={newChildAssignedTo}
-                  onChange={(e) => setNewChildAssignedTo(e.target.value)}
-                >
-                  <option value="">Unassigned</option>
-                  {users.map((u) => (
-                    <option key={u.userId} value={u.userId}>
-                      {u.displayName ?? u.email}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Due date</label>
-                <input
-                  className="form-input"
-                  type="date"
-                  value={newChildDueDate}
-                  onChange={(e) => setNewChildDueDate(e.target.value)}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Description</label>
-                <textarea
-                  className="form-input"
-                  rows={3}
-                  placeholder="What needs to be done…"
-                  value={newChildDescription}
-                  onChange={(e) => setNewChildDescription(e.target.value)}
-                  style={{ resize: "vertical" }}
-                />
-              </div>
+              {linkCandidatesLoading ? (
+                <p className="rcd-sidebar-hint">Loading…</p>
+              ) : linkStep === "workflows" ? (
+                linkWorkflows.length === 0 ? (
+                  <p className="rcd-sidebar-hint">
+                    No workflows with accessible tickets found.
+                  </p>
+                ) : (
+                  <div className="rcd-sidebar-children">
+                    {linkWorkflows.map((w) => (
+                      <button
+                        key={w.workflowId}
+                        type="button"
+                        className="rcd-child-card"
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          cursor: "pointer",
+                        }}
+                        onClick={() => {
+                          setSelectedLinkWorkflow(w);
+                          setLinkStep("tickets");
+                          setLinkQuery("");
+                        }}
+                      >
+                        <div className="rcd-child-card-title-row">
+                          <span className="rcd-child-card-title">
+                            {w.workflowName}
+                          </span>
+                          <span className="rcd-sidebar-count">
+                            {(linkTicketsByWorkflow[w.workflowId] ?? []).length}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">
+                      Search tickets in {selectedLinkWorkflow?.workflowName}
+                    </label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      placeholder="Search by title…"
+                      value={linkQuery}
+                      onChange={(e) => setLinkQuery(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  {(() => {
+                    const alreadyLinked = new Set(
+                      linkedTickets.map((lt) => lt.targetId),
+                    );
+                    const q = linkQuery.trim().toLowerCase();
+                    const matches = (
+                      linkTicketsByWorkflow[
+                        selectedLinkWorkflow?.workflowId ?? ""
+                      ] ?? []
+                    )
+                      .filter((c) => !alreadyLinked.has(c.id))
+                      .filter((c) => !q || c.title.toLowerCase().includes(q))
+                      .slice(0, 25);
+                    if (matches.length === 0) {
+                      return (
+                        <p className="rcd-sidebar-hint">
+                          No matching tickets found in this workflow.
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="rcd-sidebar-children">
+                        {matches.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="rcd-child-card"
+                            style={{
+                              width: "100%",
+                              textAlign: "left",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => setPendingLinkTarget(c)}
+                          >
+                            <div className="rcd-child-card-title-row">
+                              <span className="rcd-child-card-title">
+                                {c.title}
+                              </span>
+                              <span className="rcd-child-id">
+                                #{c.id.slice(0, 6)}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm link ─────────────────────────────────── */}
+      {pendingLinkTarget && (
+        <div
+          className="modal-overlay"
+          onClick={() => !linkSubmitting && setPendingLinkTarget(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Link this ticket?</h3>
+              <button
+                className="modal-close"
+                onClick={() => setPendingLinkTarget(null)}
+                disabled={linkSubmitting}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                Link to <strong>{pendingLinkTarget.title}</strong> in{" "}
+                {selectedLinkWorkflow?.workflowName}? This only creates a
+                reference — neither ticket's workflow, state, or history is
+                affected.
+              </p>
             </div>
             <div className="modal-footer">
               <button
                 className="btn-secondary"
-                onClick={() => {
-                  setShowCreateChild(false);
-                  setNewChildTitle("");
-                  setNewChildAssignedTo("");
-                  setNewChildDueDate("");
-                  setNewChildDescription("");
-                  setCreateChildError(null);
-                }}
+                onClick={() => setPendingLinkTarget(null)}
+                disabled={linkSubmitting}
               >
                 Cancel
               </button>
               <button
                 className="btn-primary"
-                disabled={!newChildTitle.trim() || creatingChild}
-                onClick={() => void createChild()}
+                disabled={linkSubmitting}
+                onClick={() => void submitLink(pendingLinkTarget.id)}
               >
-                {creatingChild ? "Creating…" : "Create sub-task"}
+                {linkSubmitting ? "Linking…" : "Link ticket"}
               </button>
             </div>
           </div>
@@ -5238,234 +5315,430 @@ export function CustomerRecordDetail(): React.ReactElement {
       )}
 
       {/* ── Transition modal ─────────────────────────────── */}
-      {stateModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => {
+      <Dialog
+        open={stateModal !== null}
+        onOpenChange={(next) => {
+          if (!next) {
             setStateModal(null);
             setComment("");
-          }}
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
         >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">
-                Move to "{stateModal.label || stateModal.toState}"
+                Move to "
+                {(stateModal?.label ?? "") || (stateModal?.toState ?? "")}"
               </h3>
-              <button
-                className="modal-close"
-                onClick={() => {
-                  setStateModal(null);
-                  setComment("");
-                }}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            <p className="rcd-modal-desc">
+              This will transition the record from{" "}
+              <strong>{record.currentState}</strong> to{" "}
+              <strong>{stateModal?.toState}</strong>.
+            </p>
+            <div className="form-group">
+              <label className="form-label">
+                Comment {stateModal?.requiresComment ? "*" : "(optional)"}
+              </label>
+              <textarea
+                className="form-input portal-textarea"
+                rows={3}
+                placeholder="Add a note about this transition…"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                autoFocus
+              />
             </div>
-            <div className="modal-body">
-              <p className="rcd-modal-desc">
-                This will transition the record from{" "}
-                <strong>{record.currentState}</strong> to{" "}
-                <strong>{stateModal.toState}</strong>.
-              </p>
-              <div className="form-group">
-                <label className="form-label">
-                  Comment {stateModal.requiresComment ? "*" : "(optional)"}
-                </label>
-                <textarea
-                  className="form-input portal-textarea"
-                  rows={3}
-                  placeholder="Add a note about this transition…"
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
+          </div>
+          <div className="modal-footer">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setStateModal(null);
+                setComment("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={
+                (Boolean(stateModal?.requiresComment) && !comment.trim()) ||
+                transitioning === stateModal?.id
+              }
+              onClick={() => {
+                if (!stateModal) return;
+                void executeTransition(stateModal, comment || undefined);
+              }}
+            >
+              {transitioning === stateModal?.id ? "Moving…" : "Confirm"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm access-request modal. Previously gated `!accessDenied &&`
+          to dodge a z-index conflict with the separate rcd-access-overlay's
+          own duplicate of this modal — now a real Radix Dialog, so its
+          portal renders above everything and that workaround (and the
+          duplicate content inside rcd-access-overlay) is no longer needed. */}
+      <Dialog
+        open={confirmReqLevel !== null}
+        onOpenChange={(next) => {
+          if (!next) setConfirmReqLevel(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <span className="modal-title">Request access?</span>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            <p
+              style={{
+                margin: "0 0 18px",
+                color: "var(--text-secondary)",
+                fontSize: "14px",
+              }}
+            >
+              {confirmReqLevel === "read_comment"
+                ? "This will send a request to the ticket owner for comment access. They will be able to approve or decline."
+                : "This will send a request to the ticket owner for view access. They will be able to approve or decline."}
+            </p>
+            <div className="rcd-access-modal-actions">
               <button
-                className="btn-secondary"
-                onClick={() => {
-                  setStateModal(null);
-                  setComment("");
-                }}
+                type="button"
+                className="portal-btn-secondary"
+                onClick={() => setConfirmReqLevel(null)}
               >
                 Cancel
               </button>
               <button
-                className="btn-primary"
-                disabled={
-                  (stateModal.requiresComment && !comment.trim()) ||
-                  transitioning === stateModal.id
-                }
-                onClick={() =>
-                  void executeTransition(stateModal, comment || undefined)
-                }
+                type="button"
+                className="portal-btn-primary"
+                disabled={requestingAccess}
+                onClick={() => {
+                  if (confirmReqLevel === null) return;
+                  const lvl = confirmReqLevel;
+                  setConfirmReqLevel(null);
+                  void submitAccessRequest(lvl);
+                }}
               >
-                {transitioning === stateModal.id ? "Moving…" : "Confirm"}
+                {requestingAccess ? "Sending…" : "Send Request"}
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {/* Confirm access-request modal is rendered inside rcd-access-overlay above
-          when accessDenied is true, to avoid z-index conflicts. */}
-      {!accessDenied && confirmReqLevel !== null && (
-        <div className="modal-overlay" onClick={() => setConfirmReqLevel(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">Request access?</span>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setConfirmReqLevel(null)}
-              >
-                ×
+      {/* ── Resolve access-request modal ─────────────────────── */}
+      <Dialog
+        open={resolveModal !== null}
+        onOpenChange={(next) => {
+          if (!next) setResolveModal(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Review access request</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ✕
               </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            <p
+              style={{
+                fontSize: "13px",
+                color: "var(--text-secondary)",
+                marginBottom: "14px",
+              }}
+            >
+              {users.find((u) => u.userId === resolveModal?.requesterId)
+                ?.displayName ?? resolveModal?.requesterId}{" "}
+              requested{" "}
+              <strong>
+                {resolveModal?.currentRequestedLevel === "read_only"
+                  ? "view-only"
+                  : resolveModal?.currentRequestedLevel === "read_comment"
+                    ? "view + comment"
+                    : "full"}{" "}
+                access
+              </strong>
+              . Select the level to grant:
+            </p>
+            <div className="modal-access-opts">
+              {(
+                [
+                  {
+                    value: "read_only",
+                    label: "View only",
+                    desc: "Can read the ticket but not comment",
+                  },
+                  {
+                    value: "read_comment",
+                    label: "View + comment",
+                    desc: "Can read and post comments",
+                  },
+                  {
+                    value: "read_write",
+                    label: "Full access",
+                    desc: "Can edit fields and transition state",
+                  },
+                ] as { value: AccessLevel; label: string; desc: string }[]
+              ).map((opt) => (
+                <label
+                  key={opt.value}
+                  className={`modal-access-opt ${resolveLevel === opt.value ? "modal-access-opt--active" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="resolve-level"
+                    value={opt.value}
+                    checked={resolveLevel === opt.value}
+                    onChange={() => setResolveLevel(opt.value)}
+                  />
+                  <span className="modal-access-opt-label">{opt.label}</span>
+                  <span className="modal-access-opt-desc">{opt.desc}</span>
+                </label>
+              ))}
             </div>
-            <div className="modal-body">
+          </div>
+          <div className="modal-footer">
+            <button
+              type="button"
+              className="portal-btn-secondary"
+              disabled={resolveSaving}
+              onClick={() => {
+                if (!resolveModal) return;
+                void resolveAccessRequest(
+                  resolveModal.reqId,
+                  "reject",
+                  resolveLevel,
+                );
+              }}
+            >
+              Reject
+            </button>
+            <button
+              type="button"
+              className="portal-btn-primary"
+              disabled={resolveSaving}
+              onClick={() => {
+                if (!resolveModal) return;
+                void resolveAccessRequest(
+                  resolveModal.reqId,
+                  "approve",
+                  resolveLevel,
+                );
+              }}
+            >
+              {resolveSaving ? "Saving…" : "Approve"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Ticket alerts modal ──────────────────────────────── */}
+      <Dialog
+        open={alertsModalOpen}
+        onOpenChange={(next) => setAlertsModalOpen(next)}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Alerts</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ✕
+              </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            {alertsError && (
               <p
                 style={{
-                  margin: "0 0 18px",
-                  color: "var(--text-secondary)",
-                  fontSize: "14px",
+                  color: "var(--danger, #e5484d)",
+                  fontSize: "13px",
+                  marginBottom: "10px",
                 }}
               >
-                {confirmReqLevel === "read_comment"
-                  ? "This will send a request to the ticket owner for comment access. They will be able to approve or decline."
-                  : "This will send a request to the ticket owner for view access. They will be able to approve or decline."}
+                {alertsError}
               </p>
-              <div className="rcd-access-modal-actions">
-                <button
-                  type="button"
-                  className="portal-btn-secondary"
-                  onClick={() => setConfirmReqLevel(null)}
-                >
-                  Cancel
-                </button>
+            )}
+
+            {alertsLoading ? (
+              <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                Loading…
+              </p>
+            ) : alerts.length === 0 ? (
+              <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                No alerts on this ticket yet.
+              </p>
+            ) : (
+              <div className="alerts-list">
+                {alerts.map((alert) => {
+                  const isOwn = alert.createdBy === currentUserId;
+                  return (
+                    <div key={alert.id} className="alert-row">
+                      <div className="alert-row-main">
+                        <span className="alert-row-note">{alert.note}</span>
+                        <span className="alert-row-meta">
+                          {new Date(alert.fireAt).toLocaleString()} ·{" "}
+                          {alert.scope === "all"
+                            ? "Everyone with access"
+                            : "Just me"}
+                          {!isOwn && " (shared)"}
+                        </span>
+                      </div>
+                      <div className="alert-row-status">
+                        {alert.status === "pending" && (
+                          <span className="alert-badge alert-badge-pending">
+                            pending
+                          </span>
+                        )}
+                        {alert.status === "fired" && (
+                          <span className="alert-badge alert-badge-fired">
+                            fired
+                            {alert.firedAt
+                              ? ` · ${new Date(alert.firedAt).toLocaleString()}`
+                              : ""}
+                          </span>
+                        )}
+                        {alert.status === "cancelled" && (
+                          <span className="alert-badge alert-badge-cancelled">
+                            cancelled
+                          </span>
+                        )}
+                      </div>
+                      {isOwn && alert.status === "pending" && (
+                        <div className="alert-row-actions">
+                          <button
+                            type="button"
+                            className="alert-row-action-btn"
+                            aria-label="Edit alert"
+                            onClick={() => startEditAlert(alert)}
+                          >
+                            ✎
+                          </button>
+                          <button
+                            type="button"
+                            className="alert-row-action-btn"
+                            aria-label="Cancel alert"
+                            onClick={() => void cancelAlert(alert.id)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="alert-form">
+              <div className="alert-form-title">
+                {editingAlertId ? "Edit Alert" : "Add Alert"}
+              </div>
+              <input
+                className="portal-input"
+                type="text"
+                placeholder="Note"
+                value={alertFormNote}
+                onChange={(e) => setAlertFormNote(e.target.value)}
+                maxLength={2000}
+              />
+              <input
+                className="portal-input"
+                type="datetime-local"
+                value={alertFormFireAt}
+                onChange={(e) => setAlertFormFireAt(e.target.value)}
+              />
+              <div className="modal-access-opts">
+                <label>
+                  <input
+                    type="radio"
+                    name="alert-scope"
+                    checked={alertFormScope === "me"}
+                    onChange={() => setAlertFormScope("me")}
+                  />{" "}
+                  Just me
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="alert-scope"
+                    checked={alertFormScope === "all"}
+                    onChange={() => setAlertFormScope("all")}
+                  />{" "}
+                  Everyone with access
+                </label>
+              </div>
+              <div className="alert-form-actions">
+                {editingAlertId && (
+                  <button
+                    type="button"
+                    className="portal-btn-secondary"
+                    disabled={alertSaving}
+                    onClick={resetAlertForm}
+                  >
+                    Cancel edit
+                  </button>
+                )}
                 <button
                   type="button"
                   className="portal-btn-primary"
-                  disabled={requestingAccess}
-                  onClick={() => {
-                    const lvl = confirmReqLevel;
-                    setConfirmReqLevel(null);
-                    void submitAccessRequest(lvl);
-                  }}
+                  disabled={
+                    alertSaving || !alertFormNote.trim() || !alertFormFireAt
+                  }
+                  onClick={() => void saveAlert()}
                 >
-                  {requestingAccess ? "Sending…" : "Send Request"}
+                  {alertSaving
+                    ? "Saving…"
+                    : editingAlertId
+                      ? "Update alert"
+                      : "Save alert"}
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* ── Resolve access-request modal ─────────────────────── */}
-      {resolveModal && (
-        <div className="modal-overlay" onClick={() => setResolveModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Review access request</h3>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setResolveModal(null)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <p
-                style={{
-                  fontSize: "13px",
-                  color: "var(--text-secondary)",
-                  marginBottom: "14px",
-                }}
-              >
-                {users.find((u) => u.userId === resolveModal.requesterId)
-                  ?.displayName ?? resolveModal.requesterId}{" "}
-                requested{" "}
-                <strong>
-                  {resolveModal.currentRequestedLevel === "read_only"
-                    ? "view-only"
-                    : resolveModal.currentRequestedLevel === "read_comment"
-                      ? "view + comment"
-                      : "full"}{" "}
-                  access
-                </strong>
-                . Select the level to grant:
-              </p>
-              <div className="modal-access-opts">
-                {(
-                  [
-                    {
-                      value: "read_only",
-                      label: "View only",
-                      desc: "Can read the ticket but not comment",
-                    },
-                    {
-                      value: "read_comment",
-                      label: "View + comment",
-                      desc: "Can read and post comments",
-                    },
-                    {
-                      value: "read_write",
-                      label: "Full access",
-                      desc: "Can edit fields and transition state",
-                    },
-                  ] as { value: AccessLevel; label: string; desc: string }[]
-                ).map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`modal-access-opt ${resolveLevel === opt.value ? "modal-access-opt--active" : ""}`}
-                  >
-                    <input
-                      type="radio"
-                      name="resolve-level"
-                      value={opt.value}
-                      checked={resolveLevel === opt.value}
-                      onChange={() => setResolveLevel(opt.value)}
-                    />
-                    <span className="modal-access-opt-label">{opt.label}</span>
-                    <span className="modal-access-opt-desc">{opt.desc}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button
-                type="button"
-                className="portal-btn-secondary"
-                disabled={resolveSaving}
-                onClick={() =>
-                  void resolveAccessRequest(
-                    resolveModal.reqId,
-                    "reject",
-                    resolveLevel,
-                  )
-                }
-              >
-                Reject
-              </button>
-              <button
-                type="button"
-                className="portal-btn-primary"
-                disabled={resolveSaving}
-                onClick={() =>
-                  void resolveAccessRequest(
-                    resolveModal.reqId,
-                    "approve",
-                    resolveLevel,
-                  )
-                }
-              >
-                {resolveSaving ? "Saving…" : "Approve"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Ticket alerts modal ──────────────────────────────── */}
       {alertsModalOpen && (

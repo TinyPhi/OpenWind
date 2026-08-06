@@ -41,6 +41,42 @@ as a side effect.
 workflow entry + assign to arbitrary `role="user"` org members) before this ships.
 **Gate:** §R acceptance criteria met + `/security-review` clean or findings triaged
 
+**T5 evidence (2026-08-05, PR #337 review round 2):** T5 had been marked "done" with no actual
+review run. Ran a scoped review against the real diff (`git diff upstream/main` for this branch,
+17 files) after the round-2 review also caught a real regression: `apps/api/src/routes/workflows/get.ts`
+had accidentally dropped the three-layer authorization check (`isWorkflowAdmin` / `?entityId=`
+proof / owns-any-ticket-in-workflow) that a prior review round (commit `dc2bb0c`, "H2") had put in
+specifically to stop any `role="user"` caller browsing any workflow's full definition by id — a
+real elevation-of-privilege regression, not part of this spec's scope. **Fixed: reverted
+`get.ts`/`get.test.ts` to `upstream/main`'s version**, restoring the original check. Verified
+`record-create.tsx` (the only ticket-creation-discovery caller) never calls `GET /workflows/:id` —
+it only ever uses the list endpoint (`GET /workflows?entityTypeId=X`) — so this revert doesn't
+reintroduce the "user can't discover a workflow to create their first ticket in it" bug T1 fixed.
+
+Remaining STRIDE checks against the actual diff (`apps/api/src/routes/entities/create.ts`,
+`list.ts`, `packages/entity-engine/src/engine.ts`/`types.ts`, `packages/workflow-engine/src/workflow-crud.ts`):
+
+- **Spoofing/tampering** — `assignedTo` in `POST /entities` is validated against
+  `listUserIdsWithRole(orgId, "user")`, fails closed (rejects) when `orgId` is absent rather than
+  skipping the check. No client-supplied value bypasses it.
+- **Repudiation** — `createdBy` is still server-derived from the authenticated `userId`, never
+  client-supplied; unchanged by this diff.
+- **Elevation of privilege** — `GET /entities`'s `scopeToUserId` is derived only from the
+  authenticated `userId` in the route handler, never from `rest.assignedTo` or any other query
+  param for a non-privileged caller (confirmed by reading `list.ts` directly: the ternary sources
+  `scopeToUserId` from `userId`, and `assignedTo` is `undefined` for non-privileged callers, so
+  there is no path for a query param to widen scope). `getWorkflowByEntityTypeId` is untouched
+  (confirmed — not present in this diff). The tenant-wide bare `GET /workflows` list widening is
+  the one deliberate, spec-amended exception, tracked separately (see the spec's amendment note) —
+  it exposes `WorkflowFull` (states/transitions/SLA config) tenant-wide, which is the intended,
+  signed-off effect, not an accidental one.
+- **Inappropriate assignment** — `assignedTo` pool is `role="user"` only, matching existing
+  `GET /platform/users` filtering; unchanged reuse, not new logic.
+- **DoS** — no new unthrottled endpoint; `listUserIdsWithRole` has no timeout/circuit-breaker
+  (tracked as a non-blocking follow-up per the review, not a new DoS vector introduced here).
+
+No HIGH or MEDIUM findings beyond the `get.ts` regression, which is fixed in this round.
+
 | task                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | requirement | status |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
 | T5: Run `/security-review` against the STRIDE notes in the spec — spoofing/tampering (assignedTo validation), repudiation (createdBy not client-overridable), DoS (confirm existing throttling, if any, still applies — no new throttle added by design), elevation of privilege (confirm T1's chosen approach doesn't leak `isWorkflowAdmin`-gated data or touch `getWorkflowByEntityTypeId`), inappropriate assignment (role="user"-only pool, already existing UI behavior; no HIGH/MEDIUM findings, before and after implementation). | all         | done   |

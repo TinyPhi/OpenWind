@@ -12,12 +12,14 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, and } from "drizzle-orm";
+import Redis from "ioredis";
 import {
   db,
   withTenantContext,
   outboxEvents,
   automationExecutions,
 } from "@platform/db";
+import { env } from "@platform/config";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { EntityType } from "@platform/entity-engine";
 import {
@@ -38,8 +40,10 @@ let workflowId: string;
 let openToProcessingId: string;
 let processingToDoneId: string;
 let doneRuleId: string;
+let redis: Redis;
 
 beforeAll(async () => {
+  redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   entityType = await createEntityType(db, TENANT, {
     name: `depth_ticket_${Date.now()}`,
     plural: "depth_tickets",
@@ -121,6 +125,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await redis.quit();
   await withTenantContext(TENANT, async (tx) => {
     await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
     await tx
@@ -163,7 +168,7 @@ describe("automation-triggered transitions skip the outbox (#120)", () => {
 
     // Simulate the worker dequeuing that root event — this is what actually
     // drives the "auto-continue to done" rule via the transition action.
-    await executeAutomationRules(db, TENANT, rootRow?.payload, 0);
+    await executeAutomationRules(db, TENANT, rootRow?.payload, 0, redis);
 
     // The automation-triggered processing->done transition must NOT have
     // written a second outbox row (that's the actual double-trigger source).

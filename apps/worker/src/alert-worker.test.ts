@@ -57,6 +57,7 @@ vi.mock("@platform/db", () => ({
   notifications: { id: "notifications_id_mock" },
   notificationRecipients: "notification_recipients_mock",
   isOutboundNotificationsEnabled: isOutboundNotificationsEnabledMock,
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -209,7 +210,7 @@ describe("alertWorker processor (§R5, §R7)", () => {
     );
   });
 
-  it("derives the notification title and body from the alert's note (regression: recipients must see what the alert is about, not a generic message)", async () => {
+  it("derives the notification body from the alert's note, with a fixed title (regression: recipients must see what the alert is about, not a generic message, and title/body must not be identical strings)", async () => {
     mockTxSelectLimit.mockResolvedValueOnce([
       alertRow({ note: "Follow up with vendor" }),
     ]);
@@ -218,13 +219,13 @@ describe("alertWorker processor (§R5, §R7)", () => {
 
     expect(mockTxInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Follow up with vendor alert",
-        body: "Follow up with vendor alert",
+        title: "Ticket alert",
+        body: "Follow up with vendor",
       }),
     );
   });
 
-  it("publishes the same note-derived title/body in the live push as was written to the DB", async () => {
+  it("publishes the same note-derived body in the live push as was written to the DB", async () => {
     mockTxSelectLimit.mockResolvedValueOnce([
       alertRow({ note: "Call the client back" }),
     ]);
@@ -233,7 +234,11 @@ describe("alertWorker processor (§R5, §R7)", () => {
 
     expect(mockRedisPublish).toHaveBeenCalledWith(
       "notification:push",
-      expect.stringContaining('"title":"Call the client back alert"'),
+      expect.stringContaining('"body":"Call the client back"'),
+    );
+    expect(mockRedisPublish).toHaveBeenCalledWith(
+      "notification:push",
+      expect.stringContaining('"title":"Ticket alert"'),
     );
   });
 

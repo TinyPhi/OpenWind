@@ -26,6 +26,31 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogClose,
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+  Button,
+  IconButton,
+  DIALOG_CONTENT_RESET,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  TOKENS,
+  useHoverStyle,
+} from "@platform/ui";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
 // BrowserRouter. This shim intercepts history.pushState/replaceState to provide
@@ -199,101 +224,6 @@ const EMPTY_TRANSITION: AddTransitionForm = {
   requiresComment: false,
 };
 
-function ConfirmDeleteModal({
-  message,
-  onConfirm,
-  onCancel,
-  busy,
-}: {
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  busy: boolean;
-}): React.ReactElement {
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,.55)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1100,
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !busy) onCancel();
-      }}
-    >
-      <div
-        style={{
-          background: "var(--bg-primary)",
-          border: "1px solid var(--border-color)",
-          borderRadius: "14px",
-          padding: "28px 32px",
-          width: "100%",
-          maxWidth: "420px",
-          boxShadow: "var(--shadow-lg)",
-        }}
-      >
-        <div
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "10px",
-            background: "hsla(0,84%,60%,.12)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "20px",
-            marginBottom: "16px",
-          }}
-        >
-          🗑
-        </div>
-        <p
-          style={{
-            margin: "0 0 6px",
-            fontSize: "15px",
-            color: "var(--text-primary)",
-            fontWeight: 600,
-          }}
-        >
-          {message}
-        </p>
-        <p
-          style={{
-            margin: "0 0 24px",
-            fontSize: "13px",
-            color: "var(--danger)",
-          }}
-        >
-          This action cannot be undone.
-        </p>
-        <div
-          style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
-        >
-          <button
-            className="btn btn-secondary"
-            onClick={onCancel}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            className="btn btn-danger-sm"
-            onClick={onConfirm}
-            disabled={busy}
-            style={{ minWidth: "90px" }}
-          >
-            {busy ? "Deleting…" : "Delete"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function StateDot({ color }: { color: string | null }): React.ReactElement {
   return (
     <span
@@ -323,7 +253,7 @@ function SortableFieldRow({
   } = useSortable({ id: field.id, disabled: dragDisabled });
 
   return (
-    <tr
+    <TableRow
       ref={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
@@ -332,7 +262,7 @@ function SortableFieldRow({
         background: isDragging ? "var(--bg-secondary)" : undefined,
       }}
     >
-      <td style={{ width: "28px", padding: "0 0 0 8px" }}>
+      <TableCell style={{ width: "28px", padding: "0 0 0 8px" }}>
         {!dragDisabled && (
           <span
             {...attributes}
@@ -355,9 +285,9 @@ function SortableFieldRow({
             </svg>
           </span>
         )}
-      </td>
+      </TableCell>
       {children}
-    </tr>
+    </TableRow>
   );
 }
 
@@ -544,22 +474,22 @@ function StateEditPopover({
       )}
 
       <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-        <button
-          className="btn btn-secondary"
+        <Button
+          variant="secondary"
           onClick={onClose}
           disabled={saving}
           style={{ fontSize: "12px" }}
         >
           Cancel
-        </button>
-        <button
-          className="btn btn-primary"
+        </Button>
+        <Button
+          variant="primary"
           onClick={() => void handleSave()}
           disabled={saving || !form.label.trim()}
           style={{ fontSize: "12px" }}
         >
           {saving ? "Saving…" : "Save"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -588,6 +518,10 @@ function SortableStateNode({
     isDragging,
   } = useSortable({ id: state.id });
   const accent = state.color ?? "var(--accent-primary)";
+  const dragHandleHover = useHoverStyle({
+    base: { boxShadow: "none" },
+    hover: { boxShadow: `0 0 0 3px ${accent}44` },
+  });
 
   function handleRef(el: HTMLDivElement | null): void {
     // useSortable.setNodeRef expects Element | null; our custom map stores HTMLDivElement.
@@ -627,19 +561,15 @@ function SortableStateNode({
             position: "relative",
             cursor: "pointer",
             transition: "box-shadow 0.15s",
+            ...dragHandleHover.style,
           }}
           onClick={(e) => {
             e.stopPropagation();
             onEdit();
           }}
           title="Click to edit step"
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLDivElement).style.boxShadow =
-              `0 0 0 3px ${accent}44`;
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
-          }}
+          onMouseEnter={dragHandleHover.onMouseEnter}
+          onMouseLeave={dragHandleHover.onMouseLeave}
         >
           <span
             style={{
@@ -1077,6 +1007,140 @@ function SectionHeader({
         )}
       </div>
       {action}
+    </div>
+  );
+}
+
+function AssignedUserChip({
+  userId,
+  user,
+  isCreator,
+  canRemove,
+  savingAssign,
+  onRemove,
+}: {
+  userId: string;
+  user: UserOption | undefined;
+  isCreator: boolean;
+  canRemove: boolean;
+  savingAssign: boolean;
+  onRemove: () => void;
+}): React.ReactElement {
+  // `displayName`/`userId` are expected to be strings, but user data can be
+  // malformed upstream (missing profile fields) — coerce so a bad row can't
+  // blank the whole page.
+  const displayName = String(user?.displayName ?? userId);
+  const initials = displayName
+    .split(" ")
+    .slice(0, 2)
+    .map((p) => p[0] ?? "")
+    .join("")
+    .toUpperCase();
+  const removeHover = useHoverStyle({
+    base: { background: "none", color: "var(--text-muted)" },
+    hover: { background: "hsla(0,84%,60%,.12)", color: TOKENS.danger },
+  });
+
+  return (
+    <div
+      title={user?.email ?? user?.loginName ?? userId}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "6px 8px 6px 6px",
+        background: "var(--bg-tertiary)",
+        border: "1px solid var(--border-color)",
+        borderRadius: "999px",
+        maxWidth: "100%",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "24px",
+          height: "24px",
+          borderRadius: "50%",
+          background: "var(--accent-primary)",
+          color: "#fff",
+          fontSize: "10px",
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </span>
+      <span
+        style={{
+          fontSize: "13px",
+          fontWeight: 600,
+          color: "var(--text-primary)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          maxWidth: "160px",
+        }}
+      >
+        {displayName}
+      </span>
+      <span
+        style={{
+          fontSize: "10px",
+          fontWeight: 700,
+          color: isCreator ? "var(--text-secondary)" : "var(--accent-primary)",
+          background: isCreator
+            ? "var(--bg-secondary)"
+            : "hsla(250,84%,60%,.1)",
+          border: isCreator
+            ? "1px solid var(--border-color)"
+            : "1px solid hsla(250,84%,60%,.2)",
+          borderRadius: "999px",
+          padding: "2px 8px",
+          whiteSpace: "nowrap",
+          flexShrink: 0,
+        }}
+      >
+        {isCreator ? "Creator" : "Admin"}
+      </span>
+      {canRemove && (
+        <button
+          type="button"
+          disabled={savingAssign}
+          onClick={onRemove}
+          title={
+            isCreator ? "Remove creator (global admin only)" : "Remove admin"
+          }
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "20px",
+            height: "20px",
+            borderRadius: "50%",
+            border: "none",
+            cursor: savingAssign ? "not-allowed" : "pointer",
+            flexShrink: 0,
+            opacity: savingAssign ? 0.5 : 1,
+            transition: "background 0.12s, color 0.12s",
+            ...removeHover.style,
+          }}
+          onMouseEnter={removeHover.onMouseEnter}
+          onMouseLeave={removeHover.onMouseLeave}
+        >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -1766,9 +1830,9 @@ export function WorkflowDetail(): React.ReactElement {
               "You're not an admin of this workflow. Contact a workflow admin to request access."
             )}
           </p>
-          <Link to="/workflows" className="btn btn-secondary">
-            ← Back to Workflows
-          </Link>
+          <Button asChild variant="secondary">
+            <Link to="/workflows">← Back to Workflows</Link>
+          </Button>
         </div>
       </div>
     );
@@ -1979,8 +2043,8 @@ export function WorkflowDetail(): React.ReactElement {
               flexWrap: "wrap",
             }}
           >
-            <button
-              className="btn-primary"
+            <Button
+              variant="primary"
               onClick={() =>
                 navigate(`/workflows/${toWorkflowSlug(workflow.name)}/records`)
               }
@@ -2001,7 +2065,7 @@ export function WorkflowDetail(): React.ReactElement {
                 <line x1="10" y1="14" x2="21" y2="3" />
               </svg>
               View Records
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -2271,164 +2335,130 @@ export function WorkflowDetail(): React.ReactElement {
             label="Steps"
             count={workflow.states.length}
             action={
-              <button
-                className="btn-primary btn-sm"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowAddState(true)}
               >
                 + Add Step
-              </button>
+              </Button>
             }
           />
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Step</th>
-                  <th>Type</th>
-                  <th className="wfd-table-hide-xs">Deadline</th>
-                  <th className="wfd-table-hide-xs">Order</th>
-                  <th style={{ width: "80px" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedStates.map((state) => (
-                  <tr key={state.id}>
-                    <td>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                      >
-                        <StateDot color={state.color} />
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: "13px" }}>
-                            {state.label}
-                          </div>
-                          <code
-                            className="code-inline"
-                            style={{ fontSize: "11px" }}
-                          >
-                            {state.name}
-                          </code>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Step</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead className="wfd-table-hide-xs">Deadline</TableHead>
+                <TableHead className="wfd-table-hide-xs">Order</TableHead>
+                <TableHead style={{ width: "80px" }}></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedStates.map((state) => (
+                <TableRow key={state.id}>
+                  <TableCell>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
+                      <StateDot color={state.color} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: "13px" }}>
+                          {state.label}
                         </div>
+                        <code
+                          className="code-inline"
+                          style={{ fontSize: "11px" }}
+                        >
+                          {state.name}
+                        </code>
                       </div>
-                    </td>
-                    <td>
-                      {state.isTerminal ? (
-                        <span className="badge badge-muted">Final</span>
-                      ) : state.name === workflow.initialState ? (
-                        <span className="badge badge-primary">
-                          Starting Step
-                        </span>
-                      ) : (
-                        <span className="badge badge-success">Active</span>
-                      )}
-                    </td>
-                    <td
-                      className="wfd-table-hide-xs"
-                      style={{ fontSize: "13px" }}
-                    >
-                      {state.slaHours !== null ? (
-                        <span
-                          style={{ color: "var(--warning)", fontWeight: 600 }}
-                        >
-                          {state.slaHours}h
-                        </span>
-                      ) : (
-                        <span className="text-muted-sm">—</span>
-                      )}
-                    </td>
-                    <td
-                      className="wfd-table-hide-xs"
-                      style={{ fontSize: "13px", color: "var(--text-muted)" }}
-                    >
-                      {state.sortOrder}
-                    </td>
-                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "6px",
-                          justifyContent: "flex-end",
-                        }}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {state.isTerminal ? (
+                      <span className="badge badge-muted">Final</span>
+                    ) : state.name === workflow.initialState ? (
+                      <span className="badge badge-primary">Starting Step</span>
+                    ) : (
+                      <span className="badge badge-success">Active</span>
+                    )}
+                  </TableCell>
+                  <TableCell
+                    className="wfd-table-hide-xs"
+                    style={{ fontSize: "13px" }}
+                  >
+                    {state.slaHours !== null ? (
+                      <span
+                        style={{ color: "var(--warning)", fontWeight: 600 }}
                       >
-                        <button
-                          className="icon-btn icon-btn-edit"
-                          onClick={() => {
-                            setEditingState(state);
-                            setStateForm({
-                              name: state.name,
-                              label: state.label,
-                              color: state.color ?? "#6366f1",
-                              isTerminal: state.isTerminal,
-                              slaHours:
-                                state.slaHours !== null
-                                  ? String(state.slaHours)
-                                  : "",
-                              sortOrder: String(state.sortOrder),
-                            });
-                            setStateError(null);
-                          }}
-                          title="Edit step"
+                        {state.slaHours}h
+                      </span>
+                    ) : (
+                      <span className="text-muted-sm">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell
+                    className="wfd-table-hide-xs"
+                    style={{ fontSize: "13px", color: "var(--text-muted)" }}
+                  >
+                    {state.sortOrder}
+                  </TableCell>
+                  <TableCell
+                    style={{ textAlign: "right", whiteSpace: "nowrap" }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "6px",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <IconButton
+                        variant="edit"
+                        onClick={() => {
+                          setEditingState(state);
+                          setStateForm({
+                            name: state.name,
+                            label: state.label,
+                            color: state.color ?? "#6366f1",
+                            isTerminal: state.isTerminal,
+                            slaHours:
+                              state.slaHours !== null
+                                ? String(state.slaHours)
+                                : "",
+                            sortOrder: String(state.sortOrder),
+                          });
+                          setStateError(null);
+                        }}
+                        title="Edit step"
+                      >
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
                         >
-                          <svg
-                            width="13"
-                            height="13"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
+                          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                      </IconButton>
+                      {state.name !== workflow.initialState &&
+                        !state.isTerminal && (
+                          <IconButton
+                            disabled={settingInitialStateId === state.id}
+                            onClick={() => void handleSetInitialState(state)}
+                            title="Set as starting step"
                           >
-                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                          </svg>
-                        </button>
-                        {state.name !== workflow.initialState &&
-                          !state.isTerminal && (
-                            <button
-                              className="icon-btn"
-                              disabled={settingInitialStateId === state.id}
-                              onClick={() => void handleSetInitialState(state)}
-                              title="Set as starting step"
-                            >
-                              {settingInitialStateId === state.id ? (
-                                <span style={{ fontSize: "11px" }}>…</span>
-                              ) : (
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <polygon points="5 3 19 12 5 21 5 3" />
-                                </svg>
-                              )}
-                            </button>
-                          )}
-                        {state.name !== workflow.initialState ? (
-                          <button
-                            className="icon-btn icon-btn-delete"
-                            disabled={deletingStateId === state.id}
-                            onClick={() =>
-                              setConfirmDelete({
-                                message: `Delete step "${state.label}"?`,
-                                onConfirm: () => {
-                                  setConfirmDelete(null);
-                                  void handleDeleteState(state.id);
-                                },
-                              })
-                            }
-                            title="Delete step"
-                          >
-                            {deletingStateId === state.id ? (
+                            {settingInitialStateId === state.id ? (
                               <span style={{ fontSize: "11px" }}>…</span>
                             ) : (
                               <svg
@@ -2441,24 +2471,56 @@ export function WorkflowDetail(): React.ReactElement {
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                               >
-                                <polyline points="3 6 5 6 21 6" />
-                                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                <path d="M10 11v6M14 11v6" />
+                                <polygon points="5 3 19 12 5 21 5 3" />
                               </svg>
                             )}
-                          </button>
-                        ) : (
-                          <span
-                            style={{ display: "inline-block", width: "30px" }}
-                          />
+                          </IconButton>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      {state.name !== workflow.initialState ? (
+                        <IconButton
+                          variant="delete"
+                          disabled={deletingStateId === state.id}
+                          onClick={() =>
+                            setConfirmDelete({
+                              message: `Delete step "${state.label}"?`,
+                              onConfirm: () => {
+                                setConfirmDelete(null);
+                                void handleDeleteState(state.id);
+                              },
+                            })
+                          }
+                          title="Delete step"
+                        >
+                          {deletingStateId === state.id ? (
+                            <span style={{ fontSize: "11px" }}>…</span>
+                          ) : (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                              <path d="M10 11v6M14 11v6" />
+                            </svg>
+                          )}
+                        </IconButton>
+                      ) : (
+                        <span
+                          style={{ display: "inline-block", width: "30px" }}
+                        />
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -2477,12 +2539,13 @@ export function WorkflowDetail(): React.ReactElement {
             label="Actions"
             count={workflow.transitions.length}
             action={
-              <button
-                className="btn-primary btn-sm"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowAddTransition(true)}
               >
                 + Add Action
-              </button>
+              </Button>
             }
           />
           {workflow.transitions.length === 0 ? (
@@ -2494,171 +2557,190 @@ export function WorkflowDetail(): React.ReactElement {
               steps.
             </div>
           ) : (
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: "40px" }}>#</th>
-                    <th>Route</th>
-                    <th className="wfd-table-hide-xs">Label</th>
-                    <th className="wfd-table-hide-xs">Requirements</th>
-                    <th style={{ width: "80px" }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...workflow.transitions]
-                    .sort((a, b) => a.sortOrder - b.sortOrder)
-                    .map((t, i) => (
-                      <tr key={t.id}>
-                        <td
-                          className="text-muted-sm"
-                          style={{ fontWeight: 600 }}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead style={{ width: "40px" }}>#</TableHead>
+                  <TableHead>Route</TableHead>
+                  <TableHead className="wfd-table-hide-xs">Label</TableHead>
+                  <TableHead className="wfd-table-hide-xs">
+                    Who Can Do This
+                  </TableHead>
+                  <TableHead className="wfd-table-hide-xs">
+                    Requirements
+                  </TableHead>
+                  <TableHead style={{ width: "80px" }}></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {/* Already ORDER BY sort_order server-side (workflow-crud.ts) — no
+                    need to re-sort on every render. */}
+                {workflow.transitions.map((t, i) => (
+                  <TableRow key={t.id}>
+                    <TableCell
+                      className="text-muted-sm"
+                      style={{ fontWeight: 600 }}
+                    >
+                      {i + 1}
+                    </TableCell>
+                    <TableCell>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <code
+                          className="code-inline"
+                          style={{ fontSize: "11px" }}
                         >
-                          {i + 1}
-                        </td>
-                        <td>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "6px",
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <code
-                              className="code-inline"
-                              style={{ fontSize: "11px" }}
-                            >
-                              {t.fromState}
-                            </code>
-                            <span
-                              style={{
-                                color: "var(--accent-primary)",
-                                fontWeight: 700,
-                                fontSize: "14px",
-                              }}
-                            >
-                              →
+                          {t.fromState}
+                        </code>
+                        <span
+                          style={{
+                            color: "var(--accent-primary)",
+                            fontWeight: 700,
+                            fontSize: "14px",
+                          }}
+                        >
+                          →
+                        </span>
+                        <code
+                          className="code-inline"
+                          style={{ fontSize: "11px" }}
+                        >
+                          {t.toState}
+                        </code>
+                      </div>
+                    </TableCell>
+                    <TableCell
+                      className="wfd-table-hide-xs"
+                      style={{ fontWeight: 500, fontSize: "13px" }}
+                    >
+                      {t.label || <span className="text-muted-sm">—</span>}
+                    </TableCell>
+                    <TableCell className="wfd-table-hide-xs">
+                      {t.allowedRoles.length === 0 ? (
+                        <span className="text-muted-sm">Any</span>
+                      ) : (
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "4px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          {t.allowedRoles.map((r) => (
+                            <span key={r} className="badge badge-primary">
+                              {r}
                             </span>
-                            <code
-                              className="code-inline"
-                              style={{ fontSize: "11px" }}
-                            >
-                              {t.toState}
-                            </code>
-                          </div>
-                        </td>
-                        <td
-                          className="wfd-table-hide-xs"
-                          style={{ fontWeight: 500, fontSize: "13px" }}
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="wfd-table-hide-xs">
+                      {!t.requiresComment && t.requiresFields.length === 0 ? (
+                        <span className="text-muted-sm">—</span>
+                      ) : (
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "4px",
+                            flexWrap: "wrap",
+                          }}
                         >
-                          {t.label || <span className="text-muted-sm">—</span>}
-                        </td>
-                        <td className="wfd-table-hide-xs">
-                          {!t.requiresComment &&
-                          t.requiresFields.length === 0 ? (
-                            <span className="text-muted-sm">—</span>
-                          ) : (
-                            <div
-                              style={{
-                                display: "flex",
-                                gap: "4px",
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              {t.requiresComment && (
-                                <span className="badge badge-warning">
-                                  Comment
-                                </span>
-                              )}
-                              {t.requiresFields.length > 0 && (
-                                <span className="badge badge-warning">
-                                  {t.requiresFields.length} detail
-                                  {t.requiresFields.length > 1 ? "s" : ""}
-                                </span>
-                              )}
-                            </div>
+                          {t.requiresComment && (
+                            <span className="badge badge-warning">Comment</span>
                           )}
-                        </td>
-                        <td
-                          style={{ textAlign: "right", whiteSpace: "nowrap" }}
+                          {t.requiresFields.length > 0 && (
+                            <span className="badge badge-warning">
+                              {t.requiresFields.length} detail
+                              {t.requiresFields.length > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell
+                      style={{ textAlign: "right", whiteSpace: "nowrap" }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "6px",
+                          justifyContent: "flex-end",
+                        }}
+                      >
+                        <IconButton
+                          variant="edit"
+                          onClick={() => {
+                            setEditingTransition(t);
+                            setTransForm({
+                              fromState: t.fromState,
+                              toState: t.toState,
+                              label: t.label,
+                              allowedRoles: [...t.allowedRoles],
+                              requiresComment: t.requiresComment,
+                            });
+                            setTransError(null);
+                          }}
+                          title="Edit action"
                         >
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "6px",
-                              justifyContent: "flex-end",
-                            }}
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           >
-                            <button
-                              className="icon-btn icon-btn-edit"
-                              onClick={() => {
-                                setEditingTransition(t);
-                                setTransForm({
-                                  fromState: t.fromState,
-                                  toState: t.toState,
-                                  label: t.label,
-                                  allowedRoles: [...t.allowedRoles],
-                                  requiresComment: t.requiresComment,
-                                });
-                                setTransError(null);
-                              }}
-                              title="Edit action"
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </IconButton>
+                        <IconButton
+                          variant="delete"
+                          disabled={deletingTransId === t.id}
+                          onClick={() =>
+                            setConfirmDelete({
+                              message: `Delete action "${t.label || `${t.fromState} → ${t.toState}`}"?`,
+                              onConfirm: () => {
+                                setConfirmDelete(null);
+                                void handleDeleteTransition(t.id);
+                              },
+                            })
+                          }
+                          title="Delete action"
+                        >
+                          {deletingTransId === t.id ? (
+                            <span style={{ fontSize: "11px" }}>…</span>
+                          ) : (
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
                             >
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                              </svg>
-                            </button>
-                            <button
-                              className="icon-btn icon-btn-delete"
-                              disabled={deletingTransId === t.id}
-                              onClick={() =>
-                                setConfirmDelete({
-                                  message: `Delete action "${t.label || `${t.fromState} → ${t.toState}`}"?`,
-                                  onConfirm: () => {
-                                    setConfirmDelete(null);
-                                    void handleDeleteTransition(t.id);
-                                  },
-                                })
-                              }
-                              title="Delete action"
-                            >
-                              {deletingTransId === t.id ? (
-                                <span style={{ fontSize: "11px" }}>…</span>
-                              ) : (
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                  <path d="M10 11v6M14 11v6" />
-                                </svg>
-                              )}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                              <path d="M10 11v6M14 11v6" />
+                            </svg>
+                          )}
+                        </IconButton>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </div>
       )}
@@ -2678,12 +2760,13 @@ export function WorkflowDetail(): React.ReactElement {
             label="Details to Collect"
             count={fields.length}
             action={
-              <button
-                className="btn-primary btn-sm"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setShowAddField(true)}
               >
                 + Add Detail
-              </button>
+              </Button>
             }
           />
           {fieldsLoading ? (
@@ -2698,91 +2781,121 @@ export function WorkflowDetail(): React.ReactElement {
               No details yet. Add details to capture information on tickets.
             </div>
           ) : (
-            <div className="table-scroll">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead style={{ width: "28px" }}></TableHead>
+                  <TableHead>Detail</TableHead>
+                  <TableHead className="wfd-table-hide-xs">Type</TableHead>
+                  <TableHead className="wfd-table-hide-xs">Required</TableHead>
+                  <TableHead style={{ width: "80px" }}></TableHead>
+                </TableRow>
+              </TableHeader>
               <DndContext
                 sensors={fieldSensors}
                 collisionDetection={closestCenter}
                 onDragEnd={(e) => void handleFieldDragEnd(e)}
               >
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: "28px" }}></th>
-                      <th>Detail</th>
-                      <th className="wfd-table-hide-xs">Type</th>
-                      <th className="wfd-table-hide-xs">Required</th>
-                      <th style={{ width: "80px" }}></th>
-                    </tr>
-                  </thead>
-                  <SortableContext
-                    items={[...fields]
+                <SortableContext
+                  items={[...fields]
+                    .sort((a, b) => a.sortOrder - b.sortOrder)
+                    .map((f) => f.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <TableBody>
+                    {[...fields]
                       .sort((a, b) => a.sortOrder - b.sortOrder)
-                      .map((f) => f.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <tbody>
-                      {[...fields]
-                        .sort((a, b) => a.sortOrder - b.sortOrder)
-                        .map((f) => (
-                          <SortableFieldRow
-                            key={f.id}
-                            field={f}
-                            dragDisabled={!canManageWorkflow}
-                          >
-                            <td>
-                              <div>
-                                <div
-                                  style={{ fontWeight: 600, fontSize: "13px" }}
-                                >
-                                  {f.label}
-                                </div>
-                                <code
-                                  className="code-inline"
-                                  style={{ fontSize: "11px" }}
-                                >
-                                  {f.name}
-                                </code>
+                      .map((f) => (
+                        <SortableFieldRow
+                          key={f.id}
+                          field={f}
+                          dragDisabled={!canManageWorkflow}
+                        >
+                          <TableCell>
+                            <div>
+                              <div
+                                style={{ fontWeight: 600, fontSize: "13px" }}
+                              >
+                                {f.label}
                               </div>
-                            </td>
-                            <td className="wfd-table-hide-xs">
-                              <span className="badge badge-muted">
-                                {f.fieldType}
-                              </span>
-                            </td>
-                            <td className="wfd-table-hide-xs">
-                              {f.isRequired ? (
-                                <span className="badge badge-primary">Yes</span>
-                              ) : (
-                                <span className="text-muted-sm">—</span>
-                              )}
-                            </td>
-                            <td
+                              <code
+                                className="code-inline"
+                                style={{ fontSize: "11px" }}
+                              >
+                                {f.name}
+                              </code>
+                            </div>
+                          </TableCell>
+                          <TableCell className="wfd-table-hide-xs">
+                            <span className="badge badge-muted">
+                              {f.fieldType}
+                            </span>
+                          </TableCell>
+                          <TableCell className="wfd-table-hide-xs">
+                            {f.isRequired ? (
+                              <span className="badge badge-primary">Yes</span>
+                            ) : (
+                              <span className="text-muted-sm">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell
+                            style={{
+                              textAlign: "right",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            <div
                               style={{
-                                textAlign: "right",
-                                whiteSpace: "nowrap",
+                                display: "flex",
+                                gap: "6px",
+                                justifyContent: "flex-end",
                               }}
                             >
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: "6px",
-                                  justifyContent: "flex-end",
+                              <IconButton
+                                variant="edit"
+                                onClick={() => {
+                                  setEditingField(f);
+                                  setFieldForm({
+                                    name: f.name,
+                                    label: f.label,
+                                    fieldType: f.fieldType,
+                                    isRequired: f.isRequired,
+                                  });
+                                  setFieldError(null);
                                 }}
+                                title="Edit detail"
                               >
-                                <button
-                                  className="icon-btn icon-btn-edit"
-                                  onClick={() => {
-                                    setEditingField(f);
-                                    setFieldForm({
-                                      name: f.name,
-                                      label: f.label,
-                                      fieldType: f.fieldType,
-                                      isRequired: f.isRequired,
-                                    });
-                                    setFieldError(null);
-                                  }}
-                                  title="Edit detail"
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
                                 >
+                                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                </svg>
+                              </IconButton>
+                              <IconButton
+                                variant="delete"
+                                disabled={deletingFieldId === f.id}
+                                onClick={() =>
+                                  setConfirmDelete({
+                                    message: `Delete detail "${f.label}"?`,
+                                    onConfirm: () => {
+                                      setConfirmDelete(null);
+                                      void handleDeleteField(f.id);
+                                    },
+                                  })
+                                }
+                                title="Delete detail"
+                              >
+                                {deletingFieldId === f.id ? (
+                                  <span style={{ fontSize: "11px" }}>…</span>
+                                ) : (
                                   <svg
                                     width="13"
                                     height="13"
@@ -2793,52 +2906,20 @@ export function WorkflowDetail(): React.ReactElement {
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                   >
-                                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                    <polyline points="3 6 5 6 21 6" />
+                                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                                    <path d="M10 11v6M14 11v6" />
                                   </svg>
-                                </button>
-                                <button
-                                  className="icon-btn icon-btn-delete"
-                                  disabled={deletingFieldId === f.id}
-                                  onClick={() =>
-                                    setConfirmDelete({
-                                      message: `Delete detail "${f.label}"?`,
-                                      onConfirm: () => {
-                                        setConfirmDelete(null);
-                                        void handleDeleteField(f.id);
-                                      },
-                                    })
-                                  }
-                                  title="Delete detail"
-                                >
-                                  {deletingFieldId === f.id ? (
-                                    <span style={{ fontSize: "11px" }}>…</span>
-                                  ) : (
-                                    <svg
-                                      width="13"
-                                      height="13"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <polyline points="3 6 5 6 21 6" />
-                                      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                                      <path d="M10 11v6M14 11v6" />
-                                    </svg>
-                                  )}
-                                </button>
-                              </div>
-                            </td>
-                          </SortableFieldRow>
-                        ))}
-                    </tbody>
-                  </SortableContext>
-                </table>
+                                )}
+                              </IconButton>
+                            </div>
+                          </TableCell>
+                        </SortableFieldRow>
+                      ))}
+                  </TableBody>
+                </SortableContext>
               </DndContext>
-            </div>
+            </Table>
           )}
         </div>
       )}
@@ -2890,16 +2971,6 @@ export function WorkflowDetail(): React.ReactElement {
               >
                 {assignedTo.map((userId) => {
                   const u = orgUsers.find((o) => o.userId === userId);
-                  // `displayName`/`userId` are expected to be strings, but
-                  // user data can be malformed upstream (missing profile
-                  // fields) — coerce so a bad row can't blank the whole page.
-                  const displayName = String(u?.displayName ?? userId);
-                  const initials = displayName
-                    .split(" ")
-                    .slice(0, 2)
-                    .map((p) => p[0] ?? "")
-                    .join("")
-                    .toUpperCase();
                   const isCreator = userId === workflow.createdBy;
                   // Creator is only removable by a global admin (never by
                   // themselves, never by a fellow non-creator admin).
@@ -2907,128 +2978,19 @@ export function WorkflowDetail(): React.ReactElement {
                     isAdminListEditor && !(isCreator && !isAdmin);
 
                   return (
-                    <div
+                    <AssignedUserChip
                       key={userId}
-                      title={u?.email ?? u?.loginName ?? userId}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        padding: "6px 8px 6px 6px",
-                        background: "var(--bg-tertiary)",
-                        border: "1px solid var(--border-color)",
-                        borderRadius: "999px",
-                        maxWidth: "100%",
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          width: "24px",
-                          height: "24px",
-                          borderRadius: "50%",
-                          background: "var(--accent-primary)",
-                          color: "#fff",
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {initials}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          color: "var(--text-primary)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          maxWidth: "160px",
-                        }}
-                      >
-                        {displayName}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          color: isCreator
-                            ? "var(--text-secondary)"
-                            : "var(--accent-primary)",
-                          background: isCreator
-                            ? "var(--bg-secondary)"
-                            : "hsla(250,84%,60%,.1)",
-                          border: isCreator
-                            ? "1px solid var(--border-color)"
-                            : "1px solid hsla(250,84%,60%,.2)",
-                          borderRadius: "999px",
-                          padding: "2px 8px",
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {isCreator ? "Creator" : "Admin"}
-                      </span>
-                      {canRemove && (
-                        <button
-                          type="button"
-                          disabled={savingAssign}
-                          onClick={() =>
-                            void handleAssign(
-                              assignedTo.filter((id) => id !== userId),
-                            )
-                          }
-                          title={
-                            isCreator
-                              ? "Remove creator (global admin only)"
-                              : "Remove admin"
-                          }
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: "20px",
-                            height: "20px",
-                            borderRadius: "50%",
-                            background: "none",
-                            border: "none",
-                            cursor: savingAssign ? "not-allowed" : "pointer",
-                            color: "var(--text-muted)",
-                            flexShrink: 0,
-                            opacity: savingAssign ? 0.5 : 1,
-                            transition: "background 0.12s, color 0.12s",
-                          }}
-                          onMouseEnter={(e) => {
-                            (
-                              e.currentTarget as HTMLButtonElement
-                            ).style.background = "hsla(0,84%,60%,.12)";
-                            (e.currentTarget as HTMLButtonElement).style.color =
-                              "var(--danger)";
-                          }}
-                          onMouseLeave={(e) => {
-                            (
-                              e.currentTarget as HTMLButtonElement
-                            ).style.background = "none";
-                            (e.currentTarget as HTMLButtonElement).style.color =
-                              "var(--text-muted)";
-                          }}
-                        >
-                          <svg
-                            width="11"
-                            height="11"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                          >
-                            <path d="M18 6L6 18M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
+                      userId={userId}
+                      user={u}
+                      isCreator={isCreator}
+                      canRemove={canRemove}
+                      savingAssign={savingAssign}
+                      onRemove={() =>
+                        void handleAssign(
+                          assignedTo.filter((id) => id !== userId),
+                        )
+                      }
+                    />
                   );
                 })}
               </div>
@@ -3319,14 +3281,14 @@ export function WorkflowDetail(): React.ReactElement {
                     </p>
                   </div>
                 </div>
-                <button
-                  className="btn btn-secondary"
+                <Button
+                  variant="secondary"
                   disabled={savingChildSettings}
                   onClick={() => void handleSaveChildSettings()}
                   style={{ minWidth: "110px" }}
                 >
                   {savingChildSettings ? "Saving…" : "Save limits"}
-                </button>
+                </Button>
               </div>
 
               {/* Activate / Deactivate */}
@@ -3344,10 +3306,8 @@ export function WorkflowDetail(): React.ReactElement {
                     ? "This workflow is currently active. Deactivating it will prevent new records from being created."
                     : "This workflow is inactive. Activate it to allow new records to be created."}
                 </p>
-                <button
-                  className={
-                    workflow.isActive ? "btn btn-secondary" : "btn-primary"
-                  }
+                <Button
+                  variant={workflow.isActive ? "secondary" : "primary"}
                   onClick={() => void handleToggleActive()}
                   disabled={togglingActive}
                   style={{ minWidth: "130px" }}
@@ -3357,7 +3317,7 @@ export function WorkflowDetail(): React.ReactElement {
                     : workflow.isActive
                       ? "Deactivate Workflow"
                       : "Activate Workflow"}
-                </button>
+                </Button>
               </div>
 
               {/* Danger zone — deletion is restricted to the creator or a
@@ -3382,12 +3342,13 @@ export function WorkflowDetail(): React.ReactElement {
                     Permanently delete this workflow and all its states and
                     transitions. This cannot be undone.
                   </p>
-                  <button
-                    className="btn btn-danger-sm"
+                  <Button
+                    variant="danger"
+                    size="sm"
                     onClick={() => setShowDeleteWorkflow(true)}
                   >
                     Delete Workflow
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -3398,1060 +3359,975 @@ export function WorkflowDetail(): React.ReactElement {
       {/* ── Modals ─────────────────────────────────────────── */}
 
       {/* Add Field */}
-      {showAddField && (
-        <div className="modal-overlay" onClick={() => setShowAddField(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+      <Dialog
+        open={showAddField}
+        onOpenChange={(next) => {
+          if (!next) setShowAddField(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">Add Detail</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddField(false)}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleAddField(e)}>
+            <div className="modal-body">
+              {fieldError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {fieldError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Label *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. Customer Name"
+                    value={fieldForm.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      const name = label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setFieldForm((f) => ({ ...f, label, name }));
+                    }}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Detail ID *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. customer_name"
+                    value={fieldForm.name}
+                    onChange={(e) =>
+                      setFieldForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    pattern="^[a-z_][a-z0-9_]*$"
+                    title="snake_case only"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Detail Type *</label>
+                <select
+                  className="form-input"
+                  value={fieldForm.fieldType}
+                  onChange={(e) =>
+                    setFieldForm((f) => ({
+                      ...f,
+                      fieldType: e.target.value,
+                    }))
+                  }
+                >
+                  {FIELD_TYPES.map((ft) => (
+                    <option key={ft.value} value={ft.value}>
+                      {ft.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={fieldForm.isRequired}
+                  onChange={(e) =>
+                    setFieldForm((f) => ({
+                      ...f,
+                      isRequired: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Required field</span>
+              </label>
             </div>
-            <form onSubmit={(e) => void handleAddField(e)}>
-              <div className="modal-body">
-                {fieldError && (
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowAddField(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingField}>
+                {savingField ? "Adding…" : "Add Detail"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add State */}
+      <Dialog
+        open={showAddState}
+        onOpenChange={(next) => {
+          if (!next) setShowAddState(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Add Step</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleAddState(e)}>
+            <div className="modal-body">
+              {stateError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {stateError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Label *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. In Progress"
+                    value={stateForm.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      const name = label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setStateForm((f) => ({ ...f, label, name }));
+                    }}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Step ID *</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. in_progress"
+                    value={stateForm.name}
+                    onChange={(e) =>
+                      setStateForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    pattern="^[a-z_][a-z0-9_]*$"
+                    title="snake_case only"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Color</label>
                   <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
+                    }}
                   >
-                    {fieldError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
                     <input
-                      className="form-input"
-                      placeholder="e.g. Customer Name"
-                      value={fieldForm.label}
-                      onChange={(e) => {
-                        const label = e.target.value;
-                        const name = label
-                          .toLowerCase()
-                          .replace(/\s+/g, "_")
-                          .replace(/[^a-z0-9_]/g, "");
-                        setFieldForm((f) => ({ ...f, label, name }));
-                      }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Detail ID *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. customer_name"
-                      value={fieldForm.name}
+                      type="color"
+                      value={stateForm.color}
                       onChange={(e) =>
-                        setFieldForm((f) => ({ ...f, name: e.target.value }))
+                        setStateForm((f) => ({
+                          ...f,
+                          color: e.target.value,
+                        }))
                       }
-                      pattern="^[a-z_][a-z0-9_]*$"
-                      title="snake_case only"
-                      required
+                      style={{
+                        width: "40px",
+                        height: "36px",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <input
+                      className="form-input"
+                      value={stateForm.color}
+                      onChange={(e) =>
+                        setStateForm((f) => ({
+                          ...f,
+                          color: e.target.value,
+                        }))
+                      }
+                      placeholder="#6366f1"
+                      style={{ flex: 1 }}
                     />
                   </div>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Detail Type *</label>
-                  <select
+                  <label className="form-label">Order</label>
+                  <input
                     className="form-input"
-                    value={fieldForm.fieldType}
+                    type="number"
+                    min={0}
+                    value={stateForm.sortOrder}
                     onChange={(e) =>
-                      setFieldForm((f) => ({
+                      setStateForm((f) => ({
                         ...f,
-                        fieldType: e.target.value,
+                        sortOrder: e.target.value,
                       }))
                     }
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Deadline (hours, optional)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 24"
+                  value={stateForm.slaHours}
+                  onChange={(e) =>
+                    setStateForm((f) => ({
+                      ...f,
+                      slaHours: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={stateForm.isTerminal}
+                  onChange={(e) =>
+                    setStateForm((f) => ({
+                      ...f,
+                      isTerminal: e.target.checked,
+                    }))
+                  }
+                />
+                <span>
+                  This is a final step
+                  <br />
+                  <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
+                    Tickets won&apos;t move further once they reach this step
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowAddState(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingState}>
+                {savingState ? "Adding…" : "Add Step"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Transition */}
+      <Dialog
+        open={showAddTransition}
+        onOpenChange={(next) => {
+          if (!next) setShowAddTransition(false);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Add Action</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleAddTransition(e)}>
+            <div className="modal-body">
+              {transError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {transError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">From Step *</label>
+                  <select
+                    className="form-input"
+                    value={transForm.fromState}
+                    onChange={(e) =>
+                      setTransForm((f) => ({
+                        ...f,
+                        fromState: e.target.value,
+                      }))
+                    }
+                    required
                   >
-                    {FIELD_TYPES.map((ft) => (
-                      <option key={ft.value} value={ft.value}>
-                        {ft.label}
+                    <option value="">Select…</option>
+                    {stateNames.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
                       </option>
                     ))}
                   </select>
                 </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={fieldForm.isRequired}
+                <div className="form-group">
+                  <label className="form-label">To Step *</label>
+                  <select
+                    className="form-input"
+                    value={transForm.toState}
                     onChange={(e) =>
-                      setFieldForm((f) => ({
+                      setTransForm((f) => ({
                         ...f,
-                        isRequired: e.target.checked,
+                        toState: e.target.value,
                       }))
                     }
-                  />
-                  <span>Required field</span>
-                </label>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowAddField(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingField}
-                >
-                  {savingField ? "Adding…" : "Add Detail"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add State */}
-      {showAddState && (
-        <div className="modal-overlay" onClick={() => setShowAddState(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Add Step</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddState(false)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleAddState(e)}>
-              <div className="modal-body">
-                {stateError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
+                    required
                   >
-                    {stateError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. In Progress"
-                      value={stateForm.label}
-                      onChange={(e) => {
-                        const label = e.target.value;
-                        const name = label
-                          .toLowerCase()
-                          .replace(/\s+/g, "_")
-                          .replace(/[^a-z0-9_]/g, "");
-                        setStateForm((f) => ({ ...f, label, name }));
-                      }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Step ID *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. in_progress"
-                      value={stateForm.name}
-                      onChange={(e) =>
-                        setStateForm((f) => ({ ...f, name: e.target.value }))
-                      }
-                      pattern="^[a-z_][a-z0-9_]*$"
-                      title="snake_case only"
-                      required
-                    />
-                  </div>
+                    <option value="">Select…</option>
+                    {stateNames.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Color</label>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "8px",
-                        alignItems: "center",
-                      }}
-                    >
-                      <input
-                        type="color"
-                        value={stateForm.color}
-                        onChange={(e) =>
-                          setStateForm((f) => ({
-                            ...f,
-                            color: e.target.value,
-                          }))
-                        }
+              </div>
+              <div className="form-group">
+                <label className="form-label">Label</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Start Work"
+                  value={transForm.label}
+                  onChange={(e) =>
+                    setTransForm((f) => ({ ...f, label: e.target.value }))
+                  }
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Who Can Do This (blank = anyone)
+                </label>
+                {availableRoles.length === 0 ? (
+                  <p style={{ fontSize: "13px", color: "#6b7280" }}>
+                    Loading roles…
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      maxHeight: "160px",
+                      overflowY: "auto",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "6px",
+                      padding: "8px",
+                    }}
+                  >
+                    {availableRoles.map((role) => (
+                      <label
+                        key={role}
                         style={{
-                          width: "40px",
-                          height: "36px",
-                          border: "none",
-                          borderRadius: "6px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "14px",
                           cursor: "pointer",
                         }}
-                      />
-                      <input
-                        className="form-input"
-                        value={stateForm.color}
-                        onChange={(e) =>
-                          setStateForm((f) => ({
-                            ...f,
-                            color: e.target.value,
-                          }))
-                        }
-                        placeholder="#6366f1"
-                        style={{ flex: 1 }}
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Order</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={0}
-                      value={stateForm.sortOrder}
-                      onChange={(e) =>
-                        setStateForm((f) => ({
-                          ...f,
-                          sortOrder: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">
-                    Deadline (hours, optional)
-                  </label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min={1}
-                    placeholder="e.g. 24"
-                    value={stateForm.slaHours}
-                    onChange={(e) =>
-                      setStateForm((f) => ({
-                        ...f,
-                        slaHours: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={stateForm.isTerminal}
-                    onChange={(e) =>
-                      setStateForm((f) => ({
-                        ...f,
-                        isTerminal: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>
-                    This is a final step
-                    <br />
-                    <span
-                      style={{ fontWeight: 400, color: "var(--text-muted)" }}
-                    >
-                      Tickets won&apos;t move further once they reach this step
-                    </span>
-                  </span>
-                </label>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowAddState(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingState}
-                >
-                  {savingState ? "Adding…" : "Add Step"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add Transition */}
-      {showAddTransition && (
-        <div
-          className="modal-overlay"
-          onClick={() => setShowAddTransition(false)}
-        >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Add Action</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddTransition(false)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleAddTransition(e)}>
-              <div className="modal-body">
-                {transError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {transError}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={transForm.allowedRoles.includes(role)}
+                          onChange={(e) =>
+                            setTransForm((f) => ({
+                              ...f,
+                              allowedRoles: e.target.checked
+                                ? [...f.allowedRoles, role]
+                                : f.allowedRoles.filter((r) => r !== role),
+                            }))
+                          }
+                        />
+                        {role}
+                      </label>
+                    ))}
                   </div>
                 )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">From Step *</label>
-                    <select
-                      className="form-input"
-                      value={transForm.fromState}
-                      onChange={(e) =>
-                        setTransForm((f) => ({
-                          ...f,
-                          fromState: e.target.value,
-                        }))
-                      }
-                      required
-                    >
-                      <option value="">Select…</option>
-                      {stateNames.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">To Step *</label>
-                    <select
-                      className="form-input"
-                      value={transForm.toState}
-                      onChange={(e) =>
-                        setTransForm((f) => ({
-                          ...f,
-                          toState: e.target.value,
-                        }))
-                      }
-                      required
-                    >
-                      <option value="">Select…</option>
-                      {stateNames.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              </div>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={transForm.requiresComment}
+                  onChange={(e) =>
+                    setTransForm((f) => ({
+                      ...f,
+                      requiresComment: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Requires comment</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowAddTransition(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingTrans}>
+                {savingTrans ? "Adding…" : "Add Action"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Field */}
+      <Dialog
+        open={editingField !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditingField(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">
+                Edit Detail — {editingField?.label}
+              </h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleEditField(e)}>
+            <div className="modal-body">
+              {fieldError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {fieldError}
                 </div>
+              )}
+              <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Label</label>
+                  <label className="form-label">Label *</label>
                   <input
                     className="form-input"
-                    placeholder="e.g. Start Work"
-                    value={transForm.label}
+                    placeholder="e.g. Customer Name"
+                    value={fieldForm.label}
                     onChange={(e) =>
-                      setTransForm((f) => ({ ...f, label: e.target.value }))
+                      setFieldForm((f) => ({ ...f, label: e.target.value }))
                     }
+                    required
                     autoFocus
                   />
                 </div>
                 <div className="form-group">
                   <label className="form-label">
-                    Who Can Do This (blank = anyone)
-                  </label>
-                  {availableRoles.length === 0 ? (
-                    <p style={{ fontSize: "13px", color: "#6b7280" }}>
-                      Loading roles…
-                    </p>
-                  ) : (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "6px",
-                        maxHeight: "160px",
-                        overflowY: "auto",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "6px",
-                        padding: "8px",
-                      }}
-                    >
-                      {availableRoles.map((role) => (
-                        <label
-                          key={role}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            fontSize: "14px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={transForm.allowedRoles.includes(role)}
-                            onChange={(e) =>
-                              setTransForm((f) => ({
-                                ...f,
-                                allowedRoles: e.target.checked
-                                  ? [...f.allowedRoles, role]
-                                  : f.allowedRoles.filter((r) => r !== role),
-                              }))
-                            }
-                          />
-                          {role}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={transForm.requiresComment}
-                    onChange={(e) =>
-                      setTransForm((f) => ({
-                        ...f,
-                        requiresComment: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>Requires comment</span>
-                </label>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowAddTransition(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingTrans}
-                >
-                  {savingTrans ? "Adding…" : "Add Action"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Field */}
-      {editingField && (
-        <div className="modal-overlay" onClick={() => setEditingField(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">
-                Edit Detail — {editingField.label}
-              </h3>
-              <button
-                className="modal-close"
-                onClick={() => setEditingField(null)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleEditField(e)}>
-              <div className="modal-body">
-                {fieldError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {fieldError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. Customer Name"
-                      value={fieldForm.label}
-                      onChange={(e) =>
-                        setFieldForm((f) => ({ ...f, label: e.target.value }))
-                      }
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">
-                      Detail ID (cannot be changed)
-                    </label>
-                    <input
-                      className="form-input"
-                      value={fieldForm.name}
-                      disabled
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">
-                    Detail Type (cannot be changed)
+                    Detail ID (cannot be changed)
                   </label>
                   <input
                     className="form-input"
-                    value={
-                      FIELD_TYPES.find((ft) => ft.value === fieldForm.fieldType)
-                        ?.label ?? fieldForm.fieldType
-                    }
+                    value={fieldForm.name}
                     disabled
                   />
                 </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={fieldForm.isRequired}
-                    onChange={(e) =>
-                      setFieldForm((f) => ({
-                        ...f,
-                        isRequired: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>Required field</span>
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Detail Type (cannot be changed)
                 </label>
+                <input
+                  className="form-input"
+                  value={
+                    FIELD_TYPES.find((ft) => ft.value === fieldForm.fieldType)
+                      ?.label ?? fieldForm.fieldType
+                  }
+                  disabled
+                />
               </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setEditingField(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingField}
-                >
-                  {savingField ? "Saving…" : "Save Changes"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={fieldForm.isRequired}
+                  onChange={(e) =>
+                    setFieldForm((f) => ({
+                      ...f,
+                      isRequired: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Required field</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditingField(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingField}>
+                {savingField ? "Saving…" : "Save Changes"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit State */}
-      {editingState && (
-        <div className="modal-overlay" onClick={() => setEditingState(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Edit Step — {editingState.label}</h3>
-              <button
-                className="modal-close"
-                onClick={() => setEditingState(null)}
-              >
-                ×
-              </button>
-            </div>
-            <form onSubmit={(e) => void handleEditState(e)}>
-              <div className="modal-body">
-                {stateError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {stateError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Label *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. In Progress"
-                      value={stateForm.label}
-                      onChange={(e) => {
-                        const label = e.target.value;
-                        const name = label
-                          .toLowerCase()
-                          .replace(/\s+/g, "_")
-                          .replace(/[^a-z0-9_]/g, "");
-                        setStateForm((f) => ({ ...f, label, name }));
-                      }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Step ID *</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. in_progress"
-                      value={stateForm.name}
-                      onChange={(e) =>
-                        setStateForm((f) => ({ ...f, name: e.target.value }))
-                      }
-                      pattern="^[a-z_][a-z0-9_]*$"
-                      title="snake_case only"
-                      required
-                    />
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        color: "var(--text-secondary, #6b7280)",
-                      }}
-                    >
-                      Used to connect Actions to this step — changing it updates
-                      any Actions that already point here.
-                    </span>
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Color</label>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "8px",
-                        alignItems: "center",
-                      }}
-                    >
-                      <input
-                        type="color"
-                        value={stateForm.color}
-                        onChange={(e) =>
-                          setStateForm((f) => ({
-                            ...f,
-                            color: e.target.value,
-                          }))
-                        }
-                        style={{
-                          width: "40px",
-                          height: "36px",
-                          border: "none",
-                          borderRadius: "6px",
-                          cursor: "pointer",
-                        }}
-                      />
-                      <input
-                        className="form-input"
-                        value={stateForm.color}
-                        onChange={(e) =>
-                          setStateForm((f) => ({
-                            ...f,
-                            color: e.target.value,
-                          }))
-                        }
-                        placeholder="#6366f1"
-                        style={{ flex: 1 }}
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Order</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={0}
-                      value={stateForm.sortOrder}
-                      onChange={(e) =>
-                        setStateForm((f) => ({
-                          ...f,
-                          sortOrder: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">
-                    Deadline (hours, optional)
-                  </label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min={1}
-                    placeholder="e.g. 24"
-                    value={stateForm.slaHours}
-                    onChange={(e) =>
-                      setStateForm((f) => ({
-                        ...f,
-                        slaHours: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <label className="form-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={stateForm.isTerminal}
-                    onChange={(e) =>
-                      setStateForm((f) => ({
-                        ...f,
-                        isTerminal: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span>
-                    This is a final step
-                    <br />
-                    <span
-                      style={{ fontWeight: 400, color: "var(--text-muted)" }}
-                    >
-                      Tickets won&apos;t move further once they reach this step
-                    </span>
-                  </span>
-                </label>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setEditingState(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingState}
-                >
-                  {savingState ? "Saving…" : "Save Changes"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Transition */}
-      {editingTransition && (
-        <div
-          className="modal-overlay"
-          onClick={() => setEditingTransition(null)}
+      <Dialog
+        open={editingState !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditingState(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
         >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Edit Action</h3>
-              <button
-                className="modal-close"
-                onClick={() => setEditingTransition(null)}
-              >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Edit Step — {editingState?.label}</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
-            </div>
-            <form onSubmit={(e) => void handleEditTransition(e)}>
-              <div className="modal-body">
-                {transError && (
-                  <div
-                    className="alert alert-error"
-                    style={{ marginBottom: "16px" }}
-                  >
-                    {transError}
-                  </div>
-                )}
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">
-                      From Step (cannot be changed)
-                    </label>
-                    <input
-                      className="form-input"
-                      value={transForm.fromState}
-                      disabled
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">
-                      To Step (cannot be changed)
-                    </label>
-                    <input
-                      className="form-input"
-                      value={transForm.toState}
-                      disabled
-                    />
-                  </div>
+            </DialogClose>
+          </div>
+          <form onSubmit={(e) => void handleEditState(e)}>
+            <div className="modal-body">
+              {stateError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {stateError}
                 </div>
+              )}
+              <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Label</label>
+                  <label className="form-label">Label *</label>
                   <input
                     className="form-input"
-                    placeholder="e.g. Start Work"
-                    value={transForm.label}
-                    onChange={(e) =>
-                      setTransForm((f) => ({ ...f, label: e.target.value }))
-                    }
+                    placeholder="e.g. In Progress"
+                    value={stateForm.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      const name = label
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setStateForm((f) => ({ ...f, label, name }));
+                    }}
+                    required
                     autoFocus
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">
-                    Who Can Do This (blank = anyone)
-                  </label>
-                  {availableRoles.length === 0 ? (
-                    <p style={{ fontSize: "13px", color: "#6b7280" }}>
-                      Loading roles…
-                    </p>
-                  ) : (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "6px",
-                        maxHeight: "160px",
-                        overflowY: "auto",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "6px",
-                        padding: "8px",
-                      }}
-                    >
-                      {availableRoles.map((role) => (
-                        <label
-                          key={role}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            fontSize: "14px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={transForm.allowedRoles.includes(role)}
-                            onChange={(e) =>
-                              setTransForm((f) => ({
-                                ...f,
-                                allowedRoles: e.target.checked
-                                  ? [...f.allowedRoles, role]
-                                  : f.allowedRoles.filter((r) => r !== role),
-                              }))
-                            }
-                          />
-                          {role}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <label className="form-checkbox">
+                  <label className="form-label">Step ID *</label>
                   <input
-                    type="checkbox"
-                    checked={transForm.requiresComment}
+                    className="form-input"
+                    placeholder="e.g. in_progress"
+                    value={stateForm.name}
                     onChange={(e) =>
-                      setTransForm((f) => ({
+                      setStateForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    pattern="^[a-z_][a-z0-9_]*$"
+                    title="snake_case only"
+                    required
+                  />
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-secondary, #6b7280)",
+                    }}
+                  >
+                    Used to connect Actions to this step — changing it updates
+                    any Actions that already point here.
+                  </span>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Color</label>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <input
+                      type="color"
+                      value={stateForm.color}
+                      onChange={(e) =>
+                        setStateForm((f) => ({
+                          ...f,
+                          color: e.target.value,
+                        }))
+                      }
+                      style={{
+                        width: "40px",
+                        height: "36px",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <input
+                      className="form-input"
+                      value={stateForm.color}
+                      onChange={(e) =>
+                        setStateForm((f) => ({
+                          ...f,
+                          color: e.target.value,
+                        }))
+                      }
+                      placeholder="#6366f1"
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Order</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    value={stateForm.sortOrder}
+                    onChange={(e) =>
+                      setStateForm((f) => ({
                         ...f,
-                        requiresComment: e.target.checked,
+                        sortOrder: e.target.value,
                       }))
                     }
                   />
-                  <span>Requires comment</span>
-                </label>
+                </div>
               </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setEditingTransition(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingTrans}
-                >
-                  {savingTrans ? "Saving…" : "Save Changes"}
-                </button>
+              <div className="form-group">
+                <label className="form-label">Deadline (hours, optional)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 24"
+                  value={stateForm.slaHours}
+                  onChange={(e) =>
+                    setStateForm((f) => ({
+                      ...f,
+                      slaHours: e.target.value,
+                    }))
+                  }
+                />
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Shared confirm-delete */}
-      {confirmDelete && (
-        <ConfirmDeleteModal
-          message={confirmDelete.message}
-          onConfirm={confirmDelete.onConfirm}
-          onCancel={() => setConfirmDelete(null)}
-          busy={
-            deletingFieldId !== null ||
-            deletingStateId !== null ||
-            deletingTransId !== null
-          }
-        />
-      )}
-
-      {/* Delete workflow */}
-      {showDeleteWorkflow && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !deletingWorkflow)
-              setShowDeleteWorkflow(false);
-          }}
-        >
-          <div
-            style={{
-              background: "var(--bg-primary)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "16px",
-              padding: "28px 32px",
-              width: "100%",
-              maxWidth: "440px",
-              boxShadow: "var(--shadow-lg)",
-            }}
-          >
-            <div
-              style={{
-                width: "48px",
-                height: "48px",
-                borderRadius: "12px",
-                background: "hsla(0,84%,60%,.12)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "22px",
-                marginBottom: "16px",
-              }}
-            >
-              🗑
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={stateForm.isTerminal}
+                  onChange={(e) =>
+                    setStateForm((f) => ({
+                      ...f,
+                      isTerminal: e.target.checked,
+                    }))
+                  }
+                />
+                <span>
+                  This is a final step
+                  <br />
+                  <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
+                    Tickets won&apos;t move further once they reach this step
+                  </span>
+                </span>
+              </label>
             </div>
-            <h3
-              style={{ margin: "0 0 8px", fontSize: "18px", fontWeight: 700 }}
-            >
-              Delete workflow?
-            </h3>
-            <p
-              style={{
-                margin: "0 0 6px",
-                fontSize: "14px",
-                color: "var(--text-secondary)",
-              }}
-            >
-              You are about to permanently delete{" "}
-              <strong>"{workflow.name}"</strong>. This will also remove all its
-              steps and actions.
-            </p>
-            <p
-              style={{
-                margin: "0 0 20px",
-                fontSize: "13px",
-                color: "var(--danger)",
-              }}
-            >
-              This action cannot be undone.
-            </p>
-
-            {deleteWorkflowError && (
-              <p
-                style={{
-                  margin: "0 0 16px",
-                  fontSize: "13px",
-                  color: "var(--danger)",
-                }}
-              >
-                ⚠ {deleteWorkflowError}
-              </p>
-            )}
-
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                justifyContent: "flex-end",
-              }}
-            >
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowDeleteWorkflow(false)}
-                disabled={deletingWorkflow}
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditingState(null)}
               >
                 Cancel
-              </button>
-              <button
-                className="btn btn-danger-sm"
-                onClick={() => void handleDeleteWorkflow()}
-                disabled={deletingWorkflow}
-                style={{ minWidth: "120px" }}
-              >
-                {deletingWorkflow ? "Deleting…" : "Delete Workflow"}
-              </button>
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingState}>
+                {savingState ? "Saving…" : "Save Changes"}
+              </Button>
             </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Transition */}
+      <Dialog
+        open={editingTransition !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditingTransition(null);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Edit Action</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
           </div>
-        </div>
-      )}
+          <form onSubmit={(e) => void handleEditTransition(e)}>
+            <div className="modal-body">
+              {transError && (
+                <div
+                  className="alert alert-error"
+                  style={{ marginBottom: "16px" }}
+                >
+                  {transError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">
+                    From Step (cannot be changed)
+                  </label>
+                  <input
+                    className="form-input"
+                    value={transForm.fromState}
+                    disabled
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">
+                    To Step (cannot be changed)
+                  </label>
+                  <input
+                    className="form-input"
+                    value={transForm.toState}
+                    disabled
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Label</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Start Work"
+                  value={transForm.label}
+                  onChange={(e) =>
+                    setTransForm((f) => ({ ...f, label: e.target.value }))
+                  }
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Who Can Do This (blank = anyone)
+                </label>
+                {availableRoles.length === 0 ? (
+                  <p style={{ fontSize: "13px", color: "#6b7280" }}>
+                    Loading roles…
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      maxHeight: "160px",
+                      overflowY: "auto",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "6px",
+                      padding: "8px",
+                    }}
+                  >
+                    {availableRoles.map((role) => (
+                      <label
+                        key={role}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "14px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={transForm.allowedRoles.includes(role)}
+                          onChange={(e) =>
+                            setTransForm((f) => ({
+                              ...f,
+                              allowedRoles: e.target.checked
+                                ? [...f.allowedRoles, role]
+                                : f.allowedRoles.filter((r) => r !== role),
+                            }))
+                          }
+                        />
+                        {role}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <label className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={transForm.requiresComment}
+                  onChange={(e) =>
+                    setTransForm((f) => ({
+                      ...f,
+                      requiresComment: e.target.checked,
+                    }))
+                  }
+                />
+                <span>Requires comment</span>
+              </label>
+            </div>
+            <div className="modal-footer">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditingTransition(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={savingTrans}>
+                {savingTrans ? "Saving…" : "Save Changes"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Shared confirm-delete */}
+      <ConfirmDeleteDialog
+        open={confirmDelete !== null}
+        message={confirmDelete?.message ?? ""}
+        onConfirm={() => confirmDelete?.onConfirm()}
+        onCancel={() => setConfirmDelete(null)}
+        busy={
+          deletingFieldId !== null ||
+          deletingStateId !== null ||
+          deletingTransId !== null
+        }
+      />
+
+      {/* Delete workflow */}
+      <ConfirmDeleteDialog
+        open={showDeleteWorkflow}
+        title="Delete workflow?"
+        message={
+          <>
+            You are about to permanently delete{" "}
+            <strong>"{workflow.name}"</strong>. This will also remove all its
+            steps and actions.
+          </>
+        }
+        errorMessage={deleteWorkflowError}
+        confirmLabel="Delete Workflow"
+        busy={deletingWorkflow}
+        onConfirm={() => void handleDeleteWorkflow()}
+        onCancel={() => setShowDeleteWorkflow(false)}
+      />
 
       {/* Nav-away guard — unsaved canvas changes */}
-      {blocker.state === "blocked" && (
-        <div
+      <AlertDialog
+        open={blocker.state === "blocked"}
+        onOpenChange={(next) => {
+          if (!next) blocker.reset();
+        }}
+      >
+        <AlertDialogContent
           style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,.4)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
+            background: "var(--bg-card, #fff)",
+            border: "1px solid var(--border-color, #e5e7eb)",
+            borderRadius: "12px",
+            padding: "24px 26px",
+            width: "360px",
+            maxWidth: "360px",
+            boxShadow: "0 8px 32px rgba(0,0,0,.16)",
           }}
         >
-          <div
+          <AlertDialogTitle
             style={{
-              background: "var(--bg-card, #fff)",
-              border: "1px solid var(--border-color, #e5e7eb)",
-              borderRadius: "12px",
-              padding: "24px 26px",
-              width: "360px",
-              boxShadow: "0 8px 32px rgba(0,0,0,.16)",
+              fontSize: "14px",
+              fontWeight: 700,
+              marginBottom: "8px",
             }}
           >
-            <div
-              style={{
-                fontSize: "14px",
-                fontWeight: 700,
-                marginBottom: "8px",
-                color: "var(--text-primary)",
-              }}
-            >
-              Unsaved canvas changes
-            </div>
-            <div
-              style={{
-                fontSize: "13px",
-                color: "var(--text-secondary)",
-                marginBottom: "20px",
-              }}
-            >
-              You have unsaved canvas changes. Leave without saving?
-            </div>
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button className="btn-primary" onClick={() => blocker.proceed()}>
+            Unsaved canvas changes
+          </AlertDialogTitle>
+          <AlertDialogDescription
+            style={{
+              color: "var(--text-secondary)",
+              marginBottom: "20px",
+            }}
+          >
+            You have unsaved canvas changes. Leave without saving?
+          </AlertDialogDescription>
+          <AlertDialogFooter
+            style={{ justifyContent: "flex-start", marginTop: 0 }}
+          >
+            <AlertDialogAction asChild>
+              <Button variant="primary" onClick={() => blocker.proceed()}>
                 Leave without saving
-              </button>
-              <button className="btn" onClick={() => blocker.reset()}>
-                Stay
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              </Button>
+            </AlertDialogAction>
+            <AlertDialogCancel asChild>
+              <Button variant="secondary">Stay</Button>
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

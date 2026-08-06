@@ -1,26 +1,21 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-07-25 (reconciliation — 8 PRs merged 2026-07-23/24 closing #128, #129, #141,
-#160, #167, #168, #170, plus ADR-005 and ADR-006 accepted, resolving both open questions the
-2026-07-22 reconciliation left for a human. Only **#125** remains open from the original
-pre-Phase-3 hardening backlog. #181 (#136/ADR-007 RLS) merged 2026-07-25. Two PRs open awaiting
-review: #186 (#182–185 nit-bugs), #188 (#187/#171/#150/#148/#110 nit-bugs).)
-**Previously:** 2026-07-24 (`workflow` branch — workflow builder UX pass, cascading-rename fix,
-template naming/validation bugfixes, template visibility governance (new, ad-hoc, not on the
-tracked Phase 3 backlog), and the Docs guardrail-pipeline stage — see week-log.md 2026-07-24 for
-detail.); 2026-07-16 (PR #144 — child tickets, tender module (8th standard module), access-request flow, attachments, "My Tickets" view, multi-admin workflows, plus a pre-PR security hardening pass — see "Out-of-band feature work" under Phase 2 below)
+**Last updated:** 2026-08-03 — reconciled against current `gh` state. Security Groups D and H,
+PR #312's Group-D follow-ups, and #303/#304 are all merged; only this doc's own PR (#313) is open.
+Full current status lives in the sections below — **this header tracks state, not history.**
+Session-by-session narrative is in [week-log.md](week-log.md); don't duplicate it here.
 **Team model:** AI-first (Claude Code as primary engineering partner)
-**Tracking:** Update `% done` and `Status` each session. Log milestones in [week-log.md](week-log.md).
+**Tracking:** Update `% done` and `Status` each session.
 
 ---
 
 ## Summary scorecard
 
-| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                                                      |
-| ------------------------------- | ------------------- | --------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                                                 |
-| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **~95%**   | Pre-Phase 3 hardening: only **#125** (notify→Novu) remains open; #136/ADR-007 RLS closed via PR #181 (merged 2026-07-25). |
-| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace — not started, needs human planning sign-off per `CLAUDE.md`                                  |
+| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                               |
+| ------------------------------- | ------------------- | --------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                          |
+| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **100%**   | Pre-Phase 3 hardening complete — #125 closed via PR #211 (2026-07-29). All hardening items closed. |
+| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace — not started, needs human planning sign-off per `CLAUDE.md`           |
 
 ---
 
@@ -40,15 +35,15 @@ detail.); 2026-07-16 (PR #144 — child tickets, tender module (8th standard mod
 
 ### Phase 1 carry-overs — triaged 2026-05-22
 
-| Issue                  | Title                                           | Decision                                                                                                                   | Gate       |
-| ---------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| [#3](../../issues/3)   | Workflow reliability gaps (tracker)             | ✅ Closed — items 1–3 done (#59–61), item 4 tracked in #62                                                                 | —          |
-| [#64](../../issues/64) | Transition rollback / undo policy               | ✅ Closed — Option A: irreversible by design, ADR-002 WE-02 resolved, `engine.ts` comment added                            | —          |
-| [#2](../../issues/2)   | SSRF + PII leakage gaps                         | ✅ Closed — PR #85; SSRF block + PII redaction + cross-tenant ref guard                                                    | —          |
-| [#5](../../issues/5)   | Tenant lifecycle + audit log + outbox retention | ✅ Closed — PR #86; lifecycle service, purge worker, audit entries                                                         | 2A         |
-| [#4](../../issues/4)   | Schema cache stampede + `redis.keys()`          | 🟡 Deferred — only bites at scale; fix before second pilot customer / load testing                                         | Pre-GA     |
-| [#62](../../issues/62) | Workflow version GC + stuck instance recovery   | 🟡 Deferred — gated on 2D (workflow editor); pilot uses fixed seed SQL. 2D shipped 2026-07-22 — revisit.                   | Before 2D  |
-| [#65](../../issues/65) | Parallel approval edge cases                    | 🟡 Deferred (phase:3) — off-limits for pilot; sequential-only approval; see `.claude/context/parallel-approval-pattern.md` | Post-pilot |
+| Issue                  | Title                                           | Decision                                                                                                                                                                                                                                                                                    | Gate       |
+| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| [#3](../../issues/3)   | Workflow reliability gaps (tracker)             | ✅ Closed — items 1–3 done (#59–61), item 4 tracked in #62                                                                                                                                                                                                                                  | —          |
+| [#64](../../issues/64) | Transition rollback / undo policy               | ✅ Closed — Option A: irreversible by design, ADR-002 WE-02 resolved, `engine.ts` comment added                                                                                                                                                                                             | —          |
+| [#2](../../issues/2)   | SSRF + PII leakage gaps                         | ✅ Closed — PR #85; SSRF block + PII redaction + cross-tenant ref guard                                                                                                                                                                                                                     | —          |
+| [#5](../../issues/5)   | Tenant lifecycle + audit log + outbox retention | ✅ Closed — PR #86; lifecycle service, purge worker, audit entries                                                                                                                                                                                                                          | 2A         |
+| [#4](../../issues/4)   | Schema cache stampede + `redis.keys()`          | 🟡 Deferred — only bites at scale; fix before second pilot customer / load testing                                                                                                                                                                                                          | Pre-GA     |
+| [#62](../../issues/62) | Workflow version GC + stuck instance recovery   | ✅ Closed 2026-08-02 — premise didn't match shipped architecture (no workflow versioning exists; `deleteWorkflow` already blocks on any instance). Real analogous gap split into #301 (`deleteWorkflowState` didn't check for live instances in the state) and fixed same session, PR #302. | —          |
+| [#65](../../issues/65) | Parallel approval edge cases                    | 🟡 Deferred (phase:3) — off-limits for pilot; sequential-only approval; see `.claude/context/parallel-approval-pattern.md`                                                                                                                                                                  | Post-pilot |
 
 ---
 
@@ -105,20 +100,35 @@ were consolidated into [docs/reviews/pending-review-findings.md](../reviews/pend
 2026-07-24 (only still-open findings kept). #126/#127 jumped the original queue per that review's
 severity ranking. As of 2026-07-24:
 
-| Issue                        | Title                                                               | Status                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [#121](../../issues/121)     | RLS under real role (`SET LOCAL ROLE app_user`)                     | ✅ Closed — PR #135                                                                                         |
-| [#122](../../issues/122)     | Isolation tests run as `app_user`, not superuser                    | ✅ Closed — alongside #121                                                                                  |
-| [#126](../../issues/126)     | `entity.created`/`entity.assigned` triggers never fire              | ✅ Closed — PR #138                                                                                         |
-| [#127](../../issues/127)     | `setEntityState`/`bulkSetState` unguarded state side-door           | ✅ Closed — PR #155                                                                                         |
-| [#120](../../issues/120)     | Automation double-trigger (depth resets on outbox path)             | ✅ Closed                                                                                                   |
-| [#123](../../issues/123)     | Automation queue has no retries                                     | ✅ Closed                                                                                                   |
-| [#124](../../issues/124)     | Auth middleware writes on every request                             | ✅ Closed                                                                                                   |
-| [#128](../../issues/128)     | OpenBao + MinIO commented out of docker-compose                     | ✅ Closed — PR #173 (2026-07-23), idempotency follow-up PR #178 (2026-07-24)                                |
-| [#129](../../issues/129)     | Worker has no health endpoint                                       | ✅ Closed — PR #175 (2026-07-24)                                                                            |
-| [#141](../../issues/141)     | `pnpm lint` is a repo-wide no-op                                    | ✅ Closed — PR #166                                                                                         |
-| [#136](../../issues/136)     | RLS for entity_types/workflows/workflow_states/workflow_transitions | ✅ Closed — ADR-007 accepted, merged via PR #181 (2026-07-25)                                               |
-| **[#125](../../issues/125)** | **`notify` action is a stub — Novu never wired up**                 | **Only item still fully open** — needs a real outbox-pattern delivery worker, bigger than originally scoped |
+| Issue                    | Title                                                               | Status                                                                       |
+| ------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [#121](../../issues/121) | RLS under real role (`SET LOCAL ROLE app_user`)                     | ✅ Closed — PR #135                                                          |
+| [#122](../../issues/122) | Isolation tests run as `app_user`, not superuser                    | ✅ Closed — alongside #121                                                   |
+| [#126](../../issues/126) | `entity.created`/`entity.assigned` triggers never fire              | ✅ Closed — PR #138                                                          |
+| [#127](../../issues/127) | `setEntityState`/`bulkSetState` unguarded state side-door           | ✅ Closed — PR #155                                                          |
+| [#120](../../issues/120) | Automation double-trigger (depth resets on outbox path)             | ✅ Closed                                                                    |
+| [#123](../../issues/123) | Automation queue has no retries                                     | ✅ Closed                                                                    |
+| [#124](../../issues/124) | Auth middleware writes on every request                             | ✅ Closed                                                                    |
+| [#128](../../issues/128) | OpenBao + MinIO commented out of docker-compose                     | ✅ Closed — PR #173 (2026-07-23), idempotency follow-up PR #178 (2026-07-24) |
+| [#129](../../issues/129) | Worker has no health endpoint                                       | ✅ Closed — PR #175 (2026-07-24)                                             |
+| [#141](../../issues/141) | `pnpm lint` is a repo-wide no-op                                    | ✅ Closed — PR #166                                                          |
+| [#136](../../issues/136) | RLS for entity_types/workflows/workflow_states/workflow_transitions | ✅ Closed — ADR-007 accepted, merged via PR #181 (2026-07-25)                |
+| [#125](../../issues/125) | `notify` action — outbox-pattern delivery worker + in-app inbox     | ✅ Closed — PR #211 (2026-07-29)                                             |
+
+### Security hardening — July 2026 audit batch (filed 2026-07-31, issues #221–#267)
+
+| Group | PR   | Issues fixed                                                        | Status                                                                                                                                                                                                                                       |
+| ----- | ---- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | #281 | #237, #262, #255, #238 (#232/#236 already fixed)                    | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| B     | #279 | #225, #223, #229, #231                                              | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| C     | #280 | #224, #239, #235, #240, #241                                        | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| —     | #282 | #201 (native confirm/alert)                                         | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| E     | #283 | #243, #244, #254, #234                                              | ✅ Merged 2026-07-31                                                                                                                                                                                                                         |
+| G     | #293 | #245, #228, #258, #256, #259, #257                                  | ✅ Merged 2026-08-01                                                                                                                                                                                                                         |
+| D     | #305 | #226, #227, #230, #233, #249, #264, #265                            | ✅ Merged 2026-08-03                                                                                                                                                                                                                         |
+| H     | #294 | #251, #252, #253, #260, #261, #263                                  | ✅ Merged 2026-08-01                                                                                                                                                                                                                         |
+| —     | #312 | #306, #308, #309, #310, #311 (Group D + workflow-engine follow-ups) | ✅ Merged 2026-08-03                                                                                                                                                                                                                         |
+| skip  | —    | #246, #248, #250, #247                                              | ⛔ Blocked on issue #2 (SSRF/PII) — human review required. #247 additionally deferred by PR #312 to future outbound-HTML-email-sink work; #312's own body explicitly does not close it, despite an earlier tracker draft crediting it there. |
 
 ### Found since the 2026-06-29 consulting review, now also closed or in review
 
@@ -129,17 +139,42 @@ severity ranking. As of 2026-07-24:
 | [#167](../../issues/167)                                                     | `grant-access.ts` should accept workflow-admin callers                       | ✅ Closed — PR #179               |
 | [#160](../../issues/160)                                                     | `setEntityState`/`bulkSetState` don't validate target state                  | ✅ Closed — PR #180               |
 | [#176](../../issues/176)                                                     | Guardrail hooks: shared state clobbers across branches; worktree bypass      | ✅ Closed — PR #177               |
-| [#171](../../issues/171)                                                     | helpdesk's redundant non-idempotent `001_seed.sql`                           | PR #188 open, not yet merged      |
-| [#182](../../issues/182)–[#185](../../issues/185)                            | Nit-bugs from PR #175/#177/#179/#180 reviews                                 | PR #186 open, not yet merged      |
-| [#187](../../issues/187)                                                     | `TRANSITION_LOCKED` falls through to 500 in `handle-workflow-error.ts`       | PR #188 open, not yet merged      |
-| [#150](../../issues/150), [#148](../../issues/148), [#110](../../issues/110) | Small housekeeping (gitignore, corepack hash, pretest script)                | PR #188 open, not yet merged      |
+| [#171](../../issues/171)                                                     | helpdesk's redundant non-idempotent `001_seed.sql`                           | ✅ Closed — PR #188 (2026-07-25)  |
+| [#182](../../issues/182)–[#185](../../issues/185)                            | Nit-bugs from PR #175/#177/#179/#180 reviews                                 | ✅ Closed — PR #186 (2026-07-25)  |
+| [#187](../../issues/187)                                                     | `TRANSITION_LOCKED` falls through to 500 in `handle-workflow-error.ts`       | ✅ Closed — PR #188 (2026-07-25)  |
+| [#150](../../issues/150), [#148](../../issues/148), [#110](../../issues/110) | Small housekeeping (gitignore, corepack hash, pretest script)                | ✅ Closed — PR #188 (2026-07-25)  |
 | [#143](../../issues/143)                                                     | Automation-triggered transitions absent from outbox (Phase 3A connector gap) | Open — assigned to Bikash Barnwal |
 
 **Informally assigned via issue-comment `@mentions` (GitHub's `assignees` field isn't used in this
 repo) — not tracked here since ownership changes faster than this doc; see a local, gitignored
 `open-issues-tracker.md` in this same directory if present, or re-check `gh issue view <N>
---json comments` for current assignment:** #161, #162, #163, #165 → Tushar Sharma. #143, #125 →
+--json comments` for current assignment:** #161, #162, #163, #165 → Tushar Sharma. #143 →
 Bikash Barnwal.
+
+---
+
+## Second consulting-review batch (#191–#202) — status
+
+Filed 2026-07-24 from the second external consulting-review pass. Triaged and mostly worked
+through 2026-07-30/31 (see header above for the session narrative).
+|
+| Issue | Title | Status |
+| ------------------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#191](../../issues/191) | Automation `assign`/`create_entity` actions declared, never dispatched | ✅ Closed — PR #219 |
+| [#195](../../issues/195) | Rate limiter bucketed on unverified JWT claim, not tenant | ✅ Closed — PR #221 |
+| [#218](../../issues/218) | `create_entity` unbounded recursion (follow-up from #191) | ✅ Closed — PR #270 |
+| [#220](../../issues/220) | `loadEntityType()` no explicit tenant filter (follow-up from #191) | ✅ Closed — PR #222 |
+| [#149](../../issues/149) | 4 pre-existing `view-configs.test.ts` failures under parallelism | ✅ Closed — PR #269 |
+| [#196](../../issues/196) | Scale-risk backlog — cache invalidation, pagination, N+1, pool | ✅ Closed 2026-08-01 — re-verified against current code: cache invalidation & pagination don't reproduce, N+1 fixed (PR #271), pool ceiling split into #296 (needs load-test data) |
+| [#201](../../issues/201) | Native `confirm()`/`alert()` instead of a shared dialog | ✅ Closed — PR #282 merged 2026-07-31 |
+| [#198](../../issues/198) | No accessibility floor on modals | 🟡 Open by design — wave 1 (PR #285) and wave 2 (#284, PR #298) both merged, but the issue's bar is systemic ("not a single `role=\"dialog\"` anywhere") and 2 items are deliberately deferred: `workflow-canvas.tsx`'s `TransitionPanel` (slide-in panel, not a true modal) and `record-detail.tsx`'s access-denied overlay (likely full-page state). Closing now (with a note on the 2 exceptions) vs. leaving open specifically for them is a call for a human to make — not yet decided. |
+| [#192](../../issues/192) | No backup / disaster-recovery runbook | 🟡 Open by design — PR #286 (merged 2026-08-01) added `scripts/backup.sh` (pg_dump + MinIO mirror) and a tested restore runbook, but deliberately stops short of an RPO/RTO policy or cron schedule — a maintainer decision the PR body explicitly leaves open. |
+| [#194](../../issues/194) | `tests/e2e/` has no actual test harness | ✅ Closed 2026-08-02 — PR #287 (real HTTP, real auth, no mocks) |
+| [#197](../../issues/197) | "Configured" field types render as plain text, not real widgets | ✅ Closed — PR #288 merged 2026-08-01 (`file`/`files` deferred as #289) |
+| [#289](../../issues/289) | `file`/`files` field-type widgets deferred from #197/PR #288 | ✅ Closed — PR #299 merged 2026-08-03. `FileFieldPicker` reuses `useFileUpload`/`AttachmentUploadZone`/`FileChip`; `moduleSlug` derived via `entity_types.moduleId → modules.slug` (falls back to `"platform"` for module-less core entity types). Stayed open post-merge (no `Closes` keyword) until an issue-hygiene pass closed it same day. |
+| [#199](../../issues/199) | `packages/ui` is hollow — no real shared component library | 🟡 Narrowed further — `Dialog`/`AlertDialog` (#273) and the `FieldInput` family (#288) were already correctly layered; `Button`/`IconButton` added and all 17 admin-ui pages migrated off raw `btn-*`/`icon-btn-*` classNames (PR #295). That review surfaced #303 (4 `<Link>` sites not on `Button`) and #304 (dialog style-reset duplication + `modules.tsx` mount pattern) — both resolved via PR #307 (2026-08-03). A `Table`/`TableHeader`/`TableBody`/`TableRow`/`TableHead`/`TableCell` primitive shipped, with `entity-types/index.tsx` and `automations/index.tsx` migrated off `.data-table`/`.table-scroll` classNames. Deliberately not migrated: `entity-types/detail.tsx` and `workflows/detail.tsx` (4255 lines, highest regression risk) and `system-logs.tsx`/`users.tsx` (a different, ad-hoc token set and hand-rolled hover handlers — migrating them cleanly needs the design-token-layer decision first, not a tag swap). Still no design-token layer. |
+| [#200](../../issues/200) | Zero internationalization — all UI strings hardcoded English | 🟡 Scaffolding only — PR #272 (merged 2026-07-31) installed `react-i18next` and fully converted 2 of 57 files (`login.tsx`, `callback.tsx`) as a proof of concept; ~55 files and ~300 strings remain, deliberately out of scope for that PR. Correctly still open — not "untouched" as this doc previously said. |
+| [#202](../../issues/202) | `docker compose down -v` data-loss foot-gun | Open — no PR, no owner |
 
 ---
 
@@ -172,5 +207,5 @@ version GC, defer until 2D workflow editor — 2D shipped 2026-07-22, revisit), 
 4. Run session-start checks:
    - `gh issue list --state open --label phase:2` — hardening sprint (must close before 3A starts)
    - `gh issue list --state open --label phase:3` — Phase 3 feature tracks
-   - `gh pr list --state open` — anything awaiting review/merge (as of 2026-07-25: #186, #188, #189,
-     #205 — #181/#190 merged 2026-07-25)
+   - `gh pr list --state open` — anything awaiting review/merge (as of 2026-08-03: only #313, this
+     doc's own PR — everything else has merged)

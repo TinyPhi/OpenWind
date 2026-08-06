@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogTitle,
+  Button,
+  DIALOG_CONTENT_RESET,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { UserPicker } from "../../components/user-picker.js";
+import { FieldInput } from "../../components/field-input.js";
+import { useEntityTypes } from "../../entity-type-context.js";
 
 type EntityField = {
   id: string;
@@ -54,114 +64,15 @@ function formatFieldValue(value: unknown): string {
   return String(value);
 }
 
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  field: EntityField;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}): React.ReactElement {
-  const strVal = value === null || value === undefined ? "" : String(value);
-  switch (field.fieldType) {
-    case "boolean":
-      return (
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          <span>{field.label}</span>
-        </label>
-      );
-    case "number":
-    case "currency":
-      return (
-        <input
-          className="form-input"
-          type="number"
-          value={strVal}
-          onChange={(e) =>
-            onChange(e.target.value === "" ? null : Number(e.target.value))
-          }
-        />
-      );
-    case "date":
-      return (
-        <input
-          className="form-input"
-          type="date"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "datetime":
-      return (
-        <input
-          className="form-input"
-          type="datetime-local"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    case "enum":
-    case "multi_enum": {
-      const opts = (field.config.options ?? []).map((o) =>
-        typeof o === "string"
-          ? { label: o, value: o }
-          : { label: o.label, value: o.value },
-      );
-      return (
-        <select
-          className="form-input"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        >
-          <option value="">Select…</option>
-          {opts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    case "longtext":
-      return (
-        <textarea
-          className="form-input"
-          value={strVal}
-          rows={4}
-          style={{ resize: "vertical" }}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-    default:
-      return (
-        <input
-          className="form-input"
-          type="text"
-          value={strVal}
-          onChange={(e) => onChange(e.target.value || null)}
-        />
-      );
-  }
-}
-
 export function EntityInstanceDetail(): React.ReactElement {
   const { id: entityTypeId, instanceId } = useParams<{
     id: string;
     instanceId: string;
   }>();
+  const { getTypeById, modules } = useEntityTypes();
+  const moduleSlug =
+    modules.find((m) => m.id === getTypeById(entityTypeId ?? "")?.moduleId)
+      ?.slug ?? "platform";
 
   const [fields, setFields] = useState<EntityField[]>([]);
   const [record, setRecord] = useState<EntityInstance | null>(null);
@@ -406,12 +317,12 @@ export function EntityInstanceDetail(): React.ReactElement {
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px" }}>
-          <button className="btn-secondary" onClick={() => setStateModal(true)}>
+          <Button variant="secondary" onClick={() => setStateModal(true)}>
             Change State
-          </button>
+          </Button>
           {!editing && (
-            <button
-              className="btn-primary"
+            <Button
+              variant="primary"
               onClick={() => {
                 setEditValues(record.fields);
                 setCurrentState(record.currentState ?? "");
@@ -420,7 +331,7 @@ export function EntityInstanceDetail(): React.ReactElement {
               }}
             >
               Edit Fields
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -503,20 +414,20 @@ export function EntityInstanceDetail(): React.ReactElement {
           <span style={{ fontWeight: 600 }}>Fields</span>
           {editing && (
             <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => setEditing(false)}
                 disabled={saving}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => void saveEdit()}
                 disabled={saving}
               >
                 {saving ? "Saving…" : "Save"}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -568,6 +479,8 @@ export function EntityInstanceDetail(): React.ReactElement {
                   <FieldInput
                     field={f}
                     value={editValues[f.name]}
+                    moduleSlug={moduleSlug}
+                    entityId={instanceId}
                     onChange={(v) =>
                       setEditValues((p) => ({ ...p, [f.name]: v }))
                     }
@@ -779,100 +692,102 @@ export function EntityInstanceDetail(): React.ReactElement {
       )}
 
       {/* Change state modal */}
-      {stateModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => {
+      <Dialog
+        open={stateModal}
+        onOpenChange={(next) => {
+          if (!next) {
             setStateModal(false);
             setStateError(null);
-          }}
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
         >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+          <div className="modal-header">
+            <DialogTitle asChild>
               <h3 className="modal-title">Change State</h3>
-              <button
-                className="modal-close"
-                onClick={() => {
-                  setStateModal(false);
-                  setStateError(null);
-                }}
-              >
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
                 ×
               </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            {stateError && (
+              <div
+                className="alert alert-error"
+                style={{ marginBottom: "12px" }}
+              >
+                {stateError}
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">
+                Current: {stateBadge(record.currentState)}
+              </label>
             </div>
-            <div className="modal-body">
-              {stateError && (
-                <div
-                  className="alert alert-error"
-                  style={{ marginBottom: "12px" }}
-                >
-                  {stateError}
-                </div>
-              )}
-              <div className="form-group">
-                <label className="form-label">
-                  Current: {stateBadge(record.currentState)}
-                </label>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Move to *</label>
-                {allStates.length > 0 ? (
-                  <select
-                    className="form-input"
-                    value={selectedState}
-                    onChange={(e) => setSelectedState(e.target.value)}
-                  >
-                    <option value="">Select a state…</option>
-                    {allStates
-                      .filter((s) => s.name !== record.currentState)
-                      .map((s) => (
-                        <option key={s.id} value={s.name}>
-                          {s.label || s.name}
-                        </option>
-                      ))}
-                  </select>
-                ) : (
-                  <input
-                    className="form-input"
-                    placeholder="e.g. in_progress"
-                    value={selectedState}
-                    onChange={(e) => setSelectedState(e.target.value)}
-                  />
-                )}
-              </div>
-              <div className="form-group">
-                <label className="form-label">Note (optional)</label>
-                <textarea
+            <div className="form-group">
+              <label className="form-label">Move to *</label>
+              {allStates.length > 0 ? (
+                <select
                   className="form-input"
-                  rows={3}
-                  style={{ resize: "vertical" }}
-                  placeholder="Reason for state change…"
-                  value={stateComment}
-                  onChange={(e) => setStateComment(e.target.value)}
+                  value={selectedState}
+                  onChange={(e) => setSelectedState(e.target.value)}
+                >
+                  <option value="">Select a state…</option>
+                  {allStates
+                    .filter((s) => s.name !== record.currentState)
+                    .map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.label || s.name}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <input
+                  className="form-input"
+                  placeholder="e.g. in_progress"
+                  value={selectedState}
+                  onChange={(e) => setSelectedState(e.target.value)}
                 />
-              </div>
+              )}
             </div>
-            <div className="modal-footer">
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  setStateModal(false);
-                  setStateError(null);
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                disabled={!selectedState || settingState}
-                onClick={() => void handleSetState()}
-              >
-                {settingState ? "Updating…" : "Update State"}
-              </button>
+            <div className="form-group">
+              <label className="form-label">Note (optional)</label>
+              <textarea
+                className="form-input"
+                rows={3}
+                style={{ resize: "vertical" }}
+                placeholder="Reason for state change…"
+                value={stateComment}
+                onChange={(e) => setStateComment(e.target.value)}
+              />
             </div>
           </div>
-        </div>
-      )}
+          <div className="modal-footer">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setStateModal(false);
+                setStateError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!selectedState || settingState}
+              onClick={() => void handleSetState()}
+            >
+              {settingState ? "Updating…" : "Update State"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

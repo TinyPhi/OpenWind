@@ -13,8 +13,9 @@ function makeSelectBuilder(results: () => unknown[]) {
   const q: Record<string, unknown> = {};
   q["from"] = () => q;
   q["where"] = () => q;
-  q["limit"] = () => q;
   q["orderBy"] = () => q;
+  q["limit"] = () => q;
+  q["offset"] = () => Promise.resolve(results());
   q["then"] = (resolve: (v: unknown[]) => void) =>
     Promise.resolve(results()).then(resolve);
   return q;
@@ -31,15 +32,41 @@ const mockUpdate = vi.fn((table: unknown) => ({
   set: vi.fn((setVals: Record<string, unknown>) => ({
     where: vi.fn((whereArgs: unknown) => {
       updateCalls.push({ table, setVals, whereArgs });
+      let returnRow: unknown;
+      if (table === "workflow_states_mock") returnRow = updatedStateRow;
+      else if (table === "workflows_mock")
+        returnRow = { ...workflowRow, ...setVals };
       return {
         returning: vi
           .fn()
-          .mockResolvedValue(
-            table === "workflow_states_mock" ? [updatedStateRow] : [],
-          ),
+          .mockResolvedValue(returnRow === undefined ? [] : [returnRow]),
       };
     }),
   })),
+}));
+
+type InsertCall = { table: unknown; values: Record<string, unknown> };
+let insertCalls: InsertCall[] = [];
+let insertReturnRow: unknown = undefined;
+
+const mockInsert = vi.fn((table: unknown) => ({
+  values: vi.fn((values: Record<string, unknown>) => {
+    insertCalls.push({ table, values });
+    return {
+      returning: vi
+        .fn()
+        .mockResolvedValue(
+          insertReturnRow === undefined ? [] : [insertReturnRow],
+        ),
+      onConflictDoNothing: vi.fn(() => ({
+        returning: vi
+          .fn()
+          .mockResolvedValue(
+            insertReturnRow === undefined ? [] : [insertReturnRow],
+          ),
+      })),
+    };
+  }),
 }));
 
 const dbMock = {
@@ -49,6 +76,7 @@ const dbMock = {
     return makeSelectBuilder(result);
   }),
   update: mockUpdate,
+  insert: mockInsert,
 };
 
 vi.mock("@platform/db", () => ({
@@ -83,6 +111,8 @@ const {
   listWorkflows,
   listWorkflowsSummary,
   getWorkflowByEntityTypeId,
+  addWorkflowState,
+  updateWorkflow,
 } = await import("./workflow-crud.js");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -122,6 +152,53 @@ beforeEach(() => {
   selectCallCount = 0;
   selectQueue = [];
   updateCalls = [];
+  insertCalls = [];
+  insertReturnRow = undefined;
+});
+
+const workflowRow = {
+  id: WORKFLOW_ID,
+  tenantId: TENANT_ID,
+  entityTypeId: "etype-1",
+  name: "Support",
+  initialState: "open",
+  isActive: true,
+  createdBy: CALLER.userId,
+  assignedTo: [CALLER.userId],
+  maxChildDepth: 1,
+  maxChildrenPerParent: null,
+  createdAt: new Date("2026-01-01"),
+};
+
+describe("listWorkflowsSummary — limit parameter (#261)", () => {
+  it("returns mapped workflow rows from the DB", async () => {
+    selectQueue = [() => [workflowRow]];
+
+    const results = await listWorkflowsSummary(
+      dbMock as never,
+      TENANT_ID,
+      CALLER,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.id).toBe(WORKFLOW_ID);
+    expect(results[0]?.name).toBe("Support");
+  });
+
+  it("returns empty array when no workflows match", async () => {
+    selectQueue = [() => []];
+
+    const results = await listWorkflowsSummary(
+      dbMock as never,
+      TENANT_ID,
+      CALLER,
+      undefined,
+      false,
+      10,
+    );
+
+    expect(results).toHaveLength(0);
+  });
 });
 
 describe("updateWorkflowState — rename cascade", () => {
@@ -231,7 +308,7 @@ describe("listWorkflows / listWorkflowsSummary — tenant-wide visibility", () =
     expect(ownershipCheck).toBeUndefined();
   });
 
-  it("listWorkflows: also does not apply the ownership filter for a bare call (no entityTypeId) — listing is tenant-wide for every caller", async () => {
+  it("listWorkflows: also does not apply the ownership filter for a bare call (no entityTypeId) — a signed-off widening beyond the original spec's §C/R1 (see spec amendment note), needed by the records page's tenant-wide workflow-discovery feature for general users", async () => {
     selectQueue = [() => []];
     await listWorkflows(dbMock as never, TENANT_ID, NON_ADMIN_CALLER);
 
@@ -267,7 +344,7 @@ describe("listWorkflows / listWorkflowsSummary — tenant-wide visibility", () =
     expect(ownershipCheck).toBeUndefined();
   });
 
-  it("listWorkflowsSummary: also does not apply the ownership filter for a bare call (no entityTypeId) — listing is tenant-wide for every caller", async () => {
+  it("listWorkflowsSummary: also does not apply the ownership filter for a bare call (no entityTypeId) — same signed-off widening as listWorkflows above", async () => {
     selectQueue = [() => []];
     await listWorkflowsSummary(dbMock as never, TENANT_ID, NON_ADMIN_CALLER);
 
@@ -290,5 +367,141 @@ describe("listWorkflows / listWorkflowsSummary — tenant-wide visibility", () =
     // this asserts the runtime behavior matches: it returns whatever row matches
     // tenant+entityType, with no ownership check applied at all — same as before.
     expect(result?.id).toBe(WORKFLOW_ID);
+  });
+});
+
+describe("addWorkflowState — initialState auto-heal", () => {
+  it("heals workflows.initialState to the first state's name when it's the first state and non-terminal", async () => {
+    selectQueue = [
+      () => [ownedWorkflowRow], // assertWorkflowOwned
+      () => [{ value: 0 }], // existing state count — none yet
+    ];
+    insertReturnRow = {
+      id: STATE_ID,
+      workflowId: WORKFLOW_ID,
+      name: "open",
+      label: "Open",
+      color: "#888",
+      isTerminal: false,
+      slaHours: null,
+      sortOrder: 0,
+    };
+
+    await addWorkflowState(dbMock as never, TENANT_ID, WORKFLOW_ID, CALLER, {
+      name: "open",
+      label: "Open",
+      color: "#888",
+    });
+
+    const healUpdate = updateCalls.find((c) => c.table === "workflows_mock");
+    expect(healUpdate).toBeDefined();
+    expect(healUpdate?.setVals).toEqual({ initialState: "open" });
+    // Required fix (PR #339 review): the heal UPDATE must filter by tenantId,
+    // not just workflow id.
+    expect(JSON.stringify(healUpdate?.whereArgs)).toContain(TENANT_ID);
+  });
+
+  it("does not heal when the first state created is terminal", async () => {
+    selectQueue = [
+      () => [ownedWorkflowRow], // assertWorkflowOwned
+      () => [{ value: 0 }], // existing state count — none yet
+    ];
+    insertReturnRow = {
+      id: STATE_ID,
+      workflowId: WORKFLOW_ID,
+      name: "closed",
+      label: "Closed",
+      color: "#888",
+      isTerminal: true,
+      slaHours: null,
+      sortOrder: 0,
+    };
+
+    await addWorkflowState(dbMock as never, TENANT_ID, WORKFLOW_ID, CALLER, {
+      name: "closed",
+      label: "Closed",
+      color: "#888",
+      isTerminal: true,
+    });
+
+    const healUpdate = updateCalls.find((c) => c.table === "workflows_mock");
+    expect(healUpdate).toBeUndefined();
+  });
+
+  it("does not heal when a state already exists on the workflow", async () => {
+    selectQueue = [
+      () => [ownedWorkflowRow], // assertWorkflowOwned
+      () => [{ value: 1 }], // existing state count — one already
+    ];
+    insertReturnRow = {
+      id: "state-2",
+      workflowId: WORKFLOW_ID,
+      name: "in_progress",
+      label: "In Progress",
+      color: "#888",
+      isTerminal: false,
+      slaHours: null,
+      sortOrder: 1,
+    };
+
+    await addWorkflowState(dbMock as never, TENANT_ID, WORKFLOW_ID, CALLER, {
+      name: "in_progress",
+      label: "In Progress",
+      color: "#888",
+    });
+
+    const healUpdate = updateCalls.find((c) => c.table === "workflows_mock");
+    expect(healUpdate).toBeUndefined();
+  });
+});
+
+describe("updateWorkflow — initialState validation", () => {
+  it("accepts a valid non-terminal initialState", async () => {
+    selectQueue = [
+      () => [ownedWorkflowRow], // load workflow (visibleTo check)
+      () => [{ isTerminal: false }], // target state lookup
+    ];
+
+    await updateWorkflow(dbMock as never, TENANT_ID, WORKFLOW_ID, CALLER, {
+      initialState: "in_progress",
+    });
+
+    const workflowUpdate = updateCalls.find(
+      (c) => c.table === "workflows_mock",
+    );
+    expect(workflowUpdate?.setVals).toEqual({
+      initialState: "in_progress",
+    });
+    expect(JSON.stringify(workflowUpdate?.whereArgs)).toContain(TENANT_ID);
+  });
+
+  it("throws WORKFLOW_INITIAL_STATE_INVALID for a terminal state name", async () => {
+    selectQueue = [
+      () => [ownedWorkflowRow], // load workflow
+      () => [{ isTerminal: true }], // target state is terminal
+    ];
+
+    await expect(
+      updateWorkflow(dbMock as never, TENANT_ID, WORKFLOW_ID, CALLER, {
+        initialState: "closed",
+      }),
+    ).rejects.toMatchObject({ code: "WORKFLOW_INITIAL_STATE_INVALID" });
+
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("throws WORKFLOW_INITIAL_STATE_INVALID when the named state doesn't exist on the workflow", async () => {
+    selectQueue = [
+      () => [ownedWorkflowRow], // load workflow
+      () => [], // target state lookup — no match
+    ];
+
+    await expect(
+      updateWorkflow(dbMock as never, TENANT_ID, WORKFLOW_ID, CALLER, {
+        initialState: "nonexistent",
+      }),
+    ).rejects.toMatchObject({ code: "WORKFLOW_INITIAL_STATE_INVALID" });
+
+    expect(updateCalls).toHaveLength(0);
   });
 });

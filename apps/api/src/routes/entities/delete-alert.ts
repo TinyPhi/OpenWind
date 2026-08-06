@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import { ticketAlerts, withTenantContext } from "@platform/db";
 import { factory } from "./factory.js";
 import { voidPendingAlertOutboxRows } from "../../lib/alert-outbox.js";
@@ -10,6 +10,7 @@ import {
 
 export const deleteAlertHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   async (c) => {
     const instanceId = c.req.param("id") ?? "";
     const alertId = c.req.param("alertId") ?? "";
@@ -41,7 +42,12 @@ export const deleteAlertHandler = factory.createHandlers(
       await tx
         .update(ticketAlerts)
         .set({ status: "cancelled", updatedAt: new Date() })
-        .where(eq(ticketAlerts.id, alertId));
+        .where(
+          and(
+            eq(ticketAlerts.id, alertId),
+            eq(ticketAlerts.tenantId, tenantId),
+          ),
+        );
 
       // Not load-bearing (alert-worker's status guard already prevents a
       // cancelled alert from firing) — voids a not-yet-polled outbox row so
@@ -57,10 +63,7 @@ export const deleteAlertHandler = factory.createHandlers(
     }
     if (result.status === 403) {
       return c.json(
-        {
-          error: "FORBIDDEN",
-          message: "Only the creator can cancel this alert",
-        },
+        { error: "FORBIDDEN", message: "Not the alert creator" },
         403,
       );
     }

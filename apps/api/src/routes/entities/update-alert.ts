@@ -1,7 +1,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   entityInstances,
   ticketAlerts,
@@ -24,6 +24,7 @@ const UpdateAlertSchema = z.object({
 
 export const updateAlertHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user"),
   zValidator("json", UpdateAlertSchema),
   async (c) => {
     const instanceId = c.req.param("id") ?? "";
@@ -53,9 +54,9 @@ export const updateAlertHandler = factory.createHandlers(
 
       if (!existing) return { status: 404 as const };
       if (existing.createdBy !== userId) {
-        // scope='all' alerts are visible to others (§R2) so existence isn't
-        // secret — 403. scope='me' alerts are invisible to others — 404
-        // avoids leaking that this alert exists at all. See §R3.
+        // scope='all' alerts are visible to other ticket-access holders (§R2),
+        // so existence isn't secret — 403 is the correct response here.
+        // scope='me' alerts are private; 404 hides existence from non-creators.
         return existing.scope === "all"
           ? { status: 403 as const }
           : { status: 404 as const };
@@ -101,7 +102,12 @@ export const updateAlertHandler = factory.createHandlers(
           recipientsSnapshot,
           updatedAt: new Date(),
         })
-        .where(eq(ticketAlerts.id, alertId))
+        .where(
+          and(
+            eq(ticketAlerts.id, alertId),
+            eq(ticketAlerts.tenantId, tenantId),
+          ),
+        )
         .returning();
 
       // Void any not-yet-polled outbox row from creation (or a prior rapid
@@ -124,7 +130,7 @@ export const updateAlertHandler = factory.createHandlers(
     }
     if (result.status === 403) {
       return c.json(
-        { error: "FORBIDDEN", message: "Only the creator can edit this alert" },
+        { error: "FORBIDDEN", message: "Not the alert creator" },
         403,
       );
     }

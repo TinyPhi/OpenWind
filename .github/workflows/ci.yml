@@ -5,6 +5,10 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  schedule:
+    # CodeQL backstop — non-code PRs (docs/config-only) skip the `security` job below,
+    # so this keeps weekly coverage from lapsing on quiet weeks.
+    - cron: "0 3 * * 1"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,10 +20,45 @@ env:
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
+  # ── 0. Change detection ─────────────────────────────────────────────────────
+  # Job-level `if:` (not top-level paths-ignore) so required status checks still
+  # report "skipped" instead of leaving PRs stuck on a check that never ran.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      db: ${{ steps.filter.outputs.db }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.sql'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'turbo.json'
+              - '**/tsconfig*.json'
+              - 'apps/**/Dockerfile'
+            db:
+              - 'packages/db/**'
+              - 'packages/entity-engine/**'
+              - 'packages/workflow-engine/**'
+              - 'packages/automation-engine/**'
+              - 'apps/**'
+              - 'tests/isolation/**'
+
   # ── 1. Lint and type-check ─────────────────────────────────────────────────
   quality:
     name: Quality gates
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,23 +82,32 @@ jobs:
             --to ${{ github.event.pull_request.head.sha }} \
             --verbose
 
+      - name: Determine turbo affected-filter base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "TURBO_FILTER=...[origin/${{ github.event.pull_request.base.ref }}]" >> "$GITHUB_ENV"
+          else
+            echo "TURBO_FILTER=...[HEAD^1]" >> "$GITHUB_ENV"
+          fi
+
       - name: Check formatting
         run: pnpm format:check
 
       - name: Lint
-        run: pnpm lint
+        run: pnpm lint --filter="$TURBO_FILTER"
 
       - name: Type check
-        run: pnpm typecheck
+        run: pnpm typecheck --filter="$TURBO_FILTER"
 
       - name: Build all packages
-        run: pnpm build
+        run: pnpm build --filter="$TURBO_FILTER"
 
   # ── 2. Unit and integration tests ─────────────────────────────────────────
   test:
     name: Tests
     runs-on: ubuntu-latest
     needs: quality
+    if: github.event.pull_request.draft != true
 
     services:
       postgres:
@@ -103,9 +151,12 @@ jobs:
       ZITADEL_AUDIENCE: platform-api
       NOVU_API_KEY: test_key
       NOVU_API_URL: http://localhost:3010
+      APP_URL: https://platform.example.com
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to resolve HEAD^1 / origin/<base> for the turbo affected-filter
 
       - uses: pnpm/action-setup@v4
 
@@ -117,8 +168,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Determine turbo affected-filter base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "TURBO_FILTER=...[origin/${{ github.event.pull_request.base.ref }}]" >> "$GITHUB_ENV"
+          else
+            echo "TURBO_FILTER=...[HEAD^1]" >> "$GITHUB_ENV"
+          fi
+
       - name: Build
-        run: pnpm build
+        run: pnpm build --filter="$TURBO_FILTER"
 
       - name: Run database migrations
         run: pnpm db:migrate
@@ -126,7 +185,7 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_MIGRATION_URL }}
 
       - name: Run unit + integration tests
-        run: pnpm test
+        run: pnpm test --filter="$TURBO_FILTER"
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -138,7 +197,19 @@ jobs:
   isolation-tests:
     name: Tenant isolation
     runs-on: ubuntu-latest
-    needs: quality
+    needs: [quality, changes]
+    # Always run on push (post-merge safety net); on PRs, only when db-relevant
+    # paths changed — this suite is the heaviest job after CodeQL and most PRs
+    # (UI-only, docs-only, config-only) never touch these paths. `always()` plus
+    # an explicit quality-success check replaces the implicit needs-gating so a
+    # `changes` job failure fails OPEN (runs the suite) instead of silently
+    # skipping a tenant-isolation check — silent-skip-on-tooling-hiccup is not
+    # an acceptable failure mode for this particular suite.
+    if: >-
+      always() &&
+      needs.quality.result == 'success' &&
+      github.event.pull_request.draft != true &&
+      (github.event_name == 'push' || needs.changes.result == 'failure' || needs.changes.outputs.db == 'true')
 
     services:
       postgres:
@@ -170,9 +241,12 @@ jobs:
       DATABASE_MIGRATION_URL: postgresql://platform:platform_test_password@localhost:5432/platform_test
       REDIS_URL: redis://localhost:6379
       NODE_ENV: test
+      APP_URL: https://platform.example.com
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to resolve HEAD^1 / origin/<base> for the turbo affected-filter
 
       - uses: pnpm/action-setup@v4
 
@@ -184,8 +258,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Determine turbo affected-filter base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "TURBO_FILTER=...[origin/${{ github.event.pull_request.base.ref }}]" >> "$GITHUB_ENV"
+          else
+            echo "TURBO_FILTER=...[HEAD^1]" >> "$GITHUB_ENV"
+          fi
+
       - name: Build
-        run: pnpm build
+        run: pnpm build --filter="$TURBO_FILTER"
 
       - name: Run database migrations
         run: pnpm db:migrate
@@ -193,14 +275,25 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_MIGRATION_URL }}
 
       - name: Run tenant isolation tests
-        run: pnpm test:isolation
+        run: pnpm test:isolation --filter="$TURBO_FILTER"
 
   # ── 4. Security scan ──────────────────────────────────────────────────────
   security:
     name: Security scan
     runs-on: ubuntu-latest
+    needs: changes
     permissions:
       security-events: write
+    # CodeQL is the slowest job in this workflow. Skip it for PRs that touch no
+    # code (docs/.claude/-only); still run on every push and on the weekly
+    # schedule so coverage doesn't lapse for quiet weeks. `always()` is required
+    # here: `changes` intentionally skips itself on the schedule trigger, and
+    # without always() the default needs-gating would make this job inherit
+    # that skip — silently defeating the weekly backstop this job exists for.
+    if: >-
+      always() &&
+      (github.event_name == 'schedule' || github.event_name == 'push' ||
+       needs.changes.result == 'failure' || needs.changes.outputs.code == 'true')
 
     steps:
       - uses: actions/checkout@v4
@@ -234,7 +327,11 @@ jobs:
     name: Docker build
     runs-on: ubuntu-latest
     needs: [test, isolation-tests]
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    if: >-
+      always() &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') &&
+      needs.test.result == 'success' &&
+      (needs.isolation-tests.result == 'success' || needs.isolation-tests.result == 'skipped')
 
     strategy:
       fail-fast: false
@@ -263,15 +360,16 @@ jobs:
     name: CI complete
     runs-on: ubuntu-latest
     needs: [quality, test, isolation-tests, security]
-    if: always()
+    if: always() && github.event_name != 'schedule'
     steps:
-      - name: Check all jobs passed
+      - name: Check all required jobs passed or were legitimately skipped
         run: |
-          if [[ "${{ needs.quality.result }}" != "success" ]] || \
-             [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.isolation-tests.result }}" != "success" ]] || \
-             [[ "${{ needs.security.result }}" != "success" ]]; then
+          ok() { [[ "$1" == "success" || "$1" == "skipped" ]]; }
+          if ! ok "${{ needs.quality.result }}" || \
+             ! ok "${{ needs.test.result }}" || \
+             ! ok "${{ needs.isolation-tests.result }}" || \
+             ! ok "${{ needs.security.result }}"; then
             echo "One or more required CI jobs failed."
             exit 1
           fi
-          echo "All CI jobs passed."
+          echo "All required CI jobs passed (or were conditionally skipped)."

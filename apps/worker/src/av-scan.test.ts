@@ -61,6 +61,7 @@ vi.mock("@platform/db", () => ({
   files: { id: "id", tenantId: "tenantId", scanStatus: "scanStatus" },
   outboxEvents: {},
   tenants: {},
+  isTenantActive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("@platform/files", () => ({

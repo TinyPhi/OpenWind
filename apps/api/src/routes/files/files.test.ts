@@ -32,7 +32,10 @@ vi.mock("@platform/files", () => ({
 // row found, so the route falls through to getFileStream unchanged --
 // matches these tests' existing expectations. Tests exercising the new
 // access-control behavior override this per-test.
-const mockFilesSelectResult: { entityId: string | null }[] = [];
+const mockFilesSelectResult: {
+  entityId: string | null;
+  uploadedBy?: string;
+}[] = [];
 const mockEntitySelectResult: Record<string, unknown>[] = [];
 
 vi.mock("@platform/db", () => ({
@@ -294,6 +297,78 @@ describe("GET /files/:id", () => {
     expect(text).toBe("hello world");
   });
 
+  it("forces Content-Disposition attachment for SVG regardless of inline flag (#240)", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("<svg></svg>"),
+      originalName: "image.svg",
+      mimeType: "image/svg+xml",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}?inline=1`);
+    expect(res.headers.get("content-disposition")).toMatch(/^attachment/);
+  });
+
+  it("allows non-SVG files to be served inline when requested", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}?inline=1`);
+    expect(res.headers.get("content-disposition")).toMatch(/^inline/);
+  });
+
+  it("strips CRLF from originalName to prevent header injection (#241)", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: "evil\r\nX-Injected: hdr.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).not.toContain("\r");
+    expect(disposition).not.toContain("\n");
+  });
+
+  it("strips double-quotes from originalName to prevent value termination (#241)", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: 'file"name.pdf',
+      mimeType: "application/pdf",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const filenameMatch = /filename="([^"]*)"/.exec(disposition);
+    expect(filenameMatch).not.toBeNull();
+    expect(filenameMatch![1]).not.toContain('"');
+  });
+
+  it("includes RFC 5987 filename* for Unicode filenames (#241)", async () => {
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream("hello world"),
+      originalName: "résumé.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 11,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+    expect(res.headers.get("content-disposition")).toContain(
+      "filename*=UTF-8''",
+    );
+  });
+
   it("returns 404 for missing file", async () => {
     vi.mocked(getFileStream).mockRejectedValue(new FileError("FILE_NOT_FOUND"));
 
@@ -330,7 +405,10 @@ describe("GET /files/:id", () => {
       userId: "user-outsider",
       roles: ["user"],
     };
-    mockFilesSelectResult.push({ entityId: "entity-1" });
+    mockFilesSelectResult.push({
+      entityId: "entity-1",
+      uploadedBy: "user-owner",
+    });
     mockEntitySelectResult.push({
       createdBy: "user-owner",
       assignedTo: "user-other",
@@ -346,7 +424,10 @@ describe("GET /files/:id", () => {
 
   it("returns 200 for a non-privileged user who owns the file's bound entity", async () => {
     mockAuth = { tenantId: "tenant-1", userId: "user-owner", roles: ["user"] };
-    mockFilesSelectResult.push({ entityId: "entity-1" });
+    mockFilesSelectResult.push({
+      entityId: "entity-1",
+      uploadedBy: "user-owner",
+    });
     mockEntitySelectResult.push({
       createdBy: "user-owner",
       assignedTo: null,
@@ -367,7 +448,10 @@ describe("GET /files/:id", () => {
 
   it("allows a privileged (admin/agent) caller regardless of entity access", async () => {
     mockAuth = { tenantId: "tenant-1", userId: "user-admin", roles: ["admin"] };
-    mockFilesSelectResult.push({ entityId: "entity-1" });
+    mockFilesSelectResult.push({
+      entityId: "entity-1",
+      uploadedBy: "user-owner",
+    });
     mockEntitySelectResult.push({
       createdBy: "user-owner",
       assignedTo: "user-other",
@@ -386,9 +470,40 @@ describe("GET /files/:id", () => {
     expect(res.status).toBe(200);
   });
 
-  it("skips the entity access check for a file not bound to any entity", async () => {
-    mockAuth = { tenantId: "tenant-1", userId: "user-anyone", roles: ["user"] };
-    mockFilesSelectResult.push({ entityId: null });
+  it("allows the uploader to download their own unbound file (#224)", async () => {
+    mockAuth = { tenantId: "tenant-1", userId: "user-owner", roles: ["user"] };
+    mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream(),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 13,
+    });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 404 for a non-uploader accessing an unbound file (#224)", async () => {
+    mockAuth = {
+      tenantId: "tenant-1",
+      userId: "user-outsider",
+      roles: ["user"],
+    };
+    mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
+
+    const app = buildApp();
+    const res = await app.request(`/files/${EXISTING_FILE_ID}`);
+
+    expect(res.status).toBe(404);
+    expect(getFileStream).not.toHaveBeenCalled();
+  });
+
+  it("allows admin to download any unbound file (#224)", async () => {
+    mockAuth = { tenantId: "tenant-1", userId: "user-admin", roles: ["admin"] };
+    mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
     vi.mocked(getFileStream).mockResolvedValue({
       stream: makeStream(),
       originalName: "report.pdf",

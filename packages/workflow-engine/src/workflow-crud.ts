@@ -201,6 +201,13 @@ export async function getWorkflow(
 // member — any tenant user can see every workflow that exists. Ownership
 // (createdBy/assignedTo[]) gates *mutating* a workflow's settings
 // (assertWorkflowOwned / updateWorkflow / deleteWorkflow), not listing it.
+//
+// This is a deliberate, signed-off widening of the bare/unscoped call beyond
+// what docs/specs/workflow-open-ticket-creation.md originally scoped (that
+// spec's §C/R1 said the unscoped management-list call would stay
+// ownership-filtered) — the records page's "discover any workflow in the
+// tenant, not just ones you own" feature for general users needs exactly
+// this tenant-wide bare-call behavior. See that spec's amendment note.
 export async function listWorkflowsSummary(
   db: DbOrTx,
   tenantId: string,
@@ -209,6 +216,8 @@ export async function listWorkflowsSummary(
   _caller: WorkflowCaller,
   entityTypeId?: string,
   activeOnly?: boolean,
+  limit = 500,
+  offset = 0,
 ): Promise<WorkflowDefinition[]> {
   const visibility = visibleTo(tenantId);
 
@@ -223,7 +232,9 @@ export async function listWorkflowsSummary(
     .select()
     .from(workflows)
     .where(filter)
-    .orderBy(asc(workflows.createdAt));
+    .orderBy(asc(workflows.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   return rows.map(rowToWorkflow);
 }
@@ -252,6 +263,8 @@ export async function listWorkflows(
   _caller: WorkflowCaller,
   entityTypeId?: string,
   activeOnly?: boolean,
+  limit = 500,
+  offset = 0,
 ): Promise<WorkflowFull[]> {
   const visibility = visibleTo(tenantId);
 
@@ -266,7 +279,9 @@ export async function listWorkflows(
     .select()
     .from(workflows)
     .where(filter)
-    .orderBy(asc(workflows.createdAt));
+    .orderBy(asc(workflows.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   if (rows.length === 0) return [];
 
@@ -421,7 +436,7 @@ export async function updateWorkflow(
   const [updated] = await db
     .update(workflows)
     .set(updates)
-    .where(eq(workflows.id, workflowId))
+    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)))
     .returning();
 
   if (!updated) throw new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId });
@@ -516,6 +531,15 @@ async function assertWorkflowOwned(
   }
 }
 
+// If the first state ever created on a workflow is terminal, the auto-heal
+// below intentionally skips (a terminal initial state would make every new
+// entity instance start and end in the same state) — initialState stays
+// orphaned in that case, silently, with no error surfaced to the caller.
+// The next non-terminal state added still won't heal it either, since the
+// heal only fires when existingStateCount === 0. Callers relying on
+// initialState being valid after addWorkflowState should check
+// updateWorkflow's WORKFLOW_INITIAL_STATE_INVALID path or verify the
+// returned workflow's initialState explicitly.
 export async function addWorkflowState(
   db: DbOrTx,
   tenantId: string,
@@ -561,7 +585,9 @@ export async function addWorkflowState(
     await db
       .update(workflows)
       .set({ initialState: row.name })
-      .where(eq(workflows.id, workflowId));
+      .where(
+        and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)),
+      );
   }
 
   logger.info(
@@ -691,6 +717,12 @@ export async function updateWorkflowState(
   return rowToState(row);
 }
 
+/**
+ * Deletes a workflow state.
+ * WARNING: The `db` parameter must be an active transaction (Tx) to ensure the
+ * parent-first row locks (.for("update")) hold for the duration of the checks
+ * and delete, preventing TOCTOU race conditions (#311).
+ */
 export async function deleteWorkflowState(
   db: DbOrTx,
   tenantId: string,
@@ -700,6 +732,17 @@ export async function deleteWorkflowState(
 ): Promise<void> {
   await assertWorkflowOwned(db, tenantId, workflowId, caller);
 
+  // 1. Lock parent workflow row first to prevent lock-ordering deadlocks (#311)
+  const [wf] = await db
+    .select({ initialState: workflows.initialState })
+    .from(workflows)
+    .where(and(eq(workflows.id, workflowId), eq(workflows.tenantId, tenantId)))
+    .for("update")
+    .limit(1);
+
+  if (!wf) throw new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId });
+
+  // 2. Lock child state row second
   const [state] = await db
     .select({ name: workflowStates.name })
     .from(workflowStates)
@@ -710,9 +753,15 @@ export async function deleteWorkflowState(
         eq(workflowStates.tenantId, tenantId),
       ),
     )
+    .for("update")
     .limit(1);
 
   if (!state) throw new WorkflowError("WORKFLOW_STATE_NOT_FOUND", { stateId });
+
+  // Block if this state is the workflow's designated initialState (#310)
+  if (wf.initialState === state.name) {
+    throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
+  }
 
   // Block if any transition references this state
   const [ref] = await db
@@ -731,6 +780,22 @@ export async function deleteWorkflowState(
     .limit(1);
 
   if (ref) throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
+
+  // Block if any live entity instance currently sits in this state (#301) —
+  // currentState has no FK to workflow_states, so this is the only guard.
+  const [occupant] = await db
+    .select({ id: entityInstances.id })
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.workflowId, workflowId),
+        eq(entityInstances.tenantId, tenantId),
+        eq(entityInstances.currentState, state.name),
+      ),
+    )
+    .limit(1);
+
+  if (occupant) throw new WorkflowError("WORKFLOW_STATE_IN_USE", { stateId });
 
   await db
     .delete(workflowStates)

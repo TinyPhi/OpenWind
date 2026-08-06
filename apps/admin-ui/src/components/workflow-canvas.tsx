@@ -27,6 +27,8 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "@dagrejs/dagre";
+import { Dialog, DialogContent, DialogTitle } from "@platform/ui";
+import { ConfirmDeleteDialog } from "./confirm-delete-dialog.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -421,9 +423,16 @@ function AddStateDialog({
   }
 
   return (
-    <div style={overlayBackdropStyle} onClick={onCancel}>
-      <div style={overlayCardStyle} onClick={(e) => e.stopPropagation()}>
-        <div style={overlayTitleStyle}>Add State</div>
+    <Dialog
+      open={true}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <DialogContent style={overlayCardStyle}>
+        <DialogTitle asChild>
+          <div style={overlayTitleStyle}>Add State</div>
+        </DialogTitle>
         <form onSubmit={submit}>
           <label style={labelStyle}>Name (slug, auto-formatted)</label>
           <input
@@ -451,8 +460,8 @@ function AddStateDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -488,9 +497,16 @@ function EditStateDialog({
   }
 
   return (
-    <div style={overlayBackdropStyle} onClick={onCancel}>
-      <div style={overlayCardStyle} onClick={(e) => e.stopPropagation()}>
-        <div style={overlayTitleStyle}>Edit State — {state.name}</div>
+    <Dialog
+      open={true}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <DialogContent style={overlayCardStyle}>
+        <DialogTitle asChild>
+          <div style={overlayTitleStyle}>Edit State — {state.name}</div>
+        </DialogTitle>
         <form onSubmit={submit}>
           <label style={labelStyle}>Display label</label>
           <input
@@ -555,8 +571,8 @@ function EditStateDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -681,53 +697,7 @@ function TransitionPanel({
   );
 }
 
-function ConfirmDialog({
-  message,
-  onConfirm,
-  onCancel,
-}: {
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}): React.ReactElement {
-  return (
-    <div style={overlayBackdropStyle} onClick={onCancel}>
-      <div
-        style={{ ...overlayCardStyle, maxWidth: "360px" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ fontSize: "13px", marginBottom: "14px" }}>{message}</div>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button
-            onClick={onConfirm}
-            style={{
-              ...btnPrimaryStyle,
-              background: "#ef4444",
-              borderColor: "#ef4444",
-            }}
-          >
-            Delete
-          </button>
-          <button onClick={onCancel} style={btnSecondaryStyle}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Shared overlay styles ─────────────────────────────────────────────────────
-
-const overlayBackdropStyle: React.CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  background: "rgba(0,0,0,.25)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 30,
-};
 
 const overlayCardStyle: React.CSSProperties = {
   background: "var(--bg-card, #fff)",
@@ -1415,13 +1385,13 @@ export function WorkflowCanvas({
         />
       )}
 
-      {confirmDelete && (
-        <ConfirmDialog
-          message={confirmDelete.message}
-          onConfirm={confirmDelete.onConfirm}
-          onCancel={() => setConfirmDelete(null)}
-        />
-      )}
+      <ConfirmDeleteDialog
+        open={confirmDelete !== null}
+        message={confirmDelete?.message ?? ""}
+        busy={false}
+        onConfirm={() => confirmDelete?.onConfirm()}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

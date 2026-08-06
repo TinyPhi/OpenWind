@@ -77,7 +77,12 @@ async function cancelPendingAlerts(
       await tx
         .update(ticketAlerts)
         .set({ status: "cancelled", updatedAt: new Date() })
-        .where(inArray(ticketAlerts.id, ids));
+        .where(
+          and(
+            inArray(ticketAlerts.id, ids),
+            eq(ticketAlerts.tenantId, tenantId),
+          ),
+        );
 
       await Promise.all(ids.map((id) => voidPendingAlertOutboxRows(tx, id)));
 

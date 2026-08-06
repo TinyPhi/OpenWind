@@ -108,6 +108,19 @@ describe("GET /exports/:jobId/download", () => {
     expect(body.data.error).toBe("EXPORT_EXPIRED");
   });
 
+  it("returns 200 with TENANT_DEACTIVATED when completed job has error property in returnvalue", async () => {
+    mockGetJob.mockResolvedValue(
+      makeJob("completed", { returnvalue: { error: "TENANT_DEACTIVATED" } }),
+    );
+    const res = await makeApp().request("/exports/job-001/download");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { status: string; error: string };
+    };
+    expect(body.data.status).toBe("failed");
+    expect(body.data.error).toBe("TENANT_DEACTIVATED");
+  });
+
   it("returns 200 with status failed when job has failed (allows client polling branch to work)", async () => {
     mockGetJob.mockResolvedValue(makeJob("failed"));
     const res = await makeApp().request("/exports/job-001/download");

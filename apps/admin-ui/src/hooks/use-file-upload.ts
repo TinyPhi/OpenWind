@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager, waitForAuth, silentRefresh } from "../authProvider.js";
+import { showAlert } from "../components/global-alert-dialog.js";
 
 export type ScanStatus = "pending" | "clean" | "quarantined" | "scan_failed";
 
@@ -267,18 +268,18 @@ export function useFileUpload({
         const resolvedMime =
           file.type !== "" ? file.type : (EXT_MIME[ext] ?? "");
         if (!ALLOWED_MIMES.has(resolvedMime)) {
-          alert(`File type not supported: "${file.name}"`);
+          showAlert(`File type not supported: "${file.name}"`);
           continue;
         }
         if (DOC_MIMES.has(resolvedMime) && file.size < MIN_DOC_BYTES) {
-          alert(
+          showAlert(
             `"${file.name}" appears to be a cloud placeholder (${file.size} B) that hasn't been downloaded yet.\n\nIn File Explorer, right-click the file → "Always keep on this device", wait for it to download, then try again.`,
           );
           continue;
         }
         const limit = getSizeLimit(resolvedMime);
         if (file.size > limit) {
-          alert(
+          showAlert(
             `"${file.name}" exceeds the ${Math.round(limit / 1024 / 1024)} MB limit for this type.`,
           );
           continue;
@@ -342,7 +343,7 @@ export function useFileUpload({
         } catch (err) {
           if (previewUrl) URL.revokeObjectURL(previewUrl);
           setStagedFiles((prev) => prev.filter((f) => f.fileId !== tempId));
-          alert(
+          showAlert(
             `Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,
           );
         }

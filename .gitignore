@@ -40,6 +40,9 @@ server-up.sh
 *.db
 *.sqlite
 
+# Local backup output (scripts/backup.sh) — real data dumps, never commit
+/backups/
+
 # Logs
 *.log
 logs/

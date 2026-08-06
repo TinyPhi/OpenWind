@@ -73,11 +73,14 @@ const ACTIVITY_EVENTS = [
  * auto-logout-on-inactivity.md). Mount only inside authenticated routes —
  * this reuses authProvider.logout(), the same flow a manual logout takes.
  *
- * timeoutMs is an explicit override (used by tests); when omitted, the
- * timeout and the enabled/disabled toggle are both read from env at call
- * time — VITE_IDLE_LOGOUT_ENABLED ("false" to disable, anything else/unset
- * defaults to enabled) and VITE_IDLE_LOGOUT_TIMEOUT_MINUTES (whole minutes,
- * defaults to 5 if unset/invalid).
+ * timeoutMs only overrides the *duration* (used by tests); the enabled/
+ * disabled toggle is always read from VITE_IDLE_LOGOUT_ENABLED regardless of
+ * whether timeoutMs is passed — so useIdleLogout(5000) with
+ * VITE_IDLE_LOGOUT_ENABLED="false" is still a no-op. When timeoutMs is
+ * omitted, the timeout also comes from env — VITE_IDLE_LOGOUT_ENABLED
+ * ("false" to disable, anything else/unset defaults to enabled) and
+ * VITE_IDLE_LOGOUT_TIMEOUT_MINUTES (whole minutes, defaults to 5 if
+ * unset/invalid).
  */
 export function useIdleLogout(timeoutMs?: number): void {
   const navigate = useNavigate();

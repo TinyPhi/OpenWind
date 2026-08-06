@@ -32,11 +32,32 @@ export const TriggerTypeSchema = z.enum(TRIGGER_TYPES);
 // the comment in modules/helpdesk/seed/003_automation_rules.sql for the seed
 // side of this gap.
 //
-// notify/assign/create_entity/connector.action/script are declared in
-// packages/automation-engine/src/types.ts's ActionType union but not yet
-// implemented in executor.ts's switch (they fall through to "unhandled
-// action type" and no-op) — kept permissive (`z.record(z.unknown())`) rather
-// than over-constraining a shape that doesn't exist yet.
+// notify now has a constrained config shape. connector.action is kept
+// permissive (opaque Phase 3 shape). script was removed from the executor
+// (#259) because no sandboxed implementation exists — reject it at the API
+// boundary so rules with script actions don't get stored and silently
+// error in the worker.
+
+const NotifyConfigSchema = z.object({
+  recipientId: z.string().min(1).optional(),
+  channel: z.array(z.string()).optional(),
+  payload: z
+    .object({
+      title: z.string().max(200).optional(),
+      body: z.string().max(1000).optional(),
+      link: z.string().optional(),
+    })
+    .optional(),
+  // Wizard UI display state — symbolic recipient roles ("assignee", "creator",
+  // "all_agents") and legacy field aliases. The executor only consumes
+  // recipientId (a resolved user UUID) and channel. Resolution of symbolic
+  // roles → recipientId is a Phase 3 feature; these fields are preserved here
+  // so the wizard round-trips faithfully across save/re-open without silently
+  // resetting user selections (the Zod default-strip behaviour).
+  recipients: z.array(z.string()).optional(),
+  channels: z.array(z.string()).optional(),
+  message: z.string().optional(),
+});
 
 const SetFieldConfigSchema = z.object({
   instanceId: z.string().optional(),
@@ -55,25 +76,70 @@ const WebhookActionConfigSchema = z.object({
   method: z.enum(["POST", "PUT", "PATCH"]).optional(),
   headers: z.record(z.string()).optional(),
   includePayload: z.boolean().optional(),
+  sendFields: z.array(z.string()).optional(),
   timeoutMs: z.number().int().positive().optional(),
 });
 
+const AssignConfigSchema = z.object({
+  instanceId: z.string().optional(),
+  assigneeId: z.string().min(1),
+});
+
+const CreateEntityConfigSchema = z.object({
+  entityTypeId: z.string().min(1),
+  fields: z.record(z.unknown()).optional(),
+  assignedTo: z.string().optional(),
+});
+
 export const ActionConfigSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("notify"), config: z.record(z.unknown()) }),
+  z.object({ type: z.literal("notify"), config: NotifyConfigSchema }),
   z.object({ type: z.literal("set_field"), config: SetFieldConfigSchema }),
   z.object({ type: z.literal("transition"), config: TransitionConfigSchema }),
   z.object({ type: z.literal("webhook"), config: WebhookActionConfigSchema }),
-  z.object({ type: z.literal("assign"), config: z.record(z.unknown()) }),
+  z.object({ type: z.literal("assign"), config: AssignConfigSchema }),
   z.object({
     type: z.literal("create_entity"),
-    config: z.record(z.unknown()),
+    config: CreateEntityConfigSchema,
   }),
   z.object({
     type: z.literal("connector.action"),
     config: z.record(z.unknown()),
   }),
-  z.object({ type: z.literal("script"), config: z.record(z.unknown()) }),
 ]);
+
+// ── Trigger config ────────────────────────────────────────────────────────────
+// Per-trigger-type config schemas, keyed by triggerType (#257).
+// Used in create.ts and update.ts via .superRefine() so the config shape is
+// validated against the chosen triggerType at the API boundary rather than
+// failing silently at automation worker runtime.
+// connector.event and schedule.cron are kept permissive (Phase 3 shapes TBD).
+
+export const TRIGGER_CONFIG_SCHEMAS = {
+  "workflow.entered_state": z.object({
+    workflowId: z.string().uuid().optional(),
+    toState: z.string().optional(),
+  }),
+  "workflow.transitioned": z.object({
+    workflowId: z.string().uuid().optional(),
+    fromState: z.string().optional(),
+    toState: z.string().optional(),
+  }),
+  "workflow.sla_breached": z.object({
+    workflowId: z.string().uuid().optional(),
+  }),
+  "field.changed": z.object({
+    entityTypeId: z.string().uuid(),
+    field: z.string().min(1),
+  }),
+  "entity.created": z.object({
+    entityTypeId: z.string().uuid().optional(),
+  }),
+  "entity.assigned": z.object({
+    entityTypeId: z.string().uuid().optional(),
+  }),
+  "schedule.cron": z.object({ cron: z.string().min(1) }),
+  "connector.event": z.record(z.unknown()),
+} satisfies Record<(typeof TRIGGER_TYPES)[number], z.ZodTypeAny>;
 
 // ── Condition tree ────────────────────────────────────────────────────────────
 // Mirrors ConditionTree from @platform/workflow-engine. Validated at write time
