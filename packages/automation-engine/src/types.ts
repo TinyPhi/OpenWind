@@ -22,6 +22,7 @@ export type ActionType =
   | "transition"
   | "set_field"
   | "create_entity"
+  | "create_child"
   | "webhook"
   | "connector.action";
 
@@ -81,6 +82,20 @@ export interface CreateEntityConfig {
   assignedTo?: string;
 }
 
+export interface CreateChildConfig {
+  /** Defaults to the triggering event's own entityTypeId (same-type child) when omitted. */
+  entityTypeId?: string;
+  assignToUserId?: string | null;
+  /** `{{fieldName}}` placeholders interpolated from the PARENT's current field values. */
+  descriptionTemplate?: string;
+  /** Child field the interpolated description is written to. Defaults to "description". */
+  descriptionField?: string;
+  /** Additional static fields set on the child (merged before descriptionField). */
+  fields?: Record<string, unknown>;
+  /** Field on the PARENT written back with the new child's instance id. Omit to skip. */
+  writeBackField?: string;
+}
+
 export type ActionConfig =
   | { type: "notify"; config: NotifyConfig }
   | { type: "set_field"; config: SetFieldConfig }
@@ -88,6 +103,7 @@ export type ActionConfig =
   | { type: "webhook"; config: WebhookActionConfig }
   | { type: "assign"; config: AssignConfig }
   | { type: "create_entity"; config: CreateEntityConfig }
+  | { type: "create_child"; config: CreateChildConfig }
   | { type: "connector.action"; config: Record<string, unknown> };
 
 export type CreateAutomationRuleInput = {

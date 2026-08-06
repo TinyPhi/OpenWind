@@ -16,6 +16,7 @@ import { executeTransitionAction } from "./actions/transition.js";
 import { executeWebhookAction } from "./actions/webhook.js";
 import { executeAssignAction } from "./actions/assign.js";
 import { executeCreateEntityAction } from "./actions/create-entity.js";
+import { executeCreateChildAction } from "./actions/create-child.js";
 import { isOpen, recordFailure, reset } from "./circuit-breaker.js";
 
 const MAX_DEPTH = 10;
@@ -229,6 +230,15 @@ async function runAction(
         break;
       case "create_entity":
         await executeCreateEntityAction(
+          db,
+          tenantId,
+          event,
+          action.config,
+          depth,
+        );
+        break;
+      case "create_child":
+        await executeCreateChildAction(
           db,
           tenantId,
           event,

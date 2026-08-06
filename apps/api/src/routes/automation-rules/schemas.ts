@@ -91,6 +91,15 @@ const CreateEntityConfigSchema = z.object({
   assignedTo: z.string().optional(),
 });
 
+const CreateChildConfigSchema = z.object({
+  entityTypeId: z.string().min(1).optional(),
+  assignToUserId: z.string().min(1).nullable().optional(),
+  descriptionTemplate: z.string().optional(),
+  descriptionField: z.string().min(1).optional(),
+  fields: z.record(z.unknown()).optional(),
+  writeBackField: z.string().min(1).optional(),
+});
+
 export const ActionConfigSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("notify"), config: NotifyConfigSchema }),
   z.object({ type: z.literal("set_field"), config: SetFieldConfigSchema }),
@@ -100,6 +109,10 @@ export const ActionConfigSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("create_entity"),
     config: CreateEntityConfigSchema,
+  }),
+  z.object({
+    type: z.literal("create_child"),
+    config: CreateChildConfigSchema,
   }),
   z.object({
     type: z.literal("connector.action"),

@@ -5,6 +5,8 @@ const mockInsert = vi.fn();
 const mockUpdate = vi.fn();
 const mockUpdateEntity = vi.fn();
 const mockCreateEntity = vi.fn();
+const mockGetEntity = vi.fn();
+const mockCreateChildRelation = vi.fn();
 const mockExecuteTransition = vi.fn();
 
 // Simulates Drizzle's db.transaction(): runs the callback with a nested tx
@@ -53,6 +55,8 @@ vi.mock("@platform/workflow-engine", () => ({
 vi.mock("@platform/entity-engine", () => ({
   updateEntity: (...args: unknown[]) => mockUpdateEntity(...args),
   createEntity: (...args: unknown[]) => mockCreateEntity(...args),
+  getEntity: (...args: unknown[]) => mockGetEntity(...args),
+  createChildRelation: (...args: unknown[]) => mockCreateChildRelation(...args),
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -260,6 +264,120 @@ describe("executeAutomationRules", () => {
         fields: { title: "Follow-up" },
       }),
     );
+  });
+
+  it("executes create_child action: creates the child, interpolates the description from parent fields, and writes the child id back onto the parent", async () => {
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [
+          {
+            type: "create_child",
+            config: {
+              descriptionTemplate: "{{title}}\n\n{{summary}}",
+              writeBackField: "costing_child_id",
+            },
+          },
+        ],
+      },
+    ]);
+    mockGetEntity.mockResolvedValue({
+      id: BASE_EVENT.instanceId,
+      entityTypeId: BASE_EVENT.entityTypeId,
+      fields: { title: "Tender A", summary: "Roof replacement" },
+    });
+    mockCreateChildRelation.mockResolvedValue({
+      instance: { id: "child-1" },
+      relations: [],
+    });
+    mockUpdateEntity.mockResolvedValue({ id: BASE_EVENT.instanceId });
+
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
+
+    expect(mockCreateChildRelation).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      expect.objectContaining({
+        parentId: BASE_EVENT.instanceId,
+        entityTypeId: BASE_EVENT.entityTypeId,
+        childFields: { description: "Tender A\n\nRoof replacement" },
+      }),
+    );
+    expect(mockUpdateEntity).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      BASE_EVENT.instanceId,
+      expect.objectContaining({ fields: { costing_child_id: "child-1" } }),
+    );
+  });
+
+  it("create_child action defaults entityTypeId to the parent's own type and skips the write-back when writeBackField is omitted", async () => {
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [{ type: "create_child", config: {} }],
+      },
+    ]);
+    mockGetEntity.mockResolvedValue({
+      id: BASE_EVENT.instanceId,
+      entityTypeId: BASE_EVENT.entityTypeId,
+      fields: {},
+    });
+    mockCreateChildRelation.mockResolvedValue({
+      instance: { id: "child-2" },
+      relations: [],
+    });
+
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
+
+    expect(mockCreateChildRelation).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      expect.objectContaining({ entityTypeId: BASE_EVENT.entityTypeId }),
+    );
+    expect(mockUpdateEntity).not.toHaveBeenCalled();
+  });
+
+  it("create_child action skips creating a second child when writeBackField is already set on the parent (#162 exactly-once guard)", async () => {
+    mockSelect.mockResolvedValue([
+      {
+        ...NOTIFY_RULE,
+        actions: [
+          {
+            type: "create_child",
+            config: { writeBackField: "costing_child_id" },
+          },
+        ],
+      },
+    ]);
+    mockGetEntity.mockResolvedValue({
+      id: BASE_EVENT.instanceId,
+      entityTypeId: BASE_EVENT.entityTypeId,
+      fields: { costing_child_id: "existing-child-1" },
+    });
+
+    await executeAutomationRules(
+      dbMock as never,
+      TENANT_ID,
+      BASE_EVENT,
+      0,
+      MOCK_REDIS as never,
+    );
+
+    expect(mockCreateChildRelation).not.toHaveBeenCalled();
+    expect(mockUpdateEntity).not.toHaveBeenCalled();
   });
 
   it("executes transition action by calling executeTransition", async () => {

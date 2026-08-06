@@ -891,6 +891,36 @@ function formatFieldValue(value: unknown): string {
   return String(value);
 }
 
+const TERMINAL_SCAN_STATUSES = new Set(["clean", "quarantined", "scan_failed"]);
+
+/**
+ * Poll GET /files/:id/status until the AV scan reaches a terminal state.
+ * POST /entities/:id/attachments (which writes the file_attached history
+ * event) requires scan_status === "clean", but the scan runs async right
+ * after upload — callers must wait for it here rather than calling
+ * /attachments immediately, or the history event silently never gets written.
+ */
+async function pollFileScanStatus(
+  fileId: string,
+  { intervalMs = 2000, timeoutMs = 60_000 } = {},
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = (await fetchWithAuth(
+        `${API_URL}/files/${fileId}/status`,
+      )) as { data: { scanStatus: string } };
+      if (TERMINAL_SCAN_STATUSES.has(res.data.scanStatus)) {
+        return res.data.scanStatus;
+      }
+    } catch {
+      // transient — keep polling until the deadline
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return "scan_failed";
+}
+
 function AccessUserRow({
   user,
   isAdminOrAgent,
@@ -3593,50 +3623,49 @@ export function CustomerRecordDetail(): React.ReactElement {
                                 );
                                 continue;
                               }
-                              const initRes = (await fetchWithAuth(
+                              // file.type is often "" for cloud-synced files
+                              // (OneDrive placeholders, some Windows drag-drops)
+                              // — fall back to the extension-derived mimeType
+                              // so the server's MIME allowlist check passes.
+                              const uploadFile =
+                                file.type !== ""
+                                  ? file
+                                  : new File([file], file.name, {
+                                      type: mimeType,
+                                    });
+                              const form = new FormData();
+                              form.set("file", uploadFile, file.name);
+                              form.set("moduleSlug", typeSlug ?? "unknown");
+                              if (id) form.set("entityId", id);
+                              const uploadRes = (await fetchWithAuth(
                                 `${API_URL}/files`,
-                                {
-                                  method: "POST",
-                                  body: JSON.stringify({
-                                    originalName: file.name,
-                                    mimeType,
-                                    sizeBytes: file.size,
-                                    moduleSlug: typeSlug ?? "unknown",
-                                    entityId: id,
-                                  }),
-                                },
-                              )) as {
-                                data: { fileId: string; uploadUrl: string };
-                              };
-                              const putRes = await fetch(
-                                initRes.data.uploadUrl,
-                                {
-                                  method: "PUT",
-                                  headers: { "Content-Type": mimeType },
-                                  body: file,
-                                },
+                                { method: "POST", body: form },
+                              )) as { data: { fileId: string } };
+
+                              // POST /entities/:id/attachments — which writes
+                              // the "file_attached" history event — requires
+                              // scan_status to be "clean" already, but the AV
+                              // scan runs async right after upload. Without
+                              // waiting for it here, this call 422s immediately
+                              // (FILE_NOT_READY) and the attach/timeline event
+                              // silently never gets written, even though the
+                              // file itself already shows up in the attachment
+                              // list (that list is driven by files.entityId,
+                              // bound at upload time, independent of this call).
+                              const finalStatus = await pollFileScanStatus(
+                                uploadRes.data.fileId,
                               );
-                              if (!putRes.ok) {
-                                const body = await putRes
-                                  .text()
-                                  .catch(() => "");
-                                throw new Error(
-                                  `Storage upload failed (${putRes.status})${body ? `: ${body.slice(0, 200)}` : ""}`,
+                              if (finalStatus === "clean") {
+                                await fetchWithAuth(
+                                  `${API_URL}/entities/${id}/attachments`,
+                                  {
+                                    method: "POST",
+                                    body: JSON.stringify({
+                                      fileId: uploadRes.data.fileId,
+                                    }),
+                                  },
                                 );
                               }
-                              await fetchWithAuth(
-                                `${API_URL}/files/${initRes.data.fileId}/complete`,
-                                { method: "POST" },
-                              );
-                              await fetchWithAuth(
-                                `${API_URL}/entities/${id}/attachments`,
-                                {
-                                  method: "POST",
-                                  body: JSON.stringify({
-                                    fileId: initRes.data.fileId,
-                                  }),
-                                },
-                              );
                             } catch (err) {
                               setTransError(
                                 `Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`,

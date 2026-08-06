@@ -23,8 +23,9 @@ Source spec: `docs/specs/tender-management.md`.
 - Costing isolation does not need a role either — the costing analyst is
   isolated by being `assignedTo` the child ticket (see Automation rules),
   regardless of whether they hold the `agent` role or no role at all.
-- See "Known gap" below — the automation rule in `003_automation_rules.sql`
-  ships **disabled** because the engine can't execute it yet.
+- See "Resolved — #162" below — the automation rule in `003_automation_rules.sql`
+  now ships enabled; the child ticket it creates starts unassigned pending a
+  follow-up (no default-assignee config exists yet).
 
 ## Entity type
 
@@ -85,35 +86,25 @@ costing child ticket (assigned to a specific user — no role lookup, since no
 `costing_lead` role exists — description seeded from `title` + `summary`
 only) and write the resulting child id back onto `costing_child_id`.
 
-### Known gap — cannot execute yet
+### Resolved — #162
 
 The automation-engine action executor (`packages/automation-engine/src/executor.ts`)
-currently dispatches exactly four action types: `notify`, `set_field`, `transition`,
-`webhook`. **None of these can create a child ticket** — that requires calling
-`createChildRelation()` in `packages/entity-engine/src/child-relations.ts`, which has
-no automation-action wrapper.
+now dispatches a `create_child` action type
+(`packages/automation-engine/src/actions/create-child.ts`), which calls
+`createChildRelation()` in `packages/entity-engine/src/child-relations.ts` (the
+existing parent-child mechanism, unmodified) and then writes the new child's id
+back onto the field named by `writeBackField` (here, `costing_child_id`).
 
-The rule in `003_automation_rules.sql` is seeded with `is_enabled = false` and uses a
-placeholder action type `create_child` that does not exist in the executor's `switch`
-statement. If enabled as-is, `runAction()` falls into the `default` branch, logs
-`"Automation: unhandled action type"`, and no-ops — `costing_child_id` will never be
-populated automatically.
+`003_automation_rules.sql`'s rule is now seeded with `is_enabled = true`.
 
-**This must be closed before T13 (module registration / install-flow smoke test) is
-meaningful for R9** (exactly-once child creation). Two options, not decided here:
-
-1. Add a `create_child` action handler to `packages/automation-engine/src/actions/`
-   (new file, e.g. `create-child.ts`) that calls `createChildRelation()` then a
-   `set_field`-equivalent write-back for `costing_child_id`, and register it in
-   `executor.ts`'s switch. This is an **engine change**, not a module-config change —
-   out of scope for this seed-SQL-only task per CLAUDE.md's "zero TypeScript in
-   modules/" rule, and per `.claude/rules/agent-behaviour.md` counts as touching an
-   existing package's contract (flag for human review before implementing).
-2. Until (1) ships, the tender's agent creates the costing child ticket manually via
-   the existing child-relation UI/API, assigns it to whichever specific user should
-   do the costing work, and sets `costing_child_id` by hand on first entry to
-   `pending_costing_review`. Subsequent reject/reopen loops still work purely via
-   the existing child `child_status` reopen path (no automation needed there).
+**Remaining follow-up (not a blocker):** `assignToUserId` is seeded `null` — there
+is still no per-tenant default-assignee configuration to resolve a real user from,
+and no `costing_lead` role exists to look up instead (see ROLE NOTE in the seed
+file). The created child ticket is therefore unassigned until an agent manually
+assigns it; the field/data isolation (parent's `client_name`/`finance_details` are
+never copied to the child) holds regardless, but the "costing analyst never sees
+the parent ticket" guarantee via assignment scoping only takes effect once
+assigned.
 
 ## View config
 

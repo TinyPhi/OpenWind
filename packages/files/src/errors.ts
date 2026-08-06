@@ -6,7 +6,10 @@ export type FileErrorCode =
   | "FILE_SCAN_FAILED"
   | "FILE_NOT_FOUND"
   | "SCAN_FAILED"
-  | "PROVIDER_ERROR";
+  | "PROVIDER_ERROR"
+  | "STORAGE_WRITE_FAILED"
+  | "STORAGE_READ_FAILED"
+  | "STORAGE_PATH_ESCAPE";
 
 export class FileError extends Error {
   constructor(
