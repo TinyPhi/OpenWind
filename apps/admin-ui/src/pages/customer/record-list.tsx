@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Dialog, DialogContent, DialogTitle, Button } from "@platform/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Button,
+  TOKENS,
+  useHoverStyle,
+} from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import type { SavedView } from "../../lib/types.js";
@@ -342,6 +349,40 @@ function KanbanColumn({
         </Link>
       </div>
     </div>
+  );
+}
+
+function ExportFormatButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}): React.ReactElement {
+  const buttonHover = useHoverStyle({
+    base: { background: "none" },
+    hover: { background: TOKENS.bgSecondary },
+  });
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "block",
+        width: "100%",
+        textAlign: "left",
+        padding: "9px 14px",
+        fontSize: "13px",
+        border: "none",
+        cursor: "pointer",
+        color: "var(--text-primary)",
+        ...buttonHover.style,
+      }}
+      onMouseEnter={buttonHover.onMouseEnter}
+      onMouseLeave={buttonHover.onMouseLeave}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -804,31 +845,11 @@ export function CustomerRecordList(): React.ReactElement {
                     { fmt: "pdf", label: "PDF" },
                   ] as const
                 ).map(({ fmt, label }) => (
-                  <button
+                  <ExportFormatButton
                     key={fmt}
+                    label={label}
                     onClick={() => void handleExport(fmt)}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "9px 14px",
-                      fontSize: "13px",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "var(--text-primary)",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.background =
-                        "var(--bg-secondary)";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.background =
-                        "none";
-                    }}
-                  >
-                    {label}
-                  </button>
+                  />
                 ))}
               </div>
             )}
