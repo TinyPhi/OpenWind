@@ -102,6 +102,7 @@ export function AdminRecords(): React.ReactElement {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
 
   // User path
+  const [allWorkflows, setAllWorkflows] = useState<Workflow[]>([]);
   const [myWorkflows, setMyWorkflows] = useState<MyTicketWorkflow[]>([]);
   const [myParents, setMyParents] = useState<MyTicketParent[]>([]);
   const [myChildWorkflowIds, setMyChildWorkflowIds] = useState<Set<string>>(
@@ -151,12 +152,20 @@ export function AdminRecords(): React.ReactElement {
         )
         .finally(() => setLoading(false));
     } else {
-      // General user — fetch only their accessible tickets
-      fetchWithAuth(`${API_URL}/entities/my-tickets`)
-        .then((res) => {
+      // General user — every workflow in the tenant is visible (GET /workflows is
+      // tenant-wide for all callers); my-tickets supplies per-workflow ticket
+      // counts/access-reasons for the ones they already have tickets in. Workflows
+      // absent from my-tickets still show, with a zero ticket count, so users can
+      // discover and create the first ticket in a workflow they haven't touched yet.
+      Promise.all([
+        fetchWithAuth(`${API_URL}/workflows`),
+        fetchWithAuth(`${API_URL}/entities/my-tickets`),
+      ])
+        .then(([workflowsRes, myTicketsRes]) => {
+          setAllWorkflows((workflowsRes as { data?: Workflow[] }).data ?? []);
           const d =
             (
-              res as {
+              myTicketsRes as {
                 data?: {
                   workflows?: MyTicketWorkflow[];
                   parentTickets?: MyTicketParent[];
@@ -185,8 +194,26 @@ export function AdminRecords(): React.ReactElement {
     setSearchParams(f === "all" ? {} : { filter: f });
   }
 
+  // Every tenant workflow is visible to a general user, not just ones they
+  // already have tickets in — my-tickets supplies the ticket count/access-reason
+  // data for workflows they're involved in; workflows absent from my-tickets are
+  // added here with a zero count so users can discover and create a first ticket.
+  const myTicketsById = new Map(myWorkflows.map((wf) => [wf.workflowId, wf]));
+  const untouchedWorkflows: MyTicketWorkflow[] = allWorkflows
+    .filter((wf) => !myTicketsById.has(wf.id))
+    .map((wf) => ({
+      workflowId: wf.id,
+      workflowName: wf.name,
+      workflowSlug: toWorkflowSlug(wf.name),
+      entityTypeId: wf.entityTypeId,
+      accessibleTicketCount: 0,
+      states: wf.states,
+      transitionCount: wf.transitions.length,
+    }));
+  const allMyWorkflows = [...myWorkflows, ...untouchedWorkflows];
+
   // For general users: filter which workflow cards to show based on active chip
-  const visibleMyWorkflows = myWorkflows.filter((wf) => {
+  const visibleMyWorkflows = allMyWorkflows.filter((wf) => {
     if (activeFilter === "all") return true;
     if (activeFilter === "subtasks")
       return myChildWorkflowIds.has(wf.workflowId);
@@ -318,7 +345,8 @@ export function AdminRecords(): React.ReactElement {
         <div>
           <h2 className="page-title">My Records</h2>
           <p className="page-subtitle">
-            Workflows where you have open tickets.
+            All workflows — create a ticket in any of them, or filter to track
+            ones you're already involved in.
           </p>
         </div>
         <div className="stat-pill">{visibleMyWorkflows.length} workflows</div>
@@ -377,7 +405,7 @@ export function AdminRecords(): React.ReactElement {
           <h4>No records here</h4>
           <p>
             {activeFilter === "all"
-              ? "You have no tickets assigned to you yet."
+              ? "No workflows exist in this tenant yet."
               : `No tickets match the "${FILTER_LABELS[activeFilter]}" filter.`}
           </p>
         </div>

@@ -1051,6 +1051,39 @@ describe("listEntities", () => {
     expect(eq).toHaveBeenCalledWith(expect.anything(), "user-xyz");
   });
 
+  it("applies the createdBy/assignedTo/__accessUsers OR filter when scopeToUserId is provided (R5)", async () => {
+    const { eq, or, sql } = await import("drizzle-orm");
+    vi.mocked(eq).mockClear();
+    vi.mocked(or).mockClear();
+    vi.mocked(sql).mockClear();
+    dbMock.select.mockReturnValue(makeQueryBuilder(() => [fakeInstance]));
+
+    await listEntities(dbMock as never, TENANT_ID, {
+      entityTypeId: ENTITY_TYPE_ID,
+      scopeToUserId: "user-xyz",
+    });
+
+    // Three-way OR: createdBy, assignedTo, __accessUsers containment.
+    expect(eq).toHaveBeenCalledWith(expect.anything(), "user-xyz");
+    expect(or).toHaveBeenCalled();
+    expect(sql).toHaveBeenCalled();
+  });
+
+  it("omits the scope filter when scopeToUserId is not provided", async () => {
+    const { sql } = await import("drizzle-orm");
+    vi.mocked(sql).mockClear();
+    dbMock.select.mockReturnValue(makeQueryBuilder(() => [fakeInstance]));
+
+    await listEntities(dbMock as never, TENANT_ID, {
+      entityTypeId: ENTITY_TYPE_ID,
+    });
+
+    // The __accessUsers containment check only fires as part of the
+    // scopeToUserId filter (or fieldFilters, unused here) — its absence
+    // confirms the scope OR-clause wasn't built.
+    expect(sql).not.toHaveBeenCalled();
+  });
+
   it("applies JSONB containment filter when fieldFilters is provided", async () => {
     const { sql } = await import("drizzle-orm");
     vi.mocked(sql).mockClear();
