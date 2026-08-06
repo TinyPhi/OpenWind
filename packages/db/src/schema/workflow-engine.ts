@@ -89,9 +89,16 @@ export const workflowTransitions = pgTable(
     conditions: jsonb("conditions"),
     requiresComment: boolean("requires_comment").default(false).notNull(),
     requiresFields: text("requires_fields").array().default([]).notNull(),
+    /** Monotonically increasing per-row insertion order (global sequence) — lets the
+     * Actions tab list transitions in creation order instead of by (random) id. */
+    sortOrder: integer("sort_order").generatedAlwaysAsIdentity().notNull(),
   },
   (t) => ({
     tenantIdx: index("workflow_transitions_tenant_idx").on(t.tenantId),
+    workflowSortIdx: index("workflow_transitions_workflow_sort_idx").on(
+      t.workflowId,
+      t.sortOrder,
+    ),
   }),
 );
 
