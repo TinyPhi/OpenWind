@@ -5,7 +5,7 @@
 `docs/decisions/` is reserved for humans; this file is the input to that authorship, not the ADR
 itself. ADR number is tentative (confirm still free before assigning).
 **Date drafted:** 2026-08-04. **Revision history:** rev.1 proposed a three-principal model
-(human/api_key/agent) with a delegation-chain audit schema; rev.2 cross-checked against issues
+(`human`/`api_key`/`agent`) with a delegation-chain audit schema; rev.2 cross-checked against issues
 #17/#18 and corrected a factual overstatement about the audit schema's additivity; rev.3 rescoped
 the ADR entirely after a second adversarial review round found the `agent` principal type and
 delegation chain to be solving a problem with no current tracked requirement, while surfacing
