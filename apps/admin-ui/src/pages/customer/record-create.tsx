@@ -8,6 +8,7 @@ import {
   AttachmentUploadZone,
   StagedFileChip,
 } from "../../components/file-attachment.js";
+import { TOKENS, useHoverStyle } from "@platform/ui";
 
 type UserOption = {
   userId: string;
@@ -23,6 +24,130 @@ function initials(name: string): string {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+function UnassignedRow({
+  onSelect,
+}: {
+  onSelect: () => void;
+}): React.ReactElement {
+  const rowHover = useHoverStyle({
+    base: { background: "" },
+    hover: { background: TOKENS.bgSecondary },
+  });
+
+  return (
+    <div
+      onClick={onSelect}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "9px 12px",
+        cursor: "pointer",
+        color: "var(--text-tertiary)",
+        fontSize: "13px",
+        borderBottom: "1px solid var(--border-primary)",
+        ...rowHover.style,
+      }}
+      onMouseEnter={rowHover.onMouseEnter}
+      onMouseLeave={rowHover.onMouseLeave}
+    >
+      Unassigned
+    </div>
+  );
+}
+
+function UserOptionRow({
+  user,
+  isSelected,
+  onSelect,
+}: {
+  user: UserOption;
+  isSelected: boolean;
+  onSelect: () => void;
+}): React.ReactElement {
+  const rowHover = useHoverStyle({
+    base: { background: isSelected ? TOKENS.bgSecondary : "" },
+    hover: { background: TOKENS.bgSecondary },
+  });
+
+  return (
+    <div
+      onClick={onSelect}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "9px 12px",
+        cursor: "pointer",
+        ...rowHover.style,
+      }}
+      onMouseEnter={rowHover.onMouseEnter}
+      onMouseLeave={rowHover.onMouseLeave}
+    >
+      <span
+        style={{
+          width: "30px",
+          height: "30px",
+          borderRadius: "50%",
+          background: "var(--accent-primary)",
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "11px",
+          fontWeight: 600,
+          flexShrink: 0,
+          opacity: isSelected ? 1 : 0.85,
+        }}
+      >
+        {initials(user.displayName)}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontWeight: 500,
+            fontSize: "13px",
+            color: "var(--text-primary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {user.displayName}
+        </div>
+        <div
+          style={{
+            fontSize: "11px",
+            color: "var(--text-tertiary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {user.loginName}
+        </div>
+      </div>
+      {isSelected && (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          style={{ flexShrink: 0 }}
+        >
+          <path
+            d="M2 7l3.5 3.5L12 3"
+            stroke="var(--accent-primary)"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+    </div>
+  );
 }
 
 function UserPicker({
@@ -214,28 +339,7 @@ function UserPicker({
             />
           </div>
           <div style={{ maxHeight: "220px", overflowY: "auto" }}>
-            <div
-              onClick={() => handleSelect("")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "9px 12px",
-                cursor: "pointer",
-                color: "var(--text-tertiary)",
-                fontSize: "13px",
-                borderBottom: "1px solid var(--border-primary)",
-              }}
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLDivElement).style.background =
-                  "var(--bg-secondary)")
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLDivElement).style.background = "")
-              }
-            >
-              Unassigned
-            </div>
+            <UnassignedRow onSelect={() => handleSelect("")} />
             {filtered.length === 0 ? (
               <div
                 style={{
@@ -249,87 +353,12 @@ function UserPicker({
               </div>
             ) : (
               filtered.map((u) => (
-                <div
+                <UserOptionRow
                   key={u.userId}
-                  onClick={() => handleSelect(u.userId)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    padding: "9px 12px",
-                    cursor: "pointer",
-                    background: u.userId === value ? "var(--bg-secondary)" : "",
-                  }}
-                  onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      "var(--bg-secondary)")
-                  }
-                  onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      u.userId === value ? "var(--bg-secondary)" : "")
-                  }
-                >
-                  <span
-                    style={{
-                      width: "30px",
-                      height: "30px",
-                      borderRadius: "50%",
-                      background: "var(--accent-primary)",
-                      color: "#fff",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      flexShrink: 0,
-                      opacity: u.userId === value ? 1 : 0.85,
-                    }}
-                  >
-                    {initials(u.displayName)}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontWeight: 500,
-                        fontSize: "13px",
-                        color: "var(--text-primary)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {u.displayName}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--text-tertiary)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {u.loginName}
-                    </div>
-                  </div>
-                  {u.userId === value && (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 14 14"
-                      fill="none"
-                      style={{ flexShrink: 0 }}
-                    >
-                      <path
-                        d="M2 7l3.5 3.5L12 3"
-                        stroke="var(--accent-primary)"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </div>
+                  user={u}
+                  isSelected={u.userId === value}
+                  onSelect={() => handleSelect(u.userId)}
+                />
               ))
             )}
           </div>

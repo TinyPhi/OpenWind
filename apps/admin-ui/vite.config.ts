@@ -11,6 +11,8 @@ function envJsPlugin(vars: Record<string, string | undefined>): Plugin {
       vars["ZITADEL_OIDC_CLIENT_ID"] ??
       vars["VITE_ZITADEL_OIDC_CLIENT_ID"] ??
       "",
+    IDLE_LOGOUT_ENABLED: vars["VITE_IDLE_LOGOUT_ENABLED"] ?? "",
+    IDLE_LOGOUT_TIMEOUT_MINUTES: vars["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] ?? "",
   })};`;
   return {
     name: "serve-env-js",
