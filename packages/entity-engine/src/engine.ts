@@ -877,6 +877,34 @@ export async function listEntities(
   if (input.assignedTo !== undefined) {
     conditions.push(eq(entityInstances.assignedTo, input.assignedTo));
   }
+  if (input.scopeToUserId !== undefined) {
+    // Reuses the exact OR shape apps/api/src/routes/entities/my-tickets.ts
+    // already relies on (createdBy/assignedTo/__accessUsers), per
+    // docs/specs/workflow-open-ticket-creation.md §I.3 instruction #4 — not a
+    // new, separately-indexed path to the same data.
+    //
+    // entity_instances_fields_gin_idx uses jsonb_path_ops, which supports `@>`
+    // containment but not the `?` key-exists operator used in the third
+    // branch, so that branch is never index-assisted. EXPLAIN ANALYZE against
+    // 20k synthetic rows for one entity_type/tenant (2026-08-05, PR #337
+    // review): the planner uses entity_instances_tenant_type_idx
+    // (tenant_id, entity_type_id) to narrow the set first, then evaluates
+    // this OR as a linear filter over the narrowed rows — 2.8ms, no
+    // sequential scan of the full table. Same plan shape my-tickets.ts
+    // already produces, so this isn't a regression, just the same
+    // already-accepted tradeoff reused at a new call site. Revisit
+    // (e.g. an expression index on `fields->'__accessUsers'`, or migrating
+    // this branch to `@>` a normalized array column) if per-type row counts
+    // grow well past pilot scale.
+    // or() with 3 fixed args is always defined — the `| undefined` in its
+    // return type only covers the zero-args case, which never happens here.
+    const scopeCondition = or(
+      eq(entityInstances.createdBy, input.scopeToUserId),
+      eq(entityInstances.assignedTo, input.scopeToUserId),
+      sql`${entityInstances.fields}->'__accessUsers' ? ${input.scopeToUserId}`,
+    );
+    if (scopeCondition) conditions.push(scopeCondition);
+  }
   if (
     input.fieldFilters !== undefined &&
     Object.keys(input.fieldFilters).length > 0

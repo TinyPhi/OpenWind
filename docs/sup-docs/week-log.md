@@ -479,6 +479,73 @@ was wrongly credited with closing #247 despite its own body saying otherwise). F
 
 ---
 
+## 2026-07-31 — open workflow visibility & ticket creation to all tenant users
+
+**Session type:** New feature (not on the tracked #120–#129 backlog)
+**Branch:** `tushar`
+
+### Completed this session
+
+- Spec + task plan: `docs/specs/workflow-open-ticket-creation.md`,
+  `docs/specs/workflow-open-ticket-creation-tasks.md`. Previously only a
+  workflow's `createdBy`/`assignedTo[]` admins (ADR-006's ownership model)
+  could create tickets in it — `GET /workflows?entityTypeId=X` came back
+  empty for every other tenant user, silently degrading the create-ticket
+  form. Fix opens ticket-creation-purpose workflow resolution to any
+  authenticated tenant user, while workflow settings/config
+  (`PATCH`/`DELETE /admin/workflows/:id`) and the ownership-filtered
+  workflow-management list stay exactly as gated.
+- **`packages/workflow-engine/src/workflow-crud.ts`**: added a shared
+  `visibilityFor()` helper applied to both `listWorkflows` and
+  `listWorkflowsSummary` — drops the ownership filter only when
+  `entityTypeId` is present (the ticket-creation-resolution shape), keeps it
+  for bare calls (the management-list shape). Correction made mid-implementation:
+  the spec initially assumed `listWorkflowsSummary` was the reachable
+  function; tracing actual frontend call sites showed no caller ever passes
+  `summary=true`, so both real-traffic paths (creation resolution and the
+  management list) go through `listWorkflows` — fixed both functions
+  identically. `getWorkflowByEntityTypeId` (a separate function backing
+  field-schema-edit rights AND `GET /entities`'s list-privilege escalation)
+  is untouched, with a regression test.
+- **`apps/api/src/routes/entities/create.ts`**: `assignedTo` now validated
+  against `listUserIdsWithRole(orgId, "user")` — same pool `GET
+/platform/users` exposes — rejecting (422) a nonexistent id, an
+  agent/admin account, or a cross-tenant id; fails closed if `orgId` is
+  absent.
+- **`packages/entity-engine/src/types.ts` + `engine.ts` + `apps/api/src/routes/entities/list.ts`**:
+  fixed `GET /entities`'s non-privileged scoping, previously `assignedTo`
+  only (so a user who created a ticket but wasn't its assignee lost track of
+  it). New `ListEntitiesInput.scopeToUserId` field (engine) plus a route
+  change to pass it instead of collapsing to `assignedTo: userId` — this was
+  a two-file fix caught during the pre-implementation security pass (fixing
+  only the engine side would have shipped a no-op, since the route never
+  forwarded anything else). Preserves the existing "query param cannot
+  override scope" property, with an explicit regression test.
+- Pre-implementation `/security-review` pass (before any code was written)
+  and a second review after implementation — no HIGH/MEDIUM findings either
+  pass. STRIDE notes recorded in the spec (ticket-spam/DoS accepted as
+  explicit out-of-scope; spoofing/repudiation/inappropriate-assignment
+  closed by the `assignedTo` validation).
+
+### Verification
+
+- pnpm typecheck: PASS (entity-engine, workflow-engine, api)
+- pnpm lint: PASS (`--max-warnings=0`, same 3 packages)
+- pnpm test: PASS — workflow-crud 9/9, entity-engine 191/191,
+  workflow-engine 79/79, api 542/548 (6 pre-existing failures in
+  `upload-flow`/`view-configs`/`modules` integration tests, confirmed via
+  `git stash` to fail identically on the unmodified branch — unrelated
+  missing test-DB/timeout issues, not caused by this change)
+- pnpm test:isolation: PASS — 30 files, 207/207, run against a real
+  `platform_test` Postgres DB (RLS on `workflows`/`workflow_states`/
+  `workflow_transitions`/`entity_instances` unaffected)
+
+### Next
+
+- Commit + PR for this branch's workflow-access changes.
+
+---
+
 ## 2026-07-31 — #191–#202 batch triage: 5 PRs (backup/DR, e2e harness, field widgets, a11y modals wave 1, confirm/alert dialog)
 
 **Session type:** Backlog triage + fixes (Plan → Code → Review → Docs → Ship, one plan-lock/PR per issue)
@@ -807,6 +874,194 @@ was wrongly credited with closing #247 despite its own body saying otherwise). F
 | Backlog               | Status                                                           |
 | --------------------- | ---------------------------------------------------------------- |
 | Pre-Phase 3 hardening | ✅ **Complete** — all items closed (#121–#129, #141, #136, #125) |
+
+---
+
+## 2026-07-27 — local-disk file storage (replace S3/MinIO)
+
+**Session type:** New feature (not on the tracked #120–#129 backlog)
+**Branch:** `media` (off `tushar`)
+
+### Completed this session
+
+- Spec + task plan: `docs/specs/local-disk-file-storage.md`,
+  `docs/specs/local-disk-file-storage-tasks.md`. Replaces `@platform/files`'
+  S3/MinIO backend — presigned URLs broke on the real server
+  (`S3_PUBLIC_URL=localhost:9000` only resolves in local dev).
+- **`packages/files`**: `saveUpload`/`getFileStream`/`deleteFile`/
+  `deleteTenantFiles` replace `initiateUpload`/`confirmUpload`/
+  `getDownloadUrl` — direct `fs` calls (temp-file-then-rename for atomic
+  writes) instead of S3 SDK calls. Same quota/RLS/metadata model, unchanged.
+- **API routes**: `POST /files` collapsed from a two-step
+  initiate+presigned-PUT+complete flow into one multipart upload; `GET
+/files/:id` now streams bytes directly (with the same tenant+entity-ACL
+  gate) instead of redirecting to a presigned URL.
+- **`apps/worker/src/av-scan.ts`**: streams the file from disk into ClamAV's
+  INSTREAM protocol instead of downloading from S3 into a buffer first.
+  `file-cleanup.ts`/`tenant-purge.ts` also switched from S3 deletes to
+  `fs.unlink`/recursive `fs.rm`.
+- **admin-ui**: upload hook (`use-file-upload.ts`) switched to one-shot
+  multipart POST; download/preview code (`file-attachment.tsx`) switched
+  from following a presigned URL to fetching bytes as a Blob (binary
+  downloads now require the `Authorization` header, which plain
+  `<img>`/`<embed>` src attributes can't send). A duplicated upload path in
+  `record-detail.tsx`'s customer attachment uploader got the same fix, plus
+  a poll-for-`clean`-before-attach fix — `POST /entities/:id/attachments`
+  (which writes the `file_attached` history event) requires `scanStatus ===
+"clean"`, but the frontend was calling it immediately after upload, before
+  the async AV scan finished, so the history event silently 422'd and never
+  got written even though the file itself already showed up in the
+  attachment list.
+- **Infra**: `docker-compose.yml`'s `minio`/`minio-init` commented out;
+  `FILES_STORAGE_PATH_HOST` (new, defaults to `../openwind-files`, sibling
+  to the repo checkout — same value works on a laptop or a server)
+  bind-mounted into `ow-backend`/`ow-worker` at `/data/files`.
+
+### Verification
+
+- pnpm typecheck: PASS (packages/files, packages/config, apps/api,
+  apps/worker, apps/admin-ui)
+- pnpm test: PASS — packages/files (17), apps/worker (70), apps/api files
+  unit tests (16) + integration tests (11, run against a real Redis/Postgres
+  once the pre-existing `.env.local` `SKIP_AV_SCAN=true`/no-host-Redis-port
+  local-dev quirks were worked around), apps/admin-ui (53)
+- pnpm test:isolation: not re-run this session (no RLS/schema changes —
+  `files` table untouched)
+- Manual end-to-end: built and ran the full `docker compose up -d` stack;
+  verified write→read-back→stream-download→delete→404-after-delete against
+  the real running containers (real Postgres, real bind-mounted disk, real
+  RLS), confirmed the bind-mount is visible on the host filesystem, and
+  confirmed persistence across `docker compose down`/`up`. Also manually
+  exercised upload/delete/history-timeline in the browser on the ticket
+  detail page.
+- One real bug caught and fixed mid-session: `saveUpload`'s `SKIP_AV_SCAN`
+  dev-shortcut branch updated the `files` row without setting the RLS
+  tenant-context GUC first (a regression from the old `confirmUpload`, which
+  had that context already open in its own transaction) — fixed by wrapping
+  it in a `db.transaction` with `set_config('app.tenant_id', ...)`.
+
+### Next
+
+- Not yet pushed/PR'd as of this entry — pending `git push` to `media`.
+- `.env.server`/production deployment still needs `FILES_STORAGE_PATH_HOST`
+  set (or left to its sibling-directory default) on the real server before
+  the next deploy.
+
+### Open questions
+
+- None blocking.
+
+---
+
+## 2026-07-27 (later) — production deploy + a real pre-existing bug it exposed
+
+**Session type:** Deploy of the above `media` branch to the `tushar` branch
+and the production server, plus a follow-up fix
+
+### Completed this session
+
+- Merged `media` into `tushar` (fast-forward), pushed, deleted `media`.
+- Deployed to the production server: `git pull`, rebuilt `ow-backend`,
+  `ow-frontend`, **and `ow-worker`** (the existing `server-up.sh` script only
+  rebuilds backend+frontend — had to run the `docker compose ... up -d
+--build` command manually with `ow-worker` included, since our AV-scan/
+  file-cleanup/tenant-purge changes live there). `--remove-orphans` cleanly
+  removed the now-unmanaged MinIO containers; confirmed the bucket was empty
+  first (`mc ls` — no migration needed).
+- **Found and fixed a real pre-existing production bug**, exposed for the
+  first time by this deploy: `apps/worker/src/av-scan.ts`'s DB queries (the
+  idempotency-check select, both `clean`/`quarantined` status updates, and
+  the failure-handler's update+outbox-insert) were bare `db.select()`/
+  `update()`/`insert()` calls, never wrapped in `withTenantContext`. Against
+  a real PgBouncer-pooled connection this throws `invalid input syntax for
+type uuid: ""` — the RLS policy's `app.tenant_id` GUC was unset/stale, and
+  casting the empty default to `uuid` fails outright (unlike a fresh direct
+  psql connection, where an unset custom GUC just returns `NULL` and the
+  query silently returns zero rows — which is why a manual `psql` repro
+  didn't reproduce it and a from-inside-the-app repro script was needed to
+  see the real `.cause`). This code was untouched by the S3→disk migration
+  itself (same shape before and after) — it never surfaced before because
+  uploads never reached the AV-scan queue under the old broken
+  presigned-URL flow. Fixed by wrapping every DB call in `av-scan.ts` with
+  `withTenantContext`, matching the convention everywhere else in the
+  codebase (`tenant-purge.ts` already did this correctly).
+- Logged as B1/B2 and promoted to a `§V` invariant in
+  `docs/specs/local-disk-file-storage.md`: any bare `db` call in tenant-scoped
+  worker code is a production bug, not just a lint nit — it breaks under
+  PgBouncer transaction pooling even though it may look fine against a
+  fresh, unpooled connection.
+
+### Verification
+
+- pnpm typecheck: PASS (apps/worker)
+- pnpm test: PASS — apps/worker (70, including updated `av-scan.test.ts`
+  mocking `withTenantContext`)
+- Manual: reproduced the exact failing query through the app's own DB client
+  inside the running `ow-worker` container on the server, confirmed the real
+  `PostgresError` cause, applied the fix, rebuilt `ow-worker` again
+
+### Next
+
+- Re-test the full upload → scan → clean → timeline flow on the live server
+  now that the worker fix is deployed.
+- Consider fixing `av-scan.ts`'s (and other worker code's) error logging to
+  include `err.cause`, not just `String(err)` — this bug's root cause was
+  invisible in the app's own logs and required a manual repro script to see.
+
+### Open questions
+
+- None blocking.
+
+---
+
+## 2026-07-27 (later still) — ClamAV was never actually deployed anywhere
+
+**Session type:** Infra gap fix, found while re-testing the worker fix above
+
+### Completed this session
+
+- After the `withTenantContext` fix (previous entry) deployed cleanly, the
+  next upload attempt still failed — `av-scan: job failed` with
+  `AggregateError` (a connection failure) on every retry. Root cause:
+  **`docker-compose.yml` never had a ClamAV service at all** —
+  `CLAMAV_HOST` defaults to `localhost`, which inside the worker container
+  resolves to nothing. `SKIP_AV_SCAN=true` was briefly considered as a
+  quick unblock, but `packages/config/src/env.ts` has a deliberate
+  production guard (`.refine(...)`) that refuses to boot if
+  `SKIP_AV_SCAN=true` and `NODE_ENV=production` — written specifically to
+  stop antivirus scanning from being silently disabled in production.
+  Since the server's containers do run with `NODE_ENV=production`, that
+  path was a dead end anyway, and disabling AV scanning for uploaded ticket
+  attachments isn't something to route around lightly.
+- Added a real `clamav` service (`clamav/clamav:stable`) to
+  `docker-compose.yml`, wired `ow-worker` to depend on it
+  (`condition: service_healthy`) and point `CLAMAV_HOST`/`CLAMAV_PORT` at
+  it. Confirmed server has 62GB RAM / 51GB available / 16 cores — plenty of
+  headroom for ClamAV's ~1GB footprint. `start_period: 300s` on its
+  healthcheck since first boot downloads the virus signature DB
+  (freshclam), which can take a few minutes.
+- This closes a gap that predates the S3→disk migration entirely — AV
+  scanning was designed into the system (`av-scan.ts`, the `scanStatus`
+  state machine, the download gate) but never actually had a scanner to
+  talk to in this deployment, on either the server or (via `SKIP_AV_SCAN`)
+  local dev.
+
+### Verification
+
+- `docker compose config --quiet`: PASS (compose file is syntactically
+  valid with the new service)
+- Pending: deploy to server, confirm ClamAV container reaches healthy,
+  confirm a fresh upload reaches `scanStatus: "clean"` end-to-end
+
+### Next
+
+- Deploy: `git pull` + rebuild `ow-worker` (no other service needs
+  rebuilding) on the server, wait for `ow-clamav` to report healthy
+  (can take a few minutes on first boot), re-test upload.
+
+### Open questions
+
+- None blocking.
 
 ---
 

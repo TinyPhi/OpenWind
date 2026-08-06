@@ -138,6 +138,7 @@ type WorkflowTransition = {
   allowedRoles: string[];
   requiresComment: boolean;
   requiresFields: string[];
+  sortOrder: number;
 };
 
 type WorkflowFull = {
@@ -1401,6 +1402,28 @@ export function WorkflowDetail(): React.ReactElement {
   const [inlineError, setInlineError] = useState<string | null>(null);
   const fieldSensors = useSensors(useSensor(PointerSensor));
 
+  const [settingInitialStateId, setSettingInitialStateId] = useState<
+    string | null
+  >(null);
+
+  async function handleSetInitialState(state: WorkflowState): Promise<void> {
+    if (!id) return;
+    setSettingInitialStateId(state.id);
+    try {
+      await fetchWithAuth(`${API_URL}/workflows/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ initialState: state.name }),
+      });
+      void refetch();
+    } catch (err) {
+      setInlineError(
+        err instanceof Error ? err.message : "Failed to set starting step",
+      );
+    } finally {
+      setSettingInitialStateId(null);
+    }
+  }
+
   const fetchFields = useCallback((entityTypeId: string): void => {
     setFieldsLoading(true);
     fetchWithAuth(`${API_URL}/entity-types/${entityTypeId}/fields`)
@@ -2428,6 +2451,31 @@ export function WorkflowDetail(): React.ReactElement {
                           <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                         </svg>
                       </IconButton>
+                      {state.name !== workflow.initialState &&
+                        !state.isTerminal && (
+                          <IconButton
+                            disabled={settingInitialStateId === state.id}
+                            onClick={() => void handleSetInitialState(state)}
+                            title="Set as starting step"
+                          >
+                            {settingInitialStateId === state.id ? (
+                              <span style={{ fontSize: "11px" }}>…</span>
+                            ) : (
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polygon points="5 3 19 12 5 21 5 3" />
+                              </svg>
+                            )}
+                          </IconButton>
+                        )}
                       {state.name !== workflow.initialState ? (
                         <IconButton
                           variant="delete"
@@ -2512,6 +2560,7 @@ export function WorkflowDetail(): React.ReactElement {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead style={{ width: "40px" }}>#</TableHead>
                   <TableHead>Route</TableHead>
                   <TableHead className="wfd-table-hide-xs">Label</TableHead>
                   <TableHead className="wfd-table-hide-xs">
@@ -2524,8 +2573,16 @@ export function WorkflowDetail(): React.ReactElement {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {workflow.transitions.map((t) => (
+                {/* Already ORDER BY sort_order server-side (workflow-crud.ts) — no
+                    need to re-sort on every render. */}
+                {workflow.transitions.map((t, i) => (
                   <TableRow key={t.id}>
+                    <TableCell
+                      className="text-muted-sm"
+                      style={{ fontWeight: 600 }}
+                    >
+                      {i + 1}
+                    </TableCell>
                     <TableCell>
                       <div
                         style={{

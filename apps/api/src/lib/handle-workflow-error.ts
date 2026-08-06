@@ -104,6 +104,16 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
           409,
         ) as Response;
 
+      case "WORKFLOW_INITIAL_STATE_INVALID":
+        return c.json(
+          {
+            error: err.code,
+            message:
+              "Starting step must be an existing, non-final step on this workflow",
+          },
+          422,
+        ) as Response;
+
       case "TRANSITION_FORBIDDEN":
         return c.json(
           {
