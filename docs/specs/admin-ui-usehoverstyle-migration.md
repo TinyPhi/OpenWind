@@ -116,10 +116,10 @@ half; Phase C is the bonus fix + full verification.
 | T7  | Extract + migrate `records/index.tsx`'s `WorkflowCardGrid` card hover                           | B     | done   | T4a     |
 | T8  | Extract + migrate `workflows/detail.tsx`'s remove-assignee button                               | B     | done   | T4a     |
 | T8a | Manual smoke pass on T5-T8's 4 files + phase B exit condition                                   | B     | done   | T5-T8   |
-| T9  | Extract + migrate `customer/record-create.tsx` (both pairs)                                     | C     | todo   | T8a     |
-| T10 | Extract + migrate `customer/record-detail.tsx` (1 pair) + bonus hex-to-`TOKENS.danger` fix (R3) | C     | todo   | T8a     |
-| T11 | Extract + migrate `customer/record-list.tsx` (1 pair)                                           | C     | todo   | T8a     |
-| T12 | Manual smoke pass on T9-T11's 3 customer-facing files + full exit condition                     | C     | todo   | T9-T11  |
+| T9  | Extract + migrate `customer/record-create.tsx` (both pairs)                                     | C     | done   | T8a     |
+| T10 | Extract + migrate `customer/record-detail.tsx` (1 pair) + bonus hex-to-`TOKENS.danger` fix (R3) | C     | done   | T8a     |
+| T11 | Extract + migrate `customer/record-list.tsx` (1 pair)                                           | C     | done   | T8a     |
+| T12 | Manual smoke pass on T9-T11's 3 customer-facing files + full exit condition                     | C     | done   | T9-T11  |
 
 phase gate: typecheck + lint + test pass before advancing; each phase's smoke-pass task (T4a,
 T8a, T12) additionally requires the manual pass, since hover/color rendering isn't fully covered
