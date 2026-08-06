@@ -184,10 +184,14 @@ forgotten. This changes what can be deferred:
 8. **`connector_definitions` (installable catalog, read by the marketplace UI) and
    `connector_credentials` (one row per tenant-connector installation, created on install,
    including the cursor-state column from Decision #7) are two distinct tables.**
-   `connector_definitions` is catalog data (tenant-independent, RLS disabled per the ADR-001
-   addendum's pattern for platform-wide tables); `connector_credentials` is tenant-scoped and
-   RLS-protected. The generic fallback connector's inbound field-mapping (Decision #2) is stored as
-   declarative JSON (payload-path → entity-field pairs) on the installation row, not code.
+   `connector_definitions` is catalog data (tenant-independent, RLS disabled) — **not an informal
+   convention, but an exact match to `ADR-001-multitenancy.md:236`, which already names
+   `connector_definitions` by name** as one of the platform-wide tables with RLS disabled,
+   readable by `app_user`, writable only by `migration_user`/admin-role endpoints (alongside
+   `tenants`, `modules`, `entity_types`, `workflow_templates`). `connector_credentials` is
+   tenant-scoped and RLS-protected. The generic fallback connector's inbound field-mapping
+   (Decision #2) is stored as declarative JSON (payload-path → entity-field pairs) on the
+   installation row, not code.
 
 9. **Outbound delivery — corrected retry semantics, not a blind reuse of the notification
    queue's config.** Extends the outbox pattern (issue #125) but **with its own BullMQ queue
@@ -318,8 +322,8 @@ Named explicitly, each with a trigger condition — not silent omissions, and no
 
 ## Next steps if accepted
 
-1. A human reviews this revision, resolves at minimum OQ-3 and OQ-5 (OQ-1 is now resolved), and
-   authors the real ADR at
+1. A human reviews this revision, confirms OQ-5's proposed default (OQ-1 through OQ-4 are already
+   resolved in this revision), and authors the real ADR at
    `docs/decisions/ADR-009-connector-runtime-webhook-gateway-architecture.md`, updating
    `CLAUDE.md`'s ADR reference list and marking `docs/architecture-brief.md` §6 (including §6.2) as
    formalized-by-this-ADR.

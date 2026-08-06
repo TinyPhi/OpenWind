@@ -146,7 +146,14 @@ direct hardening of the mechanism that's already live.
    1-side decision; the schema/enforcement work itself belongs to this ADR since it's the
    `api_keys` table. **The "create tickets via this integration" example above is not
    hypothetical** — see OQ-5 for the concrete taxonomy shape, informed by the actual known Tier 1
-   partner's use case (ticketing primary, RBAC-scoped record reads).
+   partner's use case (ticketing primary, RBAC-scoped record reads). **Dual-format column, needs
+   a discriminator:** since OQ-6 keeps existing internal keys on legacy role-strings while new
+   Tier 1 keys use the new `entity:<type>:<verb>` action-strings, `api_keys.scopes` will hold both
+   formats simultaneously with nothing in this ADR specifying how enforcement code tells them
+   apart at read time. Whoever implements must pick one: a colon-presence heuristic (fragile if a
+   future role-string ever contains a colon), an explicit `scopes_format` column (`role` |
+   `action`), or a `created_at`/migration-date cutoff. Flagged here so it isn't discovered cold
+   during implementation.
 
 ---
 

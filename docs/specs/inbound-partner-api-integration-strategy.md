@@ -133,17 +133,21 @@ under-privilege sibling products:
 
 3. **Webhook subscriptions: a new `event_subscriptions` table, generalizing ADR-009's outbound
    delivery infrastructure rather than building a third pipeline.** A Tier 1 caller registers a URL
-   - an event-type filter (e.g. `workflow.transitioned`, `entity.created`) and receives a stream of
-     matching platform events — distinct from the automation engine's existing single-rule/single-URL
-     `webhook` action, and distinct from ADR-009's connector-specific outbound delivery. Reuses: the
-     dedicated-queue pattern (its own BullMQ queue, not `outbox_events`, for the same reason ADR-009
-     rejected the shared allowlist), HMAC-SHA256 signing over `timestamp + body`, a versioned envelope
-     (`version` field, per `architecture-brief.md` §6.2), per-attempt SSRF validation via the existing
-     `validateWebhookUrl()`, a delivery-attempt record (not just a terminal status), and the
-     non-destructive per-installation kill switch pattern. Tenant-scoped RLS on the subscription row
-     itself, same as `connector_credentials`. Designed to extend cleanly to Tier 2 callers once Tier 2
-     itself is built — this table's shape doesn't need to change for that, only who's allowed to
-     register a subscription.
+   and an event-type filter (e.g. `workflow.transitioned`, `entity.created`) and receives a stream
+   of matching platform events — distinct from the automation engine's existing single-rule/
+   single-URL `webhook` action, and distinct from ADR-009's connector-specific outbound delivery.
+   Reuses: the dedicated-queue pattern (its own BullMQ queue, not `outbox_events`, for the same
+   reason ADR-009 rejected the shared allowlist), HMAC-SHA256 signing over `timestamp + body`, a
+   versioned envelope (`version` field, per `architecture-brief.md` §6.2), per-attempt SSRF
+   validation via the existing `validateWebhookUrl()`, a delivery-attempt record (not just a
+   terminal status), and the non-destructive per-installation kill switch pattern.
+   **Tenant isolation is an explicit decision, not an inference: subscriptions are scoped to
+   events within the registering caller's own tenant only** — enforced by tenant-scoped RLS on the
+   subscription row, same mechanism as `connector_credentials`, not merely implied by that RLS
+   existing. Cross-tenant event visibility for a partner is out of scope for v1 (see Deferred
+   Decisions) — the default, absent an explicit grant, is always same-tenant-only. Designed to
+   extend cleanly to Tier 2 callers once Tier 2 itself is built — this table's shape doesn't need
+   to change for that, only who's allowed to register a subscription.
 
 4. **Public API versioning is decided now, before Tier 1 has a live external consumer.**
    URL-path versioning (`/v1/...`) for any endpoint intended for Tier 1 consumption — the same
@@ -241,7 +245,8 @@ re-asking whenever Tier 2's trigger fires, not answering now.)_
 
 ## Next steps if accepted
 
-1. A human reviews this revision, resolves at minimum OQ-3 and OQ-5, and authors the real ADR at
+1. A human reviews this revision, confirms OQ-5's proposed default (OQ-3 and OQ-4 are already
+   resolved in this revision), and authors the real ADR at
    `docs/decisions/ADR-010-inbound-partner-api-integration.md` — scoped to Tier 1 only, per this
    revision; Tier 2 moves to the Deferred Decisions table rather than the Decision section.
 2. Tracked as issue #344 (OQ-4, resolved) — linked to #16, same tracked status as ADR-009's
