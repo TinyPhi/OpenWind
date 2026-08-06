@@ -220,9 +220,7 @@ export class ModuleService {
    * be safely retried later via `POST /modules/:slug/install` without
    * re-provisioning the tenant or risking duplicate rows.
    */
-  static async installCoreModules(
-    tenantId: string,
-  ): Promise<{
+  static async installCoreModules(tenantId: string): Promise<{
     succeeded: string[];
     failed: { slug: string; error: string }[];
   }> {
