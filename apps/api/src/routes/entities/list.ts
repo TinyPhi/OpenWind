@@ -77,12 +77,17 @@ export const listEntitiesHandler = factory.createHandlers(
         }
       }
 
-      // Non-privileged users are always scoped to their own records — query param cannot override
-      const assignedTo = isPrivileged ? rest.assignedTo : userId;
+      // Non-privileged users are always scoped to their own records — query param cannot
+      // override. Scope is createdBy OR assignedTo OR an __accessUsers ACL grant (R5), not
+      // assignedTo alone — scopeToUserId is derived only from the authenticated userId, never
+      // from rest.assignedTo or any other query param.
+      const assignedTo = isPrivileged ? rest.assignedTo : undefined;
+      const scopeToUserId = isPrivileged ? undefined : userId;
       const page = await withTenantContext(tenantId, (tx) =>
         listEntities(tx, tenantId, {
           ...rest,
           assignedTo,
+          scopeToUserId,
           fieldFilters: fields,
           rootOnly: rest.rootOnly,
         }),

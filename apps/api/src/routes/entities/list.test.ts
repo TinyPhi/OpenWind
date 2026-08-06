@@ -7,17 +7,24 @@ import type * as EntityEngine from "@platform/entity-engine";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockListEntities = vi.fn();
+const mockGetWorkflowByEntityTypeId = vi.fn();
+const mockIsWorkflowAdmin = vi.fn();
+
+// Mutable so individual tests can switch the caller's role/id without
+// re-hoisting vi.mock — requireAuth reads currentAuth at request time.
+let currentAuth: AuthContext = {
+  tenantId: "t-aaa",
+  userId: "u-bbb",
+  roles: ["agent"],
+  email: "test@example.com",
+  displayName: "Test User",
+};
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
     () =>
     async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", {
-        tenantId: "t-aaa",
-        userId: "u-bbb",
-        roles: ["agent"],
-        email: "test@example.com",
-      });
+      c.set("auth", currentAuth);
       await next();
     },
   requireRole: () => async (_c: Context, next: Next) => {
@@ -37,6 +44,12 @@ vi.mock("@platform/entity-engine", async (importOriginal) => {
     listEntities: (...args: unknown[]) => mockListEntities(...args),
   };
 });
+
+vi.mock("@platform/workflow-engine", () => ({
+  getWorkflowByEntityTypeId: (...args: unknown[]) =>
+    mockGetWorkflowByEntityTypeId(...args),
+  isWorkflowAdmin: (...args: unknown[]) => mockIsWorkflowAdmin(...args),
+}));
 
 const { listEntitiesHandler } = await import("./list.js");
 
@@ -71,7 +84,16 @@ function makeInstance(id: string) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("GET /entities", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["agent"],
+      email: "test@example.com",
+      displayName: "Test User",
+    };
+  });
 
   it("returns 200 with data array and nextCursor", async () => {
     mockListEntities.mockResolvedValue({
@@ -181,5 +203,87 @@ describe("GET /entities", () => {
 
     expect(res.status).toBe(400);
     expect(mockListEntities).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /entities — non-privileged scoping (R5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["user"],
+      email: "test@example.com",
+      displayName: "Test User",
+    };
+    mockGetWorkflowByEntityTypeId.mockResolvedValue(null);
+    mockIsWorkflowAdmin.mockReturnValue(false);
+    mockListEntities.mockResolvedValue({ data: [], nextCursor: null });
+  });
+
+  it("passes scopeToUserId (not assignedTo) for a non-privileged caller with no assignedTo query param", async () => {
+    await makeApp().request(`/?entityTypeId=${TYPE_ID}`);
+
+    expect(mockListEntities).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      expect.objectContaining({
+        scopeToUserId: "u-bbb",
+        assignedTo: undefined,
+      }),
+    );
+  });
+
+  it("ignores ?assignedTo=<other-user> for a non-privileged caller — query param cannot override scope", async () => {
+    await makeApp().request(
+      `/?entityTypeId=${TYPE_ID}&assignedTo=some-other-user`,
+    );
+
+    expect(mockListEntities).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      expect.objectContaining({
+        scopeToUserId: "u-bbb",
+        assignedTo: undefined,
+      }),
+    );
+  });
+
+  it("passes assignedTo through (not scopeToUserId) for a privileged caller", async () => {
+    currentAuth = { ...currentAuth, roles: ["agent"] };
+
+    await makeApp().request(
+      `/?entityTypeId=${TYPE_ID}&assignedTo=some-other-user`,
+    );
+
+    expect(mockListEntities).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      expect.objectContaining({
+        assignedTo: "some-other-user",
+        scopeToUserId: undefined,
+      }),
+    );
+  });
+
+  it("grants privileged (assignedTo passthrough) scoping to a workflow admin", async () => {
+    mockGetWorkflowByEntityTypeId.mockResolvedValue({
+      createdBy: "u-bbb",
+      assignedTo: ["u-bbb"],
+    });
+    mockIsWorkflowAdmin.mockReturnValue(true);
+
+    await makeApp().request(
+      `/?entityTypeId=${TYPE_ID}&assignedTo=some-other-user`,
+    );
+
+    expect(mockListEntities).toHaveBeenCalledWith(
+      {},
+      "t-aaa",
+      expect.objectContaining({
+        assignedTo: "some-other-user",
+        scopeToUserId: undefined,
+      }),
+    );
   });
 });

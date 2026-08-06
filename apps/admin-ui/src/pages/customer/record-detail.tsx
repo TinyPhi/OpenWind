@@ -2521,18 +2521,20 @@ export function CustomerRecordDetail(): React.ReactElement {
               Failed to send request. Try again.
             </div>
           )}
+          {/* Explicit destination, not navigate(-1) — a direct-URL or
+              bookmarked entry point may have no back-stack (G-1, PR #152
+              review). Grouped inside the card, not a disconnected sibling
+              link, so it reads as part of this screen rather than floating
+              content elsewhere on the page. */}
+          <button
+            type="button"
+            className="portal-btn-secondary"
+            style={{ marginTop: "16px" }}
+            onClick={() => navigate("/records")}
+          >
+            ← Back to Records
+          </button>
         </div>
-        {/* navigate(-1) exits the app / goes nowhere useful for a direct-URL
-            or bookmarked entry point with no back-stack (G-1, PR #152
-            review) — link to the record list instead, matching the
-            portal's equivalent no-access screen. */}
-        <Link
-          to={`/records/${typeSlug ?? ""}`}
-          className="portal-back-link"
-          style={{ marginTop: "16px", display: "inline-block" }}
-        >
-          ← Back
-        </Link>
       </div>
     );
   }
@@ -3039,7 +3041,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               <button
                 type="button"
                 className="portal-btn-secondary"
-                onClick={() => navigate(-1)}
+                onClick={() => navigate("/records")}
               >
                 Go Back
               </button>
