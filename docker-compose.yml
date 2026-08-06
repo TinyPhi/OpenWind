@@ -173,7 +173,11 @@ services:
   # a few minutes; start_period below gives it room before healthcheck fails.
   clamav:
     container_name: ow-clamav
-    image: clamav/clamav:stable
+    # pinned 2026-08-06 — digest resolved from the "stable" tag published
+    # upstream for this image; bump deliberately, in its own commit (the
+    # freshclam virus-database update inside the container still runs on its
+    # own schedule regardless of this pin — this only fixes the image build).
+    image: clamav/clamav@sha256:d06c1d6a451d616e1dd79b42f44c8c8c291bba9cf4e75ebc4d0e43c1c6dd87bb
     restart: unless-stopped
     volumes:
       - clamav_data:/var/lib/clamav

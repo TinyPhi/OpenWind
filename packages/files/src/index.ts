@@ -325,15 +325,20 @@ export async function getFileStream(
 
   // scanStatus === "clean"
   const absPath = resolveStoragePath(file.storageKey);
-  let stream: fs.ReadStream;
+  // fs.createReadStream never throws synchronously for a missing/unreadable
+  // path — it opens the fd lazily and reports failure via the stream's async
+  // 'error' event, by which point a caller (e.g. the download route) may
+  // already have sent a 200 and started writing the response. A pre-access
+  // check surfaces the failure here, before any response has gone out.
   try {
-    stream = fs.createReadStream(absPath);
+    await fsp.access(absPath, fs.constants.R_OK);
   } catch (err) {
     throw new FileError("STORAGE_READ_FAILED", {
       fileId,
       err: String(err),
     });
   }
+  const stream = fs.createReadStream(absPath);
 
   return {
     stream,
