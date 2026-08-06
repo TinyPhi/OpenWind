@@ -54,7 +54,7 @@ export const modules = pgTable("modules", {
   // ADR-005: 'core' modules auto-install on tenant provisioning
   // (tenant-lifecycle.ts's provisionTenant); 'optional' modules require a
   // manual install via the Templates page. Enforced at the DB layer by a
-  // CHECK constraint (migration 0050) — Drizzle's text() type doesn't model
+  // CHECK constraint (migration 0051) — Drizzle's text() type doesn't model
   // the enum, so keep this in sync with that CHECK if values ever change.
   category: text("category").default("optional").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })

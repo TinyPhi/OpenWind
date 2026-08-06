@@ -405,6 +405,7 @@ export async function getAvailableTransitions(
       conditions: t.conditions as ConditionTree | null,
       requiresComment: t.requiresComment,
       requiresFields: t.requiresFields,
+      sortOrder: t.sortOrder,
     }));
 }
 
