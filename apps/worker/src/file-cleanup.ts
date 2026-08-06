@@ -3,7 +3,7 @@
  *
  * Recurring BullMQ job (every hour) that purges stale pending files:
  *  - Files with scan_status = 'pending' and created_at < now() - 24h
- *  - Deletes the S3 object
+ *  - Deletes the on-disk file
  *  - Deletes the row from the files table
  *
  * Quota is implicit — it's the aggregate of active file rows.
@@ -14,33 +14,17 @@
  */
 
 import { Worker, Queue } from "bullmq";
-import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import fsp from "node:fs/promises";
 import { lt, eq, and, or } from "drizzle-orm";
 import { db, files } from "@platform/db";
-import { env } from "@platform/config";
 import { logger } from "@platform/logger";
+import { resolveStoragePath } from "@platform/files";
 import { connection } from "./queues.js";
 
 const STALE_AFTER_HOURS = 24;
 const QUEUE_NAME = "file-cleanup";
 /** Max rows per cleanup run — prevents unbounded memory usage. */
 const BATCH_LIMIT = 500;
-
-// ── S3 client (lazily initialised — avoids top-level instantiation in tests) ──
-
-let _s3: S3Client | undefined;
-function getS3(): S3Client {
-  _s3 ??= new S3Client({
-    endpoint: env.S3_ENDPOINT,
-    region: "us-east-1",
-    credentials: {
-      accessKeyId: env.S3_ACCESS_KEY,
-      secretAccessKey: env.S3_SECRET_KEY,
-    },
-    forcePathStyle: true,
-  });
-  return _s3;
-}
 
 // ── Cleanup processor ─────────────────────────────────────────────────────────
 
@@ -51,8 +35,8 @@ async function runCleanup(): Promise<void> {
   //  1. scan_status = 'pending' AND created_at < cutoff
   //     → abandoned uploads (client never called confirmUpload)
   //  2. scan_status = 'deleted'
-  //     → soft-deleted files whose S3 object deletion failed at delete-time;
-  //        the fire-and-forget in deleteFile() deferred them here.
+  //     → soft-deleted files whose on-disk deletion failed at delete-time;
+  //        deleteFile() logged and deferred them here.
   const staleFiles = await db
     .select({
       id: files.id,
@@ -84,18 +68,13 @@ async function runCleanup(): Promise<void> {
 
   for (const file of staleFiles) {
     try {
-      // Delete S3 object (best-effort; row deletion still proceeds on S3 error)
+      // Delete on-disk file (best-effort; row deletion still proceeds on error)
       try {
-        await getS3().send(
-          new DeleteObjectCommand({
-            Bucket: env.S3_BUCKET,
-            Key: file.storageKey,
-          }),
-        );
-      } catch (s3Err) {
+        await fsp.unlink(resolveStoragePath(file.storageKey));
+      } catch (diskErr) {
         logger.warn(
-          { tenantId: file.tenantId, fileId: file.id, err: String(s3Err) },
-          "file-cleanup: S3 deletion failed — will retry next run",
+          { tenantId: file.tenantId, fileId: file.id, err: String(diskErr) },
+          "file-cleanup: on-disk deletion failed — will retry next run",
         );
       }
 

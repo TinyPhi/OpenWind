@@ -34,6 +34,9 @@ export class ModuleService {
    * seedRegistry - Populates default standard modules into the database
    */
   static async seedRegistry(): Promise<void> {
+    // ADR-005: category classifies helpdesk/crm/hrms/reimbursements/projects/
+    // invoicing/procurement as "core" (auto-installed by provisionTenant) and
+    // tender as "optional" (manual install only).
     const standardModules = [
       {
         slug: "helpdesk",
@@ -43,6 +46,7 @@ export class ModuleService {
         version: "0.0.1",
         isSystem: false,
         minPlan: "standard",
+        category: "core" as const,
       },
       {
         slug: "crm",
@@ -51,6 +55,7 @@ export class ModuleService {
         version: "0.0.1",
         isSystem: false,
         minPlan: "standard",
+        category: "core" as const,
       },
       {
         slug: "hrms",
@@ -59,6 +64,7 @@ export class ModuleService {
         version: "0.0.1",
         isSystem: false,
         minPlan: "standard",
+        category: "core" as const,
       },
       {
         slug: "reimbursements",
@@ -67,6 +73,7 @@ export class ModuleService {
         version: "0.0.1",
         isSystem: false,
         minPlan: "standard",
+        category: "core" as const,
       },
       {
         slug: "projects",
@@ -76,6 +83,7 @@ export class ModuleService {
         version: "0.0.1",
         isSystem: false,
         minPlan: "standard",
+        category: "core" as const,
       },
       {
         slug: "invoicing",
@@ -85,6 +93,7 @@ export class ModuleService {
         version: "0.0.1",
         isSystem: false,
         minPlan: "standard",
+        category: "core" as const,
       },
       {
         slug: "procurement",
@@ -94,6 +103,7 @@ export class ModuleService {
         version: "0.0.1",
         isSystem: false,
         minPlan: "standard",
+        category: "core" as const,
       },
       {
         slug: "tender",
@@ -103,6 +113,7 @@ export class ModuleService {
         version: "0.0.1",
         isSystem: false,
         minPlan: "standard",
+        category: "optional" as const,
       },
     ];
 
@@ -117,6 +128,7 @@ export class ModuleService {
           version: mod.version,
           isSystem: mod.isSystem,
           minPlan: mod.minPlan,
+          category: mod.category,
         })
         .onConflictDoUpdate({
           target: modules.slug,
@@ -124,6 +136,9 @@ export class ModuleService {
             name: mod.name,
             description: mod.description,
             version: mod.version,
+            isSystem: mod.isSystem,
+            minPlan: mod.minPlan,
+            category: mod.category,
             updatedAt: new Date(),
           },
         });
@@ -194,6 +209,44 @@ export class ModuleService {
     }
 
     logger.info({ slug, isVisible }, "Module visibility updated");
+  }
+
+  /**
+   * installCoreModules - ADR-005: installs every `category = 'core'` module
+   * for a freshly-provisioned tenant. Each module is attempted independently
+   * — one module's failure (e.g. a transient DB error mid seed-SQL) does not
+   * block the others, since they are unrelated business domains. #161 made
+   * every standard module's seed SQL idempotent, so a failed module here can
+   * be safely retried later via `POST /modules/:slug/install` without
+   * re-provisioning the tenant or risking duplicate rows.
+   */
+  static async installCoreModules(tenantId: string): Promise<{
+    succeeded: string[];
+    failed: { slug: string; error: string }[];
+  }> {
+    const coreModules = await db
+      .select({ slug: modules.slug })
+      .from(modules)
+      .where(eq(modules.category, "core"));
+
+    const succeeded: string[] = [];
+    const failed: { slug: string; error: string }[] = [];
+
+    for (const { slug } of coreModules) {
+      try {
+        await ModuleService.installModule(tenantId, slug);
+        succeeded.push(slug);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { err, tenantId, slug },
+          "installCoreModules: module install failed — continuing with remaining core modules",
+        );
+        failed.push({ slug, error: message });
+      }
+    }
+
+    return { succeeded, failed };
   }
 
   /**
