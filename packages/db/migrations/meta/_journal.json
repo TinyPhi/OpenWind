@@ -365,6 +365,13 @@
       "when": 1785542403000,
       "tag": "0051_module_category",
       "breakpoints": false
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1785542404000,
+      "tag": "0052_entity_instances_due_date",
+      "breakpoints": false
     }
   ]
 }

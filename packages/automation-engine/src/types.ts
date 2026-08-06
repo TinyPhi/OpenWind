@@ -7,6 +7,7 @@ export type TriggerType =
   | "field.changed"
   | "entity.created"
   | "entity.assigned"
+  | "entity.due_date_overdue"
   | "comment.mentioned"
   | "comment.mention_access_granted"
   | "comment.replied"

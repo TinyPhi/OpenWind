@@ -56,6 +56,7 @@ type EntityInstance = {
   createdAt: string;
   updatedAt: string;
   assignedTo: string | null;
+  dueDate: string | null;
   createdBy: string | null;
   parentId?: string | null;
   childCount?: number;
@@ -1137,6 +1138,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [editing, setEditing] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [editAssignedTo, setEditAssignedTo] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [allStates, setAllStates] = useState<WorkflowState[]>([]);
@@ -1153,6 +1155,7 @@ export function CustomerRecordDetail(): React.ReactElement {
     "comments" | "history" | "access-requests"
   >("comments");
   const [quickAssigning, setQuickAssigning] = useState(false);
+  const [quickSettingDueDate, setQuickSettingDueDate] = useState(false);
   const [replyTo, setReplyTo] = useState<WorkflowEvent | null>(null);
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(
     new Set(),
@@ -1448,6 +1451,10 @@ export function CustomerRecordDetail(): React.ReactElement {
       (currentUserId === creatorId || currentUserId === record?.assignedTo));
   const canChangeAssignedTo =
     isAdminOrAgent || (currentUserId !== null && currentUserId === creatorId);
+  // Due date is locked to admin/agent + creator + workflow-admin, same as
+  // Assigned To — the plain assignee is deliberately excluded, matching the
+  // tightened API write gate in apps/api/src/routes/entities/update.ts.
+  const canChangeDueDate = canChangeAssignedTo;
 
   // isAdminOrAgent already includes workflow-admin status (see its definition).
   const canCreateChild = isAdminOrAgent;
@@ -2422,6 +2429,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           fields: editValues,
           currentState,
           assignedTo: editAssignedTo || null,
+          dueDate: editDueDate ? new Date(editDueDate).toISOString() : null,
         }),
       });
       setEditing(false);
@@ -2445,6 +2453,22 @@ export function CustomerRecordDetail(): React.ReactElement {
       void loadRecord();
     } finally {
       setQuickAssigning(false);
+    }
+  }
+
+  async function quickSetDueDate(value: string): Promise<void> {
+    if (!id) return;
+    setQuickSettingDueDate(true);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          dueDate: value ? new Date(value).toISOString() : null,
+        }),
+      });
+      void loadRecord();
+    } finally {
+      setQuickSettingDueDate(false);
     }
   }
 
@@ -3205,6 +3229,11 @@ export function CustomerRecordDetail(): React.ReactElement {
                               setEditValues(record.fields);
                               setCurrentState(record.currentState ?? "");
                               setEditAssignedTo(record.assignedTo ?? "");
+                              setEditDueDate(
+                                record.dueDate
+                                  ? record.dueDate.slice(0, 16)
+                                  : "",
+                              );
                               setSaveError(null);
                               setEditing(true);
                               setDetailsExpanded(true);
@@ -3285,6 +3314,22 @@ export function CustomerRecordDetail(): React.ReactElement {
                   users={users}
                   disabled={quickAssigning || !canChangeAssignedTo}
                   onChange={(userId) => void quickAssign(userId)}
+                />
+              </div>
+            </div>
+
+            <div className="rcd-info-divider" />
+
+            {/* Due date — system field, independent of workflow state/SLA */}
+            <div className="rcd-info-item">
+              <span className="rcd-info-lbl">Due date</span>
+              <div className="rcd-info-val">
+                <input
+                  type="datetime-local"
+                  className="portal-input"
+                  value={record.dueDate ? record.dueDate.slice(0, 16) : ""}
+                  disabled={quickSettingDueDate || !canChangeDueDate}
+                  onChange={(e) => void quickSetDueDate(e.target.value)}
                 />
               </div>
             </div>
@@ -3416,6 +3461,16 @@ export function CustomerRecordDetail(): React.ReactElement {
                           </option>
                         ))}
                       </select>
+                    </div>
+                    <div className="portal-field-group portal-field-full">
+                      <label className="portal-field-label">Due Date</label>
+                      <input
+                        type="datetime-local"
+                        className="portal-input"
+                        value={editDueDate}
+                        disabled={!canChangeDueDate}
+                        onChange={(e) => setEditDueDate(e.target.value)}
+                      />
                     </div>
                     {(isChildTicket
                       ? fields.filter((f) =>

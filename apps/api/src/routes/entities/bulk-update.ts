@@ -13,6 +13,7 @@ const BulkUpdateSchema = z.object({
         id: z.string().uuid(),
         fields: z.record(z.unknown()).optional(),
         assignedTo: z.string().nullable().optional(),
+        dueDate: z.string().datetime().nullable().optional(),
       }),
     )
     .min(1)
@@ -28,9 +29,9 @@ export const bulkUpdateHandler = factory.createHandlers(
     const { items } = c.req.valid("json");
 
     try {
-      const updates = items.map(({ id, fields, assignedTo }) => ({
+      const updates = items.map(({ id, fields, assignedTo, dueDate }) => ({
         id,
-        input: { fields, assignedTo },
+        input: { fields, assignedTo, dueDate },
       }));
       const result = await withTenantContext(tenantId, (tx) =>
         bulkUpdateEntities(tx, tenantId, updates),

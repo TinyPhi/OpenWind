@@ -33,6 +33,7 @@ type EntityInstance = {
   createdAt: string;
   updatedAt: string;
   assignedTo: string | null;
+  dueDate: string | null;
 };
 
 type WorkflowEvent = {
@@ -93,6 +94,7 @@ export function EntityInstanceDetail(): React.ReactElement {
   const getFieldLabel = (fieldName: string): string => {
     if (fieldName === "state" || fieldName === "currentState") return "State";
     if (fieldName === "assignedTo") return "Assigned To";
+    if (fieldName === "dueDate") return "Due Date";
     const found = fields.find((f) => f.name === fieldName);
     return found ? found.label : fieldName;
   };
@@ -119,6 +121,27 @@ export function EntityInstanceDetail(): React.ReactElement {
       // ignore — record stays as-is
     } finally {
       setSavingAssign(false);
+    }
+  }
+
+  const [savingDueDate, setSavingDueDate] = useState(false);
+
+  async function handleDueDate(value: string): Promise<void> {
+    if (!instanceId) return;
+    setSavingDueDate(true);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${instanceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          dueDate: value ? new Date(value).toISOString() : null,
+        }),
+      });
+      setLoading(true);
+      void loadRecord();
+    } catch {
+      // ignore — record stays as-is
+    } finally {
+      setSavingDueDate(false);
     }
   }
 
@@ -396,6 +419,49 @@ export function EntityInstanceDetail(): React.ReactElement {
         {!savingAssign && record.assignedTo && (
           <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
             Assigned user has edit access to this record.
+          </span>
+        )}
+      </div>
+
+      {/* Due date card — system field, independent of workflow state/SLA */}
+      <div
+        className="data-panel"
+        style={{ marginBottom: "24px", padding: "16px 20px" }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "8px",
+          }}
+        >
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--text-secondary)",
+            }}
+          >
+            Due Date
+          </span>
+        </div>
+        <input
+          type="datetime-local"
+          value={record.dueDate ? record.dueDate.slice(0, 16) : ""}
+          onChange={(e) => void handleDueDate(e.target.value)}
+          disabled={savingDueDate}
+          style={{
+            padding: "6px 10px",
+            border: "1px solid var(--border)",
+            borderRadius: "6px",
+            fontSize: "13px",
+          }}
+        />
+        {savingDueDate && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            {" "}
+            Saving…
           </span>
         )}
       </div>

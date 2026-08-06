@@ -17,12 +17,14 @@ function makeQ(result: () => unknown[]) {
 }
 
 const mockUpdateWhere = vi.fn().mockResolvedValue([]);
+const mockExecute = vi.fn().mockResolvedValue([]);
 
 const dbMock = {
   select: vi.fn(() => makeQ(mockSelectSeq[selectCallIndex++] ?? (() => []))),
   update: vi.fn(() => ({
     set: vi.fn(() => ({ where: mockUpdateWhere })),
   })),
+  execute: mockExecute,
 };
 
 vi.mock("@platform/db", () => ({

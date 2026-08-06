@@ -11,6 +11,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 const UpdateEntitySchema = z.object({
   fields: z.record(z.unknown()).optional(),
   assignedTo: z.string().nullable().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
   currentState: z.string().optional(),
 });
 
@@ -25,14 +26,14 @@ export const updateEntityHandler = factory.createHandlers(
 
     const isAdminOrAgent = roles.includes("admin") || roles.includes("agent");
 
-    // Non-admin/agent users may only edit records they own (assignee or
-    // creator), or where they're an admin (creator/assigned_to) of the
-    // record's workflow — matches the "full workflow access" model.
+    // Non-admin/agent users may only edit records they created, or where
+    // they're an admin (creator/assigned_to) of the record's workflow — the
+    // plain assignee is deliberately excluded (state/dueDate/assignedTo/fields
+    // are all locked to admin+creator+workflow-admin; see docs/specs/due-date.md).
     if (!isAdminOrAgent) {
       const [row] = await withTenantContext(tenantId, (tx) =>
         tx
           .select({
-            assignedTo: entityInstances.assignedTo,
             createdBy: entityInstances.createdBy,
             workflowId: entityInstances.workflowId,
           })
@@ -46,7 +47,7 @@ export const updateEntityHandler = factory.createHandlers(
           .limit(1),
       );
 
-      const isOwner = row?.assignedTo === userId || row?.createdBy === userId;
+      const isCreator = row?.createdBy === userId;
       let isRecordWorkflowAdmin = false;
       if (row?.workflowId) {
         try {
@@ -70,7 +71,7 @@ export const updateEntityHandler = factory.createHandlers(
         }
       }
 
-      if (!isOwner && !isRecordWorkflowAdmin) {
+      if (!isCreator && !isRecordWorkflowAdmin) {
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
     }
