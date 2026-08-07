@@ -8,7 +8,9 @@ items ("connector SDK shape", "write the phase-3-primer") are done — ADR-009 (
 both bullets removed. #199 (`packages/ui` hollow) is also closed — verified directly against
 current code (not just PR titles): the design-token layer, the `Table` primitive on all 4
 previously-deferred files, and full `useHoverStyle` adoption are all shipped (see
-`roadmap-tracker.md`'s #199 row for the PR list); row removed. Prior reconciliation (2026-08-03): #194, #196, #197, and #201 closed
+`roadmap-tracker.md`'s #199 row for the PR list); row removed. #161 (non-idempotent seed SQL)
+closed via PR #342, which fully implemented the fix with regression tests; row removed. Prior
+reconciliation (2026-08-03): #194, #196, #197, and #201 closed
 (rows removed); #192 and #198 still open by deliberate scope decision, not neglect; #200 has
 scaffolding merged (PR #272) but was still marked "untouched" — corrected. The July-2026
 internal security audit (issues #221–#267, tracked in
@@ -34,7 +36,6 @@ that's the difference between the two halves of this list.
 | Finding                                                                                                                                                                                                                               | Issue                    | Owner          |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | -------------- |
 | Automation-triggered transitions absent from outbox (Phase 3A connector gap)                                                                                                                                                          | [#143](../../issues/143) | Bikash Barnwal |
-| 6 of 7 standard modules ship no automations, non-idempotent seed SQL                                                                                                                                                                  | [#161](../../issues/161) | Tushar Sharma  |
 | No backup / disaster-recovery runbook — mechanical building block shipped (PR #286), RPO/RTO policy still an open maintainer decision                                                                                                 | [#192](../../issues/192) | Unassigned     |
 | No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay); closing vs. leaving open for those 2 is an open maintainer decision | [#198](../../issues/198) | Unassigned     |
 | Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                    | [#200](../../issues/200) | Unassigned     |

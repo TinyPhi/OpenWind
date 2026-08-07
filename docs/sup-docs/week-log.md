@@ -3,6 +3,239 @@
 **Format:** One entry per session or per milestone close. Newest at top.
 **Purpose:** Running velocity record for an AI-first dev team. Update this at the start/end of each work session.
 
+**Note:** entries from 2026-08-06 down through 2026-08-03 (PRs #316–#345) were reconstructed
+retroactively on 2026-08-07 from `gh pr`/`gh issue` state — this log went 4 days unupdated across
+~20 merged PRs. Dates reflect actual merge time, not when this entry was written; verification
+detail (typecheck/lint/test pass state) is only included where a PR's own body recorded it.
+
+---
+
+## 2026-08-07 — accept ADR-008/009/010, Phase 3A primer, issue-hygiene pass
+
+**Session type:** Docs (ADR acceptance) + issue hygiene, PR #349 (open at time of writing)
+**Summary:** Moved the identity-delegation-model, connector-runtime-architecture, and
+inbound-partner-api-integration-strategy drafts from `docs/specs/` into `docs/decisions/` as
+ADR-008/009/010 (accepted), added `.claude/context/phase-3-primer.md` consolidating all three
+ADRs' next-steps into one dependency-ordered implementation sequence (ADR-008 core hardening →
+ADR-009 connector runtime + ADR-008 scopes re-shape → ADR-010 Tier 1), and updated
+`CLAUDE.md`/`roadmap-tracker.md` to match. While auditing `docs/reviews/pending-review-findings.md`
+for other stale entries, found and closed several issues whose fixes had already shipped without
+the closing keyword: **#199** (`packages/ui` hollow — verified the design-token layer, Table
+primitive on all 4 previously-deferred files, and full `useHoverStyle` adoption were all actually
+shipped, PRs #323/#326/#327/#328/#330/#332/#334/#341), **#162** (tender `create_child`, PR #343),
+**#202** (`docker compose down -v`, PR #318), **#161/#163/#165** (module idempotency/provisioning/
+category, PR #342). Also backfilled this log for 2026-08-03 through 2026-08-06 (see entries below)
+— it had gone unupdated across ~20 merged PRs.
+**Verification:** docs-only diff (plus `gh issue close`/`gh pr edit` calls) — `pnpm typecheck`/
+`lint`/`test`/`test:isolation`: N/A.
+
+---
+
+## 2026-08-06 — third-pass review of ADR-008/009/010 drafts
+
+**Session type:** Docs, draft revision, `[skip-tests-check]`
+**PR merged:** #345
+**Summary:** Third independent adversarial-review pass on the three staged ADR drafts in
+`docs/specs/` (identity-delegation-model, connector-runtime-architecture,
+inbound-partner-api-integration-strategy). Resolved remaining open questions across all three and
+fixed a real content corruption found while at it. Immediate predecessor to the 2026-08-07
+session's actual ADR acceptance (see top entry) — these drafts were still pending human sign-off
+at this point, not yet moved to `docs/decisions/`.
+
+---
+
+## 2026-08-06 — module category (ADR-005) + tender `create_child` action
+
+**Session type:** Feature, bundled with 2 prerequisites
+**PRs merged:** #342 (implements #165/ADR-005 core-vs-optional module category, together with its
+two explicitly-bundled prerequisites #161 and #163, per #165's own "do together with" note),
+#343 (closes #162 — implements the `create_child` automation action tender's costing-review
+automation was seeded against but that never existed in the executor)
+**Issues closed:** #161 (6 of 7 standard modules' seed SQL made idempotent —
+`WHERE NOT EXISTS`/`ON CONFLICT`, matching `helpdesk`'s existing pattern), #163 (`provisionTenant`
+now installs `category='core'` modules via `ModuleService.installCoreModules`, each attempted
+independently, `{succeeded, failed}` instead of a bare throw), #165 (`modules.category` column +
+`tender` classified `optional`, the rest `core`; fixed `seedRegistry`'s previously-inert
+`onConflictDoUpdate`), #162 (tender's `create_child` action implemented, wrapping the existing
+`createChildRelation()` mechanism)
+**Note:** #161/#163/#165 weren't closed at merge time (no `Closes` keyword) — closed retroactively
+2026-08-07 during this backfill, after verifying each fix against current code.
+
+---
+
+## 2026-08-06 — replace S3/MinIO with local-disk file storage + real ClamAV scanning
+
+**Session type:** Bug fix / infra, security-reviewed
+**PR merged:** #340
+**Summary:** Presigned S3 URLs pointed browsers at `S3_PUBLIC_URL=localhost:9000`, which only
+resolves in local dev and broke uploads/downloads on a real server. `packages/files` now
+writes/reads bytes directly on disk (temp-file + atomic rename); AV scanning was fully wired in
+code but had no ClamAV service to actually talk to, fixed alongside. Flagged in the PR itself as
+changing the file-access mechanism (presigned URL → direct streaming) and touching
+path-containment/filename-sanitization logic — `/security-review` requested in the PR body.
+
+---
+
+## 2026-08-06 — open workflow ticket creation to all tenant users
+
+**Session type:** Feature, security-reviewed
+**PR merged:** #337
+**Summary:** Widens workflow discovery and ticket creation to any authenticated tenant member,
+while keeping settings mutation (`PATCH`/`DELETE`) and per-ticket visibility (creator/assignee/ACL)
+unchanged. `listWorkflows`/`listWorkflowsSummary` no longer 404 for users with no
+relation/tickets on a workflow (ownership now gates settings mutation, not listing); `POST
+/entities` validates `assignedTo` against tenant members with the `user` role. Flagged in the PR
+itself as security-relevant — `/security-review` requested.
+
+---
+
+## 2026-08-06 — workflow transition `sort_order`
+
+**Session type:** Feature
+**PR merged:** #339
+**Summary:** Migration 0050 adds `sort_order` (identity column + index) to transitions so the
+Actions tab orders them by creation order instead of random UUID order (previously `ORDER BY id`).
+`workflow-engine` (crud/engine/types/errors), the `workflows/update` route, and the admin-ui
+workflow detail page (ordered "#" column, ported onto the `Table`/`IconButton` primitives from
+PR #328/#199) all updated to match.
+
+---
+
+## 2026-08-06 — restore notification fixes + config-driven idle logout
+
+**Session type:** Bug fix
+**PR merged:** #338
+**Summary:** Re-applies an outbound-notification tenant-id fix that had been silently dropped by
+an upstream merge, and adds full-URL link resolution via `APP_URL` (outbound email needs a
+clickable absolute URL, not the app-relative path `notifications.link` stores). Ticket alerts now
+use the alert's own free-text note as the notification title/body — a scoped, intentional
+exception to `notification-templates.ts`'s "never interpolate free-text" rule, since the note is
+written by the alert's own creator for their own chosen audience. Bundled with a config-driven
+auto-logout-on-inactivity feature.
+
+---
+
+## 2026-08-05 — ticket-to-ticket reference linking
+
+**Session type:** Feature
+**PR merged:** #336
+**Summary:** Cross-workflow, multi-linking reference between tickets with zero workflow coupling
+(no state sync, cascade, or automation trigger) — lets a user continue work started in one
+workflow's ticket from a new ticket in a different workflow, both sides navigable to each other.
+`packages/entity-engine` gets `createReferenceLink`/`deleteReferenceLink`/`getReferenceRelation` on
+the existing `entity_relations` table (`references`/`referenced_by` types) — self-link and
+duplicate-pair rejection, deliberately no depth/cap/cycle checks unlike parent/child relations.
+
+---
+
+## 2026-08-05 — `useHoverStyle` full migration (#331, phases A/B/C)
+
+**Session type:** Refactor, presentational only, `[skip-tests-check]`
+**PRs merged:** #332 (phase A — 4 no-extraction sites: `notification-bell.tsx`, `layout.tsx`,
+`modules.tsx`'s `ModuleCard`, `dashboard.tsx`'s `KpiCard`), #333 (docs fix — apply
+`[skip-tests-check]` proactively before opening a PR, not reactively after CI fails, since #332
+hit the exact gotcha PR #329 had just documented), #334 (phase B — 4 extraction-heavy sites
+needing a `.map()`-loop-body component extracted first: `user-picker.tsx`, `dashboard.tsx`,
+`records/index.tsx`), #341 (phase C — 3 customer-facing sites, kept separate from phase B for
+higher blast radius per spec review: `record-create.tsx`, `record-detail.tsx`, `record-list.tsx` —
+closes out #331 entirely, all 10 files / ~19 hover pairs migrated)
+**Summary:** Follow-up to #199/PR #330 (which added the `useHoverStyle` hook but didn't migrate
+every call site). By phase C, zero hand-rolled `onMouseEnter`/`onMouseLeave` hover sites remained
+in `apps/admin-ui` — confirmed directly against current code during the 2026-08-07 issue-hygiene
+pass (see this log's top entry).
+
+---
+
+## 2026-08-04 — `packages/ui` Table primitive + design tokens (closes most of #199)
+
+**Session type:** Feature + refactor, consolidated from what were 3 separate PRs
+**PRs merged:** #320 (Table primitive: `Table`/`TableHeader`/`TableBody`/`TableRow`/`TableHead`/
+`TableCell`, mirroring `admin-ui/src/index.css`'s `.data-table`/`.table-scroll` rules, plus design
+tokens and 3 consumer migrations — consolidates what were #320+#321+#323 into one PR since they
+all touched overlapping files; #321 closed in favor of this one), #323/#326/#327 (migrate
+`entity-types/detail.tsx`, `workflows/detail.tsx`, `system-logs.tsx`, `users.tsx` — the 4
+highest-regression-risk files — to the Table primitive, landed to `main` via #328), #329 (docs —
+document the `[skip-tests-check]` exact-case-grep and PR-title-edit-doesn't-retrigger-CI gotchas,
+found while retitling #328), #330 (export `TOKENS` from `packages/ui`'s `index.ts` — it existed
+but was never exported, so migrated files kept hand-typing `var(--name, fallback)` strings, one of
+which had drifted from the token's own corrected value; adds the `useHoverStyle` hook, explicitly
+scoped in the PR title as "close the packages/ui #199 gap")
+**Note:** despite #330's title, #199 itself wasn't actually closed at merge time — closed
+retroactively 2026-08-07 after verifying the remaining useHoverStyle adoption (below) had also
+landed. See this log's 2026-08-07 entry.
+
+---
+
+## 2026-08-04 — `dev:down`/`dev:reset` docker-compose wrappers
+
+**Session type:** DX / bug fix
+**PR merged:** #318, closes #202
+**Summary:** `docker compose down` (keeps volumes) and `docker compose down -v` (wipes them) are
+two easily-confused, opposite-implication destructive flags — flagged by the 2026-06-23
+UX/adoption review as a product-level rough edge. Adds `pnpm dev:down` (alias) and `pnpm
+dev:reset` (`scripts/dev-reset.sh`, requires typing `reset` to confirm) with intent-revealing names
+instead of relying on the raw flags directly.
+
+---
+
+## 2026-08-04 — security batch B: outbound safety & PII protection
+
+**Session type:** Security hardening
+**PR merged:** #319, closes #246, #247, #248, #250
+**Summary:** SSRF port allowlisting (destination ports restricted to `80, 443, 8080, 8443`);
+webhook payload defaults changed to `includePayload: false` (opt-in) with a `sendFields` allowlist
+filter stripping PII/sensitive data from `entity.created` trigger events unless explicitly
+requested; notify-link SSRF and host validation fixes.
+
+---
+
+## 2026-08-03 — CI: conditional triggers + turbo-affected scoping
+
+**Session type:** CI/infra
+**PRs merged:** #324 (new `changes` job via `dorny/paths-filter`; `isolation-tests` skips on PRs
+that don't touch `packages/db/**`/engine packages/`apps/**`/`tests/isolation/**`, still always
+runs on `push` as a merge safety net; CodeQL skips similarly), #325 (stacked on #324 — scopes every
+`turbo` invocation, not just whole jobs, to the packages the diff actually touches via a
+`TURBO_FILTER` env var)
+**Summary:** CI was running the full suite (tenant-isolation Postgres/Redis tests, CodeQL, all 28
+workspace packages through every `turbo` command) on every push/PR regardless of what changed, so
+a docs-only or UI-only PR paid the same cost as a `packages/db` change.
+
+---
+
+## 2026-08-03 — security(deps): brace-expansion GHSA-rgw5-rvv9-x895
+
+**Session type:** Security dependency bump
+**PR merged:** #322
+**Summary:** New high-severity advisory (`CVE-2026-69152`) published 2026-08-03 bypassed the
+existing `brace-expansion` `5.0.8` `maxLength` DoS mitigation — that fix only bounded the final
+`combine()` step; two intermediate arrays built before it were never bounded, so a ~25KB input
+still OOMs the process uncatchably. Patched in `5.0.9`. Discovered while investigating an unrelated
+PR's CI failure on `pnpm audit --audit-level=high`. `pnpm-workspace.yaml`'s override bumped from
+`>=5.0.8` to `>=5.0.9`.
+
+---
+
+## 2026-08-03 — fix flaky `api-key-auth.isolation.test.ts`
+
+**Session type:** Test flake fix
+**PR merged:** #316, closes #314
+**Summary:** The isolation test read `lastUsedAt` once immediately after the request resolved,
+with no synchronization point against `packages/auth/src/middleware.ts`'s intentionally
+fire-and-forget write (from the #124 fix — don't block every authenticated request on a
+best-effort timestamp write). Under CI load the test's read could run ahead of the write. Changed
+to poll instead of racing it.
+
+---
+
+## 2026-08-03 — roadmap-tracker: fix stale PR #186/#188 row attribution
+
+**Session type:** Docs reconciliation
+**PRs merged:** #313, #315
+**Summary:** Rows for #171/#182-185/#187/#150/#148/#110 still said "open, not yet merged" against
+PR #186/#188 — both had merged 2026-07-25, and #182-185 had been miscredited to #188 across the
+board when they were actually closed by #186. Corrected.
+
 ---
 
 ## 2026-08-03 — security batch 3 (PR #312): Group D follow-ups

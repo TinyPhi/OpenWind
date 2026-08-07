@@ -91,8 +91,8 @@ resolved:
    policy. Its own noted gap — transition guards not consulting per-instance `__accessUsers`
    grants — remains an accepted v1 limitation, not yet its own issue.
 2. **`tender` module scope → ADR-005** (accepted 2026-07-23). `tender` is the platform's 8th
-   module, classified `optional` (auto-provisioning `modules.category` column not yet built —
-   tracked as #165).
+   module, classified `optional` (the `modules.category` column and auto-provisioning shipped
+   via PR #342, 2026-08-06, closing #165).
 
 **Delivery has guardrails (Claude Code only; plain git + CI unaffected).** Every change runs
 Plan → Code → Review → Docs → Ship: freeze + **you approve** an acceptance-criteria plan-lock

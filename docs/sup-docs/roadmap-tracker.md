@@ -62,16 +62,16 @@ Session-by-session narrative is in [week-log.md](week-log.md); don't duplicate i
 
 ### Phase 2 sub-items (module seeds)
 
-| Module                  | Category (ADR-005) | Entity types                        | Workflow                                        | Status                                                                    |
-| ----------------------- | ------------------ | ----------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
-| @modules/helpdesk       | core               | Ticket, Comment, Article            | Open → In Progress → Pending → Resolved + SLA   | ✅ Done                                                                   |
-| @modules/reimbursements | core               | Expense Claim, Receipt              | Draft → Submitted → Mgr Review → Finance → Paid | ✅ Done                                                                   |
-| @modules/crm            | core               | Contact, Company, Deal, Activity    | Lead → Qualified → Proposal → Won/Lost          | ✅ Done                                                                   |
-| @modules/projects       | core               | Project, Task, Milestone            | Backlog → In Progress → In Review → Done        | ✅ Done                                                                   |
-| @modules/hrms           | core               | Employee, Department, Leave Request | Draft → Submitted → Approved/Rejected           | ✅ Done                                                                   |
-| @modules/invoicing      | core               | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled           | ✅ Done                                                                   |
-| @modules/procurement    | core               | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled             | ✅ Done                                                                   |
-| @modules/tender         | optional (ADR-005) | Tender                              | Draft → BOQ → Costing Review → Docs → Submitted | ✅ Done — `modules.category` column itself not yet built, tracked as #165 |
+| Module                  | Category (ADR-005) | Entity types                        | Workflow                                        | Status                                                                         |
+| ----------------------- | ------------------ | ----------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| @modules/helpdesk       | core               | Ticket, Comment, Article            | Open → In Progress → Pending → Resolved + SLA   | ✅ Done                                                                        |
+| @modules/reimbursements | core               | Expense Claim, Receipt              | Draft → Submitted → Mgr Review → Finance → Paid | ✅ Done                                                                        |
+| @modules/crm            | core               | Contact, Company, Deal, Activity    | Lead → Qualified → Proposal → Won/Lost          | ✅ Done                                                                        |
+| @modules/projects       | core               | Project, Task, Milestone            | Backlog → In Progress → In Review → Done        | ✅ Done                                                                        |
+| @modules/hrms           | core               | Employee, Department, Leave Request | Draft → Submitted → Approved/Rejected           | ✅ Done                                                                        |
+| @modules/invoicing      | core               | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled           | ✅ Done                                                                        |
+| @modules/procurement    | core               | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled             | ✅ Done                                                                        |
+| @modules/tender         | optional (ADR-005) | Tender                              | Draft → BOQ → Costing Review → Docs → Submitted | ✅ Done — `modules.category` column shipped PR #342 (2026-08-06), closing #165 |
 
 `tender` was shipped (PR #144, 2026-07-16) and formally ratified as the platform's 8th module by
 ADR-005 (accepted 2026-07-23) — resolving the "is `tender` in scope" question the 2026-07-22
@@ -148,8 +148,8 @@ severity ranking. As of 2026-07-24:
 **Informally assigned via issue-comment `@mentions` (GitHub's `assignees` field isn't used in this
 repo) — not tracked here since ownership changes faster than this doc; see a local, gitignored
 `open-issues-tracker.md` in this same directory if present, or re-check `gh issue view <N>
---json comments` for current assignment:** #161, #162, #163, #165 → Tushar Sharma. #143 →
-Bikash Barnwal.
+--json comments` for current assignment:** #143 → Bikash Barnwal. (#161/#162/#163/#165, previously
+Tushar Sharma, all closed via PR #342/#343, 2026-08-06 — removed from this list.)
 
 ---
 
