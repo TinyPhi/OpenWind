@@ -62,16 +62,16 @@ Session-by-session narrative is in [week-log.md](week-log.md); don't duplicate i
 
 ### Phase 2 sub-items (module seeds)
 
-| Module                  | Category (ADR-005) | Entity types                        | Workflow                                        | Status                                                                    |
-| ----------------------- | ------------------ | ----------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
-| @modules/helpdesk       | core               | Ticket, Comment, Article            | Open → In Progress → Pending → Resolved + SLA   | ✅ Done                                                                   |
-| @modules/reimbursements | core               | Expense Claim, Receipt              | Draft → Submitted → Mgr Review → Finance → Paid | ✅ Done                                                                   |
-| @modules/crm            | core               | Contact, Company, Deal, Activity    | Lead → Qualified → Proposal → Won/Lost          | ✅ Done                                                                   |
-| @modules/projects       | core               | Project, Task, Milestone            | Backlog → In Progress → In Review → Done        | ✅ Done                                                                   |
-| @modules/hrms           | core               | Employee, Department, Leave Request | Draft → Submitted → Approved/Rejected           | ✅ Done                                                                   |
-| @modules/invoicing      | core               | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled           | ✅ Done                                                                   |
-| @modules/procurement    | core               | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled             | ✅ Done                                                                   |
-| @modules/tender         | optional (ADR-005) | Tender                              | Draft → BOQ → Costing Review → Docs → Submitted | ✅ Done — `modules.category` column itself not yet built, tracked as #165 |
+| Module                  | Category (ADR-005) | Entity types                        | Workflow                                        | Status                                                                         |
+| ----------------------- | ------------------ | ----------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| @modules/helpdesk       | core               | Ticket, Comment, Article            | Open → In Progress → Pending → Resolved + SLA   | ✅ Done                                                                        |
+| @modules/reimbursements | core               | Expense Claim, Receipt              | Draft → Submitted → Mgr Review → Finance → Paid | ✅ Done                                                                        |
+| @modules/crm            | core               | Contact, Company, Deal, Activity    | Lead → Qualified → Proposal → Won/Lost          | ✅ Done                                                                        |
+| @modules/projects       | core               | Project, Task, Milestone            | Backlog → In Progress → In Review → Done        | ✅ Done                                                                        |
+| @modules/hrms           | core               | Employee, Department, Leave Request | Draft → Submitted → Approved/Rejected           | ✅ Done                                                                        |
+| @modules/invoicing      | core               | Invoice, Quote, Payment             | Draft → Sent → Paid/Overdue/Cancelled           | ✅ Done                                                                        |
+| @modules/procurement    | core               | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled             | ✅ Done                                                                        |
+| @modules/tender         | optional (ADR-005) | Tender                              | Draft → BOQ → Costing Review → Docs → Submitted | ✅ Done — `modules.category` column shipped PR #342 (2026-08-06), closing #165 |
 
 `tender` was shipped (PR #144, 2026-07-16) and formally ratified as the platform's 8th module by
 ADR-005 (accepted 2026-07-23) — resolving the "is `tender` in scope" question the 2026-07-22
@@ -148,8 +148,8 @@ severity ranking. As of 2026-07-24:
 **Informally assigned via issue-comment `@mentions` (GitHub's `assignees` field isn't used in this
 repo) — not tracked here since ownership changes faster than this doc; see a local, gitignored
 `open-issues-tracker.md` in this same directory if present, or re-check `gh issue view <N>
---json comments` for current assignment:** #161, #162, #163, #165 → Tushar Sharma. #143 →
-Bikash Barnwal.
+--json comments` for current assignment:** #143 → Bikash Barnwal. (#161/#162/#163/#165, previously
+Tushar Sharma, all closed via PR #342/#343, 2026-08-06 — removed from this list.)
 
 ---
 
@@ -172,7 +172,7 @@ through 2026-07-30/31 (see header above for the session narrative).
 | [#194](../../issues/194) | `tests/e2e/` has no actual test harness | ✅ Closed 2026-08-02 — PR #287 (real HTTP, real auth, no mocks) |
 | [#197](../../issues/197) | "Configured" field types render as plain text, not real widgets | ✅ Closed — PR #288 merged 2026-08-01 (`file`/`files` deferred as #289) |
 | [#289](../../issues/289) | `file`/`files` field-type widgets deferred from #197/PR #288 | ✅ Closed — PR #299 merged 2026-08-03. `FileFieldPicker` reuses `useFileUpload`/`AttachmentUploadZone`/`FileChip`; `moduleSlug` derived via `entity_types.moduleId → modules.slug` (falls back to `"platform"` for module-less core entity types). Stayed open post-merge (no `Closes` keyword) until an issue-hygiene pass closed it same day. |
-| [#199](../../issues/199) | `packages/ui` is hollow — no real shared component library | 🟡 Narrowed further — `Dialog`/`AlertDialog` (#273) and the `FieldInput` family (#288) were already correctly layered; `Button`/`IconButton` added and all 17 admin-ui pages migrated off raw `btn-*`/`icon-btn-*` classNames (PR #295). That review surfaced #303 (4 `<Link>` sites not on `Button`) and #304 (dialog style-reset duplication + `modules.tsx` mount pattern) — both resolved via PR #307 (2026-08-03). A `Table`/`TableHeader`/`TableBody`/`TableRow`/`TableHead`/`TableCell` primitive shipped, with `entity-types/index.tsx` and `automations/index.tsx` migrated off `.data-table`/`.table-scroll` classNames. Deliberately not migrated: `entity-types/detail.tsx` and `workflows/detail.tsx` (4255 lines, highest regression risk) and `system-logs.tsx`/`users.tsx` (a different, ad-hoc token set and hand-rolled hover handlers — migrating them cleanly needs the design-token-layer decision first, not a tag swap). Still no design-token layer. |
+| [#199](../../issues/199) | `packages/ui` is hollow — no real shared component library | ✅ Closed 2026-08-06 — `Dialog`/`AlertDialog` (#273), `FieldInput` (#288), `Button`/`IconButton` (PR #295, follow-ups #307) were already done. The remaining gaps this doc previously called out are now closed too: the `Table` primitive reached all 4 previously-deferred files (`entity-types/detail.tsx`, `workflows/detail.tsx`, `system-logs.tsx`, `users.tsx` — PRs #323/#326/#327/#328) and zero raw `<table>` remains anywhere in `apps/admin-ui`; the design-token layer shipped (`packages/ui/src/tokens.ts`, PR #330, explicitly scoped as "close the packages/ui #199 gap"); and the resulting `useHoverStyle` hook was adopted at the sites #331 tracked (PRs #332/#334/#341) — every `onMouseEnter` site currently in `apps/admin-ui` is wired through the hook (`xHover.onMouseEnter`, not an inline style-setter). Verified directly against current code, not just PR titles, before closing. A Form/Input/Select primitive is still speculative — per the issue's own "grow driven by real need, not speculatively" guidance, that's a future issue if a real consumer needs it, not a #199 follow-up. |
 | [#200](../../issues/200) | Zero internationalization — all UI strings hardcoded English | 🟡 Scaffolding only — PR #272 (merged 2026-07-31) installed `react-i18next` and fully converted 2 of 57 files (`login.tsx`, `callback.tsx`) as a proof of concept; ~55 files and ~300 strings remain, deliberately out of scope for that PR. Correctly still open — not "untouched" as this doc previously said. |
 | [#202](../../issues/202) | `docker compose down -v` data-loss foot-gun | Open — no PR, no owner |
 
@@ -182,15 +182,17 @@ through 2026-07-30/31 (see header above for the session narrative).
 
 **Goal:** Platform extensible by third parties. Connector marketplace, plugin system, AI layer, first sector package.
 **Exit test:** External developer ships a connector or plugin using public SDK only.
-**Status:** Not started. Requires human planning sign-off per `CLAUDE.md` before 3A begins.
+**Status:** 3A planning complete — ADR-008/009/010 accepted 2026-08-06 (staged implementation
+sequence in `.claude/context/phase-3-primer.md`). Implementation not started. 3B/3C/3D still
+require human planning sign-off per `CLAUDE.md` before starting.
 
-| ID    | Feature / Track                                                     | GH Issue(s)            | Owner | Status         | %   |
-| ----- | ------------------------------------------------------------------- | ---------------------- | ----- | -------------- | --- |
-| 3A    | Integration layer — connector runtime, webhook gateway, marketplace | [#16](../../issues/16) | —     | 🔴 Not started | 0   |
-| 3B    | Plugin system — Module Federation, slot registry, lifecycle service | [#17](../../issues/17) | —     | 🔴 Not started | 0   |
-| 3C    | AI layer — automation gen, workflow suggestion, RAG, usage metering | [#18](../../issues/18) | —     | 🔴 Not started | 0   |
-| 3D    | Observability + compliance — OTel, Prometheus, GDPR, audit          | [#19](../../issues/19) | —     | 🔴 Not started | 0   |
-| 3-OPS | Deferred ops/compliance/infra concerns                              | [#6](../../issues/6)   | —     | 🔴 Not started | 0   |
+| ID    | Feature / Track                                                     | GH Issue(s)            | Owner | Status                                | %   |
+| ----- | ------------------------------------------------------------------- | ---------------------- | ----- | ------------------------------------- | --- |
+| 3A    | Integration layer — connector runtime, webhook gateway, marketplace | [#16](../../issues/16) | —     | 🟡 Planned (ADR-008/009/010 accepted) | 0   |
+| 3B    | Plugin system — Module Federation, slot registry, lifecycle service | [#17](../../issues/17) | —     | 🔴 Not started                        | 0   |
+| 3C    | AI layer — automation gen, workflow suggestion, RAG, usage metering | [#18](../../issues/18) | —     | 🔴 Not started                        | 0   |
+| 3D    | Observability + compliance — OTel, Prometheus, GDPR, audit          | [#19](../../issues/19) | —     | 🔴 Not started                        | 0   |
+| 3-OPS | Deferred ops/compliance/infra concerns                              | [#6](../../issues/6)   | —     | 🔴 Not started                        | 0   |
 
 Deferred items gated on Phase 3 / later triggers (unchanged from Phase 1 carry-over triage):
 [#4](../../issues/4) (schema cache, defer until load testing), [#62](../../issues/62) (workflow

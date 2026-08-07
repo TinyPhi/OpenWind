@@ -413,6 +413,7 @@ export function CustomerRecordCreate(): React.ReactElement {
   const [workflowId, setWorkflowId] = useState("");
   const [currentState, setCurrentState] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -492,6 +493,7 @@ export function CustomerRecordCreate(): React.ReactElement {
       if (workflowId) payload["workflowId"] = workflowId;
       if (currentState) payload["currentState"] = currentState;
       if (assignedTo) payload["assignedTo"] = assignedTo;
+      if (dueDate) payload["dueDate"] = new Date(dueDate).toISOString();
       const res = await fetchWithAuth(`${API_URL}/entities`, {
         method: "POST",
         body: JSON.stringify(payload),
@@ -570,6 +572,15 @@ export function CustomerRecordCreate(): React.ReactElement {
             users={users}
             value={assignedTo}
             onChange={setAssignedTo}
+          />
+        </div>
+        <div className="portal-field-group">
+          <label className="portal-field-label">Due Date</label>
+          <input
+            type="datetime-local"
+            className="portal-input"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
           />
         </div>
         {fields.map((field) => (

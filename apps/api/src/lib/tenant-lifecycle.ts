@@ -15,6 +15,7 @@ import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { connection } from "./redis.js";
 import { invalidateTenantStatusCache } from "@platform/auth";
+import { ModuleService } from "../services/module-service.js";
 
 // One Queue instance per process for enqueuing — the worker holds the Worker.
 const tenantPurgeQueue = new Queue("tenant-purge", { connection });
@@ -105,11 +106,28 @@ async function diagnoseNoUpdate(tenantId: string): Promise<never> {
 /**
  * Create a new tenant and immediately activate it.
  * Uses INSERT ON CONFLICT DO NOTHING to handle slug races atomically.
+ *
+ * #163: core-module installation (ADR-005) is NOT wrapped in the tenant
+ * INSERT's transaction — ModuleService.installModule opens its own
+ * per-seed-file transactions via executeRawInTenantContext, so a single
+ * outer DB transaction spanning tenant creation + N module installs isn't
+ * practical without threading a shared tx handle through the whole seed
+ * pipeline. Instead this uses a compensating design: the tenant row commits
+ * first (it's always valid on its own — a tenant with zero modules installed
+ * is a legitimate, recoverable state, not corruption), then each core module
+ * is attempted independently via installCoreModules, which never lets one
+ * module's failure block the others. #161 made every standard module's seed
+ * SQL idempotent, so any module reported in `failed` can be retried safely
+ * via `POST /modules/:slug/install` without redoing the whole tenant.
  */
 export async function provisionTenant(
   input: ProvisionTenantInput,
   actorId: string,
-): Promise<{ id: string; slug: string }> {
+): Promise<{
+  id: string;
+  slug: string;
+  modules: { succeeded: string[]; failed: { slug: string; error: string }[] };
+}> {
   const parsed = ProvisionTenantSchema.parse(input);
   const now = new Date();
 
@@ -143,11 +161,19 @@ export async function provisionTenant(
     afterSnapshot: { name: parsed.name, slug: parsed.slug, plan: parsed.plan },
   });
 
+  const moduleResult = await ModuleService.installCoreModules(row.id);
+  if (moduleResult.failed.length > 0) {
+    logger.error(
+      { tenantId: row.id, ...moduleResult },
+      "tenant: provisioned with one or more core modules failing to install",
+    );
+  }
+
   logger.info(
-    { tenantId: row.id, slug: row.slug, actorId },
+    { tenantId: row.id, slug: row.slug, actorId, ...moduleResult },
     "tenant: provisioned",
   );
-  return { id: row.id, slug: row.slug };
+  return { id: row.id, slug: row.slug, modules: moduleResult };
 }
 
 /**

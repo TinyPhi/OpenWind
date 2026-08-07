@@ -11,7 +11,8 @@ Invoke `/refine` when:
 
 - An idea is too vague to spec ("we need better integrations", "the workflow should be smarter")
 - You need to stress-test assumptions before committing to a direction
-- Starting Phase 3A (connector runtime) or 3C (AI layer) design — before any ADR
+- Starting Phase 3B (plugin system) or 3C (AI layer) design — before any ADR (3A's ADRs,
+  ADR-008/009/010, are accepted; this trigger is for tracks that don't have one yet)
 - The user says "I'm not sure exactly what I want but..."
 
 ---

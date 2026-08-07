@@ -9,15 +9,13 @@ name: openwind
 #   redis      — Queue backend (BullMQ) + application cache
 #   zitadel    — Identity provider (OIDC/OAuth2/SAML)
 #   openbao    — Secrets manager (Transit envelope encryption for connector credentials)
-#   minio      — S3-compatible object storage (file uploads/presigned URLs)
 #   api        — Hono API server (port 3000)
 #   admin-ui   — React app with Vite HMR (port 3001) — admin + portal in one app, RBAC-controlled
 #
 # All users (admin, agent, customer) log in at http://localhost:3001.
 # The app reads the role from the JWT and renders the appropriate view.
 #
-# Commented out (not integrated yet — uncomment when needed):
-#   openbao    — Secrets manager (enable when packages/auth uses Transit encryption)
+# Commented out (not in use — uncomment when needed):
 #   minio      — S3-compatible object storage. packages/files now stores uploads
 #                on local disk instead (see docs/specs/local-disk-file-storage.md) —
 #                MinIO is kept here commented out only for reference / a possible
@@ -175,7 +173,11 @@ services:
   # a few minutes; start_period below gives it room before healthcheck fails.
   clamav:
     container_name: ow-clamav
-    image: clamav/clamav:stable
+    # pinned 2026-08-06 — digest resolved from the "stable" tag published
+    # upstream for this image; bump deliberately, in its own commit (the
+    # freshclam virus-database update inside the container still runs on its
+    # own schedule regardless of this pin — this only fixes the image build).
+    image: clamav/clamav@sha256:d06c1d6a451d616e1dd79b42f44c8c8c291bba9cf4e75ebc4d0e43c1c6dd87bb
     restart: unless-stopped
     volumes:
       - clamav_data:/var/lib/clamav
@@ -186,10 +188,14 @@ services:
       retries: 10
       start_period: 300s
 
-  # ── MinIO (local S3) — NOT IN USE. packages/files stores on local disk now. ──
+  # ── MinIO (local S3) — NOT IN USE. packages/files stores on local disk now
+  # (see docs/specs/local-disk-file-storage.md). Kept here commented out only
+  # for reference / a possible future return to object storage.
   # minio:
   #   container_name: ow-storage
-  #   image: minio/minio:latest
+  #   # pinned 2026-07-24 — this was :latest's resolved digest at pin time, no named
+  #   # version tag identified for it in the first 500 published tags; bump deliberately
+  #   image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
   #   restart: unless-stopped
   #   command: server /data --console-address ":9001"
   #   environment:
@@ -209,7 +215,9 @@ services:
   #
   # minio-init:
   #   container_name: ow-storage-init
-  #   image: minio/mc:latest
+  #   # pinned 2026-07-24 — this was :latest's resolved digest at pin time, no named
+  #   # version tag identified for it in the first 500 published tags; bump deliberately
+  #   image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
   #   depends_on:
   #     minio:
   #       condition: service_healthy
@@ -340,7 +348,7 @@ services:
       # (http://zitadel:8080) so local dev continues to work with no extra config.
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
-      # OPENBAO_ADDR: http://openbao:8200  # uncomment when openbao service is enabled
+      OPENBAO_ADDR: http://openbao:8200
       # Local-disk file storage (see docs/specs/local-disk-file-storage.md) —
       # in-container path only; the host-side bind-mount source is
       # FILES_STORAGE_PATH_HOST below, set from .env.
@@ -366,6 +374,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      openbao:
+        condition: service_healthy
     volumes:
       - "${FILES_STORAGE_PATH_HOST:-../openwind-files}:/data/files"
 
@@ -390,6 +400,7 @@ services:
       REDIS_URL: redis://redis:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
+      OPENBAO_ADDR: http://openbao:8200
       # Local-disk file storage (see docs/specs/local-disk-file-storage.md) —
       # must be the same in-container path as ow-backend so the AV scan
       # worker reads bytes from the same place the API wrote them.
@@ -408,6 +419,8 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      openbao:
         condition: service_healthy
       clamav:
         condition: service_healthy

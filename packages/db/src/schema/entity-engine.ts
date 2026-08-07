@@ -75,6 +75,7 @@ export const entityInstances = pgTable(
     fields: jsonb("fields").default({}).notNull(),
     createdBy: text("created_by"),
     assignedTo: text("assigned_to"),
+    dueDate: timestamp("due_date", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

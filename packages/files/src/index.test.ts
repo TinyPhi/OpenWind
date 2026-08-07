@@ -401,6 +401,21 @@ describe("getFileStream", () => {
     expect(contents.toString()).toBe("hello world");
   });
 
+  // fs.createReadStream never throws synchronously for a missing path — it
+  // opens the fd lazily and only reports failure via the stream's async
+  // 'error' event, by which point a caller may already have sent a 200. This
+  // is a real ENOENT against a real temp dir (no fs mocks in this file),
+  // proving the pre-access check actually surfaces the failure as a thrown
+  // FileError rather than a stream that errors later.
+  it("throws STORAGE_READ_FAILED when the file row exists but the bytes are missing from disk", async () => {
+    const storageKey = `${TENANT_ID}/helpdesk/unattached/does-not-exist-${FILE_ID}.pdf`;
+    const db = makeDbWithStatus("clean", storageKey);
+
+    await expect(
+      getFileStream(db as never, TENANT_ID, FILE_ID),
+    ).rejects.toMatchObject({ code: "STORAGE_READ_FAILED" });
+  });
+
   it("throws FILE_PENDING_SCAN for pending files", async () => {
     const db = makeDbWithStatus("pending", "key");
     await expect(
@@ -428,6 +443,12 @@ describe("getFileStream", () => {
       getFileStream(db as never, TENANT_ID, FILE_ID),
     ).rejects.toMatchObject({ code: "FILE_NOT_FOUND" });
   });
+
+  // Content-Disposition safety (#240 SVG forced-attachment, #241 header
+  // injection/RFC 5987 filename encoding) moved to the route layer
+  // (apps/api/src/routes/files/download.ts) now that this function returns a
+  // raw stream instead of a signed URL with a server-built disposition value —
+  // see that route's test file for the equivalent coverage.
 });
 
 // ── deleteFile ────────────────────────────────────────────────────────────────

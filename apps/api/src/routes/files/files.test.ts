@@ -297,12 +297,20 @@ describe("GET /files/:id", () => {
     expect(text).toBe("hello world");
   });
 
+  it("returns 404 for missing file", async () => {
+    vi.mocked(getFileStream).mockRejectedValue(new FileError("FILE_NOT_FOUND"));
+
+    const app = buildApp();
+    const res = await app.request(`/files/${MISSING_FILE_ID}`);
+    expect(res.status).toBe(404);
+  });
+
   it("forces Content-Disposition attachment for SVG regardless of inline flag (#240)", async () => {
     vi.mocked(getFileStream).mockResolvedValue({
-      stream: makeStream("<svg></svg>"),
+      stream: makeStream("<svg/>"),
       originalName: "image.svg",
       mimeType: "image/svg+xml",
-      sizeBytes: 11,
+      sizeBytes: 6,
     });
 
     const app = buildApp();
@@ -364,17 +372,8 @@ describe("GET /files/:id", () => {
 
     const app = buildApp();
     const res = await app.request(`/files/${EXISTING_FILE_ID}`);
-    expect(res.headers.get("content-disposition")).toContain(
-      "filename*=UTF-8''",
-    );
-  });
-
-  it("returns 404 for missing file", async () => {
-    vi.mocked(getFileStream).mockRejectedValue(new FileError("FILE_NOT_FOUND"));
-
-    const app = buildApp();
-    const res = await app.request(`/files/${MISSING_FILE_ID}`);
-    expect(res.status).toBe(404);
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).toContain("filename*=UTF-8''");
   });
 
   it("returns 422 for pending file", async () => {

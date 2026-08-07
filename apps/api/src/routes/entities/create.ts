@@ -12,6 +12,7 @@ const CreateEntitySchema = z.object({
   entityTypeId: z.string().uuid(),
   fields: z.record(z.unknown()),
   assignedTo: z.string().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
   workflowId: z.string().uuid().optional(),
   currentState: z.string().optional(),
 });

@@ -51,6 +51,14 @@ export const EntityAssignedV1Schema = baseEvent.extend({
   assignedBy: z.string().uuid().nullable(),
 });
 
+export const EntityDueDateOverdueV1Schema = baseEvent.extend({
+  eventType: z.literal("entity.due_date_overdue"),
+  instanceId: z.string().uuid(),
+  entityTypeId: z.string().uuid(),
+  dueDate: z.string().datetime(),
+  overdueAt: z.string().datetime(),
+});
+
 export const CommentMentionedV1Schema = baseEvent.extend({
   eventType: z.literal("comment.mentioned"),
   instanceId: z.string().uuid(),
@@ -100,6 +108,7 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   WorkflowSlaBreachedV1Schema,
   EntityCreatedV1Schema,
   EntityAssignedV1Schema,
+  EntityDueDateOverdueV1Schema,
   CommentMentionedV1Schema,
   CommentMentionAccessGrantedV1Schema,
   CommentRepliedV1Schema,
@@ -121,6 +130,9 @@ export type WorkflowTransitionedV1 = z.infer<
 export type WorkflowSlaBreachedV1 = z.infer<typeof WorkflowSlaBreachedV1Schema>;
 export type EntityCreatedV1 = z.infer<typeof EntityCreatedV1Schema>;
 export type EntityAssignedV1 = z.infer<typeof EntityAssignedV1Schema>;
+export type EntityDueDateOverdueV1 = z.infer<
+  typeof EntityDueDateOverdueV1Schema
+>;
 export type CommentMentionedV1 = z.infer<typeof CommentMentionedV1Schema>;
 export type CommentMentionAccessGrantedV1 = z.infer<
   typeof CommentMentionAccessGrantedV1Schema

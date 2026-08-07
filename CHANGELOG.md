@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — ticket due date]
+
+### Added
+
+- **Ticket due date** — every ticket now has a system-level `due_date`, independent of workflow
+  state/SLA, editable by ticket-access users. Passing the due date fires a new
+  `entity.due_date_overdue` automation trigger via its own decoupled outbox scheduler/worker, so
+  `automation_rules` can notify on it without touching SLA machinery. Migration 0052.
+
+### Changed
+
+- **Breaking**: `PATCH /entities/:id` (state changes on child tickets, `assignedTo`, `dueDate`,
+  and `fields` edits) is now restricted to the record's creator, admin/agent, or a workflow
+  admin — a user who is only the record's **assignee** no longer has write access and now
+  receives `404`. Previously the assignee was treated the same as the creator/owner.
+
+### Fixed
+
+- `apps/admin-ui/Dockerfile.dev` now builds workspace package dists (e.g. `@platform/ui`) before
+  starting the dev server — a freshly-built image previously failed at runtime with
+  `Failed to resolve entry for package "@platform/ui"`.
+
+---
+
 ## [Unreleased — child tickets, tender module, access requests]
 
 ### Added

@@ -667,6 +667,7 @@ function rowToInstance(
     fields: row.fields as Record<string, unknown>,
     createdBy: row.createdBy,
     assignedTo: row.assignedTo,
+    dueDate: row.dueDate,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,

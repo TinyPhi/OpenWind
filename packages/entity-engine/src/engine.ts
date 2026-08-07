@@ -33,6 +33,7 @@ import type {
   BulkSetStateResult,
   EntityCreatedEvent,
   EntityAssignedEvent,
+  EntityDueDateScheduledEvent,
   FieldSensitivity,
 } from "./types.js";
 import {
@@ -121,6 +122,64 @@ export function buildEntityAssignedPayload(
     // this assignment was itself driven by an automation rule (#120).
     ...(depth !== undefined && { depth: depth + 1 }),
   };
+}
+
+export function buildEntityDueDateScheduledPayload(
+  tenantId: string,
+  instanceId: string,
+  entityTypeId: string,
+  dueDate: Date,
+): EntityDueDateScheduledEvent {
+  return {
+    eventType: "entity.due_date_scheduled",
+    version: 1,
+    tenantId,
+    instanceId,
+    entityTypeId,
+    dueDate: dueDate.toISOString(),
+  };
+}
+
+// Reschedule/cancel semantics for due_date (docs/specs/due-date.md R5): any
+// change to due_date — including clearing it — supersedes a still-pending
+// `entity.due_date_scheduled` outbox row before a fresh one (if any) is
+// written, so due-date-scheduler.ts never enqueues a stale fire time. Callers
+// must run this inside the same transaction as the entity_instances write
+// that changed due_date, mirroring the assignedTo outbox pattern above.
+async function rescheduleDueDate(
+  db: DbOrTx,
+  tenantId: string,
+  instanceId: string,
+  entityTypeId: string,
+  oldDueDate: Date | null,
+  newDueDate: Date | null,
+): Promise<void> {
+  const oldTime = oldDueDate?.getTime() ?? null;
+  const newTime = newDueDate?.getTime() ?? null;
+  if (oldTime === newTime) return;
+
+  await db.execute(sql`
+    UPDATE outbox_events
+    SET delivered_at = now()
+    WHERE delivered_at IS NULL
+      AND event_type = 'entity.due_date_scheduled'
+      AND tenant_id = ${tenantId}
+      AND payload ->> 'instanceId' = ${instanceId}
+  `);
+
+  if (newDueDate !== null) {
+    await db.insert(outboxEvents).values({
+      tenantId,
+      eventType: "entity.due_date_scheduled",
+      version: 1,
+      payload: buildEntityDueDateScheduledPayload(
+        tenantId,
+        instanceId,
+        entityTypeId,
+        newDueDate,
+      ),
+    });
+  }
 }
 
 // Consistent "who assigned this" fallback for entity.assigned events: prefer
@@ -235,10 +294,22 @@ export async function createEntity(
       fields: fieldsWithFormulas,
       createdBy: input.createdBy ?? null,
       assignedTo: input.assignedTo ?? null,
+      dueDate: input.dueDate ? new Date(input.dueDate) : null,
     })
     .returning();
 
   if (!row) throw new EntityError("ENTITY_NOT_FOUND");
+
+  if (row.dueDate !== null) {
+    await rescheduleDueDate(
+      db,
+      tenantId,
+      row.id,
+      row.entityTypeId,
+      null,
+      row.dueDate,
+    );
+  }
 
   // Field values are redacted before leaving the entity engine's field-level
   // access boundary — both workflow_events.metadata (agent-facing audit trail)
@@ -497,6 +568,9 @@ export async function updateEntity(
     if (input.assignedTo !== undefined) {
       updates.assignedTo = input.assignedTo;
     }
+    if (input.dueDate !== undefined) {
+      updates.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+    }
     if (input.currentState !== undefined && input.currentState !== null) {
       if (isChildTicket) {
         if (!CHILD_TICKET_STATES.includes(input.currentState)) {
@@ -554,6 +628,17 @@ export async function updateEntity(
           input.depth,
         ),
       });
+    }
+
+    if (input.dueDate !== undefined) {
+      await rescheduleDueDate(
+        db,
+        tenantId,
+        row.id,
+        row.entityTypeId,
+        existing.dueDate,
+        row.dueDate,
+      );
     }
 
     // Logging logic — for child tickets with null workflowId (legacy data before
@@ -665,8 +750,12 @@ export async function updateEntity(
     return rowToInstance(row);
   }
 
-  // Fields not provided — updating assignedTo and/or currentState
-  if (input.assignedTo !== undefined || input.currentState !== undefined) {
+  // Fields not provided — updating assignedTo and/or currentState and/or dueDate
+  if (
+    input.assignedTo !== undefined ||
+    input.currentState !== undefined ||
+    input.dueDate !== undefined
+  ) {
     const isChildTicket2 =
       (await getParentId(db, tenantId, instanceId)) !== null;
     const updates: Partial<typeof entityInstances.$inferInsert> = {
@@ -674,6 +763,9 @@ export async function updateEntity(
     };
     if (input.assignedTo !== undefined) {
       updates.assignedTo = input.assignedTo;
+    }
+    if (input.dueDate !== undefined) {
+      updates.dueDate = input.dueDate ? new Date(input.dueDate) : null;
     }
     if (input.currentState !== undefined && input.currentState !== null) {
       if (isChildTicket2) {
@@ -732,6 +824,17 @@ export async function updateEntity(
           input.depth,
         ),
       });
+    }
+
+    if (input.dueDate !== undefined) {
+      await rescheduleDueDate(
+        db,
+        tenantId,
+        row.id,
+        row.entityTypeId,
+        existing.dueDate,
+        row.dueDate,
+      );
     }
 
     // Logging logic for assignedTo and/or currentState update
@@ -831,6 +934,19 @@ export async function deleteEntity(
     .returning();
 
   if (!row) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
+
+  // Cascade-cancel (docs/specs/due-date.md R6): a pending overdue trigger for
+  // an archived/deleted instance must never fire.
+  if (row.dueDate !== null) {
+    await rescheduleDueDate(
+      db,
+      tenantId,
+      row.id,
+      row.entityTypeId,
+      row.dueDate,
+      null,
+    );
+  }
 
   logger.info({ tenantId, instanceId }, "Entity soft-deleted");
 
@@ -1114,6 +1230,7 @@ function rowToInstance(
     fields: row.fields as Record<string, unknown>,
     createdBy: row.createdBy ?? null,
     assignedTo: row.assignedTo ?? null,
+    dueDate: row.dueDate ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt ?? null,
@@ -1219,6 +1336,7 @@ export async function bulkCreateEntities(
       fields: fieldsWithFormulas,
       createdBy: input.createdBy ?? null,
       assignedTo: input.assignedTo ?? null,
+      dueDate: input.dueDate ? new Date(input.dueDate) : null,
     });
 
     // Save audit context for this item (parallel to toInsert)
@@ -1306,6 +1424,21 @@ export async function bulkCreateEntities(
       })),
     );
   }
+
+  await Promise.all(
+    rows
+      .filter((row) => row.dueDate !== null)
+      .map((row) =>
+        rescheduleDueDate(
+          db,
+          tenantId,
+          row.id,
+          row.entityTypeId,
+          null,
+          row.dueDate,
+        ),
+      ),
+  );
 
   // Fire audit hooks for each created entity
   for (const [idx, row] of rows.entries()) {
@@ -1461,6 +1594,9 @@ export async function bulkUpdateEntities(
         if (input.assignedTo !== undefined) {
           updateValues.assignedTo = input.assignedTo;
         }
+        if (input.dueDate !== undefined) {
+          updateValues.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+        }
 
         const [row] = await db
           .update(entityInstances)
@@ -1493,6 +1629,16 @@ export async function bulkUpdateEntities(
               ),
             });
           }
+          if (input.dueDate !== undefined) {
+            await rescheduleDueDate(
+              db,
+              tenantId,
+              row.id,
+              row.entityTypeId,
+              existing.dueDate,
+              row.dueDate,
+            );
+          }
           await fireEntityAuditHook({
             db,
             tenantId,
@@ -1511,10 +1657,22 @@ export async function bulkUpdateEntities(
             })),
           });
         }
-      } else if (input.assignedTo !== undefined) {
+      } else if (
+        input.assignedTo !== undefined ||
+        input.dueDate !== undefined
+      ) {
+        const updateValues: Partial<typeof entityInstances.$inferInsert> = {
+          updatedAt: new Date(),
+        };
+        if (input.assignedTo !== undefined) {
+          updateValues.assignedTo = input.assignedTo;
+        }
+        if (input.dueDate !== undefined) {
+          updateValues.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+        }
         const [row] = await db
           .update(entityInstances)
-          .set({ assignedTo: input.assignedTo, updatedAt: new Date() })
+          .set(updateValues)
           .where(
             and(
               eq(entityInstances.id, id),
@@ -1542,6 +1700,16 @@ export async function bulkUpdateEntities(
                 input.depth,
               ),
             });
+          }
+          if (input.dueDate !== undefined) {
+            await rescheduleDueDate(
+              db,
+              tenantId,
+              row.id,
+              row.entityTypeId,
+              existing.dueDate,
+              row.dueDate,
+            );
           }
           // Load entity type for audit — not needed for the fields update path
           // above (entityType is already available there) but needed here.
