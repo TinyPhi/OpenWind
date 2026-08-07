@@ -1156,6 +1156,8 @@ export function CustomerRecordDetail(): React.ReactElement {
   >("comments");
   const [quickAssigning, setQuickAssigning] = useState(false);
   const [quickSettingDueDate, setQuickSettingDueDate] = useState(false);
+  const [dueDateInput, setDueDateInput] = useState("");
+  const dueDateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [replyTo, setReplyTo] = useState<WorkflowEvent | null>(null);
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(
     new Set(),
@@ -1651,6 +1653,13 @@ export function CustomerRecordDetail(): React.ReactElement {
       setHistoryLoading(false);
     }
   }
+
+  // Keep the debounced due-date input in sync with the loaded record —
+  // skipped while a save is in flight so it doesn't clobber in-progress typing.
+  useEffect(() => {
+    if (quickSettingDueDate) return;
+    setDueDateInput(record?.dueDate ? record.dueDate.slice(0, 16) : "");
+  }, [record?.dueDate, quickSettingDueDate]);
 
   // Collapse all parent threads on first load (and after a full reload)
   useEffect(() => {
@@ -2471,6 +2480,24 @@ export function CustomerRecordDetail(): React.ReactElement {
       setQuickSettingDueDate(false);
     }
   }
+
+  // datetime-local fires onChange per sub-field edit (year, month, day, hour,
+  // minute), so saving immediately would send 2-5 PATCH requests per date
+  // entered. Debounce the actual save; the input stays locally controlled so
+  // typing feels instant.
+  function handleDueDateInputChange(value: string): void {
+    setDueDateInput(value);
+    if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
+    dueDateDebounceRef.current = setTimeout(() => {
+      void quickSetDueDate(value);
+    }, 400);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
+    };
+  }, []);
 
   async function executeTransition(
     transition: Transition,
@@ -3327,9 +3354,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                 <input
                   type="datetime-local"
                   className="portal-input"
-                  value={record.dueDate ? record.dueDate.slice(0, 16) : ""}
-                  disabled={quickSettingDueDate || !canChangeDueDate}
-                  onChange={(e) => void quickSetDueDate(e.target.value)}
+                  value={dueDateInput}
+                  disabled={!canChangeDueDate}
+                  onChange={(e) => handleDueDateInputChange(e.target.value)}
                 />
               </div>
             </div>

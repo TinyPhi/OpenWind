@@ -3,9 +3,9 @@
 > Every ticket gets a default `due_date`/`due_at`, independent of workflow state/SLA, with its
 > own overdue alerting — separate from SLA breach notifications.
 
-status: draft
+status: implemented
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-07
 
 ---
 
@@ -127,23 +127,31 @@ R6: Instance archive/delete cascades to cancel any pending overdue trigger.
 - `due-date-scheduler.ts`/`due-date-worker.ts` remain independent files/queues from `sla-scheduler.ts`/`sla-breacher.ts` and from `alert-scheduler.ts` — never merged into shared code.
 - Fire-time trigger emission is idempotent — replaying an already-fired job produces no duplicate `entity.due_date_overdue` event.
 
+**Known v1 limitation (2026-08-07, flagged in review):** `restoreEntity` does not re-arm the
+due-date schedule after restoring an archived instance. The `due_date` column value survives
+the archive/restore round-trip, but the `entity.due_date_scheduled` outbox row was cancelled at
+archive time (per R6) and is not recreated on restore — so a restored ticket with a due date in
+the future will not fire an overdue trigger until its `due_date` is next edited (which
+re-triggers scheduling). Acceptable for v1; a proper fix would have `restoreEntity` call
+`rescheduleDueDate` for any restored instance with a non-null `due_date` in the future.
+
 ## §T Tasks
 
 | id  | task                                                                                                            | phase | status | depends |
 | --- | --------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
-| T1  | Migration 0052: add `due_date timestamptz NULL` to `entity_instances`, GRANT if needed, analytics annotation    | 1     | todo   | —       |
-| T2  | Drizzle schema: add `dueDate` column to `entityInstances` (packages/db/src/schema/entity-engine.ts)             | 1     | todo   | T1      |
-| T3  | entity-engine: create/update/bulk-update paths set `dueDate` as system column (engine.ts, see §I)               | 1     | todo   | T2      |
-| T4  | entity-engine: outbox write/supersede for `entity.due_date_scheduled` on set/clear/change (same txn as T3)      | 1     | todo   | T3      |
-| T5  | entity-engine: read/serialize `dueDate` at top level (engine.ts :1116, :1221)                                   | 1     | todo   | T2      |
-| T6  | API: extend create/update/bulk-update Zod schemas + write-gate for `dueDate`                                    | 2     | todo   | T3      |
-| T7  | Automation-engine: add `entity.due_date_overdue` trigger type (types.ts)                                        | 2     | todo   | —       |
-| T8  | Worker: new `due-date` BullMQ queue (queues.ts)                                                                 | 2     | todo   | —       |
-| T9  | Worker: `due-date-scheduler.ts` — poller for `entity.due_date_scheduled`, mirrors sla-scheduler.ts shape        | 2     | todo   | T4, T8  |
-| T10 | Worker: `due-date-worker.ts` — fire-time consumer, TOCTOU re-check, emits `entity.due_date_overdue`, idempotent | 2     | todo   | T7, T8  |
-| T11 | Cascade-cancel: instance archive/delete cancels pending `entity.due_date_scheduled` row + job                   | 2     | todo   | T4, T9  |
-| T12 | Admin-UI: due_date field control on instance-detail.tsx alongside assignedTo                                    | 3     | todo   | T6      |
-| T13 | Isolation/unit tests: R1–R6 acceptance criteria                                                                 | 1-3   | todo   | T1-T12  |
+| T1  | Migration 0052: add `due_date timestamptz NULL` to `entity_instances`, GRANT if needed, analytics annotation    | 1     | done   | —       |
+| T2  | Drizzle schema: add `dueDate` column to `entityInstances` (packages/db/src/schema/entity-engine.ts)             | 1     | done   | T1      |
+| T3  | entity-engine: create/update/bulk-update paths set `dueDate` as system column (engine.ts, see §I)               | 1     | done   | T2      |
+| T4  | entity-engine: outbox write/supersede for `entity.due_date_scheduled` on set/clear/change (same txn as T3)      | 1     | done   | T3      |
+| T5  | entity-engine: read/serialize `dueDate` at top level (engine.ts :1116, :1221)                                   | 1     | done   | T2      |
+| T6  | API: extend create/update/bulk-update Zod schemas + write-gate for `dueDate`                                    | 2     | done   | T3      |
+| T7  | Automation-engine: add `entity.due_date_overdue` trigger type (types.ts)                                        | 2     | done   | —       |
+| T8  | Worker: new `due-date` BullMQ queue (queues.ts)                                                                 | 2     | done   | —       |
+| T9  | Worker: `due-date-scheduler.ts` — poller for `entity.due_date_scheduled`, mirrors sla-scheduler.ts shape        | 2     | done   | T4, T8  |
+| T10 | Worker: `due-date-worker.ts` — fire-time consumer, TOCTOU re-check, emits `entity.due_date_overdue`, idempotent | 2     | done   | T7, T8  |
+| T11 | Cascade-cancel: instance archive/delete cancels pending `entity.due_date_scheduled` row + job                   | 2     | done   | T4, T9  |
+| T12 | Admin-UI: due_date field control on instance-detail.tsx alongside assignedTo                                    | 3     | done   | T6      |
+| T13 | Isolation/unit tests: R1–R6 acceptance criteria                                                                 | 1-3   | done   | T1-T12  |
 
 phase gate: all unit + integration tests pass before advancing to next phase
 

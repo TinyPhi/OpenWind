@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   Dialog,
@@ -125,6 +125,8 @@ export function EntityInstanceDetail(): React.ReactElement {
   }
 
   const [savingDueDate, setSavingDueDate] = useState(false);
+  const [dueDateInput, setDueDateInput] = useState("");
+  const dueDateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function handleDueDate(value: string): Promise<void> {
     if (!instanceId) return;
@@ -144,6 +146,29 @@ export function EntityInstanceDetail(): React.ReactElement {
       setSavingDueDate(false);
     }
   }
+
+  // datetime-local fires onChange per sub-field edit (year, month, day, hour,
+  // minute), so saving immediately would send 2-5 PATCH requests per date
+  // entered. Debounce the actual save; the input stays locally controlled so
+  // typing feels instant.
+  function handleDueDateInputChange(value: string): void {
+    setDueDateInput(value);
+    if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
+    dueDateDebounceRef.current = setTimeout(() => {
+      void handleDueDate(value);
+    }, 400);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (savingDueDate) return;
+    setDueDateInput(record?.dueDate ? record.dueDate.slice(0, 16) : "");
+  }, [record?.dueDate, savingDueDate]);
 
   const [stateModal, setStateModal] = useState(false);
   const [selectedState, setSelectedState] = useState("");
@@ -448,9 +473,8 @@ export function EntityInstanceDetail(): React.ReactElement {
         </div>
         <input
           type="datetime-local"
-          value={record.dueDate ? record.dueDate.slice(0, 16) : ""}
-          onChange={(e) => void handleDueDate(e.target.value)}
-          disabled={savingDueDate}
+          value={dueDateInput}
+          onChange={(e) => handleDueDateInputChange(e.target.value)}
           style={{
             padding: "6px 10px",
             border: "1px solid var(--border)",

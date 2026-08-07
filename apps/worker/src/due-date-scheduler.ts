@@ -21,8 +21,9 @@
  * dueDate is in the past (but within STALE_DUE_DATE_THRESHOLD_MS) are
  * enqueued with delay=0 so they fire immediately on recovery. There is no
  * dead-letter path — a due date passing a bit late is not an operational
- * incident; events past the threshold are simply left pending for the
- * next poll (matching alert-scheduler.ts's approach, not sla-scheduler.ts's).
+ * incident; events past the threshold are marked delivered without being
+ * enqueued (never fire), matching alert-scheduler.ts's approach, not
+ * sla-scheduler.ts's (which dead-letters instead).
  */
 
 import { sql, inArray } from "drizzle-orm";
@@ -96,7 +97,7 @@ export async function tick(): Promise<void> {
             thresholdHours: STALE_DUE_DATE_THRESHOLD_MS / 3_600_000,
             outboxEventIds: stale.map((r) => r.id),
           },
-          "Due date scheduler: skipped stale events (left pending, not enqueued)",
+          "Due date scheduler: marked stale events delivered without enqueuing",
         );
       }
 
