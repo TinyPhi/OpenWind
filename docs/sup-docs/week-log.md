@@ -140,9 +140,9 @@ needing a `.map()`-loop-body component extracted first: `user-picker.tsx`, `dash
 higher blast radius per spec review: `record-create.tsx`, `record-detail.tsx`, `record-list.tsx` —
 closes out #331 entirely, all 10 files / ~19 hover pairs migrated)
 **Summary:** Follow-up to #199/PR #330 (which added the `useHoverStyle` hook but didn't migrate
-every call site). By phase C, zero hand-rolled `onMouseEnter`/`onMouseLeave` hover sites remained
-in `apps/admin-ui` — confirmed directly against current code during the 2026-08-07 issue-hygiene
-pass (see this log's top entry).
+every call site). By phase C, every `onMouseEnter`/`onMouseLeave` site in `apps/admin-ui` is wired
+through the hook rather than a hand-rolled inline style mutation — confirmed directly against
+current code during the 2026-08-07 issue-hygiene pass (see this log's top entry).
 
 ---
 
