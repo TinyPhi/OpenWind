@@ -30,8 +30,10 @@ overrides:
   # ~25KB input still OOMs the process (uncatchable) and a ~400KB input can stall the event
   # loop for minutes. Patched in 5.0.9.
   "brace-expansion": ">=5.0.9"
-  # js-yaml quadratic CPU via merge-key chains
-  "js-yaml@4": "4.3.0"
+  # GHSA-5p4m-2wfm-xmqj (CVE-2026-59870, 2026-08-07): quadratic CPU via !!omap resolution,
+  # fix not backported to 4.3.0 — bumped from "4.3.0" (originally pinned for the merge-key
+  # chain issue) to close this too.
+  "js-yaml@4": "4.3.1"
   # GHSA-4c8g-83qw-93j6 + GHSA-v2hh-gcrm-f6hx: fast-uri host confusion (IDN canonicalization
   # failure, literal backslash authority delimiter) — pulled in via commitlint's ajv dep
   # GHSA-7p8r-x3mc-p8w7: fast-uri host confusion via backslash authority introducer

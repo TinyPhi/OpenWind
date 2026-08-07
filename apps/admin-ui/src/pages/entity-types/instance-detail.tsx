@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   Dialog,
@@ -33,6 +33,7 @@ type EntityInstance = {
   createdAt: string;
   updatedAt: string;
   assignedTo: string | null;
+  dueDate: string | null;
 };
 
 type WorkflowEvent = {
@@ -93,6 +94,7 @@ export function EntityInstanceDetail(): React.ReactElement {
   const getFieldLabel = (fieldName: string): string => {
     if (fieldName === "state" || fieldName === "currentState") return "State";
     if (fieldName === "assignedTo") return "Assigned To";
+    if (fieldName === "dueDate") return "Due Date";
     const found = fields.find((f) => f.name === fieldName);
     return found ? found.label : fieldName;
   };
@@ -121,6 +123,52 @@ export function EntityInstanceDetail(): React.ReactElement {
       setSavingAssign(false);
     }
   }
+
+  const [savingDueDate, setSavingDueDate] = useState(false);
+  const [dueDateInput, setDueDateInput] = useState("");
+  const dueDateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function handleDueDate(value: string): Promise<void> {
+    if (!instanceId) return;
+    setSavingDueDate(true);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${instanceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          dueDate: value ? new Date(value).toISOString() : null,
+        }),
+      });
+      setLoading(true);
+      void loadRecord();
+    } catch {
+      // ignore — record stays as-is
+    } finally {
+      setSavingDueDate(false);
+    }
+  }
+
+  // datetime-local fires onChange per sub-field edit (year, month, day, hour,
+  // minute), so saving immediately would send 2-5 PATCH requests per date
+  // entered. Debounce the actual save; the input stays locally controlled so
+  // typing feels instant.
+  function handleDueDateInputChange(value: string): void {
+    setDueDateInput(value);
+    if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
+    dueDateDebounceRef.current = setTimeout(() => {
+      void handleDueDate(value);
+    }, 400);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (savingDueDate) return;
+    setDueDateInput(record?.dueDate ? record.dueDate.slice(0, 16) : "");
+  }, [record?.dueDate, savingDueDate]);
 
   const [stateModal, setStateModal] = useState(false);
   const [selectedState, setSelectedState] = useState("");
@@ -396,6 +444,48 @@ export function EntityInstanceDetail(): React.ReactElement {
         {!savingAssign && record.assignedTo && (
           <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
             Assigned user has edit access to this record.
+          </span>
+        )}
+      </div>
+
+      {/* Due date card — system field, independent of workflow state/SLA */}
+      <div
+        className="data-panel"
+        style={{ marginBottom: "24px", padding: "16px 20px" }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "8px",
+          }}
+        >
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--text-secondary)",
+            }}
+          >
+            Due Date
+          </span>
+        </div>
+        <input
+          type="datetime-local"
+          value={dueDateInput}
+          onChange={(e) => handleDueDateInputChange(e.target.value)}
+          style={{
+            padding: "6px 10px",
+            border: "1px solid var(--border)",
+            borderRadius: "6px",
+            fontSize: "13px",
+          }}
+        />
+        {savingDueDate && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            {" "}
+            Saving…
           </span>
         )}
       </div>

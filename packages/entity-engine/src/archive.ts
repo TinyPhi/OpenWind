@@ -90,6 +90,20 @@ export async function archiveEntity(
       ),
     );
 
+  // Cascade-cancel (docs/specs/due-date.md R6): pending overdue triggers for
+  // any archived instance in the tree must never fire.
+  await db.execute(sql`
+    UPDATE outbox_events
+    SET delivered_at = now()
+    WHERE delivered_at IS NULL
+      AND event_type = 'entity.due_date_scheduled'
+      AND tenant_id = ${tenantId}
+      AND payload ->> 'instanceId' = ANY(ARRAY[${sql.join(
+        allIds.map((id) => sql`${id}`),
+        sql`, `,
+      )}])
+  `);
+
   logger.info(
     { tenantId, instanceId, descendantCount: descendantIds.length },
     "Entity archived with descendants",

@@ -25,6 +25,8 @@ const mockInsertValues = vi.fn(() => ({
   returning: mockInsertReturning,
 }));
 
+const mockExecute = vi.fn().mockResolvedValue([]);
+
 const dbMock = {
   select: vi.fn(() => makeQueryBuilder(mockSelectFromWhereLimitResult)),
   insert: vi.fn((table: unknown) => ({
@@ -42,6 +44,7 @@ const dbMock = {
       returning: mockDeleteReturning,
     })),
   })),
+  execute: (...args: unknown[]) => mockExecute(...args),
 };
 
 vi.mock("@platform/db", () => ({
@@ -145,6 +148,7 @@ const fakeInstance = {
   fields: { subject: "Test" },
   createdBy: null,
   assignedTo: null,
+  dueDate: null,
   createdAt: new Date(),
   updatedAt: new Date(),
   deletedAt: null,
@@ -378,6 +382,92 @@ describe("updateEntity", () => {
         fields: { subject: "Updated" },
       }),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe("updateEntity — dueDate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue([]);
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [fakeInstance]))
+      // getParentId — not a child ticket
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      .mockReturnValue(makeQueryBuilder(() => []));
+  });
+
+  it("schedules an entity.due_date_scheduled outbox event when dueDate is set", async () => {
+    const dueDate = "2026-06-01T00:00:00.000Z";
+    mockUpdateReturning.mockResolvedValue([
+      { ...fakeInstance, dueDate: new Date(dueDate) },
+    ]);
+
+    await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, { dueDate });
+
+    // Supersedes any prior pending schedule for this instance first.
+    expect(mockExecute).toHaveBeenCalled();
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        eventType: "entity.due_date_scheduled",
+        payload: expect.objectContaining({
+          eventType: "entity.due_date_scheduled",
+          instanceId: INSTANCE_ID,
+          dueDate,
+        }),
+      }),
+    );
+  });
+
+  it("supersedes the pending schedule but writes no new one when dueDate is cleared", async () => {
+    const instanceWithDueDate = {
+      ...fakeInstance,
+      dueDate: new Date("2026-06-01T00:00:00.000Z"),
+    };
+    dbMock.select.mockReset();
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [instanceWithDueDate]))
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      .mockReturnValue(makeQueryBuilder(() => []));
+    mockUpdateReturning.mockResolvedValue([{ ...fakeInstance, dueDate: null }]);
+
+    await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+      dueDate: null,
+    });
+
+    expect(mockExecute).toHaveBeenCalled();
+    expect(mockInsertValues).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ eventType: "entity.due_date_scheduled" }),
+    );
+  });
+
+  it("does not touch the schedule when dueDate is not provided", async () => {
+    mockUpdateReturning.mockResolvedValue([fakeInstance]);
+
+    await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+      assignedTo: "user-1",
+    });
+
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when the new dueDate equals the existing one", async () => {
+    const dueDate = "2026-06-01T00:00:00.000Z";
+    const instanceWithDueDate = {
+      ...fakeInstance,
+      dueDate: new Date(dueDate),
+    };
+    dbMock.select.mockReset();
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [instanceWithDueDate]))
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      .mockReturnValue(makeQueryBuilder(() => []));
+    mockUpdateReturning.mockResolvedValue([instanceWithDueDate]);
+
+    await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, { dueDate });
+
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });
 
