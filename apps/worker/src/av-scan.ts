@@ -76,7 +76,7 @@ function scanWithClamav(absPath: string): Promise<"clean" | "infected"> {
         const len = Buffer.alloc(4);
         len.writeUInt32BE(chunk.length, 0);
         socket.write(len);
-        socket.write(chunk);
+        socket.write(chunk); // CodeQL[js/file-access-to-http] — intentional: ClamAV INSTREAM protocol streams file bytes to the local AV daemon (env.CLAMAV_HOST, not user-controlled)
       });
 
       fileStream.on("end", () => {
