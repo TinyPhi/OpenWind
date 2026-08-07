@@ -230,7 +230,9 @@ field is no longer read). Do not remove these:
   GHSA-mh99-v99m-4gvg (DoS via unbounded expansion); blanket pin covers all major lines.
   Bumped from `>=5.0.8` for GHSA-rgw5-rvv9-x895 (2026-08-03) — the 5.0.8 mitigation only
   bounded the final combine() step, not two intermediate arrays built before it.
-- `"js-yaml@4" "4.3.0"` — quadratic CPU via merge-key chains (>=4.0.0 <4.3.0).
+- `"js-yaml@4" "4.3.1"` — quadratic CPU via merge-key chains (>=4.0.0 <4.3.0) and
+  `!!omap` tag resolution (GHSA-5p4m-2wfm-xmqj / CVE-2026-59870, 2026-08-07);
+  bumped from `4.3.0` on 2026-08-07.
 - `"fast-uri" ">=3.1.4"` — GHSA-4c8g-83qw-93j6 / GHSA-v2hh-gcrm-f6hx (host confusion
   via IDN / backslash authority); pulled in via commitlint's ajv dep.
 - `postcss ">=8.5.18"` — GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL
