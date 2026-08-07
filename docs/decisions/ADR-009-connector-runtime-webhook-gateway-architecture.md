@@ -1,22 +1,12 @@
-# Draft for ADR-009: Connector Runtime & Webhook Gateway Architecture
+# ADR-009: Connector Runtime & Webhook Gateway Architecture
 
-**Status:** Draft, revision 4 — staged in `docs/specs/` for human review. Per
-`.claude/rules/agent-behaviour.md` and `CLAUDE.md`'s off-limits list, ADR authorship in
-`docs/decisions/` is reserved for humans; this file is the input to that authorship, not the ADR
-itself. ADR number is tentative (confirm still free before assigning).
-**Date drafted:** 2026-08-04. **Revision history:** rev.1 initial draft (codebase audit + external
-research); rev.2 cross-checked against issue #16/`docs/roadmap.md` §3A; rev.3 incorporated a second
-adversarial review round (security/ops/completeness/scope-discipline lenses) and explicit product
-decisions on v1 connector scope and agent-identity sequencing. **rev.4 (this revision)**, a third
-independent pass done 2026-08-05: resolved OQ-1 (WhatsApp system-user token confirmed long-lived
-per Meta's own docs, with a caveat — see OQ-1/OQ-5) and added an explicit isolation-test step to
-Next Steps for the two new tenant-scoped tables, per this repo's own testing mandate.
-**Deciders:** TBD (Engineering lead, Platform architect).
-**Supersedes:** —
+**Status:** Accepted.  
+**Date:** 2026-08-06.  
+**Deciders:** Engineering lead, Platform architect.  
+**Supersedes:** —  
 **Related to:** ADR-001 (multitenancy/RLS), ADR-004 (config-first module design), ADR-008
-(credential lifecycle hardening — agent/delegation identity is deferred, see Deferred Decisions).
-Formalizes `docs/architecture-brief.md` §6 (Integration Architecture, ~lines 458-573) — **including
-§6.2's event-schema-versioning proposal, missed in rev.1/rev.2 and restored in this revision.**
+(credential lifecycle hardening — agent/delegation identity is deferred, see Deferred Decisions).  
+**Superseded by:** —
 
 ---
 
@@ -320,24 +310,16 @@ Named explicitly, each with a trigger condition — not silent omissions, and no
 
 ---
 
-## Next steps if accepted
+## Implementation next steps
 
-1. A human reviews this revision, confirms OQ-5's proposed default (OQ-1 through OQ-4 are already
-   resolved in this revision), and authors the real ADR at
-   `docs/decisions/ADR-009-connector-runtime-webhook-gateway-architecture.md`, updating
-   `CLAUDE.md`'s ADR reference list and marking `docs/architecture-brief.md` §6 (including §6.2) as
-   formalized-by-this-ADR.
-2. Fix the four independent housekeeping items above in their own small pass — don't gate them on
+1. Fix the four independent housekeeping items above in their own small pass — don't gate them on
    this ADR's acceptance.
-3. Confirm issue #143's status and account for it before implementing Decision #3.
-4. Update `packages/connector-sdk/src/types.ts` per Decision #5/#6 as an early, cheap PR — the
+2. Confirm issue #143's status and account for it before implementing Decision #3.
+3. Update `packages/connector-sdk/src/types.ts` per Decision #5/#6 as an early, cheap PR — the
    breaking changes cost nothing today and get more expensive with every day of delay.
-5. Build email + WhatsApp connectors and the shared runtime together — the runtime decisions above
+4. Build email + WhatsApp connectors and the shared runtime together — the runtime decisions above
    (callApi, egress allowlist, polling scheduler, dedicated inbound queue, delivery-attempt
    record, kill switch) are sized for exactly these two, not sized for a five-connector launch.
-6. Write `.claude/context/phase-3-primer.md` per CLAUDE.md's existing instruction for starting 3A,
-   referencing this ADR, ADR-008, and issue #16.
-7. Add isolation tests for `connector_definitions` and `connector_credentials` (Decision #8) in the
+5. Add isolation tests for `connector_definitions` and `connector_credentials` (Decision #8) in the
    same PR that creates them, per this repo's own `testing-conventions.md` mandate for new
-   tenant-scoped tables — not called out explicitly in rev.3's steps above, worth stating rather
-   than assuming it happens by default.
+   tenant-scoped tables.

@@ -24,6 +24,13 @@ Reference docs (read before starting work in a new area):
 - `docs/decisions/ADR-007-rls-workflow-config-tables.md` — RLS for entity_types/workflows/
   workflow_states/workflow_transitions; read before touching RLS policies on these four tables
   or `apps/worker/src/tenant-purge.ts`'s workflow-state/transition deletion path
+- `docs/decisions/ADR-008-api-key-credential-lifecycle-hardening.md` — `api_key` audit/expiry/
+  rotation/soft-revoke and the `scopes` re-shape; read before touching `api_keys` or Phase 3A
+  connector/partner auth
+- `docs/decisions/ADR-009-connector-runtime-webhook-gateway-architecture.md` — connector runtime,
+  webhook gateway, outbound delivery; read before starting any Phase 3A connector work
+- `docs/decisions/ADR-010-inbound-partner-api-integration.md` — inbound partner API (Tier 1
+  only — Tier 2 deferred); read before touching the public/partner-facing API surface
 - `docs/sup-docs/roadmap-tracker.md` — phase progress and track status
 - `docs/sup-docs/week-log.md` — running velocity log (update each session)
 
@@ -31,18 +38,19 @@ Reference docs (read before starting work in a new area):
 
 ## Current focus
 
-**Phase:** 3 — Scale & Extensibility (not started — planning required before 3A)
+**Phase:** 3 — Scale & Extensibility (3A planning complete — ADR-008/009/010 accepted
+2026-08-06; implementation not started)
 **Phase 2 status:** ✅ Complete as of 2026-06-18 (all 4 tracks + pre-pilot hardening merged)
 
 Phase 3 tracks (all 0% — no active work yet):
 
-| ID    | Track                                               | Notes                                                                                              |
-| ----- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| 3A    | Integration layer — connector runtime, marketplace  | Next. Requires human planning sign-off. Write `.claude/context/phase-3-primer.md` before starting. |
-| 3B    | Plugin system — Module Federation, slot registry    | After 3A                                                                                           |
-| 3C    | AI layer — automation gen, workflow suggestion, RAG | After 3B                                                                                           |
-| 3D    | Observability + compliance — OTel, Prometheus, GDPR | Parallel with 3A–3C possible                                                                       |
-| 3-OPS | Deferred ops/infra concerns                         | See Phase 1 carry-overs in tracker                                                                 |
+| ID    | Track                                               | Notes                                                                                                                                                               |
+| ----- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3A    | Integration layer — connector runtime, marketplace  | ADR-008/009/010 accepted. Implementation sequence in `.claude/context/phase-3-primer.md`, staged: ADR-008 core → ADR-009 runtime + ADR-008 scopes → ADR-010 Tier 1. |
+| 3B    | Plugin system — Module Federation, slot registry    | After 3A                                                                                                                                                            |
+| 3C    | AI layer — automation gen, workflow suggestion, RAG | After 3B                                                                                                                                                            |
+| 3D    | Observability + compliance — OTel, Prometheus, GDPR | Parallel with 3A–3C possible                                                                                                                                        |
+| 3-OPS | Deferred ops/infra concerns                         | See Phase 1 carry-overs in tracker                                                                                                                                  |
 
 **Pre-Phase 3 hardening (external review flagged) — status as of 2026-07-24:**
 
@@ -83,8 +91,8 @@ resolved:
    policy. Its own noted gap — transition guards not consulting per-instance `__accessUsers`
    grants — remains an accepted v1 limitation, not yet its own issue.
 2. **`tender` module scope → ADR-005** (accepted 2026-07-23). `tender` is the platform's 8th
-   module, classified `optional` (auto-provisioning `modules.category` column not yet built —
-   tracked as #165).
+   module, classified `optional` (the `modules.category` column and auto-provisioning shipped
+   via PR #342, 2026-08-06, closing #165).
 
 **Delivery has guardrails (Claude Code only; plain git + CI unaffected).** Every change runs
 Plan → Code → Review → Docs → Ship: freeze + **you approve** an acceptance-criteria plan-lock
@@ -231,3 +239,4 @@ field is no longer read). Do not remove these:
 ---
 
 @.claude/context/phase-2-primer.md
+@.claude/context/phase-3-primer.md
