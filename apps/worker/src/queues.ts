@@ -82,6 +82,18 @@ export const ticketAlertsQueue = new Queue("ticket-alerts", {
   },
 });
 
+// Due date (docs/specs/due-date.md) — overdue-trigger firing, deliberately
+// its own queue/poller, independent of slaQueue/sla-scheduler.ts and
+// ticketAlertsQueue/alert-scheduler.ts (see spec §V: never merged into
+// shared code). Same defaultJobOptions as slaQueue for consistency.
+export const dueDateQueue = new Queue("due-date", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});
+
 // Outbound handoff — the single seam to the externally-owned email/SMS/
 // WhatsApp service (contract TBD). 3 attempts/exponential backoff matches the
 // automation queue convention (issue #123).

@@ -32,7 +32,6 @@ vi.mock("@platform/auth", () => ({
 // consulted when the auth role isn't admin/agent — most tests here run as
 // admin and never touch this).
 let ownershipRow: {
-  assignedTo: string | null;
   createdBy: string | null;
   workflowId: string | null;
 } | null = null;
@@ -212,7 +211,6 @@ describe("PATCH /entities/:id", () => {
       email: "random@example.com",
     };
     ownershipRow = {
-      assignedTo: null,
       createdBy: null,
       workflowId: "wf-deleted",
     };
@@ -228,5 +226,64 @@ describe("PATCH /entities/:id", () => {
 
     expect(res.status).toBe(404);
     expect(mockUpdateEntity).not.toHaveBeenCalled();
+  });
+
+  describe("non-admin/agent access — state/dueDate/assignedTo/fields locked to creator (not plain assignee)", () => {
+    beforeEach(() => {
+      currentAuth = {
+        tenantId: "t-aaa",
+        userId: "u-random",
+        roles: ["user"],
+        email: "random@example.com",
+      };
+    });
+
+    it("returns 404 for a user who is only the assignee, not the creator or a workflow admin", async () => {
+      ownershipRow = { createdBy: "someone-else", workflowId: null };
+
+      const res = await makeApp().request(`/${INST_ID}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate: "2026-06-01T00:00:00.000Z" }),
+      });
+
+      expect(res.status).toBe(404);
+      expect(mockUpdateEntity).not.toHaveBeenCalled();
+    });
+
+    it("allows the record's creator to update dueDate/assignedTo/currentState/fields", async () => {
+      ownershipRow = { createdBy: "u-random", workflowId: null };
+      mockUpdateEntity.mockResolvedValue(makeInstance());
+
+      const res = await makeApp().request(`/${INST_ID}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate: "2026-06-01T00:00:00.000Z" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockUpdateEntity).toHaveBeenCalledWith(
+        expect.any(Object),
+        "t-aaa",
+        INST_ID,
+        expect.objectContaining({ dueDate: "2026-06-01T00:00:00.000Z" }),
+      );
+    });
+
+    it("allows a workflow admin (createdBy/assignedTo on the workflow) even when not the record's creator", async () => {
+      ownershipRow = { createdBy: "someone-else", workflowId: "wf-1" };
+      vi.mocked(getWorkflow).mockResolvedValue({} as never);
+      const { isWorkflowAdmin } = await import("@platform/workflow-engine");
+      vi.mocked(isWorkflowAdmin).mockReturnValueOnce(true);
+      mockUpdateEntity.mockResolvedValue(makeInstance());
+
+      const res = await makeApp().request(`/${INST_ID}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate: "2026-06-01T00:00:00.000Z" }),
+      });
+
+      expect(res.status).toBe(200);
+    });
   });
 });

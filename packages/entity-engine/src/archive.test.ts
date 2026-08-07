@@ -17,12 +17,14 @@ function makeQ(result: () => unknown[]) {
 }
 
 const mockUpdateWhere = vi.fn().mockResolvedValue([]);
+const mockExecute = vi.fn().mockResolvedValue([]);
 
 const dbMock = {
   select: vi.fn(() => makeQ(mockSelectSeq[selectCallIndex++] ?? (() => []))),
   update: vi.fn(() => ({
     set: vi.fn(() => ({ where: mockUpdateWhere })),
   })),
+  execute: mockExecute,
 };
 
 vi.mock("@platform/db", () => ({
@@ -46,7 +48,10 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args) => ({ args, op: "and" })),
   isNull: vi.fn((col) => ({ col, op: "isNull" })),
   inArray: vi.fn((col, vals) => ({ col, vals, op: "inArray" })),
-  sql: vi.fn((s) => ({ raw: s })),
+  sql: Object.assign(
+    vi.fn((s) => ({ raw: s })),
+    { join: vi.fn((parts, sep) => ({ parts, sep, op: "join" })) },
+  ),
 }));
 
 vi.mock("@platform/logger", () => ({
