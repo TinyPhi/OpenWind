@@ -14,7 +14,7 @@
  * The scan_failed status is only written on the final attempt.
  */
 
-import fs from "node:fs";
+import fsp, { type FileHandle } from "node:fs/promises";
 import net from "node:net";
 import { Worker } from "bullmq";
 import { eq, and } from "drizzle-orm";
@@ -37,12 +37,14 @@ type AvScanJob = {
 // ── ClamAV INSTREAM protocol ──────────────────────────────────────────────────
 
 /**
- * Scan the file at `absPath` against ClamAV using the INSTREAM protocol,
- * streaming it in rather than buffering the whole file into memory first.
+ * Scan an open file handle against ClamAV using the INSTREAM protocol.
+ * Accepts a FileHandle (not a path) so the caller's resolveStoragePath
+ * validation is the only route to this function — no arbitrary path can
+ * reach the socket.
  * Returns "clean" or "infected".
  * Throws on connection/read failure or protocol error (triggers job retry).
  */
-function scanWithClamav(absPath: string): Promise<"clean" | "infected"> {
+function scanWithClamav(handle: FileHandle): Promise<"clean" | "infected"> {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let response = "";
@@ -58,7 +60,7 @@ function scanWithClamav(absPath: string): Promise<"clean" | "infected"> {
 
     // Created in paused mode — no listeners attached yet, so it can't start
     // flowing (and writing to the socket) until we explicitly let it below.
-    const fileStream = fs.createReadStream(absPath, { highWaterMark: 8192 });
+    const fileStream = handle.createReadStream({ highWaterMark: 8192 });
     fileStream.pause();
     fileStream.on("error", fail);
 
@@ -160,8 +162,11 @@ export const avScanWorker = new Worker<AvScanJob>(
       return;
     }
 
-    // Scan — streamed directly from disk, never buffered whole into memory
-    const verdict = await scanWithClamav(resolveStoragePath(storageKey));
+    // Open a file handle from the already-validated storage path so scanWithClamav
+    // never receives a raw path string — resolveStoragePath's containment check
+    // is the only route to this handle.
+    const handle = await fsp.open(resolveStoragePath(storageKey), "r");
+    const verdict = await scanWithClamav(handle).finally(() => handle.close());
 
     if (verdict === "clean") {
       await withTenantContext(tenantId, (tx) =>

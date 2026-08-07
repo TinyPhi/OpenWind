@@ -96,12 +96,15 @@ class FakeFileStream extends EventEmitter {
 }
 let lastFileStream: FakeFileStream | undefined;
 
-vi.mock("node:fs", () => ({
+vi.mock("node:fs/promises", () => ({
   default: {
-    createReadStream: vi.fn().mockImplementation(() => {
-      lastFileStream = new FakeFileStream();
-      return lastFileStream;
-    }),
+    open: vi.fn().mockImplementation(() => ({
+      createReadStream: vi.fn().mockImplementation(() => {
+        lastFileStream = new FakeFileStream();
+        return lastFileStream;
+      }),
+      close: vi.fn().mockResolvedValue(undefined),
+    })),
   },
 }));
 
