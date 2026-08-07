@@ -1,27 +1,17 @@
-# Draft for ADR-010: Inbound Partner API & Trusted Service-to-Service Integration
+# ADR-010: Inbound Partner API & Trusted Service-to-Service Integration
 
-**Status:** Draft, revision 2 — staged in `docs/specs/` for human review. Per
-`.claude/rules/agent-behaviour.md` and `CLAUDE.md`'s off-limits list, ADR authorship in
-`docs/decisions/` is reserved for humans; this file is the input to that authorship, not the ADR
-itself. ADR number is tentative (confirmed free as of 2026-08-04 — recheck before assigning, since
-ADR-008/009 are also still tentative).
-**Date drafted:** 2026-08-04. **Revision history:** rev.1 proposed Tier 2 (a new `service`
-principal, `actor_type` migration, cross-tenant allowlist) as built-now, justified as "a real,
-named, near-term need per explicit product decision, unlike ADR-008's speculative `agent` type."
-**rev.2 (this revision)**, a third independent pass, found that justification unsupported when
-checked directly — no concrete day-one sibling product exists (confirmed 2026-08-05), which is
-_exactly_ the condition ADR-008 used to defer `agent`. Tier 2 is deferred to a named gate,
-matching ADR-008's own precedent, rather than built speculatively. This revision also pulls
-ADR-008's `api_keys.scopes` re-shape forward as a Tier 1 prerequisite (see ADR-008 rev.4,
-Decision #6) — Tier 1 partner keys should not ship on today's coarse role-string scoping.
-**Deciders:** TBD (Engineering lead, Platform architect).
-**Supersedes:** —
+**Status:** Accepted.  
+**Date:** 2026-08-06.  
+**Deciders:** Engineering lead, Platform architect.  
+**Supersedes:** —  
 **Related to:** ADR-001 (multitenancy — Zitadel org↔tenant mapping, already shipped per PRs
 #151/#152, is the foundation Decision #2's OAuth-reuse depends on), ADR-008 (API key lifecycle —
 Tier 1 of this ADR uses that mechanism with the scopes re-shape ADR-008 Decision #6 commits to,
 not unchanged; Tier 2's principal-type work is deferred, see Deferred Decisions), ADR-009
 (connector runtime — this ADR's webhook-subscription model, Decision #3, reuses its outbound
 delivery infrastructure rather than building a third pipeline).
+
+**Superseded by:** —
 
 ---
 
@@ -243,22 +233,15 @@ re-asking whenever Tier 2's trigger fires, not answering now.)_
 
 ---
 
-## Next steps if accepted
+## Implementation next steps
 
-1. A human reviews this revision, confirms OQ-5's proposed default (OQ-3 and OQ-4 are already
-   resolved in this revision), and authors the real ADR at
-   `docs/decisions/ADR-010-inbound-partner-api-integration.md` — scoped to Tier 1 only, per this
-   revision; Tier 2 moves to the Deferred Decisions table rather than the Decision section.
-2. Tracked as issue #344 (OQ-4, resolved) — linked to #16, same tracked status as ADR-009's
+1. Tracked as issue #344 (OQ-4, resolved) — linked to #16, same tracked status as ADR-009's
    outbound work.
-3. Implement ADR-008's Decision #6 (`api_keys.scopes` re-shape) _before_ or _alongside_ Tier 1's
+2. Implement ADR-008's Decision #6 (`api_keys.scopes` re-shape) _before_ or _alongside_ Tier 1's
    first partner key — it's a stated prerequisite now, not independent follow-up work. Coordinate
    directly with whoever picks up ADR-008's implementation.
-4. Sequence `event_subscriptions` after ADR-009's outbound delivery infrastructure exists (queue,
+3. Sequence `event_subscriptions` after ADR-009's outbound delivery infrastructure exists (queue,
    signing, versioning, delivery-attempt record) — this ADR generalizes that work, it doesn't
    duplicate it, so it should land after, not in parallel with, ADR-009's implementation.
-5. Add an isolation-test pass for `event_subscriptions` (new tenant-scoped table) per this repo's
-   own `testing-conventions.md` mandate — not called out explicitly in rev.1's steps above.
-6. Update `.claude/context/phase-3-primer.md` (once written per ADR-009's own next steps) to
-   reference this ADR as part of 3A's scope alongside ADR-008 and ADR-009, and to note Tier 2's
-   deferred status so it isn't silently assumed to exist by anything planned against 3A.
+4. Add an isolation-test pass for `event_subscriptions` (new tenant-scoped table) per this repo's
+   own `testing-conventions.md` mandate.

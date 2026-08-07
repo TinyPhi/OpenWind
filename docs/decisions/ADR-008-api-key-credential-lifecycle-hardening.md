@@ -1,27 +1,14 @@
-# Draft for ADR-008: API Key & Credential Lifecycle Hardening (Agent Identity Deferred to a Named Gate)
+# ADR-008: API Key & Credential Lifecycle Hardening (Agent Identity Deferred to a Named Gate)
 
-**Status:** Draft, revision 3 — staged in `docs/specs/` for human review. Per
-`.claude/rules/agent-behaviour.md` and `CLAUDE.md`'s off-limits list, ADR authorship in
-`docs/decisions/` is reserved for humans; this file is the input to that authorship, not the ADR
-itself. ADR number is tentative (confirm still free before assigning).
-**Date drafted:** 2026-08-04. **Revision history:** rev.1 proposed a three-principal model
-(`human`/`api_key`/`agent`) with a delegation-chain audit schema; rev.2 cross-checked against issues
-#17/#18 and corrected a factual overstatement about the audit schema's additivity; rev.3 rescoped
-the ADR entirely after a second adversarial review round found the `agent` principal type and
-delegation chain to be solving a problem with no current tracked requirement, while surfacing
-separate, real, non-speculative gaps in the _existing_ `human`/`api_key` model that are worth
-fixing regardless — that revision kept the latter, deferred the former to a named gate. **rev.4
-(this revision)**, a third independent pass done jointly with ADR-010's own revision, found that
-ADR-010's Tier 1 (arms-length partners) is itself the trigger rev.3 named for the `api_keys.scopes`
-re-shape — moved from "wait for Phase 3C or a partner integration, whichever comes first" to
-"build it now, as a Tier 1 prerequisite," since the partner integration has, in effect, arrived
-via ADR-010.
-**Deciders:** TBD (Engineering lead, Platform architect).
-**Supersedes:** —
+**Status:** Accepted.  
+**Date:** 2026-08-06.  
+**Deciders:** Engineering lead, Platform architect.  
 **Related to:** ADR-001 (multitenancy/RLS), ADR-006 (per-workflow ownership as a second
 authorization path). Companion to ADR-009 (connector runtime), which is the actual near-term
 consumer of identity concerns for Phase 3A — connector-initiated calls authenticate via the
-existing `api_key` mechanism, not a new principal type (see Decision #1).
+existing `api_key` mechanism, not a new principal type (see Decision #1).  
+**Supersedes:** —  
+**Superseded by:** —
 
 ---
 
@@ -212,21 +199,17 @@ direct hardening of the mechanism that's already live.
 
 ---
 
-## Next steps if accepted
+## Implementation next steps
 
-1. A human reviews this revision and authors the real ADR at
-   `docs/decisions/ADR-008-api-key-credential-lifecycle-hardening.md` (name changed from the
-   original "identity-delegation-model" title to reflect the rescope — confirm the ADR number is
-   still free), updating `CLAUDE.md`'s ADR reference list.
-2. Implement Decisions #2-#4 (`created_by`, audit-on-mint, expiry, soft-revoke) as their own PR,
+1. Implement Decisions #2-#4 (`created_by`, audit-on-mint, expiry, soft-revoke) as their own PR,
    independent of and not blocked by ADR-009 — this is real, needed work regardless of connector
    runtime timing.
-3. Record Decision #5's gate explicitly somewhere it will actually be seen at Phase 3C planning
-   time (e.g. `docs/sup-docs/roadmap-tracker.md`'s 3C entry, or `.claude/context/phase-3-primer.md`
-   once written) — a deferred decision that only lives in a `docs/specs/` file risks being missed
-   entirely when 3C planning actually starts.
-4. Resolve OQ-5 (action-string taxonomy) jointly with whoever scopes ADR-010's Tier 1 rollout —
+2. Record Decision #5's gate explicitly somewhere it will actually be seen at Phase 3C planning
+   time (`docs/sup-docs/roadmap-tracker.md`'s 3C entry and `.claude/context/phase-3-primer.md`) —
+   a deferred decision that only lives in this ADR risks being missed entirely when 3C planning
+   actually starts.
+3. Resolve OQ-5 (action-string taxonomy) jointly with whoever scopes ADR-010's Tier 1 rollout —
    Decision #6 is a prerequisite for Tier 1's first partner key, not independent follow-up work.
-5. Add an isolation-test pass for the `api_keys` migrations (Decisions #2-#4 and #6) per this
+4. Add an isolation-test pass for the `api_keys` migrations (Decisions #2-#4 and #6) per this
    repo's own `testing-conventions.md` mandate for new columns/enforcement paths on a tenant-scoped
-   table — not called out explicitly in rev.3's steps above, worth stating rather than assuming.
+   table.
