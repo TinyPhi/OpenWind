@@ -98,7 +98,10 @@ export async function archiveEntity(
     WHERE delivered_at IS NULL
       AND event_type = 'entity.due_date_scheduled'
       AND tenant_id = ${tenantId}
-      AND payload ->> 'instanceId' = ANY(${allIds})
+      AND payload ->> 'instanceId' = ANY(ARRAY[${sql.join(
+        allIds.map((id) => sql`${id}`),
+        sql`, `,
+      )}])
   `);
 
   logger.info(
