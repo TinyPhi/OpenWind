@@ -14,8 +14,7 @@
  * The scan_failed status is only written on the final attempt.
  */
 
-import type fs from "node:fs";
-import fsp from "node:fs/promises";
+import fsp, { type FileHandle } from "node:fs/promises";
 import net from "node:net";
 import { Worker } from "bullmq";
 import { eq, and } from "drizzle-orm";
@@ -45,9 +44,7 @@ type AvScanJob = {
  * Returns "clean" or "infected".
  * Throws on connection/read failure or protocol error (triggers job retry).
  */
-function scanWithClamav(
-  handle: fs.promises.FileHandle,
-): Promise<"clean" | "infected"> {
+function scanWithClamav(handle: FileHandle): Promise<"clean" | "infected"> {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let response = "";
