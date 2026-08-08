@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
-import { showAlert } from "../components/global-alert-dialog.js";
 import { userManager, waitForAuth, silentRefresh } from "../authProvider.js";
+import { showAlert } from "../components/global-alert-dialog.js";
 
 export type ScanStatus = "pending" | "clean" | "quarantined" | "scan_failed";
 

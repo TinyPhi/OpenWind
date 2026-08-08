@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useList } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@platform/ui";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { resolveCardIcon } from "../../lib/icon.js";
+import { userManager } from "../../authProvider.js";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -88,6 +89,23 @@ export function Workflows(): React.ReactElement {
   const { getTypeById } = useEntityTypes();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+
+  // POST /entity-types (the first step of creating a new workflow) is
+  // admin-only — upstream treats opening it to agent/user as a
+  // privilege-escalation gap. Hide the entry point here to match; a
+  // non-admin who somehow reaches /workflows/new still gets a 403 from the
+  // API, this just avoids advertising an action that will fail.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    userManager
+      .getUser()
+      .then((u) => {
+        const rolesMap = (u?.profile["urn:zitadel:iam:org:project:roles"] ??
+          {}) as Record<string, unknown>;
+        setIsAdmin(Object.keys(rolesMap).includes("admin"));
+      })
+      .catch(() => setIsAdmin(false));
+  }, []);
 
   const allWorkflows = data?.data ?? [];
   const workflows = search.trim()
@@ -249,23 +267,28 @@ export function Workflows(): React.ReactElement {
           <span className="stat-pill stat-pill-muted">
             {allWorkflows.length} total
           </span>
-          <Button variant="primary" onClick={() => navigate("/workflows/new")}>
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
+          {isAdmin && (
+            <Button
+              variant="primary"
+              onClick={() => navigate("/workflows/new")}
             >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            New Workflow
-          </Button>
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              New Workflow
+            </Button>
+          )}
         </div>
       </div>
 
