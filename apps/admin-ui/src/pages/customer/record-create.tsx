@@ -639,7 +639,7 @@ export function CustomerRecordCreate(): React.ReactElement {
             disabled={saving || pendingCount > 0}
             title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
           >
-            {saving ? "Creating…" : "Create Ticket"}
+            {saving ? "Creating…" : `Create ${entityType?.name ?? "Ticket"}`}
           </button>
         </div>
       </form>
