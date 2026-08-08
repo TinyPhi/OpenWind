@@ -237,6 +237,8 @@ field is no longer read). Do not remove these:
   via IDN / backslash authority); pulled in via commitlint's ajv dep.
 - `postcss ">=8.5.18"` — GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL
   auto-loading); pulled in via vite (admin-ui devDep).
+- `nanoid ">=3.3.17"` — GHSA-2v37-7h3g-55p8 (custom generators can loop indefinitely
+  when size is zero); pulled in transitively via vite/postcss (admin-ui devDep), 27 paths.
 
 ---
 

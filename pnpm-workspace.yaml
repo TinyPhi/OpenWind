@@ -44,3 +44,6 @@ overrides:
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
   # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths
   postcss: ">=8.5.18"
+  # GHSA-2v37-7h3g-55p8: custom generators can loop indefinitely when size is zero —
+  # pulled in transitively via vite/postcss (admin-ui devDependency), 27 paths
+  nanoid: ">=3.3.17"
