@@ -27,6 +27,15 @@ export async function listNotifications(
   return { data: res.data, nextCursor: res.nextCursor };
 }
 
+export async function getUnreadCount(): Promise<number> {
+  const res = (await fetchWithAuth(
+    `${API_URL}/notifications/unread-count`,
+  )) as {
+    data: { count: number };
+  };
+  return res.data.count;
+}
+
 export async function markNotificationRead(id: string): Promise<void> {
   await fetchWithAuth(
     `${API_URL}/notifications/${encodeURIComponent(id)}/read`,
