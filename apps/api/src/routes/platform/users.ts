@@ -68,7 +68,6 @@ usersRouter.get(
           displayName: dbDisplayName ?? u.displayName,
           loginName: u.loginName,
           roles: rolesByUserId.get(u.userId) ?? [],
-          metadata: u.metadata,
         };
       });
 
@@ -87,7 +86,6 @@ usersRouter.get(
           displayName: realName ?? r.email ?? r.userId,
           loginName: r.email ?? r.userId,
           roles,
-          metadata: {},
         });
       }
     }
