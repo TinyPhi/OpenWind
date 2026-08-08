@@ -30,7 +30,6 @@ startOutboxPoller();
 startSlaScheduler();
 startAlertScheduler();
 startHealthServer();
-startAlertScheduler();
 startDueDateScheduler();
 startNotificationPoller();
 

@@ -295,13 +295,15 @@ export function AdminRecords(): React.ReactElement {
             <div className="empty-icon">📋</div>
             <h4>No workflows yet</h4>
             <p>Create a workflow to start tracking records.</p>
-            <Button
-              variant="primary"
-              style={{ marginTop: "16px" }}
-              onClick={() => navigate("/workflows/new")}
-            >
-              + New Workflow
-            </Button>
+            {currentUserRoles.includes("admin") && (
+              <Button
+                variant="primary"
+                style={{ marginTop: "16px" }}
+                onClick={() => navigate("/workflows/new")}
+              >
+                + New Workflow
+              </Button>
+            )}
           </div>
         ) : filteredWorkflows.length === 0 ? (
           <div className="empty-state">
