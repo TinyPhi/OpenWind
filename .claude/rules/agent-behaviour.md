@@ -93,7 +93,6 @@ and are logged to `.claude/state/bypass.log`.
 
 **Never do autonomously:**
 
-- Touch issue #2 (SSRF/PII gaps) — human review required
 - Enable or implement parallel approval — deferred to Phase 3
 - Modify any `.github/workflows/` file (CI/CD — secret-exfiltration / check-disabling risk)
 - Write or modify ADR files in `docs/decisions/`
@@ -165,7 +164,8 @@ Load when working in those packages — key invariants, gotchas, error codes:
 
 - `entity-engine.md` — two-phase validation, soft-delete, schema cache, audit hooks
 - `workflow-engine.md` — pessimistic lock, TRANSITION_LOCKED retry, SLA outbox, append-only events
-- `automation-engine.md` — recursion cap, circuit breaker, SSRF guard, issue #2 warning
+- `automation-engine.md` — recursion cap, circuit breaker, SSRF guard (issue #2, closed —
+  still run `/security-review` on any PR touching it)
 
 ---
 
