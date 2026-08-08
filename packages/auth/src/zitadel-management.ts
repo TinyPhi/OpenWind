@@ -39,6 +39,8 @@ export interface OrgUser {
   loginName: string;
   /** E.164 phone number from Zitadel's human.phone.phone, if set. */
   phone: string | undefined;
+  /** Custom key/value metadata set on the user via Zitadel (values are UTF-8 decoded from base64). */
+  metadata: Record<string, string>;
 }
 
 // ── Token cache ───────────────────────────────────────────────────────────────
@@ -318,6 +320,68 @@ export async function listProjectRoles(): Promise<string[]> {
   }
 }
 
+// ── User metadata ─────────────────────────────────────────────────────────────
+//
+// Zitadel's v2 UserService (ListUsers / GetUserByID) doesn't return custom
+// metadata inline — it lives behind its own v1 Management API search endpoint,
+// one call per user. Cached with the same TTL as the user caches above so a
+// bulk listOrgUsers() call doesn't re-fetch metadata for every user on every
+// request within the cache window.
+
+const _userMetadataCache = new Map<
+  string,
+  { metadata: Record<string, string>; expiresAt: number }
+>();
+
+async function getUserMetadata(
+  userId: string,
+): Promise<Record<string, string>> {
+  const now = Date.now();
+  const cached = _userMetadataCache.get(userId);
+  if (cached && now < cached.expiresAt) return cached.metadata;
+
+  const token = await getAccessToken();
+  if (!token) return {};
+
+  try {
+    const url = `${internalBase()}/management/v1/users/${userId}/metadata/_search`;
+    const result = await httpPost(
+      url,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify({ query: { limit: 200 } }),
+    );
+
+    if (result.status < 200 || result.status >= 300) {
+      logger.warn(
+        { status: result.status },
+        "getUserMetadata: Zitadel metadata search failed",
+      );
+      return {};
+    }
+
+    const data = JSON.parse(result.text) as {
+      result?: Array<{ key: string; value: string }>;
+    };
+    const metadata: Record<string, string> = {};
+    for (const entry of data.result ?? []) {
+      // Zitadel returns metadata values base64-encoded.
+      try {
+        metadata[entry.key] = Buffer.from(entry.value, "base64").toString(
+          "utf8",
+        );
+      } catch {
+        metadata[entry.key] = entry.value;
+      }
+    }
+    _userMetadataCache.set(userId, { metadata, expiresAt: now + CACHE_TTL_MS });
+    return metadata;
+  } catch (err) {
+    logger.error({ err, userId }, "Failed to fetch Zitadel user metadata");
+    return {};
+  }
+}
+
 // ── List org users ────────────────────────────────────────────────────────────
 
 // orgId is required (not optional) — callers must guard at the call site
@@ -422,9 +486,18 @@ async function _fetchOrgUsers(
         "listOrgUsers: result truncated — total exceeds page limit",
       );
     }
-    const users: OrgUser[] = (data.result ?? [])
-      .filter((u) => u.human !== undefined && u.state === "USER_STATE_ACTIVE")
-      .map((u) => {
+    const activeUsers = (data.result ?? []).filter(
+      (u) => u.human !== undefined && u.state === "USER_STATE_ACTIVE",
+    );
+    // One metadata search per user, run in parallel — each result is cached
+    // independently (see getUserMetadata) so repeat listOrgUsers calls within
+    // the cache window don't re-fetch metadata that hasn't changed.
+    const metadataByUserId = await Promise.all(
+      activeUsers.map((u) => getUserMetadata(u.userId)),
+    );
+
+    const users: OrgUser[] = activeUsers
+      .map((u, i) => {
         const profile = u.human?.profile ?? {};
         const nameParts = [profile.givenName, profile.familyName].filter(
           (s): s is string => typeof s === "string" && s.length > 0,
@@ -439,6 +512,7 @@ async function _fetchOrgUsers(
           displayName,
           loginName,
           phone: u.human?.phone?.phone,
+          metadata: metadataByUserId[i] ?? {},
         };
       })
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -630,12 +704,14 @@ export async function getUserById(userId: string): Promise<OrgUser | null> {
     const displayName =
       profile.displayName ?? fullName ?? u.preferredLoginName ?? u.userId;
     const loginName = u.preferredLoginName ?? u.loginNames?.[0] ?? u.userId;
+    const metadata = await getUserMetadata(u.userId);
     const orgUser: OrgUser = {
       userId: u.userId,
       email: u.human?.email?.email ?? "",
       displayName,
       loginName,
       phone: u.human?.phone?.phone,
+      metadata,
     };
     _userByIdCache.set(userId, {
       user: orgUser,
@@ -653,4 +729,5 @@ export function invalidateUserCache(): void {
   _usersCache.clear();
   _userByIdCache.clear();
   _userRolesCache.clear();
+  _userMetadataCache.clear();
 }

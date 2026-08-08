@@ -2656,6 +2656,11 @@ select.form-input {
   flex: 7;
   min-width: 0;
   height: 100%;
+  /* Matches the sidebar's floor (3 sections x 160px min-height + 2 x 12px gap)
+     so both columns share the same bottom edge when content is short; height:
+     100% (inherited from .rcd-two-col's flex:1 + align-items:stretch) still
+     lets it grow past this floor on taller screens. */
+  min-height: 504px;
 }
 
 /* ── Right sidebar ── */
@@ -2666,6 +2671,7 @@ select.form-input {
   flex-direction: column;
   gap: 12px;
   height: 100%;
+  min-height: 504px;
 }
 
 .rcd-sidebar-section {

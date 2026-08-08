@@ -15,6 +15,7 @@ import { Layout } from "./components/layout.js";
 import { Login } from "./pages/login.js";
 import { AuthCallback } from "./pages/callback.js";
 import { Dashboard } from "./pages/dashboard.js";
+import { Analytics } from "./pages/analytics.js";
 import { Modules } from "./pages/modules.js";
 import { EntityTypeDetail } from "./pages/entity-types/detail.js";
 import { EntityInstanceCreate } from "./pages/entity-types/instance-create.js";
@@ -70,6 +71,11 @@ export function App(): React.ReactElement {
             list: "/dashboard",
             meta: { label: "Dashboard" },
           },
+          {
+            name: "analytics",
+            list: "/analytics",
+            meta: { label: "Analytics" },
+          },
           { name: "modules", list: "/modules", meta: { label: "Templates" } },
           {
             name: "records",
@@ -109,6 +115,7 @@ export function App(): React.ReactElement {
             {/* All authenticated users */}
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/analytics" element={<Analytics />} />
             <Route path="/records" element={<AdminRecords />} />
             <Route
               path="/workflows/:workflowSlug/records"
