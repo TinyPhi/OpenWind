@@ -136,8 +136,13 @@ Scopes track (can run in parallel with the runtime track, same stage):
 - **Tier 2 service-to-service principals (ADR-010).** Deferred — no concrete day-one in-house
   sibling-product consumer exists. Re-evaluate only when one is named.
 - **Important-not-Core items** (all decide-later-without-blocking-Core): Stripe/QuickBooks/Slack
-  connectors, connector DPA framework, iPaaS bridge (Trigger.dev), field-mapping AI assist
-  (ADR-009); OpenAPI/SDKs, aggregate cross-mechanism outbound cap (ADR-010).
+  connectors, connector DPA framework, field-mapping AI assist (ADR-009); OpenAPI/SDKs, aggregate
+  cross-mechanism outbound cap (ADR-010).
+- **Optional-tier: iPaaS bridge (Trigger.dev).** ADR-009 explicitly resolved this as Optional
+  (lower priority than the Important items above), not Important as issue #16's body groups it —
+  the two source documents disagreed; ADR-009 sided with `docs/roadmap.md`'s classification.
+  Solves a different problem (long-running/human-in-the-loop orchestration) than the connector
+  marketplace ADR-009 covers — not folded in or dropped, just out of scope until picked up.
 
 ## Open confirmations still needed before specific PRs (not primer-blocking)
 
