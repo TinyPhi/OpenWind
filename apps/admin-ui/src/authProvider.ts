@@ -99,13 +99,21 @@ export const authProvider: AuthProvider = {
   logout: async () => {
     const user = await userManager.getUser();
     await userManager.clearStaleState();
-    // Ends the session at Zitadel too, not just locally — signoutRedirect
-    // navigates the browser to Zitadel's end-session endpoint, which then
-    // redirects back to post_logout_redirect_uri. It clears the local user
-    // itself, so no separate removeUser() call is needed.
-    await userManager.signoutRedirect(
-      user?.id_token ? { id_token_hint: user.id_token } : undefined,
-    );
+    try {
+      // Ends the session at Zitadel too, not just locally — signoutRedirect
+      // navigates the browser to Zitadel's end-session endpoint, which then
+      // redirects back to post_logout_redirect_uri. It clears the local user
+      // itself, so no separate removeUser() call is needed.
+      await userManager.signoutRedirect(
+        user?.id_token ? { id_token_hint: user.id_token } : undefined,
+      );
+    } catch {
+      // Zitadel unreachable (network timeout, service down) — fall back to
+      // a local-only logout so the user isn't stuck on the current page
+      // with no redirect target.
+      await userManager.removeUser();
+      return { success: true, redirectTo: "/login" };
+    }
     return { success: true };
   },
   onError: (error: unknown) => {

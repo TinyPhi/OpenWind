@@ -3,12 +3,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockSigninSilent = vi.fn();
 const mockGetUser = vi.fn().mockResolvedValue(null);
 const mockAddUserLoaded = vi.fn();
+const mockSignoutRedirect = vi.fn();
+const mockRemoveUser = vi.fn();
+const mockClearStaleState = vi.fn();
 
 vi.mock("oidc-client-ts", () => ({
   UserManager: vi.fn().mockImplementation(function UserManager() {
     return {
       signinSilent: mockSigninSilent,
       getUser: mockGetUser,
+      signoutRedirect: mockSignoutRedirect,
+      removeUser: mockRemoveUser,
+      clearStaleState: mockClearStaleState,
       events: { addUserLoaded: mockAddUserLoaded },
     };
   }),
@@ -17,7 +23,7 @@ vi.mock("oidc-client-ts", () => ({
 
 vi.mock("@refinedev/core", () => ({}));
 
-const { silentRefresh } = await import("./authProvider.js");
+const { silentRefresh, authProvider } = await import("./authProvider.js");
 
 describe("silentRefresh", () => {
   beforeEach(() => {
@@ -72,5 +78,31 @@ describe("silentRefresh", () => {
     expect(secondResult).toBe("second");
 
     expect(mockSigninSilent).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("authProvider.logout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetUser.mockResolvedValue(null);
+  });
+
+  it("returns success with no redirectTo when signoutRedirect succeeds — the browser navigates away before Refine acts on the return value", async () => {
+    mockSignoutRedirect.mockResolvedValue(undefined);
+
+    const result = await authProvider.logout({});
+
+    expect(mockSignoutRedirect).toHaveBeenCalled();
+    expect(mockRemoveUser).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: true });
+  });
+
+  it("falls back to a local-only logout when signoutRedirect throws (Zitadel unreachable)", async () => {
+    mockSignoutRedirect.mockRejectedValue(new Error("network timeout"));
+
+    const result = await authProvider.logout({});
+
+    expect(mockRemoveUser).toHaveBeenCalled();
+    expect(result).toEqual({ success: true, redirectTo: "/login" });
   });
 });
