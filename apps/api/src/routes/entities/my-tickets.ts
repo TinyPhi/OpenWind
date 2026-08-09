@@ -1,7 +1,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { eq, and, isNull, sql, desc, inArray, asc } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   withTenantContext,
   entityInstances,
@@ -56,6 +56,7 @@ function toWorkflowSlug(name: string): string {
 
 export const myTicketsHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user", "superadmin"),
   zValidator("query", MyTicketsQuerySchema),
   async (c) => {
     const { tenantId, userId } = c.get("auth");
@@ -181,7 +182,12 @@ export const myTicketsHandler = factory.createHandlers(
                     entityTypeId: workflows.entityTypeId,
                   })
                   .from(workflows)
-                  .where(inArray(workflows.id, wfIds)),
+                  .where(
+                    and(
+                      eq(workflows.tenantId, tenantId),
+                      inArray(workflows.id, wfIds),
+                    ),
+                  ),
               ),
               withTenantContext(tenantId, (tx) =>
                 tx
@@ -193,7 +199,12 @@ export const myTicketsHandler = factory.createHandlers(
                     isTerminal: workflowStates.isTerminal,
                   })
                   .from(workflowStates)
-                  .where(inArray(workflowStates.workflowId, wfIds))
+                  .where(
+                    and(
+                      eq(workflowStates.tenantId, tenantId),
+                      inArray(workflowStates.workflowId, wfIds),
+                    ),
+                  )
                   .orderBy(
                     asc(workflowStates.sortOrder),
                     asc(workflowStates.id),
@@ -203,7 +214,12 @@ export const myTicketsHandler = factory.createHandlers(
                 tx
                   .select({ workflowId: workflowTransitions.workflowId })
                   .from(workflowTransitions)
-                  .where(inArray(workflowTransitions.workflowId, wfIds)),
+                  .where(
+                    and(
+                      eq(workflowTransitions.tenantId, tenantId),
+                      inArray(workflowTransitions.workflowId, wfIds),
+                    ),
+                  ),
               ),
             ])
           : [[], [], []];
