@@ -44,3 +44,9 @@ overrides:
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
   # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths
   postcss: ">=8.5.18"
+  # GHSA-2v37-7h3g-55p8: nanoid can loop indefinitely when size is 0 — pulled in
+  # transitively via postcss (vite/vitest chains in admin-ui devDependencies), 27 paths.
+  # Bounded to <4 — postcss's own package.json pins nanoid as ^3.x, so an unbounded
+  # >=3.3.17 silently forces it onto an untested major (resolves to 6.0.1); staying
+  # on the v3 line gets the fix without the major jump (PR #356 review).
+  nanoid: ">=3.3.17 <4"
