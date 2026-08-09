@@ -4,6 +4,14 @@
 **Last updated:** 2026-05  
 **Governed by:** [ADR-004 — Config-First Module Design](decisions/ADR-004-config-first-module-design.md)
 
+**Phase 3 lettering note (found during ADR-009 review, 2026-08):** this doc's own 3D/3E split
+(§3D "Advanced Workflow Builder", §3E "Observability & Compliance") has drifted from
+`CLAUDE.md`/`docs/sup-docs/roadmap-tracker.md`, which are updated every session and call the
+observability/compliance track "3D" with no separate lettered "Advanced Workflow Builder" track
+(its Core content — the drag-and-drop visual workflow builder — shipped as part of Phase 2D,
+2026-07-22). Treat `CLAUDE.md`/`roadmap-tracker.md` as authoritative for phase IDs; this doc's
+letters below are unchanged from their original 2026-05 draft.
+
 This document is the sequenced build plan for the platform. It is a living document — updated as phases complete and priorities shift. The [architecture brief](architecture-brief.md) is the stable design reference; this document is the execution plan derived from it.
 
 ---
