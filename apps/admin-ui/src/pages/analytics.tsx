@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useGetIdentity } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
+import { relativeTime } from "../lib/format.js";
 import { userManager } from "../authProvider.js";
 import { Button, TOKENS, useHoverStyle } from "@platform/ui";
 
@@ -87,20 +88,23 @@ function withAlpha(color: string, alpha: number): string {
   return match ? `hsla(${match[1]}, ${alpha})` : color;
 }
 
+// Zitadel role claims are internal identifiers, not product terminology —
+// never render them raw in UI text.
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Administrator",
+  agent: "Agent",
+  user: "User",
+  customer: "Customer",
+  superadmin: "Super Admin",
+};
+function roleLabel(role: string): string {
+  return ROLE_LABELS[role] ?? role;
+}
+
 function recordTitle(rec: EntityRecord): string {
   const f = rec.fields ?? {};
   const v = f.subject ?? f.title ?? f.name;
   return v ? String(v) : `#${rec.id.slice(0, 8)}`;
-}
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 }
 
 // Daily counts for the last `days` days, oldest first, based on `createdAt`.
@@ -944,29 +948,43 @@ export function Analytics(): React.ReactElement {
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [roles, setRoles] = useState<string[]>([]);
+  // Gates the data-fetch effect below until the role check resolves — without
+  // this, a customer navigating straight to /analytics would trigger every
+  // tenant-KPI fetch (workflows/modules/users/entities) before the redirect
+  // fires, since these were two independent effects racing on mount.
+  const [rolesReady, setRolesReady] = useState(false);
+  const [isCustomer, setIsCustomer] = useState(false);
 
   useEffect(() => {
     void userManager.getUser().then((u) => {
+      // oidc-client-ts types User.profile as a generic claims bag — the
+      // Zitadel-specific roles claim isn't part of its type, so this can't
+      // be inferred.
       const profile = u?.profile as Record<string, unknown> | undefined;
       const rolesMap = (profile?.["urn:zitadel:iam:org:project:roles"] ??
         {}) as Record<string, unknown>;
       const r = Object.keys(rolesMap);
       setRoles(r);
-      const isCustomer =
+      const customer =
         (r.includes("user") || r.includes("customer")) &&
         !r.includes("admin") &&
         !r.includes("agent");
-      if (isCustomer) navigate("/records", { replace: true });
+      setIsCustomer(customer);
+      setRolesReady(true);
+      if (customer) navigate("/records", { replace: true });
     });
   }, [navigate]);
 
   useEffect(() => {
+    if (!rolesReady || isCustomer) return;
     Promise.all([
       fetchWithAuth(`${API_URL}/workflows`),
       fetchWithAuth(`${API_URL}/modules`),
       fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
     ])
       .then(async ([wfRes, modRes, usersRes]) => {
+        // fetchWithAuth returns Promise<unknown> — the envelope shape is a
+        // contract with the API, not something TS can infer from the call site.
         const workflows = (wfRes as { data?: Workflow[] }).data ?? [];
         const mods = (modRes as { data?: Module[] }).data ?? [];
         setModules(mods);
@@ -978,6 +996,7 @@ export function Analytics(): React.ReactElement {
               const recRes = await fetchWithAuth(
                 `${API_URL}/entities?entityTypeId=${wf.entityTypeId}`,
               );
+              // Same fetchWithAuth-returns-unknown contract as above.
               const records = (recRes as { data?: EntityRecord[] }).data ?? [];
               const terminalNames = new Set(
                 wf.states.filter((s) => s.isTerminal).map((s) => s.name),
@@ -1008,7 +1027,7 @@ export function Analytics(): React.ReactElement {
       })
       .catch(() => setStats([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [rolesReady, isCustomer]);
 
   const totalRecords = stats.reduce((sum, s) => sum + s.total, 0);
   const totalOpen = stats.reduce((sum, s) => sum + s.open, 0);
@@ -1533,7 +1552,7 @@ export function Analytics(): React.ReactElement {
                     className="badge badge-primary"
                     style={{ fontSize: "11px" }}
                   >
-                    {r}
+                    {roleLabel(r)}
                   </span>
                 ))}
               </div>

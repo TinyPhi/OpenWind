@@ -17,7 +17,11 @@ export function AuthCallback(): React.ReactElement {
       .then(async () => {
         // Personal dashboard is reachable by every role (docs/specs/personal-dashboard.md
         // R5) — customers used to be sent straight to /records here, bypassing it entirely.
-        await userManager.getUser();
+        const user = await userManager.getUser();
+        if (!user) {
+          navigate("/login");
+          return;
+        }
         navigate("/dashboard");
       })
       .catch((err: Error) => {

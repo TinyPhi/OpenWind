@@ -103,11 +103,14 @@ describe("Analytics (renamed from Dashboard — R4 regression guard)", () => {
   it("computes the same KPI values as the pre-rename Dashboard component for fixed fixture data", async () => {
     render(<Analytics />);
 
-    // Total Workflows: 1 workflow, 1 active
+    // Total Workflows: 1 workflow, 1 active. The role check now gates the
+    // data fetch (see analytics.tsx's rolesReady guard), adding a real async
+    // hop before stats populate — wait for the data-dependent text too, not
+    // just the always-present label.
     await waitFor(() => {
       expect(screen.getByText("Total Workflows")).toBeDefined();
+      expect(screen.getByText("1 active")).toBeDefined();
     });
-    expect(screen.getByText("1 active")).toBeDefined();
 
     // Total Records: 3 records across the one workflow (label appears twice —
     // KPI card + the breakdown chart legend further down the page)
