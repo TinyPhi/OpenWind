@@ -596,3 +596,18 @@ export function hashApiKey(rawKey: string): string {
 export function hashApiKeyArgon2(rawKey: string): Promise<string> {
   return argon2Hash(rawKey);
 }
+
+// ADR-008 Decision #3: platform-configured maximum lifetime for newly-minted
+// keys. This is a mechanism default, not yet confirmed by a human owner —
+// unlike OQ-2/OQ-3 (which govern forcing *existing* keys onto a new lifetime,
+// deliberately not implemented yet), this only affects keys created from now
+// on, so it carries none of that migration risk.
+export const API_KEY_DEFAULT_TTL_DAYS = 365;
+
+// ADR-008 Decision #3's rotation flow: after minting a replacement, the
+// original key's expiresAt is pulled forward to this overlap window instead
+// of being revoked immediately, so in-flight callers using the original key
+// don't break the instant rotation happens. No new scheduler is needed — the
+// original simply stops resolving once expiresAt passes, via the same check
+// resolve_api_key_by_hash (migration 0053) already applies to every key.
+export const API_KEY_ROTATION_OVERLAP_HOURS = 24;

@@ -1,6 +1,7 @@
 import { requireAuth, requireRole, requireIntrospection } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
-import { and, eq } from "drizzle-orm";
+import { writeAuditEntry } from "@platform/audit";
+import { and, eq, isNull } from "drizzle-orm";
 import { factory } from "./factory.js";
 
 export const deleteApiKeyHandler = factory.createHandlers(
@@ -9,20 +10,42 @@ export const deleteApiKeyHandler = factory.createHandlers(
   requireIntrospection(),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
 
-    // The WHERE clause includes tenantId so a tenant cannot delete another
-    // tenant's key — if the key exists but belongs to a different tenant,
-    // affected rows will be 0 and we return 404 (not 403), consistent with
-    // the platform convention of not leaking resource existence across tenants.
-    const deleted = await withTenantContext(tenantId, (tx) =>
-      tx
-        .delete(apiKeys)
-        .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, tenantId)))
-        .returning({ id: apiKeys.id }),
-    );
+    // ADR-008 Decision #4: soft-revoke instead of a hard delete, preserving
+    // the forensic record (last_used_at, that the key existed) an incident
+    // investigation needs. The `isNull(revokedAt)` guard makes this idempotent
+    // — an already-revoked key affects 0 rows here, same as one that never
+    // existed or belongs to another tenant, so this returns 404 either way
+    // rather than leaking "this key existed but was already revoked."
+    const revoked = await withTenantContext(tenantId, async (tx) => {
+      const rows = await tx
+        .update(apiKeys)
+        .set({ revokedAt: new Date(), revokedBy: userId })
+        .where(
+          and(
+            eq(apiKeys.id, id),
+            eq(apiKeys.tenantId, tenantId),
+            isNull(apiKeys.revokedAt),
+          ),
+        )
+        .returning({ id: apiKeys.id });
 
-    if (deleted.length === 0) {
+      if (rows.length > 0) {
+        await writeAuditEntry(tx, {
+          tenantId,
+          actorId: userId,
+          actorType: "user",
+          resourceType: "api_key",
+          resourceId: id,
+          action: "deleted",
+        });
+      }
+
+      return rows;
+    });
+
+    if (revoked.length === 0) {
       return c.json({ error: "NOT_FOUND", message: "API key not found" }, 404);
     }
 

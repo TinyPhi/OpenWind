@@ -28,10 +28,15 @@ const RAW_KEY_A = "sk_isolation_test_tenant_a";
 const RAW_KEY_B = "sk_isolation_test_tenant_b";
 // Key C: inserted with argon2id hash (simulates a key created after migration 0047)
 const RAW_KEY_C = "sk_isolation_test_argon2_key";
+// Key D: revoked (ADR-008 Decision #4). Key E: expired (ADR-008 Decision #3).
+const RAW_KEY_D = "sk_isolation_test_revoked_key";
+const RAW_KEY_E = "sk_isolation_test_expired_key";
 
 let keyAId: string;
 let keyBId: string;
 let keyCId: string;
+let keyDId: string;
+let keyEId: string;
 
 beforeAll(async () => {
   // requireAuth's tenant-status check (resolveTenantStatus) reads the plain
@@ -86,10 +91,41 @@ beforeAll(async () => {
       })
       .returning(),
   );
-  if (!rowA || !rowB || !rowC) throw new Error("api key insert failed");
+  // Key D: revoked at insert time (simulates a key soft-revoked via DELETE /api-keys/:id)
+  const [rowD] = await withTenantContext(TENANT_A, (tx) =>
+    tx
+      .insert(apiKeys)
+      .values({
+        tenantId: TENANT_A,
+        name: "isolation-test-revoked",
+        keyHash: hashApiKey(RAW_KEY_D),
+        scopes: ["agent"],
+        revokedAt: new Date(),
+        revokedBy: "isolation-test-actor",
+      })
+      .returning(),
+  );
+  // Key E: expiresAt in the past (simulates a key past its ADR-008 Decision #3 lifetime)
+  const [rowE] = await withTenantContext(TENANT_A, (tx) =>
+    tx
+      .insert(apiKeys)
+      .values({
+        tenantId: TENANT_A,
+        name: "isolation-test-expired",
+        keyHash: hashApiKey(RAW_KEY_E),
+        scopes: ["agent"],
+        expiresAt: new Date(Date.now() - 60_000),
+      })
+      .returning(),
+  );
+  if (!rowA || !rowB || !rowC || !rowD || !rowE) {
+    throw new Error("api key insert failed");
+  }
   keyAId = rowA.id;
   keyBId = rowB.id;
   keyCId = rowC.id;
+  keyDId = rowD.id;
+  keyEId = rowE.id;
 });
 
 afterAll(async () => {
@@ -101,6 +137,12 @@ afterAll(async () => {
   );
   await withTenantContext(TENANT_A, (tx) =>
     tx.delete(apiKeys).where(eq(apiKeys.id, keyCId)),
+  );
+  await withTenantContext(TENANT_A, (tx) =>
+    tx.delete(apiKeys).where(eq(apiKeys.id, keyDId)),
+  );
+  await withTenantContext(TENANT_A, (tx) =>
+    tx.delete(apiKeys).where(eq(apiKeys.id, keyEId)),
   );
   await db.delete(tenants).where(eq(tenants.id, TENANT_A));
   await db.delete(tenants).where(eq(tenants.id, TENANT_B));
@@ -167,6 +209,25 @@ describe("resolve_api_key_by_hash (migration 0031)", () => {
     );
     expect(rows[0]?.key_hash_argon2).toBeNull();
   });
+
+  // ADR-008 Decision #4: soft-revoke changes deletion from a hard delete to
+  // setting revoked_at — this proves the row surviving as data doesn't also
+  // mean it keeps authenticating.
+  it("returns nothing for a revoked key (migration 0053)", async () => {
+    const rows = await db.execute(
+      sql`select * from resolve_api_key_by_hash(${hashApiKey(RAW_KEY_D)}::text)`,
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  // ADR-008 Decision #3: a key past its expires_at must stop authenticating
+  // without needing revoked_at set — expiry and revocation are independent.
+  it("returns nothing for an expired key (migration 0053)", async () => {
+    const rows = await db.execute(
+      sql`select * from resolve_api_key_by_hash(${hashApiKey(RAW_KEY_E)}::text)`,
+    );
+    expect(rows).toHaveLength(0);
+  });
 });
 
 describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () => {
@@ -188,6 +249,20 @@ describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () 
   it("rejects an unknown API key with 401", async () => {
     const res = await makeApp().request("/whoami", {
       headers: { Authorization: "Bearer sk_totally_unknown" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a revoked API key with 401 — same as an unknown key, no distinct signal (ADR-008 Decision #4)", async () => {
+    const res = await makeApp().request("/whoami", {
+      headers: { Authorization: `Bearer ${RAW_KEY_D}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects an expired API key with 401 (ADR-008 Decision #3)", async () => {
+    const res = await makeApp().request("/whoami", {
+      headers: { Authorization: `Bearer ${RAW_KEY_E}` },
     });
     expect(res.status).toBe(401);
   });

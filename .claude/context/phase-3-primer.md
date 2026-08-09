@@ -73,15 +73,25 @@ plan-lock all of this as one unit.
 
 ### Stage 1 — ADR-008 core hardening (independent of connector runtime)
 
-- [ ] PR: `api_keys.created_by` + audit-log entry on mint/delete (Decision #2).
-- [ ] PR: `api_keys.expires_at` + rotation flow + `revoked_at`/`revoked_by` soft-revoke
-      (Decisions #3–4). **Before shipping:** confirm exact grace/rotation windows with whoever
-      owns partner/customer comms — OQ-2 (90-day grace, proposed) and OQ-3 (30-day forced
-      rotation for legacy SHA-256-only keys, proposed) are defaults, not final.
-- [ ] Isolation tests for both PRs (new columns/enforcement on a tenant-scoped table).
-- [ ] Doc-only: record Decision #5's agent/delegation deferral gate in
+- [x] PR: `api_keys.created_by` + audit-log entry on mint/delete (Decision #2) — done 2026-08-09,
+      migration 0053.
+- [x] PR: `api_keys.expires_at` + rotation flow + `revoked_at`/`revoked_by` soft-revoke
+      (Decisions #3–4) — done 2026-08-09, migration 0053. New keys get a platform-configured
+      default TTL (`API_KEY_DEFAULT_TTL_DAYS`, `packages/auth`) and `POST /api-keys/:id/rotate`
+      mints a replacement while pulling the original's `expires_at` forward to a short overlap
+      window instead of an immediate kill. **Deliberately NOT implemented:** OQ-2/OQ-3's
+      forced-migration windows for _already-existing_ keys (90-day grace, 30-day legacy-SHA256
+      deadline) — those still need sign-off from whoever owns partner/customer comms before any
+      forcing mechanism is built; today's existing keys keep `expires_at = NULL` (immortal)
+      exactly as before. Also not implemented: a hard-delete/GDPR-purge action — the ADR says
+      this "can still exist" separately, not that it's required now.
+- [x] Isolation tests for both PRs (new columns/enforcement on a tenant-scoped table) — done
+      2026-08-09, extended `api-key-auth.isolation.test.ts` (revoked/expired keys stop
+      authenticating) and `rls-followup-fixes.isolation.test.ts` (soft-revoke replaces the old
+      hard-delete assertion).
+- [x] Doc-only: record Decision #5's agent/delegation deferral gate in
       `docs/sup-docs/roadmap-tracker.md`'s 3C row, so it's visible when 3C planning actually
-      starts (see "Deferred items" below — this primer also carries it).
+      starts (see "Deferred items" below — this primer also carries it) — done 2026-08-09.
 
 ### Stage 2 — ADR-009 connector runtime + ADR-008 Decision #6 (parallel-capable)
 
