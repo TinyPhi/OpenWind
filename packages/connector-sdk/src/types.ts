@@ -1,8 +1,9 @@
 import type { z } from "zod";
 
-export interface ConnectorContext<TCredentials = Record<string, unknown>> {
+// No `credentials` field: connector code never sees raw secrets (ADR-009 Decision #5).
+// The runtime decrypts credentials server-side and attaches them inside callApi() only.
+export interface ConnectorContext {
   tenantId: string;
-  credentials: TCredentials;
   callApi: (config: {
     method: string;
     url: string;
@@ -22,7 +23,8 @@ export interface TriggerDefinition {
   description: string;
   type: "webhook" | "polling";
   webhook?: {
-    validateSignature: (request: Request, secret: string) => Promise<boolean>;
+    // No validateSignature: verification is centralized in the webhook gateway
+    // (ADR-009 Decision #3), not connector-authored code.
     transform: (rawPayload: unknown) => Promise<Record<string, unknown>>;
   };
   polling?: {
@@ -52,7 +54,7 @@ export interface ActionDefinition {
   };
 }
 
-export interface ConnectorDefinition<TCredentials = Record<string, unknown>> {
+export interface ConnectorDefinition {
   meta: {
     id: string;
     name: string;
@@ -69,9 +71,13 @@ export interface ConnectorDefinition<TCredentials = Record<string, unknown>> {
       | "ecommerce"
       | "other";
   };
+  // Per-connector egress allowlist (ADR-009 Decision #5): callApi() enforces this
+  // and validateWebhookUrl() against the target on every call, so a connector can
+  // only ever reach the third-party host(s) it declares here.
+  allowedHosts: string[];
   auth: Record<string, unknown>;
   triggers: TriggerDefinition[];
   actions: ActionDefinition[];
-  onInstall?: (ctx: ConnectorContext<TCredentials>) => Promise<void>;
-  onUninstall?: (ctx: ConnectorContext<TCredentials>) => Promise<void>;
+  onInstall?: (ctx: ConnectorContext) => Promise<void>;
+  onUninstall?: (ctx: ConnectorContext) => Promise<void>;
 }

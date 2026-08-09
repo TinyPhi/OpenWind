@@ -58,10 +58,18 @@ plan-lock all of this as one unit.
       implementing ADR-009 Decision #3 (webhook gateway reads the outbox) — automation-triggered
       transitions currently never reach the outbox, which would make connector webhooks silently
       miss them.
-- [ ] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #5/#6 — cheap
-      now, more expensive the longer it waits, and blocks nothing else.
-- [ ] ADR-009's four independent housekeeping items (see draft, "Independent housekeeping"
-      section) — small, not gated on ADR acceptance.
+- [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #5/#6 — done
+      2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
+      `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
+      removed `TriggerDefinition.webhook.validateSignature` (verification centralizes in the
+      gateway, Decision #3), and added a required `ConnectorDefinition.allowedHosts: string[]`
+      egress allowlist (Decision #5).
+- [x] ADR-009's four independent housekeeping items (see draft, "Independent housekeeping"
+      section) — 3 of 4 already resolved: #1 (issue #2 doc conflict) fixed by the stale-gate
+      cleanup PR; #2 (Trigger.dev Important/Optional conflict) resolved — ADR-009 sided with
+      `docs/roadmap.md`'s "Optional"; #3 (3D/3E lettering) resolved via a clarifying note in
+      `docs/roadmap.md` treating `CLAUDE.md`/`roadmap-tracker.md` as authoritative. #4 is issue
+      #143, tracked as its own item above — still open.
 
 ### Stage 1 — ADR-008 core hardening (independent of connector runtime)
 
