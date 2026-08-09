@@ -10,13 +10,13 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
-## 2026-08-09 — security audit issue-hygiene pass (PR #356)
+## 2026-08-09 — security audit issue-hygiene pass (PR #358)
 
 **Session type:** Docs + issue hygiene
 **Summary:** Audited open issues #230–#290 from the July 2026 security audit. All 9 remaining
 open issues (#232, #236, #251, #252, #253, #260, #261, #263, #266) were already fixed in earlier
 merged PRs (#270, #281, #283, #294) but were never closed because the original PRs lacked
-`Closes #N` keywords. Raised PR #356 as a tracker-doc update carrying the `Closes` keywords so
+`Closes #N` keywords. Raised PR #358 as a tracker-doc update carrying the `Closes` keywords so
 GitHub closes the issues on merge. Updated `roadmap-tracker.md` Groups A and H to list all issues
 explicitly and added the missing Group F row (#266 via PR #270).
 **Verification:** docs-only diff — `pnpm typecheck`/`lint`/`test`/`test:isolation`: N/A.
