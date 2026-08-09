@@ -3,7 +3,7 @@
  * (docs/specs/in-app-notification-hub.md, T9). Deliberately small: a raw
  * queryable list, not a full observability/log-aggregation product.
  */
-import { zValidator } from "@hono/zod-validator";
+import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext, notifications } from "@platform/db";
