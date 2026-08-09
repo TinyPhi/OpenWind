@@ -15,16 +15,14 @@ export function AuthCallback(): React.ReactElement {
     userManager
       .signinCallback()
       .then(async () => {
+        // Personal dashboard is reachable by every role (docs/specs/personal-dashboard.md
+        // R5) — customers used to be sent straight to /records here, bypassing it entirely.
         const user = await userManager.getUser();
-        const profile = (user?.profile ?? {}) as Record<string, unknown>;
-        const rolesMap = (profile["urn:zitadel:iam:org:project:roles"] ??
-          {}) as Record<string, unknown>;
-        const roles = Object.keys(rolesMap);
-        const isCustomer =
-          (roles.includes("user") || roles.includes("customer")) &&
-          !roles.includes("admin") &&
-          !roles.includes("agent");
-        navigate(isCustomer ? "/records" : "/");
+        if (!user) {
+          navigate("/login");
+          return;
+        }
+        navigate("/dashboard");
       })
       .catch((err: Error) => {
         setError(err.message || String(err));

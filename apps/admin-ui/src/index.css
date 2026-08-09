@@ -1,14 +1,19 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap");
 
+@keyframes dash-skeleton {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 :root {
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-heading: "Outfit", var(--font-sans);
 
-  /* Accent color — overridden at runtime by theme.ts applyAccent() */
-  --accent-primary: hsl(250, 84%, 60%);
-  --accent-secondary: hsl(272, 84%, 54%);
+  /* Accent color — overridden at runtime by theme.ts applyAccent() (default: teal) */
+  --accent-primary: hsl(175, 70%, 44%);
+  --accent-secondary: hsl(197, 70%, 38%);
   --accent-gradient: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-  --accent-hover: hsl(250, 94%, 68%);
+  --accent-hover: hsl(175, 80%, 52%);
 
   --danger: hsl(350, 80%, 60%);
   --success: hsl(150, 75%, 45%);
@@ -556,11 +561,9 @@ h1, h2, h3, h4, h5, h6 {
   min-height: 100vh;
   background-color: var(--bg-primary);
   background-image:
-    linear-gradient(color-mix(in srgb, var(--accent-primary) 5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 5%, transparent) 1px, transparent 1px),
-    radial-gradient(color-mix(in srgb, var(--accent-primary) 22%, transparent) 1.5px, transparent 1.5px);
-  background-size: 40px 40px, 40px 40px, 40px 40px;
-  background-position: -1px -1px, -1px -1px, -1px -1px;
+    radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 22%, transparent) 1.5px, transparent 1.5px);
+  background-size: 40px 40px;
+  background-position: -1px -1px;
   color: var(--text-primary);
   font-family: var(--font-sans);
   transition: background .2s, color .2s;
@@ -599,7 +602,7 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px hsla(250, 84%, 60%, .35);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary) 35%, transparent);
   flex-shrink: 0;
 }
 .lp-brand-name {
@@ -637,6 +640,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Main */
 .lp-main {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -645,14 +649,52 @@ h1, h2, h3, h4, h5, h6 {
   padding: 48px 16px;
 }
 
+/* Dots around the card lit up brighter — as if the card were pressing down
+   on the dotted surface. Same dot pattern, just a stronger tint, masked to
+   an ellipse centered on the card (the card is itself centered in .lp-main
+   via flex, so 50%/50% always lines up with it without tracking its size). */
+.lp-main::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 65%, transparent) 1.5px, transparent 1.5px);
+  background-size: 40px 40px;
+  background-position: -1px -1px;
+  -webkit-mask-image: radial-gradient(ellipse 300px 380px at 50% 50%, black 0%, transparent 80%);
+  mask-image: radial-gradient(ellipse 300px 380px at 50% 50%, black 0%, transparent 80%);
+}
+
+/* Light source behind the card — a soft blurred glow in the active accent
+   color, sitting above the highlighted dots but behind the card itself.
+   Centered the same way as .lp-main::before (the card is flex-centered in
+   .lp-main), so it always lines up regardless of viewport size. */
+.lp-card-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 460px;
+  height: 520px;
+  max-width: 95%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 55%, transparent) 0%, transparent 70%);
+  filter: blur(48px);
+}
+
 /* Card */
 .lp-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 360px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
+  border-top: 3px solid var(--accent-primary);
+  border-bottom: 3px solid var(--accent-primary);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
   overflow: hidden;
   animation: fadeIn .3s ease-out;
 }
@@ -676,7 +718,7 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 28px;
   font-weight: 800;
   margin-bottom: 18px;
-  box-shadow: 0 6px 20px hsla(250, 84%, 60%, .35);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent-primary) 35%, transparent);
   letter-spacing: -1px;
 }
 .lp-card-title {
@@ -727,12 +769,12 @@ h1, h2, h3, h4, h5, h6 {
   gap: 10px;
   cursor: pointer;
   transition: opacity .15s, box-shadow .15s, transform .15s;
-  box-shadow: 0 3px 12px hsla(250, 84%, 60%, .35);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--accent-primary) 35%, transparent);
   animation: pulseGradient 5s ease infinite;
 }
 .lp-signin-btn:hover:not(:disabled) {
   opacity: .92;
-  box-shadow: 0 5px 18px hsla(250, 84%, 60%, .5);
+  box-shadow: 0 5px 18px color-mix(in srgb, var(--accent-primary) 50%, transparent);
   transform: translateY(-1px);
 }
 .lp-signin-btn:active:not(:disabled) {
@@ -1067,11 +1109,11 @@ h1, h2, h3, h4, h5, h6 {
 .code-inline {
   font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
   font-size: 12px;
-  background-color: hsla(225, 20%, 14%, 0.8);
-  color: hsl(210, 80%, 72%);
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
   padding: 2px 7px;
   border-radius: 4px;
-  border: 1px solid hsla(225, 15%, 22%, 0.6);
+  border: 1px solid var(--border-color);
 }
 
 /* ─── Text muted small ──────────────────────────────── */
@@ -1216,10 +1258,10 @@ h1, h2, h3, h4, h5, h6 {
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   color: var(--text-muted);
-  background-color: hsla(225, 20%, 14%, 0.8);
+  background-color: var(--bg-tertiary);
   padding: 3px 8px;
   border-radius: 4px;
-  border: 1px solid hsla(225, 15%, 22%, 0.5);
+  border: 1px solid var(--border-color);
 }
 
 /* ─── Entity type icon placeholder ──────────────────── */
@@ -2619,6 +2661,11 @@ select.form-input {
   flex: 7;
   min-width: 0;
   height: 100%;
+  /* Matches the sidebar's floor (3 sections x 160px min-height + 2 x 12px gap)
+     so both columns share the same bottom edge when content is short; height:
+     100% (inherited from .rcd-two-col's flex:1 + align-items:stretch) still
+     lets it grow past this floor on taller screens. */
+  min-height: 504px;
 }
 
 /* ── Right sidebar ── */
@@ -2629,6 +2676,7 @@ select.form-input {
   flex-direction: column;
   gap: 12px;
   height: 100%;
+  min-height: 504px;
 }
 
 .rcd-sidebar-section {
