@@ -1,7 +1,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { eq, and, isNull, or, sql, desc, inArray, asc } from "drizzle-orm";
-import { requireAuth } from "@platform/auth";
+import { eq, and, isNull, sql, desc, inArray, asc } from "drizzle-orm";
+import { requireAuth, requireRole } from "@platform/auth";
 import {
   withTenantContext,
   entityInstances,
@@ -13,6 +13,7 @@ import {
 import { MAX_PAGE_SIZE } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { buildUserScopeFilter } from "./scoped-access.js";
 
 // M-1: hard cap on the primary query — this endpoint aggregates across
 // parents/children/workflow-summary rather than a single cursor-paginated
@@ -55,6 +56,7 @@ function toWorkflowSlug(name: string): string {
 
 export const myTicketsHandler = factory.createHandlers(
   requireAuth(),
+  requireRole("admin", "agent", "user", "superadmin"),
   zValidator("query", MyTicketsQuerySchema),
   async (c) => {
     const { tenantId, userId } = c.get("auth");
@@ -62,12 +64,10 @@ export const myTicketsHandler = factory.createHandlers(
 
     try {
       // ── Step 1: find all instances where user is in the access list ───────
-      // Three access vectors: created_by, assigned_to, __accessUsers JSONB key
-      const accessFilter = or(
-        eq(entityInstances.createdBy, userId),
-        eq(entityInstances.assignedTo, userId),
-        sql`${entityInstances.fields}->'__accessUsers' ? ${userId}`,
-      );
+      // Three access vectors: created_by, assigned_to, __accessUsers JSONB key.
+      // Shared with the personal-dashboard endpoint via buildUserScopeFilter —
+      // do not inline a divergent predicate here (see scoped-access.ts).
+      const accessFilter = buildUserScopeFilter([userId]);
 
       const baseConditions = and(
         eq(entityInstances.tenantId, tenantId),
@@ -182,7 +182,12 @@ export const myTicketsHandler = factory.createHandlers(
                     entityTypeId: workflows.entityTypeId,
                   })
                   .from(workflows)
-                  .where(inArray(workflows.id, wfIds)),
+                  .where(
+                    and(
+                      eq(workflows.tenantId, tenantId),
+                      inArray(workflows.id, wfIds),
+                    ),
+                  ),
               ),
               withTenantContext(tenantId, (tx) =>
                 tx
@@ -194,7 +199,12 @@ export const myTicketsHandler = factory.createHandlers(
                     isTerminal: workflowStates.isTerminal,
                   })
                   .from(workflowStates)
-                  .where(inArray(workflowStates.workflowId, wfIds))
+                  .where(
+                    and(
+                      eq(workflowStates.tenantId, tenantId),
+                      inArray(workflowStates.workflowId, wfIds),
+                    ),
+                  )
                   .orderBy(
                     asc(workflowStates.sortOrder),
                     asc(workflowStates.id),
@@ -204,7 +214,12 @@ export const myTicketsHandler = factory.createHandlers(
                 tx
                   .select({ workflowId: workflowTransitions.workflowId })
                   .from(workflowTransitions)
-                  .where(inArray(workflowTransitions.workflowId, wfIds)),
+                  .where(
+                    and(
+                      eq(workflowTransitions.tenantId, tenantId),
+                      inArray(workflowTransitions.workflowId, wfIds),
+                    ),
+                  ),
               ),
             ])
           : [[], [], []];

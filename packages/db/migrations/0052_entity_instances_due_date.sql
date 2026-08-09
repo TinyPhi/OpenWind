@@ -6,4 +6,4 @@
 -- users/admins; never reset by workflow transitions (unlike SLA, which is
 -- state-derived and ephemeral — see workflow_states.sla_hours).
 ALTER TABLE entity_instances
-  ADD COLUMN due_date TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS due_date TIMESTAMPTZ;
