@@ -21,9 +21,12 @@ const mockTransaction = vi.fn(async (fn: (tx: unknown) => Promise<void>) => {
   await fn({ execute: mockTxExecute, update: mockTxUpdate });
 });
 
+const mockSetOutboxSweeperRole = vi.fn();
+
 vi.mock("@platform/db", () => ({
   db: { transaction: mockTransaction },
   outboxEvents: "outbox_events_mock",
+  setOutboxSweeperRole: mockSetOutboxSweeperRole,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -82,6 +85,14 @@ describe("Due date scheduler tick", () => {
       }),
       expect.objectContaining({ jobId: "duedate-outbox-abc" }),
     );
+  });
+
+  it("switches to the BYPASSRLS outbox_sweeper role for this cross-tenant sweep (#125 hotfix)", async () => {
+    mockTxExecute.mockResolvedValueOnce([makeRow()]);
+
+    await tick();
+
+    expect(mockSetOutboxSweeperRole).toHaveBeenCalled();
   });
 
   it("computes delay from dueDate — future dueDate results in positive delay", async () => {

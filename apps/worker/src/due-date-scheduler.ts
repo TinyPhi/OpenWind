@@ -27,7 +27,7 @@
  */
 
 import { sql, inArray } from "drizzle-orm";
-import { db, outboxEvents } from "@platform/db";
+import { db, outboxEvents, setOutboxSweeperRole } from "@platform/db";
 import { logger } from "@platform/logger";
 import { dueDateQueue } from "./queues.js";
 
@@ -60,6 +60,10 @@ type DueDateOutboxRow = {
 export async function tick(): Promise<void> {
   try {
     await db.transaction(async (tx) => {
+      // This sweep is deliberately cross-tenant, so it can't set
+      // app.tenant_id — see setOutboxSweeperRole's doc comment.
+      await setOutboxSweeperRole(tx);
+
       const rows = await tx.execute<DueDateOutboxRow>(sql`
         SELECT id, tenant_id, payload
         FROM outbox_events
