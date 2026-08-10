@@ -10,6 +10,24 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-10 — fix outbound-notification dead-letter write missing tenant context
+
+**Session type:** Follow-up hotfix, same incident family as the outbox-sweeper fix
+**Summary:** `notification-outbound-worker.ts`'s `handleFailedJob` recorded a permanently-failed
+outbound handoff via a bare `db.insert(outboxEvents)` with no tenant context. Its own comment
+claimed "RLS disabled by design" citing `0006_remove_internal_table_rls.sql`, which was true
+until `0050_outbox_events_rls.sql` re-enabled RLS on this table and the comment was never
+updated — so this insert hit the same invalid-uuid RLS failure as the sweeper bug, silently
+losing the one fallback that exists so a failed email delivery is never dropped without a trace.
+**Fix:** wrapped the insert in `withTenantContext(tenantId, ...)`, matching every other
+tenant-scoped outbox write in the codebase (`av-scan.ts`, `due-date-worker.ts`,
+`sla-breacher.ts`) — not `setOutboxSweeperRole`, which is reserved for genuinely cross-tenant
+sweeps. Removed the now-unused `db` import; updated the existing unit test's `@platform/db` mock
+to route `insert` through the same `tx` mock `withTenantContext` already uses.
+**Verification:** `pnpm typecheck`/`lint` PASS, `pnpm --filter @platform/worker test` PASS.
+
+---
+
 ## 2026-08-13 — PR #374 merged: outbox/dead-letter RLS null-GUC cast fix (@TusharSharma991)
 
 **Session type:** Bug fix review + merge support (no-plan contributor PR)
