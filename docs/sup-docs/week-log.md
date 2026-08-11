@@ -10,6 +10,28 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-11 — fix #360: automation-depth-recursion isolation test flakiness
+
+**Session type:** Bug fix (test hygiene, unrelated to Phase 3A)
+**Summary:** Root-caused #360 (filed 2026-08-09 during Phase 3A Stage 1 work). The test uses a
+fixed `TENANT` UUID across every run but `afterAll` only cleaned up `outboxEvents`/
+`automationExecutions` — not `automation_rules`, `workflows`, `workflow_states`,
+`workflow_transitions`, `entity_types`, or `entity_instances`. On CI's ephemeral per-run Postgres
+this never showed; on a long-lived local dev container it accumulated a leftover "Auto-continue
+to done" automation rule on every run (confirmed: 40 accumulated `automation_rules` rows, 20
+`workflows`, after ~20 repeated local runs). Each leftover rule's condition (`toState ==
+"processing"`) isn't scoped to a specific workflow, so it re-fires against the CURRENT run's real
+event and tries to execute its OWN stale `transitionId` (pointing at a prior run's now-orphaned
+workflow) against the current instance — that call fails, and after 5 accumulated failures
+`packages/automation-engine/src/circuit-breaker.ts` opens for `(tenantId, "transition")`,
+skipping the current run's own correctly-configured rule too (it sorts last by `createdAt`).
+Fixed by extending `afterAll` to delete everything `beforeAll` creates, in FK-dependency order.
+Verified: 7 consecutive local runs all pass with zero leftover rows after each.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (732/732 — up from
+731/732, #360 gone). `pnpm test:isolation`: PASS (261/261).
+
+---
+
 ## 2026-08-09 — Phase 3A Stage 1: api_keys lifecycle hardening (ADR-008)
 
 **Session type:** Feature (Phase 3A implementation, stacked on the Stage 0 PR)

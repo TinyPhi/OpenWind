@@ -18,6 +18,13 @@ import {
   withTenantContext,
   outboxEvents,
   automationExecutions,
+  automationRules,
+  workflowEvents,
+  entityInstances,
+  workflowTransitions,
+  workflowStates,
+  workflows,
+  entityTypes,
 } from "@platform/db";
 import { env } from "@platform/config";
 import { createEntityType, createEntity } from "@platform/entity-engine";
@@ -126,11 +133,41 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await redis.quit();
+  // Full cleanup, not just outboxEvents/automationExecutions (#360 root cause):
+  // this test reuses a fixed TENANT id across every run. Anything left behind
+  // here — especially automation_rules — survives on a long-lived local
+  // Postgres instance and accumulates across repeated runs. Each leftover
+  // "Auto-continue to done" rule still matches this test's real toState ==
+  // "processing" event (the condition isn't scoped to a specific workflow),
+  // so it re-fires against the CURRENT run's instance with its OWN stale
+  // transitionId from a prior run's now-orphaned workflow. That transition
+  // call fails, and after 5 such accumulated failures the circuit breaker
+  // (packages/automation-engine/src/circuit-breaker.ts) opens for
+  // (tenantId, "transition") and skips the current run's own — correctly
+  // configured — rule too, since it sorts last by createdAt. CI never showed
+  // this because its Postgres container is ephemeral per run; a long-lived
+  // local dev container accumulates it after ~5 repeated runs.
+  // Deletion order respects FK dependencies (children before parents):
+  // workflowEvents/entityInstances before workflows/entityTypes;
+  // workflowStates/workflowTransitions before workflows.
   await withTenantContext(TENANT, async (tx) => {
     await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, TENANT));
     await tx
       .delete(automationExecutions)
       .where(eq(automationExecutions.tenantId, TENANT));
+    await tx
+      .delete(automationRules)
+      .where(eq(automationRules.tenantId, TENANT));
+    await tx.delete(workflowEvents).where(eq(workflowEvents.tenantId, TENANT));
+    await tx
+      .delete(entityInstances)
+      .where(eq(entityInstances.tenantId, TENANT));
+    await tx
+      .delete(workflowTransitions)
+      .where(eq(workflowTransitions.tenantId, TENANT));
+    await tx.delete(workflowStates).where(eq(workflowStates.tenantId, TENANT));
+    await tx.delete(workflows).where(eq(workflows.tenantId, TENANT));
+    await tx.delete(entityTypes).where(eq(entityTypes.id, entityType.id));
   });
 });
 
