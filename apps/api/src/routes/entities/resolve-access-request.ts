@@ -5,6 +5,7 @@ import { requireAuth } from "@platform/auth";
 import {
   entityInstances,
   accessRequests,
+  outboxEvents,
   withTenantContext,
 } from "@platform/db";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
@@ -186,6 +187,27 @@ export const resolveAccessRequestHandler = factory.createHandlers(
           level: req.requestedLevel,
         });
       }
+
+      // Feeds the ticket-room WS live-push path
+      // (docs/specs/ticket-live-updates.md) — independent of
+      // emitAccessEvent's access.granted/access.revoked outbox writes above,
+      // which only cover per-user inbox notification, not resolve status.
+      await withTenantContext(tenantId, (tx) =>
+        tx.insert(outboxEvents).values({
+          tenantId,
+          eventType: "access_request.updated",
+          version: 1,
+          payload: {
+            eventType: "access_request.updated",
+            version: 1,
+            tenantId,
+            instanceId: id,
+            actorId: userId,
+            requestId: reqId,
+            status: action === "approve" ? "approved" : "rejected",
+          },
+        }),
+      );
 
       return c.json({ data: { resolved: true } });
     } catch (err) {
