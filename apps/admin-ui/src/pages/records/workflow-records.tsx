@@ -1890,6 +1890,45 @@ export function WorkflowRecords(): React.ReactElement {
         }
         .tm-btn-confirm:hover:not(:disabled) { opacity: .88; }
         .tm-btn-confirm:disabled { opacity: .45; cursor: not-allowed; }
+
+        /* ── Mobile responsiveness ──────────────────────────────────────
+           Topbar-left (back + heading + count) and topbar-right (search,
+           filter, settings, new) both had flex-shrink:0 with no wrap —
+           their combined minimum width already exceeds a 375px viewport
+           even with the search collapsed, let alone expanded. Wrap the
+           topbar to two rows on mobile instead of letting it overflow. */
+        @media (max-width: 640px) {
+          .kb-topbar {
+            flex-wrap: wrap;
+            padding: 16px 16px 12px;
+          }
+          .kb-topbar-left {
+            flex-shrink: 1;
+            min-width: 0;
+          }
+          .kb-heading {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .kb-topbar-right {
+            width: 100%;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+          }
+          .kb-divider { margin: 0 16px; }
+          .kb-board-scroll { padding: 16px 16px 20px; }
+          .kb-error { margin: 20px 16px; }
+        }
+
+        @media (max-width: 480px) {
+          .kb-topbar { padding: 14px 14px 10px; }
+          .kb-search-wrap-open { width: 150px; }
+          .kb-board-scroll { padding: 14px 14px 18px; }
+          .kb-col { width: 240px; }
+          .kb-filter-panel { max-width: calc(100vw - 24px); }
+        }
       `}</style>
     </div>
   );
