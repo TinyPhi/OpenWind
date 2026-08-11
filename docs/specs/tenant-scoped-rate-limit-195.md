@@ -42,8 +42,13 @@ Identical sliding-window sorted-set algorithm the pre-auth stage already uses �
 **New config** (`@platform/config`):
 
 ```ts
-RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(100);
+RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600);
 ```
+
+> Updated 2026-08-11: default raised from 100 to 600. 100/min shared across
+> every concurrently active user in a tenant collapsed under completely
+> normal multi-user interactive browsing (a single ticket detail page load
+> alone fans out to ~8-10 parallel requests) — see security.md.
 
 **`requireAuth()` behavior change** — after `c.set("auth", auth)` on both the JWT path and the API-key path, before calling `next()`:
 
