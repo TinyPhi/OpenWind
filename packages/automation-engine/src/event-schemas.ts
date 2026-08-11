@@ -51,6 +51,18 @@ export const EntityAssignedV1Schema = baseEvent.extend({
   assignedBy: z.string().uuid().nullable(),
 });
 
+// Notifies the user who LOST the assignment — see
+// packages/entity-engine/src/types.ts's EntityUnassignedEvent for why this
+// is a distinct event from entity.assigned rather than a second recipient
+// on the same one (different audience, different wording).
+export const EntityUnassignedV1Schema = baseEvent.extend({
+  eventType: z.literal("entity.unassigned"),
+  instanceId: z.string().uuid(),
+  entityTypeId: z.string().uuid(),
+  previousAssigneeId: z.string(),
+  actorId: z.string().nullable(),
+});
+
 export const EntityDueDateOverdueV1Schema = baseEvent.extend({
   eventType: z.literal("entity.due_date_overdue"),
   instanceId: z.string().uuid(),
@@ -135,6 +147,7 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   WorkflowSlaBreachedV1Schema,
   EntityCreatedV1Schema,
   EntityAssignedV1Schema,
+  EntityUnassignedV1Schema,
   EntityDueDateOverdueV1Schema,
   CommentMentionedV1Schema,
   CommentMentionAccessGrantedV1Schema,
@@ -160,6 +173,7 @@ export type WorkflowTransitionedV1 = z.infer<
 export type WorkflowSlaBreachedV1 = z.infer<typeof WorkflowSlaBreachedV1Schema>;
 export type EntityCreatedV1 = z.infer<typeof EntityCreatedV1Schema>;
 export type EntityAssignedV1 = z.infer<typeof EntityAssignedV1Schema>;
+export type EntityUnassignedV1 = z.infer<typeof EntityUnassignedV1Schema>;
 export type EntityDueDateOverdueV1 = z.infer<
   typeof EntityDueDateOverdueV1Schema
 >;

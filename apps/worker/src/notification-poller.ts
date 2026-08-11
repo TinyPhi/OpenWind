@@ -16,6 +16,7 @@ const DEFAULT_POLL_INTERVAL_MS = 2_000;
 // than silently claimed and mishandled.
 const NOTIFICATION_EVENT_TYPES = [
   "entity.assigned",
+  "entity.unassigned",
   "comment.mentioned",
   "comment.mention_access_granted",
   "comment.replied",

@@ -61,6 +61,20 @@ describe("buildNotificationContent", () => {
     expect(content.link).toBe("/records/support-ticket/inst-1");
   });
 
+  it("entity.unassigned has a distinct message from entity.assigned", async () => {
+    const content = await buildNotificationContent("entity.unassigned", {
+      tenantId: "t-1",
+      instanceId: "inst-1",
+      actorName: "Jane Doe",
+      reason: undefined,
+    });
+    expect(content.title).toBe("Assignment updated");
+    expect(content.body).toBe(
+      "Jane Doe reassigned a ticket you were assigned to",
+    );
+    expect(content.link).toBe("/records/support-ticket/inst-1");
+  });
+
   it("comment.mention_access_granted has a distinct message from a plain mention", async () => {
     const content = await buildNotificationContent(
       "comment.mention_access_granted",
