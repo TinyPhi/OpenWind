@@ -33,9 +33,11 @@ vi.mock("@platform/auth", () => ({
   },
   hashApiKey: (key: string) => `sha256:${key}`,
   hashApiKeyArgon2: async (key: string) => `argon2id:${key}`,
+  API_KEY_DEFAULT_TTL_DAYS: 365,
 }));
 
 const mockInsertValues = vi.fn();
+const mockWriteAuditEntry = vi.fn();
 
 vi.mock("@platform/db", () => ({
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
@@ -52,12 +54,20 @@ vi.mock("@platform/db", () => ({
             name: "test-key",
             scopes: [],
             createdAt: new Date(),
+            expiresAt: new Date("2027-08-09T00:00:00Z"),
           },
         ]),
     };
     return fn(tx);
   },
   apiKeys: {},
+}));
+
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => {
+    mockWriteAuditEntry(...args);
+    return Promise.resolve();
+  },
 }));
 
 const { createApiKeyHandler } = await import("./create.js");
@@ -205,5 +215,51 @@ describe("POST /api-keys — argon2id hash storage (#237)", () => {
     expect(json.data.key).toMatch(/^sk_live_/);
     expect(json.data.keyHash).toBeUndefined();
     expect(json.data.keyHashArgon2).toBeUndefined();
+  });
+});
+
+describe("POST /api-keys — lifecycle hardening (ADR-008 Decision #2/#3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.roles = ["admin"];
+  });
+
+  it("stamps created_by with the caller's userId and sets a non-null expiresAt", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body(),
+    });
+
+    expect(res.status).toBe(201);
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.createdBy).toBe(mockAuth.userId);
+    expect(insertArg.expiresAt).toBeInstanceOf(Date);
+  });
+
+  it("writes an audit entry for the new key (previously wrote none at all)", async () => {
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body({ name: "ci-key", scopes: ["agent"] }),
+    });
+
+    expect(mockWriteAuditEntry).toHaveBeenCalledOnce();
+    const entry = mockWriteAuditEntry.mock.calls[0][1];
+    expect(entry.action).toBe("created");
+    expect(entry.resourceType).toBe("api_key");
+    expect(entry.actorId).toBe(mockAuth.userId);
+    expect(entry.resourceId).toBe("key-1");
+  });
+
+  it("returns expiresAt in the response body", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body(),
+    });
+
+    const json = await res.json();
+    expect(json.data.expiresAt).toBeDefined();
   });
 });

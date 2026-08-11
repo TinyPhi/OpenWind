@@ -76,33 +76,49 @@ plan-lock all of this as one unit.
 
 ### Stage 1 — ADR-008 core hardening (independent of connector runtime)
 
-- [ ] PR: `api_keys.created_by` + audit-log entry on mint/delete (Decision #2).
-- [ ] PR: `api_keys.expires_at` + rotation flow + `revoked_at`/`revoked_by` soft-revoke
-      (Decisions #3–4). **Before shipping:** confirm exact grace/rotation windows with whoever
-      owns partner/customer comms — OQ-2 (90-day grace, proposed) and OQ-3 (30-day forced
-      rotation for legacy SHA-256-only keys, proposed) are defaults, not final.
-- [ ] Isolation tests for both PRs (new columns/enforcement on a tenant-scoped table).
-- [ ] Doc-only: record Decision #5's agent/delegation deferral gate in
+- [x] PR: `api_keys.created_by` + audit-log entry on mint/delete (Decision #2) — done 2026-08-09,
+      migration 0053.
+- [x] PR: `api_keys.expires_at` + rotation flow + `revoked_at`/`revoked_by` soft-revoke
+      (Decisions #3–4) — done 2026-08-09, migration 0053. New keys get a platform-configured
+      default TTL (`API_KEY_DEFAULT_TTL_DAYS`, `packages/auth`) and `POST /api-keys/:id/rotate`
+      mints a replacement while pulling the original's `expires_at` forward to a short overlap
+      window instead of an immediate kill. **Deliberately NOT implemented:** OQ-2/OQ-3's
+      forced-migration windows for _already-existing_ keys (90-day grace, 30-day legacy-SHA256
+      deadline) — those still need sign-off from whoever owns partner/customer comms before any
+      forcing mechanism is built; today's existing keys keep `expires_at = NULL` (immortal)
+      exactly as before. Also not implemented: a hard-delete/GDPR-purge action — the ADR says
+      this "can still exist" separately, not that it's required now.
+- [x] Isolation tests for both PRs (new columns/enforcement on a tenant-scoped table) — done
+      2026-08-09, extended `api-key-auth.isolation.test.ts` (revoked/expired keys stop
+      authenticating) and `rls-followup-fixes.isolation.test.ts` (soft-revoke replaces the old
+      hard-delete assertion).
+- [x] Doc-only: record Decision #5's agent/delegation deferral gate in
       `docs/sup-docs/roadmap-tracker.md`'s 3C row, so it's visible when 3C planning actually
-      starts (see "Deferred items" below — this primer also carries it).
+      starts (see "Deferred items" below — this primer also carries it) — done 2026-08-09.
 
 ### Stage 2 — ADR-009 connector runtime + ADR-008 Decision #6 (parallel-capable)
+
+Filed as granular, PR-sized GitHub issues 2026-08-10 (previously only lived as checkboxes here —
+see issue #16's pinned comment for why the umbrella issue itself is stale and these are the
+trackable replacement).
 
 Runtime track:
 
 - [ ] `ConnectorContext` + OpenBao credential decrypt (connector code never sees raw secrets).
+      [#362](../../issues/362)
 - [ ] Inbound webhook gateway (`POST /webhooks/{connectorId}/{tenantId}`) — depends on Stage 0's
-      #143 resolution.
+      #143 resolution. [#364](../../issues/364)
 - [ ] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
       (Decision #9), sensitivity taxonomy/redactor (Decision #10 — **shared dependency**, see
-      above).
+      above). [#365](../../issues/365)
 - [ ] `connector_definitions` + `connector_credentials` tables, with isolation tests in the same
-      PR that creates them.
-- [ ] Polling scheduler (BullMQ repeatable job per connector per tenant).
-- [ ] Kill switch (non-destructive disable, not just install/uninstall).
+      PR that creates them. [#363](../../issues/363)
+- [ ] Polling scheduler (BullMQ repeatable job per connector per tenant). [#366](../../issues/366)
+- [ ] Kill switch (non-destructive disable, not just install/uninstall). [#367](../../issues/367)
 - [ ] Build email (SMTP/IMAP) + WhatsApp Business connectors _together with_ the runtime — the
       runtime's shape is sized for exactly these two, not for a five-connector launch.
-- [ ] Connector marketplace UI (browse/install/configure).
+      [#368](../../issues/368)
+- [ ] Connector marketplace UI (browse/install/configure). [#369](../../issues/369)
 
 Scopes track (can run in parallel with the runtime track, same stage):
 
@@ -110,10 +126,11 @@ Scopes track (can run in parallel with the runtime track, same stage):
       explicit `scopes_format` column — `role` | `action` — over a colon heuristic or date
       cutoff, since it's the only option that doesn't break if a future role-string happens to
       contain a colon). Existing internal keys stay on legacy role-strings, unmigrated.
+      [#370](../../issues/370)
 - [ ] Resolve OQ-5's exact verb set jointly with whoever scopes ADR-010's Tier 1 rollout —
       confirmed shape is `entity:<entityType>:<verb>` (e.g. `entity:ticket:create`,
       `entity:ticket:read`); still open whether a `transition` verb is needed or `create`+`read`
-      suffice.
+      suffice. Tracked in [#370](../../issues/370).
 - [ ] Wire scoped reads through ADR-009 Decision #10's redactor (once built) — a Tier-1 key
       scoped to `entity:ticket:read` must see the same redacted view an equivalent-role human
       would, never a raw dump.
