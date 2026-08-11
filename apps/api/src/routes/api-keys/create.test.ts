@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
+import type * as PlatformAuth from "@platform/auth";
 
 // ── Hoisted mutable auth fixture ──────────────────────────────────────────────
 
@@ -16,25 +17,32 @@ const { mockAuth } = vi.hoisted(() => ({
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-vi.mock("@platform/auth", () => ({
-  requireAuth:
-    () =>
-    async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", mockAuth as AuthContext);
+vi.mock("@platform/auth", async () => {
+  // detectScopesFormat is pure and has no side effects worth mocking — use the
+  // real implementation so this test's insertArg.scopesFormat assertions stay
+  // meaningful instead of hardcoding a duplicate copy of its logic here.
+  const actual = await vi.importActual<typeof PlatformAuth>("@platform/auth");
+  return {
+    requireAuth:
+      () =>
+      async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
+        c.set("auth", mockAuth as AuthContext);
+        await next();
+      },
+    requireRole:
+      (..._roles: string[]) =>
+      async (_c: Context, next: Next) => {
+        await next();
+      },
+    requireIntrospection: () => async (_c: Context, next: Next) => {
       await next();
     },
-  requireRole:
-    (..._roles: string[]) =>
-    async (_c: Context, next: Next) => {
-      await next();
-    },
-  requireIntrospection: () => async (_c: Context, next: Next) => {
-    await next();
-  },
-  hashApiKey: (key: string) => `sha256:${key}`,
-  hashApiKeyArgon2: async (key: string) => `argon2id:${key}`,
-  API_KEY_DEFAULT_TTL_DAYS: 365,
-}));
+    hashApiKey: (key: string) => `sha256:${key}`,
+    hashApiKeyArgon2: async (key: string) => `argon2id:${key}`,
+    API_KEY_DEFAULT_TTL_DAYS: 365,
+    detectScopesFormat: actual.detectScopesFormat,
+  };
+});
 
 const mockInsertValues = vi.fn();
 const mockWriteAuditEntry = vi.fn();

@@ -32,6 +32,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
           id: apiKeys.id,
           name: apiKeys.name,
           scopes: apiKeys.scopes,
+          scopesFormat: apiKeys.scopesFormat,
           expiresAt: apiKeys.expiresAt,
         })
         .from(apiKeys)
@@ -73,6 +74,10 @@ export const rotateApiKeyHandler = factory.createHandlers(
           tenantId,
           name: original.name,
           scopes: original.scopes,
+          // Carried forward unchanged, not recomputed — rotation reissues the
+          // same scopes verbatim, so it must keep whatever format they were
+          // already recorded as (ADR-008 Decision #6).
+          scopesFormat: original.scopesFormat,
           keyHash,
           keyHashArgon2,
           createdBy: userId,
@@ -83,6 +88,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
           id: apiKeys.id,
           name: apiKeys.name,
           scopes: apiKeys.scopes,
+          scopesFormat: apiKeys.scopesFormat,
           createdAt: apiKeys.createdAt,
           expiresAt: apiKeys.expiresAt,
         });
@@ -120,6 +126,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
         afterSnapshot: {
           name: created.name,
           scopes: created.scopes,
+          scopesFormat: created.scopesFormat,
           expiresAt: created.expiresAt,
         },
         metadata: { rotatedFrom: original.id },

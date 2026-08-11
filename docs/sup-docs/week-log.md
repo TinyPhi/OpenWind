@@ -10,6 +10,41 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — Phase 3A Stage 2 (scopes track): api_keys.scopes_format discriminator (#370)
+
+**Session type:** Feature (Phase 3A implementation, independent — not stacked on any open PR)
+**Summary:** Migration 0054 adds `api_keys.scopes_format` (`text NOT NULL DEFAULT 'role'`, CHECK
+`IN ('role','action')`) — the discriminator ADR-008 Decision #6 needs to tell legacy role-strings
+apart from the new `entity:<entityType>:<verb>` action-strings, an explicit column rather than a
+colon heuristic or date cutoff (either breaks the moment a future role-string contains a colon or
+a key is minted near the cutoff instant). New `packages/auth/src/scopes.ts` exports
+`detectScopesFormat`, which recognises the confirmed 3-segment `entity:<type>:<verb>` shape
+structurally — deliberately not hardcoding a verb enum, since OQ-5's exact verb list is still open
+pending joint sign-off with whoever scopes ADR-010's Tier-1 rollout. `create.ts` stamps the column
+from whatever scopes were actually supplied; `rotate.ts` carries the original key's format forward
+unchanged rather than recomputing it; `list.ts` surfaces it in the list response.
+Scoped narrower than a literal reading of #370's issue body: `scope-ceiling.ts` is deliberately
+untouched, so it keeps rejecting any non-role-string scope exactly as before — no key can actually
+be minted with `scopes_format='action'` through the real API yet. Reopening that ceiling needs
+OQ-5's verb set resolved and #365's sensitivity redactor to exist first; doing it now would let a
+Tier-1 key be issued with no read-scoping enforcement behind it. Also confirmed `requireRole`
+needs no change — its plain array `.includes()` check against JWT roles already fails closed
+safely for action-format scope strings (they simply never match a role name).
+**Verification:** `pnpm typecheck`: PASS (40/40). `pnpm lint`: PASS (40/40, 0 warnings).
+`pnpm test`: PASS (765/765 in `apps/api` alone; full monorepo run required first creating the
+local `platform_test` Postgres DB and running migrations against it — missing entirely on this
+machine, confirmed pre-existing/unrelated via `git stash` against the same failure). Also found
+and fixed a real crash in `apps/api/src/routes/api-keys/create.test.ts`: its `vi.mock("@platform/
+auth", ...)` factory fully replaces the module without `detectScopesFormat`, so `create.ts`'s new
+import resolved to `undefined` and calling it threw, surfacing as a 500 in 10 tests — fixed by
+having the mock `vi.importActual` the real `detectScopesFormat` alongside its other mocked
+exports, rather than duplicating its logic. `pnpm test:isolation`: PASS (41/41 files, 272/272
+tests), including 3 new assertions in `api-key-auth.isolation.test.ts` (default 'role', explicit
+'action' round-trips scoped to its own tenant under RLS, CHECK constraint rejects an out-of-enum
+value).
+
+---
+
 ## 2026-08-11 — fix #360: automation-depth-recursion isolation test flakiness
 
 **Session type:** Bug fix (test hygiene, unrelated to Phase 3A)

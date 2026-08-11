@@ -8,6 +8,7 @@ import {
   hashApiKey,
   hashApiKeyArgon2,
   API_KEY_DEFAULT_TTL_DAYS,
+  detectScopesFormat,
 } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
@@ -42,6 +43,11 @@ export const createApiKeyHandler = factory.createHandlers(
     const expiresAt = new Date(
       Date.now() + API_KEY_DEFAULT_TTL_DAYS * 24 * 60 * 60 * 1000,
     );
+    // ADR-008 Decision #6: stamps the format of the scopes actually supplied.
+    // scopeCeilingError above already rejects any non-role-string scope, so
+    // this resolves to "action" only once that ceiling is deliberately
+    // reopened (OQ-5 verb set + #365 redactor) — see 0054's migration comment.
+    const scopesFormat = detectScopesFormat(scopes);
 
     const created = await withTenantContext(tenantId, async (tx) => {
       const [row] = await tx
@@ -52,6 +58,7 @@ export const createApiKeyHandler = factory.createHandlers(
           keyHash,
           keyHashArgon2,
           scopes,
+          scopesFormat,
           createdBy: userId,
           expiresAt,
         })
@@ -59,6 +66,7 @@ export const createApiKeyHandler = factory.createHandlers(
           id: apiKeys.id,
           name: apiKeys.name,
           scopes: apiKeys.scopes,
+          scopesFormat: apiKeys.scopesFormat,
           createdAt: apiKeys.createdAt,
           expiresAt: apiKeys.expiresAt,
         });
@@ -76,7 +84,7 @@ export const createApiKeyHandler = factory.createHandlers(
         resourceType: "api_key",
         resourceId: row.id,
         action: "created",
-        afterSnapshot: { name, scopes, expiresAt },
+        afterSnapshot: { name, scopes, scopesFormat, expiresAt },
       });
 
       return row;
