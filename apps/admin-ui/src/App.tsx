@@ -15,6 +15,7 @@ import { Layout } from "./components/layout.js";
 import { Login } from "./pages/login.js";
 import { AuthCallback } from "./pages/callback.js";
 import { Dashboard } from "./pages/dashboard.js";
+import { Analytics } from "./pages/analytics.js";
 import { Modules } from "./pages/modules.js";
 import { EntityTypeDetail } from "./pages/entity-types/detail.js";
 import { EntityInstanceCreate } from "./pages/entity-types/instance-create.js";
@@ -70,6 +71,11 @@ export function App(): React.ReactElement {
             list: "/dashboard",
             meta: { label: "Dashboard" },
           },
+          {
+            name: "analytics",
+            list: "/analytics",
+            meta: { label: "Analytics" },
+          },
           { name: "modules", list: "/modules", meta: { label: "Templates" } },
           {
             name: "records",
@@ -109,6 +115,7 @@ export function App(): React.ReactElement {
             {/* All authenticated users */}
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/analytics" element={<Analytics />} />
             <Route path="/records" element={<AdminRecords />} />
             <Route
               path="/workflows/:workflowSlug/records"
@@ -143,11 +150,11 @@ export function App(): React.ReactElement {
               element={<WorkflowDetail />}
             />
 
-            {/* Workflow list/create — any authenticated user; the API filters
-                the list to workflows they admin and any user can create one
-                (see docs/specs/workflow-ownership-admin.md) */}
+            {/* Workflow list — any authenticated user; the API filters the
+                list to workflows they admin. Creating a new one (POST
+                /entity-types + /workflows) is admin-only — see
+                /workflows/new below. */}
             <Route path="/workflows" element={<Workflows />} />
-            <Route path="/workflows/new" element={<CreateWorkflow />} />
 
             {/* Org member list — any authenticated user (admin, agent, or
                 customer); the API already allows the "user" role since
@@ -156,6 +163,7 @@ export function App(): React.ReactElement {
 
             {/* Admin-only routes */}
             <Route element={<RequireAdmin />}>
+              <Route path="/workflows/new" element={<CreateWorkflow />} />
               <Route path="/entity-types/:id" element={<EntityTypeDetail />} />
               <Route
                 path="/entity-types/:id/records/new"

@@ -28,8 +28,8 @@ logger.info({}, "Worker process starting");
 // Pollers (interval-based, must be explicitly started and stopped)
 startOutboxPoller();
 startSlaScheduler();
-startHealthServer();
 startAlertScheduler();
+startHealthServer();
 startDueDateScheduler();
 startNotificationPoller();
 

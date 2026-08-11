@@ -377,7 +377,14 @@
       "idx": 53,
       "version": "7",
       "when": 1785542405000,
-      "tag": "0053_outbox_dead_letter_rls_null_guc_fix",
+      "tag": "0053_api_key_lifecycle_hardening",
+      "breakpoints": false
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1785542406000,
+      "tag": "0054_outbox_dead_letter_rls_null_guc_fix",
       "breakpoints": false
     }
   ]

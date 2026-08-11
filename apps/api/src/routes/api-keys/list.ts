@@ -2,7 +2,7 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole, requireIntrospection } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { factory } from "./factory.js";
 
 const ListApiKeysQuerySchema = z.object({
@@ -27,9 +27,14 @@ export const listApiKeysHandler = factory.createHandlers(
           scopes: apiKeys.scopes,
           lastUsedAt: apiKeys.lastUsedAt,
           createdAt: apiKeys.createdAt,
+          createdBy: apiKeys.createdBy,
+          expiresAt: apiKeys.expiresAt,
         })
         .from(apiKeys)
-        .where(eq(apiKeys.tenantId, tenantId))
+        // Revoked keys are excluded from the default view (ADR-008 Decision #4
+        // turned delete into a soft-revoke, so revoked rows now persist —
+        // without this filter they'd reappear here forever).
+        .where(and(eq(apiKeys.tenantId, tenantId), isNull(apiKeys.revokedAt)))
         .orderBy(apiKeys.createdAt)
         .limit(limit)
         .offset(offset),
