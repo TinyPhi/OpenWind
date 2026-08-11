@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from "@platform/auth";
 import {
   entityInstances,
   accessRequests,
+  outboxEvents,
   withTenantContext,
 } from "@platform/db";
 import { factory } from "./factory.js";
@@ -89,7 +90,30 @@ export const requestAccessHandler = factory.createHandlers(
           .returning({ id: accessRequests.id }),
       );
 
-      return c.json({ data: { id: inserted[0]?.id, created: true } }, 201);
+      const requestId = inserted[0]?.id;
+      if (requestId) {
+        // Feeds the ticket-room WS live-push path
+        // (docs/specs/ticket-live-updates.md) — a re-request against an
+        // existing pending row (the branch above) doesn't re-fire this, only
+        // a genuinely new request does.
+        await withTenantContext(tenantId, (tx) =>
+          tx.insert(outboxEvents).values({
+            tenantId,
+            eventType: "access_request.created",
+            version: 1,
+            payload: {
+              eventType: "access_request.created",
+              version: 1,
+              tenantId,
+              instanceId: id,
+              actorId: requesterId,
+              requestId,
+            },
+          }),
+        );
+      }
+
+      return c.json({ data: { id: requestId, created: true } }, 201);
     } catch (err) {
       return handleEntityError(c, err);
     }

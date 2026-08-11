@@ -215,6 +215,25 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     expect(grantedUpdates.length).toBe(0);
   });
 
+  it("fires comment.created for a plain comment with no mentions, in addition to whatever else fires", async () => {
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "just a plain comment" }),
+    });
+
+    expect(res.status).toBe(201);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).toContain("comment.created");
+    const createdEvent = outboxInserts.find(
+      (o) => o.eventType === "comment.created",
+    );
+    const createdPayload = createdEvent?.payload as {
+      payload: { commentId: string };
+    };
+    expect(createdPayload.payload.commentId).toBe("evt-1");
+  });
+
   it("allows the creator/assignee (owner), even without admin/agent role, to grant access to a mentioned user — mirrors revoke-access.ts's authority", async () => {
     // Default beforeEach instanceRow already has u-bbb as both assignedTo and
     // createdBy, and currentAuth is role "user" (not admin/agent) — this is
