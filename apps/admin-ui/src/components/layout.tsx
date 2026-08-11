@@ -229,6 +229,7 @@ export function Layout({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
+  const [username, setUsername] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const profileButtonHover = useHoverStyle({
@@ -244,8 +245,10 @@ export function Layout({
 
   useEffect(() => {
     void userManager.getUser().then((u) => {
-      setRoles(
-        getRolesFromProfile(u?.profile as Record<string, unknown> | undefined),
+      const profile = u?.profile as Record<string, unknown> | undefined;
+      setRoles(getRolesFromProfile(profile));
+      setUsername(
+        (profile?.["preferred_username"] as string | undefined) ?? "",
       );
     });
   }, []);
@@ -267,13 +270,14 @@ export function Layout({
   // RBAC tiers:
   //   admin  = super admin — full access including Users page
   //   agent  = workflow admin — Workflows + Templates + Records, no Users/Dashboard
-  //   user   = record assignee — Records + Templates only (portal-like view)
+  //   user   = record assignee — Records only, no Templates (portal-like view)
   const isAdmin = roles.includes("admin");
   const isAgent = roles.includes("agent") && !isAdmin;
   const isCustomer =
     (roles.includes("user") || roles.includes("customer")) &&
     !isAdmin &&
     !isAgent;
+  const isPlainUser = isCustomer && roles.includes("user");
   const roleLabel = isAdmin
     ? "Administrator"
     : isAgent
@@ -390,7 +394,7 @@ export function Layout({
                 position: "absolute",
                 top: "calc(100% + 10px)",
                 right: 0,
-                width: "240px",
+                width: "260px",
                 background: "var(--bg-secondary)",
                 border: "1px solid var(--border-color)",
                 borderRadius: "var(--radius-md)",
@@ -403,9 +407,11 @@ export function Layout({
               <div
                 style={{
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
-                  gap: "12px",
-                  padding: "16px",
+                  textAlign: "center",
+                  gap: "10px",
+                  padding: "24px 16px 16px",
                 }}
               >
                 <img
@@ -415,55 +421,101 @@ export function Layout({
                   }
                   alt="Avatar"
                   style={{
-                    width: "42px",
-                    height: "42px",
+                    width: "64px",
+                    height: "64px",
                     borderRadius: "50%",
                     flexShrink: 0,
+                    border: "2px solid var(--border-color)",
                   }}
                 />
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      fontWeight: 600,
-                      color: "var(--text-primary)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "var(--text-muted)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {email}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "var(--accent-primary)",
-                      fontWeight: 500,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      marginTop: "2px",
-                    }}
-                  >
-                    {roleLabel}
-                  </div>
+                <div
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                    maxWidth: "100%",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {name}
                 </div>
+                <span className="badge badge-primary">{roleLabel}</span>
               </div>
               <div
                 style={{
                   height: "1px",
                   background: "var(--border-color)",
-                  margin: "0 16px",
+                }}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  padding: "14px 16px",
+                }}
+              >
+                {email && (
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: "10.5px",
+                        fontWeight: 600,
+                        color: "var(--text-muted)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
+                        marginBottom: "2px",
+                      }}
+                    >
+                      Email
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: "var(--text-secondary)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {email}
+                    </div>
+                  </div>
+                )}
+                {username && username !== email && (
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: "10.5px",
+                        fontWeight: 600,
+                        color: "var(--text-muted)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
+                        marginBottom: "2px",
+                      }}
+                    >
+                      Username
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: "var(--text-secondary)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {username}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div
+                style={{
+                  height: "1px",
+                  background: "var(--border-color)",
                 }}
               />
               <button
@@ -471,9 +523,10 @@ export function Layout({
                 style={{
                   display: "flex",
                   alignItems: "center",
+                  justifyContent: "center",
                   gap: "10px",
                   width: "100%",
-                  padding: "12px 16px",
+                  padding: "13px 16px",
                   fontSize: "13px",
                   fontWeight: 500,
                   color: TOKENS.danger,
@@ -525,10 +578,9 @@ export function Layout({
             className={`sidebar ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"} ${mobileNavOpen ? "mobile-nav-open" : ""}`}
           >
             <nav
+              className="sidebar-menu"
               style={{
                 padding: "12px 8px",
-                display: "flex",
-                flexDirection: "column",
                 gap: "2px",
               }}
             >
@@ -577,27 +629,30 @@ export function Layout({
                 {(sidebarOpen || mobileNavOpen) && <span>Records</span>}
               </Link>
 
-              {/* Templates — users can browse / fork workflows */}
-              <Link
-                to="/modules"
-                className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive("/modules") ? "active" : ""}`}
-                title={!sidebarOpen ? "Templates" : undefined}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth="2"
-                  stroke="currentColor"
+              {/* Templates — customers can browse / fork workflows. Hidden
+                  for the plain "user" role (record assignees only). */}
+              {!isPlainUser && (
+                <Link
+                  to="/modules"
+                  className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive("/modules") ? "active" : ""}`}
+                  title={!sidebarOpen ? "Templates" : undefined}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v2.25A2.25 2.25 0 006 10.5zm0 9.75h2.25A2.25 2.25 0 0010.5 18v-2.25a2.25 2.25 0 00-2.25-2.25H6a2.25 2.25 0 00-2.25 2.25V18A2.25 2.25 0 006 20.25zm9.75-9.75H18a2.25 2.25 0 002.25-2.25V6A2.25 2.25 0 0018 3.75h-2.25A2.25 2.25 0 0013.5 6v2.25a2.25 2.25 0 002.25 2.25z"
-                  />
-                </svg>
-                {(sidebarOpen || mobileNavOpen) && <span>Templates</span>}
-              </Link>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth="2"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v2.25A2.25 2.25 0 006 10.5zm0 9.75h2.25A2.25 2.25 0 0010.5 18v-2.25a2.25 2.25 0 00-2.25-2.25H6a2.25 2.25 0 00-2.25 2.25V18A2.25 2.25 0 006 20.25zm9.75-9.75H18a2.25 2.25 0 002.25-2.25V6A2.25 2.25 0 0018 3.75h-2.25A2.25 2.25 0 0013.5 6v2.25a2.25 2.25 0 002.25 2.25z"
+                    />
+                  </svg>
+                  {(sidebarOpen || mobileNavOpen) && <span>Templates</span>}
+                </Link>
+              )}
 
               {/* Workflows — users can create & manage their own workflows */}
               <Link
@@ -632,7 +687,9 @@ export function Layout({
                   <span>{USERS_NAV.label}</span>
                 )}
               </Link>
+            </nav>
 
+            <div className="sidebar-footer">
               <div className="nav-divider" />
               <Link
                 to="/settings"
@@ -642,7 +699,28 @@ export function Layout({
                 {SETTINGS_NAV.icon}
                 {(sidebarOpen || mobileNavOpen) && <span>Settings</span>}
               </Link>
-            </nav>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className={`menu-item sidebar-logout ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""}`}
+                title={!sidebarOpen ? "Sign out" : undefined}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="2"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+                  />
+                </svg>
+                {(sidebarOpen || mobileNavOpen) && <span>Sign out</span>}
+              </button>
+            </div>
           </aside>
           <main className="main-content">{children}</main>
         </div>
@@ -685,7 +763,9 @@ export function Layout({
                 {(sidebarOpen || mobileNavOpen) && <span>{item.label}</span>}
               </Link>
             ))}
+          </nav>
 
+          <div className="sidebar-footer">
             <div className="nav-divider" />
 
             <Link
@@ -696,7 +776,29 @@ export function Layout({
               {SETTINGS_NAV.icon}
               {sidebarOpen && <span>{SETTINGS_NAV.label}</span>}
             </Link>
-          </nav>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className={`menu-item sidebar-logout ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""}`}
+              title={!sidebarOpen ? "Sign out" : undefined}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth="2"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+                />
+              </svg>
+              {sidebarOpen && <span>Sign out</span>}
+            </button>
+          </div>
         </aside>
         <main className="main-content">{children}</main>
       </div>
