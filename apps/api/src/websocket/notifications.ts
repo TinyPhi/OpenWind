@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
+import { eq, and } from "drizzle-orm";
 import {
   verifyJwt,
   extractAuthContext,
@@ -9,6 +10,8 @@ import {
 import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { logger } from "@platform/logger";
 import { env } from "@platform/config";
+import { entityInstances, withTenantContext } from "@platform/db";
+import { hasEntityAccess } from "../lib/entity-access.js";
 
 const WS_PATH = "/ws/notifications";
 
@@ -63,6 +66,111 @@ function sendToConnections(
   }
 }
 
+// Ticket-room registry (docs/specs/ticket-live-updates.md) — parallel to, and
+// independent of, the per-user `connections` map above. Keyed by
+// `${tenantId}:${instanceId}` together, never `instanceId` alone, mirroring
+// the same cross-tenant-leak-risk reasoning as connectionKey above (spec §V).
+function roomKey(tenantId: string, instanceId: string): string {
+  return `${tenantId}:${instanceId}`;
+}
+
+const rooms = new Map<string, Set<WebSocket>>();
+// Reverse index so a single `close`/`error` handler can remove a connection
+// from every room it joined without iterating the entire `rooms` map.
+const wsRooms = new Map<WebSocket, Set<string>>();
+
+function addToRoom(tenantId: string, instanceId: string, ws: WebSocket): void {
+  const key = roomKey(tenantId, instanceId);
+  const set = rooms.get(key) ?? new Set<WebSocket>();
+  set.add(ws);
+  rooms.set(key, set);
+  const wsSet = wsRooms.get(ws) ?? new Set<string>();
+  wsSet.add(key);
+  wsRooms.set(ws, wsSet);
+}
+
+function removeFromRoom(
+  tenantId: string,
+  instanceId: string,
+  ws: WebSocket,
+): void {
+  const key = roomKey(tenantId, instanceId);
+  const set = rooms.get(key);
+  if (set) {
+    set.delete(ws);
+    if (set.size === 0) rooms.delete(key);
+  }
+  wsRooms.get(ws)?.delete(key);
+}
+
+function removeFromAllRooms(ws: WebSocket): void {
+  const keys = wsRooms.get(ws);
+  if (!keys) return;
+  for (const key of keys) {
+    const set = rooms.get(key);
+    if (!set) continue;
+    set.delete(ws);
+    if (set.size === 0) rooms.delete(key);
+  }
+  wsRooms.delete(ws);
+}
+
+function sendToRoom(
+  tenantId: string,
+  instanceId: string,
+  message: unknown,
+): void {
+  const key = roomKey(tenantId, instanceId);
+  const set = rooms.get(key);
+  if (!set) return;
+  const data = JSON.stringify(message);
+  for (const ws of set) {
+    if (ws.readyState === ws.OPEN) ws.send(data);
+  }
+}
+
+/**
+ * Same read-access gate as GET/list-events/list-children on this record
+ * (apps/api/src/lib/entity-access.ts) — a user must not be able to join a
+ * ticket's live-update room for a ticket they can't read.
+ */
+async function checkTicketRoomAccess(
+  tenantId: string,
+  instanceId: string,
+  userId: string,
+  roles: string[],
+): Promise<boolean> {
+  try {
+    const [instance] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .select({
+          createdBy: entityInstances.createdBy,
+          assignedTo: entityInstances.assignedTo,
+          fields: entityInstances.fields,
+          workflowId: entityInstances.workflowId,
+        })
+        .from(entityInstances)
+        .where(
+          and(
+            eq(entityInstances.id, instanceId),
+            eq(entityInstances.tenantId, tenantId),
+          ),
+        )
+        .limit(1),
+    );
+    if (!instance) return false;
+    return await withTenantContext(tenantId, (tx) =>
+      hasEntityAccess(tx, tenantId, instance, userId, roles),
+    );
+  } catch (err) {
+    logger.error(
+      { err, tenantId, instanceId },
+      "Notification websocket: ticket-room access check failed",
+    );
+    return false;
+  }
+}
+
 let subscriber: ReturnType<typeof getRedis> | null = null;
 
 /**
@@ -79,14 +187,27 @@ function startPushSubscriber(): void {
   });
   subscriber.on("message", (_channel: string, message: string) => {
     try {
-      const { tenantId, userId, notification } = JSON.parse(message) as {
+      const parsed = JSON.parse(message) as {
+        kind?: "room" | "user";
         tenantId: string;
-        userId: string;
-        notification: unknown;
+        userId?: string;
+        instanceId?: string;
+        notification?: unknown;
+        message?: unknown;
       };
-      sendToConnections(tenantId, userId, {
+      // `kind` is absent on messages published before this field existed
+      // (and still absent from apps/worker/src/alert-worker.ts's publishes,
+      // which this dispatch must keep serving unchanged) — treat a missing
+      // kind as "user", not as an error.
+      if (parsed.kind === "room") {
+        if (!parsed.instanceId) return;
+        sendToRoom(parsed.tenantId, parsed.instanceId, parsed.message);
+        return;
+      }
+      if (!parsed.userId) return;
+      sendToConnections(parsed.tenantId, parsed.userId, {
         type: "notification",
-        notification,
+        notification: parsed.notification,
       });
     } catch (err) {
       logger.error({ err }, "Notification websocket: bad push message");
@@ -178,8 +299,51 @@ export function attachNotificationWebSocket(
           { tenantId, userId: auth.userId },
           "Notification websocket: connection registered",
         );
-        ws.on("close", () => removeConnection(tenantId, auth.userId, ws));
-        ws.on("error", () => removeConnection(tenantId, auth.userId, ws));
+
+        ws.on("message", (data: Buffer | string) => {
+          void (async () => {
+            let parsed: { type?: string; instanceId?: string };
+            try {
+              parsed = JSON.parse(data.toString()) as {
+                type?: string;
+                instanceId?: string;
+              };
+            } catch {
+              return;
+            }
+            if (!parsed.instanceId) return;
+
+            if (parsed.type === "subscribe_ticket") {
+              const allowed = await checkTicketRoomAccess(
+                tenantId,
+                parsed.instanceId,
+                auth.userId,
+                auth.roles,
+              );
+              // Silently not joined on failure — mirrors the platform's
+              // "404 not 403" convention (never confirm/deny the instance's
+              // existence to a caller without read access to it).
+              if (allowed) addToRoom(tenantId, parsed.instanceId, ws);
+              return;
+            }
+            if (parsed.type === "unsubscribe_ticket") {
+              removeFromRoom(tenantId, parsed.instanceId, ws);
+            }
+          })().catch((err: unknown) => {
+            logger.error(
+              { err, tenantId, userId: auth.userId },
+              "Notification websocket: message handling failed",
+            );
+          });
+        });
+        ws.on("close", () => {
+          removeConnection(tenantId, auth.userId, ws);
+          removeFromAllRooms(ws);
+        });
+        ws.on("error", () => {
+          removeConnection(tenantId, auth.userId, ws);
+          removeFromAllRooms(ws);
+        });
       });
     })().catch((err: unknown) => {
       logger.error({ err }, "Notification websocket: upgrade failed");
@@ -191,4 +355,6 @@ export function attachNotificationWebSocket(
 export async function stopNotificationWebSocket(): Promise<void> {
   await stopPushSubscriber();
   connections.clear();
+  rooms.clear();
+  wsRooms.clear();
 }
