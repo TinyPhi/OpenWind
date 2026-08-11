@@ -76,7 +76,7 @@ export const createApiKeyHandler = factory.createHandlers(
         resourceType: "api_key",
         resourceId: row.id,
         action: "created",
-        afterSnapshot: { name, scopes },
+        afterSnapshot: { name, scopes, expiresAt },
       });
 
       return row;

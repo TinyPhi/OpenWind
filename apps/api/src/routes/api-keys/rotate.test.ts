@@ -16,6 +16,8 @@ const { mockAuth } = vi.hoisted(() => ({
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
+const mockHashApiKeyArgon2 = vi.fn(async (key: string) => `argon2id:${key}`);
+
 vi.mock("@platform/auth", () => ({
   requireAuth:
     () =>
@@ -30,7 +32,7 @@ vi.mock("@platform/auth", () => ({
     await next();
   },
   hashApiKey: (key: string) => `sha256:${key}`,
-  hashApiKeyArgon2: async (key: string) => `argon2id:${key}`,
+  hashApiKeyArgon2: (key: string) => mockHashApiKeyArgon2(key),
   API_KEY_DEFAULT_TTL_DAYS: 365,
   API_KEY_ROTATION_OVERLAP_HOURS: 24,
 }));
@@ -49,6 +51,7 @@ let mockInsertReturns: unknown[] = [
 ];
 const mockInsertValues = vi.fn();
 const mockUpdateSet = vi.fn();
+const mockUpdateWhere = vi.fn();
 const mockWriteAuditEntry = vi.fn();
 
 vi.mock("@platform/db", () => ({
@@ -73,7 +76,12 @@ vi.mock("@platform/db", () => ({
       update: () => ({
         set: (...args: unknown[]) => {
           mockUpdateSet(...args);
-          return { where: () => Promise.resolve() };
+          return {
+            where: (...whereArgs: unknown[]) => {
+              mockUpdateWhere(...whereArgs);
+              return Promise.resolve();
+            },
+          };
         },
       }),
     };
@@ -140,6 +148,29 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
     expect(res.status).toBe(403);
   });
 
+  // Review finding (PR #361): hashApiKeyArgon2 is intentionally slow
+  // (~100-250ms) and must not run for a request that's going to be rejected
+  // anyway — moved to after the eligibility/scope checks.
+  it("does not run argon2id hashing when the key is not found", async () => {
+    mockOriginalRows = [];
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    expect(mockHashApiKeyArgon2).not.toHaveBeenCalled();
+  });
+
+  it("does not run argon2id hashing when the scope ceiling check fails", async () => {
+    mockAuth.roles = ["user"];
+    mockOriginalRows = [
+      { id: "orig-1", name: "ci-key", scopes: ["admin"], expiresAt: null },
+    ];
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    expect(mockHashApiKeyArgon2).not.toHaveBeenCalled();
+  });
+
+  it("runs argon2id hashing exactly once for an eligible rotation", async () => {
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    expect(mockHashApiKeyArgon2).toHaveBeenCalledOnce();
+  });
+
   it("mints a replacement inheriting the original's name/scopes, with rotatedFrom set", async () => {
     const res = await makeApp().request("/orig-1/rotate", { method: "POST" });
     expect(res.status).toBe(201);
@@ -150,6 +181,22 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
     expect(insertArg.rotatedFrom).toBe("orig-1");
     expect(insertArg.createdBy).toBe(mockAuth.userId);
     expect(insertArg.expiresAt).toBeInstanceOf(Date);
+  });
+
+  // Review finding (PR #361): the overlap-window UPDATE was missing an
+  // explicit tenantId filter (Security Rule #1 requires it alongside RLS,
+  // even though original.id already came from a tenant-scoped SELECT).
+  it("filters the overlap-window update on both id and tenantId", async () => {
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    const whereArg = mockUpdateWhere.mock.calls[0][0] as {
+      op: string;
+      args: { op: string; args: unknown[] }[];
+    };
+    expect(whereArg.op).toBe("and");
+    expect(whereArg.args).toHaveLength(2);
+    expect(whereArg.args.map((a) => a.args[1])).toEqual(
+      expect.arrayContaining(["orig-1", mockAuth.tenantId]),
+    );
   });
 
   it("pulls the original key's expiresAt forward to the overlap window instead of revoking it immediately", async () => {

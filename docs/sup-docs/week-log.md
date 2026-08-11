@@ -28,9 +28,15 @@ section for the full reasoning.
 Discovered along the way: `automation-depth-recursion.isolation.test.ts` fails on a clean
 `origin/main` checkout too (confirmed via a throwaway worktree) — pre-existing, unrelated to
 this diff, filed as [#360](../../issues/360).
-**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (714/714, 4 new/updated
-test files). `pnpm test:isolation`: 243/244 pass — the 1 failure is #360 (pre-existing, confirmed
-unrelated). `/security-review`: pending before merge (touches auth, `api_keys` table, new route).
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (719/720, 1 failure is
+#360, pre-existing/unrelated). `pnpm test:isolation`: PASS (247/248, same #360). `/security-review`
+(dedicated subagent): ran against the correct diff, found tenant isolation/404-not-403/audit
+secret-leakage all clean; one real finding (rotate.ts's overlap-window update could extend rather
+than only shorten an expiring key's life) fixed and covered by new tests, both unit and isolation
+(real Postgres). PR #361 human review (PrabhuVijit) then caught two more: rotate.ts's overlap
+update was missing an explicit `tenantId` filter (RLS + a tenant-scoped `original.id` already
+covered it, but Security Rule #1 requires the explicit filter regardless), and argon2id hashing
+ran before the eligibility/scope checks, wasting CPU on invalid rotate attempts — both fixed.
 
 ---
 

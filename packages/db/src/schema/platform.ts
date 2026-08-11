@@ -9,6 +9,7 @@ import {
   unique,
   boolean,
   integer,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -86,7 +87,7 @@ export const apiKeys = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     revokedBy: text("revoked_by"),
     /** Set on the replacement key minted by POST /api-keys/:id/rotate; points at the key it replaced. */
-    rotatedFrom: uuid("rotated_from"),
+    rotatedFrom: uuid("rotated_from").references((): AnyPgColumn => apiKeys.id),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),

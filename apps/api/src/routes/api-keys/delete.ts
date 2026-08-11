@@ -29,9 +29,17 @@ export const deleteApiKeyHandler = factory.createHandlers(
             isNull(apiKeys.revokedAt),
           ),
         )
-        .returning({ id: apiKeys.id });
+        .returning({
+          id: apiKeys.id,
+          name: apiKeys.name,
+          scopes: apiKeys.scopes,
+        });
 
-      if (rows.length > 0) {
+      const revokedRow = rows[0];
+      if (revokedRow) {
+        // beforeSnapshot records which key (name, scopes) was revoked -
+        // without it an auditor can't tell without joining to the surviving
+        // row, which soft-revoke (unlike the old hard delete) does leave.
         await writeAuditEntry(tx, {
           tenantId,
           actorId: userId,
@@ -39,6 +47,7 @@ export const deleteApiKeyHandler = factory.createHandlers(
           resourceType: "api_key",
           resourceId: id,
           action: "deleted",
+          beforeSnapshot: { name: revokedRow.name, scopes: revokedRow.scopes },
         });
       }
 

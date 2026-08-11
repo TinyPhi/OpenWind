@@ -22,16 +22,6 @@ export const rotateApiKeyHandler = factory.createHandlers(
     const id = c.req.param("id") ?? "";
     const { tenantId, roles, userId } = c.get("auth");
 
-    const rawKey = `sk_live_${randomBytes(32).toString("base64url")}`;
-    const keyHash = hashApiKey(rawKey);
-    const keyHashArgon2 = await hashApiKeyArgon2(rawKey);
-    const expiresAt = new Date(
-      Date.now() + API_KEY_DEFAULT_TTL_DAYS * 24 * 60 * 60 * 1000,
-    );
-    const overlapExpiresAt = new Date(
-      Date.now() + API_KEY_ROTATION_OVERLAP_HOURS * 60 * 60 * 1000,
-    );
-
     const result = await withTenantContext(tenantId, async (tx) => {
       // Eligibility mirrors resolve_api_key_by_hash exactly (migration 0053):
       // an already-expired-but-not-revoked key must not be rotatable — that
@@ -62,6 +52,20 @@ export const rotateApiKeyHandler = factory.createHandlers(
       // rotation to keep reissuing scopes they no longer hold themselves.
       const scopeError = scopeCeilingError(roles, original.scopes);
       if (scopeError) return { error: "forbidden" as const, scopeError };
+
+      // Generated only once eligibility + scope checks pass — hashApiKeyArgon2
+      // is intentionally slow (~100-250ms); doing this before the checks above
+      // would burn a full argon2id computation on every invalid/cross-tenant
+      // rotate attempt for no reason (review finding, PR #361).
+      const rawKey = `sk_live_${randomBytes(32).toString("base64url")}`;
+      const keyHash = hashApiKey(rawKey);
+      const keyHashArgon2 = await hashApiKeyArgon2(rawKey);
+      const expiresAt = new Date(
+        Date.now() + API_KEY_DEFAULT_TTL_DAYS * 24 * 60 * 60 * 1000,
+      );
+      const overlapExpiresAt = new Date(
+        Date.now() + API_KEY_ROTATION_OVERLAP_HOURS * 60 * 60 * 1000,
+      );
 
       const [created] = await tx
         .insert(apiKeys)
@@ -102,7 +106,9 @@ export const rotateApiKeyHandler = factory.createHandlers(
       await tx
         .update(apiKeys)
         .set({ expiresAt: newExpiresAt })
-        .where(eq(apiKeys.id, original.id));
+        .where(
+          and(eq(apiKeys.id, original.id), eq(apiKeys.tenantId, tenantId)),
+        );
 
       await writeAuditEntry(tx, {
         tenantId,
@@ -111,10 +117,15 @@ export const rotateApiKeyHandler = factory.createHandlers(
         resourceId: created.id,
         resourceType: "api_key",
         action: "created",
+        afterSnapshot: {
+          name: created.name,
+          scopes: created.scopes,
+          expiresAt: created.expiresAt,
+        },
         metadata: { rotatedFrom: original.id },
       });
 
-      return { created };
+      return { created, rawKey };
     });
 
     if ("error" in result) {
@@ -129,7 +140,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
         data: {
           ...result.created,
           // Raw key is only returned here — it cannot be recovered later
-          key: rawKey,
+          key: result.rawKey,
         },
       },
       201,
