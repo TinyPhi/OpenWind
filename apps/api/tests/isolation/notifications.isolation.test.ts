@@ -13,6 +13,8 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
+import { Hono } from "hono";
+import type { Context, Next } from "hono";
 import {
   db,
   withTenantContext,
@@ -20,6 +22,8 @@ import {
   notifications,
   notificationRecipients,
 } from "@platform/db";
+import type { AuthContext } from "@platform/auth";
+import { unreadNotificationCountHandler } from "../../src/routes/notifications/unread-count.js";
 
 const TENANT_A = "aaaaaaaa-3333-4000-a000-000000000036";
 const TENANT_B = "bbbbbbbb-3333-4000-b000-000000000036";
@@ -173,5 +177,57 @@ describe("notification_recipients — idempotency (R1, R16)", () => {
       .where(eq(notificationRecipients.notificationId, notificationAId));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.readAt).toBeNull();
+  });
+});
+
+// ── GET /notifications/unread-count (docs/specs/personal-dashboard.md R9) ────
+// Through the real handler, not just raw RLS on the table — proves the route
+// itself is tenant+user scoped end-to-end.
+
+function makeUnreadCountApp(tenantId: string, userId: string) {
+  const app = new Hono<{ Variables: { auth: AuthContext } }>();
+  app.use(
+    "*",
+    async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
+      c.set("auth", {
+        tenantId,
+        userId,
+        roles: ["user"],
+        email: "t@example.com",
+      });
+      await next();
+    },
+  );
+  app.get("/unread-count", ...unreadNotificationCountHandler);
+  return app;
+}
+
+describe("GET /notifications/unread-count — tenant + user isolation (R9)", () => {
+  it("Tenant A / User A sees their own unread notification counted", async () => {
+    const res = await makeUnreadCountApp(TENANT_A, USER_A).request(
+      "/unread-count",
+    );
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { count: number } };
+    expect(data.count).toBe(1);
+  });
+
+  it("Tenant B's user count is unaffected by Tenant A's data — proves no cross-tenant leakage", async () => {
+    const res = await makeUnreadCountApp(TENANT_B, USER_B).request(
+      "/unread-count",
+    );
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { count: number } };
+    expect(data.count).toBe(1);
+  });
+
+  it("a user with zero notifications gets count 0, not an error", async () => {
+    const res = await makeUnreadCountApp(
+      TENANT_A,
+      "unread-count-user-with-nothing",
+    ).request("/unread-count");
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { count: number } };
+    expect(data.count).toBe(0);
   });
 });

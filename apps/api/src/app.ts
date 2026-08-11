@@ -22,6 +22,7 @@ import { preferencesRouter } from "./routes/preferences/index.js";
 import { savedViewsRouter } from "./routes/saved-views/index.js";
 import { notificationsRouter } from "./routes/notifications/index.js";
 import { exportsRouter } from "./routes/exports/download.js";
+import { dashboardRouter } from "./routes/dashboard/index.js";
 import { openApiSpec } from "./openapi.js";
 import { registerEntityAuditHook } from "@platform/entity-engine";
 import { writeAuditEntry } from "@platform/audit";
@@ -115,6 +116,7 @@ export function createApp(): Hono<AppVars> {
   app.route("/saved-views", savedViewsRouter);
   app.route("/notifications", notificationsRouter);
   app.route("/exports", exportsRouter);
+  app.route("/dashboard", dashboardRouter);
 
   return app;
 }
