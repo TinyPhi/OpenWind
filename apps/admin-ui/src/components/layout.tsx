@@ -348,6 +348,7 @@ export function Layout({
           style={{ position: "relative" }}
         >
           <button
+            className="header-profile-btn"
             style={{
               display: "flex",
               alignItems: "center",
@@ -375,6 +376,7 @@ export function Layout({
               style={{ flexShrink: 0 }}
             />
             <span
+              className="header-username"
               style={{
                 fontSize: "13px",
                 fontWeight: 500,

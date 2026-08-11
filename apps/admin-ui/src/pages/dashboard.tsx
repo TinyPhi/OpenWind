@@ -554,9 +554,11 @@ function FilterTabs({
   ];
   return (
     <div
+      className="dash-filter-tabs"
       style={{
         display: "flex",
         justifyContent: "center",
+        flexWrap: "wrap",
         gap: "8px",
         marginBottom: "16px",
       }}
@@ -858,6 +860,8 @@ function SectionHeader({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
+        flexWrap: "wrap",
+        rowGap: "10px",
         paddingBottom: "14px",
         borderBottom: "1px solid var(--border-color)",
         marginBottom: "16px",
@@ -1072,7 +1076,7 @@ export function Dashboard(): React.ReactElement {
     recentNotifications.length === 0;
 
   return (
-    <div style={{ padding: "24px 28px" }}>
+    <div className="dash-page">
       {/* ── header ────────────────────────────────────────────────────────── */}
       <div
         className="dash-header"
@@ -1134,6 +1138,7 @@ export function Dashboard(): React.ReactElement {
           </div>
         </div>
         <div
+          className="dash-header-actions"
           style={{
             display: "flex",
             alignItems: "center",
@@ -1145,7 +1150,6 @@ export function Dashboard(): React.ReactElement {
             fontSize: "13px",
             fontWeight: 700,
             color: "#fff",
-            whiteSpace: "nowrap",
           }}
         >
           <span style={{ fontSize: "15px" }}>
@@ -1259,6 +1263,7 @@ export function Dashboard(): React.ReactElement {
                     background: "var(--bg-secondary)",
                     color: "var(--text-primary)",
                     width: "180px",
+                    maxWidth: "100%",
                   }}
                 />
               }
@@ -1383,11 +1388,12 @@ export function Dashboard(): React.ReactElement {
                     style={{
                       display: "flex",
                       alignItems: "center",
+                      flexWrap: "wrap",
                       gap: "22px",
                     }}
                   >
                     <Donut segments={stateMix} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ flex: "1 1 160px", minWidth: 0 }}>
                       <Legend segments={stateMix} />
                     </div>
                   </div>

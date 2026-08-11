@@ -4119,6 +4119,18 @@ select.form-input {
   .main-content { padding: 14px 12px; }
 }
 
+/* ── Top nav on mobile — logo only (no wordmark), and just the bell +
+   avatar on the right (no username) ── */
+@media (max-width: 640px) {
+  .logo-text { display: none; }
+  .header-username { display: none; }
+  .header-profile-btn {
+    padding: 0 !important;
+    border: none !important;
+    max-width: none !important;
+  }
+}
+
 /* ── Mobile sidebar drawer ── */
 @media (max-width: 640px) {
   /* Sidebar becomes a fixed overlay, hidden off-screen by default */
@@ -4160,20 +4172,66 @@ select.form-input {
    RESPONSIVE — Login page
    ═══════════════════════════════════════════════════════════════ */
 
-@media (max-width: 480px) {
-  .lp-topbar-inner { padding: 0 14px; }
-  .lp-brand-name { font-size: 15px; }
+/* Below 600px, drop the "floating card on a dotted background" desktop
+   pattern entirely — it reads as cramped and busy at phone width. Content
+   sits directly on the page instead, native-app style: no card chrome,
+   no background dots/glow, just the logo, title, button, and note stacked
+   with generous breathing room. */
+@media (max-width: 600px) {
+  .lp-topbar-inner { padding: 0 16px; }
+  .lp-theme-btn span { display: none; }
+  .lp-theme-btn { padding: 8px; gap: 0; }
 
-  .lp-main { padding: 24px 12px 32px; }
+  .lp-page { background-image: none; }
+  .lp-main::before,
+  .lp-card-glow { display: none; }
 
-  .lp-card { border-radius: var(--radius-sm); }
-  .lp-card-head { padding: 24px 20px 20px; }
-  .lp-card-logo { width: 50px; height: 50px; font-size: 24px; margin-bottom: 14px; }
-  .lp-card-title { font-size: 19px; }
-  .lp-card-body { padding: 20px 20px 16px; }
-  .lp-security { margin: 0 20px 20px; }
+  .lp-main {
+    padding: 0 28px;
+    justify-content: center;
+    align-items: stretch;
+  }
 
-  .lp-footer-inner { font-size: 11px; gap: 7px; }
+  .lp-card {
+    max-width: none;
+    width: auto;
+    background: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+  }
+  [data-theme="light"] .lp-card { background: none; }
+
+  .lp-card-head { padding: 0 0 28px; }
+  .lp-card-logo { height: 56px; margin-bottom: 24px; }
+  .lp-card-title { font-size: 24px; }
+  .lp-card-desc { font-size: 14px; }
+
+  .lp-card-divider {
+    width: 48px;
+    height: 3px;
+    margin: 0 auto;
+    border-radius: 2px;
+    background: var(--accent-gradient);
+  }
+
+  .lp-card-body { padding: 28px 0 0; }
+
+  .lp-security {
+    margin: 24px 0 0;
+    background: none;
+    border: none;
+    padding: 0;
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+@media (max-width: 400px) {
+  .lp-main { padding: 0 20px; }
+  .lp-card-title { font-size: 21px; }
+  .lp-card-logo { height: 48px; margin-bottom: 20px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -4196,6 +4254,11 @@ select.form-input {
     flex: 1 1 auto;
     justify-content: center;
   }
+}
+
+/* Ticket filter tabs — tighten gap once they wrap to more than one line */
+@media (max-width: 480px) {
+  .dash-filter-tabs { gap: 6px !important; }
 }
 
 /* KPI strip — 2 columns on tablet, 1 column on very small screens */
