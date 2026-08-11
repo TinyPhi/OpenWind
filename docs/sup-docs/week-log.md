@@ -32,6 +32,36 @@ Verified: 7 consecutive local runs all pass with zero leftover rows after each.
 
 ---
 
+## 2026-08-09 — Phase 3A Stage 1: api_keys lifecycle hardening (ADR-008)
+
+**Session type:** Feature (Phase 3A implementation, stacked on the Stage 0 PR)
+**Summary:** Migration 0053 closes three real gaps in the `api_key` principal: `created_by` +
+an audit-log entry on mint (`create.ts` previously wrote no audit entry at all), `expires_at`
+so new keys aren't immortal bearer secrets, and `revoked_at`/`revoked_by` soft-revoke replacing
+`delete.ts`'s hard delete (preserves the forensic record — `last_used_at`, that the key existed).
+Added `POST /api-keys/:id/rotate`: mints a replacement (inherits name/scopes, `rotated_from`
+lineage, re-checks the scope ceiling in case the caller's roles were downgraded since original
+creation), and pulls the original's `expires_at` forward to a 24h overlap window instead of an
+immediate kill — reuses the new expiry check, no separate scheduler needed. `list.ts` now
+excludes revoked keys by default. Deliberately did not implement OQ-2/OQ-3's forced-migration
+windows for already-existing keys (unconfirmed exact numbers) or a hard-delete/GDPR-purge path
+(ADR says this can exist separately, not required now) — see `phase-3-primer.md`'s Stage 1
+section for the full reasoning.
+Discovered along the way: `automation-depth-recursion.isolation.test.ts` fails on a clean
+`origin/main` checkout too (confirmed via a throwaway worktree) — pre-existing, unrelated to
+this diff, filed as [#360](../../issues/360).
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (719/720, 1 failure is
+#360, pre-existing/unrelated). `pnpm test:isolation`: PASS (247/248, same #360). `/security-review`
+(dedicated subagent): ran against the correct diff, found tenant isolation/404-not-403/audit
+secret-leakage all clean; one real finding (rotate.ts's overlap-window update could extend rather
+than only shorten an expiring key's life) fixed and covered by new tests, both unit and isolation
+(real Postgres). PR #361 human review (PrabhuVijit) then caught two more: rotate.ts's overlap
+update was missing an explicit `tenantId` filter (RLS + a tenant-scoped `original.id` already
+covered it, but Security Rule #1 requires the explicit filter regardless), and argon2id hashing
+ran before the eligibility/scope checks, wasting CPU on invalid rotate attempts — both fixed.
+
+---
+
 ## 2026-08-09 — Phase 3A Stage 0: connector-sdk types breaking changes
 
 **Session type:** Feature (Phase 3A implementation start)

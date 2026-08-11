@@ -9,6 +9,7 @@ import {
   unique,
   boolean,
   integer,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -78,6 +79,15 @@ export const apiKeys = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    /** Zitadel user id of whoever minted this key (ADR-008 Decision #2). Nullable — NULL for keys created before migration 0053. */
+    createdBy: text("created_by"),
+    /** Nullable — NULL means immortal (legacy keys; ADR-008 Decision #3). */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Soft-revoke marker (ADR-008 Decision #4) — resolve_api_key_by_hash excludes non-NULL rows. */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: text("revoked_by"),
+    /** Set on the replacement key minted by POST /api-keys/:id/rotate; points at the key it replaced. */
+    rotatedFrom: uuid("rotated_from").references((): AnyPgColumn => apiKeys.id),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
