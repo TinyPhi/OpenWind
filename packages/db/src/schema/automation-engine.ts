@@ -60,12 +60,15 @@ export const automationExecutions = pgTable(
       t.ruleId,
       t.status,
     ),
-    ruleTransitionCompletedIdx: uniqueIndex(
-      "automation_executions_rule_transition_completed_idx",
+    // executor.ts's terminal statuses are 'success'/'degraded'/'failed', never
+    // 'completed' (PR #372 review, H1) — 'completed' here would never match
+    // any row, permanently disabling this index and Phase 2's dedup SELECT.
+    ruleTransitionSuccessIdx: uniqueIndex(
+      "automation_executions_rule_transition_success_idx",
     )
       .on(t.ruleId, t.transitionEventId)
       .where(
-        sql`${t.transitionEventId} IS NOT NULL AND ${t.status} = 'completed'`,
+        sql`${t.transitionEventId} IS NOT NULL AND ${t.status} = 'success'`,
       ),
   }),
 );

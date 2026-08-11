@@ -175,7 +175,11 @@ afterAll(async () => {
       .where(eq(workflowTransitions.tenantId, TENANT));
     await tx.delete(workflowStates).where(eq(workflowStates.tenantId, TENANT));
     await tx.delete(workflows).where(eq(workflows.tenantId, TENANT));
-    await tx.delete(entityTypes).where(eq(entityTypes.id, entityType.id));
+    // tenantId filter, not id (PR #372 review, L2) — consistent with every
+    // other delete above, and safe against a beforeAll failure leaving
+    // entityType.id undefined (which would otherwise make this a no-op
+    // WHERE id = NULL instead of erroring loudly).
+    await tx.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT));
   });
 });
 
