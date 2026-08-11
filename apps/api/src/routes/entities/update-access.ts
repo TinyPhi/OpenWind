@@ -29,9 +29,9 @@ export const updateAccessHandler = factory.createHandlers(
           .select({
             id: entityInstances.id,
             assignedTo: entityInstances.assignedTo,
-            fields: entityInstances.fields,
             createdBy: entityInstances.createdBy,
             workflowId: entityInstances.workflowId,
+            fields: entityInstances.fields,
           })
           .from(entityInstances)
           .where(

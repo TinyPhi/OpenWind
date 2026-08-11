@@ -9,10 +9,10 @@ export interface AccentColor {
 }
 
 export const ACCENT_COLORS: AccentColor[] = [
+  { id: "teal", label: "Teal", h: 175, s: 70, l: 44 },
   { id: "purple", label: "Purple", h: 250, s: 84, l: 60 },
   { id: "blue", label: "Blue", h: 213, s: 84, l: 56 },
   { id: "indigo", label: "Indigo", h: 240, s: 80, l: 58 },
-  { id: "teal", label: "Teal", h: 175, s: 70, l: 44 },
   { id: "green", label: "Green", h: 152, s: 70, l: 42 },
   { id: "orange", label: "Orange", h: 30, s: 90, l: 52 },
   { id: "rose", label: "Rose", h: 350, s: 80, l: 58 },

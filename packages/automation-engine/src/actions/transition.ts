@@ -24,10 +24,6 @@ export async function executeTransitionAction(
     instanceId,
     transitionId: config.transitionId,
     triggeredBy: "automation",
-    // Stamp the depth this transition is running at so the outbox-delivered
-    // copy of this event resumes MAX_DEPTH counting from depth + 1 instead of
-    // resetting to 0 — see issue #120.
-    depth: depth + 1,
     ...(config.comment !== undefined && { comment: config.comment }),
   });
 
@@ -38,7 +34,13 @@ export async function executeTransitionAction(
   const entityTypeId =
     "entityTypeId" in event ? (event.entityTypeId as string) : instanceId;
 
-  // Recursively execute rules triggered by this transition (depth + 1 for guard)
+  // This recursive call — together with engine.ts's outbox-write skip for
+  // triggeredBy === "automation" — IS the actual double-trigger guard for
+  // issue #120: automation-triggered transitions recurse in-process with
+  // this bounded depth counter instead of also going through the async
+  // outbox/worker path, which would otherwise fire every matching rule a
+  // second time. `depth + 1` here is read by executeAutomationRules's own
+  // MAX_DEPTH check, not by anything in workflow-engine.
   const followUpEvent = {
     version: 1 as const,
     eventType: "workflow.transitioned" as const,

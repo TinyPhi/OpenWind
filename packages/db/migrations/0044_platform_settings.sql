@@ -4,7 +4,7 @@
 
 -- Single-row global settings table. Not tenant-scoped (no tenant_id, no RLS
 -- policy) — deliberately a platform-operator concern like modules.is_visible
--- (0040_module_visibility.sql), not a per-tenant setting. The id=1 CHECK
+-- (0039_module_visibility.sql), not a per-tenant setting. The id=1 CHECK
 -- enforces there is ever only one row; app code always reads/writes id=1.
 --
 -- outbound_notifications_enabled: kill switch for the notification outbound

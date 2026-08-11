@@ -1,11 +1,17 @@
 import { requireAuth, requireRole } from "@platform/auth";
 import { entityInstances, withTenantContext } from "@platform/db";
 import { eq, and, or, sql } from "drizzle-orm";
+import { z } from "zod";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { hasEntityReadAccess } from "../../lib/entity-access.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
+import { zValidator } from "../../lib/validator.js";
+
+const GetWorkflowQuerySchema = z.object({
+  entityId: z.string().uuid().optional(),
+});
 
 // A workflow's states/transitions/SLA config is not public within the tenant —
 // undoing the previous admin-or-assignee check (commit dc2bb0c, "H2") let any
@@ -27,11 +33,12 @@ import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 export const getWorkflowHandler = factory.createHandlers(
   requireAuth(),
   requireRole("admin", "agent", "user"),
+  zValidator("query", GetWorkflowQuerySchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
     const auth = c.get("auth");
     const { tenantId, userId, roles } = auth;
-    const entityId = c.req.query("entityId");
+    const { entityId } = c.req.valid("query");
     try {
       const workflow = await withTenantContext(tenantId, (tx) =>
         getWorkflow(tx, tenantId, id, toWorkflowCaller(auth)),
@@ -64,6 +71,12 @@ export const getWorkflowHandler = factory.createHandlers(
       }
 
       if (!authorized) {
+        // Same access levels hasEntityReadAccess treats as sufficient — a
+        // bare __accessUsers key check (any tag/level) would let a caller
+        // whose access was revoked down to a non-read level (or who only
+        // has a write-side tag with no read entitlement) still read the
+        // workflow's config via this fallback, inconsistent with the
+        // entityId proof path above.
         const [own] = await withTenantContext(tenantId, (tx) =>
           tx
             .select({ id: entityInstances.id })
@@ -75,7 +88,7 @@ export const getWorkflowHandler = factory.createHandlers(
                 or(
                   eq(entityInstances.createdBy, userId),
                   eq(entityInstances.assignedTo, userId),
-                  sql`${entityInstances.fields}->'__accessUsers' ? ${userId}`,
+                  sql`(${entityInstances.fields}->'__accessUsers'->${userId}->>'level') IN ('read_only', 'read_comment', 'read_write')`,
                 ),
               ),
             )

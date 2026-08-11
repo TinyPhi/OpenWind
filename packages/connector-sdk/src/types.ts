@@ -74,6 +74,7 @@ export interface ConnectorDefinition {
   // Per-connector egress allowlist (ADR-009 Decision #5): callApi() enforces this
   // and validateWebhookUrl() against the target on every call, so a connector can
   // only ever reach the third-party host(s) it declares here.
+  // Hostnames only — no scheme, no path, no wildcards (e.g. ["api.slack.com"]).
   allowedHosts: string[];
   auth: Record<string, unknown>;
   triggers: TriggerDefinition[];
