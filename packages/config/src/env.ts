@@ -55,9 +55,13 @@ const EnvSchema = z
     REDIS_URL: z.string().url(),
     // Post-auth, tenant-scoped rate limit (#195) — requireAuth() (@platform/auth)
     // enforces this per verified auth.tenantId, independent of the pre-auth
-    // IP-based flood guard in apps/api's rate-limit middleware. Default matches
-    // security.md's documented "100 req/min per tenant for standard endpoints".
-    RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(100),
+    // IP-based flood guard in apps/api's rate-limit middleware. Raised from
+    // the original 100 default (2026-08-11) — a single ticket detail page
+    // load alone fans out to ~8-10 parallel GET requests, and this limit is
+    // shared across every concurrently active user in the tenant, not
+    // per-user; 100/min collapsed under completely normal 2-user concurrent
+    // browsing, not abuse. See security.md for the current documented value.
+    RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600),
     ZITADEL_ISSUER: z.string().url(),
     // Override the JWKS fetch URL when running inside Docker (issuer claim still
     // matches localhost:8080 in the JWT, but we fetch keys via container hostname).

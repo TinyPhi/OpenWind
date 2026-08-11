@@ -47,9 +47,11 @@ See `packages/secrets/README.md` for the API surface.
 5. **Never expose internal error details to clients.** Catch all unhandled errors at the API
    boundary, return a generic 500 with a correlation ID. Log the full error server-side.
 
-6. **Rate limit all public endpoints.** Default: 100 req/min per tenant for standard
-   endpoints, 10 req/min for auth and webhook endpoints. Override in the route definition
-   with an explicit justification comment.
+6. **Rate limit all public endpoints.** Default: 600 req/min per tenant for standard
+   endpoints (raised from 100 on 2026-08-11 — shared across every concurrently active
+   user in the tenant, not per-user, and normal interactive page loads fan out to many
+   parallel requests), 10 req/min for auth and webhook endpoints. Override in the route
+   definition with an explicit justification comment.
 
 7. **All secrets in environment variables.** No hardcoded credentials, tokens, or keys
    anywhere in the codebase — including tests. Read from `@platform/config` only.
