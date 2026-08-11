@@ -184,16 +184,16 @@ through 2026-07-30/31 (see header above for the session narrative).
 **Goal:** Platform extensible by third parties. Connector marketplace, plugin system, AI layer, first sector package.
 **Exit test:** External developer ships a connector or plugin using public SDK only.
 **Status:** 3A planning complete — ADR-008/009/010 accepted 2026-08-06 (staged implementation
-sequence in `.claude/context/phase-3-primer.md`). Implementation not started. 3B/3C/3D still
-require human planning sign-off per `CLAUDE.md` before starting.
+sequence in `.claude/context/phase-3-primer.md`). Implementation started 2026-08-09 (Stage 0).
+3B/3C/3D still require human planning sign-off per `CLAUDE.md` before starting.
 
-| ID    | Feature / Track                                                     | GH Issue(s)            | Owner | Status                                | %   |
-| ----- | ------------------------------------------------------------------- | ---------------------- | ----- | ------------------------------------- | --- |
-| 3A    | Integration layer — connector runtime, webhook gateway, marketplace | [#16](../../issues/16) | —     | 🟡 Planned (ADR-008/009/010 accepted) | 0   |
-| 3B    | Plugin system — Module Federation, slot registry, lifecycle service | [#17](../../issues/17) | —     | 🔴 Not started                        | 0   |
-| 3C    | AI layer — automation gen, workflow suggestion, RAG, usage metering | [#18](../../issues/18) | —     | 🔴 Not started                        | 0   |
-| 3D    | Observability + compliance — OTel, Prometheus, GDPR, audit          | [#19](../../issues/19) | —     | 🔴 Not started                        | 0   |
-| 3-OPS | Deferred ops/compliance/infra concerns                              | [#6](../../issues/6)   | —     | 🔴 Not started                        | 0   |
+| ID    | Feature / Track                                                     | GH Issue(s)            | Owner | Status                                        | %   |
+| ----- | ------------------------------------------------------------------- | ---------------------- | ----- | --------------------------------------------- | --- |
+| 3A    | Integration layer — connector runtime, webhook gateway, marketplace | [#16](../../issues/16) | —     | 🟡 In progress — Stage 0 started (2026-08-09) | 5   |
+| 3B    | Plugin system — Module Federation, slot registry, lifecycle service | [#17](../../issues/17) | —     | 🔴 Not started                                | 0   |
+| 3C    | AI layer — automation gen, workflow suggestion, RAG, usage metering | [#18](../../issues/18) | —     | 🔴 Not started                                | 0   |
+| 3D    | Observability + compliance — OTel, Prometheus, GDPR, audit          | [#19](../../issues/19) | —     | 🔴 Not started                                | 0   |
+| 3-OPS | Deferred ops/compliance/infra concerns                              | [#6](../../issues/6)   | —     | 🔴 Not started                                | 0   |
 
 Deferred items gated on Phase 3 / later triggers (unchanged from Phase 1 carry-over triage):
 [#4](../../issues/4) (schema cache, defer until load testing), [#62](../../issues/62) (workflow

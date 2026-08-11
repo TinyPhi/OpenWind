@@ -10,6 +10,24 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-09 — Phase 3A Stage 0: connector-sdk types breaking changes
+
+**Session type:** Feature (Phase 3A implementation start)
+**Summary:** First Phase 3A implementation PR. Applied ADR-009 Decisions #5/#6 to
+`packages/connector-sdk/src/types.ts` while the package still has zero consumers, so the
+breaking changes cost nothing: removed the readable `credentials`/`TCredentials` field+generic
+from `ConnectorContext` (connector code never sees raw secrets — only the future runtime's
+`callApi()` does, server-side), removed `TriggerDefinition.webhook.validateSignature`
+(verification centralizes in the webhook gateway per Decision #3), and added a required
+`ConnectorDefinition.allowedHosts: string[]` egress allowlist. Also closed out 3 of ADR-009's 4
+independent housekeeping items as already resolved by earlier work (issue #2 doc consistency,
+Trigger.dev Optional classification, 3D/3E lettering note) — only issue #143 (Stage 0's other
+item, blocks Decision #3) remains open.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40 packages). `pnpm test`/`test:isolation`:
+N/A — pure type-declaration package, no runtime logic, no existing test script.
+
+---
+
 ## 2026-08-09 — security audit issue-hygiene pass (PR #358)
 
 **Session type:** Docs + issue hygiene
