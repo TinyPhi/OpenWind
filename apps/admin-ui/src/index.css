@@ -1987,6 +1987,7 @@ button.menu-item.sidebar-logout {
 @media (max-width: 900px) {
   /* stack the 2-col grid */
   .wfd-two-col { grid-template-columns: 1fr !important; }
+  .wfd-settings-grid { grid-template-columns: 1fr !important; }
   .data-panel { padding: 18px 16px; }
 }
 @media (max-width: 600px) {
@@ -2010,8 +2011,17 @@ button.menu-item.sidebar-logout {
   .wfd-breadcrumb-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
   /* flow diagram: shrink node spacing */
   .wfd-flow-wrap { font-size: 11px; }
-  /* settings tab two-col → single col */
-  .wfd-settings-grid { grid-template-columns: 1fr !important; }
+  /* state/transition canvas (ReactFlow) — the minimap eats over half the
+     canvas width on a phone and isn't needed for core editing, and the
+     zoom/fit/lock controls shrink instead of crowding the corner. */
+  .react-flow__minimap { display: none; }
+  .react-flow__controls { transform: scale(0.85); transform-origin: bottom left; }
+}
+
+/* Modal forms — used by every Add/Edit modal across the app (workflow
+   detail's Add Step/Transition/Detail among them), not just this page. */
+@media (max-width: 480px) {
+  .form-row { grid-template-columns: 1fr !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
