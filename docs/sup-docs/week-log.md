@@ -10,6 +10,34 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-11 — #143 Phase 1: outbox writes unconditionally, carries dedup key
+
+**Session type:** Feature (Phase 3A prerequisite, recovered from an abandoned local branch)
+**Summary:** While auditing stale local branches after Stage 1 merged, found
+`feat/PLAT-143-outbox-idempotent-consumption` had one real, unmerged commit — a complete,
+well-scoped Phase 1 fix for issue #143 per
+`docs/specs/outbox-automation-idempotent-consumption.md` (T1/T2/T3/T5 done; T4/T6-T9 deferred
+to Phase 2 by the spec's own phase gate). Removed PR #139's `triggeredBy === "automation"`
+outbox-skip guard in `executeTransition` — that skip fixed #120's double-trigger bug but also
+meant automation-triggered transitions never reached the outbox at all, silently missing every
+consumer other than automation itself (a gap that would block ADR-009 Decision #3's webhook
+gateway, #364). `executeTransition` now generates a `transitionEventId` unconditionally and
+writes to the outbox for every `triggeredBy`; the id is threaded through the sync in-process
+path (`transition.ts`) and the async worker path (`automation-worker.ts`) as an explicit
+parameter, mirroring the existing `depth`/`outboxEventId` pattern. Consumer-side dedup
+enforcement (advisory lock + completed-status check) is deliberately deferred to Phase 2, per
+the spec.
+Revived onto a fresh branch off current `main` (cherry-picked the single commit; only conflict
+was the migration number, since Stage 1 also claimed `0053` — renumbered to `0054`). Also
+applied #360's `afterAll` cleanup fix to the rewritten isolation test, since this branch predates
+that fix and the new contract (outbox row now written) would have compounded the same
+accumulation bug even harder.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (762/762).
+`pnpm test:isolation`: PASS (269/269). Ran the revised isolation test 5 consecutive times,
+zero leftover rows confirmed via `psql` after each run.
+
+---
+
 ## 2026-08-09 — Phase 3A Stage 1: api_keys lifecycle hardening (ADR-008)
 
 **Session type:** Feature (Phase 3A implementation, stacked on the Stage 0 PR)

@@ -8,6 +8,12 @@ const baseEvent = z.object({
   // MAX_DEPTH enforcement across the async hop instead of resetting to 0 (#120).
   // Absent/undefined means depth 0 (a root-triggered event, e.g. a direct API call).
   depth: z.number().int().min(0).optional(),
+  // Identity of the workflow.transitioned event this fired from, when
+  // applicable — carried through the outbox so the async worker path can
+  // dedupe against the same key the sync in-process path already claimed.
+  // Only ever set on workflow.transitioned events; absent on entity.created
+  // etc. See packages/automation-engine/src/executor.ts and issue #143.
+  transitionEventId: z.string().uuid().optional(),
 });
 
 export const WorkflowTransitionedV1Schema = baseEvent.extend({
@@ -123,6 +129,13 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
 // that function does its own full TriggerEventSchema.safeParse. Reuses
 // baseEvent's `depth` constraint so the two never drift apart.
 export const OutboxDepthSchema = baseEvent.pick({ depth: true });
+
+// Mirrors OutboxDepthSchema — apps/worker/src/automation-worker.ts uses this
+// to extract transitionEventId from the outbox payload without re-parsing
+// the full TriggerEventSchema (executeAutomationRules does that itself).
+export const OutboxTransitionEventIdSchema = baseEvent.pick({
+  transitionEventId: true,
+});
 
 export type WorkflowTransitionedV1 = z.infer<
   typeof WorkflowTransitionedV1Schema

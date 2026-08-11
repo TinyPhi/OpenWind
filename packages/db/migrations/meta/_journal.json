@@ -379,6 +379,13 @@
       "when": 1785542405000,
       "tag": "0053_api_key_lifecycle_hardening",
       "breakpoints": false
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1785542406000,
+      "tag": "0054_automation_executions_transition_event_id",
+      "breakpoints": false
     }
   ]
 }
