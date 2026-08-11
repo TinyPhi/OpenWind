@@ -2,7 +2,7 @@
 
 > Live, websocket-delivered updates for the comment section and access-request section of the ticket detail page — every open viewer sees new comments and access-request changes without reloading, on top of the existing #125 in-app notification pipeline.
 
-status: draft
+status: implemented
 created: 2026-08-11
 updated: 2026-08-11
 gh: —
@@ -152,9 +152,9 @@ R8: Reconnection after a dropped WebSocket does not silently leave a still-open 
 | T5  | Server: room registry (`rooms` map) in `apps/api/src/websocket/notifications.ts`; handle `subscribe_ticket`/`unsubscribe_ticket` with access check; clean up on `close`      | 2     | done   | —       |
 | T6  | Redis message envelope: add `kind: "room" \| "user"` discriminator; worker publishes room-kind messages for T2–T4's events; WS subscriber dispatches by kind                 | 2     | done   | T1, T5  |
 | T7  | Worker: extend `notification-worker.ts` to call `publishRoomUpdate` for the 3 new trigger types, independent of existing recipient-resolution/notification-row logic         | 2     | done   | T1, T6  |
-| T8  | Client: `notifications-client.ts` (or a new adjacent hook) sends `subscribe_ticket` on ticket detail page mount, `unsubscribe_ticket` on unmount, re-subscribes on reconnect | 3     | todo   | T5      |
-| T9  | UI: comment list and access-request list on ticket detail page consume the new message types and splice in the update live                                                   | 3     | todo   | T8      |
-| T10 | Isolation/unit tests: cross-tenant room key isolation, access-check-gated subscribe, independence of room push vs inbox notification, cleanup-on-close/unsubscribe           | 3     | todo   | T1–T9   |
+| T8  | Client: `notifications-client.ts` (or a new adjacent hook) sends `subscribe_ticket` on ticket detail page mount, `unsubscribe_ticket` on unmount, re-subscribes on reconnect | 3     | done   | T5      |
+| T9  | UI: comment list and access-request list on ticket detail page consume the new message types and splice in the update live                                                   | 3     | done   | T8      |
+| T10 | Isolation/unit tests: cross-tenant room key isolation, access-check-gated subscribe, independence of room push vs inbox notification, cleanup-on-close/unsubscribe           | 3     | done   | T1–T9   |
 
 phase gate: all unit + integration tests pass before advancing to next phase; phase 3 additionally requires `pnpm test:isolation` green (room-key tenant isolation is a new cross-tenant-leak surface).
 

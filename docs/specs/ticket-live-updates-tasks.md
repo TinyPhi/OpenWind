@@ -2,7 +2,7 @@
 
 **Spec:** docs/specs/ticket-live-updates.md
 **Generated:** 2026-08-11
-**Status:** not started
+**Status:** all phases complete
 
 ---
 
@@ -40,9 +40,9 @@
 
 | task                                                                                                                                                                                                                                                                                                           | requirement | status |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T8: Client (`apps/admin-ui/src/lib/notifications-client.ts` or an adjacent hook) sends `subscribe_ticket` on ticket detail page mount, `unsubscribe_ticket` on unmount, and re-sends `subscribe_ticket` after the existing reconnect-with-backoff fires while the page is still mounted                        | R7, R8      | todo   |
-| T9: UI — comment list and access-request list on the ticket detail page consume `comment.created` / `access_request.created` / `access_request.updated` messages and splice the update into the already-rendered list                                                                                          | R2, R3, R4  | todo   |
-| T10: Isolation/unit tests — cross-tenant room-key isolation (same `instanceId`, different `tenantId` never cross-delivers), access-check-gated subscribe (no read access → silently not joined), independence of room push vs inbox notification (R5's two scenarios), cleanup on `close`/`unsubscribe_ticket` | R1–R8       | todo   |
+| T8: Client (`apps/admin-ui/src/lib/notifications-client.ts` or an adjacent hook) sends `subscribe_ticket` on ticket detail page mount, `unsubscribe_ticket` on unmount, and re-sends `subscribe_ticket` after the existing reconnect-with-backoff fires while the page is still mounted                        | R7, R8      | done   |
+| T9: UI — comment list and access-request list on the ticket detail page consume `comment.created` / `access_request.created` / `access_request.updated` messages and splice the update into the already-rendered list                                                                                          | R2, R3, R4  | done   |
+| T10: Isolation/unit tests — cross-tenant room-key isolation (same `instanceId`, different `tenantId` never cross-delivers), access-check-gated subscribe (no read access → silently not joined), independence of room push vs inbox notification (R5's two scenarios), cleanup on `close`/`unsubscribe_ticket` | R1–R8       | done   |
 
 ---
 

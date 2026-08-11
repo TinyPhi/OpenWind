@@ -9,6 +9,7 @@ import {
   showConfirm,
 } from "../../components/global-alert-dialog.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
+import { subscribeToTicketRoom } from "../../lib/notifications-client.js";
 import {
   type AttachmentFile,
   FileChip,
@@ -2350,6 +2351,31 @@ export function CustomerRecordDetail(): React.ReactElement {
   useEffect(() => {
     if (isOwner && id) void loadAccessRequests();
   }, [isOwner, id]);
+
+  // Ticket-room live updates (docs/specs/ticket-live-updates.md) — re-fetches
+  // via the same REST calls a manual refresh would use, rather than
+  // hand-splicing the push payload into state: the push only carries the
+  // minimal comment/request fields, not the resolved actorDisplayName/mention
+  // metadata the REST response already provides.
+  useEffect(() => {
+    if (!id) return;
+    return subscribeToTicketRoom(id, (msg) => {
+      if (msg.type === "comment.created" && msg.instanceId === id) {
+        void refreshComments();
+        return;
+      }
+      if (
+        (msg.type === "access_request.created" ||
+          msg.type === "access_request.updated") &&
+        msg.instanceId === id
+      ) {
+        if (isOwner) void loadAccessRequests();
+        if (msg.request.requestedBy === currentUserId) {
+          setMyAccessReqStatus(msg.request.status);
+        }
+      }
+    });
+  }, [id, isOwner, currentUserId]);
 
   // Sync requester's own request status
   useEffect(() => {

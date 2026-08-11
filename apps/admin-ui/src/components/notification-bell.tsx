@@ -56,7 +56,7 @@ export function NotificationBell(): React.ReactElement {
 
   useEffect(() => {
     const unsubscribe = subscribeToNotifications((msg) => {
-      if (msg.type === "notification" && msg.notification) {
+      if (msg.type === "notification") {
         const incoming = msg.notification;
         setItems((prev) => {
           if (prev.some((n) => n.id === incoming.id)) return prev;
