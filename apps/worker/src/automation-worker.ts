@@ -4,6 +4,7 @@ import { withTenantContext, deadLetterEvents } from "@platform/db";
 import {
   executeAutomationRules,
   OutboxDepthSchema,
+  OutboxTransitionEventIdSchema,
 } from "@platform/automation-engine";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
@@ -38,6 +39,15 @@ function readDepth(payload: unknown): number {
   return OutboxDepthSchema.safeParse(payload).data?.depth ?? 0;
 }
 
+// Mirrors readDepth — recovers the transitionEventId carried in the outbox
+// payload (#143) so this async execution can be matched against whatever
+// the sync in-process path already claimed for the same transition. Absent
+// for non-transition-sourced events (e.g. entity.created).
+function readTransitionEventId(payload: unknown): string | undefined {
+  return OutboxTransitionEventIdSchema.safeParse(payload).data
+    ?.transitionEventId;
+}
+
 export const automationWorker = new Worker<AutomationJobData>(
   "automation",
   async (job) => {
@@ -70,6 +80,7 @@ export const automationWorker = new Worker<AutomationJobData>(
         readDepth(payload),
         connection,
         outboxEventId,
+        readTransitionEventId(payload),
       ),
     );
   },

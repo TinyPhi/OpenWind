@@ -10,6 +10,168 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — PR #373 review fixes: forward-compat TODOs, scopesFormat test coverage
+
+**Session type:** Bug fix (human review response, same #370 track)
+**Summary:** PrabhuVijit's review of PR #373 found the discriminator column itself correct but
+flagged three unit-test gaps and two forward-compatibility traps for when `scope-ceiling.ts`'s
+rejection of action-format scopes is eventually reopened:
+
+- **M1/M2 (medium, documented not fixed — by design):** `resolve_api_key_by_hash` doesn't return
+  `scopes_format` and `AuthContext` has no format field (`packages/auth/src/middleware.ts`); and
+  `rotate.ts`'s `scopeCeilingError` call would permanently 403 rotation of every action-format key
+  once they can be minted. Both are real traps for the ceiling-reopen PR, not bugs today (the
+  ceiling blocks all action-format scopes from ever reaching either path right now) — fixing them
+  now would mean guessing at a return-type change and a ceiling rule with no real consumer yet.
+  Added inline `TODO` comments at both call sites plus a note in `phase-3-primer.md`'s
+  ceiling-reopen task so the future PR can't miss either one.
+- **M3 (medium, blocking):** `rotate.test.ts` had zero coverage for `scopesFormat` pass-through —
+  a real insert-path change in #370 with `original.scopesFormat` silently `undefined` in the
+  mock. Added `scopesFormat` to the mock fixtures and a dedicated test asserting it carries
+  forward unchanged.
+- **L1:** `scopesFormat` typed as `text("scopes_format", { enum: ["role", "action"] })` instead of
+  plain `text()` — narrows the Drizzle/TS type to the union, so the isolation test's intentional
+  bad-value insert now needs an explicit `as "role" | "action"` cast, making the bypass visible in
+  the test itself rather than silently typed as `string`.
+- **L2:** wrapped `detectScopesFormat` in `create.ts` in a try/catch returning a structured 422
+  (`INVALID_SCOPES`) instead of an unhandled throw → generic 500 — unreachable today since the
+  ceiling blocks any input that would trigger it, but the reviewer's point stands for after the
+  ceiling reopens.
+- **L3/L4:** added `scopesFormat` assertions to `create.test.ts` and `list.test.ts`.
+- **L5:** the CHECK-violation isolation test asserted a bare `.rejects.toThrow()`, which any
+  thrown error (including a connection failure) would satisfy. Tightened to
+  `.rejects.toMatchObject({ cause: { code: "23514" } })` — Postgres's CHECK-violation code,
+  nested under Drizzle's wrapping `DrizzleQueryError.cause` (discovered by running the test and
+  reading the actual error shape rather than guessing).
+  **Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (770/770, up from
+  767 — 3 new tests). `pnpm test:isolation`: PASS (42/42 files, 274/274 tests).
+
+---
+
+## 2026-08-12 — Phase 3A Stage 2 (scopes track): api_keys.scopes_format discriminator (#370)
+
+**Session type:** Feature (Phase 3A implementation, independent — not stacked on any open PR)
+**Summary:** Migration 0055 adds `api_keys.scopes_format` (`text NOT NULL DEFAULT 'role'`, CHECK
+`IN ('role','action')`) — the discriminator ADR-008 Decision #6 needs to tell legacy role-strings
+apart from the new `entity:<entityType>:<verb>` action-strings, an explicit column rather than a
+colon heuristic or date cutoff (either breaks the moment a future role-string contains a colon or
+a key is minted near the cutoff instant). New `packages/auth/src/scopes.ts` exports
+`detectScopesFormat`, which recognises the confirmed 3-segment `entity:<type>:<verb>` shape
+structurally — deliberately not hardcoding a verb enum, since OQ-5's exact verb list is still open
+pending joint sign-off with whoever scopes ADR-010's Tier-1 rollout. `create.ts` stamps the column
+from whatever scopes were actually supplied; `rotate.ts` carries the original key's format forward
+unchanged rather than recomputing it; `list.ts` surfaces it in the list response.
+Scoped narrower than a literal reading of #370's issue body: `scope-ceiling.ts` is deliberately
+untouched, so it keeps rejecting any non-role-string scope exactly as before — no key can actually
+be minted with `scopes_format='action'` through the real API yet. Reopening that ceiling needs
+OQ-5's verb set resolved and #365's sensitivity redactor to exist first; doing it now would let a
+Tier-1 key be issued with no read-scoping enforcement behind it. Also confirmed `requireRole`
+needs no change — its plain array `.includes()` check against JWT roles already fails closed
+safely for action-format scope strings (they simply never match a role name).
+**Verification:** `pnpm typecheck`: PASS (40/40). `pnpm lint`: PASS (40/40, 0 warnings).
+`pnpm test`: PASS (765/765 in `apps/api` alone; full monorepo run required first creating the
+local `platform_test` Postgres DB and running migrations against it — missing entirely on this
+machine, confirmed pre-existing/unrelated via `git stash` against the same failure). Also found
+and fixed a real crash in `apps/api/src/routes/api-keys/create.test.ts`: its `vi.mock("@platform/
+auth", ...)` factory fully replaces the module without `detectScopesFormat`, so `create.ts`'s new
+import resolved to `undefined` and calling it threw, surfacing as a 500 in 10 tests — fixed by
+having the mock `vi.importActual` the real `detectScopesFormat` alongside its other mocked
+exports, rather than duplicating its logic. `pnpm test:isolation`: PASS (41/41 files, 272/272
+tests), including 3 new assertions in `api-key-auth.isolation.test.ts` (default 'role', explicit
+'action' round-trips scoped to its own tenant under RLS, CHECK constraint rejects an out-of-enum
+value).
+Renumbered 0054 → 0055 on merging `main` after PR #372 landed: #372 independently claimed
+`0054` for `automation_executions_transition_event_id` while this branch was open, same
+collision pattern as #143 vs. Stage 1 — renamed the file, moved the schema doc-comment
+reference, and re-ran the full exit condition after resolving.
+
+---
+
+## 2026-08-12 — PR #372 review fixes: outbox-poller exclusion, dead index condition
+
+**Session type:** Bug fix (human review response, same #143 Phase 1 track)
+**Summary:** PrabhuVijit's review of PR #372 found one CRITICAL and one HIGH issue that survived
+the earlier `/security-review`-equivalent pass, plus four lower-severity findings:
+
+- **C1 (critical):** #143 made `executeTransition` write an outbox row for automation-triggered
+  transitions too — `apps/worker/src/outbox-poller.ts`'s existing `workflow.transitioned`
+  allowlist would claim that row and enqueue a second, duplicate `executeAutomationRules` call
+  for a transition already run synchronously in-process, double-firing `notify`/`create_entity`/
+  `create_child` actions until #143 Phase 2's consumer-side dedup lands. Fixed with a temporary
+  `triggeredBy = 'automation'` exclusion in the poller's query (removed in the Phase 2 PR); added
+  a new isolation test proving the exclusion holds against real Postgres.
+- **H1 (high):** the partial unique index (migration 0054) and the spec's planned Phase 2 dedup
+  check both keyed on `status = 'completed'`, but `executor.ts` never writes that literal —
+  terminal statuses are `'success'`/`'degraded'`/`'failed'`. The index would have permanently
+  matched zero rows. Corrected to `'success'` in the migration, schema, and both spec docs;
+  renamed the index accordingly. Added an isolation test proving the index scopes correctly
+  across tenants (also closes L3).
+- **M1 (medium, documented not fixed):** idempotency-replay generates a fresh `transitionEventId`
+  per replay, which would defeat Phase 2 dedup — recorded in both spec docs' bug log for Phase
+  2's implementer to account for.
+- **M2 (medium):** moved `transitionEventId` off the cross-cutting `baseEvent` schema onto
+  `WorkflowTransitionedV1Schema` only — unlike `depth`, it has no meaning outside
+  `workflow.transitioned`, so leaving it on `baseEvent` risked a bug silently populating it on an
+  unrelated event type and passing validation.
+- **L1/L2:** added the missing analytics annotation on migration 0054; fixed the isolation test's
+  `entityTypes` cleanup to filter by `tenantId` (consistent with every other delete in that
+  `afterAll`, and safe against a `beforeAll` failure leaving `entityType.id` undefined).
+  **Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (764/764).
+  `pnpm test:isolation`: PASS (271/271, includes `apps/worker`'s isolation suite). Ran both new
+  isolation tests 3 consecutive times each — stable.
+
+---
+
+## 2026-08-11 — #143 Phase 1: outbox writes unconditionally, carries dedup key
+
+**Session type:** Feature (Phase 3A prerequisite, recovered from an abandoned local branch)
+**Summary:** While auditing stale local branches after Stage 1 merged, found
+`feat/PLAT-143-outbox-idempotent-consumption` had one real, unmerged commit — a complete,
+well-scoped Phase 1 fix for issue #143 per
+`docs/specs/outbox-automation-idempotent-consumption.md` (T1/T2/T3/T5 done; T4/T6-T9 deferred
+to Phase 2 by the spec's own phase gate). Removed PR #139's `triggeredBy === "automation"`
+outbox-skip guard in `executeTransition` — that skip fixed #120's double-trigger bug but also
+meant automation-triggered transitions never reached the outbox at all, silently missing every
+consumer other than automation itself (a gap that would block ADR-009 Decision #3's webhook
+gateway, #364). `executeTransition` now generates a `transitionEventId` unconditionally and
+writes to the outbox for every `triggeredBy`; the id is threaded through the sync in-process
+path (`transition.ts`) and the async worker path (`automation-worker.ts`) as an explicit
+parameter, mirroring the existing `depth`/`outboxEventId` pattern. Consumer-side dedup
+enforcement (advisory lock + completed-status check) is deliberately deferred to Phase 2, per
+the spec.
+Revived onto a fresh branch off current `main` (cherry-picked the single commit; only conflict
+was the migration number, since Stage 1 also claimed `0053` — renumbered to `0054`). Also
+applied #360's `afterAll` cleanup fix to the rewritten isolation test, since this branch predates
+that fix and the new contract (outbox row now written) would have compounded the same
+accumulation bug even harder.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (762/762).
+`pnpm test:isolation`: PASS (269/269). Ran the revised isolation test 5 consecutive times,
+zero leftover rows confirmed via `psql` after each run.
+
+---
+
+## 2026-08-11 — fix #360: automation-depth-recursion isolation test flakiness
+
+**Session type:** Bug fix (test hygiene, unrelated to Phase 3A)
+**Summary:** Root-caused #360 (filed 2026-08-09 during Phase 3A Stage 1 work). The test uses a
+fixed `TENANT` UUID across every run but `afterAll` only cleaned up `outboxEvents`/
+`automationExecutions` — not `automation_rules`, `workflows`, `workflow_states`,
+`workflow_transitions`, `entity_types`, or `entity_instances`. On CI's ephemeral per-run Postgres
+this never showed; on a long-lived local dev container it accumulated a leftover "Auto-continue
+to done" automation rule on every run (confirmed: 40 accumulated `automation_rules` rows, 20
+`workflows`, after ~20 repeated local runs). Each leftover rule's condition (`toState ==
+"processing"`) isn't scoped to a specific workflow, so it re-fires against the CURRENT run's real
+event and tries to execute its OWN stale `transitionId` (pointing at a prior run's now-orphaned
+workflow) against the current instance — that call fails, and after 5 accumulated failures
+`packages/automation-engine/src/circuit-breaker.ts` opens for `(tenantId, "transition")`,
+skipping the current run's own correctly-configured rule too (it sorts last by `createdAt`).
+Fixed by extending `afterAll` to delete everything `beforeAll` creates, in FK-dependency order.
+Verified: 7 consecutive local runs all pass with zero leftover rows after each.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (732/732 — up from
+731/732, #360 gone). `pnpm test:isolation`: PASS (261/261).
+
+---
+
 ## 2026-08-09 — Phase 3A Stage 1: api_keys lifecycle hardening (ADR-008)
 
 **Session type:** Feature (Phase 3A implementation, stacked on the Stage 0 PR)

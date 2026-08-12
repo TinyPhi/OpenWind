@@ -25,6 +25,7 @@ export const listApiKeysHandler = factory.createHandlers(
           id: apiKeys.id,
           name: apiKeys.name,
           scopes: apiKeys.scopes,
+          scopesFormat: apiKeys.scopesFormat,
           lastUsedAt: apiKeys.lastUsedAt,
           createdAt: apiKeys.createdAt,
           createdBy: apiKeys.createdBy,
