@@ -54,6 +54,19 @@ export interface ActionDefinition {
   };
 }
 
+// Discriminated union of supported auth mechanisms for a connector's outbound
+// API calls (ADR-009 Decision #5). `credentialKey` (and its variants) names a
+// logical secret — the eventual `connector_credentials` table stores a JSONB
+// map of `credentialKey -> ciphertext` per tenant-connector installation.
+export type ConnectorAuthConfig =
+  | { type: "bearer"; credentialKey: string }
+  | {
+      type: "basic";
+      usernameCredentialKey: string;
+      passwordCredentialKey: string;
+    }
+  | { type: "apiKey"; headerName: string; credentialKey: string };
+
 export interface ConnectorDefinition {
   meta: {
     id: string;
@@ -76,7 +89,7 @@ export interface ConnectorDefinition {
   // only ever reach the third-party host(s) it declares here.
   // Hostnames only — no scheme, no path, no wildcards (e.g. ["api.slack.com"]).
   allowedHosts: string[];
-  auth: Record<string, unknown>;
+  auth: ConnectorAuthConfig;
   triggers: TriggerDefinition[];
   actions: ActionDefinition[];
   onInstall?: (ctx: ConnectorContext) => Promise<void>;
