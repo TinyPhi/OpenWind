@@ -222,6 +222,7 @@ export async function executeAutomationRules(
           .from(automationExecutions)
           .where(
             and(
+              eq(automationExecutions.tenantId, tenantId),
               eq(automationExecutions.ruleId, rule.id),
               eq(automationExecutions.transitionEventId, transitionEventId),
               eq(automationExecutions.status, "success"),

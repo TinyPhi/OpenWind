@@ -19,6 +19,17 @@
  *
  * See docs/specs/outbox-automation-idempotent-consumption.md (T6) and
  * docs/specs/outbox-automation-idempotent-consumption-tasks.md.
+ *
+ * Scope note (PR #380 review): this proves SEQUENTIAL dedup — the sync path
+ * runs to completion and commits, then the "async" path is fed the same
+ * transitionEventId and finds the existing 'success' row. It does NOT
+ * exercise the advisory lock's actual blocking behavior (two genuinely
+ * concurrent Postgres connections racing on pg_advisory_xact_lock, one
+ * blocked until the other commits) — that requires two separate connections
+ * held open past lock acquisition, which this single-process test doesn't
+ * attempt. The lock's blocking semantics are documented PostgreSQL behavior,
+ * not re-verified here; a true concurrent-connections test is tracked
+ * separately as issue #382.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";

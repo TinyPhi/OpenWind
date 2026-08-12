@@ -224,6 +224,11 @@ describe("a 'failed' execution for (ruleId, transitionEventId) does not block a 
       );
     expect(afterFirst).toHaveLength(1);
     expect(afterFirst[0]?.status).toBe("failed");
+    // executor.ts stores actionError.message, and AutomationError's
+    // constructor (types.ts) calls super(code) — so .message === .code by
+    // construction. This assertion is coupled to that; if AutomationError
+    // is ever changed to build a human-readable message separately from its
+    // stable .code enum, this would need to change too (PR #380 review, LOW).
     expect(afterFirst[0]?.error).toBe("ENTITY_NOT_FOUND");
 
     // Fix the rule — same shape of change a human/admin would make after
