@@ -10,6 +10,43 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — Issue #143 Phase 2: consumer-side automation dedup (closes #143)
+
+**Session type:** Feature (Phase 3A prerequisite, built in a parallel git worktree alongside
+issue #362's implementation — first genuinely parallel work in this session, orchestrated as a
+background subagent in `../openwind-fix-143` while the main session worked on other Stage 2
+items)
+**Summary:** `executeAutomationRules` (`packages/automation-engine/src/executor.ts`) now
+deduplicates per `(ruleId, transitionEventId)` pair: when a `transitionEventId` is present, the
+whole insert-running/run-actions/update-status sequence runs inside a `db.transaction()` that
+first acquires `pg_advisory_xact_lock(hashtextextended(ruleId || ':' || transitionEventId, 0))`
+(auto-released on the enclosing REAL transaction's commit/rollback, not a savepoint boundary —
+what makes a racing attempt actually block until the first attempt durably commits) and then
+checks for an existing `status = 'success'` row for that pair, skipping entirely if found. A
+prior `'failed'` row never blocks a legitimate retry — only `'success'` counts. When
+`transitionEventId` is absent (non-transition-sourced triggers), behavior is byte-for-byte
+unchanged — no new transaction, no lock. Closes the loop opened by PR #372's Phase 1 (unconditional
+outbox write): the outbox row now genuinely has duplicate-delivery protection on the consumer
+side, which is what #364 (webhook gateway) needs before it can safely read from it.
+New isolation tests: sync-then-async race (T6), MAX_DEPTH enforcement now provably reachable on
+the async path (T7 — previously dead/untestable code before Phase 1 existed), and retry-after-
+failure (T8). T9 (partial unique index backstop) was already covered by PR #372's own isolation
+test — confirmed sufficient, not duplicated.
+Two real gaps found and filed as follow-ups rather than fixed in this PR (out of scope): #378
+(`outbox-poller.ts`'s temporary automation-transition exclusion, added defensively in PR #372
+before this dedup existed, is now safe to remove but wasn't touched here) and #379 (the
+"transition" automation action never stamps its own recursion `depth` onto the outbox row it
+produces, unlike the analogous `create-entity.ts` action — found while building T7, sidestepped
+in that test via a direct-construction shortcut rather than fixed, since `transition.ts` was
+out of this PR's scope).
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (25/25 tasks;
+`@platform/automation-engine` 79/79, `@platform/api` 773/773). `pnpm test:isolation`: PASS
+(15/15 tasks; `@platform/api` 45/45 files / 277/277 tests, `@platform/worker` 2/2). All
+independently re-verified by the orchestrating session (not just the subagent's own report),
+including a fresh un-cached run of all 4 new/relevant isolation test files.
+
+---
+
 ## 2026-08-12 — PR #373 review fixes: forward-compat TODOs, scopesFormat test coverage
 
 **Session type:** Bug fix (human review response, same #370 track)

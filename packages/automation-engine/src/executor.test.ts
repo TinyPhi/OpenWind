@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSelect = vi.fn();
+const mockDedupSelect = vi.fn();
 const mockInsert = vi.fn();
 const mockUpdate = vi.fn();
+const mockExecute = vi.fn();
 const mockUpdateEntity = vi.fn();
 const mockCreateEntity = vi.fn();
 const mockGetEntity = vi.fn();
@@ -16,10 +18,15 @@ const mockTransaction = vi.fn(async (fn: (tx: unknown) => Promise<void>) => {
 });
 
 const dbMock = {
+  // Two select shapes are used by executor.ts: the rules lookup ends in
+  // .orderBy() (mockSelect), T4's dedup existing-success check ends in
+  // .limit() (mockDedupSelect) — kept distinct so tests can control each
+  // independently.
   select: () => ({
     from: () => ({
       where: () => ({
         orderBy: () => mockSelect(),
+        limit: () => mockDedupSelect(),
       }),
     }),
   }),
@@ -34,6 +41,7 @@ const dbMock = {
     }),
   }),
   transaction: mockTransaction,
+  execute: mockExecute,
 };
 
 vi.mock("@platform/db", () => ({
@@ -45,6 +53,13 @@ vi.mock("@platform/db", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
   and: vi.fn((...args: unknown[]) => args),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({
+      strings,
+      values,
+    }),
+    { join: vi.fn() },
+  ),
 }));
 
 vi.mock("@platform/workflow-engine", () => ({
@@ -109,6 +124,8 @@ describe("executeAutomationRules", () => {
     vi.clearAllMocks();
     mockInsert.mockResolvedValue([EXEC_ROW]);
     mockUpdate.mockResolvedValue(undefined);
+    mockDedupSelect.mockResolvedValue([]);
+    mockExecute.mockResolvedValue(undefined);
     mockTransaction.mockImplementation(
       async (fn: (tx: unknown) => Promise<void>) => {
         await fn(dbMock);
@@ -492,5 +509,68 @@ describe("executeAutomationRules", () => {
     await expect(
       executeAutomationRules(dbMock as never, TENANT_ID, { bad: "data" }),
     ).rejects.toBeInstanceOf(AutomationError);
+  });
+
+  describe("transitionEventId dedup (#143 Phase 2 / T4)", () => {
+    const TRANSITION_EVENT_ID = "eeeeeeee-0000-4000-a000-000000000099";
+
+    it("does not acquire the advisory lock or run the dedup check when transitionEventId is absent", async () => {
+      mockSelect.mockResolvedValue([NOTIFY_RULE]);
+
+      await executeAutomationRules(
+        dbMock as never,
+        TENANT_ID,
+        BASE_EVENT,
+        0,
+        MOCK_REDIS as never,
+        undefined,
+        undefined,
+      );
+
+      expect(mockExecute).not.toHaveBeenCalled();
+      expect(mockDedupSelect).not.toHaveBeenCalled();
+      expect(mockInsert).toHaveBeenCalled();
+      expect(mockUpdate).toHaveBeenCalled();
+    });
+
+    it("acquires the advisory lock and runs the rule normally when no prior success row exists", async () => {
+      mockSelect.mockResolvedValue([NOTIFY_RULE]);
+      mockDedupSelect.mockResolvedValue([]); // no existing success row
+
+      await executeAutomationRules(
+        dbMock as never,
+        TENANT_ID,
+        BASE_EVENT,
+        0,
+        MOCK_REDIS as never,
+        undefined,
+        TRANSITION_EVENT_ID,
+      );
+
+      expect(mockExecute).toHaveBeenCalledOnce();
+      expect(mockDedupSelect).toHaveBeenCalledOnce();
+      expect(mockInsert).toHaveBeenCalled();
+      expect(mockUpdate).toHaveBeenCalledOnce();
+    });
+
+    it("skips the rule entirely — no insert, no actions — when a success row already exists for (ruleId, transitionEventId)", async () => {
+      mockSelect.mockResolvedValue([NOTIFY_RULE]);
+      mockDedupSelect.mockResolvedValue([{ id: "prior-exec-1" }]);
+
+      await executeAutomationRules(
+        dbMock as never,
+        TENANT_ID,
+        BASE_EVENT,
+        0,
+        MOCK_REDIS as never,
+        undefined,
+        TRANSITION_EVENT_ID,
+      );
+
+      expect(mockExecute).toHaveBeenCalledOnce(); // lock still acquired
+      expect(mockDedupSelect).toHaveBeenCalledOnce();
+      expect(mockInsert).not.toHaveBeenCalled();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
   });
 });
