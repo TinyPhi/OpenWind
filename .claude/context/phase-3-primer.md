@@ -54,15 +54,20 @@ plan-lock all of this as one unit.
 
 ### Stage 0 — cheap prep, no ADR blocking
 
-- [~] #143 Phase 1 (producer side) done — PR #372 merged 2026-08-12: `executeTransition` now
-  writes to the outbox unconditionally for every `triggeredBy`, carrying a `transitionEventId`
-  for future dedup. Recovered from an abandoned local branch, revived and shipped independently
-  (see week-log); PR #372's human review found and fixed one CRITICAL (outbox-poller double-fire
-  on automation-triggered transitions, temporarily excluded pending Phase 2) and one HIGH (dead
-  partial-unique-index condition) issue before merge. **Still open — Phase 2 (consumer-side dedup
-  enforcement, spec tasks T4/T6-T9 in `docs/specs/outbox-automation-idempotent-consumption-tasks.md`)
-  is required before #364 (webhook gateway) can safely read the outbox** — without it, an
-  automation-triggered transition's outbox row has no duplicate-delivery protection yet.
+- [x] #143 both phases done — Phase 1 (producer side) merged via PR #372, 2026-08-12; Phase 2
+      (consumer-side dedup, spec tasks T4/T6-T9) merged 2026-08-12. `executeTransition` writes to the
+      outbox unconditionally for every `triggeredBy`, carrying a `transitionEventId`; `executor.ts`
+      now serializes concurrent attempts at the same `(ruleId, transitionEventId)` pair on a Postgres
+      advisory lock (auto-released on the enclosing real transaction's commit/rollback) and skips a
+      rule whose actions already completed successfully for that pair, while still permitting retry
+      of a `'failed'` attempt. T9 (unique-index backstop) was already covered by PR #372's own
+      isolation test. **#364 (webhook gateway) is now unblocked on this front** — though see
+      [#378](../../issues/378): `outbox-poller.ts`'s temporary exclusion of automation-triggered
+      transitions (added alongside Phase 1, safe to remove now that Phase 2's dedup exists) hasn't
+      been removed yet, so those rows still don't reach the real BullMQ queue in production. Also
+      found during Phase 2: [#379](../../issues/379), the "transition" automation action never stamps
+      its own recursion depth onto the outbox row it produces — a separate, real gap, not fixed as
+      part of Phase 2 (out of that PR's scope).
 - [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #3/#5 — done
       2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
       `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
@@ -109,15 +114,39 @@ trackable replacement).
 
 Runtime track:
 
-- [ ] `ConnectorContext` + OpenBao credential decrypt (connector code never sees raw secrets).
-      [#362](../../issues/362)
+- [x] `ConnectorContext` + OpenBao credential decrypt (connector code never sees raw secrets) —
+      done 2026-08-12. `ConnectorDefinition.auth` is now a concrete discriminated union
+      (`ConnectorAuthConfig`: `bearer` / `basic` / `apiKey`, each naming the `credentialKey`(s)
+      it needs) replacing the prior `Record<string, unknown>` placeholder — this is the exact
+      shape #363's `connector_credentials` table needs to store (a JSONB map of
+      `credentialKey -> ciphertext` per tenant-connector installation). `callApi()` enforces
+      `allowedHosts` membership, then a ported, self-contained SSRF guard
+      (`packages/connector-sdk/src/ssrf-guard.ts` — deliberately not importing
+      `@platform/automation-engine`'s version, which would pull in `@platform/db`,
+      `entity-engine`, `workflow-engine`, `bullmq`, `drizzle-orm`, `ioredis` as transitive deps
+      for a lightweight SDK package), both strictly **before** any credential is decrypted —
+      the exact ordering ADR-009 Decision #5 calls out to prevent `callApi()` being used as a
+      credential-exfiltration oracle. `log()` delegates to `@platform/logger`'s existing pino
+      `redact` config rather than reimplementing scrubbing. **PR review (PrabhuVijit) caught a
+      CRITICAL DNS-rebinding gap in the first version:** the SSRF check validated a hostname's
+      resolved IP but `callApi()` then used global `fetch()`, which re-resolves DNS independently
+      — a 0-TTL DNS record could flip the address to something private between validation and
+      the real connection. Fixed by pinning the outbound connection to the validated IP via a
+      custom `http(s).Agent` `lookup` callback (`node:http(s).request`, not `fetch()` — Undici
+      silently ignores the `agent` option), matching `automation-engine/src/actions/webhook.ts`'s
+      already-established pattern exactly. Also added the port allowlist automation-engine's
+      guard already has (host allowlisting alone doesn't stop reaching an arbitrary port on an
+      allowed host). [#362](../../issues/362)
 - [ ] Inbound webhook gateway (`POST /webhooks/{connectorId}/{tenantId}`) — depends on Stage 0's
-      #143 resolution. [#364](../../issues/364)
+      #143 resolution (done) and #362 (done). [#364](../../issues/364)
 - [ ] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
       (Decision #9), sensitivity taxonomy/redactor (Decision #10 — **shared dependency**, see
-      above). [#365](../../issues/365)
+      above; already exists as `packages/workflow-engine/src/redact.ts`'s `redactMetadata`/
+      `buildSensitivityMap`, just needs wiring into outbound payload construction here, not a
+      new mechanism). [#365](../../issues/365)
 - [ ] `connector_definitions` + `connector_credentials` tables, with isolation tests in the same
-      PR that creates them. [#363](../../issues/363)
+      PR that creates them — now unblocked, #362's `ConnectorAuthConfig`/`credentialKey` shape is
+      what `connector_credentials`'s secrets column should key on. [#363](../../issues/363)
 - [ ] Polling scheduler (BullMQ repeatable job per connector per tenant). [#366](../../issues/366)
 - [ ] Kill switch (non-destructive disable, not just install/uninstall). [#367](../../issues/367)
 - [ ] Build email (SMTP/IMAP) + WhatsApp Business connectors _together with_ the runtime — the
