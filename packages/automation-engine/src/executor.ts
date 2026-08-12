@@ -28,6 +28,13 @@ export async function executeAutomationRules(
   depth = 0,
   redis?: Redis,
   outboxEventId?: string,
+  // Identity of the workflow.transitioned event this fired from, threaded as
+  // an explicit parameter (not read off `event`) so both the sync in-process
+  // path (transition.ts, from executeTransition's return value) and the
+  // async worker path (automation-worker.ts, from the outbox payload) agree
+  // on the same value. Recorded on automation_executions for future dedup
+  // enforcement — see docs/specs/outbox-automation-idempotent-consumption.md.
+  transitionEventId?: string,
 ): Promise<void> {
   if (depth >= MAX_DEPTH) {
     throw new AutomationError("MAX_DEPTH_EXCEEDED", { depth });
@@ -59,13 +66,21 @@ export async function executeAutomationRules(
     // trees can match on both. entity.created events carry a `fields` map;
     // all other event types carry their data as top-level properties only.
     // Excludes envelope/engine-internal keys (fields is merged in separately
-    // below; version/tenantId/depth are transport metadata, not domain data —
-    // depth in particular is an internal recursion counter that a tenant
-    // should never be able to write a condition against, e.g. `depth > 3`).
+    // below; version/tenantId/depth/transitionEventId are transport metadata,
+    // not domain data — depth is an internal recursion counter and
+    // transitionEventId an internal dedup identity, neither of which a
+    // tenant should be able to write a condition against.
     const eventFields: Record<string, unknown> = {
       ...Object.fromEntries(
         Object.entries(event).filter(
-          ([k]) => !["fields", "version", "tenantId", "depth"].includes(k),
+          ([k]) =>
+            ![
+              "fields",
+              "version",
+              "tenantId",
+              "depth",
+              "transitionEventId",
+            ].includes(k),
         ),
       ),
       ...("fields" in event ? (event.fields as Record<string, unknown>) : {}),
@@ -86,6 +101,10 @@ export async function executeAutomationRules(
         triggerEvent: event as Record<string, unknown>,
         status: "running",
         startedAt: new Date(),
+        // Write-only in this phase — dedup enforcement (advisory lock +
+        // completed-status check before this insert) lands separately. See
+        // docs/specs/outbox-automation-idempotent-consumption.md §T (T4).
+        transitionEventId: transitionEventId ?? null,
       })
       .returning();
 
