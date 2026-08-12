@@ -109,15 +109,30 @@ trackable replacement).
 
 Runtime track:
 
-- [ ] `ConnectorContext` + OpenBao credential decrypt (connector code never sees raw secrets).
-      [#362](../../issues/362)
+- [x] `ConnectorContext` + OpenBao credential decrypt (connector code never sees raw secrets) —
+      done 2026-08-12. `ConnectorDefinition.auth` is now a concrete discriminated union
+      (`ConnectorAuthConfig`: `bearer` / `basic` / `apiKey`, each naming the `credentialKey`(s)
+      it needs) replacing the prior `Record<string, unknown>` placeholder — this is the exact
+      shape #363's `connector_credentials` table needs to store (a JSONB map of
+      `credentialKey -> ciphertext` per tenant-connector installation). `callApi()` enforces
+      `allowedHosts` membership, then a ported, self-contained SSRF guard
+      (`packages/connector-sdk/src/ssrf-guard.ts` — deliberately not importing
+      `@platform/automation-engine`'s version, which would pull in `@platform/db`,
+      `entity-engine`, `workflow-engine`, `bullmq`, `drizzle-orm`, `ioredis` as transitive deps
+      for a lightweight SDK package), both strictly **before** any credential is decrypted —
+      the exact ordering ADR-009 Decision #5 calls out to prevent `callApi()` being used as a
+      credential-exfiltration oracle. `log()` delegates to `@platform/logger`'s existing pino
+      `redact` config rather than reimplementing scrubbing. [#362](../../issues/362)
 - [ ] Inbound webhook gateway (`POST /webhooks/{connectorId}/{tenantId}`) — depends on Stage 0's
-      #143 resolution. [#364](../../issues/364)
+      #143 resolution (done) and #362 (done). [#364](../../issues/364)
 - [ ] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
       (Decision #9), sensitivity taxonomy/redactor (Decision #10 — **shared dependency**, see
-      above). [#365](../../issues/365)
+      above; already exists as `packages/workflow-engine/src/redact.ts`'s `redactMetadata`/
+      `buildSensitivityMap`, just needs wiring into outbound payload construction here, not a
+      new mechanism). [#365](../../issues/365)
 - [ ] `connector_definitions` + `connector_credentials` tables, with isolation tests in the same
-      PR that creates them. [#363](../../issues/363)
+      PR that creates them — now unblocked, #362's `ConnectorAuthConfig`/`credentialKey` shape is
+      what `connector_credentials`'s secrets column should key on. [#363](../../issues/363)
 - [ ] Polling scheduler (BullMQ repeatable job per connector per tenant). [#366](../../issues/366)
 - [ ] Kill switch (non-destructive disable, not just install/uninstall). [#367](../../issues/367)
 - [ ] Build email (SMTP/IMAP) + WhatsApp Business connectors _together with_ the runtime — the

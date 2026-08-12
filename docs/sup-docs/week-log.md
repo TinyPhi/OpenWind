@@ -10,6 +10,38 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — Issue #362: ConnectorContext runtime + OpenBao credential decrypt
+
+**Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree
+alongside issue #143 Phase 2 — orchestrated as a background subagent in `../openwind-feat-362`)
+**Summary:** First real implementation in `packages/connector-sdk` beyond the type contract
+shipped in PR #359 — a `createConnectorContext(tenantId, definition, encryptedCredentials)`
+factory (`src/runtime.ts`) implementing `ConnectorContext.callApi()` per ADR-009 Decision #5.
+`ConnectorDefinition.auth` is now a concrete discriminated union (`ConnectorAuthConfig`: `bearer`
+/ `basic` / `apiKey`, each naming the `credentialKey`(s) it needs), replacing the prior
+`Record<string, unknown>` placeholder — this design decision was made explicit in this branch's
+plan-lock up front (presented for approval before implementation) since issue #363's
+`connector_credentials` table depends on it. `callApi()` enforces `definition.allowedHosts`
+membership, then a ported SSRF guard, both strictly before any credential is decrypted via
+`@platform/secrets`'s `decryptCredential` — the exact ordering ADR-009 flags as necessary to stop
+`callApi()` being usable as a credential-exfiltration oracle. The SSRF guard
+(`src/ssrf-guard.ts`) is a deliberate, documented port of `automation-engine/src/ssrf-guard.ts`'s
+core logic rather than an import of that package — automation-engine pulls in `@platform/db`,
+`entity-engine`, `workflow-engine`, `bullmq`, `drizzle-orm`, `ioredis`, all wrong transitive
+weight for a lightweight SDK package with zero DB dependency today. `log()` delegates to
+`@platform/logger`'s existing pino `redact` config rather than reimplementing scrubbing.
+Independently re-verified (not just the implementing subagent's report): re-ran typecheck/lint/
+test fresh, and read `runtime.ts`/`ssrf-guard.ts` directly to confirm the allowlist-then-SSRF-
+then-decrypt ordering is actually enforced in code, not just described in comments — the test
+suite asserts this concretely (`decryptCredential`/`fetch` mocks proven NOT called on a
+disallowed host or a private-IP target, not just that the call throws).
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (26/26 tasks;
+`connector-sdk` 10/10 new tests; full `@platform/api` suite 770/770 unaffected — zero blast
+radius, nothing else imports `connector-sdk` yet). `test:isolation` not applicable (no DB/table
+touched — that's issue #363's job, now unblocked by this branch's `ConnectorAuthConfig` shape).
+
+---
+
 ## 2026-08-12 — PR #373 review fixes: forward-compat TODOs, scopesFormat test coverage
 
 **Session type:** Bug fix (human review response, same #370 track)
