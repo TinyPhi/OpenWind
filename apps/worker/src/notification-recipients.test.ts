@@ -66,6 +66,20 @@ describe("resolveRecipients", () => {
     expect(selfAssign.recipients).toEqual([]);
   });
 
+  it("entity.unassigned: recipient is the previous assignee, self-suppressed if they reassigned it themselves", async () => {
+    const result = await resolveRecipients("t-1", "entity.unassigned", {
+      previousAssigneeId: "u-old-assignee",
+      actorId: "u-reassigner",
+    });
+    expect(result.recipients).toEqual(["u-old-assignee"]);
+
+    const selfReassigned = await resolveRecipients("t-1", "entity.unassigned", {
+      previousAssigneeId: "u-old-assignee",
+      actorId: "u-old-assignee",
+    });
+    expect(selfReassigned.recipients).toEqual([]);
+  });
+
   it("comment.mentioned: only explicitly mentioned users, actor excluded even if self-mentioned", async () => {
     const result = await resolveRecipients("t-1", "comment.mentioned", {
       actorId: "u-author",
@@ -157,6 +171,7 @@ describe("resolveRecipients", () => {
   describe("malformed payload parsing failure path", () => {
     const eventTypes = [
       "entity.assigned",
+      "entity.unassigned",
       "comment.mentioned",
       "comment.mention_access_granted",
       "comment.replied",

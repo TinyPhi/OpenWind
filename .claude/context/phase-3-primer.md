@@ -61,13 +61,12 @@ plan-lock all of this as one unit.
       advisory lock (auto-released on the enclosing real transaction's commit/rollback) and skips a
       rule whose actions already completed successfully for that pair, while still permitting retry
       of a `'failed'` attempt. T9 (unique-index backstop) was already covered by PR #372's own
-      isolation test. **#364 (webhook gateway) is now unblocked on this front** — though see
-      [#378](../../issues/378): `outbox-poller.ts`'s temporary exclusion of automation-triggered
-      transitions (added alongside Phase 1, safe to remove now that Phase 2's dedup exists) hasn't
-      been removed yet, so those rows still don't reach the real BullMQ queue in production. Also
-      found during Phase 2: [#379](../../issues/379), the "transition" automation action never stamps
-      its own recursion depth onto the outbox row it produces — a separate, real gap, not fixed as
-      part of Phase 2 (out of that PR's scope).
+      isolation test. **#364 (webhook gateway) is now fully unblocked**, including
+      [#378](../../issues/378) (`outbox-poller.ts`'s temporary automation-transition exclusion,
+      done 2026-08-12 — the poller now claims and enqueues these rows like any other, with a new
+      isolation test proving the resulting race against the sync in-process path still nets to
+      exactly one success) and [#379](../../issues/379) (the "transition" automation action now
+      stamps `depth` onto its `executeTransition` call, done 2026-08-12, with a regression test).
 - [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #3/#5 — done
       2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
       `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
@@ -147,7 +146,7 @@ Runtime track:
       `notifyOutboundQueue`'s 3-attempts/1s config (~7s window, sized for internal outages);
       worst-case cumulative delay `45_000 * (2^11 - 1)` ≈ 25.6h, approaching the ADR's
       Stripe/Svix ~27h reference. New pure module `packages/connector-sdk/src/
-    outbound-envelope.ts`: HMAC-SHA256 over `${timestampUnixSeconds}.${rawBody}`,
+outbound-envelope.ts`: HMAC-SHA256 over `${timestampUnixSeconds}.${rawBody}`,
       `X-OpenWind-Signature: t=<unix>,v1=<hex>` + `X-OpenWind-Delivery-Id: <uuid>` headers
       (mirrors Stripe/Svix convention, intended to match ADR-009 Decision #3's inbound spec —
       **reconciliation note:** #364 had not been implemented as of this issue, so this header
@@ -158,7 +157,7 @@ Runtime track:
       `apps/worker/src/connector-outbound-worker.ts` queue consumer, which re-runs SSRF
       validation (`connector-sdk`'s `assertEgressAllowed`, from #362) and connection-pinning on
       **every** delivery attempt, not just the first. New `packages/connector-sdk/src/
-    registry.ts` (in-memory `Map`) is the seam letting the worker resolve a BullMQ job's
+registry.ts` (in-memory `Map`) is the seam letting the worker resolve a BullMQ job's
       `connectorId`/`actionId` back to its real `ActionDefinition` — a job's data crosses Redis
       as plain JSON and can't carry a live Zod schema. **Deliberately NOT built, per this
       issue's own scope:** ADR-009 Decision #10's "explicit per-connector grant to cross the

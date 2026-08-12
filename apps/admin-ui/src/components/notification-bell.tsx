@@ -56,6 +56,12 @@ export function NotificationBell(): React.ReactElement {
 
   useEffect(() => {
     const unsubscribe = subscribeToNotifications((msg) => {
+      // msg is cast from an untrusted-shape JSON.parse, not validated by Zod
+      // (notifications-client.ts) — the declared type says `notification` is
+      // always present, but a publisher bug (JSON.stringify silently drops an
+      // undefined field) can send a frame without it. Defend at runtime even
+      // though the type says this check is unreachable (PR #376 review H2).
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (msg.type === "notification" && msg.notification) {
         const incoming = msg.notification;
         setItems((prev) => {

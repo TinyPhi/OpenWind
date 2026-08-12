@@ -62,6 +62,18 @@ export const EntityAssignedV1Schema = baseEvent.extend({
   assignedBy: z.string().uuid().nullable(),
 });
 
+// Notifies the user who LOST the assignment — see
+// packages/entity-engine/src/types.ts's EntityUnassignedEvent for why this
+// is a distinct event from entity.assigned rather than a second recipient
+// on the same one (different audience, different wording).
+export const EntityUnassignedV1Schema = baseEvent.extend({
+  eventType: z.literal("entity.unassigned"),
+  instanceId: z.string().uuid(),
+  entityTypeId: z.string().uuid(),
+  previousAssigneeId: z.string().uuid(),
+  actorId: z.string().uuid().nullable(),
+});
+
 export const EntityDueDateOverdueV1Schema = baseEvent.extend({
   eventType: z.literal("entity.due_date_overdue"),
   instanceId: z.string().uuid(),
@@ -114,11 +126,39 @@ export const SystemErrorV1Schema = baseEvent.extend({
   reason: z.string(),
 });
 
+// Fires for every comment (mentioned or not) — distinct from
+// CommentMentionedV1Schema/CommentRepliedV1Schema, which only fire for their
+// specific notification-recipient cases. Drives the ticket-room WS live-push
+// path (docs/specs/ticket-live-updates.md), independent of who (if anyone)
+// gets a per-user inbox notification for the same comment.
+export const CommentCreatedV1Schema = baseEvent.extend({
+  eventType: z.literal("comment.created"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  commentId: z.string().uuid(),
+});
+
+export const AccessRequestCreatedV1Schema = baseEvent.extend({
+  eventType: z.literal("access_request.created"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  requestId: z.string().uuid(),
+});
+
+export const AccessRequestUpdatedV1Schema = baseEvent.extend({
+  eventType: z.literal("access_request.updated"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  requestId: z.string().uuid(),
+  status: z.enum(["approved", "rejected"]),
+});
+
 export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   WorkflowTransitionedV1Schema,
   WorkflowSlaBreachedV1Schema,
   EntityCreatedV1Schema,
   EntityAssignedV1Schema,
+  EntityUnassignedV1Schema,
   EntityDueDateOverdueV1Schema,
   CommentMentionedV1Schema,
   CommentMentionAccessGrantedV1Schema,
@@ -126,6 +166,9 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   AccessGrantedV1Schema,
   AccessRevokedV1Schema,
   SystemErrorV1Schema,
+  CommentCreatedV1Schema,
+  AccessRequestCreatedV1Schema,
+  AccessRequestUpdatedV1Schema,
 ]);
 
 // Extracts just `depth` from an outbox payload before the full TriggerEventSchema
@@ -154,6 +197,7 @@ export type WorkflowTransitionedV1 = z.infer<
 export type WorkflowSlaBreachedV1 = z.infer<typeof WorkflowSlaBreachedV1Schema>;
 export type EntityCreatedV1 = z.infer<typeof EntityCreatedV1Schema>;
 export type EntityAssignedV1 = z.infer<typeof EntityAssignedV1Schema>;
+export type EntityUnassignedV1 = z.infer<typeof EntityUnassignedV1Schema>;
 export type EntityDueDateOverdueV1 = z.infer<
   typeof EntityDueDateOverdueV1Schema
 >;
@@ -165,4 +209,11 @@ export type CommentRepliedV1 = z.infer<typeof CommentRepliedV1Schema>;
 export type AccessGrantedV1 = z.infer<typeof AccessGrantedV1Schema>;
 export type AccessRevokedV1 = z.infer<typeof AccessRevokedV1Schema>;
 export type SystemErrorV1 = z.infer<typeof SystemErrorV1Schema>;
+export type CommentCreatedV1 = z.infer<typeof CommentCreatedV1Schema>;
+export type AccessRequestCreatedV1 = z.infer<
+  typeof AccessRequestCreatedV1Schema
+>;
+export type AccessRequestUpdatedV1 = z.infer<
+  typeof AccessRequestUpdatedV1Schema
+>;
 export type TriggerEvent = z.infer<typeof TriggerEventSchema>;

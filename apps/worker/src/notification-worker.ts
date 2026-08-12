@@ -7,6 +7,8 @@ import {
   tenantUsers,
   deadLetterEvents,
   isOutboundNotificationsEnabled,
+  workflowEvents,
+  accessRequests,
 } from "@platform/db";
 import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { logger } from "@platform/logger";
@@ -14,6 +16,122 @@ import { connection, notifyOutboundQueue } from "./queues.js";
 import { resolveRecipients } from "./notification-recipients.js";
 import { buildNotificationContent } from "./notification-templates.js";
 import { validateActiveTenant } from "./tenant-guard.js";
+
+// The 3 ticket-room-only event types from docs/specs/ticket-live-updates.md —
+// each publishes a room-scoped live push independent of whatever (if any)
+// per-user inbox notification the same outbox event also produces (spec §V:
+// "a room-scoped outbox event's existence never implies a
+// notifications/notification_recipients row was written, and vice versa").
+const ROOM_EVENT_TYPES = new Set([
+  "comment.created",
+  "access_request.created",
+  "access_request.updated",
+]);
+
+interface RoomPushPayload {
+  instanceId?: string;
+  actorId?: string;
+  commentId?: string;
+  requestId?: string;
+  status?: string;
+}
+
+async function publishRoomUpdate(
+  tenantId: string,
+  eventType: string,
+  payload: RoomPushPayload,
+): Promise<void> {
+  const instanceId = payload.instanceId;
+  if (!instanceId) return;
+
+  let message: Record<string, unknown> | null = null;
+
+  if (eventType === "comment.created" && payload.commentId) {
+    const commentId = payload.commentId;
+    const [comment] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .select({
+          metadata: workflowEvents.metadata,
+          actorId: workflowEvents.actorId,
+          createdAt: workflowEvents.createdAt,
+        })
+        .from(workflowEvents)
+        .where(
+          and(
+            eq(workflowEvents.id, commentId),
+            eq(workflowEvents.tenantId, tenantId),
+          ),
+        )
+        .limit(1),
+    );
+    if (!comment) return;
+    const metadata = comment.metadata as { text?: string } | null;
+    message = {
+      type: "comment.created",
+      instanceId,
+      comment: {
+        id: commentId,
+        body: metadata?.text ?? "",
+        authorId: comment.actorId,
+        createdAt: comment.createdAt.toISOString(),
+      },
+    };
+  } else if (
+    (eventType === "access_request.created" ||
+      eventType === "access_request.updated") &&
+    payload.requestId
+  ) {
+    const requestId = payload.requestId;
+    const [request] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .select({
+          requesterId: accessRequests.requesterId,
+          status: accessRequests.status,
+          resolvedBy: accessRequests.resolvedBy,
+          resolvedAt: accessRequests.resolvedAt,
+          createdAt: accessRequests.createdAt,
+        })
+        .from(accessRequests)
+        .where(
+          and(
+            eq(accessRequests.id, requestId),
+            eq(accessRequests.tenantId, tenantId),
+          ),
+        )
+        .limit(1),
+    );
+    if (!request) return;
+    message = {
+      type: eventType,
+      instanceId,
+      request: {
+        id: requestId,
+        requestedBy: request.requesterId,
+        status: request.status,
+        ...(request.resolvedBy && { resolvedBy: request.resolvedBy }),
+        ...(request.resolvedAt && {
+          resolvedAt: request.resolvedAt.toISOString(),
+        }),
+        createdAt: request.createdAt.toISOString(),
+      },
+    };
+  }
+
+  if (!message) return;
+
+  const redis = getRedis();
+  await redis
+    .publish(
+      NOTIFICATION_PUSH_CHANNEL,
+      JSON.stringify({ kind: "room", tenantId, instanceId, message }),
+    )
+    .catch((err: unknown) => {
+      logger.warn(
+        { err, tenantId, instanceId, eventType },
+        "Notification: failed to publish ticket-room live push",
+      );
+    });
+}
 
 interface NotificationJobData {
   outboxEventId: string;
@@ -62,6 +180,13 @@ export const notificationWorker = new Worker<NotificationJobData>(
       },
     );
     if (!active) return;
+
+    // Room push fires independent of inbox-notification recipient resolution
+    // below — e.g. a plain non-mention comment has zero notification
+    // recipients but must still reach every current viewer of the ticket.
+    if (ROOM_EVENT_TYPES.has(eventType)) {
+      await publishRoomUpdate(tenantId, eventType, payload);
+    }
 
     const resolved = await resolveRecipients(tenantId, eventType, payload);
     // Invariant: a notifications row is never created without at least one
