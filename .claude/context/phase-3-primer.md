@@ -136,8 +136,33 @@ Runtime track:
       already-established pattern exactly. Also added the port allowlist automation-engine's
       guard already has (host allowlisting alone doesn't stop reaching an arbitrary port on an
       allowed host). [#362](../../issues/362)
-- [ ] Inbound webhook gateway (`POST /webhooks/{connectorId}/{tenantId}`) — depends on Stage 0's
-      #143 resolution (done) and #362 (done). [#364](../../issues/364)
+- [x] Inbound webhook gateway (`POST /webhooks/:connectorId/:tenantId`) — done 2026-08-13.
+      Unauthenticated by JWT/API-key; the HMAC signature IS the authentication. Reuses
+      `@platform/connector-sdk`'s outbound-envelope helpers built for #365's opposite
+      direction (`verifyOutboundSignature`, `OUTBOUND_SIGNATURE_HEADER`/
+      `OUTBOUND_DELIVERY_ID_HEADER`) rather than reimplementing HMAC verification or
+      inventing different header names — resolves #365's own "pending reconciliation" note
+      into one signing convention shared by both directions. Order of checks, all collapsed
+      to an identical 401 for AC4's no-existence-oracle requirement (an attacker probing
+      cannot distinguish "wrong tenant/connector" from "right one, wrong signature"): parse + range-check the `t=` timestamp (±5min tolerance, Stripe/Svix precedent), look up the
+      installation's signing secret from `connector_credentials.secrets` (a new well-known
+      `webhookSigningSecret` credentialKey, distinct from any outbound-API-auth key the same
+      installation might carry), verify the signature against the raw body. Replay-dedupe on
+      the delivery-id header is a Redis `SET NX EX` that fails **closed** (409 on replay, 503
+      on a Redis error) — a deliberate divergence from `rate-limit.ts`'s fail-open
+      `checkRateLimit` convention, since replay protection is a security control (a
+      captured-and-resent valid request), not traffic shaping, and a sender's normal
+      retry-on-no-response behavior means failing closed only delays processing, not loses
+      it. AC5's `getConnectorDefinition()` reuse (from #365's in-memory registry) fails
+      closed too (401) if the connector isn't registered — no real connector exists yet
+      (#368's job); found no webhook trigger → 400; malformed JSON or a rejected transform →
+      400 (a different failure class than AC4, since the caller already authenticated by
+      that point). New `connectorInboundQueue` (`apps/worker/src/queues.ts`, mirrored in
+      `apps/api/src/lib/connector-inbound-queue.ts` per the dependency rule) publishes the
+      transformed event — no consumer exists yet, matching the issue's explicit scope (this
+      is the producer/gateway side only). AC2's pre-auth IP-keyed flood guard is already
+      satisfied by the existing global `rateLimit()` middleware (no redundant second guard
+      added). [#364](../../issues/364)
 - [x] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
       (Decision #9), sensitivity taxonomy/redactor (Decision #10) — done 2026-08-12, migration
       0057 (`connector_delivery_attempts`, RLS with both `USING`/`WITH CHECK` from day one).
@@ -146,7 +171,7 @@ Runtime track:
       `notifyOutboundQueue`'s 3-attempts/1s config (~7s window, sized for internal outages);
       worst-case cumulative delay `45_000 * (2^11 - 1)` ≈ 25.6h, approaching the ADR's
       Stripe/Svix ~27h reference. New pure module `packages/connector-sdk/src/
-  outbound-envelope.ts`: HMAC-SHA256 over `${timestampUnixSeconds}.${rawBody}`,
+outbound-envelope.ts`: HMAC-SHA256 over `${timestampUnixSeconds}.${rawBody}`,
       `X-OpenWind-Signature: t=<unix>,v1=<hex>` + `X-OpenWind-Delivery-Id: <uuid>` headers
       (mirrors Stripe/Svix convention, intended to match ADR-009 Decision #3's inbound spec —
       **reconciliation note:** #364 had not been implemented as of this issue, so this header
@@ -157,7 +182,7 @@ Runtime track:
       `apps/worker/src/connector-outbound-worker.ts` queue consumer, which re-runs SSRF
       validation (`connector-sdk`'s `assertEgressAllowed`, from #362) and connection-pinning on
       **every** delivery attempt, not just the first. New `packages/connector-sdk/src/
-  registry.ts` (in-memory `Map`) is the seam letting the worker resolve a BullMQ job's
+registry.ts` (in-memory `Map`) is the seam letting the worker resolve a BullMQ job's
       `connectorId`/`actionId` back to its real `ActionDefinition` — a job's data crosses Redis
       as plain JSON and can't carry a live Zod schema. **Deliberately NOT built, per this
       issue's own scope:** ADR-009 Decision #10's "explicit per-connector grant to cross the

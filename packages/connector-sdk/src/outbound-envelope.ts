@@ -63,17 +63,28 @@ export function buildOutboundEnvelope(params: {
 }
 
 /**
- * HMAC-SHA256 over `${timestampUnixSeconds}.${rawBody}` — same construction
- * as ADR-009 Decision #3's inbound verification, so the platform has exactly
- * one signing convention shared by both directions.
+ * HMAC-SHA256 over `${deliveryId}.${timestampUnixSeconds}.${rawBody}` — same
+ * construction as ADR-009 Decision #3's inbound verification, so the platform
+ * has exactly one signing convention shared by both directions.
+ *
+ * deliveryId is part of the SIGNED content, not just a sibling header —
+ * matching Svix's own `msgId.timestamp.payload` precedent this scheme is
+ * otherwise modeled on. Security review of issue #364 (the inbound verifier)
+ * caught that an earlier version signed only `timestamp.rawBody`: since the
+ * inbound gateway's replay-dedupe keys solely on the (unsigned) delivery-id
+ * header, an attacker who captured one valid (signature, timestamp, body)
+ * triple could relabel it with a fresh delivery-id and bypass replay
+ * protection entirely — the signature stayed valid because it never covered
+ * the id. Binding deliveryId into the signature closes that gap.
  */
 export function signOutboundPayload(
   secret: string,
+  deliveryId: string,
   timestampUnixSeconds: number,
   rawBody: string,
 ): string {
   return createHmac("sha256", secret)
-    .update(`${timestampUnixSeconds}.${rawBody}`)
+    .update(`${deliveryId}.${timestampUnixSeconds}.${rawBody}`)
     .digest("hex");
 }
 
@@ -95,7 +106,12 @@ export function signOutboundRequest(
   deliveryId: string,
   timestampUnixSeconds: number = Math.floor(Date.now() / 1000),
 ): Record<string, string> {
-  const signature = signOutboundPayload(secret, timestampUnixSeconds, rawBody);
+  const signature = signOutboundPayload(
+    secret,
+    deliveryId,
+    timestampUnixSeconds,
+    rawBody,
+  );
   return {
     [OUTBOUND_SIGNATURE_HEADER]: buildSignatureHeaderValue(
       timestampUnixSeconds,
@@ -108,16 +124,25 @@ export function signOutboundRequest(
 /**
  * Constant-time comparison helper — exported so any future consumer that
  * needs to verify one of these signatures (e.g. a test harness standing in
- * for a connector's receiving endpoint) does not reach for `===` on secret
- * material. Not used by the outbound sender itself (which only signs).
+ * for a connector's receiving endpoint, or issue #364's inbound gateway)
+ * does not reach for `===` on secret material. Not used by the outbound
+ * sender itself (which only signs). `deliveryId` MUST be the value the
+ * caller will use for its own replay-dedupe key — passing a different value
+ * than what's actually dedupe-checked reopens the bypass this binding fixes.
  */
 export function verifyOutboundSignature(
   secret: string,
+  deliveryId: string,
   rawBody: string,
   timestampUnixSeconds: number,
   signatureHex: string,
 ): boolean {
-  const expected = signOutboundPayload(secret, timestampUnixSeconds, rawBody);
+  const expected = signOutboundPayload(
+    secret,
+    deliveryId,
+    timestampUnixSeconds,
+    rawBody,
+  );
   const a = Buffer.from(expected, "hex");
   const b = Buffer.from(signatureHex, "hex");
   return a.length === b.length && timingSafeEqual(a, b);

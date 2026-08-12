@@ -10,6 +10,75 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-13 — Issue #364: inbound webhook gateway (ADR-009 Decision #3)
+
+**Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree
+`../openwind-feat-364`, running alongside issue #365)
+**Summary:** New `POST /webhooks/:connectorId/:tenantId` route, deliberately unauthenticated
+by JWT/API-key — the HMAC signature over the raw body is the authentication. Reuses
+`@platform/connector-sdk`'s outbound-envelope helpers built for #365's opposite direction
+(`verifyOutboundSignature`, `OUTBOUND_SIGNATURE_HEADER`/`OUTBOUND_DELIVERY_ID_HEADER`) rather
+than reimplementing HMAC verification or inventing different header names — this resolves
+#365's own "pending reconciliation" note into one signing convention shared by both
+directions. Cherry-picked #365's commit onto this branch first (verified byte-identical to
+that branch's own reviewed content) since #364 depends on its registry and signing helpers,
+neither of which existed on `main` yet.
+**Order of checks:** parse + range-check the `t=` timestamp (±5min tolerance, Stripe/Svix
+precedent) → look up the tenant+connector installation's signing secret from
+`connector_credentials.secrets` (a new well-known `webhookSigningSecret` credentialKey) →
+verify the signature against the raw body — all three failure modes collapse to an
+_identical_ 401 response (AC4's no-existence-oracle requirement: an attacker probing this
+endpoint cannot tell "wrong tenant/connector" apart from "right one, wrong signature").
+Replay-dedupe (a Redis `SET NX EX` keyed on the delivery-id header) runs after signature
+verification and deliberately fails **closed** — 409 on a genuine replay, 503 if the Redis
+check itself errors — a conscious divergence from `rate-limit.ts`'s fail-open
+`checkRateLimit` convention, since replay protection guards against a captured-and-resent
+_valid_ request (a real security concern this check exists specifically to catch), whereas a
+Redis outage failing closed here only delays processing (senders retry on no response), not
+loses data. AC5's connector/trigger dispatch reuses `getConnectorDefinition()` from #365's
+in-memory registry (fails closed, 401, if unregistered — no real connector exists yet, #368's
+job) rather than a second lookup mechanism; a missing webhook trigger or a rejected
+transform/malformed body are a _different_ failure class (400) since the caller already
+authenticated by that point. New `connectorInboundQueue` (`apps/worker/src/queues.ts`,
+mirrored producer-side in `apps/api/src/lib/connector-inbound-queue.ts` per the
+apps-can't-import-apps dependency rule) publishes the transformed event on success — no
+consumer exists yet, matching the issue's explicit producer/gateway-only scope. AC2's
+pre-auth IP-keyed flood guard is already satisfied by the existing global `rateLimit()`
+middleware (`app.use("*", rateLimit())` in `app.ts`) — no redundant second guard added.
+**Security-review findings, both fixed:**
+
+- **HIGH — replay-dedupe bypass via unsigned delivery-id.** The shared HMAC construction
+  (`packages/connector-sdk/src/outbound-envelope.ts`, built by #365) signed only
+  `${timestamp}.${rawBody}` — the delivery-id traveled outside the signed content. Since
+  this route's replay-dedupe keys solely on that (unsigned) header, an attacker who captured
+  one valid `(signature, timestamp, body)` triple could relabel it with a fresh delivery-id
+  and bypass replay protection entirely: the signature stayed valid because it never covered
+  the id. This is a gap in the shared signing convention itself (both directions use the same
+  function), not just this route's usage of it, so the fix landed in `outbound-envelope.ts`
+  (now signs `${deliveryId}.${timestamp}.${rawBody}`, matching Svix's own
+  `msgId.timestamp.payload` precedent this scheme was modeled on but had incompletely
+  ported) — coordinated with issue #365's already-open PR. Regression tests added in both
+  branches proving a relabeled delivery-id invalidates the signature.
+- **HIGH — timing side-channel defeats AC4's no-existence-oracle property.** The "installation
+  not found" branch returned 401 immediately, while the "found, bad signature" branch first
+  paid a real OpenBao network round-trip (`decryptCredential`) before its own 401 — a
+  measurable latency difference between two branches designed to be indistinguishable.
+  Fixed: the "not found" branch now pays an equivalent-shaped dummy decrypt call (result
+  discarded, error ignored) so both paths cost the same before responding. Regression test
+  asserts the dummy call actually fires.
+
+**Verification:** `pnpm typecheck`/`lint`: PASS. `pnpm test`: PASS (819/819, including the
+new `handler.test.ts` 14/14 covering every AC3/AC4/AC5 branch plus both security-review
+regressions — valid signature accepted, missing/invalid/expired-timestamp signature rejected
+identically, unknown installation rejected identically to bad signature (with an equivalent
+decrypt round-trip paid either way), missing signing-secret key rejected, a relabeled
+delivery-id rejected, replay rejected (409) and Redis-failure-during-replay-check fails
+closed (503), unregistered connector rejected, no-webhook-trigger/malformed-JSON/
+transform-rejection all 400). `pnpm test:isolation`: PASS (301/301) — no new table, so
+unaffected by design.
+
+---
+
 ## 2026-08-12 — Issue #382: true concurrent-connections test for the advisory lock
 
 **Session type:** Test (follow-up from PR #380 review, one of four parallel workstreams
