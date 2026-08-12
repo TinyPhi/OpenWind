@@ -10,6 +10,12 @@ const EntityAssignedSchema = z.object({
   instanceId: z.string().optional(),
 });
 
+const EntityUnassignedSchema = z.object({
+  actorId: z.string().nullable().optional(),
+  previousAssigneeId: z.string(),
+  instanceId: z.string().optional(),
+});
+
 const CommentMentionedSchema = z.object({
   actorId: z.string(),
   mentionedUserIds: z.array(z.string()),
@@ -83,6 +89,33 @@ export async function resolveRecipients(
       const assigneeId = data.assigneeId;
       return {
         recipients: finalize([assigneeId], actorId),
+        actorId,
+        instanceId: data.instanceId,
+        reason: undefined,
+      };
+    }
+
+    case "entity.unassigned": {
+      const parsed = EntityUnassignedSchema.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn(
+          { eventType, payload, error: parsed.error },
+          "Malformed payload for entity.unassigned",
+        );
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+      }
+      const data = parsed.data;
+      const actorId = data.actorId ?? null;
+      const previousAssigneeId = data.previousAssigneeId;
+      return {
+        // R2's self-suppression: if the previous assignee reassigned the
+        // ticket away from themselves, they don't need telling.
+        recipients: finalize([previousAssigneeId], actorId),
         actorId,
         instanceId: data.instanceId,
         reason: undefined,
