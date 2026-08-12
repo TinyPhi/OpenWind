@@ -10,6 +10,37 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — Issue #382: true concurrent-connections test for the advisory lock
+
+**Session type:** Test (follow-up from PR #380 review, one of four parallel workstreams
+orchestrated this session)
+**Summary:** `automation-transition-dedup-sync-async-race.isolation.test.ts` (PR #380) proved
+sequential dedup — one call commits, then a second finds the existing `'success'` row — but
+never exercised `executor.ts`'s advisory lock actually blocking two genuinely concurrent
+attempts. New `automation-transition-dedup-concurrent-lock.isolation.test.ts` closes that gap:
+two concurrent `executeAutomationRules` calls for the same `(ruleId, transitionEventId)`, each
+on its own physical Postgres connection (postgres-js's connection pool — confirmed
+`DATABASE_POOL_MAX=3` in `apps/api/vitest.config.ts`, so two concurrent `db.transaction()` calls
+genuinely get separate backend sessions). A `Proxy`-based `wrapForLockTiming()` helper injects a
+real 400ms delay into the first call immediately after its advisory lock is acquired (verified
+against the actual `executor.ts` code that this is the only raw `.execute()` call in the path),
+without touching `executor.ts` itself. The second call is held back until the first's lock
+acquisition is signaled — removing scheduler-order flakiness while leaving the actual property
+under test (the second call's own lock attempt genuinely blocking at the Postgres level) fully
+real. Assertion: the second call's wall-clock duration is at least 80% of the injected delay —
+proof it was blocked, not that the two calls coincidentally ran in a safe order. Also asserts the
+correctness property: exactly one success row, exactly one notification, with no shared
+`outboxEventId` so `notify`'s own idempotency key can't mask a broken lock.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test:isolation`: PASS (46/46
+files, 278/278 tests). Flakiness check: run standalone 10 times by the implementing agent, then
+independently re-run 5 more times by the orchestrating session — 15/15 total, no flakiness.
+Design independently verified: confirmed the `.execute()`/`.transaction()` interception points
+match `executor.ts`'s actual dedup-transaction structure, and confirmed the test environment's
+connection pool size genuinely allows two concurrent sessions rather than serializing on
+connection acquisition itself (which would have tested something other than what it claims).
+
+---
+
 ## 2026-08-12 — PR #381 review fixes: DNS-rebinding fix, port allowlist, expanded tests
 
 **Session type:** Bug fix (human review response, same #362 track)
