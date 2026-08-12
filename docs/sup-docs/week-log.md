@@ -10,6 +10,179 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — PR #381 review fixes: DNS-rebinding fix, port allowlist, expanded tests
+
+**Session type:** Bug fix (human review response, same #362 track)
+**Summary:** PrabhuVijit's review of PR #381 found one genuine CRITICAL defeating the PR's
+entire SSRF protection, two HIGH findings, four MEDIUM findings, and two LOW findings:
+
+- **CRITICAL (fixed) — DNS rebinding (C1):** `assertEgressAllowed` validated a hostname's
+  resolved IP but returned `void`; `callApi()` then called global `fetch()`, which performs its
+  own independent DNS resolution — a classic TOCTOU: an attacker with a 0-TTL DNS record could
+  flip the resolved address to `169.254.169.254` (cloud metadata) between validation and the
+  actual connection, and `callApi()` would decrypt and send the credential to it. Fixed by
+  making `assertEgressAllowed` return the validated IP (matching
+  `automation-engine/src/ssrf-guard.ts`'s `validateWebhookUrl`, which already does this
+  correctly) and rewriting `callApi()` to use `node:http(s).request` with a custom `Agent`
+  whose `lookup` callback is pinned to that exact IP — the same established pattern
+  `automation-engine/src/actions/webhook.ts` already uses, including _not_ rewriting the
+  URL/Host header to the IP so TLS SNI and certificate validation still work. Global `fetch()`
+  silently ignores the `agent` option, which is exactly why the port using it was vulnerable.
+- **HIGH (fixed) — port allowlist (H1):** without one, an allowlisted hostname could still be
+  reached on an arbitrary internal port (e.g. `https://api.example.com:6379/`). Added the same
+  `{80, 443, 8080, 8443}` allowlist `automation-engine`'s guard already enforces.
+- **HIGH (fixed) — `vitest.config.ts` missing `deps.inline` (H2):** added
+  `server.deps.inline: ["@platform/config", "@platform/logger", "@platform/secrets"]`, matching
+  the pattern `automation-engine/vitest.config.ts` already uses (the reviewer's suggested regex
+  syntax doesn't match this project's actual, working config shape — checked the real file
+  rather than applying the suggestion verbatim).
+- **MEDIUM (fixed) — `fc00::/8` half of RFC 4193 ULA not blocked (M1):** was `fd00::/8` only;
+  corrected to `fc00::/7` (covers both the centrally-assigned and locally-assigned halves). The
+  _same_ bug exists in `automation-engine/src/ssrf-guard.ts` (this port's own source) — filed
+  as #383 rather than fixed inline, since that file is outside this PR's scope.
+- **MEDIUM (fixed) — thin SSRF test coverage (M2):** new `ssrf-guard.test.ts` (21 tests) mirrors
+  `automation-engine/src/ssrf-guard.test.ts`'s full coverage: all blocked ranges including both
+  ULA halves, IPv4-mapped-IPv6 bypass attempts, DNS timeout/error/empty-result fail-closed paths,
+  bad scheme, bad port, valid public URL returning the IP for pinning.
+- **MEDIUM (fixed) — no exhaustiveness guard in `attachAuthHeaders` (M3):** a `ConnectorDefinition`
+  built from unvalidated data (e.g. before the future `connector_credentials` table's schema
+  validation runs) could carry an out-of-union `auth.type` and previously fell through to
+  `undefined` silently; now throws a clear error.
+- **MEDIUM (fixed) — `allowedHosts` format not validated (M4):** an entry like
+  `"https://api.slack.com"` or `"*.slack.com"` previously matched nothing at runtime, silently
+  disabling every call — now validated against a hostname pattern at construction time, throwing
+  loudly on a malformed entry.
+- **LOW (fixed) — error message leaked the credential key name (L1):** `requireCiphertext`'s
+  error no longer includes which `credentialKey` was missing.
+- **LOW (fixed) — DNS fail-closed paths untested (L2):** covered by the new `ssrf-guard.test.ts`
+  as part of the M2 rewrite.
+
+Also added: a genuine C1 regression test asserting the `Agent`'s captured `lookup` callback
+returns exactly the IP `assertEgressAllowed` resolved to (both the `opts.all` array-form and
+single-address-form call shapes Node's `net` module can use), a test proving the original
+hostname/path are preserved (not rewritten to the IP) in the request options, and a
+previously-uncovered network-error path (`req.on("error", ...)`).
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (26/26 tasks;
+`connector-sdk` 41/41 tests — up from 10 — full `@platform/api` suite 770/770 unaffected).
+
+---
+
+## 2026-08-12 — Issue #362: ConnectorContext runtime + OpenBao credential decrypt
+
+**Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree
+alongside issue #143 Phase 2 — orchestrated as a background subagent in `../openwind-feat-362`)
+**Summary:** First real implementation in `packages/connector-sdk` beyond the type contract
+shipped in PR #359 — a `createConnectorContext(tenantId, definition, encryptedCredentials)`
+factory (`src/runtime.ts`) implementing `ConnectorContext.callApi()` per ADR-009 Decision #5.
+`ConnectorDefinition.auth` is now a concrete discriminated union (`ConnectorAuthConfig`: `bearer`
+/ `basic` / `apiKey`, each naming the `credentialKey`(s) it needs), replacing the prior
+`Record<string, unknown>` placeholder — this design decision was made explicit in this branch's
+plan-lock up front (presented for approval before implementation) since issue #363's
+`connector_credentials` table depends on it. `callApi()` enforces `definition.allowedHosts`
+membership, then a ported SSRF guard, both strictly before any credential is decrypted via
+`@platform/secrets`'s `decryptCredential` — the exact ordering ADR-009 flags as necessary to stop
+`callApi()` being usable as a credential-exfiltration oracle. The SSRF guard
+(`src/ssrf-guard.ts`) is a deliberate, documented port of `automation-engine/src/ssrf-guard.ts`'s
+core logic rather than an import of that package — automation-engine pulls in `@platform/db`,
+`entity-engine`, `workflow-engine`, `bullmq`, `drizzle-orm`, `ioredis`, all wrong transitive
+weight for a lightweight SDK package with zero DB dependency today. `log()` delegates to
+`@platform/logger`'s existing pino `redact` config rather than reimplementing scrubbing.
+Independently re-verified (not just the implementing subagent's report): re-ran typecheck/lint/
+test fresh, and read `runtime.ts`/`ssrf-guard.ts` directly to confirm the allowlist-then-SSRF-
+then-decrypt ordering is actually enforced in code, not just described in comments — the test
+suite asserts this concretely (`decryptCredential`/`fetch` mocks proven NOT called on a
+disallowed host or a private-IP target, not just that the call throws).
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (26/26 tasks;
+`connector-sdk` 10/10 new tests; full `@platform/api` suite 770/770 unaffected — zero blast
+radius, nothing else imports `connector-sdk` yet). `test:isolation` not applicable (no DB/table
+touched — that's issue #363's job, now unblocked by this branch's `ConnectorAuthConfig` shape).
+
+---
+
+## 2026-08-12 — PR #380 review fixes: tenantId filter, T6 scope note, T8 fragility note
+
+**Session type:** Bug fix (human review response, same #143 track)
+**Summary:** PrabhuVijit's review of PR #380 found one real BLOCKER and flagged two items
+needing verification, plus two lower-severity notes:
+
+- **BLOCKER (fixed):** the new dedup `SELECT` in `executor.ts` (checking for an existing
+  `status = 'success'` row before skipping a rule) was missing an explicit `tenantId` filter —
+  a `db-conventions.md` zero-tolerance violation (every engine query needs one, RLS is
+  defense-in-depth, not a substitute). Added `eq(automationExecutions.tenantId, tenantId)` to
+  the `AND` predicate. Real risk was negligible (`rule.id` is itself tenant-scoped, so a
+  cross-tenant collision needs a UUID4 collision), but the isolation tests call
+  `executeAutomationRules` outside `withTenantContext`, so RLS was genuinely inactive for them.
+- **HIGH (verified, not a bug — false alarm):** reviewer couldn't confirm from the diff alone
+  that the real BullMQ worker (`apps/worker/src/automation-worker.ts`, unchanged by this PR)
+  actually passes `transitionEventId` as the 7th argument to `executeAutomationRules` — if it
+  didn't, the whole advisory-lock mechanism would be dead code on every real delivery. Checked
+  the file directly: `automation-worker.ts:76-84` does pass `readTransitionEventId(payload)`,
+  added correctly back in PR #372 (Phase 1). Reported back to the reviewer with the exact line
+  reference.
+- **MEDIUM (verified, not a bug — false alarm):** reviewer couldn't confirm
+  `OutboxTransitionEventIdSchema` (imported by all three new isolation tests) is actually
+  exported from `@platform/automation-engine`'s public entry point. It's defined in
+  `event-schemas.ts` and re-exported via `index.ts`'s `export * from "./event-schemas.js"` —
+  confirmed by the wildcard export line, and independently proven by the fact typecheck/test
+  already passed (a broken import would have failed compilation).
+- **MEDIUM (addressed by rescoping, not by adding the harder test):** T6's isolation test proves
+  SEQUENTIAL dedup (sync path commits, then a simulated async re-consumption finds the existing
+  row) but doesn't exercise the advisory lock's actual concurrent-blocking behavior — two real
+  Postgres connections racing, one blocked until the other commits. The reviewer offered two
+  acceptable resolutions: rescope the test's description to be honest about this, or add the
+  harder concurrent-connections test now. Chose the former (documented the gap directly in the
+  test's docstring) and filed #382 for the real concurrency test, rather than rushing a
+  timing-dependent test that risks CI flakiness under time pressure.
+- **LOW (documented, not changed):** T8's assertion on `automationExecutions.error` checks the
+  literal string `"ENTITY_NOT_FOUND"`, coupled to `AutomationError`'s constructor calling
+  `super(code)` (so `.message === .code` today). Left `executor.ts`'s behavior unchanged (it's
+  pre-existing, not introduced by this PR, and changing what `error` stores would be a
+  broader audit-trail semantics decision out of scope here) — added a comment on the assertion
+  itself documenting the coupling so a future `AutomationError` message-format change doesn't
+  produce a confusing, unrelated-looking test failure.
+
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (25/25 tasks,
+773/773 tests). `pnpm test:isolation`: PASS (15/15 tasks; 45/45 files, 277/277 tests).
+
+---
+
+## 2026-08-12 — Issue #143 Phase 2: consumer-side automation dedup (closes #143)
+
+**Session type:** Feature (Phase 3A prerequisite, built in a parallel git worktree alongside
+issue #362's implementation — first genuinely parallel work in this session, orchestrated as a
+background subagent in `../openwind-fix-143` while the main session worked on other Stage 2
+items)
+**Summary:** `executeAutomationRules` (`packages/automation-engine/src/executor.ts`) now
+deduplicates per `(ruleId, transitionEventId)` pair: when a `transitionEventId` is present, the
+whole insert-running/run-actions/update-status sequence runs inside a `db.transaction()` that
+first acquires `pg_advisory_xact_lock(hashtextextended(ruleId || ':' || transitionEventId, 0))`
+(auto-released on the enclosing REAL transaction's commit/rollback, not a savepoint boundary —
+what makes a racing attempt actually block until the first attempt durably commits) and then
+checks for an existing `status = 'success'` row for that pair, skipping entirely if found. A
+prior `'failed'` row never blocks a legitimate retry — only `'success'` counts. When
+`transitionEventId` is absent (non-transition-sourced triggers), behavior is byte-for-byte
+unchanged — no new transaction, no lock. Closes the loop opened by PR #372's Phase 1 (unconditional
+outbox write): the outbox row now genuinely has duplicate-delivery protection on the consumer
+side, which is what #364 (webhook gateway) needs before it can safely read from it.
+New isolation tests: sync-then-async race (T6), MAX_DEPTH enforcement now provably reachable on
+the async path (T7 — previously dead/untestable code before Phase 1 existed), and retry-after-
+failure (T8). T9 (partial unique index backstop) was already covered by PR #372's own isolation
+test — confirmed sufficient, not duplicated.
+Two real gaps found and filed as follow-ups rather than fixed in this PR (out of scope): #378
+(`outbox-poller.ts`'s temporary automation-transition exclusion, added defensively in PR #372
+before this dedup existed, is now safe to remove but wasn't touched here) and #379 (the
+"transition" automation action never stamps its own recursion `depth` onto the outbox row it
+produces, unlike the analogous `create-entity.ts` action — found while building T7, sidestepped
+in that test via a direct-construction shortcut rather than fixed, since `transition.ts` was
+out of this PR's scope).
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (25/25 tasks;
+`@platform/automation-engine` 79/79, `@platform/api` 773/773). `pnpm test:isolation`: PASS
+(15/15 tasks; `@platform/api` 45/45 files / 277/277 tests, `@platform/worker` 2/2). All
+independently re-verified by the orchestrating session (not just the subagent's own report),
+including a fresh un-cached run of all 4 new/relevant isolation test files.
+
+---
+
 ## 2026-08-12 — PR #373 review fixes: forward-compat TODOs, scopesFormat test coverage
 
 **Session type:** Bug fix (human review response, same #370 track)
