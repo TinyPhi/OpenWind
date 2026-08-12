@@ -2375,6 +2375,12 @@ export function CustomerRecordDetail(): React.ReactElement {
         }
       }
     });
+    // refreshComments/loadAccessRequests are intentionally omitted: both are
+    // plain function declarations that only close over the stable `id` param
+    // already in this deps array, not over any other per-render state — so
+    // including them would force spurious resubscribes without changing
+    // behavior. (PR #376 review L1; this repo's eslint config doesn't enable
+    // react-hooks/exhaustive-deps, so no suppression comment is needed here.)
   }, [id, isOwner, currentUserId]);
 
   // Sync requester's own request status

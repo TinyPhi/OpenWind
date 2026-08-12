@@ -1,4 +1,5 @@
 import { zValidator } from "../../lib/validator.js";
+import { logger } from "@platform/logger";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
@@ -96,21 +97,33 @@ export const requestAccessHandler = factory.createHandlers(
         // (docs/specs/ticket-live-updates.md) — a re-request against an
         // existing pending row (the branch above) doesn't re-fire this, only
         // a genuinely new request does.
-        await withTenantContext(tenantId, (tx) =>
-          tx.insert(outboxEvents).values({
-            tenantId,
-            eventType: "access_request.created",
-            version: 1,
-            payload: {
+        try {
+          await withTenantContext(tenantId, (tx) =>
+            tx.insert(outboxEvents).values({
+              tenantId,
               eventType: "access_request.created",
               version: 1,
+              payload: {
+                eventType: "access_request.created",
+                version: 1,
+                tenantId,
+                instanceId: id,
+                actorId: requesterId,
+                requestId,
+              },
+            }),
+          );
+        } catch (outboxErr) {
+          logger.warn(
+            {
+              outboxErr,
               tenantId,
               instanceId: id,
-              actorId: requesterId,
-              requestId,
+              eventType: "access_request.created",
             },
-          }),
-        );
+            "room-push outbox write failed — live push missed, primary operation succeeded",
+          );
+        }
       }
 
       return c.json({ data: { id: requestId, created: true } }, 201);

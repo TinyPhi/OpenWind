@@ -310,21 +310,28 @@ export const addCommentHandler = factory.createHandlers(
     // WS live-push path (docs/specs/ticket-live-updates.md), independent of
     // the mention/reply outbox writes below which feed per-user inbox
     // notifications instead.
-    await withTenantContext(tenantId, (tx) =>
-      tx.insert(outboxEvents).values({
-        tenantId,
-        eventType: "comment.created",
-        version: 1,
-        payload: {
+    try {
+      await withTenantContext(tenantId, (tx) =>
+        tx.insert(outboxEvents).values({
+          tenantId,
           eventType: "comment.created",
           version: 1,
-          tenantId,
-          instanceId: id,
-          actorId: userId,
-          commentId: event.id,
-        },
-      }),
-    );
+          payload: {
+            eventType: "comment.created",
+            version: 1,
+            tenantId,
+            instanceId: id,
+            actorId: userId,
+            commentId: event.id,
+          },
+        }),
+      );
+    } catch (outboxErr) {
+      logger.warn(
+        { outboxErr, tenantId, instanceId: id, eventType: "comment.created" },
+        "room-push outbox write failed — live push missed, primary operation succeeded",
+      );
+    }
 
     if (mentionsAlreadyHavingAccess.length > 0) {
       await withTenantContext(tenantId, (tx) =>

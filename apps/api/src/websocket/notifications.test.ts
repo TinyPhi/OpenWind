@@ -126,10 +126,11 @@ describe("notifications websocket — ticket rooms (docs/specs/ticket-live-updat
 
   it("delivers a room push to a subscribed connection with read access", async () => {
     const ws = await connect();
+    const subscribedPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "subscribe_ticket", instanceId: "i-1" }));
-    // Give the async access-check + room join a tick to complete before the
-    // room push is simulated.
-    await new Promise((r) => setTimeout(r, 20));
+    // Wait for the server's subscribed_ticket confirmation rather than a
+    // fixed delay (PR #376 review L2) — deterministic under CI load.
+    await subscribedPromise;
 
     const messagePromise = waitForMessage(ws);
     redisSubscribeHandler?.(
@@ -174,8 +175,9 @@ describe("notifications websocket — ticket rooms (docs/specs/ticket-live-updat
 
   it("never cross-delivers a room push to a different tenant sharing the same instanceId", async () => {
     const ws = await connect(); // registers as tenantId "t-1" per the auth mock
+    const subscribedPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "subscribe_ticket", instanceId: "i-3" }));
-    await new Promise((r) => setTimeout(r, 20));
+    await subscribedPromise;
 
     let received: unknown = null;
     ws.once("message", (data: Buffer) => {
@@ -200,9 +202,13 @@ describe("notifications websocket — ticket rooms (docs/specs/ticket-live-updat
 
   it("stops delivering room pushes after unsubscribe_ticket", async () => {
     const ws = await connect();
+    const subscribedPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "subscribe_ticket", instanceId: "i-4" }));
-    await new Promise((r) => setTimeout(r, 20));
+    await subscribedPromise;
     ws.send(JSON.stringify({ type: "unsubscribe_ticket", instanceId: "i-4" }));
+    // unsubscribe_ticket has no confirmation frame — it's a fire-and-forget
+    // map removal with no async work, so a short fixed delay here is enough
+    // to let the synchronous handler run before the push is simulated.
     await new Promise((r) => setTimeout(r, 20));
 
     let received: unknown = null;
@@ -226,8 +232,9 @@ describe("notifications websocket — ticket rooms (docs/specs/ticket-live-updat
 
   it("stops delivering room pushes after the connection closes, without an explicit unsubscribe", async () => {
     const ws = await connect();
+    const subscribedPromise = waitForMessage(ws);
     ws.send(JSON.stringify({ type: "subscribe_ticket", instanceId: "i-5" }));
-    await new Promise((r) => setTimeout(r, 20));
+    await subscribedPromise;
     ws.close();
     await new Promise((r) => setTimeout(r, 20));
 
