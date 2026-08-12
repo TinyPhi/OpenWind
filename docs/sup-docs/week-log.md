@@ -50,7 +50,7 @@ checkable ground truth to confirm against). Fixes:
 
 Two of these fixes reference issue #363's `connector_credentials.secrets` column and matching
 `types.ts` comment wording — that PR (#387) is still open, not yet merged into `main`, so this
-PR's wording was deliberately matched to #387's *upcoming* content (already verified in that
+PR's wording was deliberately matched to #387's _upcoming_ content (already verified in that
 PR's own review) rather than `main`'s current pre-merge wording, to avoid a second round of drift
 the moment #387 lands.
 
