@@ -119,6 +119,7 @@ describe("GET /api-keys — excludes revoked keys (ADR-008 Decision #4)", () => 
       id: "key-1",
       name: "test",
       scopes: [],
+      scopesFormat: "role",
       lastUsedAt: null,
       createdAt: new Date(),
       createdBy: "u-bbb",
@@ -128,5 +129,23 @@ describe("GET /api-keys — excludes revoked keys (ADR-008 Decision #4)", () => 
     const json = await res.json();
     expect(json.data[0].createdBy).toBe("u-bbb");
     expect(json.data[0].expiresAt).toBeDefined();
+  });
+
+  // Review finding (PR #373, L4): list.ts now selects scopesFormat alongside
+  // scopes (ADR-008 Decision #6) — no prior assertion covered it.
+  it("surfaces scopesFormat for each row", async () => {
+    mockSelectRows.push({
+      id: "key-1",
+      name: "test",
+      scopes: ["agent"],
+      scopesFormat: "role",
+      lastUsedAt: null,
+      createdAt: new Date(),
+      createdBy: "u-bbb",
+      expiresAt: new Date("2027-08-09T00:00:00Z"),
+    });
+    const res = await makeApp().request("/");
+    const json = await res.json();
+    expect(json.data[0].scopesFormat).toBe("role");
   });
 });
