@@ -51,26 +51,40 @@ describe("buildOutboundEnvelope", () => {
 });
 
 describe("signOutboundPayload / verifyOutboundSignature", () => {
-  it("produces a deterministic signature for the same secret/timestamp/body", () => {
-    const sig1 = signOutboundPayload("secret", 1000, "body");
-    const sig2 = signOutboundPayload("secret", 1000, "body");
+  it("produces a deterministic signature for the same secret/deliveryId/timestamp/body", () => {
+    const sig1 = signOutboundPayload("secret", "d1", 1000, "body");
+    const sig2 = signOutboundPayload("secret", "d1", 1000, "body");
     expect(sig1).toBe(sig2);
   });
 
-  it("produces a different signature for a different secret, timestamp, or body", () => {
-    const base = signOutboundPayload("secret", 1000, "body");
-    expect(signOutboundPayload("other-secret", 1000, "body")).not.toBe(base);
-    expect(signOutboundPayload("secret", 2000, "body")).not.toBe(base);
-    expect(signOutboundPayload("secret", 1000, "other-body")).not.toBe(base);
+  it("produces a different signature for a different secret, deliveryId, timestamp, or body", () => {
+    const base = signOutboundPayload("secret", "d1", 1000, "body");
+    expect(signOutboundPayload("other-secret", "d1", 1000, "body")).not.toBe(
+      base,
+    );
+    expect(signOutboundPayload("secret", "d2", 1000, "body")).not.toBe(base);
+    expect(signOutboundPayload("secret", "d1", 2000, "body")).not.toBe(base);
+    expect(signOutboundPayload("secret", "d1", 1000, "other-body")).not.toBe(
+      base,
+    );
   });
 
   it("verifyOutboundSignature accepts a signature it produced and rejects a tampered one", () => {
-    const sig = signOutboundPayload("secret", 1000, "body");
-    expect(verifyOutboundSignature("secret", "body", 1000, sig)).toBe(true);
-    expect(verifyOutboundSignature("secret", "tampered-body", 1000, sig)).toBe(
-      false,
+    const sig = signOutboundPayload("secret", "d1", 1000, "body");
+    expect(verifyOutboundSignature("secret", "d1", "body", 1000, sig)).toBe(
+      true,
     );
-    expect(verifyOutboundSignature("wrong-secret", "body", 1000, sig)).toBe(
+    expect(
+      verifyOutboundSignature("secret", "d1", "tampered-body", 1000, sig),
+    ).toBe(false);
+    expect(
+      verifyOutboundSignature("wrong-secret", "d1", "body", 1000, sig),
+    ).toBe(false);
+  });
+
+  it("rejects the same signature relabeled with a different deliveryId (replay-dedupe bypass regression)", () => {
+    const sig = signOutboundPayload("secret", "d1", 1000, "body");
+    expect(verifyOutboundSignature("secret", "d2", "body", 1000, sig)).toBe(
       false,
     );
   });
@@ -79,10 +93,10 @@ describe("signOutboundPayload / verifyOutboundSignature", () => {
     expect(buildSignatureHeaderValue(1000, "abcd")).toBe("t=1000,v1=abcd");
   });
 
-  it("signOutboundRequest attaches both required headers", () => {
+  it("signOutboundRequest attaches both required headers, signature bound to the deliveryId", () => {
     const headers = signOutboundRequest("secret", "body", "delivery-123", 1000);
     expect(headers[OUTBOUND_SIGNATURE_HEADER]).toBe(
-      `t=1000,v1=${signOutboundPayload("secret", 1000, "body")}`,
+      `t=1000,v1=${signOutboundPayload("secret", "delivery-123", 1000, "body")}`,
     );
     expect(headers[OUTBOUND_DELIVERY_ID_HEADER]).toBe("delivery-123");
   });
