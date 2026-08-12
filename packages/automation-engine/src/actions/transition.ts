@@ -24,6 +24,7 @@ export async function executeTransitionAction(
     instanceId,
     transitionId: config.transitionId,
     triggeredBy: "automation",
+    depth,
     ...(config.comment !== undefined && { comment: config.comment }),
   });
 
