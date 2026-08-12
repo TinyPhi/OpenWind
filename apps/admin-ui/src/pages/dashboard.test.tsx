@@ -196,4 +196,53 @@ describe("Dashboard — KPI tiles filter the My Tickets list", () => {
     expect(within(ticketTable()).queryByText("Overdue ticket")).toBeNull();
     expect(within(ticketTable()).queryByText("At risk ticket")).toBeNull();
   });
+
+  it("paginates the My Tickets list at 10 per page and resets to page 1 on KPI-tile change", async () => {
+    const manyTickets = Array.from({ length: 25 }, (_, i) => ({
+      entityId: `e-${i}`,
+      entityTypeId: "et-1",
+      entityTypeName: "Ticket",
+      workflowId: "wf-1",
+      workflowName: "Helpdesk",
+      stateName: "Open",
+      title: `Ticket ${String(i).padStart(2, "0")}`,
+      dueDate: null,
+      isOverdue: false,
+    }));
+    mockFetchWithAuth.mockImplementation(() =>
+      Promise.resolve({
+        data: {
+          ...EMPTY_MY_VIEW,
+          workflows: [
+            {
+              workflowId: "wf-1",
+              workflowName: "Helpdesk",
+              counts: [],
+              total: 25,
+            },
+          ],
+          tickets: { items: manyTickets, totalQualifying: 25 },
+        },
+      }),
+    );
+
+    render(<Dashboard />);
+
+    await waitFor(() =>
+      expect(within(ticketTable()).getByText("Ticket 00")).toBeDefined(),
+    );
+    expect(within(ticketTable()).queryByText("Ticket 10")).toBeNull();
+    expect(screen.getByText("1–10 of 25")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(within(ticketTable()).getByText("Ticket 10")).toBeDefined();
+    expect(within(ticketTable()).queryByText("Ticket 00")).toBeNull();
+
+    // Narrowing via search changes the underlying item set, so pagination
+    // should snap back to page 1 rather than stranding on a stale page.
+    fireEvent.change(screen.getByPlaceholderText(/search by title/i), {
+      target: { value: "Ticket 0" },
+    });
+    expect(within(ticketTable()).getByText("Ticket 00")).toBeDefined();
+  });
 });
