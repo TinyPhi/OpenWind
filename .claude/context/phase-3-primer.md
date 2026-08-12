@@ -138,11 +138,34 @@ Runtime track:
       allowed host). [#362](../../issues/362)
 - [ ] Inbound webhook gateway (`POST /webhooks/{connectorId}/{tenantId}`) — depends on Stage 0's
       #143 resolution (done) and #362 (done). [#364](../../issues/364)
-- [ ] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
-      (Decision #9), sensitivity taxonomy/redactor (Decision #10 — **shared dependency**, see
-      above; already exists as `packages/workflow-engine/src/redact.ts`'s `redactMetadata`/
-      `buildSensitivityMap`, just needs wiring into outbound payload construction here, not a
-      new mechanism). [#365](../../issues/365)
+- [x] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
+      (Decision #9), sensitivity taxonomy/redactor (Decision #10) — done 2026-08-12, migration
+      0057 (`connector_delivery_attempts`, RLS with both `USING`/`WITH CHECK` from day one).
+      New `connectorOutboundQueue` (`apps/worker/src/queues.ts`): `attempts: 11`,
+      `backoff: {type: "exponential", delay: 45_000}` — deliberately not
+      `notifyOutboundQueue`'s 3-attempts/1s config (~7s window, sized for internal outages);
+      worst-case cumulative delay `45_000 * (2^11 - 1)` ≈ 25.6h, approaching the ADR's
+      Stripe/Svix ~27h reference. New pure module `packages/connector-sdk/src/
+  outbound-envelope.ts`: HMAC-SHA256 over `${timestampUnixSeconds}.${rawBody}`,
+      `X-OpenWind-Signature: t=<unix>,v1=<hex>` + `X-OpenWind-Delivery-Id: <uuid>` headers
+      (mirrors Stripe/Svix convention, intended to match ADR-009 Decision #3's inbound spec —
+      **reconciliation note:** #364 had not been implemented as of this issue, so this header
+      scheme is a documented pick for #364 to confirm against, not a verified match), and
+      `validateActionOutput()` enforcing a new `ActionDefinition.maxOutputBytes` (default
+      `DEFAULT_MAX_OUTPUT_BYTES = 256KB`) before schema validation (AC6). Decision #10's
+      redactor is reused unchanged (`buildSensitivityMap`/`redactMetadata`), wired into the new
+      `apps/worker/src/connector-outbound-worker.ts` queue consumer, which re-runs SSRF
+      validation (`connector-sdk`'s `assertEgressAllowed`, from #362) and connection-pinning on
+      **every** delivery attempt, not just the first. New `packages/connector-sdk/src/
+  registry.ts` (in-memory `Map`) is the seam letting the worker resolve a BullMQ job's
+      `connectorId`/`actionId` back to its real `ActionDefinition` — a job's data crosses Redis
+      as plain JSON and can't carry a live Zod schema. **Deliberately NOT built, per this
+      issue's own scope:** ADR-009 Decision #10's "explicit per-connector grant to cross the
+      tenant boundary" (redaction is always-on with no bypass mechanism — no column/table
+      exists for a grant yet; a human needs to design one) and any producer wiring into the new
+      queue (`enqueueConnectorDelivery()` is the integration seam; the actual trigger — polling
+      scheduler #366, a built connector #368, or ADR-010's `event_subscriptions` — is separate,
+      not-yet-built work). [#365](../../issues/365)
 - [x] `connector_definitions` + `connector_credentials` tables — done 2026-08-12, migration 0056.
       `connector_definitions` is a genuinely new, platform-wide catalog table (no tenant_id/RLS,
       per ADR-001). **`connector_credentials` was NOT new** — discovered mid-implementation that

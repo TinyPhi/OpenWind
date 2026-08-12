@@ -22,6 +22,7 @@ import {
 } from "./notification-poller.js";
 import { stopNotificationWorker } from "./notification-worker.js";
 import { stopNotificationOutboundWorker } from "./notification-outbound-worker.js";
+import { stopConnectorOutboundWorker } from "./connector-outbound-worker.js";
 
 logger.info({}, "Worker process starting");
 
@@ -37,8 +38,8 @@ startNotificationPoller();
 void scheduleFileCleanup();
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
-// notificationWorker, notificationOutboundWorker all start processing on
-// import above.
+// notificationWorker, notificationOutboundWorker, connectorOutboundWorker all
+// start processing on import above.
 
 async function shutdown(): Promise<void> {
   logger.info({}, "Worker shutting down");
@@ -59,6 +60,7 @@ async function shutdown(): Promise<void> {
     stopHealthServer(),
     stopNotificationWorker(),
     stopNotificationOutboundWorker(),
+    stopConnectorOutboundWorker(),
     closeRedis(),
   ]);
   process.exit(0);

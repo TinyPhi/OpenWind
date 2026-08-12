@@ -104,3 +104,28 @@ export const notifyOutboundQueue = new Queue("notify-outbound", {
     backoff: { type: "exponential", delay: 1_000 },
   },
 });
+
+// Connector outbound delivery (ADR-009 Decision #9, issue #365) — delivers a
+// signed event payload to a connector's configured target URL, with its OWN
+// retry configuration rather than reusing notifyOutboundQueue's 3-attempts/1s
+// pattern above. That pattern totals ~7s of retry window (1s+2s+4s), sized for
+// an internal service outage measured in seconds; a third-party connector
+// endpoint can legitimately be down or rate-limiting for far longer, and the
+// ADR's own research cites a Stripe/Svix-class tail of hours to ~27 hours as
+// the right target — this queue's config is deliberately NOT the same as the
+// one above.
+//
+// Worst-case cumulative delay across `attempts` exponential-backoff retries,
+// sum(delay * 2^i) for i in 0..attempts-1 = delay * (2^attempts - 1):
+//   45_000ms * (2^11 - 1) = 45_000 * 2047 = 92,115,000ms ≈ 25.6 hours
+// 11 attempts / 45s base delay lands just under the ~27h reference point
+// (Svix's own default schedule totals ~27.5h across 8 retries with
+// non-uniform steps; a plain exponential series with these two numbers is
+// the closest clean match BullMQ's uniform exponential backoff can express).
+export const connectorOutboundQueue = new Queue("connector-outbound", {
+  connection,
+  defaultJobOptions: {
+    attempts: 11,
+    backoff: { type: "exponential", delay: 45_000 },
+  },
+});
