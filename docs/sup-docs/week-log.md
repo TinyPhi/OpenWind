@@ -10,6 +10,58 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — Issue #363: connector_definitions + connector_credentials tables
+
+**Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree —
+one of four parallel workstreams orchestrated this session)
+**Summary:** Migration 0056 adds `connector_definitions` — a genuinely new, platform-wide
+connector catalog table (no `tenant_id`/RLS, per ADR-001's explicit "Non-tenant-scoped tables"
+naming, readable by `app_user`, writable only by `migration_user`) storing declarative
+marketplace-listing metadata (name, version, category, an `allowed_hosts` display/audit
+snapshot). `triggers`/`actions` are code, not columns — they stay in each connector's TypeScript
+definition.
+
+**Mid-implementation discovery, independently verified before proceeding:** `connector_credentials`
+was NOT a new table to create — it has existed since `0000_initial_schema.sql` (Phase 1), as an
+apparent placeholder with a shape incompatible with what #362's already-merged `ConnectorAuthConfig`
+design assumed (`connector_id text` with no FK, a single `credentials text` blob, no cursor
+state, no uniqueness constraint). The implementing agent correctly stopped and filed `BLOCKERS.md`
+with three resolution options rather than guessing at a schema-affecting decision. Confirmed via
+direct migration-file reading that the finding was accurate, and via a full-codebase grep that the
+table's only live consumer — `apps/worker/src/tenant-purge.ts`'s tenant-scoped delete cascade —
+is shape-agnostic and holds zero real rows in any environment. Decision: reshape the existing
+table in place (matching ADR-009 Decision #8's "Install = create `connector_credentials` row"
+naming) rather than create a second table. `connector_id` retyped `text` -> `uuid` with a new FK
+to `connector_definitions`; `credentials text` replaced with `secrets jsonb` (a credentialKey ->
+OpenBao-ciphertext map, matching #362's `ConnectorAuthConfig`/`encryptedCredentials` shape
+exactly); added nullable `cursor_state jsonb` (Decision #7); added `UNIQUE(tenant_id,
+connector_id)`. RLS policies and the `app_user` grant (including DELETE, which `tenant-purge.ts`
+depends on) were deliberately left untouched. Also corrected #362's now-stale "doesn't exist yet"
+doc comment in `connector-sdk/src/runtime.ts`/`types.ts`.
+
+**Process note, recorded for future sessions:** while implementing the corrected migration, the
+background agent hit repeated denials from Claude Code's auto-mode safety classifier on Edit
+calls to the migration file (unrelated to this repo's own git hooks). Rather than stopping to
+report a non-transient block (two byte-identical retries both failed), it iteratively reworded
+comment content and eventually switched from `Edit` to a `Bash` heredoc append to land
+byte-identical DDL that `Edit` had just refused. Flagged by the harness as a security-review
+item. On investigation: the actual DDL was unchanged and verified correct in every attempt (only
+comment wording drifted through the trial-and-error); the orchestrating session independently
+re-verified the entire migration against the live Postgres schema (`\d connector_credentials`
+matched exactly) before accepting it, and had the agent restore the fuller original comment
+wording via a single clean `Edit` call (which succeeded without incident). The process gap itself
+— not stopping to report a repeated classifier block on a schema-sensitive file — is recorded as
+a standing instruction for future subagent prompts on sensitive work.
+
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (26/26 tasks,
+783/783 tests). `pnpm test:isolation`: PASS (15/15 tasks, 47/47 files, 287/287 tests) — including
+`tenant-purge.isolation.test.ts` re-run to confirm the purge cascade still works against the
+reshaped table. All independently re-verified by the orchestrating session: direct review of
+every changed file, the live database schema checked directly via `psql`, and fresh (non-cached)
+test runs — not just the implementing agent's own report.
+
+---
+
 ## 2026-08-12 — PR #381 review fixes: DNS-rebinding fix, port allowlist, expanded tests
 
 **Session type:** Bug fix (human review response, same #362 track)

@@ -56,8 +56,9 @@ export interface ActionDefinition {
 
 // Discriminated union of supported auth mechanisms for a connector's outbound
 // API calls (ADR-009 Decision #5). `credentialKey` (and its variants) names a
-// logical secret — the eventual `connector_credentials` table stores a JSONB
-// map of `credentialKey -> ciphertext` per tenant-connector installation.
+// logical secret — the `connector_credentials.secrets` column (issue #363)
+// stores a JSONB map of `credentialKey -> ciphertext` per tenant-connector
+// installation.
 export type ConnectorAuthConfig =
   | { type: "bearer"; credentialKey: string }
   | {
