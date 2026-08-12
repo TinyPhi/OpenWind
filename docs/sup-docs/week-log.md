@@ -10,6 +10,44 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — PR #373 review fixes: forward-compat TODOs, scopesFormat test coverage
+
+**Session type:** Bug fix (human review response, same #370 track)
+**Summary:** PrabhuVijit's review of PR #373 found the discriminator column itself correct but
+flagged three unit-test gaps and two forward-compatibility traps for when `scope-ceiling.ts`'s
+rejection of action-format scopes is eventually reopened:
+
+- **M1/M2 (medium, documented not fixed — by design):** `resolve_api_key_by_hash` doesn't return
+  `scopes_format` and `AuthContext` has no format field (`packages/auth/src/middleware.ts`); and
+  `rotate.ts`'s `scopeCeilingError` call would permanently 403 rotation of every action-format key
+  once they can be minted. Both are real traps for the ceiling-reopen PR, not bugs today (the
+  ceiling blocks all action-format scopes from ever reaching either path right now) — fixing them
+  now would mean guessing at a return-type change and a ceiling rule with no real consumer yet.
+  Added inline `TODO` comments at both call sites plus a note in `phase-3-primer.md`'s
+  ceiling-reopen task so the future PR can't miss either one.
+- **M3 (medium, blocking):** `rotate.test.ts` had zero coverage for `scopesFormat` pass-through —
+  a real insert-path change in #370 with `original.scopesFormat` silently `undefined` in the
+  mock. Added `scopesFormat` to the mock fixtures and a dedicated test asserting it carries
+  forward unchanged.
+- **L1:** `scopesFormat` typed as `text("scopes_format", { enum: ["role", "action"] })` instead of
+  plain `text()` — narrows the Drizzle/TS type to the union, so the isolation test's intentional
+  bad-value insert now needs an explicit `as "role" | "action"` cast, making the bypass visible in
+  the test itself rather than silently typed as `string`.
+- **L2:** wrapped `detectScopesFormat` in `create.ts` in a try/catch returning a structured 422
+  (`INVALID_SCOPES`) instead of an unhandled throw → generic 500 — unreachable today since the
+  ceiling blocks any input that would trigger it, but the reviewer's point stands for after the
+  ceiling reopens.
+- **L3/L4:** added `scopesFormat` assertions to `create.test.ts` and `list.test.ts`.
+- **L5:** the CHECK-violation isolation test asserted a bare `.rejects.toThrow()`, which any
+  thrown error (including a connection failure) would satisfy. Tightened to
+  `.rejects.toMatchObject({ cause: { code: "23514" } })` — Postgres's CHECK-violation code,
+  nested under Drizzle's wrapping `DrizzleQueryError.cause` (discovered by running the test and
+  reading the actual error shape rather than guessing).
+  **Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (770/770, up from
+  767 — 3 new tests). `pnpm test:isolation`: PASS (42/42 files, 274/274 tests).
+
+---
+
 ## 2026-08-12 — Phase 3A Stage 2 (scopes track): api_keys.scopes_format discriminator (#370)
 
 **Session type:** Feature (Phase 3A implementation, independent — not stacked on any open PR)

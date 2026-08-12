@@ -51,6 +51,13 @@ export const rotateApiKeyHandler = factory.createHandlers(
       // Re-checked here, not just at original creation time (#223) — a caller
       // whose roles have since been downgraded should not be able to use
       // rotation to keep reissuing scopes they no longer hold themselves.
+      //
+      // TODO(ADR-008 Decision #6 ceiling-reopen): scopeCeilingError rejects
+      // any scope string not in ROLE_LEVEL (level -1), which includes every
+      // action-format string. Once action-format keys can be minted, this
+      // check will permanently 403 rotation of every one of them — the
+      // ceiling-reopen PR must update this call site too, not just
+      // create.ts's (review finding M2, PR #373).
       const scopeError = scopeCeilingError(roles, original.scopes);
       if (scopeError) return { error: "forbidden" as const, scopeError };
 

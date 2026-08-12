@@ -61,6 +61,7 @@ vi.mock("@platform/db", () => ({
             id: "key-1",
             name: "test-key",
             scopes: [],
+            scopesFormat: "role",
             createdAt: new Date(),
             expiresAt: new Date("2027-08-09T00:00:00Z"),
           },
@@ -243,6 +244,23 @@ describe("POST /api-keys — lifecycle hardening (ADR-008 Decision #2/#3)", () =
     const insertArg = mockInsertValues.mock.calls[0][0];
     expect(insertArg.createdBy).toBe(mockAuth.userId);
     expect(insertArg.expiresAt).toBeInstanceOf(Date);
+  });
+
+  // Review finding (PR #373, L3): create.ts stamps scopesFormat on every
+  // insert (ADR-008 Decision #6) — no prior assertion covered it.
+  it("stamps scopesFormat on the insert and returns it in the response body", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body({ scopes: ["agent"] }),
+    });
+
+    expect(res.status).toBe(201);
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.scopesFormat).toBe("role");
+
+    const json = await res.json();
+    expect(json.data.scopesFormat).toBe("role");
   });
 
   it("writes an audit entry for the new key (previously wrote none at all)", async () => {

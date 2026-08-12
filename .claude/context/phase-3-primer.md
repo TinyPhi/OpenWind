@@ -147,7 +147,15 @@ Scopes track (can run in parallel with the runtime track, same stage):
       suffice. Tracked in [#370](../../issues/370).
 - [ ] Reopen `scope-ceiling.ts`'s rejection of action-format scopes once OQ-5 is resolved, with a
       real privilege-ceiling rule for the new verb set (today's `ROLE_LEVEL` map has no meaning
-      for `entity:<type>:<verb>` strings).
+      for `entity:<type>:<verb>` strings). **Same PR must also fix two forward-compatibility traps
+      flagged in PR #373's review (both marked with inline `TODO` comments at the call sites):**
+      `resolve_api_key_by_hash` (migration 0031/0047) doesn't return `scopes_format` and
+      `AuthContext` has no format field, so a Stage 3 `requireScope()` would have to re-derive
+      format from string shape — fix requires `DROP FUNCTION` + recreate (Postgres can't
+      `CREATE OR REPLACE` a changed return type), so it must land in this PR, not a follow-up
+      (`packages/auth/src/middleware.ts`'s `resolveApiKey`); and `rotate.ts`'s
+      `scopeCeilingError(roles, original.scopes)` call, unchanged, would permanently 403 rotation
+      of every action-format key the moment they can be minted.
 - [ ] Wire scoped reads through ADR-009 Decision #10's redactor (once built) — a Tier-1 key
       scoped to `entity:ticket:read` must see the same redacted view an equivalent-role human
       would, never a raw dump.

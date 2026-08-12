@@ -254,7 +254,7 @@ describe("resolve_api_key_by_hash (migration 0031)", () => {
   });
 });
 
-describe("api_keys.scopes_format (migration 0054, ADR-008 Decision #6)", () => {
+describe("api_keys.scopes_format (migration 0055, ADR-008 Decision #6)", () => {
   it("defaults to 'role' for a key created without an explicit scopes_format", async () => {
     const [row] = await withTenantContext(TENANT_A, (tx) =>
       tx
@@ -283,6 +283,10 @@ describe("api_keys.scopes_format (migration 0054, ADR-008 Decision #6)", () => {
   });
 
   it("rejects a scopes_format value outside ('role', 'action')", async () => {
+    // scopesFormat's Drizzle type is now the "role" | "action" union (review
+    // finding L1, PR #373) — the cast below is the explicit bypass that
+    // typing intentionally requires to construct this otherwise-unreachable
+    // value, so the CHECK constraint (not TypeScript) is what's under test.
     await expect(
       withTenantContext(TENANT_A, (tx) =>
         tx.insert(apiKeys).values({
@@ -290,10 +294,14 @@ describe("api_keys.scopes_format (migration 0054, ADR-008 Decision #6)", () => {
           name: "isolation-test-bad-format",
           keyHash: hashApiKey("sk_isolation_test_bad_format"),
           scopes: [],
-          scopesFormat: "bogus",
+          scopesFormat: "bogus" as "role" | "action",
         }),
       ),
-    ).rejects.toThrow();
+      // Pinned to the CHECK constraint specifically (Postgres code 23514,
+      // nested under Drizzle's wrapping DrizzleQueryError.cause), not any
+      // thrown error — a connection failure would otherwise also satisfy a
+      // bare .rejects.toThrow() (review finding L5, PR #373).
+    ).rejects.toMatchObject({ cause: { code: "23514" } });
   });
 });
 

@@ -38,13 +38,20 @@ vi.mock("@platform/auth", () => ({
 }));
 
 let mockOriginalRows: unknown[] = [
-  { id: "orig-1", name: "ci-key", scopes: ["agent"], expiresAt: null },
+  {
+    id: "orig-1",
+    name: "ci-key",
+    scopes: ["agent"],
+    scopesFormat: "role",
+    expiresAt: null,
+  },
 ];
 let mockInsertReturns: unknown[] = [
   {
     id: "key-2",
     name: "ci-key",
     scopes: ["agent"],
+    scopesFormat: "role",
     createdAt: new Date(),
     expiresAt: new Date("2027-08-09T00:00:00Z"),
   },
@@ -120,13 +127,20 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
     vi.clearAllMocks();
     mockAuth.roles = ["admin"];
     mockOriginalRows = [
-      { id: "orig-1", name: "ci-key", scopes: ["agent"], expiresAt: null },
+      {
+        id: "orig-1",
+        name: "ci-key",
+        scopes: ["agent"],
+        scopesFormat: "role",
+        expiresAt: null,
+      },
     ];
     mockInsertReturns = [
       {
         id: "key-2",
         name: "ci-key",
         scopes: ["agent"],
+        scopesFormat: "role",
         createdAt: new Date(),
         expiresAt: new Date("2027-08-09T00:00:00Z"),
       },
@@ -181,6 +195,29 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
     expect(insertArg.rotatedFrom).toBe("orig-1");
     expect(insertArg.createdBy).toBe(mockAuth.userId);
     expect(insertArg.expiresAt).toBeInstanceOf(Date);
+  });
+
+  // Review finding (PR #373, M3): scopesFormat is carried forward from the
+  // original key, not recomputed — this is a real insert-path change with no
+  // prior coverage.
+  it("carries the original key's scopesFormat forward unchanged, not recomputed", async () => {
+    mockOriginalRows = [
+      {
+        id: "orig-1",
+        name: "ci-key",
+        scopes: ["agent"],
+        scopesFormat: "role",
+        expiresAt: null,
+      },
+    ];
+    const res = await makeApp().request("/orig-1/rotate", { method: "POST" });
+    expect(res.status).toBe(201);
+
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.scopesFormat).toBe("role");
+
+    const json = await res.json();
+    expect(json.data.scopesFormat).toBe("role");
   });
 
   // Review finding (PR #361): the overlap-window UPDATE was missing an

@@ -75,8 +75,10 @@ export const apiKeys = pgTable(
     keyHash: text("key_hash").notNull().unique(),
     keyHashArgon2: text("key_hash_argon2"),
     scopes: text("scopes").array().default([]).notNull(),
-    /** Discriminates scopes' string shape (ADR-008 Decision #6) — 'role' (legacy, unchanged) or 'action' (entity:<entityType>:<verb>, ADR-010 Tier-1 prerequisite). Existing and new keys default 'role'; see 0055_api_keys_scopes_format.sql. */
-    scopesFormat: text("scopes_format").default("role").notNull(),
+    /** Discriminates scopes' string shape (ADR-008 Decision #6) — 'role' (legacy, unchanged) or 'action' (entity:<entityType>:<verb>, ADR-010 Tier-1 prerequisite). Existing and new keys default 'role'; see 0055_api_keys_scopes_format.sql. The `enum` option only narrows the TS type — the DB CHECK constraint (migration 0055) remains the actual runtime enforcement. */
+    scopesFormat: text("scopes_format", { enum: ["role", "action"] })
+      .default("role")
+      .notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
