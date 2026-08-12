@@ -10,6 +10,91 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — PR #372 review fixes: outbox-poller exclusion, dead index condition
+
+**Session type:** Bug fix (human review response, same #143 Phase 1 track)
+**Summary:** PrabhuVijit's review of PR #372 found one CRITICAL and one HIGH issue that survived
+the earlier `/security-review`-equivalent pass, plus four lower-severity findings:
+
+- **C1 (critical):** #143 made `executeTransition` write an outbox row for automation-triggered
+  transitions too — `apps/worker/src/outbox-poller.ts`'s existing `workflow.transitioned`
+  allowlist would claim that row and enqueue a second, duplicate `executeAutomationRules` call
+  for a transition already run synchronously in-process, double-firing `notify`/`create_entity`/
+  `create_child` actions until #143 Phase 2's consumer-side dedup lands. Fixed with a temporary
+  `triggeredBy = 'automation'` exclusion in the poller's query (removed in the Phase 2 PR); added
+  a new isolation test proving the exclusion holds against real Postgres.
+- **H1 (high):** the partial unique index (migration 0054) and the spec's planned Phase 2 dedup
+  check both keyed on `status = 'completed'`, but `executor.ts` never writes that literal —
+  terminal statuses are `'success'`/`'degraded'`/`'failed'`. The index would have permanently
+  matched zero rows. Corrected to `'success'` in the migration, schema, and both spec docs;
+  renamed the index accordingly. Added an isolation test proving the index scopes correctly
+  across tenants (also closes L3).
+- **M1 (medium, documented not fixed):** idempotency-replay generates a fresh `transitionEventId`
+  per replay, which would defeat Phase 2 dedup — recorded in both spec docs' bug log for Phase
+  2's implementer to account for.
+- **M2 (medium):** moved `transitionEventId` off the cross-cutting `baseEvent` schema onto
+  `WorkflowTransitionedV1Schema` only — unlike `depth`, it has no meaning outside
+  `workflow.transitioned`, so leaving it on `baseEvent` risked a bug silently populating it on an
+  unrelated event type and passing validation.
+- **L1/L2:** added the missing analytics annotation on migration 0054; fixed the isolation test's
+  `entityTypes` cleanup to filter by `tenantId` (consistent with every other delete in that
+  `afterAll`, and safe against a `beforeAll` failure leaving `entityType.id` undefined).
+  **Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (764/764).
+  `pnpm test:isolation`: PASS (271/271, includes `apps/worker`'s isolation suite). Ran both new
+  isolation tests 3 consecutive times each — stable.
+
+---
+
+## 2026-08-11 — #143 Phase 1: outbox writes unconditionally, carries dedup key
+
+**Session type:** Feature (Phase 3A prerequisite, recovered from an abandoned local branch)
+**Summary:** While auditing stale local branches after Stage 1 merged, found
+`feat/PLAT-143-outbox-idempotent-consumption` had one real, unmerged commit — a complete,
+well-scoped Phase 1 fix for issue #143 per
+`docs/specs/outbox-automation-idempotent-consumption.md` (T1/T2/T3/T5 done; T4/T6-T9 deferred
+to Phase 2 by the spec's own phase gate). Removed PR #139's `triggeredBy === "automation"`
+outbox-skip guard in `executeTransition` — that skip fixed #120's double-trigger bug but also
+meant automation-triggered transitions never reached the outbox at all, silently missing every
+consumer other than automation itself (a gap that would block ADR-009 Decision #3's webhook
+gateway, #364). `executeTransition` now generates a `transitionEventId` unconditionally and
+writes to the outbox for every `triggeredBy`; the id is threaded through the sync in-process
+path (`transition.ts`) and the async worker path (`automation-worker.ts`) as an explicit
+parameter, mirroring the existing `depth`/`outboxEventId` pattern. Consumer-side dedup
+enforcement (advisory lock + completed-status check) is deliberately deferred to Phase 2, per
+the spec.
+Revived onto a fresh branch off current `main` (cherry-picked the single commit; only conflict
+was the migration number, since Stage 1 also claimed `0053` — renumbered to `0054`). Also
+applied #360's `afterAll` cleanup fix to the rewritten isolation test, since this branch predates
+that fix and the new contract (outbox row now written) would have compounded the same
+accumulation bug even harder.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (762/762).
+`pnpm test:isolation`: PASS (269/269). Ran the revised isolation test 5 consecutive times,
+zero leftover rows confirmed via `psql` after each run.
+
+---
+
+## 2026-08-11 — fix #360: automation-depth-recursion isolation test flakiness
+
+**Session type:** Bug fix (test hygiene, unrelated to Phase 3A)
+**Summary:** Root-caused #360 (filed 2026-08-09 during Phase 3A Stage 1 work). The test uses a
+fixed `TENANT` UUID across every run but `afterAll` only cleaned up `outboxEvents`/
+`automationExecutions` — not `automation_rules`, `workflows`, `workflow_states`,
+`workflow_transitions`, `entity_types`, or `entity_instances`. On CI's ephemeral per-run Postgres
+this never showed; on a long-lived local dev container it accumulated a leftover "Auto-continue
+to done" automation rule on every run (confirmed: 40 accumulated `automation_rules` rows, 20
+`workflows`, after ~20 repeated local runs). Each leftover rule's condition (`toState ==
+"processing"`) isn't scoped to a specific workflow, so it re-fires against the CURRENT run's real
+event and tries to execute its OWN stale `transitionId` (pointing at a prior run's now-orphaned
+workflow) against the current instance — that call fails, and after 5 accumulated failures
+`packages/automation-engine/src/circuit-breaker.ts` opens for `(tenantId, "transition")`,
+skipping the current run's own correctly-configured rule too (it sorts last by `createdAt`).
+Fixed by extending `afterAll` to delete everything `beforeAll` creates, in FK-dependency order.
+Verified: 7 consecutive local runs all pass with zero leftover rows after each.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (732/732 — up from
+731/732, #360 gone). `pnpm test:isolation`: PASS (261/261).
+
+---
+
 ## 2026-08-09 — Phase 3A Stage 1: api_keys lifecycle hardening (ADR-008)
 
 **Session type:** Feature (Phase 3A implementation, stacked on the Stage 0 PR)

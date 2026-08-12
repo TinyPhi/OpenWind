@@ -384,7 +384,14 @@
       "idx": 54,
       "version": "7",
       "when": 1785542406000,
-      "tag": "0054_outbox_dead_letter_rls_null_guc_fix",
+      "tag": "0054_automation_executions_transition_event_id",
+      "breakpoints": false
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1785542407000,
+      "tag": "0055_outbox_dead_letter_rls_null_guc_fix",
       "breakpoints": false
     }
   ]

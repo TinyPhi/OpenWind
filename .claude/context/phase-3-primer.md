@@ -54,10 +54,13 @@ plan-lock all of this as one unit.
 
 ### Stage 0 — cheap prep, no ADR blocking
 
-- [ ] Confirm issue #143's status and resolve it (or explicitly account for it) before
-      implementing ADR-009 Decision #3 (webhook gateway reads the outbox) — automation-triggered
-      transitions currently never reach the outbox, which would make connector webhooks silently
-      miss them.
+- [~] #143 Phase 1 (producer side) done 2026-08-11: `executeTransition` now writes to the
+  outbox unconditionally for every `triggeredBy`, carrying a `transitionEventId` for future
+  dedup. Recovered from an abandoned local branch, revived and shipped independently (see
+  week-log). **Still open — Phase 2 (consumer-side dedup enforcement, spec tasks T4/T6-T9 in
+  `docs/specs/outbox-automation-idempotent-consumption-tasks.md`) is required before #364
+  (webhook gateway) can safely read the outbox** — without it, an automation-triggered
+  transition's outbox row has no duplicate-delivery protection yet.
 - [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #3/#5 — done
       2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
       `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
