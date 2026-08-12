@@ -69,6 +69,7 @@ type ChildInstance = {
   currentState: string | null;
   fields: Record<string, unknown>;
   assignedTo: string | null;
+  dueDate: string | null;
   deletedAt: string | null;
 };
 type Transition = {
@@ -594,11 +595,13 @@ function AssignDropdown({
   users,
   disabled,
   onChange,
+  className,
 }: {
   value: string;
   users: OrgUser[];
   disabled?: boolean;
   onChange: (userId: string) => void;
+  className?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -639,7 +642,7 @@ function AssignDropdown({
   }
 
   return (
-    <div ref={containerRef} className="asgn-drop">
+    <div ref={containerRef} className={`asgn-drop ${className ?? ""}`}>
       <button
         type="button"
         className={`asgn-trigger ${open ? "asgn-trigger-open" : ""}`}
@@ -2183,7 +2186,6 @@ export function CustomerRecordDetail(): React.ReactElement {
       const childFields: Record<string, string> = {
         title: newChildTitle.trim(),
       };
-      if (newChildDueDate) childFields.dueDate = newChildDueDate;
       if (newChildDescription.trim())
         childFields.description = newChildDescription.trim();
       await fetchWithAuth(`${API_URL}/entities/${id}/children`, {
@@ -2192,6 +2194,9 @@ export function CustomerRecordDetail(): React.ReactElement {
           entityTypeId: effectiveEntityTypeId,
           fields: childFields,
           ...(newChildAssignedTo ? { assignedTo: newChildAssignedTo } : {}),
+          ...(newChildDueDate
+            ? { dueDate: new Date(newChildDueDate).toISOString() }
+            : {}),
         }),
       });
       setNewChildTitle("");
@@ -4175,19 +4180,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                         const childState = CHILD_TICKET_STATES.find(
                           (s) => s.name === child.currentState,
                         );
-                        const dueDateField = [
-                          "due_date",
-                          "dueDate",
-                          "due",
-                        ].find((k) => child.fields[k]);
                         const dueDate =
-                          dueDateField &&
-                          !isNaN(
-                            new Date(
-                              child.fields[dueDateField] as string,
-                            ).getTime(),
-                          )
-                            ? new Date(child.fields[dueDateField] as string)
+                          child.dueDate &&
+                          !isNaN(new Date(child.dueDate).getTime())
+                            ? new Date(child.dueDate)
                             : null;
 
                         // Urgency: days until due (negative = overdue)
@@ -4945,24 +4941,18 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
             <div className="form-group">
               <label className="form-label">Assign to</label>
-              <select
-                className="form-input"
+              <AssignDropdown
                 value={newChildAssignedTo}
-                onChange={(e) => setNewChildAssignedTo(e.target.value)}
-              >
-                <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.userId} value={u.userId}>
-                    {u.displayName ?? u.email}
-                  </option>
-                ))}
-              </select>
+                users={users}
+                onChange={setNewChildAssignedTo}
+                className="asgn-drop-full"
+              />
             </div>
             <div className="form-group">
               <label className="form-label">Due date</label>
               <input
                 className="form-input"
-                type="date"
+                type="datetime-local"
                 value={newChildDueDate}
                 onChange={(e) => setNewChildDueDate(e.target.value)}
               />

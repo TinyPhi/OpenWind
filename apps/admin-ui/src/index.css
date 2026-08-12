@@ -3638,6 +3638,9 @@ select.form-input {
 
 /* ── Searchable assign dropdown ────────────────────────────── */
 .asgn-drop { position: relative; display: inline-block; }
+.asgn-drop-full { display: block; width: 100%; }
+.asgn-drop-full .asgn-trigger { width: 100%; }
+.asgn-drop-full .asgn-menu { width: 100%; }
 
 .asgn-trigger {
   display: flex; align-items: center; gap: 7px;

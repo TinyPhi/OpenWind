@@ -12,6 +12,7 @@ const CreateChildSchema = z.object({
   entityTypeId: z.string().uuid(),
   fields: z.record(z.unknown()).default({}),
   assignedTo: z.string().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
 });
 
 export const createChildHandler = factory.createHandlers(
@@ -42,6 +43,7 @@ export const createChildHandler = factory.createHandlers(
           childFields: input.fields,
           assignedTo: input.assignedTo,
           createdBy: userId,
+          dueDate: input.dueDate,
         });
       });
       return c.json({ data: result }, 201);
