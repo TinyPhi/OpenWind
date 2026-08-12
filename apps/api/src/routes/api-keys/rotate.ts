@@ -32,6 +32,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
           id: apiKeys.id,
           name: apiKeys.name,
           scopes: apiKeys.scopes,
+          scopesFormat: apiKeys.scopesFormat,
           expiresAt: apiKeys.expiresAt,
         })
         .from(apiKeys)
@@ -50,6 +51,13 @@ export const rotateApiKeyHandler = factory.createHandlers(
       // Re-checked here, not just at original creation time (#223) — a caller
       // whose roles have since been downgraded should not be able to use
       // rotation to keep reissuing scopes they no longer hold themselves.
+      //
+      // TODO(ADR-008 Decision #6 ceiling-reopen): scopeCeilingError rejects
+      // any scope string not in ROLE_LEVEL (level -1), which includes every
+      // action-format string. Once action-format keys can be minted, this
+      // check will permanently 403 rotation of every one of them — the
+      // ceiling-reopen PR must update this call site too, not just
+      // create.ts's (review finding M2, PR #373).
       const scopeError = scopeCeilingError(roles, original.scopes);
       if (scopeError) return { error: "forbidden" as const, scopeError };
 
@@ -73,6 +81,10 @@ export const rotateApiKeyHandler = factory.createHandlers(
           tenantId,
           name: original.name,
           scopes: original.scopes,
+          // Carried forward unchanged, not recomputed — rotation reissues the
+          // same scopes verbatim, so it must keep whatever format they were
+          // already recorded as (ADR-008 Decision #6).
+          scopesFormat: original.scopesFormat,
           keyHash,
           keyHashArgon2,
           createdBy: userId,
@@ -83,6 +95,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
           id: apiKeys.id,
           name: apiKeys.name,
           scopes: apiKeys.scopes,
+          scopesFormat: apiKeys.scopesFormat,
           createdAt: apiKeys.createdAt,
           expiresAt: apiKeys.expiresAt,
         });
@@ -120,6 +133,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
         afterSnapshot: {
           name: created.name,
           scopes: created.scopes,
+          scopesFormat: created.scopesFormat,
           expiresAt: created.expiresAt,
         },
         metadata: { rotatedFrom: original.id },

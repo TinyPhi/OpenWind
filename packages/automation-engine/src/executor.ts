@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type { Redis } from "ioredis";
 import type { DbOrTx } from "@platform/db";
 import { automationRules, automationExecutions } from "@platform/db";
@@ -28,6 +28,15 @@ export async function executeAutomationRules(
   depth = 0,
   redis?: Redis,
   outboxEventId?: string,
+  // Identity of the workflow.transitioned event this fired from, threaded as
+  // an explicit parameter (not read off `event`) so both the sync in-process
+  // path (transition.ts, from executeTransition's return value) and the
+  // async worker path (automation-worker.ts, from the outbox payload) agree
+  // on the same value. When present, gates per-rule dedup (advisory lock +
+  // status = 'success' check, below) so the same (ruleId, transitionEventId)
+  // pair's action(s) never run twice — see
+  // docs/specs/outbox-automation-idempotent-consumption.md.
+  transitionEventId?: string,
 ): Promise<void> {
   if (depth >= MAX_DEPTH) {
     throw new AutomationError("MAX_DEPTH_EXCEEDED", { depth });
@@ -59,13 +68,21 @@ export async function executeAutomationRules(
     // trees can match on both. entity.created events carry a `fields` map;
     // all other event types carry their data as top-level properties only.
     // Excludes envelope/engine-internal keys (fields is merged in separately
-    // below; version/tenantId/depth are transport metadata, not domain data —
-    // depth in particular is an internal recursion counter that a tenant
-    // should never be able to write a condition against, e.g. `depth > 3`).
+    // below; version/tenantId/depth/transitionEventId are transport metadata,
+    // not domain data — depth is an internal recursion counter and
+    // transitionEventId an internal dedup identity, neither of which a
+    // tenant should be able to write a condition against.
     const eventFields: Record<string, unknown> = {
       ...Object.fromEntries(
         Object.entries(event).filter(
-          ([k]) => !["fields", "version", "tenantId", "depth"].includes(k),
+          ([k]) =>
+            ![
+              "fields",
+              "version",
+              "tenantId",
+              "depth",
+              "transitionEventId",
+            ].includes(k),
         ),
       ),
       ...("fields" in event ? (event.fields as Record<string, unknown>) : {}),
@@ -78,93 +95,153 @@ export async function executeAutomationRules(
     );
     if (!passes) continue;
 
-    const [execRow] = await db
-      .insert(automationExecutions)
-      .values({
-        tenantId,
-        ruleId: rule.id,
-        triggerEvent: event as Record<string, unknown>,
-        status: "running",
-        startedAt: new Date(),
-      })
-      .returning();
+    // Inserts the running row, executes the rule's actions, and records the
+    // final outcome. Unchanged in shape from before #143 Phase 2 — the only
+    // difference is which `txDb` it's handed: the bare/ambient `db` when
+    // there's no transitionEventId to dedup on (today's behavior, untouched),
+    // or the advisory-lock-holding transaction below when there is one.
+    const runRule = async (txDb: DbOrTx): Promise<void> => {
+      const [execRow] = await txDb
+        .insert(automationExecutions)
+        .values({
+          tenantId,
+          ruleId: rule.id,
+          triggerEvent: event as Record<string, unknown>,
+          status: "running",
+          startedAt: new Date(),
+          transitionEventId: transitionEventId ?? null,
+        })
+        .returning();
 
-    if (!execRow) continue;
+      if (!execRow) return;
 
-    // Run all actions for this rule inside db.transaction().
-    // • When db is already a transaction (worker path via withTenantContext):
-    //   Drizzle creates a named savepoint automatically.  If actions throw, the
-    //   savepoint is rolled back but the outer transaction remains open so the
-    //   audit-log update below can still execute.
-    // • When db is a bare connection (direct callers, isolation tests):
-    //   Drizzle starts a regular transaction.  If actions throw, the transaction
-    //   rolls back and the outer bare connection writes the audit log normally.
-    //
-    // NOTE: actions within a rule ARE atomically rolled back together on failure
-    // because they all run inside this inner transaction/savepoint.  Partial
-    // execution (actions 0..K-1 applied, action K fails) is therefore prevented
-    // at the DB level.  Full saga / compensating-action support (for side-effects
-    // that cannot be rolled back, e.g. sent emails) remains deferred.
-    let actionError: Error | null = null;
-    let skippedCount = 0;
+      // Run all actions for this rule inside txDb.transaction().
+      // • When txDb is already a transaction (worker path via
+      //   withTenantContext, or the dedup-lock transaction below): Drizzle
+      //   creates a named savepoint automatically. If actions throw, the
+      //   savepoint is rolled back but the outer transaction remains open so
+      //   the audit-log update below can still execute.
+      // • When txDb is a bare connection (direct callers, isolation tests):
+      //   Drizzle starts a regular transaction. If actions throw, the
+      //   transaction rolls back and the outer bare connection writes the
+      //   audit log normally.
+      //
+      // NOTE: actions within a rule ARE atomically rolled back together on failure
+      // because they all run inside this inner transaction/savepoint.  Partial
+      // execution (actions 0..K-1 applied, action K fails) is therefore prevented
+      // at the DB level.  Full saga / compensating-action support (for side-effects
+      // that cannot be rolled back, e.g. sent emails) remains deferred.
+      let actionError: Error | null = null;
+      let skippedCount = 0;
 
-    try {
-      await db.transaction(async (ruleTx) => {
-        for (const action of rule.actions as ActionConfig[]) {
-          const skipped = await runAction(
-            ruleTx,
-            tenantId,
-            rule.id,
-            execRow.id,
-            event,
-            action,
-            depth,
-            redis,
-            outboxEventId,
+      try {
+        await txDb.transaction(async (ruleTx) => {
+          for (const action of rule.actions as ActionConfig[]) {
+            const skipped = await runAction(
+              ruleTx,
+              tenantId,
+              rule.id,
+              execRow.id,
+              event,
+              action,
+              depth,
+              redis,
+              outboxEventId,
+            );
+            if (skipped) skippedCount++;
+          }
+        });
+      } catch (err) {
+        actionError = err instanceof Error ? err : new Error(String(err));
+      }
+
+      // Write the execution outcome using txDb (not the action-loop's inner
+      // transaction) — always available regardless of whether that inner
+      // transaction/savepoint was rolled back.
+      const finalStatus = actionError
+        ? "failed"
+        : skippedCount > 0
+          ? "degraded"
+          : "success";
+
+      await txDb
+        .update(automationExecutions)
+        .set({
+          status: finalStatus,
+          // If any actions were bypassed by the circuit breaker, record the count
+          // so the audit trail reflects partial execution — not "success" (misleading)
+          // nor "failed" (suggests a bug rather than a deliberate circuit-open skip).
+          result:
+            skippedCount > 0 && !actionError
+              ? ({ skippedActions: skippedCount } as Record<string, unknown>)
+              : null,
+          error: actionError?.message ?? null,
+          completedAt: new Date(),
+        })
+        .where(eq(automationExecutions.id, execRow.id));
+
+      if (actionError) {
+        logger.error(
+          { tenantId, ruleId: rule.id, execId: execRow.id, err: actionError },
+          "Automation: rule execution failed",
+        );
+      } else {
+        logger.info(
+          { tenantId, ruleId: rule.id, execId: execRow.id, skippedCount },
+          skippedCount > 0
+            ? "Automation: rule executed with degraded actions (circuit open)"
+            : "Automation: rule executed successfully",
+        );
+      }
+    };
+
+    if (transitionEventId) {
+      // Serialize concurrent attempts (sync in-process path vs. async
+      // outbox->worker path, or two BullMQ retries) at the same (ruleId,
+      // transitionEventId) pair on a Postgres advisory lock scoped to this
+      // transaction — pg_advisory_xact_lock auto-releases on commit/rollback
+      // of the enclosing REAL transaction (savepoints don't release it early,
+      // which is what we want: a racing attempt blocks until this whole
+      // dedup-check+insert+actions+status-update sequence has actually
+      // committed, not just until this callback returns). See
+      // docs/specs/outbox-automation-idempotent-consumption.md §I
+      // (concurrency control) and §T (T4).
+      await db.transaction(async (dedupTx) => {
+        await dedupTx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${rule.id} || ':' || ${transitionEventId}, 0))`,
+        );
+
+        // Checked AFTER acquiring the lock, not before — a check-then-lock
+        // order would let two concurrent attempts both pass the check before
+        // either inserts anything. Only a status = 'success' row counts: a
+        // prior 'failed'/'running' row for this pair must never block a
+        // legitimate retry (see the partial unique index's WHERE clause,
+        // packages/db/src/schema/automation-engine.ts).
+        const [existingSuccess] = await dedupTx
+          .select({ id: automationExecutions.id })
+          .from(automationExecutions)
+          .where(
+            and(
+              eq(automationExecutions.tenantId, tenantId),
+              eq(automationExecutions.ruleId, rule.id),
+              eq(automationExecutions.transitionEventId, transitionEventId),
+              eq(automationExecutions.status, "success"),
+            ),
+          )
+          .limit(1);
+
+        if (existingSuccess) {
+          logger.info(
+            { tenantId, ruleId: rule.id, transitionEventId },
+            "Automation: skipping rule — already completed for this transition",
           );
-          if (skipped) skippedCount++;
+          return;
         }
+
+        await runRule(dedupTx);
       });
-    } catch (err) {
-      actionError = err instanceof Error ? err : new Error(String(err));
-    }
-
-    // Write the execution outcome using the outer db — always available
-    // regardless of whether the inner transaction/savepoint was rolled back.
-    const finalStatus = actionError
-      ? "failed"
-      : skippedCount > 0
-        ? "degraded"
-        : "success";
-
-    await db
-      .update(automationExecutions)
-      .set({
-        status: finalStatus,
-        // If any actions were bypassed by the circuit breaker, record the count
-        // so the audit trail reflects partial execution — not "success" (misleading)
-        // nor "failed" (suggests a bug rather than a deliberate circuit-open skip).
-        result:
-          skippedCount > 0 && !actionError
-            ? ({ skippedActions: skippedCount } as Record<string, unknown>)
-            : null,
-        error: actionError?.message ?? null,
-        completedAt: new Date(),
-      })
-      .where(eq(automationExecutions.id, execRow.id));
-
-    if (actionError) {
-      logger.error(
-        { tenantId, ruleId: rule.id, execId: execRow.id, err: actionError },
-        "Automation: rule execution failed",
-      );
     } else {
-      logger.info(
-        { tenantId, ruleId: rule.id, execId: execRow.id, skippedCount },
-        skippedCount > 0
-          ? "Automation: rule executed with degraded actions (circuit open)"
-          : "Automation: rule executed successfully",
-      );
+      await runRule(db);
     }
   }
 }

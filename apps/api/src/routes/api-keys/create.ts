@@ -8,6 +8,7 @@ import {
   hashApiKey,
   hashApiKeyArgon2,
   API_KEY_DEFAULT_TTL_DAYS,
+  detectScopesFormat,
 } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
@@ -33,6 +34,27 @@ export const createApiKeyHandler = factory.createHandlers(
       return c.json({ error: "FORBIDDEN", message: scopeError }, 403);
     }
 
+    // ADR-008 Decision #6: stamps the format of the scopes actually supplied.
+    // scopeCeilingError above already rejects any non-role-string scope, so
+    // this resolves to "action" only once that ceiling is deliberately
+    // reopened (OQ-5 verb set + #365 redactor) — see 0055's migration comment.
+    // detectScopesFormat only throws on a mixed role/action array, which the
+    // ceiling check above can't currently produce — checked here anyway
+    // (before the slow argon2 hash below, not after) so a future ceiling bug
+    // fails as a structured 422, not an unhandled 500 (review finding, PR #373).
+    let scopesFormat;
+    try {
+      scopesFormat = detectScopesFormat(scopes);
+    } catch (err) {
+      return c.json(
+        {
+          error: "INVALID_SCOPES",
+          message: err instanceof Error ? err.message : "Invalid scopes",
+        },
+        422,
+      );
+    }
+
     // Generate a cryptographically random key with a recognisable prefix.
     // The raw key is returned exactly once — after this the hash is all that
     // is stored.  The caller is responsible for storing it securely.
@@ -52,6 +74,7 @@ export const createApiKeyHandler = factory.createHandlers(
           keyHash,
           keyHashArgon2,
           scopes,
+          scopesFormat,
           createdBy: userId,
           expiresAt,
         })
@@ -59,6 +82,7 @@ export const createApiKeyHandler = factory.createHandlers(
           id: apiKeys.id,
           name: apiKeys.name,
           scopes: apiKeys.scopes,
+          scopesFormat: apiKeys.scopesFormat,
           createdAt: apiKeys.createdAt,
           expiresAt: apiKeys.expiresAt,
         });
@@ -76,7 +100,7 @@ export const createApiKeyHandler = factory.createHandlers(
         resourceType: "api_key",
         resourceId: row.id,
         action: "created",
-        afterSnapshot: { name, scopes, expiresAt },
+        afterSnapshot: { name, scopes, scopesFormat, expiresAt },
       });
 
       return row;

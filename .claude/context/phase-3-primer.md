@@ -54,10 +54,20 @@ plan-lock all of this as one unit.
 
 ### Stage 0 — cheap prep, no ADR blocking
 
-- [ ] Confirm issue #143's status and resolve it (or explicitly account for it) before
-      implementing ADR-009 Decision #3 (webhook gateway reads the outbox) — automation-triggered
-      transitions currently never reach the outbox, which would make connector webhooks silently
-      miss them.
+- [x] #143 both phases done — Phase 1 (producer side) merged via PR #372, 2026-08-12; Phase 2
+      (consumer-side dedup, spec tasks T4/T6-T9) merged 2026-08-12. `executeTransition` writes to the
+      outbox unconditionally for every `triggeredBy`, carrying a `transitionEventId`; `executor.ts`
+      now serializes concurrent attempts at the same `(ruleId, transitionEventId)` pair on a Postgres
+      advisory lock (auto-released on the enclosing real transaction's commit/rollback) and skips a
+      rule whose actions already completed successfully for that pair, while still permitting retry
+      of a `'failed'` attempt. T9 (unique-index backstop) was already covered by PR #372's own
+      isolation test. **#364 (webhook gateway) is now unblocked on this front** — though see
+      [#378](../../issues/378): `outbox-poller.ts`'s temporary exclusion of automation-triggered
+      transitions (added alongside Phase 1, safe to remove now that Phase 2's dedup exists) hasn't
+      been removed yet, so those rows still don't reach the real BullMQ queue in production. Also
+      found during Phase 2: [#379](../../issues/379), the "transition" automation action never stamps
+      its own recursion depth onto the outbox row it produces — a separate, real gap, not fixed as
+      part of Phase 2 (out of that PR's scope).
 - [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #3/#5 — done
       2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
       `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
@@ -104,15 +114,39 @@ trackable replacement).
 
 Runtime track:
 
-- [ ] `ConnectorContext` + OpenBao credential decrypt (connector code never sees raw secrets).
-      [#362](../../issues/362)
+- [x] `ConnectorContext` + OpenBao credential decrypt (connector code never sees raw secrets) —
+      done 2026-08-12. `ConnectorDefinition.auth` is now a concrete discriminated union
+      (`ConnectorAuthConfig`: `bearer` / `basic` / `apiKey`, each naming the `credentialKey`(s)
+      it needs) replacing the prior `Record<string, unknown>` placeholder — this is the exact
+      shape #363's `connector_credentials` table needs to store (a JSONB map of
+      `credentialKey -> ciphertext` per tenant-connector installation). `callApi()` enforces
+      `allowedHosts` membership, then a ported, self-contained SSRF guard
+      (`packages/connector-sdk/src/ssrf-guard.ts` — deliberately not importing
+      `@platform/automation-engine`'s version, which would pull in `@platform/db`,
+      `entity-engine`, `workflow-engine`, `bullmq`, `drizzle-orm`, `ioredis` as transitive deps
+      for a lightweight SDK package), both strictly **before** any credential is decrypted —
+      the exact ordering ADR-009 Decision #5 calls out to prevent `callApi()` being used as a
+      credential-exfiltration oracle. `log()` delegates to `@platform/logger`'s existing pino
+      `redact` config rather than reimplementing scrubbing. **PR review (PrabhuVijit) caught a
+      CRITICAL DNS-rebinding gap in the first version:** the SSRF check validated a hostname's
+      resolved IP but `callApi()` then used global `fetch()`, which re-resolves DNS independently
+      — a 0-TTL DNS record could flip the address to something private between validation and
+      the real connection. Fixed by pinning the outbound connection to the validated IP via a
+      custom `http(s).Agent` `lookup` callback (`node:http(s).request`, not `fetch()` — Undici
+      silently ignores the `agent` option), matching `automation-engine/src/actions/webhook.ts`'s
+      already-established pattern exactly. Also added the port allowlist automation-engine's
+      guard already has (host allowlisting alone doesn't stop reaching an arbitrary port on an
+      allowed host). [#362](../../issues/362)
 - [ ] Inbound webhook gateway (`POST /webhooks/{connectorId}/{tenantId}`) — depends on Stage 0's
-      #143 resolution. [#364](../../issues/364)
+      #143 resolution (done) and #362 (done). [#364](../../issues/364)
 - [ ] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
       (Decision #9), sensitivity taxonomy/redactor (Decision #10 — **shared dependency**, see
-      above). [#365](../../issues/365)
+      above; already exists as `packages/workflow-engine/src/redact.ts`'s `redactMetadata`/
+      `buildSensitivityMap`, just needs wiring into outbound payload construction here, not a
+      new mechanism). [#365](../../issues/365)
 - [ ] `connector_definitions` + `connector_credentials` tables, with isolation tests in the same
-      PR that creates them. [#363](../../issues/363)
+      PR that creates them — now unblocked, #362's `ConnectorAuthConfig`/`credentialKey` shape is
+      what `connector_credentials`'s secrets column should key on. [#363](../../issues/363)
 - [ ] Polling scheduler (BullMQ repeatable job per connector per tenant). [#366](../../issues/366)
 - [ ] Kill switch (non-destructive disable, not just install/uninstall). [#367](../../issues/367)
 - [ ] Build email (SMTP/IMAP) + WhatsApp Business connectors _together with_ the runtime — the
@@ -122,19 +156,41 @@ Runtime track:
 
 Scopes track (can run in parallel with the runtime track, same stage):
 
-- [ ] `api_keys.scopes` dual-format re-shape (Decision #6): pick a discriminator (recommend an
-      explicit `scopes_format` column — `role` | `action` — over a colon heuristic or date
-      cutoff, since it's the only option that doesn't break if a future role-string happens to
-      contain a colon). Existing internal keys stay on legacy role-strings, unmigrated.
-      [#370](../../issues/370)
+- [x] `api_keys.scopes` dual-format discriminator (Decision #6) — done 2026-08-12, migration
+      0054: `scopes_format text NOT NULL DEFAULT 'role'` (CHECK `IN ('role','action')`), an
+      explicit column rather than a colon heuristic or date cutoff, since it's the only option
+      that doesn't break if a future role-string happens to contain a colon. Existing keys stay
+      on legacy role-strings, unmigrated. `packages/auth/src/scopes.ts`'s `detectScopesFormat`
+      recognises the confirmed `entity:<entityType>:<verb>` shape structurally, without
+      hardcoding a verb enum — OQ-5 (below) is still open. `create.ts` stamps the column from
+      the scopes actually supplied; `rotate.ts` carries the original's format forward unchanged.
+      **Deliberately NOT implemented:** `scope-ceiling.ts` still rejects any non-role-string
+      scope, so no key can actually be minted with `scopes_format='action'` through the real API
+      yet — reopening that ceiling needs OQ-5's verb set resolved and #365's redactor to exist,
+      so a Tier-1 key is never issued with no read-scoping enforcement behind it. No new
+      `requireScope` middleware or issuance route either — that's Stage 3's job once a real
+      consumer exists. [#370](../../issues/370)
 - [ ] Resolve OQ-5's exact verb set jointly with whoever scopes ADR-010's Tier 1 rollout —
       confirmed shape is `entity:<entityType>:<verb>` (e.g. `entity:ticket:create`,
       `entity:ticket:read`); still open whether a `transition` verb is needed or `create`+`read`
       suffice. Tracked in [#370](../../issues/370).
+- [ ] Reopen `scope-ceiling.ts`'s rejection of action-format scopes once OQ-5 is resolved, with a
+      real privilege-ceiling rule for the new verb set (today's `ROLE_LEVEL` map has no meaning
+      for `entity:<type>:<verb>` strings). **Same PR must also fix two forward-compatibility traps
+      flagged in PR #373's review (both marked with inline `TODO` comments at the call sites):**
+      `resolve_api_key_by_hash` (migration 0031/0047) doesn't return `scopes_format` and
+      `AuthContext` has no format field, so a Stage 3 `requireScope()` would have to re-derive
+      format from string shape — fix requires `DROP FUNCTION` + recreate (Postgres can't
+      `CREATE OR REPLACE` a changed return type), so it must land in this PR, not a follow-up
+      (`packages/auth/src/middleware.ts`'s `resolveApiKey`); and `rotate.ts`'s
+      `scopeCeilingError(roles, original.scopes)` call, unchanged, would permanently 403 rotation
+      of every action-format key the moment they can be minted.
 - [ ] Wire scoped reads through ADR-009 Decision #10's redactor (once built) — a Tier-1 key
       scoped to `entity:ticket:read` must see the same redacted view an equivalent-role human
       would, never a raw dump.
-- [ ] Isolation tests for the scopes migration.
+- [x] Isolation tests for the scopes_format migration — done 2026-08-12, extended
+      `api-key-auth.isolation.test.ts` (default 'role', explicit 'action' round-trips under RLS
+      scoped to its own tenant, CHECK constraint rejects an out-of-enum value).
 
 ### Stage 3 — ADR-010 Tier 1 inbound partner API (after Stage 1 + Stage 2 land)
 

@@ -1,4 +1,13 @@
 -- Down migration (rollback):
+-- WARNING (PR #374 review, M1): this restores the 0049 policy shape below,
+-- which contains the exact empty-string-cast bug this migration exists to
+-- fix — applying this rollback re-breaks outbox/dead-letter delivery
+-- platform-wide the moment any pgbouncer-pooled connection has ever touched
+-- a real tenant context (see the fix rationale further down this file). Do
+-- not apply this rollback without also planning a re-fix; to fully revert
+-- instead of reintroducing the bug, run 0049's own down migration (DISABLE
+-- ROW LEVEL SECURITY on these two tables), matching pre-0049/post-0006
+-- behavior.
 -- DROP POLICY IF EXISTS "outbox_events_tenant_isolation" ON "outbox_events";
 -- CREATE POLICY "outbox_events_tenant_isolation"
 --   ON "outbox_events"
@@ -64,6 +73,15 @@ DROP POLICY IF EXISTS "outbox_events_tenant_isolation" ON "outbox_events";
 CREATE POLICY "outbox_events_tenant_isolation"
   ON "outbox_events"
   FOR ALL
+  -- Three conditions, one concept: "match if scoped, allow if not scoped."
+  -- 1) tenant_id = NULLIF(...)::uuid   — real tenant_id set: match required.
+  -- 2) current_setting(...) IS NULL    — GUC never touched on this backend.
+  -- 3) current_setting(...) = ''       — GUC touched before, now a
+  --    placeholder (the pgbouncer/set_config quirk explained above). Do not
+  --    remove condition 2 or 3 as "redundant" with the other — a given
+  --    backend is in exactly one of those two states depending on its
+  --    history, never both, and NULLIF alone (condition 1) only prevents the
+  --    ::uuid cast from throwing; it does NOT grant batch access on its own.
   USING (
     tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
     OR current_setting('app.tenant_id', true) IS NULL
@@ -79,6 +97,15 @@ DROP POLICY IF EXISTS "dead_letter_events_tenant_isolation" ON "dead_letter_even
 CREATE POLICY "dead_letter_events_tenant_isolation"
   ON "dead_letter_events"
   FOR ALL
+  -- Three conditions, one concept: "match if scoped, allow if not scoped."
+  -- 1) tenant_id = NULLIF(...)::uuid   — real tenant_id set: match required.
+  -- 2) current_setting(...) IS NULL    — GUC never touched on this backend.
+  -- 3) current_setting(...) = ''       — GUC touched before, now a
+  --    placeholder (the pgbouncer/set_config quirk explained above). Do not
+  --    remove condition 2 or 3 as "redundant" with the other — a given
+  --    backend is in exactly one of those two states depending on its
+  --    history, never both, and NULLIF alone (condition 1) only prevents the
+  --    ::uuid cast from throwing; it does NOT grant batch access on its own.
   USING (
     tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
     OR current_setting('app.tenant_id', true) IS NULL
