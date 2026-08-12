@@ -122,7 +122,16 @@ Runtime track:
       for a lightweight SDK package), both strictly **before** any credential is decrypted —
       the exact ordering ADR-009 Decision #5 calls out to prevent `callApi()` being used as a
       credential-exfiltration oracle. `log()` delegates to `@platform/logger`'s existing pino
-      `redact` config rather than reimplementing scrubbing. [#362](../../issues/362)
+      `redact` config rather than reimplementing scrubbing. **PR review (PrabhuVijit) caught a
+      CRITICAL DNS-rebinding gap in the first version:** the SSRF check validated a hostname's
+      resolved IP but `callApi()` then used global `fetch()`, which re-resolves DNS independently
+      — a 0-TTL DNS record could flip the address to something private between validation and
+      the real connection. Fixed by pinning the outbound connection to the validated IP via a
+      custom `http(s).Agent` `lookup` callback (`node:http(s).request`, not `fetch()` — Undici
+      silently ignores the `agent` option), matching `automation-engine/src/actions/webhook.ts`'s
+      already-established pattern exactly. Also added the port allowlist automation-engine's
+      guard already has (host allowlisting alone doesn't stop reaching an arbitrary port on an
+      allowed host). [#362](../../issues/362)
 - [ ] Inbound webhook gateway (`POST /webhooks/{connectorId}/{tenantId}`) — depends on Stage 0's
       #143 resolution (done) and #362 (done). [#364](../../issues/364)
 - [ ] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics

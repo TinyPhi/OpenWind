@@ -10,14 +10,23 @@
  * wrong transitive dependencies for the lightweight connector-sdk (see
  * PROGRESS.md for the full reasoning on this choice).
  *
- * Deliberately narrower than the automation-engine version: no operator-
- * configurable extra CIDRs (SSRF_BLOCK_CIDRS) and no non-standard port
- * allowlist — those are automation-engine-specific webhook-delivery policy,
- * not part of the core "don't let a connector reach an internal address"
- * property this guard exists for. The per-connector `allowedHosts` allowlist
- * (enforced separately, in runtime.ts, before this guard even runs) is what
- * scopes *which* public hosts a connector may reach; this guard is the
- * defense-in-depth backstop against a host resolving somewhere private.
+ * Deliberately narrower than the automation-engine version in one respect:
+ * no operator-configurable extra CIDRs (SSRF_BLOCK_CIDRS) — that's
+ * automation-engine-specific webhook-delivery policy. The port DOES include
+ * the port allowlist (H1, PR #381 review — a real security control, not
+ * policy preference: without it, an allowlisted hostname could still be
+ * reached on an arbitrary internal port).
+ *
+ * PR #381 review (C1): the original returns the first validated IP so the
+ * caller can pin the outbound TCP connection to it — without that, a second,
+ * independent DNS lookup at connect time (e.g. inside fetch()) is a DNS
+ * rebinding vector: the hostname could resolve somewhere private between the
+ * validation call and the actual connection. This port now does the same —
+ * see runtime.ts's callApi() for how the returned IP is used to pin the
+ * connection via a custom http(s).Agent, matching
+ * automation-engine/src/actions/webhook.ts's established pattern (global
+ * fetch/Undici silently ignores the `agent` option and re-resolves DNS
+ * itself, which is exactly why callApi() uses node:http(s).request instead).
  */
 
 import dns from "node:dns/promises";
@@ -33,10 +42,15 @@ const HARDCODED_BLOCKED_CIDRS: readonly string[] = [
   "169.254.0.0/16", // Link-local / cloud metadata
   "fe80::/10", // Link-local IPv6
   "100.64.0.0/10", // CGNAT / shared address space (RFC 6598)
-  "fd00::/8", // Unique local addresses (RFC 4193)
+  "fc00::/7", // Unique local addresses (RFC 4193) - both fc00::/8 (central,
+  // reserved) and fd00::/8 (locally assigned) halves. Was incorrectly
+  // fd00::/8 only (M1, PR #381 review) - fc00::/8 addresses are formally
+  // private too and were not being blocked.
   "::ffff:0:0/96", // IPv4-mapped IPv6 (covers ::ffff:10.x, ::ffff:169.254.x etc.)
   "0.0.0.0/8", // Unspecified
 ];
+
+const ALLOWED_PORTS = new Set([80, 443, 8080, 8443]);
 
 type ParsedCidr = [ipaddr.IPv4 | ipaddr.IPv6, number];
 
@@ -93,14 +107,19 @@ const DNS_TIMEOUT_MS = 2_000;
 
 /**
  * Validates that `url` is safe for a connector to make an outbound HTTP(S)
- * call to: http/https scheme only, and every DNS-resolved address is outside
- * the private/loopback/link-local ranges above.
+ * call to: http/https scheme only, an allowed port, and every DNS-resolved
+ * address is outside the private/loopback/link-local ranges above.
  *
  * Fails closed: DNS timeout, DNS error, or zero resolved addresses are all
  * treated as blocked, same as automation-engine's webhook guard. Throws a
  * plain `Error` on any violation.
+ *
+ * @returns the first validated IP address — the CALLER MUST pin the outbound
+ * connection to this exact address (not re-resolve the hostname), or this
+ * guard provides no real protection against DNS rebinding (C1, PR #381
+ * review). See runtime.ts's callApi().
  */
-export async function assertEgressAllowed(url: string): Promise<void> {
+export async function assertEgressAllowed(url: string): Promise<string> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -112,6 +131,16 @@ export async function assertEgressAllowed(url: string): Promise<void> {
     throw new Error(
       `Connector egress blocked: scheme "${parsed.protocol}" is not allowed`,
     );
+  }
+
+  const portStr = parsed.port;
+  if (portStr) {
+    const portNum = Number(portStr);
+    if (isNaN(portNum) || !ALLOWED_PORTS.has(portNum)) {
+      throw new Error(
+        `Connector egress blocked: port "${portStr}" is not allowed`,
+      );
+    }
   }
 
   const hostname = parsed.hostname;
@@ -165,4 +194,13 @@ export async function assertEgressAllowed(url: string): Promise<void> {
       );
     }
   }
+
+  // addresses.length > 0 is guaranteed — checked above.
+  const firstAddress = addresses[0];
+  if (!firstAddress) {
+    throw new Error(
+      `Connector egress blocked: DNS returned no addresses for "${hostname}"`,
+    );
+  }
+  return firstAddress;
 }
