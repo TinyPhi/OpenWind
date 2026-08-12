@@ -155,7 +155,7 @@ Runtime track:
       via `ALTER`: `connector_id` retyped to `uuid` + FK to `connector_definitions`, `credentials`
       replaced with `secrets jsonb` (credentialKey -> ciphertext map, matching #362's
       `ConnectorAuthConfig` exactly), added `cursor_state jsonb`, added `UNIQUE(tenant_id,
-    connector_id)`. RLS policies and the `app_user` grant (incl. DELETE, which `tenant-purge.ts`
+connector_id)`. RLS policies and the `app_user` grant (incl. DELETE, which `tenant-purge.ts`
       needs) were left untouched. Fixed #362's now-stale "doesn't exist yet" doc comment in
       `connector-sdk/src/runtime.ts`/`types.ts`. [#363](../../issues/363)
 - [ ] Polling scheduler (BullMQ repeatable job per connector per tenant). [#366](../../issues/366)
