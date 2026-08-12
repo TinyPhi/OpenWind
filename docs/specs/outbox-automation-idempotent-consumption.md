@@ -2,9 +2,9 @@
 
 > automation-triggered transitions reach outbox_events again, w/o reintroducing #120 (double-exec / unbounded recursion). Unblocks ADR-009 Decision #3 (connector webhook gateway reads the outbox).
 
-status: review
+status: done
 created: 2026-08-09
-updated: 2026-08-09 (revised per /spec-review: transitionEventId threading + retry-safe dedup)
+updated: 2026-08-12 (Phase 1 + Phase 2 both merged — see outbox-automation-idempotent-consumption-tasks.md)
 
 ---
 
