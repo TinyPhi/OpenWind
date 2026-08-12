@@ -540,6 +540,15 @@ async function resolveApiKey(
   // resolve_api_key_by_hash (migration 0031/0047) is a narrowly-scoped
   // SECURITY DEFINER function that bypasses RLS for this one lookup-by-secret
   // and returns only id/tenant_id/scopes/key_hash_argon2, never key_hash itself.
+  //
+  // TODO(ADR-008 Decision #6 ceiling-reopen): this function's RETURNS TABLE
+  // does not include scopes_format, and AuthContext has no format field —
+  // when the scope-ceiling is reopened and action-format keys can actually
+  // authenticate, a Stage 3 requireScope() would have to re-derive the
+  // format from the string shape, defeating the point of the explicit
+  // discriminator over a colon heuristic. PostgreSQL can't CREATE OR REPLACE
+  // a changed return type, so this needs a DROP FUNCTION + recreate in the
+  // ceiling-reopen PR, not a later follow-up (review finding M1, PR #373).
   const result = await db.execute<{
     id: string;
     tenant_id: string;
