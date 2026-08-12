@@ -7,7 +7,9 @@ import {
   jsonb,
   timestamp,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const automationRules = pgTable("automation_rules", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -41,6 +43,13 @@ export const automationExecutions = pgTable(
     error: text("error"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    // Identity of the workflow.transitioned event that triggered this
+    // execution (see engine.ts's executeTransition). Only set for
+    // transition-sourced executions — NULL for entity.created/entity.assigned
+    // etc. Partial unique index below dedupes completed executions per
+    // (ruleId, transitionEventId) without permanently blocking retry of a
+    // failed one — see docs/specs/outbox-automation-idempotent-consumption.md.
+    transitionEventId: uuid("transition_event_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -51,6 +60,16 @@ export const automationExecutions = pgTable(
       t.ruleId,
       t.status,
     ),
+    // executor.ts's terminal statuses are 'success'/'degraded'/'failed', never
+    // 'completed' (PR #372 review, H1) — 'completed' here would never match
+    // any row, permanently disabling this index and Phase 2's dedup SELECT.
+    ruleTransitionSuccessIdx: uniqueIndex(
+      "automation_executions_rule_transition_success_idx",
+    )
+      .on(t.ruleId, t.transitionEventId)
+      .where(
+        sql`${t.transitionEventId} IS NOT NULL AND ${t.status} = 'success'`,
+      ),
   }),
 );
 

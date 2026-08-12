@@ -23,6 +23,17 @@ export const WorkflowTransitionedV1Schema = baseEvent.extend({
   // Automation recursion depth this transition was triggered at (see issue #120).
   // Absent on events from direct user/API transitions, which start at depth 0.
   depth: z.number().int().nonnegative().optional(),
+  // Identity of this workflow.transitioned event — carried through the
+  // outbox so the async worker path can dedupe against the same key the
+  // sync in-process path already claimed. Declared here rather than on
+  // baseEvent (PR #372 review, M2): unlike `depth`, which is genuinely
+  // cross-cutting (every automation-chain event, including
+  // workflow.sla_breached, tracks recursion), transitionEventId has no
+  // meaning outside workflow.transitioned — putting it on baseEvent would
+  // let a bug accidentally populate it on an unrelated event type and pass
+  // schema validation while storing a meaningless dedup key. See
+  // packages/automation-engine/src/executor.ts and issue #143.
+  transitionEventId: z.string().uuid().optional(),
 });
 
 export const WorkflowSlaBreachedV1Schema = baseEvent.extend({
@@ -136,6 +147,19 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
 // that function does its own full TriggerEventSchema.safeParse. Reuses
 // baseEvent's `depth` constraint so the two never drift apart.
 export const OutboxDepthSchema = baseEvent.pick({ depth: true });
+
+// Mirrors OutboxDepthSchema — apps/worker/src/automation-worker.ts uses this
+// to extract transitionEventId from the outbox payload without re-parsing
+// the full TriggerEventSchema (executeAutomationRules does that itself).
+// Picks from WorkflowTransitionedV1Schema, not baseEvent (see that schema's
+// transitionEventId comment, PR #372 review M2) — safe to run against any
+// payload regardless of its actual eventType, since Zod object schemas
+// ignore unrecognized keys by default; this just extracts the field if
+// present and yields undefined otherwise, exactly like OutboxDepthSchema
+// already does for every event type via baseEvent.
+export const OutboxTransitionEventIdSchema = WorkflowTransitionedV1Schema.pick({
+  transitionEventId: true,
+});
 
 export type WorkflowTransitionedV1 = z.infer<
   typeof WorkflowTransitionedV1Schema

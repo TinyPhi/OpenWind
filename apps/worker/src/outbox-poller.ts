@@ -27,6 +27,18 @@ async function tick(): Promise<void> {
       // With an allowlist, a new non-trigger event type is excluded by default
       // instead of requiring someone to remember to add it here. Found while
       // investigating #120's outbox-depth handling.
+      // TEMPORARY (PR #372 review, C1): #143 made executeTransition write a
+      // workflow.transitioned row for triggeredBy === "automation" too, so
+      // this poller's own outbox-consuming pass would now enqueue a SECOND,
+      // duplicate executeAutomationRules call for the exact same transition
+      // that transition.ts already ran synchronously and in-process — every
+      // notify/create_entity/create_child action would double-fire, and a
+      // failed retry of a "transition" action increments the circuit
+      // breaker counter for (tenantId, "transition") a second time. #143's
+      // own Phase 2 (advisory-lock + completed-status dedup, executor.ts's
+      // T4) is the real fix; until that PR lands, exclude triggeredBy ===
+      // "automation" rows here instead of claiming and double-executing
+      // them. Remove this exclusion in the T4 PR.
       const rows = await tx.execute<{
         id: string;
         tenant_id: string;
@@ -38,6 +50,7 @@ async function tick(): Promise<void> {
         FROM outbox_events
         WHERE delivered_at IS NULL
           AND event_type IN ('workflow.transitioned', 'workflow.sla_breached', 'entity.created', 'entity.assigned', 'entity.due_date_overdue')
+          AND NOT (event_type = 'workflow.transitioned' AND payload->>'triggeredBy' = 'automation')
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT ${BATCH_SIZE}

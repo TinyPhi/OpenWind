@@ -54,10 +54,15 @@ plan-lock all of this as one unit.
 
 ### Stage 0 — cheap prep, no ADR blocking
 
-- [ ] Confirm issue #143's status and resolve it (or explicitly account for it) before
-      implementing ADR-009 Decision #3 (webhook gateway reads the outbox) — automation-triggered
-      transitions currently never reach the outbox, which would make connector webhooks silently
-      miss them.
+- [~] #143 Phase 1 (producer side) done — PR #372 merged 2026-08-12: `executeTransition` now
+  writes to the outbox unconditionally for every `triggeredBy`, carrying a `transitionEventId`
+  for future dedup. Recovered from an abandoned local branch, revived and shipped independently
+  (see week-log); PR #372's human review found and fixed one CRITICAL (outbox-poller double-fire
+  on automation-triggered transitions, temporarily excluded pending Phase 2) and one HIGH (dead
+  partial-unique-index condition) issue before merge. **Still open — Phase 2 (consumer-side dedup
+  enforcement, spec tasks T4/T6-T9 in `docs/specs/outbox-automation-idempotent-consumption-tasks.md`)
+  is required before #364 (webhook gateway) can safely read the outbox** — without it, an
+  automation-triggered transition's outbox row has no duplicate-delivery protection yet.
 - [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #3/#5 — done
       2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
       `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
@@ -122,19 +127,41 @@ Runtime track:
 
 Scopes track (can run in parallel with the runtime track, same stage):
 
-- [ ] `api_keys.scopes` dual-format re-shape (Decision #6): pick a discriminator (recommend an
-      explicit `scopes_format` column — `role` | `action` — over a colon heuristic or date
-      cutoff, since it's the only option that doesn't break if a future role-string happens to
-      contain a colon). Existing internal keys stay on legacy role-strings, unmigrated.
-      [#370](../../issues/370)
+- [x] `api_keys.scopes` dual-format discriminator (Decision #6) — done 2026-08-12, migration
+      0054: `scopes_format text NOT NULL DEFAULT 'role'` (CHECK `IN ('role','action')`), an
+      explicit column rather than a colon heuristic or date cutoff, since it's the only option
+      that doesn't break if a future role-string happens to contain a colon. Existing keys stay
+      on legacy role-strings, unmigrated. `packages/auth/src/scopes.ts`'s `detectScopesFormat`
+      recognises the confirmed `entity:<entityType>:<verb>` shape structurally, without
+      hardcoding a verb enum — OQ-5 (below) is still open. `create.ts` stamps the column from
+      the scopes actually supplied; `rotate.ts` carries the original's format forward unchanged.
+      **Deliberately NOT implemented:** `scope-ceiling.ts` still rejects any non-role-string
+      scope, so no key can actually be minted with `scopes_format='action'` through the real API
+      yet — reopening that ceiling needs OQ-5's verb set resolved and #365's redactor to exist,
+      so a Tier-1 key is never issued with no read-scoping enforcement behind it. No new
+      `requireScope` middleware or issuance route either — that's Stage 3's job once a real
+      consumer exists. [#370](../../issues/370)
 - [ ] Resolve OQ-5's exact verb set jointly with whoever scopes ADR-010's Tier 1 rollout —
       confirmed shape is `entity:<entityType>:<verb>` (e.g. `entity:ticket:create`,
       `entity:ticket:read`); still open whether a `transition` verb is needed or `create`+`read`
       suffice. Tracked in [#370](../../issues/370).
+- [ ] Reopen `scope-ceiling.ts`'s rejection of action-format scopes once OQ-5 is resolved, with a
+      real privilege-ceiling rule for the new verb set (today's `ROLE_LEVEL` map has no meaning
+      for `entity:<type>:<verb>` strings). **Same PR must also fix two forward-compatibility traps
+      flagged in PR #373's review (both marked with inline `TODO` comments at the call sites):**
+      `resolve_api_key_by_hash` (migration 0031/0047) doesn't return `scopes_format` and
+      `AuthContext` has no format field, so a Stage 3 `requireScope()` would have to re-derive
+      format from string shape — fix requires `DROP FUNCTION` + recreate (Postgres can't
+      `CREATE OR REPLACE` a changed return type), so it must land in this PR, not a follow-up
+      (`packages/auth/src/middleware.ts`'s `resolveApiKey`); and `rotate.ts`'s
+      `scopeCeilingError(roles, original.scopes)` call, unchanged, would permanently 403 rotation
+      of every action-format key the moment they can be minted.
 - [ ] Wire scoped reads through ADR-009 Decision #10's redactor (once built) — a Tier-1 key
       scoped to `entity:ticket:read` must see the same redacted view an equivalent-role human
       would, never a raw dump.
-- [ ] Isolation tests for the scopes migration.
+- [x] Isolation tests for the scopes_format migration — done 2026-08-12, extended
+      `api-key-auth.isolation.test.ts` (default 'role', explicit 'action' round-trips under RLS
+      scoped to its own tenant, CHECK constraint rejects an out-of-enum value).
 
 ### Stage 3 — ADR-010 Tier 1 inbound partner API (after Stage 1 + Stage 2 land)
 
