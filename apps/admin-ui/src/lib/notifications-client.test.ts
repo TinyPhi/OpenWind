@@ -46,6 +46,12 @@ class FakeWebSocket {
 let instances: FakeWebSocket[] = [];
 vi.stubGlobal("WebSocket", FakeWebSocket);
 
+function lastInstance(): FakeWebSocket {
+  const ws = instances[instances.length - 1];
+  if (!ws) throw new Error("no FakeWebSocket instance was constructed");
+  return ws;
+}
+
 const {
   listNotifications,
   markNotificationRead,
@@ -130,7 +136,7 @@ describe("subscribeToTicketRoom (docs/specs/ticket-live-updates.md)", () => {
     const unsubscribe = subscribeToTicketRoom("inst-1", () => {});
     cleanups.push(unsubscribe);
     await flush();
-    const ws = instances[instances.length - 1];
+    const ws = lastInstance();
     ws.open();
 
     expect(
@@ -147,7 +153,7 @@ describe("subscribeToTicketRoom (docs/specs/ticket-live-updates.md)", () => {
   it("sends unsubscribe_ticket on cleanup", async () => {
     const unsubscribe = subscribeToTicketRoom("inst-2", () => {});
     await flush();
-    const ws = instances[instances.length - 1];
+    const ws = lastInstance();
     ws.open();
     ws.sent.length = 0;
 
@@ -168,7 +174,7 @@ describe("subscribeToTicketRoom (docs/specs/ticket-live-updates.md)", () => {
       const unsubscribe = subscribeToTicketRoom("inst-3", () => {});
       cleanups.push(unsubscribe);
       await flush();
-      const firstWs = instances[instances.length - 1];
+      const firstWs = lastInstance();
       firstWs.open();
       firstWs.sent.length = 0;
 
@@ -177,7 +183,7 @@ describe("subscribeToTicketRoom (docs/specs/ticket-live-updates.md)", () => {
       firstWs.close();
       await vi.advanceTimersByTimeAsync(1_000);
       // A fresh socket was constructed for the reconnect attempt.
-      const secondWs = instances[instances.length - 1];
+      const secondWs = lastInstance();
       expect(secondWs).not.toBe(firstWs);
       secondWs.open();
 
@@ -204,7 +210,7 @@ describe("subscribeToTicketRoom (docs/specs/ticket-live-updates.md)", () => {
     );
     cleanups.push(unsubBell, unsubRoom);
     await flush();
-    const ws = instances[instances.length - 1];
+    const ws = lastInstance();
     ws.open();
 
     ws.receive({
