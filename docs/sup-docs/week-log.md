@@ -10,6 +10,90 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — PR #380 review fixes: tenantId filter, T6 scope note, T8 fragility note
+
+**Session type:** Bug fix (human review response, same #143 track)
+**Summary:** PrabhuVijit's review of PR #380 found one real BLOCKER and flagged two items
+needing verification, plus two lower-severity notes:
+
+- **BLOCKER (fixed):** the new dedup `SELECT` in `executor.ts` (checking for an existing
+  `status = 'success'` row before skipping a rule) was missing an explicit `tenantId` filter —
+  a `db-conventions.md` zero-tolerance violation (every engine query needs one, RLS is
+  defense-in-depth, not a substitute). Added `eq(automationExecutions.tenantId, tenantId)` to
+  the `AND` predicate. Real risk was negligible (`rule.id` is itself tenant-scoped, so a
+  cross-tenant collision needs a UUID4 collision), but the isolation tests call
+  `executeAutomationRules` outside `withTenantContext`, so RLS was genuinely inactive for them.
+- **HIGH (verified, not a bug — false alarm):** reviewer couldn't confirm from the diff alone
+  that the real BullMQ worker (`apps/worker/src/automation-worker.ts`, unchanged by this PR)
+  actually passes `transitionEventId` as the 7th argument to `executeAutomationRules` — if it
+  didn't, the whole advisory-lock mechanism would be dead code on every real delivery. Checked
+  the file directly: `automation-worker.ts:76-84` does pass `readTransitionEventId(payload)`,
+  added correctly back in PR #372 (Phase 1). Reported back to the reviewer with the exact line
+  reference.
+- **MEDIUM (verified, not a bug — false alarm):** reviewer couldn't confirm
+  `OutboxTransitionEventIdSchema` (imported by all three new isolation tests) is actually
+  exported from `@platform/automation-engine`'s public entry point. It's defined in
+  `event-schemas.ts` and re-exported via `index.ts`'s `export * from "./event-schemas.js"` —
+  confirmed by the wildcard export line, and independently proven by the fact typecheck/test
+  already passed (a broken import would have failed compilation).
+- **MEDIUM (addressed by rescoping, not by adding the harder test):** T6's isolation test proves
+  SEQUENTIAL dedup (sync path commits, then a simulated async re-consumption finds the existing
+  row) but doesn't exercise the advisory lock's actual concurrent-blocking behavior — two real
+  Postgres connections racing, one blocked until the other commits. The reviewer offered two
+  acceptable resolutions: rescope the test's description to be honest about this, or add the
+  harder concurrent-connections test now. Chose the former (documented the gap directly in the
+  test's docstring) and filed #382 for the real concurrency test, rather than rushing a
+  timing-dependent test that risks CI flakiness under time pressure.
+- **LOW (documented, not changed):** T8's assertion on `automationExecutions.error` checks the
+  literal string `"ENTITY_NOT_FOUND"`, coupled to `AutomationError`'s constructor calling
+  `super(code)` (so `.message === .code` today). Left `executor.ts`'s behavior unchanged (it's
+  pre-existing, not introduced by this PR, and changing what `error` stores would be a
+  broader audit-trail semantics decision out of scope here) — added a comment on the assertion
+  itself documenting the coupling so a future `AutomationError` message-format change doesn't
+  produce a confusing, unrelated-looking test failure.
+
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (25/25 tasks,
+773/773 tests). `pnpm test:isolation`: PASS (15/15 tasks; 45/45 files, 277/277 tests).
+
+---
+
+## 2026-08-12 — Issue #143 Phase 2: consumer-side automation dedup (closes #143)
+
+**Session type:** Feature (Phase 3A prerequisite, built in a parallel git worktree alongside
+issue #362's implementation — first genuinely parallel work in this session, orchestrated as a
+background subagent in `../openwind-fix-143` while the main session worked on other Stage 2
+items)
+**Summary:** `executeAutomationRules` (`packages/automation-engine/src/executor.ts`) now
+deduplicates per `(ruleId, transitionEventId)` pair: when a `transitionEventId` is present, the
+whole insert-running/run-actions/update-status sequence runs inside a `db.transaction()` that
+first acquires `pg_advisory_xact_lock(hashtextextended(ruleId || ':' || transitionEventId, 0))`
+(auto-released on the enclosing REAL transaction's commit/rollback, not a savepoint boundary —
+what makes a racing attempt actually block until the first attempt durably commits) and then
+checks for an existing `status = 'success'` row for that pair, skipping entirely if found. A
+prior `'failed'` row never blocks a legitimate retry — only `'success'` counts. When
+`transitionEventId` is absent (non-transition-sourced triggers), behavior is byte-for-byte
+unchanged — no new transaction, no lock. Closes the loop opened by PR #372's Phase 1 (unconditional
+outbox write): the outbox row now genuinely has duplicate-delivery protection on the consumer
+side, which is what #364 (webhook gateway) needs before it can safely read from it.
+New isolation tests: sync-then-async race (T6), MAX_DEPTH enforcement now provably reachable on
+the async path (T7 — previously dead/untestable code before Phase 1 existed), and retry-after-
+failure (T8). T9 (partial unique index backstop) was already covered by PR #372's own isolation
+test — confirmed sufficient, not duplicated.
+Two real gaps found and filed as follow-ups rather than fixed in this PR (out of scope): #378
+(`outbox-poller.ts`'s temporary automation-transition exclusion, added defensively in PR #372
+before this dedup existed, is now safe to remove but wasn't touched here) and #379 (the
+"transition" automation action never stamps its own recursion `depth` onto the outbox row it
+produces, unlike the analogous `create-entity.ts` action — found while building T7, sidestepped
+in that test via a direct-construction shortcut rather than fixed, since `transition.ts` was
+out of this PR's scope).
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (25/25 tasks;
+`@platform/automation-engine` 79/79, `@platform/api` 773/773). `pnpm test:isolation`: PASS
+(15/15 tasks; `@platform/api` 45/45 files / 277/277 tests, `@platform/worker` 2/2). All
+independently re-verified by the orchestrating session (not just the subagent's own report),
+including a fresh un-cached run of all 4 new/relevant isolation test files.
+
+---
+
 ## 2026-08-12 — PR #373 review fixes: forward-compat TODOs, scopesFormat test coverage
 
 **Session type:** Bug fix (human review response, same #370 track)

@@ -54,15 +54,20 @@ plan-lock all of this as one unit.
 
 ### Stage 0 — cheap prep, no ADR blocking
 
-- [~] #143 Phase 1 (producer side) done — PR #372 merged 2026-08-12: `executeTransition` now
-  writes to the outbox unconditionally for every `triggeredBy`, carrying a `transitionEventId`
-  for future dedup. Recovered from an abandoned local branch, revived and shipped independently
-  (see week-log); PR #372's human review found and fixed one CRITICAL (outbox-poller double-fire
-  on automation-triggered transitions, temporarily excluded pending Phase 2) and one HIGH (dead
-  partial-unique-index condition) issue before merge. **Still open — Phase 2 (consumer-side dedup
-  enforcement, spec tasks T4/T6-T9 in `docs/specs/outbox-automation-idempotent-consumption-tasks.md`)
-  is required before #364 (webhook gateway) can safely read the outbox** — without it, an
-  automation-triggered transition's outbox row has no duplicate-delivery protection yet.
+- [x] #143 both phases done — Phase 1 (producer side) merged via PR #372, 2026-08-12; Phase 2
+      (consumer-side dedup, spec tasks T4/T6-T9) merged 2026-08-12. `executeTransition` writes to the
+      outbox unconditionally for every `triggeredBy`, carrying a `transitionEventId`; `executor.ts`
+      now serializes concurrent attempts at the same `(ruleId, transitionEventId)` pair on a Postgres
+      advisory lock (auto-released on the enclosing real transaction's commit/rollback) and skips a
+      rule whose actions already completed successfully for that pair, while still permitting retry
+      of a `'failed'` attempt. T9 (unique-index backstop) was already covered by PR #372's own
+      isolation test. **#364 (webhook gateway) is now unblocked on this front** — though see
+      [#378](../../issues/378): `outbox-poller.ts`'s temporary exclusion of automation-triggered
+      transitions (added alongside Phase 1, safe to remove now that Phase 2's dedup exists) hasn't
+      been removed yet, so those rows still don't reach the real BullMQ queue in production. Also
+      found during Phase 2: [#379](../../issues/379), the "transition" automation action never stamps
+      its own recursion depth onto the outbox row it produces — a separate, real gap, not fixed as
+      part of Phase 2 (out of that PR's scope).
 - [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #3/#5 — done
       2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
       `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
