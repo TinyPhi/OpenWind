@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { eq, and, or, isNotNull, isNull, sql } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import {
@@ -26,6 +27,11 @@ export async function executeTransition(
   tenantId: string,
   request: TransitionRequest,
 ): Promise<WorkflowEvent> {
+  // Identity of this call, not this row — generated unconditionally so both
+  // the outbox payload (below) and the return value always carry it. See
+  // WorkflowEvent.transitionEventId and issue #143.
+  const transitionEventId = randomUUID();
+
   // 1a. Idempotency check (read-only) — short-circuit before acquiring the write lock.
   // Most duplicate submissions hit this path and never contend on the row lock.
   if (request.idempotencyKey) {
@@ -53,6 +59,9 @@ export async function executeTransition(
         comment: existing.comment ?? null,
         metadata: (existing.metadata ?? {}) as Record<string, unknown>,
         createdAt: existing.createdAt,
+        // No new outbox row is written on this replay path, so this value
+        // is inert — nothing ever reads it off an outbox event for this call.
+        transitionEventId,
       };
     }
   }
@@ -269,36 +278,38 @@ export async function executeTransition(
     });
   }
 
-  // 10. Write outbox event (same transaction — outbox pattern).
-  // Skipped when triggeredBy === "automation": the automation `transition`
-  // action already recurses in-process with a bounded depth counter
-  // (packages/automation-engine/src/actions/transition.ts) — writing to the
-  // outbox too would fire every matching rule a second time via the async
-  // worker path, which also resets depth to 0 there (#120). User/API/system-
-  // triggered transitions have no in-process recursion, so they still need
-  // the outbox to reach automation at all.
-  if (triggeredBy !== "automation") {
-    const outboxPayload: WorkflowTransitionedEvent = {
-      eventType: "workflow.transitioned",
-      version: 1,
-      tenantId,
-      instanceId: request.instanceId,
-      entityTypeId: instance.entityTypeId,
-      workflowId: instance.workflowId,
-      fromState: instance.currentState,
-      toState: transition.toState,
-      triggeredBy,
-      actorId: request.actorId ?? null,
-      occurredAt: occurredAt.toISOString(),
-    };
+  // 10. Write outbox event (same transaction — outbox pattern), unconditionally
+  // for every triggeredBy. Previously skipped when triggeredBy === "automation"
+  // to avoid double-firing rules via both the in-process recursive call
+  // (packages/automation-engine/src/actions/transition.ts) and the async
+  // worker path (#120) — but that also meant automation-triggered transitions
+  // never reached the outbox at all, silently missing every other outbox
+  // consumer (e.g. Phase 3A connector delivery, ADR-009 Decision #3). Dedup
+  // now lives in the consumer (packages/automation-engine/src/executor.ts),
+  // keyed on transitionEventId — see
+  // docs/specs/outbox-automation-idempotent-consumption.md.
+  const outboxPayload: WorkflowTransitionedEvent = {
+    eventType: "workflow.transitioned",
+    version: 1,
+    tenantId,
+    instanceId: request.instanceId,
+    entityTypeId: instance.entityTypeId,
+    workflowId: instance.workflowId,
+    fromState: instance.currentState,
+    toState: transition.toState,
+    triggeredBy,
+    actorId: request.actorId ?? null,
+    occurredAt: occurredAt.toISOString(),
+    transitionEventId,
+    ...(request.depth !== undefined && { depth: request.depth }),
+  };
 
-    await db.insert(outboxEvents).values({
-      tenantId,
-      eventType: "workflow.transitioned",
-      version: 1,
-      payload: outboxPayload,
-    });
-  }
+  await db.insert(outboxEvents).values({
+    tenantId,
+    eventType: "workflow.transitioned",
+    version: 1,
+    payload: outboxPayload,
+  });
 
   logger.info(
     {
@@ -349,6 +360,7 @@ export async function executeTransition(
     comment: eventRow.comment ?? null,
     metadata: (eventRow.metadata ?? {}) as Record<string, unknown>,
     createdAt: eventRow.createdAt,
+    transitionEventId,
   };
 }
 

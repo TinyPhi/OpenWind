@@ -51,6 +51,15 @@ export interface WorkflowEvent {
   comment: string | null;
   metadata: Record<string, unknown>;
   createdAt: Date;
+  // Identity of the executeTransition call that produced this event,
+  // generated fresh each call — not persisted on workflow_events itself, so
+  // historical rows read back via getWorkflowEventLog don't have one.
+  // Always set on executeTransition's own return value. On the
+  // idempotency-key short-circuit path (existing event, no new outbox row
+  // written) it's a fresh value with no meaning to any consumer, since
+  // nothing reads it off a replay. See engine.ts's executeTransition and
+  // issue #143.
+  transitionEventId?: string;
 }
 
 // Condition tree — evaluated against entity field values
@@ -169,6 +178,10 @@ export interface WorkflowTransitionedEvent {
   actorId: string | null;
   occurredAt: string;
   depth?: number;
+  // See WorkflowEvent.transitionEventId — carried into the outbox payload so
+  // the async worker path and the sync in-process automation path can agree
+  // on which transition this is, for exactly-once rule execution (#143).
+  transitionEventId?: string;
 }
 
 // Domain event written to outbox when an SLA timer breaches.

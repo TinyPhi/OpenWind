@@ -384,7 +384,14 @@
       "idx": 54,
       "version": "7",
       "when": 1785542406000,
-      "tag": "0054_api_keys_scopes_format",
+      "tag": "0054_automation_executions_transition_event_id",
+      "breakpoints": false
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1785542407000,
+      "tag": "0055_api_keys_scopes_format",
       "breakpoints": false
     }
   ]

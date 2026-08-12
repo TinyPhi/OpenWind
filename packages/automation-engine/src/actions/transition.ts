@@ -62,5 +62,11 @@ export async function executeTransitionAction(
     depth + 1,
     redis,
     outboxEventId,
+    // The transition just performed above generated its own transitionEventId
+    // (engine.ts) and wrote it to the outbox row for that same transition —
+    // passing it here means this in-process rule execution claims the exact
+    // key the async worker path will later see for that outbox row, so the
+    // consumer-side dedup (executor.ts) sees one identity, not two. See #143.
+    workflowEvent.transitionEventId,
   );
 }

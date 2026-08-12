@@ -1,9 +1,15 @@
 /**
- * Proves #120's double-trigger fix: an automation-triggered transition no
- * longer both writes a workflow.transitioned outbox row AND recurses
- * in-process for the same event — any rule matching that transition used to
- * fire twice, once synchronously (correctly depth-bounded) and once later
- * via outbox -> poller -> BullMQ -> worker (depth reset to 0, unbounded).
+ * Proves #120's double-trigger fix still holds under #143's revised design:
+ * an automation-triggered transition now DOES write a workflow.transitioned
+ * outbox row (previously skipped — that skip is what #143 found silently
+ * broke Phase 3A connector delivery), but a rule matching that transition
+ * still fires exactly once, not twice — once synchronously (correctly
+ * depth-bounded, via the in-process recursive call) and, in this specific
+ * test, never a second time because nothing here feeds the new outbox row
+ * back through executeAutomationRules. The test that actually does that
+ * second hop (T6, Phase 2 — not yet implemented) will prove the
+ * consumer-side dedup (transitionEventId + advisory lock, executor.ts)
+ * catches it; see docs/specs/outbox-automation-idempotent-consumption.md.
  * See packages/workflow-engine/src/engine.ts's executeTransition.
  *
  * See entity-assigned-depth.isolation.test.ts for #120's other half: carrying
@@ -146,7 +152,9 @@ afterAll(async () => {
   // (tenantId, "transition") and skips the current run's own — correctly
   // configured — rule too, since it sorts last by createdAt. CI never showed
   // this because its Postgres container is ephemeral per run; a long-lived
-  // local dev container accumulates it after ~5 repeated runs.
+  // local dev container accumulates it after ~5 repeated runs. Now that #143
+  // makes automation-triggered transitions write to the outbox too, leftover
+  // outbox rows would compound the same way — deleting them here as well.
   // Deletion order respects FK dependencies (children before parents):
   // workflowEvents/entityInstances before workflows/entityTypes;
   // workflowStates/workflowTransitions before workflows.
@@ -167,12 +175,16 @@ afterAll(async () => {
       .where(eq(workflowTransitions.tenantId, TENANT));
     await tx.delete(workflowStates).where(eq(workflowStates.tenantId, TENANT));
     await tx.delete(workflows).where(eq(workflows.tenantId, TENANT));
-    await tx.delete(entityTypes).where(eq(entityTypes.id, entityType.id));
+    // tenantId filter, not id (PR #372 review, L2) — consistent with every
+    // other delete above, and safe against a beforeAll failure leaving
+    // entityType.id undefined (which would otherwise make this a no-op
+    // WHERE id = NULL instead of erroring loudly).
+    await tx.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT));
   });
 });
 
-describe("automation-triggered transitions skip the outbox (#120)", () => {
-  it("an automation-triggered transition writes no workflow.transitioned outbox row", async () => {
+describe("automation-triggered transitions reach the outbox exactly once (#120, revised for #143)", () => {
+  it("an automation-triggered transition writes a workflow.transitioned outbox row, and the matching rule still fires exactly once", async () => {
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
@@ -207,8 +219,11 @@ describe("automation-triggered transitions skip the outbox (#120)", () => {
     // drives the "auto-continue to done" rule via the transition action.
     await executeAutomationRules(db, TENANT, rootRow?.payload, 0, redis);
 
-    // The automation-triggered processing->done transition must NOT have
-    // written a second outbox row (that's the actual double-trigger source).
+    // The automation-triggered processing->done transition now DOES write its
+    // own outbox row (#143 — previously skipped, silently missing every
+    // outbox consumer other than automation itself). It carries a real
+    // transitionEventId, which is what the consumer-side dedup (T4, Phase 2)
+    // will eventually key on.
     const rows = await withTenantContext(TENANT, (tx) =>
       tx
         .select()
@@ -223,10 +238,16 @@ describe("automation-triggered transitions skip the outbox (#120)", () => {
     const doneRows = rows.filter(
       (r) => (r.payload as Record<string, unknown>).toState === "done",
     );
-    expect(doneRows).toHaveLength(0);
+    expect(doneRows).toHaveLength(1);
+    expect(
+      (doneRows[0]?.payload as Record<string, unknown>).transitionEventId,
+    ).toMatch(/^[0-9a-f-]{36}$/);
 
-    // And the counter rule fired exactly once — via the in-process recursive
-    // call, not twice (once in-process, once via a since-nonexistent outbox row).
+    // The counter rule still fired exactly once — via the in-process
+    // recursive call. Nothing in this test consumes the new outbox row a
+    // second time, so this doesn't yet exercise the dedup logic itself
+    // (that's T6) — it only proves this phase didn't reintroduce #120's
+    // symptom by the most obvious path (not calling the worker twice).
     const executions = await db
       .select()
       .from(automationExecutions)
