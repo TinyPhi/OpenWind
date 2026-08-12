@@ -7,9 +7,13 @@ const BATCH_SIZE = 100;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
 // The 8 trigger types the in-app notification hub cares about
-// (docs/specs/in-app-notification-hub.md). Positive allowlist, matching
-// outbox-poller.ts's own convention — a new outbox event type is excluded by
-// default rather than silently claimed and mishandled.
+// (docs/specs/in-app-notification-hub.md), plus the 3 ticket-room-only event
+// types added for docs/specs/ticket-live-updates.md — these 3 have no inbox
+// notification recipients of their own (resolveRecipients' default case
+// returns []), but still need to reach notification-worker.ts so it can fire
+// the room-scoped live push. Positive allowlist, matching outbox-poller.ts's
+// own convention — a new outbox event type is excluded by default rather
+// than silently claimed and mishandled.
 const NOTIFICATION_EVENT_TYPES = [
   "entity.assigned",
   "entity.unassigned",
@@ -20,6 +24,9 @@ const NOTIFICATION_EVENT_TYPES = [
   "access.revoked",
   "workflow.sla_breached",
   "system.error",
+  "comment.created",
+  "access_request.created",
+  "access_request.updated",
 ] as const;
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
