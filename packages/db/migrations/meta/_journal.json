@@ -391,7 +391,14 @@
       "idx": 55,
       "version": "7",
       "when": 1785542407000,
-      "tag": "0055_outbox_dead_letter_rls_null_guc_fix",
+      "tag": "0055_api_keys_scopes_format",
+      "breakpoints": false
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1785542408000,
+      "tag": "0056_outbox_dead_letter_rls_null_guc_fix",
       "breakpoints": false
     }
   ]
