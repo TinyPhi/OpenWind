@@ -62,6 +62,39 @@ test runs — not just the implementing agent's own report.
 
 ---
 
+## 2026-08-12 — Batched automation-engine follow-ups: closes #378, #379, #383
+
+**Session type:** Bug fix (three independent, small, non-overlapping-file fixes bundled into
+one PR — orchestrated as a background subagent in `../openwind-chore-automation-followups`,
+running in parallel with issues #363 and #382)
+**Summary:**
+
+- **#378** — removed `outbox-poller.ts`'s temporary `AND NOT (event_type = 'workflow.transitioned'
+AND payload->>'triggeredBy' = 'automation')` exclusion (added in PR #372 before #143 Phase 2's
+  consumer-side dedup existed). The poller now claims and enqueues automation-triggered
+  `workflow.transitioned` rows like any other event. Rewrote
+  `outbox-poller-automation-exclusion.isolation.test.ts` to assert the new (opposite) behavior,
+  and added `outbox-poller-automation-dedup-race.isolation.test.ts` driving the real poller query
+  against a transition that already ran synchronously — confirms exactly one success row and one
+  side effect survive the race, with the dedup skip visibly logged
+  ("Automation: skipping rule — already completed for this transition").
+- **#379** — `packages/automation-engine/src/actions/transition.ts`'s `executeTransitionAction`
+  now passes `depth` into its `executeTransition` call (previously omitted, unlike the analogous
+  `create-entity.ts` action) — confirmed `engine.ts` stamps `request.depth` verbatim onto the
+  outbox payload. New regression test at depth=6 (kept below `MAX_DEPTH` so the in-process
+  recursive follow-up doesn't itself trip the guard and roll back the row under test) proves the
+  outbox row now carries the correct non-zero depth instead of defaulting to 0.
+- **#383** — same `fd00::/8` → `fc00::/7` fix already applied to `connector-sdk/src/ssrf-guard.ts`
+  in PR #381, ported to `automation-engine/src/ssrf-guard.ts` (the original this was copied from).
+  Added the matching `fc00::1` test case.
+
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (26/26 tasks).
+`pnpm test:isolation`: PASS (15/15 tasks). Independently re-verified by the orchestrating
+session — fresh uncached runs of all new/modified test files, plus a direct read of the
+`outbox-poller.ts`/`transition.ts`/`ssrf-guard.ts` diffs.
+
+---
+
 ## 2026-08-12 — PR #381 review fixes: DNS-rebinding fix, port allowlist, expanded tests
 
 **Session type:** Bug fix (human review response, same #362 track)
