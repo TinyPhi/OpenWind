@@ -212,6 +212,23 @@ export interface EntityAssignedEvent {
   depth?: number;
 }
 
+// Fires alongside entity.assigned whenever a ticket's assignedTo changes away
+// from a real, previously-assigned user — notifies the user who LOST the
+// assignment, distinct wording/audience from entity.assigned's "you were
+// assigned" (which only ever notifies the new assignee). Never fires on a
+// first-time assignment (previousAssigneeId is always non-null by
+// construction — see updateEntity/bulkUpdateEntities' emission guard).
+export interface EntityUnassignedEvent {
+  eventType: "entity.unassigned";
+  version: 1;
+  tenantId: string;
+  instanceId: string;
+  entityTypeId: string;
+  previousAssigneeId: string;
+  actorId: string | null;
+  depth?: number;
+}
+
 // Internal scheduling marker consumed only by
 // apps/worker/src/due-date-scheduler.ts — NOT an automation trigger, so it
 // must never be added to apps/worker/src/outbox-poller.ts's allowlist (see
