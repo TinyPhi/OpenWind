@@ -29,7 +29,8 @@
  * held open past lock acquisition, which this single-process test doesn't
  * attempt. The lock's blocking semantics are documented PostgreSQL behavior,
  * not re-verified here; a true concurrent-connections test is tracked
- * separately as issue #382.
+ * separately — see automation-transition-dedup-concurrent-lock.isolation.test.ts
+ * (issue #382).
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
