@@ -42,8 +42,27 @@ Identical sliding-window sorted-set algorithm the pre-auth stage already uses �
 **New config** (`@platform/config`):
 
 ```ts
-RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(100);
+RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600);
 ```
+
+> Updated 2026-08-11: default raised from 100 to 600. 100/min shared across
+> every concurrently active user in a tenant collapsed under completely
+> normal multi-user interactive browsing (a single ticket detail page load
+> alone fans out to ~8-10 parallel requests) — see security.md.
+>
+> PR #374/#375/#376/#377 review (M2, 2026-08-12): 600/min is sized for the
+> pilot's current headcount (a handful of concurrently active users per
+> tenant), not headroom against user-count growth — it's still one flat
+> quota shared across every user in the tenant, so the same collapse this
+> fix addresses recurs at a somewhat higher concurrent-user count or a
+> heavier page (more parallel fan-out per load). Per-user sub-limits or
+> plan-tier-scaled limits (see the `RATE_LIMIT_TENANT_PER_MIN`-is-flat note
+> in §T's open item below) are the next lever if the pilot outgrows this —
+> deliberately not built now, since there's no pilot-tenant headcount data
+> yet to size them against. Re-evaluate when a tenant's real concurrent
+> active-user count approaches ~15-20 (600/min ÷ ~30-40 req/min per active
+> user doing normal interactive browsing) rather than waiting for another
+> collapse-under-normal-use incident to surface it.
 
 **`requireAuth()` behavior change** — after `c.set("auth", auth)` on both the JWT path and the API-key path, before calling `next()`:
 

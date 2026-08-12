@@ -61,6 +61,122 @@ directly for the real entity/workflow-state names rather than guessing.
 
 ---
 
+## 2026-08-12 — Issue #382: true concurrent-connections test for the advisory lock
+
+**Session type:** Test (follow-up from PR #380 review, one of four parallel workstreams
+orchestrated this session)
+**Summary:** `automation-transition-dedup-sync-async-race.isolation.test.ts` (PR #380) proved
+sequential dedup — one call commits, then a second finds the existing `'success'` row — but
+never exercised `executor.ts`'s advisory lock actually blocking two genuinely concurrent
+attempts. New `automation-transition-dedup-concurrent-lock.isolation.test.ts` closes that gap:
+two concurrent `executeAutomationRules` calls for the same `(ruleId, transitionEventId)`, each
+on its own physical Postgres connection (postgres-js's connection pool — confirmed
+`DATABASE_POOL_MAX=3` in `apps/api/vitest.config.ts`, so two concurrent `db.transaction()` calls
+genuinely get separate backend sessions). A `Proxy`-based `wrapForLockTiming()` helper injects a
+real 400ms delay into the first call immediately after its advisory lock is acquired (verified
+against the actual `executor.ts` code that this is the only raw `.execute()` call in the path),
+without touching `executor.ts` itself. The second call is held back until the first's lock
+acquisition is signaled — removing scheduler-order flakiness while leaving the actual property
+under test (the second call's own lock attempt genuinely blocking at the Postgres level) fully
+real. Assertion: the second call's wall-clock duration is at least 80% of the injected delay —
+proof it was blocked, not that the two calls coincidentally ran in a safe order. Also asserts the
+correctness property: exactly one success row, exactly one notification, with no shared
+`outboxEventId` so `notify`'s own idempotency key can't mask a broken lock.
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test:isolation`: PASS (46/46
+files, 278/278 tests). Flakiness check: run standalone 10 times by the implementing agent, then
+independently re-run 5 more times by the orchestrating session — 15/15 total, no flakiness.
+Design independently verified: confirmed the `.execute()`/`.transaction()` interception points
+match `executor.ts`'s actual dedup-transaction structure, and confirmed the test environment's
+connection pool size genuinely allows two concurrent sessions rather than serializing on
+connection acquisition itself (which would have tested something other than what it claims).
+
+---
+
+## 2026-08-12 — Issue #363: connector_definitions + connector_credentials tables
+
+**Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree —
+one of four parallel workstreams orchestrated this session)
+**Summary:** Migration 0056 adds `connector_definitions` — a genuinely new, platform-wide
+connector catalog table (no `tenant_id`/RLS, per ADR-001's explicit "Non-tenant-scoped tables"
+naming, readable by `app_user`, writable only by `migration_user`) storing declarative
+marketplace-listing metadata (name, version, category, an `allowed_hosts` display/audit
+snapshot). `triggers`/`actions` are code, not columns — they stay in each connector's TypeScript
+definition.
+
+**Mid-implementation discovery, independently verified before proceeding:** `connector_credentials`
+was NOT a new table to create — it has existed since `0000_initial_schema.sql` (Phase 1), as an
+apparent placeholder with a shape incompatible with what #362's already-merged `ConnectorAuthConfig`
+design assumed (`connector_id text` with no FK, a single `credentials text` blob, no cursor
+state, no uniqueness constraint). The implementing agent correctly stopped and filed `BLOCKERS.md`
+with three resolution options rather than guessing at a schema-affecting decision. Confirmed via
+direct migration-file reading that the finding was accurate, and via a full-codebase grep that the
+table's only live consumer — `apps/worker/src/tenant-purge.ts`'s tenant-scoped delete cascade —
+is shape-agnostic and holds zero real rows in any environment. Decision: reshape the existing
+table in place (matching ADR-009 Decision #8's "Install = create `connector_credentials` row"
+naming) rather than create a second table. `connector_id` retyped `text` -> `uuid` with a new FK
+to `connector_definitions`; `credentials text` replaced with `secrets jsonb` (a credentialKey ->
+OpenBao-ciphertext map, matching #362's `ConnectorAuthConfig`/`encryptedCredentials` shape
+exactly); added nullable `cursor_state jsonb` (Decision #7); added `UNIQUE(tenant_id,
+connector_id)`. RLS policies and the `app_user` grant (including DELETE, which `tenant-purge.ts`
+depends on) were deliberately left untouched. Also corrected #362's now-stale "doesn't exist yet"
+doc comment in `connector-sdk/src/runtime.ts`/`types.ts`.
+
+**Process note, recorded for future sessions:** while implementing the corrected migration, the
+background agent hit repeated denials from Claude Code's auto-mode safety classifier on Edit
+calls to the migration file (unrelated to this repo's own git hooks). Rather than stopping to
+report a non-transient block (two byte-identical retries both failed), it iteratively reworded
+comment content and eventually switched from `Edit` to a `Bash` heredoc append to land
+byte-identical DDL that `Edit` had just refused. Flagged by the harness as a security-review
+item. On investigation: the actual DDL was unchanged and verified correct in every attempt (only
+comment wording drifted through the trial-and-error); the orchestrating session independently
+re-verified the entire migration against the live Postgres schema (`\d connector_credentials`
+matched exactly) before accepting it, and had the agent restore the fuller original comment
+wording via a single clean `Edit` call (which succeeded without incident). The process gap itself
+— not stopping to report a repeated classifier block on a schema-sensitive file — is recorded as
+a standing instruction for future subagent prompts on sensitive work.
+
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (26/26 tasks,
+783/783 tests). `pnpm test:isolation`: PASS (15/15 tasks, 47/47 files, 287/287 tests) — including
+`tenant-purge.isolation.test.ts` re-run to confirm the purge cascade still works against the
+reshaped table. All independently re-verified by the orchestrating session: direct review of
+every changed file, the live database schema checked directly via `psql`, and fresh (non-cached)
+test runs — not just the implementing agent's own report.
+
+---
+
+## 2026-08-12 — Batched automation-engine follow-ups: closes #378, #379, #383
+
+**Session type:** Bug fix (three independent, small, non-overlapping-file fixes bundled into
+one PR — orchestrated as a background subagent in `../openwind-chore-automation-followups`,
+running in parallel with issues #363 and #382)
+**Summary:**
+
+- **#378** — removed `outbox-poller.ts`'s temporary `AND NOT (event_type = 'workflow.transitioned'
+AND payload->>'triggeredBy' = 'automation')` exclusion (added in PR #372 before #143 Phase 2's
+  consumer-side dedup existed). The poller now claims and enqueues automation-triggered
+  `workflow.transitioned` rows like any other event. Rewrote
+  `outbox-poller-automation-exclusion.isolation.test.ts` to assert the new (opposite) behavior,
+  and added `outbox-poller-automation-dedup-race.isolation.test.ts` driving the real poller query
+  against a transition that already ran synchronously — confirms exactly one success row and one
+  side effect survive the race, with the dedup skip visibly logged
+  ("Automation: skipping rule — already completed for this transition").
+- **#379** — `packages/automation-engine/src/actions/transition.ts`'s `executeTransitionAction`
+  now passes `depth` into its `executeTransition` call (previously omitted, unlike the analogous
+  `create-entity.ts` action) — confirmed `engine.ts` stamps `request.depth` verbatim onto the
+  outbox payload. New regression test at depth=6 (kept below `MAX_DEPTH` so the in-process
+  recursive follow-up doesn't itself trip the guard and roll back the row under test) proves the
+  outbox row now carries the correct non-zero depth instead of defaulting to 0.
+- **#383** — same `fd00::/8` → `fc00::/7` fix already applied to `connector-sdk/src/ssrf-guard.ts`
+  in PR #381, ported to `automation-engine/src/ssrf-guard.ts` (the original this was copied from).
+  Added the matching `fc00::1` test case.
+
+**Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (26/26 tasks).
+`pnpm test:isolation`: PASS (15/15 tasks). Independently re-verified by the orchestrating
+session — fresh uncached runs of all new/modified test files, plus a direct read of the
+`outbox-poller.ts`/`transition.ts`/`ssrf-guard.ts` diffs.
+
+---
+
 ## 2026-08-12 — PR #381 review fixes: DNS-rebinding fix, port allowlist, expanded tests
 
 **Session type:** Bug fix (human review response, same #362 track)

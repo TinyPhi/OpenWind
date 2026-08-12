@@ -58,11 +58,12 @@ const HOSTNAME_PATTERN =
  * @param tenantId              - tenant the connector is installed for
  * @param definition            - the connector's static definition (meta,
  *                                allowedHosts, auth config, triggers, actions)
- * @param encryptedCredentials  - credentialKey -> ciphertext, as will
- *                                eventually be read from the
- *                                `connector_credentials` table (issue #363).
- *                                Decoupled from that table here since it
- *                                doesn't exist yet.
+ * @param encryptedCredentials  - credentialKey -> ciphertext, read from the
+ *                                `connector_credentials.secrets` JSONB column
+ *                                (issue #363 — that table's shape was
+ *                                reworked to match this exact map). Passed
+ *                                in rather than read here so this module
+ *                                stays decoupled from @platform/db.
  */
 export function createConnectorContext(
   tenantId: string,

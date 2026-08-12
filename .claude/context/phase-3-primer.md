@@ -61,13 +61,12 @@ plan-lock all of this as one unit.
       advisory lock (auto-released on the enclosing real transaction's commit/rollback) and skips a
       rule whose actions already completed successfully for that pair, while still permitting retry
       of a `'failed'` attempt. T9 (unique-index backstop) was already covered by PR #372's own
-      isolation test. **#364 (webhook gateway) is now unblocked on this front** — though see
-      [#378](../../issues/378): `outbox-poller.ts`'s temporary exclusion of automation-triggered
-      transitions (added alongside Phase 1, safe to remove now that Phase 2's dedup exists) hasn't
-      been removed yet, so those rows still don't reach the real BullMQ queue in production. Also
-      found during Phase 2: [#379](../../issues/379), the "transition" automation action never stamps
-      its own recursion depth onto the outbox row it produces — a separate, real gap, not fixed as
-      part of Phase 2 (out of that PR's scope).
+      isolation test. **#364 (webhook gateway) is now fully unblocked**, including
+      [#378](../../issues/378) (`outbox-poller.ts`'s temporary automation-transition exclusion,
+      done 2026-08-12 — the poller now claims and enqueues these rows like any other, with a new
+      isolation test proving the resulting race against the sync in-process path still nets to
+      exactly one success) and [#379](../../issues/379) (the "transition" automation action now
+      stamps `depth` onto its `executeTransition` call, done 2026-08-12, with a regression test).
 - [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #3/#5 — done
       2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
       `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
@@ -144,9 +143,20 @@ Runtime track:
       above; already exists as `packages/workflow-engine/src/redact.ts`'s `redactMetadata`/
       `buildSensitivityMap`, just needs wiring into outbound payload construction here, not a
       new mechanism). [#365](../../issues/365)
-- [ ] `connector_definitions` + `connector_credentials` tables, with isolation tests in the same
-      PR that creates them — now unblocked, #362's `ConnectorAuthConfig`/`credentialKey` shape is
-      what `connector_credentials`'s secrets column should key on. [#363](../../issues/363)
+- [x] `connector_definitions` + `connector_credentials` tables — done 2026-08-12, migration 0056.
+      `connector_definitions` is a genuinely new, platform-wide catalog table (no tenant_id/RLS,
+      per ADR-001). **`connector_credentials` was NOT new** — discovered mid-implementation that
+      it has existed since `0000_initial_schema.sql` (Phase 1), as a placeholder with an
+      incompatible shape (`connector_id text` no FK, single `credentials text` blob) that #362's
+      merged design didn't know about. Its only live consumer, `apps/worker/src/tenant-purge.ts`,
+      only ever deletes by `tenant_id`, so reshaping it in place (rather than a second,
+      differently-named table) was safe — confirmed zero real rows in any environment. Reshaped
+      via `ALTER`: `connector_id` retyped to `uuid` + FK to `connector_definitions`, `credentials`
+      replaced with `secrets jsonb` (credentialKey -> ciphertext map, matching #362's
+      `ConnectorAuthConfig` exactly), added `cursor_state jsonb`, added `UNIQUE(tenant_id,
+connector_id)`. RLS policies and the `app_user` grant (incl. DELETE, which `tenant-purge.ts`
+      needs) were left untouched. Fixed #362's now-stale "doesn't exist yet" doc comment in
+      `connector-sdk/src/runtime.ts`/`types.ts`. [#363](../../issues/363)
 - [ ] Polling scheduler (BullMQ repeatable job per connector per tenant). [#366](../../issues/366)
 - [ ] Kill switch (non-destructive disable, not just install/uninstall). [#367](../../issues/367)
 - [ ] Build email (SMTP/IMAP) + WhatsApp Business connectors _together with_ the runtime — the
