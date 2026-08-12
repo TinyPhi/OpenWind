@@ -11,9 +11,15 @@ import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { logger } from "@platform/logger";
 import { env } from "@platform/config";
 import { entityInstances, withTenantContext } from "@platform/db";
+import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { hasEntityAccess } from "../lib/entity-access.js";
 
 const WS_PATH = "/ws/notifications";
+
+// M2 (PR #376 review): a user legitimately viewing several tickets at once
+// (e.g. a multi-tab agent workflow) fits well under this; a flood beyond it
+// is either a broken client or abuse, not a real use case.
+const MAX_ROOMS_PER_CONNECTION = 10;
 
 // Keyed by (tenantId, userId) together, never userId alone — the tenant is
 // already known from the JWT at handshake time, so this costs nothing extra
@@ -78,6 +84,11 @@ const rooms = new Map<string, Set<WebSocket>>();
 // Reverse index so a single `close`/`error` handler can remove a connection
 // from every room it joined without iterating the entire `rooms` map.
 const wsRooms = new Map<WebSocket, Set<string>>();
+// Per-connection identity, needed by sendAccessRequestToRoom (H1 fix, PR #376
+// review) to decide per-recipient whether a room push carries the full
+// payload or a stripped one — access-request identities are more sensitive
+// than a comment room push and must not go to every room member uniformly.
+const wsMeta = new Map<WebSocket, { userId: string; roles: string[] }>();
 
 function addToRoom(tenantId: string, instanceId: string, ws: WebSocket): void {
   const key = roomKey(tenantId, instanceId);
@@ -126,6 +137,98 @@ function sendToRoom(
   const data = JSON.stringify(message);
   for (const ws of set) {
     if (ws.readyState === ws.OPEN) ws.send(data);
+  }
+}
+
+interface AccessRequestRoomMessage {
+  type: "access_request.created" | "access_request.updated";
+  instanceId: string;
+  request: {
+    id: string;
+    requestedBy: string;
+    status: string;
+    resolvedBy?: string;
+    resolvedAt?: string;
+    createdAt: string;
+  };
+}
+
+/**
+ * H1 fix (PR #376 review): the same room a comment.created push reaches
+ * every viewer of, including read-only ones, must NOT uniformly receive
+ * access_request.created/updated pushes — GET /entities/:id/access-requests
+ * (list-access-requests.ts) restricts that data to owner/admin/agent/
+ * workflow-admin, and the room push must match. Full payload (with
+ * requestedBy/resolvedBy) goes only to connections passing that same check;
+ * the requester's own connection gets a reduced payload with no other
+ * identity in it; every other room member gets nothing for this event.
+ */
+async function sendAccessRequestToRoom(
+  tenantId: string,
+  instanceId: string,
+  message: AccessRequestRoomMessage,
+): Promise<void> {
+  const key = roomKey(tenantId, instanceId);
+  const set = rooms.get(key);
+  if (!set || set.size === 0) return;
+
+  const [instance] = await withTenantContext(tenantId, (tx) =>
+    tx
+      .select({
+        createdBy: entityInstances.createdBy,
+        assignedTo: entityInstances.assignedTo,
+        workflowId: entityInstances.workflowId,
+      })
+      .from(entityInstances)
+      .where(
+        and(
+          eq(entityInstances.id, instanceId),
+          eq(entityInstances.tenantId, tenantId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!instance) return;
+
+  const workflow = instance.workflowId
+    ? await withTenantContext(tenantId, (tx) =>
+        getWorkflow(tx, tenantId, instance.workflowId as string, {
+          userId: "",
+          isGlobalAdmin: false,
+        }),
+      ).catch(() => null)
+    : null;
+
+  const reducedMessage: AccessRequestRoomMessage = {
+    ...message,
+    request: {
+      id: message.request.id,
+      status: message.request.status,
+      requestedBy: message.request.requestedBy,
+      createdAt: message.request.createdAt,
+    },
+  };
+  const fullData = JSON.stringify(message);
+  const reducedData = JSON.stringify(reducedMessage);
+
+  for (const ws of set) {
+    if (ws.readyState !== ws.OPEN) continue;
+    const meta = wsMeta.get(ws);
+    if (!meta) continue;
+    const isOwner =
+      instance.createdBy === meta.userId || instance.assignedTo === meta.userId;
+    const isAdminOrAgent =
+      meta.roles.includes("admin") || meta.roles.includes("agent");
+    const isRecordWorkflowAdmin = workflow
+      ? isWorkflowAdmin(meta.userId, workflow)
+      : false;
+    if (isOwner || isAdminOrAgent || isRecordWorkflowAdmin) {
+      ws.send(fullData);
+    } else if (meta.userId === message.request.requestedBy) {
+      ws.send(reducedData);
+    }
+    // Neither privileged nor the requester: no push. Matches the REST
+    // endpoint's 404-not-403 posture — a bystander learns nothing.
   }
 }
 
@@ -201,6 +304,23 @@ function startPushSubscriber(): void {
       // kind as "user", not as an error.
       if (parsed.kind === "room") {
         if (!parsed.instanceId) return;
+        const roomMessage = parsed.message as { type?: string } | undefined;
+        if (
+          roomMessage?.type === "access_request.created" ||
+          roomMessage?.type === "access_request.updated"
+        ) {
+          void sendAccessRequestToRoom(
+            parsed.tenantId,
+            parsed.instanceId,
+            parsed.message as AccessRequestRoomMessage,
+          ).catch((err: unknown) => {
+            logger.error(
+              { err, tenantId: parsed.tenantId, instanceId: parsed.instanceId },
+              "Notification websocket: access-request room push failed",
+            );
+          });
+          return;
+        }
         sendToRoom(parsed.tenantId, parsed.instanceId, parsed.message);
         return;
       }
@@ -295,6 +415,7 @@ export function attachNotificationWebSocket(
 
       wss.handleUpgrade(req, socket, head, (ws) => {
         addConnection(tenantId, auth.userId, ws);
+        wsMeta.set(ws, { userId: auth.userId, roles: auth.roles });
         logger.info(
           { tenantId, userId: auth.userId },
           "Notification websocket: connection registered",
@@ -314,6 +435,18 @@ export function attachNotificationWebSocket(
             if (!parsed.instanceId) return;
 
             if (parsed.type === "subscribe_ticket") {
+              // M2 (PR #376 review): cap rooms per connection so a flood of
+              // subscribe_ticket frames (buggy client reconnect loop or a
+              // malicious authenticated user) can't grow `wsRooms` and fire
+              // unbounded DB access checks.
+              const joined = wsRooms.get(ws)?.size ?? 0;
+              if (joined >= MAX_ROOMS_PER_CONNECTION) {
+                logger.warn(
+                  { tenantId, userId: auth.userId, joined },
+                  "Notification websocket: subscribe_ticket room cap exceeded",
+                );
+                return;
+              }
               const allowed = await checkTicketRoomAccess(
                 tenantId,
                 parsed.instanceId,
@@ -322,8 +455,21 @@ export function attachNotificationWebSocket(
               );
               // Silently not joined on failure — mirrors the platform's
               // "404 not 403" convention (never confirm/deny the instance's
-              // existence to a caller without read access to it).
-              if (allowed) addToRoom(tenantId, parsed.instanceId, ws);
+              // existence to a caller without read access to it). On
+              // success, echo a confirmation so callers (including tests,
+              // PR #376 review L2) have a deterministic signal that the room
+              // join has actually completed instead of racing a fixed delay.
+              if (allowed) {
+                addToRoom(tenantId, parsed.instanceId, ws);
+                if (ws.readyState === ws.OPEN) {
+                  ws.send(
+                    JSON.stringify({
+                      type: "subscribed_ticket",
+                      instanceId: parsed.instanceId,
+                    }),
+                  );
+                }
+              }
               return;
             }
             if (parsed.type === "unsubscribe_ticket") {
@@ -339,10 +485,12 @@ export function attachNotificationWebSocket(
         ws.on("close", () => {
           removeConnection(tenantId, auth.userId, ws);
           removeFromAllRooms(ws);
+          wsMeta.delete(ws);
         });
         ws.on("error", () => {
           removeConnection(tenantId, auth.userId, ws);
           removeFromAllRooms(ws);
+          wsMeta.delete(ws);
         });
       });
     })().catch((err: unknown) => {
@@ -357,4 +505,5 @@ export async function stopNotificationWebSocket(): Promise<void> {
   connections.clear();
   rooms.clear();
   wsRooms.clear();
+  wsMeta.clear();
 }
