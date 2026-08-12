@@ -114,6 +114,33 @@ export const SystemErrorV1Schema = baseEvent.extend({
   reason: z.string(),
 });
 
+// Fires for every comment (mentioned or not) — distinct from
+// CommentMentionedV1Schema/CommentRepliedV1Schema, which only fire for their
+// specific notification-recipient cases. Drives the ticket-room WS live-push
+// path (docs/specs/ticket-live-updates.md), independent of who (if anyone)
+// gets a per-user inbox notification for the same comment.
+export const CommentCreatedV1Schema = baseEvent.extend({
+  eventType: z.literal("comment.created"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  commentId: z.string().uuid(),
+});
+
+export const AccessRequestCreatedV1Schema = baseEvent.extend({
+  eventType: z.literal("access_request.created"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  requestId: z.string().uuid(),
+});
+
+export const AccessRequestUpdatedV1Schema = baseEvent.extend({
+  eventType: z.literal("access_request.updated"),
+  instanceId: z.string().uuid(),
+  actorId: z.string(),
+  requestId: z.string().uuid(),
+  status: z.enum(["approved", "rejected"]),
+});
+
 export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   WorkflowTransitionedV1Schema,
   WorkflowSlaBreachedV1Schema,
@@ -126,6 +153,9 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   AccessGrantedV1Schema,
   AccessRevokedV1Schema,
   SystemErrorV1Schema,
+  CommentCreatedV1Schema,
+  AccessRequestCreatedV1Schema,
+  AccessRequestUpdatedV1Schema,
 ]);
 
 // Extracts just `depth` from an outbox payload before the full TriggerEventSchema
@@ -165,4 +195,11 @@ export type CommentRepliedV1 = z.infer<typeof CommentRepliedV1Schema>;
 export type AccessGrantedV1 = z.infer<typeof AccessGrantedV1Schema>;
 export type AccessRevokedV1 = z.infer<typeof AccessRevokedV1Schema>;
 export type SystemErrorV1 = z.infer<typeof SystemErrorV1Schema>;
+export type CommentCreatedV1 = z.infer<typeof CommentCreatedV1Schema>;
+export type AccessRequestCreatedV1 = z.infer<
+  typeof AccessRequestCreatedV1Schema
+>;
+export type AccessRequestUpdatedV1 = z.infer<
+  typeof AccessRequestUpdatedV1Schema
+>;
 export type TriggerEvent = z.infer<typeof TriggerEventSchema>;
