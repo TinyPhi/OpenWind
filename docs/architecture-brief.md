@@ -562,6 +562,11 @@ OAuth tokens, API keys, and secrets are stored encrypted (AES-256-GCM) in the `c
 
 ### 6.4 Webhook gateway
 
+**Status: designed, not yet built.** This section describes the ADR-009 Decision #3 design;
+the route below doesn't exist in `apps/api/src` yet — tracked as issue #364 (Phase 3A Stage 2,
+not started as of 2026-08-12). The outbound half (automation engine's `webhook` action type)
+is real and shipped.
+
 **Inbound:** `POST /webhooks/{connectorId}/{tenantId}`
 
 The gateway validates the HMAC signature, looks up the connector definition, calls the trigger's transform function, and publishes the resulting platform event to the event bus. If validation fails, the request is rejected with 401. If the connector is not installed for that tenant, the request is rejected with 404.
@@ -1159,7 +1164,11 @@ This workflow is not about replacing engineering judgment. It is about compressi
 
 ## Appendix A — Core Schema Reference
 
-This appendix provides the complete schema for the three engines and core platform tables. All tables include `tenant_id` (RLS-enforced) and `created_at` unless noted.
+This appendix covers the three engines (entity, workflow, automation) and the outbox — it is
+NOT a complete schema reference for the whole platform: `api_keys`, `modules`, `tenants`,
+`files`, `view_configs`, `admin_audit_log`, `connector_definitions`/`connector_credentials`, and
+others are documented elsewhere (see `packages/db/src/schema/` for the authoritative current
+schema). All tables shown below include `tenant_id` (RLS-enforced) and `created_at` unless noted.
 
 ```sql
 -- =============================================
@@ -1330,10 +1339,85 @@ CREATE INDEX ON outbox_events (delivered_at NULLS FIRST, created_at);
 
 ## Appendix B — Connector SDK Interface
 
-```typescript
-// @platform/connector-sdk/types.ts
+**Synced to the actual shipped `packages/connector-sdk/src/types.ts` as of 2026-08-12** — an
+earlier version of this appendix had drifted from the real type contract on four points
+(a readable `credentials` field, a connector-authored `validateSignature` callback, a missing
+`allowedHosts` egress allowlist, and an invented `auth` union with variants that were never
+built). Treat the real file as authoritative if this drifts again; this appendix is a snapshot,
+not the source of truth.
 
-export interface ConnectorDefinition<TCredentials = Record<string, unknown>> {
+```typescript
+// packages/connector-sdk/src/types.ts
+
+// No `credentials` field: connector code never sees raw secrets (ADR-009 Decision #5).
+// The runtime decrypts credentials server-side and attaches them inside callApi() only.
+export interface ConnectorContext {
+  tenantId: string;
+  callApi: (config: {
+    method: string;
+    url: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+  }) => Promise<Response>;
+  log: (
+    level: "info" | "warn" | "error",
+    message: string,
+    meta?: object,
+  ) => void;
+}
+
+export interface TriggerDefinition {
+  id: string;
+  name: string;
+  description: string;
+  type: "webhook" | "polling";
+  webhook?: {
+    // No validateSignature: verification is centralized in the webhook gateway
+    // (ADR-009 Decision #3), not connector-authored code.
+    transform: (rawPayload: unknown) => Promise<Record<string, unknown>>;
+  };
+  polling?: {
+    intervalMinutes: number;
+    fetch: (
+      ctx: ConnectorContext,
+      cursor?: string,
+    ) => Promise<{
+      events: Record<string, unknown>[];
+      nextCursor?: string;
+    }>;
+  };
+}
+
+export interface ActionDefinition {
+  id: string;
+  name: string;
+  description: string;
+  input: z.ZodSchema;
+  output: z.ZodSchema;
+  execute: (input: unknown, ctx: ConnectorContext) => Promise<unknown>;
+  rateLimit?: { requestsPerMinute: number; requestsPerDay?: number };
+  retryConfig?: {
+    maxAttempts: number;
+    backoffMs: number;
+    retryOn: (error: Error) => boolean;
+  };
+}
+
+// Discriminated union of supported auth mechanisms for a connector's outbound
+// API calls (ADR-009 Decision #5). `credentialKey` (and its variants) names a
+// logical secret — the `connector_credentials.secrets` column (issue #363)
+// stores a JSONB map of `credentialKey -> ciphertext` per tenant-connector
+// installation.
+export type ConnectorAuthConfig =
+  | { type: "bearer"; credentialKey: string }
+  | {
+      type: "basic";
+      usernameCredentialKey: string;
+      passwordCredentialKey: string;
+    }
+  | { type: "apiKey"; headerName: string; credentialKey: string };
+
+export interface ConnectorDefinition {
   meta: {
     id: string;
     name: string;
@@ -1350,79 +1434,16 @@ export interface ConnectorDefinition<TCredentials = Record<string, unknown>> {
       | "ecommerce"
       | "other";
   };
-
-  auth: OAuthConfig | ApiKeyConfig | BasicAuthConfig | CustomAuthConfig;
-
+  // Per-connector egress allowlist (ADR-009 Decision #5): callApi() enforces this
+  // and validateWebhookUrl() against the target on every call, so a connector can
+  // only ever reach the third-party host(s) it declares here.
+  // Hostnames only — no scheme, no path, no wildcards (e.g. ["api.slack.com"]).
+  allowedHosts: string[];
+  auth: ConnectorAuthConfig;
   triggers: TriggerDefinition[];
   actions: ActionDefinition[];
-
-  onInstall?: (ctx: ConnectorContext<TCredentials>) => Promise<void>;
-  onUninstall?: (ctx: ConnectorContext<TCredentials>) => Promise<void>;
-  onCredentialRefresh?: (
-    ctx: ConnectorContext<TCredentials>,
-  ) => Promise<TCredentials>;
-}
-
-export interface TriggerDefinition {
-  id: string;
-  name: string;
-  description: string;
-  type: "webhook" | "polling";
-
-  // For webhook triggers
-  webhook?: {
-    validateSignature: (request: Request, secret: string) => Promise<boolean>;
-    transform: (rawPayload: unknown) => Promise<PlatformEvent>;
-  };
-
-  // For polling triggers
-  polling?: {
-    intervalMinutes: number;
-    fetch: (
-      ctx: ConnectorContext,
-      cursor?: string,
-    ) => Promise<{
-      events: PlatformEvent[];
-      nextCursor?: string;
-    }>;
-  };
-}
-
-export interface ActionDefinition {
-  id: string;
-  name: string;
-  description: string;
-  input: z.ZodSchema; // validated before execution
-  output: z.ZodSchema;
-
-  execute: (input: unknown, ctx: ConnectorContext) => Promise<unknown>;
-
-  rateLimit?: {
-    requestsPerMinute: number;
-    requestsPerDay?: number;
-  };
-
-  retryConfig?: {
-    maxAttempts: number;
-    backoffMs: number;
-    retryOn: (error: Error) => boolean;
-  };
-}
-
-export interface ConnectorContext<TCredentials = Record<string, unknown>> {
-  tenantId: string;
-  credentials: TCredentials;
-  callApi: (config: {
-    method: string;
-    url: string;
-    headers?: Record<string, string>;
-    body?: unknown;
-  }) => Promise<Response>;
-  log: (
-    level: "info" | "warn" | "error",
-    message: string,
-    meta?: object,
-  ) => void;
+  onInstall?: (ctx: ConnectorContext) => Promise<void>;
+  onUninstall?: (ctx: ConnectorContext) => Promise<void>;
 }
 ```
 
