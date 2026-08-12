@@ -80,7 +80,7 @@ export async function buildNotificationContent(
     case "entity.unassigned":
       return {
         title: "Assignment updated",
-        body: `${actorName} reassigned a ticket you were assigned to`,
+        body: `${actorName} reassigned a record you were assigned to`,
         link,
       };
     case "comment.mentioned":

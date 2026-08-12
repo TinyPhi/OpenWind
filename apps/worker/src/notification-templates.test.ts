@@ -70,7 +70,7 @@ describe("buildNotificationContent", () => {
     });
     expect(content.title).toBe("Assignment updated");
     expect(content.body).toBe(
-      "Jane Doe reassigned a ticket you were assigned to",
+      "Jane Doe reassigned a record you were assigned to",
     );
     expect(content.link).toBe("/records/support-ticket/inst-1");
   });

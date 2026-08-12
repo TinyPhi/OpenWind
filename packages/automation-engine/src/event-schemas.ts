@@ -70,8 +70,8 @@ export const EntityUnassignedV1Schema = baseEvent.extend({
   eventType: z.literal("entity.unassigned"),
   instanceId: z.string().uuid(),
   entityTypeId: z.string().uuid(),
-  previousAssigneeId: z.string(),
-  actorId: z.string().nullable(),
+  previousAssigneeId: z.string().uuid(),
+  actorId: z.string().uuid().nullable(),
 });
 
 export const EntityDueDateOverdueV1Schema = baseEvent.extend({

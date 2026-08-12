@@ -238,4 +238,61 @@ describe("entity.unassigned outbox emission (notifies the previous assignee, doc
     );
     expect(forThisInstance).toHaveLength(0);
   });
+
+  it("explicit unassignment (assignedTo -> null) fires entity.unassigned naming the previous assignee but not entity.assigned", async () => {
+    const instance = await withTenantContext(TENANT, (tx) =>
+      createEntity(tx, TENANT, {
+        entityTypeId: entityType.id,
+        fields: {},
+      }),
+    );
+
+    // Assign first (fires entity.assigned once — not under test here), then
+    // explicitly unassign, which is the path under test.
+    await withTenantContext(TENANT, (tx) =>
+      updateEntity(tx, TENANT, instance.id, { assignedTo: ASSIGNEE_ID }),
+    );
+    await withTenantContext(TENANT, (tx) =>
+      updateEntity(tx, TENANT, instance.id, { assignedTo: null }),
+    );
+
+    const unassignedRows = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select()
+        .from(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.tenantId, TENANT),
+            eq(outboxEvents.eventType, "entity.unassigned"),
+          ),
+        ),
+    );
+    const unassignedForInstance = unassignedRows.filter(
+      (r) => (r.payload as Record<string, unknown>).instanceId === instance.id,
+    );
+    expect(unassignedForInstance).toHaveLength(1);
+    const unassignedPayload = unassignedForInstance[0]?.payload as Record<
+      string,
+      unknown
+    >;
+    expect(unassignedPayload.previousAssigneeId).toBe(ASSIGNEE_ID);
+
+    // Only the initial assignment should have fired entity.assigned — the
+    // unassign-to-null update must not also fire a second one.
+    const assignedRows = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select()
+        .from(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.tenantId, TENANT),
+            eq(outboxEvents.eventType, "entity.assigned"),
+          ),
+        ),
+    );
+    const assignedForInstance = assignedRows.filter(
+      (r) => (r.payload as Record<string, unknown>).instanceId === instance.id,
+    );
+    expect(assignedForInstance).toHaveLength(1);
+  });
 });
