@@ -25,8 +25,8 @@ export const createChildHandler = factory.createHandlers(
     const { tenantId, userId } = auth;
     // "agent" is a tenant-wide role that already creates sub-tickets under
     // any parent (matches the pre-existing requireRole("admin","agent")
-    // contract); only "user" callers are subject to the extra per-workflow
-    // admin check below.
+    // contract); only "user" callers are subject to the extra full-access
+    // check below — creator, assignee, or workflow admin of the parent.
     const isAgentOrAdmin =
       auth.roles.includes("admin") || auth.roles.includes("agent");
     const caller = toWorkflowCaller(auth);

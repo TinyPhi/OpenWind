@@ -1368,6 +1368,19 @@ export function CustomerRecordDetail(): React.ReactElement {
     (record?.createdBy === currentUserId ||
       record?.assignedTo === currentUserId);
 
+  // Link-ticket and sub-task creation: creator, assignee, workflow admin, or
+  // global admin/agent (isAdminOrAgent covers the latter two) — everyone
+  // else with mere read/comment access to the ticket must not get these.
+  // NOT used for the field-edit gate below — that stays creator-only
+  // (+admin/agent/workflow-admin), matching update.ts's deliberate exclusion
+  // of the plain assignee from editing state/dueDate/assignedTo/fields (see
+  // docs/specs/due-date.md).
+  const canLinkOrCreateSubtask = isAdminOrAgent || isOwner;
+
+  const isRecordCreator =
+    currentUserId !== null && record?.createdBy === currentUserId;
+  const canEditTicket = isAdminOrAgent || isRecordCreator;
+
   // Derived: true when viewing a child ticket (has a parent)
   const isChildTicket = !!record?.parentId;
 
@@ -1459,8 +1472,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   // tightened API write gate in apps/api/src/routes/entities/update.ts.
   const canChangeDueDate = canChangeAssignedTo;
 
-  // isAdminOrAgent already includes workflow-admin status (see its definition).
-  const canCreateChild = isAdminOrAgent;
+  // Creator/assignee get sub-task creation too, alongside admin/agent/
+  // workflow-admin (isAdminOrAgent) — see canLinkOrCreateSubtask above.
+  const canCreateChild = canLinkOrCreateSubtask;
 
   async function handleAccessChange(): Promise<void> {
     if (!id || !accessChangeModal) return;
@@ -2678,9 +2692,12 @@ export function CustomerRecordDetail(): React.ReactElement {
   const titleField = fields.find(
     (f) => f.name === "subject" || f.name === "title" || f.name === "name",
   );
-  const recordTitle = titleField
-    ? String(record.fields[titleField.name] ?? "")
-    : `${entityType?.name ?? "Record"} #${record.id.slice(0, 8)}`;
+  // No id suffix here — the id already renders in its own chip right below
+  // the title (rcd-id-chip); appending it here too just duplicated it.
+  const recordTitle =
+    titleField && String(record.fields[titleField.name] ?? "").trim()
+      ? String(record.fields[titleField.name])
+      : (entityType?.name ?? "Record");
 
   const createdByEvent = historyEvents.find(
     (e) => e.metadata?.type === "create",
@@ -3279,7 +3296,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         onClick={() => setKebabMenuOpen(false)}
                       />
                       <div className="rcd-kebab-menu">
-                        {isAdminOrAgent && (
+                        {canEditTicket && (
                           <button
                             type="button"
                             className="rcd-kebab-menu-item"
@@ -4314,7 +4331,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                   </span>
                 )}
               </span>
-              {!record.deletedAt && (
+              {!record.deletedAt && canLinkOrCreateSubtask && (
                 <button
                   type="button"
                   className="rcd-sidebar-add"
