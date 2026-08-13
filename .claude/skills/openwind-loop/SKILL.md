@@ -1,3 +1,8 @@
+---
+name: openwind-loop
+description: Project-specific autonomous delivery loop for OpenWind. Encodes the exact verification commands, config-first test, and autonomy rules for taking a CLAUDE.md Current Focus track (or an explicit feature spec) through Plan-lock, implementation, and the gated commit procedure. Invoke when CLAUDE.md's Current Focus names a track to implement.
+---
+
 # Skill: openwind-loop
 
 Project-specific loop skill for the OpenWind platform.

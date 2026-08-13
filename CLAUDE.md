@@ -39,19 +39,20 @@ Reference docs (read before starting work in a new area):
 
 ## Current focus
 
-**Phase:** 3 — Scale & Extensibility (3A planning complete — ADR-008/009/010 accepted
-2026-08-06; implementation not started)
+**Phase:** 3 — Scale & Extensibility (3A **in progress** — ADR-008/009/010 accepted 2026-08-06;
+Stage 0 + Stage 1 done, Stage 2 runtime + scopes tracks landing — see
+`docs/sup-docs/roadmap-tracker.md` for the current %, not repeated here since it drifts)
 **Phase 2 status:** ✅ Complete as of 2026-06-18 (all 4 tracks + pre-pilot hardening merged)
 
-Phase 3 tracks (all 0% — no active work yet):
+Phase 3 tracks (3A in progress; 3B–3D + 3-OPS still 0% — no active work yet):
 
-| ID    | Track                                               | Notes                                                                                                                                                               |
-| ----- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3A    | Integration layer — connector runtime, marketplace  | ADR-008/009/010 accepted. Implementation sequence in `.claude/context/phase-3-primer.md`, staged: ADR-008 core → ADR-009 runtime + ADR-008 scopes → ADR-010 Tier 1. |
-| 3B    | Plugin system — Module Federation, slot registry    | After 3A                                                                                                                                                            |
-| 3C    | AI layer — automation gen, workflow suggestion, RAG | After 3B                                                                                                                                                            |
-| 3D    | Observability + compliance — OTel, Prometheus, GDPR | Parallel with 3A–3C possible                                                                                                                                        |
-| 3-OPS | Deferred ops/infra concerns                         | See Phase 1 carry-overs in tracker                                                                                                                                  |
+| ID    | Track                                               | Notes                                                                                                                                                                                                                   |
+| ----- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3A    | Integration layer — connector runtime, marketplace  | 🟡 In progress. Stage 0/1 done, Stage 2 runtime + scopes tracks landing. Detailed sequence + status in `.claude/context/phase-3-primer.md`; live % in `docs/sup-docs/roadmap-tracker.md` — update both there, not here. |
+| 3B    | Plugin system — Module Federation, slot registry    | After 3A                                                                                                                                                                                                                |
+| 3C    | AI layer — automation gen, workflow suggestion, RAG | After 3B                                                                                                                                                                                                                |
+| 3D    | Observability + compliance — OTel, Prometheus, GDPR | Parallel with 3A–3C possible                                                                                                                                                                                            |
+| 3-OPS | Deferred ops/infra concerns                         | See Phase 1 carry-overs in tracker                                                                                                                                                                                      |
 
 **Pre-Phase 3 hardening (external review flagged) — status as of 2026-07-24:**
 
