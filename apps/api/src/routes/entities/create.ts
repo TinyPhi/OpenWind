@@ -1,8 +1,8 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray, isNull } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
-import { tenantUsers, withTenantContext } from "@platform/db";
+import { files, tenantUsers, withTenantContext } from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -16,6 +16,30 @@ const CreateEntitySchema = z.object({
   workflowId: z.string().uuid().optional(),
   currentState: z.string().optional(),
 });
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A file/files-type custom field's value is uploaded before this entity
+// exists, so it can only ever reach the API as a bare id string - never
+// bound (files.entityId) to anything yet. Rather than looking up the entity
+// type's field definitions to find which fields are file-typed, just collect
+// every UUID-shaped string value (top-level or inside an array) as a
+// candidate; the DB-side WHERE guards below (unbound + same tenant + same
+// uploader) mean a false positive - some unrelated field that merely happens
+// to hold a UUID-shaped string - simply matches no file row and is a no-op.
+function collectFileIdCandidates(fields: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const v of Object.values(fields)) {
+    if (typeof v === "string" && UUID_RE.test(v)) out.push(v);
+    else if (Array.isArray(v)) {
+      for (const item of v) {
+        if (typeof item === "string" && UUID_RE.test(item)) out.push(item);
+      }
+    }
+  }
+  return out;
+}
 
 export const createEntityHandler = factory.createHandlers(
   requireAuth(),
@@ -80,6 +104,28 @@ export const createEntityHandler = factory.createHandlers(
           createdBy: userId,
         }),
       );
+
+      // Link any file/files custom-field values uploaded before this entity
+      // existed - otherwise GET /entities/:id/attachments (which filters on
+      // files.entity_id) never finds them and the UI shows nothing for
+      // those fields despite the entity's fields JSON holding valid ids.
+      const fileIdCandidates = collectFileIdCandidates(input.fields);
+      if (fileIdCandidates.length > 0) {
+        await withTenantContext(tenantId, (tx) =>
+          tx
+            .update(files)
+            .set({ entityId: instance.id })
+            .where(
+              and(
+                inArray(files.id, fileIdCandidates),
+                eq(files.tenantId, tenantId),
+                eq(files.uploadedBy, userId),
+                isNull(files.entityId),
+              ),
+            ),
+        );
+      }
+
       return c.json({ data: instance }, 201);
     } catch (err) {
       return handleEntityError(c, err);

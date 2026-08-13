@@ -258,8 +258,8 @@ describe("buildZodSchema", () => {
     });
   });
 
-  describe("user_ref / entity_ref fields", () => {
-    it("accepts valid UUID", () => {
+  describe("user_ref fields", () => {
+    it("accepts a UUID", () => {
       const schema = buildZodSchema(
         [makeField({ name: "owner", fieldType: "user_ref" })],
         "create",
@@ -270,12 +270,105 @@ describe("buildZodSchema", () => {
       ).toBe(true);
     });
 
-    it("rejects non-UUID strings", () => {
+    // AuthNexus issues opaque Snowflake-style numeric-string user ids, not
+    // UUIDs (see authProvider.ts / platform/users.ts /
+    // authnexus-management.ts) - a real payload's sales_owner/reviewer/etc.
+    // fields look like "373453864726167555", which a .uuid() constraint
+    // rejected outright.
+    it("accepts a non-UUID AuthNexus-style user id", () => {
       const schema = buildZodSchema(
         [makeField({ name: "owner", fieldType: "user_ref" })],
         "create",
       );
-      expect(schema.safeParse({ owner: "not-a-uuid" }).success).toBe(false);
+      expect(schema.safeParse({ owner: "373453864726167555" }).success).toBe(
+        true,
+      );
+    });
+
+    it("rejects an empty string", () => {
+      const schema = buildZodSchema(
+        [makeField({ name: "owner", fieldType: "user_ref" })],
+        "create",
+      );
+      expect(schema.safeParse({ owner: "" }).success).toBe(false);
+    });
+  });
+
+  describe("entity_ref fields", () => {
+    it("accepts a UUID (references another entity instance's real id)", () => {
+      const schema = buildZodSchema(
+        [makeField({ name: "parent", fieldType: "entity_ref" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({ parent: "550e8400-e29b-41d4-a716-446655440000" })
+          .success,
+      ).toBe(true);
+    });
+
+    it("rejects non-UUID strings", () => {
+      const schema = buildZodSchema(
+        [makeField({ name: "parent", fieldType: "entity_ref" })],
+        "create",
+      );
+      expect(schema.safeParse({ parent: "not-a-uuid" }).success).toBe(false);
+    });
+  });
+
+  describe("file / files fields", () => {
+    it("accepts a plain file-id string for 'file'", () => {
+      const schema = buildZodSchema(
+        [makeField({ name: "attachment", fieldType: "file" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({ attachment: "fea6b18f-5dbd-428f-874f-19a371e77856" })
+          .success,
+      ).toBe(true);
+    });
+
+    it("rejects the old {key,name,size,mimeType} object shape for 'file'", () => {
+      const schema = buildZodSchema(
+        [makeField({ name: "attachment", fieldType: "file" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({
+          attachment: {
+            key: "k",
+            name: "n",
+            size: 1,
+            mimeType: "application/pdf",
+          },
+        }).success,
+      ).toBe(false);
+    });
+
+    it("accepts an array of plain file-id strings for 'files'", () => {
+      const schema = buildZodSchema(
+        [makeField({ name: "attachments", fieldType: "files" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({
+          attachments: [
+            "fea6b18f-5dbd-428f-874f-19a371e77856",
+            "3e21270a-87b5-4b52-a8ac-b37647b25918",
+          ],
+        }).success,
+      ).toBe(true);
+    });
+
+    it("rejects a null entry in a 'files' array", () => {
+      const schema = buildZodSchema(
+        [makeField({ name: "attachments", fieldType: "files" })],
+        "create",
+      );
+      expect(
+        schema.safeParse({
+          attachments: [null, "fea6b18f-5dbd-428f-874f-19a371e77856"],
+        }).success,
+      ).toBe(false);
     });
   });
 

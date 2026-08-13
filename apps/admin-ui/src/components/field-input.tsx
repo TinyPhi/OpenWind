@@ -63,7 +63,7 @@ export function FieldInput({
     case "files":
       return (
         <FileFieldPicker
-          value={value as string | string[] | null}
+          value={value as string | string[] | null | undefined}
           onChange={onChange}
           multiple={field.fieldType === "files"}
           moduleSlug={moduleSlug}

@@ -138,13 +138,40 @@ function FieldValue({
   value,
   fieldType,
   field,
+  attachments,
+  onPreviewFile,
 }: {
   value: unknown;
   fieldType: string;
   field?: EntityField;
+  attachments?: AttachmentFile[];
+  onPreviewFile?: (file: AttachmentFile) => void;
 }): React.ReactElement {
   if (value === null || value === undefined)
     return <span className="rcd-muted">—</span>;
+  if (fieldType === "file" || fieldType === "files") {
+    // Stored as plain file-id string(s) - resolve against the entity's
+    // already-loaded attachments list (same lookup pattern comment file
+    // chips use) rather than rendering the raw id.
+    const ids = Array.isArray(value) ? value : [value];
+    const known = ids
+      .filter((v): v is string => typeof v === "string")
+      .map((fid) => attachments?.find((a) => a.id === fid))
+      .filter((f): f is AttachmentFile => f !== undefined);
+    if (known.length === 0) return <span className="rcd-muted">—</span>;
+    return (
+      <div className="cmt-file-chips">
+        {known.map((file) => (
+          <FileChip
+            key={file.id}
+            file={file}
+            onPreview={onPreviewFile ?? (() => {})}
+            canDelete={false}
+          />
+        ))}
+      </div>
+    );
+  }
   if (fieldType === "boolean") {
     const bv = Boolean(value);
     return (
@@ -890,8 +917,24 @@ function StateDropdown({
   );
 }
 
-function formatFieldValue(value: unknown): string {
+function formatFieldValue(
+  value: unknown,
+  fieldType?: string,
+  attachments?: AttachmentFile[],
+): string {
   if (value === null || value === undefined) return "—";
+  if (fieldType === "file" || fieldType === "files") {
+    // Stored as plain file-id string(s) - resolve against the entity's
+    // attachments list (same lookup FieldValue uses for the read-only field
+    // display) so the history diff shows names instead of raw ids.
+    const ids = Array.isArray(value) ? value : [value];
+    const names = ids
+      .filter((v): v is string => typeof v === "string")
+      .map(
+        (fid) => attachments?.find((a) => a.id === fid)?.originalName ?? fid,
+      );
+    return names.length > 0 ? names.join(", ") : "—";
+  }
   if (typeof value === "object") {
     const obj = value as Record<string, unknown>;
     if ("amount" in obj && "currency" in obj)
@@ -2525,7 +2568,11 @@ export function CustomerRecordDetail(): React.ReactElement {
       });
       setEditing(false);
       setLoading(true);
-      void loadRecord();
+      // loadRecord() alone only refreshes fields/users/access - a file/files
+      // field edit binds a new file to this entity, but without also
+      // refreshing `attachments` the file-chip lookup in FieldValue keeps
+      // resolving against the pre-edit list until a full page reload.
+      void Promise.all([loadRecord(), refreshAttachments()]);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -3105,12 +3152,22 @@ export function CustomerRecordDetail(): React.ReactElement {
                         {fieldName === "assignedTo"
                           ? ((change["oldName"] as string | null) ??
                             getActorName(change["old"] as string | null))
-                          : formatFieldValue(change["old"])}
+                          : formatFieldValue(
+                              change["old"],
+                              fields.find((f) => f.name === fieldName)
+                                ?.fieldType,
+                              attachments,
+                            )}
                         {" → "}
                         {fieldName === "assignedTo"
                           ? ((change["newName"] as string | null) ??
                             getActorName(change["new"] as string | null))
-                          : formatFieldValue(change["new"])}
+                          : formatFieldValue(
+                              change["new"],
+                              fields.find((f) => f.name === fieldName)
+                                ?.fieldType,
+                              attachments,
+                            )}
                       </li>
                     ))}
                   </ul>
@@ -3649,6 +3706,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                             value={record.fields[f.name]}
                             fieldType={f.fieldType}
                             field={f}
+                            attachments={attachments}
+                            onPreviewFile={setPreviewFile}
                           />
                         </div>
                       </div>
