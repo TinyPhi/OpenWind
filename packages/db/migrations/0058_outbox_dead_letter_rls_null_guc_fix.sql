@@ -1,5 +1,5 @@
 -- Down migration (rollback):
--- WARNING (PR #374 review, M1): this restores the 0049 policy shape below,
+-- WARNING: this restores the 0049 policy shape below,
 -- which contains the exact empty-string-cast bug this migration exists to
 -- fix — applying this rollback re-breaks outbox/dead-letter delivery
 -- platform-wide the moment any pgbouncer-pooled connection has ever touched

@@ -22,6 +22,7 @@
     "@platform/auth": "workspace:*",
     "@platform/automation-engine": "workspace:*",
     "@platform/config": "workspace:*",
+    "@platform/connector-sdk": "workspace:*",
     "@platform/db": "workspace:*",
     "@platform/entity-engine": "workspace:*",
     "@platform/files": "workspace:*",

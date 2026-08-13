@@ -166,6 +166,9 @@ importers:
       '@platform/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@platform/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -266,6 +269,9 @@ importers:
       '@platform/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@platform/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -284,6 +290,9 @@ importers:
       '@platform/redis':
         specifier: workspace:*
         version: link:../../packages/redis
+      '@platform/secrets':
+        specifier: workspace:*
+        version: link:../../packages/secrets
       '@platform/workflow-engine':
         specifier: workspace:*
         version: link:../../packages/workflow-engine

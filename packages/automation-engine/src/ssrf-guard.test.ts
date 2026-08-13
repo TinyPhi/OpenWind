@@ -117,10 +117,19 @@ describe("validateWebhookUrl — blocked ranges", () => {
     });
   });
 
-  it("blocks ULA IPv6 (fd00::/8)", async () => {
+  it("blocks ULA IPv6 — fd00::/8 (locally assigned half)", async () => {
     mockLookup.mockReturnValue(dnsResult(["fd12:3456:789a::1"]));
     await expect(
       validateWebhookUrl("https://internal.v6/hook"),
+    ).rejects.toMatchObject({
+      code: "WEBHOOK_SSRF_BLOCKED",
+    });
+  });
+
+  it("blocks ULA IPv6 — fc00::/8 (central, reserved half — #383 fix)", async () => {
+    mockLookup.mockReturnValue(dnsResult(["fc00::1"]));
+    await expect(
+      validateWebhookUrl("https://internal-central.v6/hook"),
     ).rejects.toMatchObject({
       code: "WEBHOOK_SSRF_BLOCKED",
     });

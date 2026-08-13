@@ -39,6 +39,15 @@ export interface TriggerDefinition {
   };
 }
 
+// Default cap on a connector action's serialized output payload, enforced at
+// the outbound delivery boundary (ADR-009 Decision #10, issue #365) — an
+// integrity/DoS control, distinct from the confidentiality control the
+// sensitivity redactor provides. Chosen to comfortably fit a real event
+// payload while still rejecting a runaway/malformed one before any network
+// call is attempted; roughly in line with common webhook-provider caps
+// (e.g. Svix recommends keeping payloads well under 256KB).
+export const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024;
+
 export interface ActionDefinition {
   id: string;
   name: string;
@@ -52,12 +61,19 @@ export interface ActionDefinition {
     backoffMs: number;
     retryOn: (error: Error) => boolean;
   };
+  /**
+   * Max serialized size (bytes, UTF-8) of this action's output payload,
+   * enforced at the outbound delivery boundary before any delivery attempt
+   * (ADR-009 Decision #10). Defaults to DEFAULT_MAX_OUTPUT_BYTES if omitted.
+   */
+  maxOutputBytes?: number;
 }
 
 // Discriminated union of supported auth mechanisms for a connector's outbound
 // API calls (ADR-009 Decision #5). `credentialKey` (and its variants) names a
-// logical secret — the eventual `connector_credentials` table stores a JSONB
-// map of `credentialKey -> ciphertext` per tenant-connector installation.
+// logical secret — the `connector_credentials.secrets` column (issue #363)
+// stores a JSONB map of `credentialKey -> ciphertext` per tenant-connector
+// installation.
 export type ConnectorAuthConfig =
   | { type: "bearer"; credentialKey: string }
   | {

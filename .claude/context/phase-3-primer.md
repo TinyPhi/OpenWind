@@ -61,13 +61,12 @@ plan-lock all of this as one unit.
       advisory lock (auto-released on the enclosing real transaction's commit/rollback) and skips a
       rule whose actions already completed successfully for that pair, while still permitting retry
       of a `'failed'` attempt. T9 (unique-index backstop) was already covered by PR #372's own
-      isolation test. **#364 (webhook gateway) is now unblocked on this front** — though see
-      [#378](../../issues/378): `outbox-poller.ts`'s temporary exclusion of automation-triggered
-      transitions (added alongside Phase 1, safe to remove now that Phase 2's dedup exists) hasn't
-      been removed yet, so those rows still don't reach the real BullMQ queue in production. Also
-      found during Phase 2: [#379](../../issues/379), the "transition" automation action never stamps
-      its own recursion depth onto the outbox row it produces — a separate, real gap, not fixed as
-      part of Phase 2 (out of that PR's scope).
+      isolation test. **#364 (webhook gateway) is now fully unblocked**, including
+      [#378](../../issues/378) (`outbox-poller.ts`'s temporary automation-transition exclusion,
+      done 2026-08-12 — the poller now claims and enqueues these rows like any other, with a new
+      isolation test proving the resulting race against the sync in-process path still nets to
+      exactly one success) and [#379](../../issues/379) (the "transition" automation action now
+      stamps `depth` onto its `executeTransition` call, done 2026-08-12, with a regression test).
 - [x] `packages/connector-sdk/src/types.ts` breaking changes per ADR-009 Decisions #3/#5 — done
       2026-08-09 (zero consumers existed yet, so no migration needed): dropped the readable
       `credentials`/`TCredentials` field+generic from `ConnectorContext` (Decision #5),
@@ -137,16 +136,84 @@ Runtime track:
       already-established pattern exactly. Also added the port allowlist automation-engine's
       guard already has (host allowlisting alone doesn't stop reaching an arbitrary port on an
       allowed host). [#362](../../issues/362)
-- [ ] Inbound webhook gateway (`POST /webhooks/{connectorId}/{tenantId}`) — depends on Stage 0's
-      #143 resolution (done) and #362 (done). [#364](../../issues/364)
-- [ ] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
-      (Decision #9), sensitivity taxonomy/redactor (Decision #10 — **shared dependency**, see
-      above; already exists as `packages/workflow-engine/src/redact.ts`'s `redactMetadata`/
-      `buildSensitivityMap`, just needs wiring into outbound payload construction here, not a
-      new mechanism). [#365](../../issues/365)
-- [ ] `connector_definitions` + `connector_credentials` tables, with isolation tests in the same
-      PR that creates them — now unblocked, #362's `ConnectorAuthConfig`/`credentialKey` shape is
-      what `connector_credentials`'s secrets column should key on. [#363](../../issues/363)
+- [x] Inbound webhook gateway (`POST /webhooks/:connectorId/:tenantId`) — done 2026-08-13.
+      Unauthenticated by JWT/API-key; the HMAC signature IS the authentication. Reuses
+      `@platform/connector-sdk`'s outbound-envelope helpers built for #365's opposite
+      direction (`verifyOutboundSignature`, `OUTBOUND_SIGNATURE_HEADER`/
+      `OUTBOUND_DELIVERY_ID_HEADER`) rather than reimplementing HMAC verification or
+      inventing different header names — resolves #365's own "pending reconciliation" note
+      into one signing convention shared by both directions. Order of checks, all collapsed
+      to an identical 401 for AC4's no-existence-oracle requirement (an attacker probing
+      cannot distinguish "wrong tenant/connector" from "right one, wrong signature"): parse + range-check the `t=` timestamp (±5min tolerance, Stripe/Svix precedent), look up the
+      installation's signing secret from `connector_credentials.secrets` (a new well-known
+      `webhookSigningSecret` credentialKey, distinct from any outbound-API-auth key the same
+      installation might carry), verify the signature against the raw body. Replay-dedupe on
+      the delivery-id header is a Redis `SET NX EX` that fails **closed** (409 on replay, 503
+      on a Redis error) — a deliberate divergence from `rate-limit.ts`'s fail-open
+      `checkRateLimit` convention, since replay protection is a security control (a
+      captured-and-resent valid request), not traffic shaping, and a sender's normal
+      retry-on-no-response behavior means failing closed only delays processing, not loses
+      it. AC5's `getConnectorDefinition()` reuse (from #365's in-memory registry) fails
+      closed too (401) if the connector isn't registered — no real connector exists yet
+      (#368's job); found no webhook trigger → 400; malformed JSON or a rejected transform →
+      400 (a different failure class than AC4, since the caller already authenticated by
+      that point). New `connectorInboundQueue` (`apps/worker/src/queues.ts`, mirrored in
+      `apps/api/src/lib/connector-inbound-queue.ts` per the dependency rule) publishes the
+      transformed event — no consumer exists yet, matching the issue's explicit scope (this
+      is the producer/gateway side only). AC2's pre-auth IP-keyed flood guard is already
+      satisfied by the existing global `rateLimit()` middleware (no redundant second guard
+      added). **Security review found 2 HIGH findings, both fixed before merge:** (1) the
+      shared HMAC construction (below) didn't cover the delivery-id, letting a captured valid
+      delivery be replayed under a relabeled id — fixed in `outbound-envelope.ts` itself,
+      coordinated with #365's PR; (2) a timing side-channel let an attacker distinguish
+      "unknown tenant/connector" from "known, bad signature" by the presence of an OpenBao
+      round-trip, defeating AC4 — fixed with a timing-equalizing dummy decrypt call. Both have
+      regression tests. [#364](../../issues/364)
+- [x] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
+      (Decision #9), sensitivity taxonomy/redactor (Decision #10) — done 2026-08-12, migration
+      0057 (`connector_delivery_attempts`, RLS with both `USING`/`WITH CHECK` from day one).
+      New `connectorOutboundQueue` (`apps/worker/src/queues.ts`): `attempts: 11`,
+      `backoff: {type: "exponential", delay: 45_000}` — deliberately not
+      `notifyOutboundQueue`'s 3-attempts/1s config (~7s window, sized for internal outages);
+      worst-case cumulative delay `45_000 * (2^11 - 1)` ≈ 25.6h, approaching the ADR's
+      Stripe/Svix ~27h reference. New pure module `packages/connector-sdk/src/
+outbound-envelope.ts`: HMAC-SHA256 over `${deliveryId}.${timestampUnixSeconds}.${rawBody}`
+      (deliveryId included in the signed content since a #364 security-review finding — see
+      that entry above — an earlier version signed only `timestamp.rawBody`, which let a
+      captured valid delivery be replayed under a relabeled delivery-id),
+      `X-OpenWind-Signature: t=<unix>,v1=<hex>` + `X-OpenWind-Delivery-Id: <uuid>` headers
+      (mirrors Stripe/Svix's `msgId.timestamp.payload` convention). #364 confirmed this scheme
+      and reuses it directly (`verifyOutboundSignature`) for inbound verification — one
+      signing convention shared by both directions, as intended. Also
+      `validateActionOutput()` enforcing a new `ActionDefinition.maxOutputBytes` (default
+      `DEFAULT_MAX_OUTPUT_BYTES = 256KB`) before schema validation (AC6). Decision #10's
+      redactor is reused unchanged (`buildSensitivityMap`/`redactMetadata`), wired into the new
+      `apps/worker/src/connector-outbound-worker.ts` queue consumer, which re-runs SSRF
+      validation (`connector-sdk`'s `assertEgressAllowed`, from #362) and connection-pinning on
+      **every** delivery attempt, not just the first. New `packages/connector-sdk/src/
+registry.ts` (in-memory `Map`) is the seam letting the worker resolve a BullMQ job's
+      `connectorId`/`actionId` back to its real `ActionDefinition` — a job's data crosses Redis
+      as plain JSON and can't carry a live Zod schema. **Deliberately NOT built, per this
+      issue's own scope:** ADR-009 Decision #10's "explicit per-connector grant to cross the
+      tenant boundary" (redaction is always-on with no bypass mechanism — no column/table
+      exists for a grant yet; a human needs to design one) and any producer wiring into the new
+      queue (`enqueueConnectorDelivery()` is the integration seam; the actual trigger — polling
+      scheduler #366, a built connector #368, or ADR-010's `event_subscriptions` — is separate,
+      not-yet-built work). [#365](../../issues/365)
+- [x] `connector_definitions` + `connector_credentials` tables — done 2026-08-12, migration 0056.
+      `connector_definitions` is a genuinely new, platform-wide catalog table (no tenant_id/RLS,
+      per ADR-001). **`connector_credentials` was NOT new** — discovered mid-implementation that
+      it has existed since `0000_initial_schema.sql` (Phase 1), as a placeholder with an
+      incompatible shape (`connector_id text` no FK, single `credentials text` blob) that #362's
+      merged design didn't know about. Its only live consumer, `apps/worker/src/tenant-purge.ts`,
+      only ever deletes by `tenant_id`, so reshaping it in place (rather than a second,
+      differently-named table) was safe — confirmed zero real rows in any environment. Reshaped
+      via `ALTER`: `connector_id` retyped to `uuid` + FK to `connector_definitions`, `credentials`
+      replaced with `secrets jsonb` (credentialKey -> ciphertext map, matching #362's
+      `ConnectorAuthConfig` exactly), added `cursor_state jsonb`, added `UNIQUE(tenant_id,
+connector_id)`. RLS policies and the `app_user` grant (incl. DELETE, which `tenant-purge.ts`
+      needs) were left untouched. Fixed #362's now-stale "doesn't exist yet" doc comment in
+      `connector-sdk/src/runtime.ts`/`types.ts`. [#363](../../issues/363)
 - [ ] Polling scheduler (BullMQ repeatable job per connector per tenant). [#366](../../issues/366)
 - [ ] Kill switch (non-destructive disable, not just install/uninstall). [#367](../../issues/367)
 - [ ] Build email (SMTP/IMAP) + WhatsApp Business connectors _together with_ the runtime — the

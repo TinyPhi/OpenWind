@@ -104,3 +104,46 @@ export const notifyOutboundQueue = new Queue("notify-outbound", {
     backoff: { type: "exponential", delay: 1_000 },
   },
 });
+
+// Connector outbound delivery (ADR-009 Decision #9, issue #365) — delivers a
+// signed event payload to a connector's configured target URL, with its OWN
+// retry configuration rather than reusing notifyOutboundQueue's 3-attempts/1s
+// pattern above. That pattern totals ~7s of retry window (1s+2s+4s), sized for
+// an internal service outage measured in seconds; a third-party connector
+// endpoint can legitimately be down or rate-limiting for far longer, and the
+// ADR's own research cites a Stripe/Svix-class tail of hours to ~27 hours as
+// the right target — this queue's config is deliberately NOT the same as the
+// one above.
+//
+// Worst-case cumulative delay across `attempts` exponential-backoff retries,
+// sum(delay * 2^i) for i in 0..attempts-1 = delay * (2^attempts - 1):
+//   45_000ms * (2^11 - 1) = 45_000 * 2047 = 92,115,000ms ≈ 25.6 hours
+// 11 attempts / 45s base delay lands just under the ~27h reference point
+// (Svix's own default schedule totals ~27.5h across 8 retries with
+// non-uniform steps; a plain exponential series with these two numbers is
+// the closest clean match BullMQ's uniform exponential backoff can express).
+export const connectorOutboundQueue = new Queue("connector-outbound", {
+  connection,
+  defaultJobOptions: {
+    attempts: 11,
+    backoff: { type: "exponential", delay: 45_000 },
+  },
+});
+
+// Connector inbound gateway (ADR-009 Decision #3, issue #364) — the
+// transformed event from a verified inbound webhook, published here by
+// apps/api's webhook route for downstream processing. Simple internal-job
+// retry semantics (matching automationQueue/notifyOutboundQueue's convention)
+// since a failure here is this platform's own processing failure, not a
+// third-party endpoint being down — unlike connectorOutboundQueue above,
+// there's no case for an hours-long retry tail. No consumer exists yet: this
+// issue is the producer/gateway side only (see phase-3-primer.md's Stage 2
+// scope note); a Worker consuming this queue is separate, not-yet-built work
+// for whenever #368's connectors give it something to do.
+export const connectorInboundQueue = new Queue("connector-inbound", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});

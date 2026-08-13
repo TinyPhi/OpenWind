@@ -398,7 +398,21 @@
       "idx": 56,
       "version": "7",
       "when": 1785542408000,
-      "tag": "0056_outbox_dead_letter_rls_null_guc_fix",
+      "tag": "0056_connector_definitions",
+      "breakpoints": false
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1785542409000,
+      "tag": "0057_connector_delivery_attempts",
+      "breakpoints": false
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1785542410000,
+      "tag": "0058_outbox_dead_letter_rls_null_guc_fix",
       "breakpoints": false
     }
   ]
