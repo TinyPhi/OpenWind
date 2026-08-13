@@ -178,6 +178,24 @@ describe("outbox_events RLS policies — no-context batch access (0056)", () => 
       .set({ eventType: "entity.created" })
       .where(eq(outboxEvents.id, outboxIdB));
   });
+
+  it("UPDATE on another tenant's row succeeds when the GUC is the '' placeholder", async () => {
+    const updated = await withAppUserEmptyGuc((tx) =>
+      tx
+        .update(outboxEvents)
+        .set({ eventType: "batch-touched" })
+        .where(eq(outboxEvents.id, outboxIdA))
+        .returning({ id: outboxEvents.id }),
+    );
+    expect(updated).toHaveLength(1);
+    expect(updated[0]?.id).toBe(outboxIdA);
+
+    // Revert so later tests in this file see the original seeded eventType.
+    await db
+      .update(outboxEvents)
+      .set({ eventType: "entity.created" })
+      .where(eq(outboxEvents.id, outboxIdA));
+  });
 });
 
 describe("dead_letter_events RLS policies", () => {
@@ -235,5 +253,110 @@ describe("dead_letter_events RLS policies", () => {
         }),
       ),
     ).rejects.toThrow();
+  });
+});
+
+// 0056: dead_letter_events shares the same policy shape as outbox_events — the
+// no-context batch exemption must work here too. The primary concern is INSERT:
+// notification-outbound-worker.ts writes a system.error dead-letter row on a
+// permanently-failed outbound handoff with NO tenant context (its own comment
+// documented "RLS disabled by design" relying on 0006 — migration 0049 broke
+// that INSERT because `tenant_id = NULL::uuid` is NULL, and WITH CHECK treats
+// NULL as a rejection). Migration 0056 restores the exemption.
+describe("dead_letter_events RLS policies — no-context batch access (0056)", () => {
+  let dlIdA: string;
+  let dlIdB: string;
+
+  beforeAll(async () => {
+    const [a] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .insert(deadLetterEvents)
+        .values({
+          tenantId: TENANT_A,
+          eventType: "entity.created",
+          payload: { test: "DL-batch-A" },
+          originalEventId: outboxIdA,
+          error: "test error",
+          attemptCount: 1,
+        })
+        .returning(),
+    );
+    if (!a) throw new Error("dead_letter seed A failed");
+    dlIdA = a.id;
+
+    const [b] = await withTenantContext(TENANT_B, (tx) =>
+      tx
+        .insert(deadLetterEvents)
+        .values({
+          tenantId: TENANT_B,
+          eventType: "entity.created",
+          payload: { test: "DL-batch-B" },
+          originalEventId: outboxIdB,
+          error: "test error",
+          attemptCount: 1,
+        })
+        .returning(),
+    );
+    if (!b) throw new Error("dead_letter seed B failed");
+    dlIdB = b.id;
+  });
+
+  it("SELECT across tenants succeeds when the GUC was never set (NULL)", async () => {
+    const rows = await withAppUserNoGuc((tx) =>
+      tx
+        .select({ id: deadLetterEvents.id })
+        .from(deadLetterEvents)
+        .where(sql`${deadLetterEvents.id} IN (${dlIdA}, ${dlIdB})`),
+    );
+    expect(rows.map((r) => r.id).sort()).toEqual([dlIdA, dlIdB].sort());
+  });
+
+  it("SELECT across tenants succeeds when the GUC is the '' placeholder", async () => {
+    const rows = await withAppUserEmptyGuc((tx) =>
+      tx
+        .select({ id: deadLetterEvents.id })
+        .from(deadLetterEvents)
+        .where(sql`${deadLetterEvents.id} IN (${dlIdA}, ${dlIdB})`),
+    );
+    expect(rows.map((r) => r.id).sort()).toEqual([dlIdA, dlIdB].sort());
+  });
+
+  it("INSERT with an explicit tenant_id succeeds when the GUC was never set (NULL)", async () => {
+    // Models notification-outbound-worker.ts's system.error dead-letter insert
+    // which runs with no tenant context — this INSERT was broken by migration
+    // 0049's bare ::uuid cast (NULL GUC → NULL::uuid → WITH CHECK rejects).
+    const [row] = await withAppUserNoGuc((tx) =>
+      tx
+        .insert(deadLetterEvents)
+        .values({
+          tenantId: TENANT_A,
+          eventType: "system.error",
+          payload: { error: "outbound delivery failed" },
+          originalEventId: outboxIdA,
+          error: "permanent failure",
+          attemptCount: 3,
+        })
+        .returning({ id: deadLetterEvents.id }),
+    );
+    expect(row).toBeDefined();
+    expect(row?.id).toBeTruthy();
+  });
+
+  it("INSERT with an explicit tenant_id succeeds when the GUC is the '' placeholder", async () => {
+    const [row] = await withAppUserEmptyGuc((tx) =>
+      tx
+        .insert(deadLetterEvents)
+        .values({
+          tenantId: TENANT_B,
+          eventType: "system.error",
+          payload: { error: "outbound delivery failed" },
+          originalEventId: outboxIdB,
+          error: "permanent failure",
+          attemptCount: 3,
+        })
+        .returning({ id: deadLetterEvents.id }),
+    );
+    expect(row).toBeDefined();
+    expect(row?.id).toBeTruthy();
   });
 });
