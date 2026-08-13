@@ -563,6 +563,7 @@ export function WorkflowRecords(): React.ReactElement {
               id: string;
               name: string;
               entityTypeId: string;
+              createdBy: string | null;
               assignedTo: string[] | null;
               states: WorkflowState[];
               transitions: Transition[];
@@ -590,9 +591,23 @@ export function WorkflowRecords(): React.ReactElement {
           return [...kept, ...added];
         });
 
+        // A "user"-role caller who is this workflow's creator or in its
+        // assignedTo list is a workflow admin and gets the same unrestricted
+        // list access as admin/agent (mirrors apps/api/src/routes/entities/
+        // list.ts's isWorkflowAdmin check) - isUserRole alone only reflects
+        // the raw admin/agent role, so without this a workflow admin was
+        // silently routed through /entities/my-tickets and only ever saw
+        // their own tickets.
+        const isWorkflowAdminForThisWorkflow =
+          isUserRole &&
+          currentUserId !== null &&
+          (currentUserId === wf.createdBy ||
+            ((wf.assignedTo as string[] | null) ?? []).includes(currentUserId));
+        const useMyTickets = isUserRole && !isWorkflowAdminForThisWorkflow;
+
         const [fieldsRes, recRes, usersRes] = await Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
-          isUserRole
+          useMyTickets
             ? fetchWithAuth(
                 `${API_URL}/entities/my-tickets?workflowId=${wf.id}`,
               )
@@ -606,7 +621,7 @@ export function WorkflowRecords(): React.ReactElement {
             (f) => !f.isSystem,
           ),
         );
-        if (isUserRole) {
+        if (useMyTickets) {
           const myData =
             (
               recRes as {
