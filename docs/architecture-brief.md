@@ -562,14 +562,22 @@ OAuth tokens, API keys, and secrets are stored encrypted (AES-256-GCM) in the `c
 
 ### 6.4 Webhook gateway
 
-**Status: designed, not yet built.** This section describes the ADR-009 Decision #3 design;
-the route below doesn't exist in `apps/api/src` yet — tracked as issue #364 (Phase 3A Stage 2,
-not started as of 2026-08-12). The outbound half (automation engine's `webhook` action type)
-is real and shipped.
+**Status: built and shipped via PR #394 (2026-08-13).** This section describes the ADR-009
+Decision #3 design; the route is implemented in `apps/api/src/routes/webhooks/`. The outbound
+half (automation engine's `webhook` action type) was already real and shipped.
 
-**Inbound:** `POST /webhooks/{connectorId}/{tenantId}`
+**Inbound:** `POST /webhooks/:connectorId/:tenantId`
 
-The gateway validates the HMAC signature, looks up the connector definition, calls the trigger's transform function, and publishes the resulting platform event to the event bus. If validation fails, the request is rejected with 401. If the connector is not installed for that tenant, the request is rejected with 404.
+The gateway parses and range-checks the signature timestamp (±5min tolerance), looks up the
+tenant+connector installation's signing secret, and verifies the HMAC signature against the
+raw body. All three failure modes — missing signature headers, an expired timestamp, and an
+unknown tenant/connector installation — return an **identical 401** response, not 404: a
+deliberate no-existence-oracle design so a caller probing the endpoint cannot distinguish
+"wrong tenant/connector" from "right one, wrong signature." After successful verification, a
+Redis-backed replay-dedupe on the delivery-id fails **closed** (409 on a genuine replay, 503
+if the check itself errors). Only then does the gateway resolve the connector's definition,
+call the matching trigger's transform function, and publish the resulting event onto a
+dedicated `connector-inbound` queue.
 
 **Outbound:** Customer-configured webhook endpoints, managed by the automation engine's `webhook` action type. Outbound webhooks are sent with HMAC signatures so the recipient can verify authenticity. Failed deliveries are retried with exponential backoff. Delivery logs are stored per tenant for 30 days.
 
@@ -1388,6 +1396,15 @@ export interface TriggerDefinition {
   };
 }
 
+// Default cap on a connector action's serialized output payload, enforced at
+// the outbound delivery boundary (ADR-009 Decision #10, issue #365) — an
+// integrity/DoS control, distinct from the confidentiality control the
+// sensitivity redactor provides. Chosen to comfortably fit a real event
+// payload while still rejecting a runaway/malformed one before any network
+// call is attempted; roughly in line with common webhook-provider caps
+// (e.g. Svix recommends keeping payloads well under 256KB).
+export const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024;
+
 export interface ActionDefinition {
   id: string;
   name: string;
@@ -1401,6 +1418,12 @@ export interface ActionDefinition {
     backoffMs: number;
     retryOn: (error: Error) => boolean;
   };
+  /**
+   * Max serialized size (bytes, UTF-8) of this action's output payload,
+   * enforced at the outbound delivery boundary before any delivery attempt
+   * (ADR-009 Decision #10). Defaults to DEFAULT_MAX_OUTPUT_BYTES if omitted.
+   */
+  maxOutputBytes?: number;
 }
 
 // Discriminated union of supported auth mechanisms for a connector's outbound
