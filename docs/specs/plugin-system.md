@@ -138,14 +138,17 @@ failure, governor-limit breach (R5), or runtime exception surfaced by a slot's e
 matching that failure mode — never an unhandled process-level exception.
 
 **R9 — Plugin uninstall.** Deregister routes/hooks/jobs, flip `installed_plugins.status`, and
-**drop the plugin's Postgres schema** (R4) unless the caller passes `?retainData=true` on the
-uninstall call — defaults to drop, same retain-by-default-off posture the module system (#13)
-already uses for its own uninstall (module uninstall there retains by default; this spec
-deliberately inverts the default because R4's schema-per-plugin shape makes "drop" the safe,
-mechanical default, and an explicit opt-in is required to keep data around).
-✓ Uninstall with no query param drops `plugin_<slug>`'s tables for that tenant's rows (per R13's
-tenant-scoping) and flips `status` to a terminal state. ✓ Uninstall with `retainData=true` flips
-status without dropping any row.
+**delete that tenant's rows from every table in the plugin's schema** (the same tenant-scoped
+delete helper R13's tenant-purge extension needs — built once, used by both) unless the caller
+passes `?retainData=true`. **Corrected during Phase 1 implementation:** the schema itself
+(`plugin_<slug>`) is _never_ dropped by a single tenant's uninstall — R4's schema is shared by
+every tenant with that plugin installed (R2), so dropping it on one tenant's uninstall would
+destroy every other tenant's data too. Schema-level teardown (only safe once _zero_ tenants have
+it installed) is not built in v1 — an empty, unused `plugin_<slug>` schema is cheap to leave
+around, and no flow exists yet to fully retire a `plugin_definitions` row.
+✓ Uninstall with no query param deletes that tenant's rows from every table in `plugin_<slug>`
+and flips `status` to a terminal state; a second tenant with the same plugin still installed is
+completely unaffected. ✓ Uninstall with `retainData=true` flips status without deleting any row.
 
 **R10 — `@platform/plugin-sdk` versioning.** The package already exists with real types (see
 §C) — this spec's job is a version/deprecation contract (semver, a documented breaking-change

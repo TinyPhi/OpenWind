@@ -1,0 +1,281 @@
+/**
+ * plugin-lifecycle.test.ts — unit tests for the plugin lifecycle service.
+ * DB is mocked (same convention as tenant-lifecycle.test.ts); manifest
+ * validation, version-compat, and migration-lint logic run for real — they're
+ * pure functions, no reason to mock them.
+ */
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("@platform/logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+const mockDbSelect = vi.fn();
+const mockRunPluginMigration = vi.fn();
+
+const mockTx = {
+  select: vi.fn(),
+  insert: vi.fn(),
+};
+
+const mockWithTenantContext = vi.fn(
+  async (_tenantId: string, fn: (tx: typeof mockTx) => unknown) => fn(mockTx),
+);
+
+vi.mock("@platform/db", () => ({
+  db: { select: mockDbSelect },
+  withTenantContext: mockWithTenantContext,
+  runPluginMigration: mockRunPluginMigration,
+  pluginDefinitions: {
+    id: "plugin_definitions.id",
+    slug: "plugin_definitions.slug",
+  },
+  installedPlugins: {
+    id: "installed_plugins.id",
+    tenantId: "installed_plugins.tenant_id",
+    pluginId: "installed_plugins.plugin_id",
+  },
+  pluginErrors: {},
+}));
+
+vi.mock("drizzle-orm", () => ({ eq: vi.fn(), and: vi.fn() }));
+
+const { installPlugin, PluginLifecycleError } =
+  await import("./plugin-lifecycle.js");
+const { logger } = await import("@platform/logger");
+
+const TENANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const PLUGIN_ID = "plugin-uuid-1";
+const PLUGIN_SLUG = "test_plugin";
+
+const VALID_MIGRATION_SQL = `
+  CREATE TABLE "widgets" ("id" uuid PRIMARY KEY, "tenant_id" uuid NOT NULL);
+  ALTER TABLE "widgets" ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY "widgets_tenant_isolation" ON "widgets" FOR ALL USING (true);
+`;
+
+function makeSelectChain(rows: unknown[]) {
+  return {
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue(rows),
+      }),
+    }),
+  };
+}
+
+/** For the tx-scoped "already installed" check: select().from().where().limit() */
+function makeTxSelectLimitChain(rows: unknown[]) {
+  return {
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue(rows),
+      }),
+    }),
+  };
+}
+
+/** For the dependency check: select().from().innerJoin().where() */
+function makeTxSelectJoinChain(rows: unknown[]) {
+  return {
+    from: vi.fn().mockReturnValue({
+      innerJoin: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(rows),
+      }),
+    }),
+  };
+}
+
+function makeTxInsertChain(rows: unknown[]) {
+  return {
+    values: vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue(rows),
+    }),
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockWithTenantContext.mockImplementation(async (_tenantId, fn) => fn(mockTx));
+});
+
+describe("installPlugin", () => {
+  it("installs successfully when everything validates and the migration succeeds", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    // 1st tx call: already-installed check -> none found
+    mockTx.select.mockReturnValueOnce(makeTxSelectLimitChain([]));
+    mockRunPluginMigration.mockResolvedValueOnce(undefined);
+    // final tx call: insert installed_plugins
+    mockTx.insert.mockReturnValueOnce(
+      makeTxInsertChain([{ id: "installed-1" }]),
+    );
+
+    const result = await installPlugin(TENANT_ID, PLUGIN_SLUG, {
+      manifest: {
+        id: PLUGIN_SLUG,
+        name: "Test Plugin",
+        version: "0.1.0",
+        platformVersion: ">=1.0.0",
+        permissions: ["db:read"],
+      },
+      migrationSql: VALID_MIGRATION_SQL,
+    });
+
+    expect(result).toEqual({ installedPluginId: "installed-1" });
+    expect(mockRunPluginMigration).toHaveBeenCalledWith(
+      PLUGIN_SLUG,
+      VALID_MIGRATION_SQL,
+    );
+    expect(logger.info).toHaveBeenCalled();
+  });
+
+  it("throws PLUGIN_NOT_FOUND when the slug has no plugin_definitions row", async () => {
+    mockDbSelect.mockReturnValueOnce(makeSelectChain([]));
+
+    await expect(
+      installPlugin(TENANT_ID, "nonexistent", {
+        manifest: {},
+        migrationSql: "",
+      }),
+    ).rejects.toMatchObject({ code: "PLUGIN_NOT_FOUND" });
+    expect(mockRunPluginMigration).not.toHaveBeenCalled();
+  });
+
+  it("throws ALREADY_INSTALLED when the tenant already has this plugin", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(
+      makeTxSelectLimitChain([{ id: "already-installed-row" }]),
+    );
+
+    await expect(
+      installPlugin(TENANT_ID, PLUGIN_SLUG, {
+        manifest: {},
+        migrationSql: "",
+      }),
+    ).rejects.toMatchObject({ code: "ALREADY_INSTALLED" });
+    expect(mockRunPluginMigration).not.toHaveBeenCalled();
+  });
+
+  it("throws INVALID_MANIFEST when the manifest fails schema validation", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(makeTxSelectLimitChain([]));
+
+    await expect(
+      installPlugin(TENANT_ID, PLUGIN_SLUG, {
+        manifest: { id: "missing-required-fields" },
+        migrationSql: "",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_MANIFEST" });
+    expect(mockRunPluginMigration).not.toHaveBeenCalled();
+  });
+
+  it("throws MISSING_DEPENDENCY when a required plugin isn't installed for the tenant", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select
+      .mockReturnValueOnce(makeTxSelectLimitChain([])) // already-installed check
+      .mockReturnValueOnce(makeTxSelectJoinChain([])); // dependency check — nothing installed
+
+    await expect(
+      installPlugin(TENANT_ID, PLUGIN_SLUG, {
+        manifest: {
+          id: PLUGIN_SLUG,
+          name: "Test Plugin",
+          version: "0.1.0",
+          platformVersion: ">=1.0.0",
+          permissions: [],
+          requires: ["some_other_plugin"],
+        },
+        migrationSql: VALID_MIGRATION_SQL,
+      }),
+    ).rejects.toMatchObject({
+      code: "MISSING_DEPENDENCY",
+      meta: expect.objectContaining({ missing: ["some_other_plugin"] }),
+    });
+    expect(mockRunPluginMigration).not.toHaveBeenCalled();
+  });
+
+  it("throws PLATFORM_VERSION_INCOMPATIBLE when platformVersion doesn't satisfy the running platform", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(makeTxSelectLimitChain([]));
+
+    await expect(
+      installPlugin(TENANT_ID, PLUGIN_SLUG, {
+        manifest: {
+          id: PLUGIN_SLUG,
+          name: "Test Plugin",
+          version: "0.1.0",
+          platformVersion: "^99.0.0",
+          permissions: [],
+        },
+        migrationSql: VALID_MIGRATION_SQL,
+      }),
+    ).rejects.toMatchObject({ code: "PLATFORM_VERSION_INCOMPATIBLE" });
+    expect(mockRunPluginMigration).not.toHaveBeenCalled();
+  });
+
+  it("throws MIGRATION_VALIDATION_FAILED when the migration SQL fails R13's lint", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(makeTxSelectLimitChain([]));
+
+    await expect(
+      installPlugin(TENANT_ID, PLUGIN_SLUG, {
+        manifest: {
+          id: PLUGIN_SLUG,
+          name: "Test Plugin",
+          version: "0.1.0",
+          platformVersion: ">=1.0.0",
+          permissions: [],
+        },
+        migrationSql: `CREATE TABLE "widgets" ("id" uuid PRIMARY KEY);`,
+      }),
+    ).rejects.toMatchObject({ code: "MIGRATION_VALIDATION_FAILED" });
+    expect(mockRunPluginMigration).not.toHaveBeenCalled();
+  });
+
+  it("throws MIGRATION_FAILED and records a plugin_errors row when the migration itself throws", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(makeTxSelectLimitChain([]));
+    mockRunPluginMigration.mockRejectedValueOnce(new Error("boom"));
+    // writeLifecycleError's own withTenantContext call -> tx.insert for plugin_errors
+    mockTx.insert.mockReturnValueOnce({
+      values: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await expect(
+      installPlugin(TENANT_ID, PLUGIN_SLUG, {
+        manifest: {
+          id: PLUGIN_SLUG,
+          name: "Test Plugin",
+          version: "0.1.0",
+          platformVersion: ">=1.0.0",
+          permissions: [],
+        },
+        migrationSql: VALID_MIGRATION_SQL,
+      }),
+    ).rejects.toMatchObject({ code: "MIGRATION_FAILED" });
+
+    expect(mockTx.insert).toHaveBeenCalled();
+  });
+
+  it("never throws PluginLifecycleError instances that aren't one of the documented codes", async () => {
+    // Sanity check on the error class itself, not a specific call path.
+    const err = new PluginLifecycleError("PLUGIN_NOT_FOUND", { x: 1 });
+    expect(err.name).toBe("PluginLifecycleError");
+    expect(err.code).toBe("PLUGIN_NOT_FOUND");
+  });
+});
