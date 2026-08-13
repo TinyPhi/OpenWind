@@ -13,10 +13,12 @@ vi.mock("@platform/logger", () => ({
 
 const mockDbSelect = vi.fn();
 const mockRunPluginMigration = vi.fn();
+const mockPurgeTenantDataFromPluginSchema = vi.fn();
 
 const mockTx = {
   select: vi.fn(),
   insert: vi.fn(),
+  update: vi.fn(),
 };
 
 const mockWithTenantContext = vi.fn(
@@ -27,6 +29,7 @@ vi.mock("@platform/db", () => ({
   db: { select: mockDbSelect },
   withTenantContext: mockWithTenantContext,
   runPluginMigration: mockRunPluginMigration,
+  purgeTenantDataFromPluginSchema: mockPurgeTenantDataFromPluginSchema,
   pluginDefinitions: {
     id: "plugin_definitions.id",
     slug: "plugin_definitions.slug",
@@ -35,14 +38,23 @@ vi.mock("@platform/db", () => ({
     id: "installed_plugins.id",
     tenantId: "installed_plugins.tenant_id",
     pluginId: "installed_plugins.plugin_id",
+    status: "installed_plugins.status",
   },
-  pluginErrors: {},
+  pluginErrors: { pluginId: "plugin_errors.plugin_id" },
 }));
 
-vi.mock("drizzle-orm", () => ({ eq: vi.fn(), and: vi.fn() }));
+vi.mock("drizzle-orm", () => ({
+  eq: vi.fn(),
+  and: vi.fn(),
+  sql: vi.fn(() => ({ mapWith: vi.fn(() => "count") })),
+}));
 
-const { installPlugin, PluginLifecycleError } =
-  await import("./plugin-lifecycle.js");
+const {
+  installPlugin,
+  uninstallPlugin,
+  listPluginsForTenant,
+  PluginLifecycleError,
+} = await import("./plugin-lifecycle.js");
 const { logger } = await import("@platform/logger");
 
 const TENANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -91,6 +103,39 @@ function makeTxInsertChain(rows: unknown[]) {
   return {
     values: vi.fn().mockReturnValue({
       returning: vi.fn().mockResolvedValue(rows),
+    }),
+  };
+}
+
+function makeTxUpdateChain() {
+  return {
+    set: vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(undefined),
+    }),
+  };
+}
+
+/** For listPluginsForTenant's catalog select: plain select().from() */
+function makeCatalogSelectChain(rows: unknown[]) {
+  return { from: vi.fn().mockResolvedValue(rows) };
+}
+
+/** For the installed-rows query: select().from().where(), no .limit() */
+function makeTxSelectWhereChain(rows: unknown[]) {
+  return {
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(rows),
+    }),
+  };
+}
+
+/** For the errorCounts query: select().from().where().groupBy() */
+function makeTxSelectGroupByChain(rows: unknown[]) {
+  return {
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        groupBy: vi.fn().mockResolvedValue(rows),
+      }),
     }),
   };
 }
@@ -277,5 +322,148 @@ describe("installPlugin", () => {
     const err = new PluginLifecycleError("PLUGIN_NOT_FOUND", { x: 1 });
     expect(err.name).toBe("PluginLifecycleError");
     expect(err.code).toBe("PLUGIN_NOT_FOUND");
+  });
+});
+
+describe("uninstallPlugin", () => {
+  it("purges the tenant's plugin-schema rows and flips status to disabled by default", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(
+      makeTxSelectLimitChain([{ id: "installed-1", status: "active" }]),
+    );
+    mockPurgeTenantDataFromPluginSchema.mockResolvedValueOnce({
+      tablesPurged: ["widgets"],
+    });
+    mockTx.update.mockReturnValueOnce(makeTxUpdateChain());
+
+    await uninstallPlugin(TENANT_ID, PLUGIN_SLUG);
+
+    expect(mockPurgeTenantDataFromPluginSchema).toHaveBeenCalledWith(
+      TENANT_ID,
+      PLUGIN_SLUG,
+    );
+    expect(mockTx.update).toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalled();
+  });
+
+  it("skips the purge entirely when retainData is true", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(
+      makeTxSelectLimitChain([{ id: "installed-1", status: "active" }]),
+    );
+    mockTx.update.mockReturnValueOnce(makeTxUpdateChain());
+
+    await uninstallPlugin(TENANT_ID, PLUGIN_SLUG, { retainData: true });
+
+    expect(mockPurgeTenantDataFromPluginSchema).not.toHaveBeenCalled();
+    expect(mockTx.update).toHaveBeenCalled();
+  });
+
+  it("throws PLUGIN_NOT_FOUND for an unknown slug", async () => {
+    mockDbSelect.mockReturnValueOnce(makeSelectChain([]));
+
+    await expect(
+      uninstallPlugin(TENANT_ID, "nonexistent"),
+    ).rejects.toMatchObject({ code: "PLUGIN_NOT_FOUND" });
+    expect(mockPurgeTenantDataFromPluginSchema).not.toHaveBeenCalled();
+  });
+
+  it("throws NOT_INSTALLED when the tenant never installed this plugin", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(makeTxSelectLimitChain([]));
+
+    await expect(uninstallPlugin(TENANT_ID, PLUGIN_SLUG)).rejects.toMatchObject(
+      { code: "NOT_INSTALLED" },
+    );
+    expect(mockPurgeTenantDataFromPluginSchema).not.toHaveBeenCalled();
+  });
+
+  it("throws UNINSTALL_FAILED and records a plugin_errors row when the purge itself throws", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(
+      makeTxSelectLimitChain([{ id: "installed-1", status: "active" }]),
+    );
+    mockPurgeTenantDataFromPluginSchema.mockRejectedValueOnce(
+      new Error("purge boom"),
+    );
+    // writeLifecycleError's own withTenantContext call -> tx.insert
+    mockTx.insert.mockReturnValueOnce({
+      values: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await expect(uninstallPlugin(TENANT_ID, PLUGIN_SLUG)).rejects.toMatchObject(
+      { code: "UNINSTALL_FAILED" },
+    );
+    expect(mockTx.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("listPluginsForTenant", () => {
+  it("annotates the catalog with install status and error counts", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeCatalogSelectChain([
+        {
+          id: PLUGIN_ID,
+          slug: PLUGIN_SLUG,
+          name: "Test",
+          version: "0.1.0",
+          category: "other",
+        },
+      ]),
+    );
+    mockTx.select
+      .mockReturnValueOnce(
+        makeTxSelectWhereChain([{ pluginId: PLUGIN_ID, status: "active" }]),
+      )
+      .mockReturnValueOnce(
+        makeTxSelectGroupByChain([{ pluginId: PLUGIN_ID, count: 3 }]),
+      );
+
+    const result = await listPluginsForTenant(TENANT_ID);
+
+    expect(result).toEqual([
+      {
+        slug: PLUGIN_SLUG,
+        name: "Test",
+        version: "0.1.0",
+        category: "other",
+        installed: true,
+        status: "active",
+        errorCount: 3,
+      },
+    ]);
+  });
+
+  it("marks a catalog plugin as not installed with zero errors when the tenant has neither", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeCatalogSelectChain([
+        {
+          id: PLUGIN_ID,
+          slug: PLUGIN_SLUG,
+          name: "Test",
+          version: "0.1.0",
+          category: "other",
+        },
+      ]),
+    );
+    mockTx.select
+      .mockReturnValueOnce(makeTxSelectWhereChain([]))
+      .mockReturnValueOnce(makeTxSelectGroupByChain([]));
+
+    const result = await listPluginsForTenant(TENANT_ID);
+
+    expect(result[0]).toMatchObject({
+      installed: false,
+      status: null,
+      errorCount: 0,
+    });
   });
 });

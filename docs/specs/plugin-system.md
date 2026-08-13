@@ -286,12 +286,17 @@ export const pluginErrors = pgTable("plugin_errors", {
 ```
 
 ```typescript
-// apps/api/src/routes/admin/plugins.ts (new)
-// All three routes: requireAuth() + requireRole("admin") — same gate every other
-// /admin/tenants/:id/* route in this codebase already uses.
-POST   /admin/tenants/:id/plugins/:pluginSlug/install         -> runs the lifecycle service (R3)
-DELETE /admin/tenants/:id/plugins/:pluginSlug?retainData=bool -> uninstall (R9)
-GET    /admin/tenants/:id/plugins                              -> installed_plugins + plugin_errors, for R11
+// apps/api/src/routes/plugins/index.ts (new) — mounted at app.route("/plugins", ...)
+// Self-service, same shape as apps/api/src/routes/modules/index.ts (a tenant's own
+// admin installing a module for their tenant) — corrected during Phase 2
+// implementation from an earlier /admin/tenants/:id/... sketch, which mirrored the
+// wrong precedent (platform-superadmin tenant-lifecycle routes, admin/tenants.ts).
+// Installing a plugin is a tenant's own choice about their own tenant, not a
+// platform operator acting on an arbitrary tenant by :id.
+// All routes: requireAuth() + requireRole("admin"); tenantId comes from auth.tenantId.
+GET  /plugins                          -> installed + available, for R11
+POST /plugins/:slug/install            -> runs the lifecycle service (R3)
+POST /plugins/:slug/uninstall          -> uninstall (R9), json body { retainData?: boolean }
 ```
 
 ## §V Invariants
