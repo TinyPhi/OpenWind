@@ -401,6 +401,26 @@ export async function reportPluginRuntimeError(
     throw new PluginLifecycleError("PLUGIN_NOT_FOUND", { pluginSlug });
   }
 
+  // Review finding (PR #397, PrabhuVijit, L-errors): previously any
+  // authenticated user could write a plugin_errors row for any catalog slug,
+  // even one their own tenant never installed — this only checked the
+  // catalog, not this tenant's installed_plugins row.
+  const [installed] = await withTenantContext(tenantId, (tx) =>
+    tx
+      .select({ id: installedPlugins.id })
+      .from(installedPlugins)
+      .where(
+        and(
+          eq(installedPlugins.tenantId, tenantId),
+          eq(installedPlugins.pluginId, plugin.id),
+        ),
+      )
+      .limit(1),
+  );
+  if (!installed) {
+    throw new PluginLifecycleError("NOT_INSTALLED", { tenantId, pluginSlug });
+  }
+
   await withTenantContext(tenantId, (tx) =>
     tx.insert(pluginErrors).values({
       tenantId,

@@ -475,9 +475,12 @@ describe("listPluginsForTenant", () => {
 });
 
 describe("reportPluginRuntimeError", () => {
-  it("writes a runtime_exception row for the plugin", async () => {
+  it("writes a runtime_exception row for an installed plugin", async () => {
     mockDbSelect.mockReturnValueOnce(
       makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(
+      makeTxSelectLimitChain([{ id: "installed-row-1" }]),
     );
     mockTx.insert.mockReturnValueOnce({
       values: vi.fn().mockResolvedValue(undefined),
@@ -507,5 +510,20 @@ describe("reportPluginRuntimeError", () => {
         message: "x",
       }),
     ).rejects.toMatchObject({ code: "PLUGIN_NOT_FOUND" });
+  });
+
+  // Review finding (PR #397, PrabhuVijit, L-errors): a catalog-only check let
+  // any authenticated user write plugin_errors rows for a slug their own
+  // tenant never installed.
+  it("throws NOT_INSTALLED when the calling tenant hasn't installed the plugin", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.select.mockReturnValueOnce(makeTxSelectLimitChain([]));
+
+    await expect(
+      reportPluginRuntimeError(TENANT_ID, PLUGIN_SLUG, { message: "x" }),
+    ).rejects.toMatchObject({ code: "NOT_INSTALLED" });
+    expect(mockTx.insert).not.toHaveBeenCalled();
   });
 });

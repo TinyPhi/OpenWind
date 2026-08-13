@@ -15,11 +15,11 @@ plugin end to end, with nothing yet reachable from an HTTP route.
 
 | task                                                                                                                                                                                                                                                                                           | requirement     | status |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ------ |
-| T1: `plugin_definitions` + `installed_plugins` + `plugin_errors` migration — trust*tier CHECK, standard RLS pair on the two tenant-scoped tables, composite unique index, plugin-migration-role grant scoped to `plugin*<slug>` only                                                           | R1, R2, R4, R8  | todo   |
-| T2: Plugin lifecycle service core — resolve deps (hard-block policy) → validate (incl. R13's static tenant_id+RLS check on plugin migration SQL) → run migration → register → activate, transactional status writes                                                                            | R3, R13         | todo   |
-| T3: Governor limits — wrapped DB client (query timeout + row ceiling) as the _only_ DB import available to plugin code; job-execution timeout wrapper                                                                                                                                          | R5, R4-addendum | todo   |
-| T4: `@platform/plugin-sdk` version/compat-check policy — `platformVersion` validated at install, semver deprecation policy documented                                                                                                                                                          | R10             | todo   |
-| T5: Isolation tests — cross-tenant `installed_plugins`/`plugin_errors` access blocked; schema-grant enforcement (a migration attempting `CREATE TABLE public.x` fails); `tenant-purge.ts` extended to delete `WHERE tenant_id = ?` inside every installed plugin's schema, verified end to end | R2, R4, R13     | todo   |
+| T1: `plugin_definitions` + `installed_plugins` + `plugin_errors` migration — trust*tier CHECK, standard RLS pair on the two tenant-scoped tables, composite unique index, plugin-migration-role grant scoped to `plugin*<slug>` only                                                           | R1, R2, R4, R8  | done   |
+| T2: Plugin lifecycle service core — resolve deps (hard-block policy) → validate (incl. R13's static tenant_id+RLS check on plugin migration SQL) → run migration → register → activate, transactional status writes                                                                            | R3, R13         | done   |
+| T3: Governor limits — wrapped DB client (query timeout + row ceiling) as the _only_ DB import available to plugin code; job-execution timeout wrapper                                                                                                                                          | R5, R4-addendum | done   |
+| T4: `@platform/plugin-sdk` version/compat-check policy — `platformVersion` validated at install, semver deprecation policy documented                                                                                                                                                          | R10             | done   |
+| T5: Isolation tests — cross-tenant `installed_plugins`/`plugin_errors` access blocked; schema-grant enforcement (a migration attempting `CREATE TABLE public.x` fails); `tenant-purge.ts` extended to delete `WHERE tenant_id = ?` inside every installed plugin's schema, verified end to end | R2, R4, R13     | done   |
 
 ---
 
@@ -30,9 +30,9 @@ plugin end to end, with nothing yet reachable from an HTTP route.
 
 | task                                                                                                           | requirement | status |
 | -------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T6: Admin routes — `POST .../install`, `DELETE .../:pluginSlug`, `GET .../plugins`, all `requireRole("admin")` | R3, R9      | todo   |
-| T7: Uninstall — drop `plugin_<slug>` tables for that tenant by default, `retainData=true` opt-out              | R9          | todo   |
-| T8: Dependency hard-block wired to the real API response shape (named-dependency 4xx)                          | R3          | todo   |
+| T6: Admin routes — `POST .../install`, `DELETE .../:pluginSlug`, `GET .../plugins`, all `requireRole("admin")` | R3, R9      | done   |
+| T7: Uninstall — drop `plugin_<slug>` tables for that tenant by default, `retainData=true` opt-out              | R9          | done   |
+| T8: Dependency hard-block wired to the real API response shape (named-dependency 4xx)                          | R3          | done   |
 
 ---
 
@@ -44,9 +44,9 @@ integrity-checked remote loading and a health view.
 
 | task                                                                                     | requirement | status |
 | ---------------------------------------------------------------------------------------- | ----------- | ------ |
-| T9: Module Federation host + `<Slot>` component with per-slot error boundaries           | R6, R7      | todo   |
-| T10: SRI hash validation for `remoteEntry.js`                                            | R12         | todo   |
-| T11: Plugin health dashboard (admin-ui, `<EntityList>` family, filtered `plugin_errors`) | R11         | todo   |
+| T9: Module Federation host + `<Slot>` component with per-slot error boundaries           | R6, R7      | done   |
+| T10: SRI hash validation for `remoteEntry.js`                                            | R12         | done   |
+| T11: Plugin health dashboard (admin-ui, `<EntityList>` family, filtered `plugin_errors`) | R11         | done   |
 
 ---
 

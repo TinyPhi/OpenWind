@@ -29,6 +29,11 @@ const HOST_NAME = "admin-ui-host";
 
 let initialized = false;
 
+// Tracks the currently-registered blob URL per plugin slug so a reload
+// (tenant switch, reinstall) revokes the previous one instead of leaking it —
+// URL.createObjectURL blobs are never garbage-collected on their own.
+const activeBlobUrls = new Map<string, string>();
+
 function ensureFederationRuntimeInitialized(): void {
   if (initialized) return;
   // `remotes` is required by the type even though every plugin remote is
@@ -116,6 +121,12 @@ export async function loadPluginRemote(opts: {
   const pinnedUrl = URL.createObjectURL(
     new Blob([bytes], { type: "application/javascript" }),
   );
+
+  const previousUrl = activeBlobUrls.get(opts.pluginSlug);
+  if (previousUrl) {
+    URL.revokeObjectURL(previousUrl);
+  }
+  activeBlobUrls.set(opts.pluginSlug, pinnedUrl);
 
   ensureFederationRuntimeInitialized();
   registerRemotes([{ name: opts.pluginSlug, entry: pinnedUrl }]);

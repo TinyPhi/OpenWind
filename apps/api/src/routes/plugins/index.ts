@@ -45,7 +45,10 @@ router.use("*", requireAuth(db));
 
 // List every catalog plugin, annotated with this tenant's install status
 // (R11's health dashboard — generic list view, not a bespoke per-plugin query).
-router.get("/", async (c) => {
+// Review finding (PR #397, PrabhuVijit, N1): spec task T6 requires
+// requireRole("admin") on all three plugin admin routes; this one was
+// missing it, letting any authenticated user see install status/error counts.
+router.get("/", requireRole("admin"), async (c) => {
   const auth = c.get("auth");
   try {
     const list = await listPluginsForTenant(auth.tenantId);

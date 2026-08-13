@@ -80,6 +80,7 @@ describe("loadPluginRemote", () => {
     // the global entirely — jsdom's own setup relies on `new URL(...)`
     // elsewhere, which a plain-object replacement breaks.
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     mockInit.mockClear();
     mockRegisterRemotes.mockClear();
   });
@@ -165,6 +166,44 @@ describe("loadPluginRemote", () => {
 
     expect(result).toEqual({ ok: false, reason: "fetch failed: HTTP 404" });
     expect(mockRegisterRemotes).not.toHaveBeenCalled();
+  });
+
+  // Review finding (PR #397, PrabhuVijit, L-blob): blob URLs from
+  // URL.createObjectURL were never revoked, accumulating across reloads
+  // (tenant switches, reinstalls) of the same plugin slug.
+  it("revokes the previous blob URL when the same plugin slug reloads", async () => {
+    vi.resetModules();
+    const fresh = await import("./plugin-remote-loader.js");
+    const createObjectURLSpy = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValueOnce("blob:mock-url-1")
+      .mockReturnValueOnce("blob:mock-url-2");
+    const revokeObjectURLSpy = vi.spyOn(URL, "revokeObjectURL");
+    // Both spies persist (with accumulated call history) across every test in
+    // this file — clear the counters here so this test only measures its own
+    // two loadPluginRemote calls, not earlier tests' calls to the same spy.
+    createObjectURLSpy.mockClear();
+    revokeObjectURLSpy.mockClear();
+
+    mockFetchResponse(REAL_CONTENT);
+    await fresh.loadPluginRemote({
+      pluginSlug: "reloadable_plugin",
+      remoteEntryUrl:
+        "https://cdn.example.com/reloadable_plugin/remoteEntry.js",
+      integrity: `sha384-${realHash}`,
+    });
+    expect(revokeObjectURLSpy).not.toHaveBeenCalled();
+
+    mockFetchResponse(REAL_CONTENT);
+    await fresh.loadPluginRemote({
+      pluginSlug: "reloadable_plugin",
+      remoteEntryUrl:
+        "https://cdn.example.com/reloadable_plugin/remoteEntry.js",
+      integrity: `sha384-${realHash}`,
+    });
+
+    expect(revokeObjectURLSpy).toHaveBeenCalledWith("blob:mock-url-1");
+    expect(createObjectURLSpy).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed when the fetch itself throws (e.g. network error)", async () => {

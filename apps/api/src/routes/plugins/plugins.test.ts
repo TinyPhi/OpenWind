@@ -67,7 +67,8 @@ beforeEach(() => {
 });
 
 describe("GET /plugins", () => {
-  it("returns the tenant-annotated catalog list", async () => {
+  it("returns the tenant-annotated catalog list for an admin caller", async () => {
+    currentRoles = ["admin"];
     mockListPluginsForTenant.mockResolvedValue([
       { slug: "widget-plugin", installed: true, status: "active" },
     ]);
@@ -78,6 +79,25 @@ describe("GET /plugins", () => {
     expect(mockListPluginsForTenant).toHaveBeenCalledWith("t-aaa");
     const body = await res.json();
     expect(body.data).toHaveLength(1);
+  });
+
+  // Review finding (PR #397, PrabhuVijit, N1): this route was missing the
+  // requireRole("admin") guard spec task T6 requires on all plugin routes.
+  it("rejects a non-admin caller (real requireRole gate)", async () => {
+    currentRoles = ["user"];
+    const res = await makeApp().request("/plugins");
+    expect(res.status).toBe(403);
+    expect(mockListPluginsForTenant).not.toHaveBeenCalled();
+  });
+
+  // Review finding (PR #397, PrabhuVijit, N2): the 500-on-throw path had no
+  // test coverage.
+  it("returns a generic 500 for an unexpected error", async () => {
+    currentRoles = ["admin"];
+    mockListPluginsForTenant.mockRejectedValueOnce(new Error("db down"));
+
+    const res = await makeApp().request("/plugins");
+    expect(res.status).toBe(500);
   });
 });
 
