@@ -49,7 +49,7 @@ async function tick(): Promise<void> {
         SELECT id, tenant_id, event_type, version, payload
         FROM outbox_events
         WHERE delivered_at IS NULL
-          AND event_type IN ('workflow.transitioned', 'workflow.sla_breached', 'entity.created', 'entity.assigned', 'entity.due_date_overdue')
+          AND event_type IN ('workflow.transitioned', 'workflow.sla_breached', 'entity.created', 'entity.assigned', 'entity.unassigned', 'entity.due_date_overdue')
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT ${BATCH_SIZE}
