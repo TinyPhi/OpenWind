@@ -208,6 +208,21 @@ describe("plugin_errors — cross-tenant RLS isolation", () => {
     );
     expect(asA).toHaveLength(1);
   });
+
+  // Review finding (PR #397, PrabhuVijit, L2): installed_plugins already had a
+  // WITH CHECK forgery test; plugin_errors only had USING coverage.
+  it("tenant B cannot forge an error row claiming to be tenant A's (RLS WITH CHECK)", async () => {
+    await expect(
+      withTenantContext(TENANT_B, (tx) =>
+        tx.insert(pluginErrors).values({
+          tenantId: TENANT_A,
+          pluginId,
+          kind: "lifecycle_failure",
+          detail: {},
+        }),
+      ),
+    ).rejects.toBeDefined();
+  });
 });
 
 describe("create_plugin_schema — R4 enforcement by grant, not convention", () => {

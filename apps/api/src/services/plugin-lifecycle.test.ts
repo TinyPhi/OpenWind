@@ -62,10 +62,15 @@ const TENANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const PLUGIN_ID = "plugin-uuid-1";
 const PLUGIN_SLUG = "test_plugin";
 
+// Review finding (PR #397, PrabhuVijit): this fixture previously used
+// USING (true) — a permissive "allow everyone" policy that the lint (before
+// that same review) couldn't distinguish from a real one. Fixed so this
+// isn't a misleading template for anyone reading it as an example.
 const VALID_MIGRATION_SQL = `
   CREATE TABLE "widgets" ("id" uuid PRIMARY KEY, "tenant_id" uuid NOT NULL);
   ALTER TABLE "widgets" ENABLE ROW LEVEL SECURITY;
-  CREATE POLICY "widgets_tenant_isolation" ON "widgets" FOR ALL USING (true);
+  CREATE POLICY "widgets_tenant_isolation" ON "widgets"
+    FOR ALL USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 `;
 
 function makeSelectChain(rows: unknown[]) {

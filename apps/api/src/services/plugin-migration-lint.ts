@@ -60,19 +60,35 @@ export function lintPluginMigration(sql: string): MigrationLintResult {
       `ALTER\\s+TABLE\\s+"?${tableName}"?\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY`,
       "i",
     );
-    const createPolicyRe = new RegExp(
-      `CREATE\\s+POLICY\\s+\\S+\\s+ON\\s+"?${tableName}"?`,
-      "i",
-    );
-
     if (!enableRlsRe.test(sql)) {
       violations.push(
         `table "${tableName}": has tenant_id but no ENABLE ROW LEVEL SECURITY statement`,
       );
     }
-    if (!createPolicyRe.test(sql)) {
+
+    // Review finding (PR #397, PrabhuVijit): checking only for the *presence* of
+    // a CREATE POLICY statement let `USING (true)` (allow every row to every
+    // caller) pass identically to a real tenant-isolation policy — defeating
+    // R13's entire purpose the moment a plugin exposes this table through a
+    // route. Capture the full policy statement body (through its terminating
+    // `;`) and require it to actually reference tenant_id somewhere in it —
+    // still not a full SQL parser (a `-- tenant_id` comment trick would slip
+    // past this), but it does catch the realistic honest-mistake case
+    // (forgetting the WHERE clause, copy-pasting an unrelated policy) this
+    // lint exists for.
+    const policyStatementRe = new RegExp(
+      `CREATE\\s+POLICY\\s+\\S+\\s+ON\\s+"?${tableName}"?[\\s\\S]*?;`,
+      "i",
+    );
+    const policyStatement = policyStatementRe.exec(sql)?.[0];
+    if (!policyStatement) {
       violations.push(
         `table "${tableName}": has tenant_id but no CREATE POLICY statement`,
+      );
+    } else if (!/tenant_id/i.test(policyStatement)) {
+      violations.push(
+        `table "${tableName}": CREATE POLICY exists but its body never references ` +
+          `tenant_id (e.g. "USING (true)" grants every row to every caller)`,
       );
     }
   }

@@ -2,7 +2,7 @@
 
 **Spec:** docs/specs/plugin-system.md
 **Generated:** 2026-08-13
-**Status:** not started
+**Status:** all three phases shipped 2026-08-13 (PR #397, in review)
 
 ---
 

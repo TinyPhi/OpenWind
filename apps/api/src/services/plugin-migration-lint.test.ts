@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { lintPluginMigration } from "./plugin-migration-lint.js";
 
 describe("lintPluginMigration", () => {
-  it("accepts a table with tenant_id, RLS, and a policy", () => {
+  it("accepts a table with tenant_id, RLS, and a policy that references tenant_id", () => {
     const sql = `
       CREATE TABLE "widgets" (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -52,6 +52,41 @@ describe("lintPluginMigration", () => {
     ]);
   });
 
+  // Review finding (PR #397, PrabhuVijit): the lint used to check only that a
+  // CREATE POLICY statement existed, not what it actually said — a permissive
+  // "allow everyone" policy passed identically to a real tenant-isolation one.
+  it("rejects a table whose policy exists but never references tenant_id (e.g. USING (true))", () => {
+    const sql = `
+      CREATE TABLE "widgets" ("id" uuid PRIMARY KEY, "tenant_id" uuid NOT NULL);
+      ALTER TABLE "widgets" ENABLE ROW LEVEL SECURITY;
+      CREATE POLICY "widgets_allow_all" ON "widgets" FOR ALL USING (true);
+    `;
+    const result = lintPluginMigration(sql);
+    expect(result.ok).toBe(false);
+    expect(result.violations).toEqual([
+      'table "widgets": CREATE POLICY exists but its body never references tenant_id ' +
+        '(e.g. "USING (true)" grants every row to every caller)',
+    ]);
+  });
+
+  it("accepts a policy that references tenant_id only in its WITH CHECK clause", () => {
+    const sql = `
+      CREATE TABLE "widgets" ("id" uuid PRIMARY KEY, "tenant_id" uuid NOT NULL);
+      ALTER TABLE "widgets" ENABLE ROW LEVEL SECURITY;
+      CREATE POLICY "widgets_tenant_isolation" ON "widgets"
+        FOR ALL
+        USING (true)
+        WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+    `;
+    // Documents current, deliberately simple behavior: the check looks for
+    // tenant_id anywhere in the policy statement, not specifically inside
+    // USING — a real policy should reference it in USING too, but this lint
+    // is a lightweight catch for the honest-mistake case (see file header),
+    // not a full SQL parser distinguishing USING from WITH CHECK.
+    const result = lintPluginMigration(sql);
+    expect(result.ok).toBe(true);
+  });
+
   it("accepts a non-tenant-scoped table with the explicit opt-out comment", () => {
     const sql = `
       -- plugin-lint: not-tenant-scoped (static currency reference data, no tenant data)
@@ -78,7 +113,8 @@ describe("lintPluginMigration", () => {
         "id" uuid PRIMARY KEY, "tenant_id" uuid NOT NULL
       );
       ALTER TABLE "good" ENABLE ROW LEVEL SECURITY;
-      CREATE POLICY "good_tenant_isolation" ON "good" FOR ALL USING (true);
+      CREATE POLICY "good_tenant_isolation" ON "good"
+        FOR ALL USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
       CREATE TABLE "bad" ("id" uuid PRIMARY KEY);
     `;
