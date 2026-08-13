@@ -51,6 +51,8 @@ change, not a migration redesign (ADR-008 `scopes_format` precedent). The manife
 into columns — same reasoning `connector_definitions` uses for `triggers`/`actions`: it's
 declarative data closer to code than to a catalog row, and belongs versioned with the plugin's
 own repo, not the DB row.
+✓ Inserting a `plugin_definitions` row with `trust_tier = 'third_party'` fails the CHECK
+constraint. ✓ `slug` collision on insert fails the unique constraint, not a silent overwrite.
 
 **R2 — `installed_plugins` table.** Tenant-scoped install row: `tenant_id`, `plugin_id` (FK →
 `plugin_definitions.id`), `manifest_snapshot jsonb` (the exact `PluginManifest` this tenant
@@ -58,66 +60,133 @@ installed, frozen at install time so a later plugin-definition update doesn't re
 change what's already running), `version`, `status` (`installing | active | error | disabled`),
 timestamps. Standard tenant RLS pair + index on `tenant_id` + composite `(tenant_id, plugin_id)`
 unique index.
+✓ Tenant A's isolation test cannot read tenant B's `installed_plugins` row via any API surface.
+✓ Installing the same `plugin_id` twice for one tenant fails the composite unique constraint.
 
 **R3 — Plugin lifecycle service.** `resolve deps → validate permissions against tenant plan →
 run migrations (plugin's own Postgres schema namespace) → register routes/hooks/jobs → activate`.
 Each step is transactional where the underlying operation allows it (schema-namespace migration
 run, `installed_plugins` status write); a failure at any step leaves `status = 'error'` with the
 failure reason recorded, never a half-registered plugin silently reported as active.
+**Dependency policy (`PluginManifest.requires`):** a missing required dependency **hard-blocks
+install** with a named-dependency error — this service never cascade-installs a dependency on a
+tenant's behalf. Simpler to reason about, and consistent with the module system (#13), which
+also never auto-installs anything a tenant didn't explicitly request.
+✓ Installing a plugin whose `requires` names an uninstalled plugin returns a 4xx naming the
+missing dependency; `installed_plugins.status` never reaches `active`.
+✓ A migration failure at any step leaves `status = 'error'` with `errorReason` populated, and
+`plugin_errors` gets a matching row.
 
 **R4 — Postgres schema namespace isolation.** Each plugin gets a dedicated Postgres schema
 (`plugin_<slug>`) at install time. Plugin migrations run only against that schema — never the
-platform's own `public` schema. This is the direct analogue of Salesforce's per-package
-namespace isolation, and is Core regardless of trust tier: it's what makes plugin uninstall +
-data cleanup mechanical (drop the schema) instead of a manual audit of which tables belong to
-which plugin.
+platform's own `public` schema — **enforced by grant, not convention**: the role a plugin's
+migration runs under has `CREATE`/`USAGE` on `plugin_<slug>` only, the same role-scoping pattern
+`app_user` already uses for RLS enforcement elsewhere in this codebase, so a plugin author's
+mistake (not just malice) is structurally blocked, not just discouraged. This is the direct
+analogue of Salesforce's per-package namespace isolation, and is Core regardless of trust tier:
+it's what makes plugin uninstall + data cleanup mechanical (drop the schema) instead of a manual
+audit of which tables belong to which plugin. **This solves isolation _between_ plugins — it
+does not by itself solve tenant isolation _within_ one plugin's own tables. See R13.**
+✓ A migration attempting `CREATE TABLE public.foo` (or any statement outside `plugin_<slug>`)
+fails with a Postgres permission error, not a silent write.
 
-**R5 — Soft governor limits.** Per-plugin **query timeout** (default 5s) and **max-rows-touched**
-ceiling on any query issued through the plugin's DB client, enforced at the lifecycle service's
-call boundary (a wrapped client, not a Postgres-level `statement_timeout` alone, so the breach is
-attributable to a specific plugin in the log line). v1 is **soft**: a breach is logged with
+**R4 addendum — Plugin code has exactly one DB entry point.** Plugin backend code cannot
+`import` `@platform/db` directly — the plugin SDK exposes its own scoped client (wrapping the
+same connection, restricted to the plugin's schema + governor limits from R5) as the _only_ DB
+handle available to plugin code. This closes the gap where R5's governor limits would otherwise
+be trivially bypassable by importing the platform's own unrestricted client instead of the
+"wrapped client" R5 describes.
+✓ TypeScript build of a plugin fails if it imports `@platform/db` — the plugin-sdk's own
+scoped client is the only DB import available in that package's dependency graph.
+
+**R5 — Soft governor limits.** Per-plugin **query timeout** (default 5s) and **max-rows-touched
+ceiling (default 10,000 rows per query)** on any query issued through the plugin's DB client
+(R4 addendum), enforced at the lifecycle service's call boundary (the wrapped client, not a
+Postgres-level `statement_timeout` alone, so the breach is attributable to a specific plugin in
+the log line). Separately, **per-plugin job execution timeout (default 30s)** on anything
+registered via `PluginManifest.jobs` — a query limit alone doesn't bound a job that loops or
+leaks memory without ever issuing a slow query. v1 is **soft** for both: a breach is logged with
 `tenantId`+`pluginId`+the offending operation and written to `plugin_errors`, but does **not**
-kill the request — first-party trust means a breach is far more likely a bug than an attack, and
-a hard kill on every timeout would make plugin development miserable during 3B's own build-out.
-**This is the item most likely to need revisiting** if/when the trust tier ever opens up — hard
-enforcement becomes mandatory the moment a plugin author isn't someone on this team.
+kill the request/job — first-party trust means a breach is far more likely a bug than an attack,
+and a hard kill on every timeout would make plugin development miserable during 3B's own
+build-out. **This is the item most likely to need revisiting** if/when the trust tier ever opens
+up — hard enforcement becomes mandatory the moment a plugin author isn't someone on this team.
+✓ A query touching 10,001 rows through the plugin client logs a `governor_limit_breach` row in
+`plugin_errors` and still returns its result. ✓ A plugin job running past 30s logs the same
+breach kind and is still allowed to finish.
 
-**R6 — Module Federation frontend host.** Justified specifically by the first-party-only
-decision: shared JS runtime, richer UI integration, acceptable risk because every live plugin was
-authored by the platform team. **If the trust tier is ever reopened, this decision must be
-revisited too** — Module Federation's shared-runtime model is a poor fit for genuinely untrusted
-code (a bad plugin can affect host memory/state); the alternative considered and deferred is
-iframe + `postMessage` isolation, which trades UI richness for real fault isolation and would be
-the right default the day a non-first-party plugin can install.
+**R6 — Plugin UI integrates without a full page reload or a duplicate framework bundle.**
+Chosen implementation: **Module Federation**, justified specifically by the first-party-only
+decision — shared JS runtime, richer UI integration, acceptable risk because every live plugin
+was authored by the platform team. **If the trust tier is ever reopened, this implementation
+choice must be revisited too** — Module Federation's shared-runtime model is a poor fit for
+genuinely untrusted code (a bad plugin can affect host memory/state); the alternative considered
+and deferred is iframe + `postMessage` isolation, which trades UI richness for real fault
+isolation and would be the right default the day a non-first-party plugin can install.
+✓ Navigating into a plugin-registered page does not trigger a full browser page reload.
 
 **R7 — `<Slot>` component with per-slot, per-plugin error boundaries.** A plugin UI failure
 inside one slot cannot propagate to the host or to other slots. Reads `SlotRegistration[]` from
 the installed plugin's manifest snapshot (R2).
+✓ A slot's component throwing during render leaves every other slot on the page functional and
+writes a `runtime_exception` row to `plugin_errors` (R8).
 
 **R8 — Plugin error isolation.** New `plugin_errors` table (tenant-scoped, RLS) — any lifecycle
 failure, governor-limit breach (R5), or runtime exception surfaced by a slot's error boundary
 (R7) writes here instead of crashing the platform process.
+✓ Every failure mode named in R3/R5/R7 produces exactly one `plugin_errors` row with a `kind`
+matching that failure mode — never an unhandled process-level exception.
 
 **R9 — Plugin uninstall.** Deregister routes/hooks/jobs, flip `installed_plugins.status`, and
-**drop the plugin's Postgres schema** (R4) unless the tenant explicitly requests data retention
-— same retain-by-default posture the module system (#13) already uses for its own uninstall.
+**drop the plugin's Postgres schema** (R4) unless the caller passes `?retainData=true` on the
+uninstall call — defaults to drop, same retain-by-default-off posture the module system (#13)
+already uses for its own uninstall (module uninstall there retains by default; this spec
+deliberately inverts the default because R4's schema-per-plugin shape makes "drop" the safe,
+mechanical default, and an explicit opt-in is required to keep data around).
+✓ Uninstall with no query param drops `plugin_<slug>`'s tables for that tenant's rows (per R13's
+tenant-scoping) and flips `status` to a terminal state. ✓ Uninstall with `retainData=true` flips
+status without dropping any row.
 
 **R10 — `@platform/plugin-sdk` versioning.** The package already exists with real types (see
 §C) — this spec's job is a version/deprecation contract (semver, a documented breaking-change
 policy) _before_ a second real consumer (an actual plugin) is built against it, not a type
 rewrite. `platformVersion` on `PluginManifest` (already present) is the compatibility check the
 lifecycle service (R3) validates at install time.
+✓ Installing a plugin whose `platformVersion` doesn't satisfy the running platform's version
+range is rejected before any migration runs.
 
 **R11 — Plugin health dashboard (admin-ui).** Reads `installed_plugins.status` +
 `plugin_errors` per tenant. Reuses the generic list/detail component pattern (`<EntityList>`
 family) rather than a bespoke page, consistent with 2C's "one generic component serves every
 module" precedent — a plugin install row is just another entity-shaped thing to list.
+✓ An admin can see a specific plugin's `plugin_errors` rows for their tenant without a
+bespoke query — the generic list view, filtered.
 
 **R12 — SRI hash validation for `remoteEntry.js`.** Cheap even under first-party trust (verifies
 the exact file a browser loaded matches what was registered — catches CDN/build-pipeline
 tampering, not just malicious authorship) — kept as Core rather than downgraded to Important
 despite the trust-tier decision, since the cost of doing it now is low and the alternative is
 retrofitting it onto every already-installed plugin later.
+✓ Serving a `remoteEntry.js` byte-mismatched against its registered hash fails to load with a
+visible error, not a silent execution of altered code.
+
+**R13 — Tenant isolation within a plugin's own tables.** R4's `plugin_<slug>` schema isolates
+plugins _from each other_ — it does not isolate one tenant's data from another's _within_ a
+single plugin's tables, since many tenants can install the same plugin (R2). Any table a plugin
+migration creates that stores tenant-scoped data **must** carry `tenant_id NOT NULL` + the
+platform's standard RLS pair — the exact same two-layer rule `security.md` already makes
+non-negotiable for platform tables (explicit `tenant_id` filter + RLS, not either alone). R3's
+"validate" lifecycle step includes a static check that a plugin's migration SQL creating a table
+without both is rejected before it ever runs, rather than trusting every first-party author to
+remember. **Tenant deletion**: `apps/worker/src/tenant-purge.ts` already drives tenant-deletion
+cascade for platform tables — this spec requires it to also enumerate every installed plugin's
+schema for that tenant and delete `WHERE tenant_id = ?` there too, not just handle the
+plugin-uninstall path (R9). A tenant being deleted is not the same event as a tenant uninstalling
+one plugin, and both must fully remove that tenant's data.
+✓ A plugin migration creating a table with no `tenant_id` column fails install-time validation
+before the migration executes. ✓ Deleting a tenant via the existing purge flow leaves zero rows
+matching that `tenant_id` in any installed plugin's schema, verified by an isolation test that
+installs a plugin, writes data, deletes the tenant, and checks every plugin schema directly.
 
 ---
 
@@ -215,10 +284,23 @@ export const pluginErrors = pgTable("plugin_errors", {
 
 ```typescript
 // apps/api/src/routes/admin/plugins.ts (new)
-POST   /admin/tenants/:id/plugins/:pluginSlug/install    -> runs the lifecycle service (R3)
-DELETE /admin/tenants/:id/plugins/:pluginSlug             -> uninstall (R9)
-GET    /admin/tenants/:id/plugins                         -> installed_plugins + plugin_errors, for R11
+// All three routes: requireAuth() + requireRole("admin") — same gate every other
+// /admin/tenants/:id/* route in this codebase already uses.
+POST   /admin/tenants/:id/plugins/:pluginSlug/install         -> runs the lifecycle service (R3)
+DELETE /admin/tenants/:id/plugins/:pluginSlug?retainData=bool -> uninstall (R9)
+GET    /admin/tenants/:id/plugins                              -> installed_plugins + plugin_errors, for R11
 ```
+
+## §V Invariants
+
+<!-- First pass — no bugs to promote from yet, seeded directly from this spec's own review. -->
+
+- No plugin's migration or runtime code ever writes outside its own `plugin_<slug>` schema
+  (R4) — enforced by DB grant, not reviewed by convention.
+- Every plugin-authored table storing tenant data carries `tenant_id` + the standard RLS pair
+  (R13) — no exception, first-party or not.
+- `plugin_definitions.trust_tier` widens only via an explicit, reviewed migration — never
+  silently, never as a side effect of an unrelated change.
 
 ## §T Tasks
 
