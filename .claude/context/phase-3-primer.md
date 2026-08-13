@@ -162,7 +162,13 @@ Runtime track:
       transformed event — no consumer exists yet, matching the issue's explicit scope (this
       is the producer/gateway side only). AC2's pre-auth IP-keyed flood guard is already
       satisfied by the existing global `rateLimit()` middleware (no redundant second guard
-      added). [#364](../../issues/364)
+      added). **Security review found 2 HIGH findings, both fixed before merge:** (1) the
+      shared HMAC construction (below) didn't cover the delivery-id, letting a captured valid
+      delivery be replayed under a relabeled id — fixed in `outbound-envelope.ts` itself,
+      coordinated with #365's PR; (2) a timing side-channel let an attacker distinguish
+      "unknown tenant/connector" from "known, bad signature" by the presence of an OpenBao
+      round-trip, defeating AC4 — fixed with a timing-equalizing dummy decrypt call. Both have
+      regression tests. [#364](../../issues/364)
 - [x] Outbound delivery: dedicated queue, HMAC signing, corrected retry semantics
       (Decision #9), sensitivity taxonomy/redactor (Decision #10) — done 2026-08-12, migration
       0057 (`connector_delivery_attempts`, RLS with both `USING`/`WITH CHECK` from day one).
@@ -171,11 +177,14 @@ Runtime track:
       `notifyOutboundQueue`'s 3-attempts/1s config (~7s window, sized for internal outages);
       worst-case cumulative delay `45_000 * (2^11 - 1)` ≈ 25.6h, approaching the ADR's
       Stripe/Svix ~27h reference. New pure module `packages/connector-sdk/src/
-outbound-envelope.ts`: HMAC-SHA256 over `${timestampUnixSeconds}.${rawBody}`,
+outbound-envelope.ts`: HMAC-SHA256 over `${deliveryId}.${timestampUnixSeconds}.${rawBody}`
+      (deliveryId included in the signed content since a #364 security-review finding — see
+      that entry above — an earlier version signed only `timestamp.rawBody`, which let a
+      captured valid delivery be replayed under a relabeled delivery-id),
       `X-OpenWind-Signature: t=<unix>,v1=<hex>` + `X-OpenWind-Delivery-Id: <uuid>` headers
-      (mirrors Stripe/Svix convention, intended to match ADR-009 Decision #3's inbound spec —
-      **reconciliation note:** #364 had not been implemented as of this issue, so this header
-      scheme is a documented pick for #364 to confirm against, not a verified match), and
+      (mirrors Stripe/Svix's `msgId.timestamp.payload` convention). #364 confirmed this scheme
+      and reuses it directly (`verifyOutboundSignature`) for inbound verification — one
+      signing convention shared by both directions, as intended. Also
       `validateActionOutput()` enforcing a new `ActionDefinition.maxOutputBytes` (default
       `DEFAULT_MAX_OUTPUT_BYTES = 256KB`) before schema validation (AC6). Decision #10's
       redactor is reused unchanged (`buildSensitivityMap`/`redactMetadata`), wired into the new
