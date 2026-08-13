@@ -121,7 +121,7 @@ Runtime track — full detail for all done items: `docs/sup-docs/week-log.md`'s 
 Scopes track (can run in parallel with the runtime track, same stage):
 
 - [x] `api_keys.scopes` dual-format discriminator (Decision #6) — done 2026-08-12, migration
-      0054: `scopes_format text NOT NULL DEFAULT 'role'` (CHECK `IN ('role','action')`). Existing
+      0055: `scopes_format text NOT NULL DEFAULT 'role'` (CHECK `IN ('role','action')`). Existing
       keys stay on legacy role-strings, unmigrated. Full detail: week-log 2026-08-12.
       **Deliberately NOT implemented:** `scope-ceiling.ts` still rejects any non-role-string
       scope — no key can be minted with `scopes_format='action'` through the real API yet, since
