@@ -5,6 +5,8 @@ export {
   hashApiKey,
   hashApiKeyArgon2,
   lookupTenantIdByOrgId,
+  API_KEY_DEFAULT_TTL_DAYS,
+  API_KEY_ROTATION_OVERLAP_HOURS,
 } from "./middleware.js";
 export {
   invalidateTenantStatusCache,
@@ -27,3 +29,5 @@ export {
   invalidateUserCache,
 } from "./zitadel-management.js";
 export type { OrgUser } from "./zitadel-management.js";
+export { detectScopesFormat } from "./scopes.js";
+export type { ScopesFormat } from "./scopes.js";

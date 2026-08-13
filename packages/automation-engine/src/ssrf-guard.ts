@@ -37,7 +37,11 @@ const HARDCODED_BLOCKED_CIDRS: readonly string[] = [
   "169.254.0.0/16", // Link-local / AWS EC2 metadata
   "fe80::/10", // Link-local IPv6
   "100.64.0.0/10", // CGNAT / shared address space (RFC 6598)
-  "fd00::/8", // Unique local addresses (RFC 4193)
+  "fc00::/7", // Unique local addresses (RFC 4193) - both fc00::/8 (central,
+  // reserved) and fd00::/8 (locally assigned) halves. Was incorrectly
+  // fd00::/8 only (#383) - fc00::/8 addresses are formally private too and
+  // were not being blocked. Same gap and fix as connector-sdk's ssrf-guard.ts
+  // (PR #381 review, M1).
   "::ffff:0:0/96", // IPv4-mapped IPv6 (covers ::ffff:10.x, ::ffff:169.254.x etc.)
   "0.0.0.0/8", // Unspecified
 ];

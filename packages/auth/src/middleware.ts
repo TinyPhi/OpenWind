@@ -540,6 +540,15 @@ async function resolveApiKey(
   // resolve_api_key_by_hash (migration 0031/0047) is a narrowly-scoped
   // SECURITY DEFINER function that bypasses RLS for this one lookup-by-secret
   // and returns only id/tenant_id/scopes/key_hash_argon2, never key_hash itself.
+  //
+  // TODO(ADR-008 Decision #6 ceiling-reopen): this function's RETURNS TABLE
+  // does not include scopes_format, and AuthContext has no format field —
+  // when the scope-ceiling is reopened and action-format keys can actually
+  // authenticate, a Stage 3 requireScope() would have to re-derive the
+  // format from the string shape, defeating the point of the explicit
+  // discriminator over a colon heuristic. PostgreSQL can't CREATE OR REPLACE
+  // a changed return type, so this needs a DROP FUNCTION + recreate in the
+  // ceiling-reopen PR, not a later follow-up (review finding M1, PR #373).
   const result = await db.execute<{
     id: string;
     tenant_id: string;
@@ -596,3 +605,18 @@ export function hashApiKey(rawKey: string): string {
 export function hashApiKeyArgon2(rawKey: string): Promise<string> {
   return argon2Hash(rawKey);
 }
+
+// ADR-008 Decision #3: platform-configured maximum lifetime for newly-minted
+// keys. This is a mechanism default, not yet confirmed by a human owner —
+// unlike OQ-2/OQ-3 (which govern forcing *existing* keys onto a new lifetime,
+// deliberately not implemented yet), this only affects keys created from now
+// on, so it carries none of that migration risk.
+export const API_KEY_DEFAULT_TTL_DAYS = 365;
+
+// ADR-008 Decision #3's rotation flow: after minting a replacement, the
+// original key's expiresAt is pulled forward to this overlap window instead
+// of being revoked immediately, so in-flight callers using the original key
+// don't break the instant rotation happens. No new scheduler is needed — the
+// original simply stops resolving once expiresAt passes, via the same check
+// resolve_api_key_by_hash (migration 0053) already applies to every key.
+export const API_KEY_ROTATION_OVERLAP_HOURS = 24;

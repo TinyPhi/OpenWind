@@ -1,8 +1,9 @@
 import type { z } from "zod";
 
-export interface ConnectorContext<TCredentials = Record<string, unknown>> {
+// No `credentials` field: connector code never sees raw secrets (ADR-009 Decision #5).
+// The runtime decrypts credentials server-side and attaches them inside callApi() only.
+export interface ConnectorContext {
   tenantId: string;
-  credentials: TCredentials;
   callApi: (config: {
     method: string;
     url: string;
@@ -22,7 +23,8 @@ export interface TriggerDefinition {
   description: string;
   type: "webhook" | "polling";
   webhook?: {
-    validateSignature: (request: Request, secret: string) => Promise<boolean>;
+    // No validateSignature: verification is centralized in the webhook gateway
+    // (ADR-009 Decision #3), not connector-authored code.
     transform: (rawPayload: unknown) => Promise<Record<string, unknown>>;
   };
   polling?: {
@@ -37,6 +39,15 @@ export interface TriggerDefinition {
   };
 }
 
+// Default cap on a connector action's serialized output payload, enforced at
+// the outbound delivery boundary (ADR-009 Decision #10, issue #365) — an
+// integrity/DoS control, distinct from the confidentiality control the
+// sensitivity redactor provides. Chosen to comfortably fit a real event
+// payload while still rejecting a runaway/malformed one before any network
+// call is attempted; roughly in line with common webhook-provider caps
+// (e.g. Svix recommends keeping payloads well under 256KB).
+export const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024;
+
 export interface ActionDefinition {
   id: string;
   name: string;
@@ -50,9 +61,29 @@ export interface ActionDefinition {
     backoffMs: number;
     retryOn: (error: Error) => boolean;
   };
+  /**
+   * Max serialized size (bytes, UTF-8) of this action's output payload,
+   * enforced at the outbound delivery boundary before any delivery attempt
+   * (ADR-009 Decision #10). Defaults to DEFAULT_MAX_OUTPUT_BYTES if omitted.
+   */
+  maxOutputBytes?: number;
 }
 
-export interface ConnectorDefinition<TCredentials = Record<string, unknown>> {
+// Discriminated union of supported auth mechanisms for a connector's outbound
+// API calls (ADR-009 Decision #5). `credentialKey` (and its variants) names a
+// logical secret — the `connector_credentials.secrets` column (issue #363)
+// stores a JSONB map of `credentialKey -> ciphertext` per tenant-connector
+// installation.
+export type ConnectorAuthConfig =
+  | { type: "bearer"; credentialKey: string }
+  | {
+      type: "basic";
+      usernameCredentialKey: string;
+      passwordCredentialKey: string;
+    }
+  | { type: "apiKey"; headerName: string; credentialKey: string };
+
+export interface ConnectorDefinition {
   meta: {
     id: string;
     name: string;
@@ -69,9 +100,14 @@ export interface ConnectorDefinition<TCredentials = Record<string, unknown>> {
       | "ecommerce"
       | "other";
   };
-  auth: Record<string, unknown>;
+  // Per-connector egress allowlist (ADR-009 Decision #5): callApi() enforces this
+  // and validateWebhookUrl() against the target on every call, so a connector can
+  // only ever reach the third-party host(s) it declares here.
+  // Hostnames only — no scheme, no path, no wildcards (e.g. ["api.slack.com"]).
+  allowedHosts: string[];
+  auth: ConnectorAuthConfig;
   triggers: TriggerDefinition[];
   actions: ActionDefinition[];
-  onInstall?: (ctx: ConnectorContext<TCredentials>) => Promise<void>;
-  onUninstall?: (ctx: ConnectorContext<TCredentials>) => Promise<void>;
+  onInstall?: (ctx: ConnectorContext) => Promise<void>;
+  onUninstall?: (ctx: ConnectorContext) => Promise<void>;
 }

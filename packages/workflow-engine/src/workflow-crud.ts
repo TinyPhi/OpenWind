@@ -311,7 +311,12 @@ export async function listWorkflows(
     db
       .select({ workflowId: entityInstances.workflowId, total: count() })
       .from(entityInstances)
-      .where(inArray(entityInstances.workflowId, workflowIds))
+      .where(
+        and(
+          inArray(entityInstances.workflowId, workflowIds),
+          eq(entityInstances.tenantId, tenantId),
+        ),
+      )
       .groupBy(entityInstances.workflowId),
   ]);
 

@@ -15,6 +15,7 @@ overrides:
   fast-uri: '>=3.1.4 <4.0.0 || >=4.1.2'
   undici: '>=7.29.0 <8'
   postcss: '>=8.5.18'
+  nanoid: '>=3.3.17 <4'
 
 importers:
 
@@ -165,6 +166,9 @@ importers:
       '@platform/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@platform/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -265,6 +269,9 @@ importers:
       '@platform/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@platform/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -283,6 +290,9 @@ importers:
       '@platform/redis':
         specifier: workspace:*
         version: link:../../packages/redis
+      '@platform/secrets':
+        specifier: workspace:*
+        version: link:../../packages/secrets
       '@platform/workflow-engine':
         specifier: workspace:*
         version: link:../../packages/workflow-engine
@@ -702,6 +712,9 @@ importers:
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@25.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@25.7.0)(jiti@2.6.1)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/connector-sdk:
     dependencies:
@@ -711,6 +724,12 @@ importers:
       '@platform/logger':
         specifier: workspace:*
         version: link:../logger
+      '@platform/secrets':
+        specifier: workspace:*
+        version: link:../secrets
+      ipaddr.js:
+        specifier: ^2.4.0
+        version: 2.4.0
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -721,9 +740,15 @@ importers:
       '@types/node':
         specifier: ^25.7.0
         version: 25.7.0
+      pino:
+        specifier: ^9.0.0
+        version: 9.14.0
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@25.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@25.7.0)(jiti@2.6.1)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/db:
     dependencies:
@@ -4409,8 +4434,8 @@ packages:
   msgpackr@2.0.1:
     resolution: {integrity: sha512-9J+tqTEsbHqY8YohazYgty7LgerFIWxvMLpUjqETSmjHojtJm2WnX2kK/2a1fLI7CO7ERP1YSEUXMucz4j+yBA==}
 
-  nanoid@3.3.16:
-    resolution: {integrity: sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q==}
+  nanoid@3.3.18:
+    resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -9248,7 +9273,7 @@ snapshots:
     optionalDependencies:
       msgpackr-extract: 3.0.3
 
-  nanoid@3.3.16: {}
+  nanoid@3.3.18: {}
 
   natural-compare@1.4.0: {}
 
@@ -9466,7 +9491,7 @@ snapshots:
 
   postcss@8.5.22:
     dependencies:
-      nanoid: 3.3.16
+      nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
 

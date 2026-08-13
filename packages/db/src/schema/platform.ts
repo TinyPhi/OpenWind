@@ -9,6 +9,7 @@ import {
   unique,
   boolean,
   integer,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -74,10 +75,23 @@ export const apiKeys = pgTable(
     keyHash: text("key_hash").notNull().unique(),
     keyHashArgon2: text("key_hash_argon2"),
     scopes: text("scopes").array().default([]).notNull(),
+    /** Discriminates scopes' string shape (ADR-008 Decision #6) — 'role' (legacy, unchanged) or 'action' (entity:<entityType>:<verb>, ADR-010 Tier-1 prerequisite). Existing and new keys default 'role'; see 0055_api_keys_scopes_format.sql. The `enum` option only narrows the TS type — the DB CHECK constraint (migration 0055) remains the actual runtime enforcement. */
+    scopesFormat: text("scopes_format", { enum: ["role", "action"] })
+      .default("role")
+      .notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    /** Zitadel user id of whoever minted this key (ADR-008 Decision #2). Nullable — NULL for keys created before migration 0053. */
+    createdBy: text("created_by"),
+    /** Nullable — NULL means immortal (legacy keys; ADR-008 Decision #3). */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Soft-revoke marker (ADR-008 Decision #4) — resolve_api_key_by_hash excludes non-NULL rows. */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: text("revoked_by"),
+    /** Set on the replacement key minted by POST /api-keys/:id/rotate; points at the key it replaced. */
+    rotatedFrom: uuid("rotated_from").references((): AnyPgColumn => apiKeys.id),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
@@ -224,13 +238,70 @@ export const platformSettings = pgTable("platform_settings", {
   updatedBy: text("updated_by"),
 });
 
+/**
+ * connectorDefinitions — platform-wide connector catalog (ADR-009 Decision #8,
+ * ADR-001's "Non-tenant-scoped tables" section names this table explicitly).
+ * No tenant_id/RLS — readable by app_user, writable only by migration_user/
+ * admin-role endpoints, same restriction as `modules`.
+ *
+ * Declarative catalog metadata only (see 0056_connector_definitions.sql) —
+ * `triggers`/`actions` (packages/connector-sdk's TriggerDefinition[]/
+ * ActionDefinition[]) carry functions, not serializable data, and are never
+ * columns here. `allowedHosts` is a display/audit snapshot only; the actual
+ * egress enforcement is packages/connector-sdk/src/runtime.ts's callApi().
+ */
+export const connectorDefinitions = pgTable("connector_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  version: text("version").notNull(),
+  description: text("description"),
+  iconUrl: text("icon_url"),
+  docsUrl: text("docs_url"),
+  /** communication | finance | crm | hr | storage | ecommerce | other — enforced by a DB CHECK (migration 0056), matching modules.category's pattern. */
+  category: text("category").notNull(),
+  allowedHosts: text("allowed_hosts").array().notNull(),
+  isVisible: boolean("is_visible").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+/**
+ * connectorCredentials — tenant-scoped connector installation row (ADR-009
+ * Decision #8, issue #363). Predates the ADR — scaffolded as a placeholder
+ * in the very first migration (0000_initial_schema.sql) with a shape that
+ * never matched any real consumer; reshaped in place by migration 0056 to
+ * back packages/connector-sdk's ConnectorContext/ConnectorAuthConfig
+ * (packages/connector-sdk/src/types.ts) rather than creating a second,
+ * differently-named table.
+ *
+ * `secrets` is a JSONB map of credentialKey -> OpenBao ciphertext, matching
+ * runtime.ts's `encryptedCredentials: Record<string, string>` parameter
+ * exactly — actual plaintext credentials are never stored here.
+ * `cursor_state` is 1:1 polling-cursor state for polling connectors
+ * (ADR-009 Decision #7), nullable.
+ *
+ * RLS (tenant_read/tenant_write, migration 0001) and the app_user grant
+ * (SELECT/INSERT/UPDATE/DELETE, migration 0019) are unchanged by migration
+ * 0056 — apps/worker/src/tenant-purge.ts's tenant-scoped delete depends on
+ * the existing DELETE grant and needed no code change.
+ */
 export const connectorCredentials = pgTable(
   "connector_credentials",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id").notNull(),
-    connectorId: text("connector_id").notNull(),
-    credentials: text("credentials").notNull(),
+    connectorId: uuid("connector_id")
+      .notNull()
+      .references(() => connectorDefinitions.id),
+    /** credentialKey -> OpenBao ciphertext (see ConnectorAuthConfig). Never plaintext. */
+    secrets: jsonb("secrets").default({}).notNull(),
+    /** Polling-connector cursor (e.g. last-seen IMAP UID) — 1:1 with this installation row. */
+    cursorState: jsonb("cursor_state"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -242,6 +313,57 @@ export const connectorCredentials = pgTable(
     tenantIdx: index("connector_credentials_tenant_idx").on(
       t.tenantId,
       t.connectorId,
+    ),
+    tenantConnectorUnique: unique(
+      "connector_credentials_tenant_connector_unique",
+    ).on(t.tenantId, t.connectorId),
+  }),
+);
+
+/**
+ * connectorDeliveryAttempts — one row per connector outbound delivery attempt
+ * (ADR-009 Decision #9, issue #365). Tenant-scoped, RLS-protected (migration
+ * 0057). Without this, a dead-lettered connector delivery simply disappears
+ * (`dead_letter_events` has zero readers in apps/api or apps/admin-ui today) —
+ * this table is the per-attempt log leading up to that terminal case, not a
+ * replacement for it. A redrive UI/API over these rows is deliberately out of
+ * scope for issue #365.
+ *
+ * `connectorId` is nullable + ON DELETE SET NULL (matches
+ * dead_letter_events.original_event_id's pattern) — the attempt record must
+ * outlive the catalog row if the connector is later removed.
+ *
+ * `deliveryId` is the idempotency identifier sent as the outbound request's
+ * X-OpenWind-Delivery-Id header (mirrors svix-id) — stable across every retry
+ * of the same logical delivery, so multiple rows here can share one value
+ * (one row per attemptNumber).
+ */
+export const connectorDeliveryAttempts = pgTable(
+  "connector_delivery_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    connectorId: uuid("connector_id").references(() => connectorDefinitions.id),
+    deliveryId: uuid("delivery_id").notNull(),
+    /** pending | success | failed | exhausted — enforced by a DB CHECK (migration 0057). */
+    status: text("status", {
+      enum: ["pending", "success", "failed", "exhausted"],
+    }).notNull(),
+    attemptNumber: integer("attempt_number").notNull(),
+    latencyMs: integer("latency_ms"),
+    error: text("error"),
+    /** Set on a 'failed' row that still has BullMQ attempts remaining; NULL on 'success'/'exhausted'. */
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantCreatedIdx: index(
+      "connector_delivery_attempts_tenant_created_idx",
+    ).on(t.tenantId, t.createdAt),
+    deliveryIdIdx: index("connector_delivery_attempts_delivery_id_idx").on(
+      t.deliveryId,
     ),
   }),
 );

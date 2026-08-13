@@ -376,8 +376,50 @@
     {
       "idx": 53,
       "version": "7",
-      "when": 1785542404000,
-      "tag": "0053_outbox_sweeper_role",
+      "when": 1785542405000,
+      "tag": "0053_api_key_lifecycle_hardening",
+      "breakpoints": false
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1785542406000,
+      "tag": "0054_automation_executions_transition_event_id",
+      "breakpoints": false
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1785542407000,
+      "tag": "0055_api_keys_scopes_format",
+      "breakpoints": false
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1785542408000,
+      "tag": "0056_connector_definitions",
+      "breakpoints": false
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1785542409000,
+      "tag": "0057_connector_delivery_attempts",
+      "breakpoints": false
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1785542410000,
+      "tag": "0058_outbox_dead_letter_rls_null_guc_fix",
+      "breakpoints": false
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1785542411000,
+      "tag": "0059_outbox_sweeper_role",
       "breakpoints": false
     }
   ]

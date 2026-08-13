@@ -107,11 +107,24 @@ const mockTx = {
       }),
     }),
   }),
+  // Only the access_request.updated outbox write (T4,
+  // docs/specs/ticket-live-updates.md) goes through insert() in this route.
+  insert: () => ({
+    values: (arg: unknown) => {
+      outboxInserts.push(arg as { eventType: string; payload: unknown });
+      return Promise.resolve(undefined);
+    },
+  }),
 };
+
+const outboxInserts: Array<{ eventType: string; payload: unknown }> = [];
+
+const outboxEventsTable = { id: "outbox_events.id" };
 
 vi.mock("@platform/db", () => ({
   entityInstances: entityInstancesTable,
   accessRequests: accessRequestsTable,
+  outboxEvents: outboxEventsTable,
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(mockTx),
 }));
@@ -128,6 +141,7 @@ function makeApp() {
 describe("PATCH /entities/:id/access-requests/:reqId", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    outboxInserts.length = 0;
     currentFromTable = undefined;
     updateMatchesPending = true;
     instanceRow = {
@@ -167,6 +181,16 @@ describe("PATCH /entities/:id/access-requests/:reqId", () => {
       "u-owner",
       expect.objectContaining({ type: "access_grant" }),
     );
+    const updatedEvent = outboxInserts.find(
+      (o) => o.eventType === "access_request.updated",
+    );
+    expect(
+      (updatedEvent?.payload as { status: string; requestId: string }).status,
+    ).toBe("approved");
+    expect(
+      (updatedEvent?.payload as { status: string; requestId: string })
+        .requestId,
+    ).toBe(REQ_ID);
   });
 
   it("rejects a pending request and emits an access_reject event (previously emitted nothing)", async () => {
@@ -185,6 +209,12 @@ describe("PATCH /entities/:id/access-requests/:reqId", () => {
       INST_ID,
       "u-owner",
       expect.objectContaining({ type: "access_reject" }),
+    );
+    const updatedEvent = outboxInserts.find(
+      (o) => o.eventType === "access_request.updated",
+    );
+    expect((updatedEvent?.payload as { status: string }).status).toBe(
+      "rejected",
     );
   });
 

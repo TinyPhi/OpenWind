@@ -79,7 +79,7 @@ describe("notification poller tick", () => {
     expect(mockUpdate).toHaveBeenCalled();
     // This sweep is cross-tenant — it must switch to the BYPASSRLS
     // outbox_sweeper role or every mention/notification event is silently
-    // dropped under RLS (#125 hotfix, 0053_outbox_sweeper_role.sql). This is
+    // dropped under RLS (#125 hotfix, 0059_outbox_sweeper_role.sql). This is
     // the exact production outage this fix closes.
     expect(mockSetOutboxSweeperRole).toHaveBeenCalled();
   });

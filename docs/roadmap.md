@@ -4,6 +4,14 @@
 **Last updated:** 2026-05  
 **Governed by:** [ADR-004 — Config-First Module Design](decisions/ADR-004-config-first-module-design.md)
 
+**Phase 3 lettering note (found during ADR-009 review, 2026-08):** this doc's own 3D/3E split
+(§3D "Advanced Workflow Builder", §3E "Observability & Compliance") has drifted from
+`CLAUDE.md`/`docs/sup-docs/roadmap-tracker.md`, which are updated every session and call the
+observability/compliance track "3D" with no separate lettered "Advanced Workflow Builder" track
+(its Core content — the drag-and-drop visual workflow builder — shipped as part of Phase 2D,
+2026-07-22). Treat `CLAUDE.md`/`roadmap-tracker.md` as authoritative for phase IDs; this doc's
+letters below are unchanged from their original 2026-05 draft.
+
 This document is the sequenced build plan for the platform. It is a living document — updated as phases complete and priorities shift. The [architecture brief](architecture-brief.md) is the stable design reference; this document is the execution plan derived from it.
 
 ---
@@ -50,16 +58,16 @@ See [ADR-004](decisions/ADR-004-config-first-module-design.md) for the full deci
 
 ### 1B — Authentication & Access Control
 
-| Component                                                                             | Classification         | Notes                                                                                                                           |
-| ------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Zitadel JWKS fetching + JWT signature validation                                      | **Core**               | Replaces placeholder in `packages/auth`                                                                                         |
-| `tenantId` + `roles` claim extraction from validated JWT                              | **Core**               | Zitadel org → tenant mapping                                                                                                    |
-| `requireAuth()` + `requireRole()` middleware wired to all routes                      | **Core**               |                                                                                                                                 |
-| Roles as JWT claim strings (no `roles` table in platform DB)                          | **Core — Config**      | Roles are defined in Zitadel per org. The platform treats them as opaque strings. New roles require zero platform code          |
-| API keys — `api_keys` table (hashed key, tenant_id, name, scopes, last_used_at)       | **Core**               | Machine-to-machine access. Admin CRUD + validation middleware                                                                   |
-| Token introspection for sensitive operations (tenant deletion, bulk destructive ops)  | **Important**          | Zitadel introspection endpoint. Not on every request — only where revocation matters                                            |
-| Field-level permissions                                                               | **Important — Config** | Defined as `visible_to_roles[]` in `entity_fields.config`. Enforced by entity engine at read time. No separate permission table |
-| Support impersonation (platform admin sets tenant context, generates audit log entry) | **Important**          | Admin-only endpoint with mandatory audit trail                                                                                  |
+| Component                                                                             | Classification         | Notes                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Zitadel JWKS fetching + JWT signature validation                                      | **Core**               | Replaces placeholder in `packages/auth`                                                                                                                                                         |
+| `tenantId` + `roles` claim extraction from validated JWT                              | **Core**               | Zitadel org → tenant mapping                                                                                                                                                                    |
+| `requireAuth()` + `requireRole()` middleware wired to all routes                      | **Core**               |                                                                                                                                                                                                 |
+| Roles as JWT claim strings (no `roles` table in platform DB)                          | **Core — Config**      | Roles are defined in Zitadel per org. The platform treats them as opaque strings. New roles require zero platform code                                                                          |
+| API keys — `api_keys` table (hashed key, tenant_id, name, scopes, last_used_at)       | **Core**               | Machine-to-machine access. Admin CRUD + validation middleware. Schema since extended by ADR-008 (`created_by`, `expires_at`, `revoked_at`/`revoked_by`, `scopes_format` — migrations 0053/0055) |
+| Token introspection for sensitive operations (tenant deletion, bulk destructive ops)  | **Important**          | Zitadel introspection endpoint. Not on every request — only where revocation matters                                                                                                            |
+| Field-level permissions                                                               | **Important — Config** | Defined as `visible_to_roles[]` in `entity_fields.config`. Enforced by entity engine at read time. No separate permission table                                                                 |
+| Support impersonation (platform admin sets tenant context, generates audit log entry) | **Important**          | Admin-only endpoint with mandatory audit trail                                                                                                                                                  |
 
 ---
 
@@ -189,15 +197,16 @@ See [ADR-004](decisions/ADR-004-config-first-module-design.md) for the full deci
 
 **Standard module seed files (all config — zero backend TypeScript):**
 
-| Module                    | Entity types                        | Workflow                                                   | Notes                                           |
-| ------------------------- | ----------------------------------- | ---------------------------------------------------------- | ----------------------------------------------- |
-| `@modules/helpdesk`       | Ticket, Comment, Article            | Open → In Progress → Pending → Resolved + SLA              | Email-to-ticket handled via connector (Phase 3) |
-| `@modules/reimbursements` | Expense Claim, Receipt              | Draft → Submitted → Manager Review → Finance Review → Paid | Multi-level approval via approval sub-entities  |
-| `@modules/crm`            | Contact, Company, Deal, Activity    | Lead → Qualified → Proposal → Won / Lost                   | Pipeline view is custom frontend (kanban)       |
-| `@modules/projects`       | Project, Task, Milestone            | Backlog → In Progress → In Review → Done                   | Kanban view is custom frontend                  |
-| `@modules/hrms`           | Employee, Department, Leave Request | Draft → Submitted → Approved / Rejected                    |                                                 |
-| `@modules/invoicing`      | Invoice, Quote, Payment             | Draft → Sent → Paid / Overdue / Cancelled                  |                                                 |
-| `@modules/procurement`    | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled                        |                                                 |
+| Module                    | Entity types                        | Workflow                                                                                                                           | Notes                                                                             |
+| ------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `@modules/helpdesk`       | Ticket, Comment, Article            | Open → In Progress → Pending → Resolved + SLA                                                                                      | Email-to-ticket handled via connector (Phase 3)                                   |
+| `@modules/reimbursements` | Expense Claim, Receipt              | Draft → Submitted → Manager Review → Finance Review → Paid                                                                         | Multi-level approval via approval sub-entities                                    |
+| `@modules/crm`            | Contact, Company, Deal, Activity    | Lead → Qualified → Proposal → Won / Lost                                                                                           | Pipeline view is custom frontend (kanban)                                         |
+| `@modules/projects`       | Project, Task, Milestone            | Backlog → In Progress → In Review → Done                                                                                           | Kanban view is custom frontend                                                    |
+| `@modules/hrms`           | Employee, Department, Leave Request | Draft → Submitted → Approved / Rejected                                                                                            |                                                                                   |
+| `@modules/invoicing`      | Invoice, Quote, Payment             | Draft → Sent → Paid / Overdue / Cancelled                                                                                          |                                                                                   |
+| `@modules/procurement`    | Purchase Order, Vendor, RFQ         | Draft → Approved → Sent → Fulfilled                                                                                                |                                                                                   |
+| `@modules/tender`         | Tender                              | Draft → BOQ Preparation → Pending Costing Review → Costing Approved → Document Preparation → Pending Submission Review → Submitted | 8th module, added post-launch (ADR-005, accepted 2026-07-23), category `optional` |
 
 ---
 
@@ -249,21 +258,28 @@ These UIs are **driven by entity engine config** — one set of generic componen
 
 ### 3A — Integration Layer
 
-| Component                                                                                                             | Classification | Notes                                                                             |
-| --------------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------- |
-| Webhook gateway: `POST /webhooks/{connectorId}/{tenantId}` — HMAC validation, trigger transform, publish to event bus | **Core**       |                                                                                   |
-| Outbound webhook executor (automation `webhook` action type) with SSRF protection                                     | **Core**       | URL allowlist check before POST. Issue #2                                         |
-| Connector runtime — credential decrypt via OpenBao Transit, `ConnectorContext` injection                              | **Core**       | Connector code never sees raw secrets                                             |
-| OAuth token refresh (transparent via `ConnectorContext`)                                                              | **Core**       |                                                                                   |
-| Connector polling scheduler (BullMQ repeatable job per connector per tenant)                                          | **Core**       | Defined by `TriggerDefinition.polling` config                                     |
-| Action type: `connector.action` in automation engine                                                                  | **Core**       | Automation rule calls installed connector's defined action                        |
-| Connector install/uninstall flow (`onInstall`/`onUninstall` hooks)                                                    | **Core**       |                                                                                   |
-| Connector marketplace UI — browse, install, configure                                                                 | **Core**       | Reads `connector_definitions` table. Install = create `connector_credentials` row |
-| Built-in connector: email (SMTP/IMAP) — email-to-entity-instance                                                      | **Core**       | `@platform/connector-email`                                                       |
-| Built-in connector: Slack                                                                                             | **Core**       | `@platform/connector-slack`                                                       |
-| Built-in connectors: Stripe, QuickBooks, WhatsApp Business                                                            | **Important**  | Each is a `ConnectorDefinition` object — no backend routing code                  |
-| Connector DPA framework — per-connector data processing metadata rows                                                 | **Important**  | Issue #6                                                                          |
-| iPaaS bridge (Trigger.dev) for long-running flows                                                                     | **Optional**   | Launched from `script` action type when needed                                    |
+**Superseded by ADR-008/ADR-009/ADR-010 (all accepted 2026-08-06) and
+`.claude/context/phase-3-primer.md` for anything they cover** — this table predates all three
+and has not been reconciled line-by-line. Treat the primer + those ADRs as authoritative for
+current sequencing, connector priority, and scope; this table is kept for historical context and
+for items the ADRs don't touch. Known contradictions are corrected inline below; there may be
+others.
+
+| Component                                                                                                             | Classification | Notes                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Webhook gateway: `POST /webhooks/{connectorId}/{tenantId}` — HMAC validation, trigger transform, publish to event bus | **Core**       |                                                                                                                                                                                                  |
+| Outbound webhook executor (automation `webhook` action type) with SSRF protection                                     | **Core**       | URL allowlist check before POST. Issue #2                                                                                                                                                        |
+| Connector runtime — credential decrypt via OpenBao Transit, `ConnectorContext` injection                              | **Core**       | Connector code never sees raw secrets                                                                                                                                                            |
+| OAuth token refresh (transparent via `ConnectorContext`)                                                              | **Core**       | Superseded by ADR-009 Decision #4 — v1's two connectors don't need it (WhatsApp uses a long-lived token, email/IMAP uses basic auth); `ctx.callApi()` keeps the seam for future OAuth connectors |
+| Connector polling scheduler (BullMQ repeatable job per connector per tenant)                                          | **Core**       | Defined by `TriggerDefinition.polling` config                                                                                                                                                    |
+| Action type: `connector.action` in automation engine                                                                  | **Core**       | Automation rule calls installed connector's defined action                                                                                                                                       |
+| Connector install/uninstall flow (`onInstall`/`onUninstall` hooks)                                                    | **Core**       |                                                                                                                                                                                                  |
+| Connector marketplace UI — browse, install, configure                                                                 | **Core**       | Reads `connector_definitions` table. Install = create `connector_credentials` row                                                                                                                |
+| Built-in connector: email (SMTP/IMAP) — email-to-entity-instance                                                      | **Core**       | `@platform/connector-email`. ADR-009 Decision #2: v1 pair with WhatsApp below                                                                                                                    |
+| Built-in connector: WhatsApp Business                                                                                 | **Core**       | ADR-009 Decision #2: v1 pair with email above (corrected — an earlier draft had this row under Important and Slack under Core)                                                                   |
+| Built-in connectors: Slack, Stripe, QuickBooks                                                                        | **Important**  | Each is a `ConnectorDefinition` object — no backend routing code. Slack corrected from Core (ADR-009 defers it alongside Stripe/QuickBooks, not WhatsApp)                                        |
+| Connector DPA framework — per-connector data processing metadata rows                                                 | **Important**  | Issue #6                                                                                                                                                                                         |
+| iPaaS bridge (Trigger.dev) for long-running flows                                                                     | **Optional**   | Launched from `script` action type when needed                                                                                                                                                   |
 
 ---
 

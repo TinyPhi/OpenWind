@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
+import type * as PlatformAuth from "@platform/auth";
 
 // ── Hoisted mutable auth fixture ──────────────────────────────────────────────
 
@@ -16,26 +17,35 @@ const { mockAuth } = vi.hoisted(() => ({
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-vi.mock("@platform/auth", () => ({
-  requireAuth:
-    () =>
-    async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
-      c.set("auth", mockAuth as AuthContext);
+vi.mock("@platform/auth", async () => {
+  // detectScopesFormat is pure and has no side effects worth mocking — use the
+  // real implementation so this test's insertArg.scopesFormat assertions stay
+  // meaningful instead of hardcoding a duplicate copy of its logic here.
+  const actual = await vi.importActual<typeof PlatformAuth>("@platform/auth");
+  return {
+    requireAuth:
+      () =>
+      async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
+        c.set("auth", mockAuth as AuthContext);
+        await next();
+      },
+    requireRole:
+      (..._roles: string[]) =>
+      async (_c: Context, next: Next) => {
+        await next();
+      },
+    requireIntrospection: () => async (_c: Context, next: Next) => {
       await next();
     },
-  requireRole:
-    (..._roles: string[]) =>
-    async (_c: Context, next: Next) => {
-      await next();
-    },
-  requireIntrospection: () => async (_c: Context, next: Next) => {
-    await next();
-  },
-  hashApiKey: (key: string) => `sha256:${key}`,
-  hashApiKeyArgon2: async (key: string) => `argon2id:${key}`,
-}));
+    hashApiKey: (key: string) => `sha256:${key}`,
+    hashApiKeyArgon2: async (key: string) => `argon2id:${key}`,
+    API_KEY_DEFAULT_TTL_DAYS: 365,
+    detectScopesFormat: actual.detectScopesFormat,
+  };
+});
 
 const mockInsertValues = vi.fn();
+const mockWriteAuditEntry = vi.fn();
 
 vi.mock("@platform/db", () => ({
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
@@ -51,13 +61,22 @@ vi.mock("@platform/db", () => ({
             id: "key-1",
             name: "test-key",
             scopes: [],
+            scopesFormat: "role",
             createdAt: new Date(),
+            expiresAt: new Date("2027-08-09T00:00:00Z"),
           },
         ]),
     };
     return fn(tx);
   },
   apiKeys: {},
+}));
+
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => {
+    mockWriteAuditEntry(...args);
+    return Promise.resolve();
+  },
 }));
 
 const { createApiKeyHandler } = await import("./create.js");
@@ -205,5 +224,68 @@ describe("POST /api-keys — argon2id hash storage (#237)", () => {
     expect(json.data.key).toMatch(/^sk_live_/);
     expect(json.data.keyHash).toBeUndefined();
     expect(json.data.keyHashArgon2).toBeUndefined();
+  });
+});
+
+describe("POST /api-keys — lifecycle hardening (ADR-008 Decision #2/#3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.roles = ["admin"];
+  });
+
+  it("stamps created_by with the caller's userId and sets a non-null expiresAt", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body(),
+    });
+
+    expect(res.status).toBe(201);
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.createdBy).toBe(mockAuth.userId);
+    expect(insertArg.expiresAt).toBeInstanceOf(Date);
+  });
+
+  // Review finding (PR #373, L3): create.ts stamps scopesFormat on every
+  // insert (ADR-008 Decision #6) — no prior assertion covered it.
+  it("stamps scopesFormat on the insert and returns it in the response body", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body({ scopes: ["agent"] }),
+    });
+
+    expect(res.status).toBe(201);
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.scopesFormat).toBe("role");
+
+    const json = await res.json();
+    expect(json.data.scopesFormat).toBe("role");
+  });
+
+  it("writes an audit entry for the new key (previously wrote none at all)", async () => {
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body({ name: "ci-key", scopes: ["agent"] }),
+    });
+
+    expect(mockWriteAuditEntry).toHaveBeenCalledOnce();
+    const entry = mockWriteAuditEntry.mock.calls[0][1];
+    expect(entry.action).toBe("created");
+    expect(entry.resourceType).toBe("api_key");
+    expect(entry.actorId).toBe(mockAuth.userId);
+    expect(entry.resourceId).toBe("key-1");
+  });
+
+  it("returns expiresAt in the response body", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body(),
+    });
+
+    const json = await res.json();
+    expect(json.data.expiresAt).toBeDefined();
   });
 });

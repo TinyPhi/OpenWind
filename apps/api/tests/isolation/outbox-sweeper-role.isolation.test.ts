@@ -12,7 +12,7 @@
  * platform-wide. The assertion below covers both manifestations rather
  * than assuming one specific error text.
  *
- * 0053_outbox_sweeper_role.sql fixes this with a narrowly-scoped BYPASSRLS
+ * 0059_outbox_sweeper_role.sql fixes this with a narrowly-scoped BYPASSRLS
  * role, granted only inside the sweep transaction via SET LOCAL ROLE.
  *
  * Uses a real Postgres database (no mocks).

@@ -92,6 +92,16 @@ describe("GET /admin/audit (#10 fix)", () => {
 describe("api-keys CRUD (#10 fix)", () => {
   let createdKeyId: string | undefined;
 
+  // Previously the DELETE test's own hard delete cleaned this up. ADR-008
+  // Decision #4 changed deletion to a soft-revoke, so the row now survives
+  // that test and needs an explicit hard delete here instead.
+  afterAll(async () => {
+    if (!createdKeyId) return;
+    await withTenantContext(TENANT_A, (tx) =>
+      tx.delete(apiKeys).where(eq(apiKeys.id, createdKeyId ?? "")),
+    );
+  });
+
   it("POST /api-keys creates a key (previously failed with an RLS violation)", async () => {
     const app = new Hono<{ Variables: { auth: AuthContext } }>();
     app.use("*", async (c, next) => {
@@ -135,7 +145,7 @@ describe("api-keys CRUD (#10 fix)", () => {
     expect(json.data.some((k) => k.id === createdKeyId)).toBe(true);
   });
 
-  it("DELETE /api-keys/:id deletes the key (previously always 404'd)", async () => {
+  it("DELETE /api-keys/:id revokes the key via the RLS-scoped write path (previously always 404'd)", async () => {
     const app = new Hono<{ Variables: { auth: AuthContext } }>();
     app.use("*", async (c, next) => {
       c.set("auth", {
@@ -154,13 +164,18 @@ describe("api-keys CRUD (#10 fix)", () => {
     });
     expect(res.status).toBe(204);
 
+    // ADR-008 Decision #4: revocation is now a soft-revoke (row survives,
+    // revokedAt/revokedBy set), not a hard delete — this still proves the
+    // original RLS-routing bug (withTenantContext missing, so the UPDATE
+    // silently affected 0 rows and the route always 404'd) stays fixed.
     const [row] = await withTenantContext(TENANT_A, (tx) =>
       tx
         .select()
         .from(apiKeys)
         .where(eq(apiKeys.id, createdKeyId ?? "")),
     );
-    expect(row).toBeUndefined();
+    expect(row?.revokedAt).not.toBeNull();
+    expect(row?.revokedBy).toBe("isolation-test-user");
   });
 });
 

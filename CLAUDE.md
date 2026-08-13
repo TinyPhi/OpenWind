@@ -237,6 +237,10 @@ field is no longer read). Do not remove these:
   via IDN / backslash authority); pulled in via commitlint's ajv dep.
 - `postcss ">=8.5.18"` — GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL
   auto-loading); pulled in via vite (admin-ui devDep).
+- `nanoid ">=3.3.17 <4"` — GHSA-2v37-7h3g-55p8 (indefinite loop when size is 0);
+  pulled in via postcss (vite/vitest chains in admin-ui devDeps). Bounded to `<4` —
+  postcss's own package.json pins nanoid as `^3.x`, so an unbounded floor would
+  silently force it onto an untested major (resolves to 6.0.1) instead of just the fix.
 
 ---
 

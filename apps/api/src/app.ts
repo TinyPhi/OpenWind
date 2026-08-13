@@ -23,6 +23,7 @@ import { savedViewsRouter } from "./routes/saved-views/index.js";
 import { notificationsRouter } from "./routes/notifications/index.js";
 import { exportsRouter } from "./routes/exports/download.js";
 import { dashboardRouter } from "./routes/dashboard/index.js";
+import { webhooksRouter } from "./routes/webhooks/index.js";
 import { openApiSpec } from "./openapi.js";
 import { registerEntityAuditHook } from "@platform/entity-engine";
 import { writeAuditEntry } from "@platform/audit";
@@ -117,6 +118,11 @@ export function createApp(): Hono<AppVars> {
   app.route("/notifications", notificationsRouter);
   app.route("/exports", exportsRouter);
   app.route("/dashboard", dashboardRouter);
+  // Unauthenticated by design — HMAC-verified inside the handler, per
+  // ADR-009 Decision #3. AC2's pre-auth, IP-keyed flood guard is already
+  // satisfied by the global rateLimit() middleware applied above (step 4) —
+  // no separate route-level guard needed for this route specifically.
+  app.route("/webhooks", webhooksRouter);
 
   return app;
 }

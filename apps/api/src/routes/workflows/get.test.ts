@@ -177,7 +177,9 @@ describe("GET /workflows/:id", () => {
       ],
     ];
 
-    const res = await makeApp().request(`/${WF_ID}?entityId=e-001`);
+    const res = await makeApp().request(
+      `/${WF_ID}?entityId=00000000-0000-0000-0000-000000000001`,
+    );
 
     expect(res.status).toBe(200);
   });
@@ -197,7 +199,9 @@ describe("GET /workflows/:id", () => {
       [], // fallback "own any record in this workflow" query
     ];
 
-    const res = await makeApp().request(`/${WF_ID}?entityId=e-001`);
+    const res = await makeApp().request(
+      `/${WF_ID}?entityId=00000000-0000-0000-0000-000000000001`,
+    );
 
     expect(res.status).toBe(404);
   });
@@ -217,7 +221,9 @@ describe("GET /workflows/:id", () => {
       [], // fallback query
     ];
 
-    const res = await makeApp().request(`/${WF_ID}?entityId=e-001`);
+    const res = await makeApp().request(
+      `/${WF_ID}?entityId=00000000-0000-0000-0000-000000000001`,
+    );
 
     expect(res.status).toBe(404);
   });
@@ -244,7 +250,9 @@ describe("GET /workflows/:id", () => {
       ],
     ];
 
-    const res = await makeApp().request(`/${WF_ID}?entityId=e-001`);
+    const res = await makeApp().request(
+      `/${WF_ID}?entityId=00000000-0000-0000-0000-000000000001`,
+    );
 
     expect(res.status).toBe(200);
   });
@@ -273,7 +281,9 @@ describe("GET /workflows/:id", () => {
     mockGetWorkflow.mockResolvedValue(fakeWorkflowFull());
     dbResultQueue = [[], []];
 
-    const res = await makeApp().request(`/${WF_ID}?entityId=e-999`);
+    const res = await makeApp().request(
+      `/${WF_ID}?entityId=00000000-0000-0000-0000-000000000999`,
+    );
 
     expect(res.status).toBe(404);
   });
