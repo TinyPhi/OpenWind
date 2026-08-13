@@ -129,3 +129,21 @@ export const connectorOutboundQueue = new Queue("connector-outbound", {
     backoff: { type: "exponential", delay: 45_000 },
   },
 });
+
+// Connector inbound gateway (ADR-009 Decision #3, issue #364) — the
+// transformed event from a verified inbound webhook, published here by
+// apps/api's webhook route for downstream processing. Simple internal-job
+// retry semantics (matching automationQueue/notifyOutboundQueue's convention)
+// since a failure here is this platform's own processing failure, not a
+// third-party endpoint being down — unlike connectorOutboundQueue above,
+// there's no case for an hours-long retry tail. No consumer exists yet: this
+// issue is the producer/gateway side only (see phase-3-primer.md's Stage 2
+// scope note); a Worker consuming this queue is separate, not-yet-built work
+// for whenever #368's connectors give it something to do.
+export const connectorInboundQueue = new Queue("connector-inbound", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});

@@ -166,6 +166,9 @@ importers:
       '@platform/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@platform/connector-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connector-sdk
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db
