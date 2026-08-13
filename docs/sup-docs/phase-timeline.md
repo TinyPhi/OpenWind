@@ -37,7 +37,8 @@ longer than the original projection below ever assumed.
 2. **Generation pass**: Claude Code implements with tests in one session
 3. **Review pass**: human reviews output, security check, `gh pr create`
 4. **`/ultrareview` pass**: multi-agent cloud review on the PR before merge
-5. **Log session**: update [week-log.md](week-log.md) and [roadmap-tracker.md](roadmap-tracker.md)
+5. **Log session**: add a new file under [week-log/](week-log/) and update your track's own row
+   in [roadmap-tracker.md](roadmap-tracker.md)
 
 **Where humans must stay in the loop:**
 
