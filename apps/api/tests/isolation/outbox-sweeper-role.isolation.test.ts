@@ -9,11 +9,19 @@
  * session where current_setting(...) returns NULL, silently filters every
  * row out — either way, the sweep never sees any tenant's events, so no
  * automation triggers or in-app/email notifications were delivered
- * platform-wide. The assertion below covers both manifestations rather
- * than assuming one specific error text.
+ * platform-wide.
  *
- * 0059_outbox_sweeper_role.sql fixes this with a narrowly-scoped BYPASSRLS
- * role, granted only inside the sweep transaction via SET LOCAL ROLE.
+ * Two independent fixes for this same outage now both exist:
+ * 0059_outbox_sweeper_role.sql (this repo's own direct-to-server hotfix,
+ * predates PR #374) grants a narrowly-scoped BYPASSRLS role to the three
+ * sweep call sites via SET LOCAL ROLE. 0058_outbox_dead_letter_rls_null_guc_fix.sql
+ * (PR #374, merged later upstream) takes a broader approach: it widens the
+ * RLS policy itself so ANY app_user connection with no tenant context (NULL
+ * or the pgbouncer placeholder '') gets batch access, not just the three
+ * call sites that opt into outbox_sweeper. Since 0058's policy is now the
+ * effective one, plain app_user with no context correctly succeeds too —
+ * outbox_sweeper is a redundant-but-harmless belt-and-suspenders mechanism
+ * for exactly the three call sites that use it, not the sole gate anymore.
  *
  * Uses a real Postgres database (no mocks).
  */
@@ -53,20 +61,20 @@ const SWEEP_QUERY = sql`
 `;
 
 describe("outbox_events cross-tenant sweep", () => {
-  it("never sees both tenants' rows under app_user with no tenant context set (the production bug)", async () => {
-    let rows: Array<{ id: string; tenant_id: string }> = [];
-    try {
-      rows = await db.transaction(async (tx) => {
-        await tx.execute(sql`SET LOCAL ROLE app_user`);
-        return tx.execute<{ id: string; tenant_id: string }>(SWEEP_QUERY);
-      });
-    } catch {
-      // RLS blocking this cross-tenant sweep can surface as either a thrown
-      // error (uuid cast failure) or, on a clean session, a silently empty
-      // result — both are the bug; neither should ever return real rows.
-    }
+  it("sees both tenants' rows under plain app_user with no tenant context set (0058's broader fix)", async () => {
+    // Superseded expectation, kept as a regression guard: before PR #374's
+    // RLS-policy widening (0058), this exact scenario reproduced the
+    // production outage documented above (0 rows / thrown error). It now
+    // correctly succeeds without needing the outbox_sweeper role at all —
+    // if this assertion ever fails again, 0058's policy has regressed.
+    const rows = await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL ROLE app_user`);
+      return tx.execute<{ id: string; tenant_id: string }>(SWEEP_QUERY);
+    });
 
-    expect(rows).toHaveLength(0);
+    const tenantIds = new Set(rows.map((r) => r.tenant_id));
+    expect(tenantIds.has(TENANT_A)).toBe(true);
+    expect(tenantIds.has(TENANT_B)).toBe(true);
   });
 
   it("succeeds and sees rows across tenants when running as outbox_sweeper", async () => {
