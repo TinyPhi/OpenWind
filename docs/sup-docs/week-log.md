@@ -10,6 +10,42 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-13 — PR #374 merged: outbox/dead-letter RLS null-GUC cast fix (@TusharSharma991)
+
+**Session type:** Bug fix review + merge support (no-plan contributor PR)
+**PR:** #374 — `fix(db): restore no-context batch access on outbox_events/dead_letter_events RLS`
+**Branch:** `fix/PLAT-outbox-dead-letter-rls-null-guc` → `main`
+
+Migration 0049 re-enabled RLS on `outbox_events` and `dead_letter_events` using a bare
+`current_setting('app.tenant_id', true)::uuid` cast. This silently broke two things:
+
+1. Both tables are intentionally read/written **without** tenant context by batch processes
+   (`outbox-poller.ts`, `notification-poller.ts`, and a documented no-context insert in
+   `notification-outbound-worker.ts`'s system.error dead-letter path).
+2. Once any pgbouncer-pooled connection has run a tenant-scoped query, Postgres permanently
+   registers `app.tenant_id` as a placeholder GUC defaulting to `''` (not NULL). Every later
+   no-context poller tick on that connection threw `invalid input syntax for type uuid: ""`
+   — blocking all outbox delivery platform-wide.
+
+**Fix (migration 0058):** Restore the no-context batch-access exemption with
+`NULLIF(current_setting('app.tenant_id', true), '')::uuid` guarding the cast (prevents the
+eager-evaluation exception regardless of query planner choice) plus explicit OR branches for
+the IS NULL and `''` states. Tenant isolation is unchanged for sessions with a real tenant
+context set.
+
+**Review/merge work in this session:**
+
+- Two H1 test gaps fixed before merge: missing UPDATE tests for the outbox batch-access block,
+  and missing `dead_letter_events` batch-access describe block (SELECT + INSERT × 2 GUC states).
+- Merge conflict resolved: main landed PRs #387/#393 while the PR was open, claiming idx 56/57 —
+  PR #374's migration renumbered to idx 58. Rebuilt stale `dist/` for `@platform/connector-sdk`
+  and `@platform/db` that caused 25 `@typescript-eslint/no-unsafe-*` lint errors in the
+  merge commit's pre-commit hook.
+- LOW findings fixed: PR-reference comments stripped, all `0056` references updated to `0058`.
+- Reviewed and approved (no blocking findings). Merged 2026-08-13.
+
+---
+
 ## 2026-08-13 — Issue #364: inbound webhook gateway (ADR-009 Decision #3)
 
 **Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree
