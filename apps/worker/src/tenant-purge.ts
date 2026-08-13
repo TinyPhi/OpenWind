@@ -8,7 +8,8 @@
  *   files (DB rows) → workflowTransitions → workflowStates → workflowEvents
  *   → workflows → entityRelations → entityInstances → entityFields → entityTypes
  *   → automationExecutions → automationRules → deadLetterEvents → outboxEvents
- *   → connectorCredentials → apiKeys → tenantUsers → viewConfigs
+ *   → connectorDeliveryAttempts → connectorCredentials → apiKeys → tenantUsers
+ *   → viewConfigs
  *   [audit log retained for compliance]
  *   → tenant.status = 'purged'
  *   then on-disk files purged (best-effort, outside DB transaction)
@@ -53,6 +54,7 @@ import {
   automationExecutions,
   outboxEvents,
   deadLetterEvents,
+  connectorDeliveryAttempts,
 } from "@platform/db";
 
 const QUEUE_NAME = "tenant-purge";
@@ -162,7 +164,10 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
         .where(eq(deadLetterEvents.tenantId, tenantId));
       await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, tenantId));
 
-      // Credentials + API keys
+      // Connector delivery attempts (issue #365) + credentials + API keys
+      await tx
+        .delete(connectorDeliveryAttempts)
+        .where(eq(connectorDeliveryAttempts.tenantId, tenantId));
       await tx
         .delete(connectorCredentials)
         .where(eq(connectorCredentials.tenantId, tenantId));

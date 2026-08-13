@@ -319,3 +319,51 @@ export const connectorCredentials = pgTable(
     ).on(t.tenantId, t.connectorId),
   }),
 );
+
+/**
+ * connectorDeliveryAttempts — one row per connector outbound delivery attempt
+ * (ADR-009 Decision #9, issue #365). Tenant-scoped, RLS-protected (migration
+ * 0057). Without this, a dead-lettered connector delivery simply disappears
+ * (`dead_letter_events` has zero readers in apps/api or apps/admin-ui today) —
+ * this table is the per-attempt log leading up to that terminal case, not a
+ * replacement for it. A redrive UI/API over these rows is deliberately out of
+ * scope for issue #365.
+ *
+ * `connectorId` is nullable + ON DELETE SET NULL (matches
+ * dead_letter_events.original_event_id's pattern) — the attempt record must
+ * outlive the catalog row if the connector is later removed.
+ *
+ * `deliveryId` is the idempotency identifier sent as the outbound request's
+ * X-OpenWind-Delivery-Id header (mirrors svix-id) — stable across every retry
+ * of the same logical delivery, so multiple rows here can share one value
+ * (one row per attemptNumber).
+ */
+export const connectorDeliveryAttempts = pgTable(
+  "connector_delivery_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    connectorId: uuid("connector_id").references(() => connectorDefinitions.id),
+    deliveryId: uuid("delivery_id").notNull(),
+    /** pending | success | failed | exhausted — enforced by a DB CHECK (migration 0057). */
+    status: text("status", {
+      enum: ["pending", "success", "failed", "exhausted"],
+    }).notNull(),
+    attemptNumber: integer("attempt_number").notNull(),
+    latencyMs: integer("latency_ms"),
+    error: text("error"),
+    /** Set on a 'failed' row that still has BullMQ attempts remaining; NULL on 'success'/'exhausted'. */
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantCreatedIdx: index(
+      "connector_delivery_attempts_tenant_created_idx",
+    ).on(t.tenantId, t.createdAt),
+    deliveryIdIdx: index("connector_delivery_attempts_delivery_id_idx").on(
+      t.deliveryId,
+    ),
+  }),
+);

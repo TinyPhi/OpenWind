@@ -10,6 +10,56 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-12 — Issue #365: connector outbound delivery + redactor wiring (ADR-009 Decisions #9/#10)
+
+**Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree
+`../openwind-feat-365`, running alongside issue #364, per this session's parallel-orchestration
+pattern)
+**Summary:** New `connector_delivery_attempts` table (migration 0057 — RLS ships with both
+`USING`/`WITH CHECK` from day one, an improvement over `dead_letter_events`' original USING-only
+shape; `app_user` gets DELETE from the start per the #363 lesson that `tenant-purge.ts` needs it
+immediately, not as a follow-up migration). New `connectorOutboundQueue`
+(`apps/worker/src/queues.ts`): `attempts: 11`, exponential `delay: 45_000ms` — deliberately not
+`notifyOutboundQueue`'s 3-attempts/1s config (a ~7s window sized for internal outages, wrong for a
+third-party endpoint); worst-case cumulative delay ≈25.6h, close to the ADR's Stripe/Svix ~27h
+reference point. New pure module `packages/connector-sdk/src/outbound-envelope.ts`: HMAC-SHA256
+signing (`t=<unix>,v1=<hex>` header, `X-OpenWind-Delivery-Id`), a versioned envelope, and
+`validateActionOutput()` (size-before-schema check against a new `ActionDefinition.maxOutputBytes`,
+default 256KB). New `apps/worker/src/connector-outbound-worker.ts` queue consumer: resolves a
+job's connector/action from a new in-memory registry (`packages/connector-sdk/src/registry.ts` —
+needed because a BullMQ job's data crosses Redis as plain JSON and can't carry a live Zod schema),
+validates the raw payload (AC6), redacts pii/financial fields via `workflow-engine`'s existing
+`redactMetadata`/`buildSensitivityMap` (AC5, reused unchanged), then re-runs SSRF validation
+(`connector-sdk`'s `assertEgressAllowed`, from #362) and connection-pinning on **every** attempt,
+not just the first — target URL or entity-field sensitivity could change between retries of the
+same logical delivery.
+**Self-corrections during implementation:** (1) discovered the branch had forked before #363
+merged into sibling worktrees, so it was missing `connector_definitions`/`connector_credentials`
+that this issue's FK depends on — cherry-picked #363's already-reviewed commit onto this branch
+(verified byte-identical before doing so) rather than guessing at the schema; (2) caught its own
+missing `tenantId IS NULL OR tenantId = ?` guard in the entity-fields sensitivity-map query before
+reporting done, matching `workflow-engine/src/engine.ts`'s established pattern exactly.
+**Deliberately not built, per issue scope:** ADR-009 Decision #10's per-connector grant to cross
+the tenant boundary (redaction is always-on with no bypass — no storage mechanism exists for a
+grant yet) and any producer wiring into the new queue (the trigger source — polling scheduler
+#366, a built connector #368, or ADR-010's `event_subscriptions` — is separate, not-yet-built
+work). Also flagged for #364 to reconcile against (not yet built as of this issue): the
+`X-OpenWind-Signature`/`X-OpenWind-Delivery-Id` header scheme is a documented pick, not a verified
+match to whatever #364's inbound gateway ultimately uses.
+**Verification:** `pnpm typecheck`/`lint`: PASS (41/41). `pnpm test`: PASS (27/27 tasks; new
+`outbound-envelope.test.ts` 12/12 and `connector-outbound-worker.test.ts` 15/15 independently
+re-run standalone). `pnpm test:isolation`: PASS (48 files / 295 tests, including the new
+`connector-delivery-attempts.isolation.test.ts` 8/8: cross-tenant RLS read/write, `WITH CHECK` on
+insert, cross-tenant UPDATE blocked, same-tenant UPDATE/DELETE allowed, `status` CHECK constraint,
+`connector_id` ON DELETE SET NULL). Independently re-verified by the orchestrating session: full
+read of every new/changed file, fresh uncached runs of both new test files, and a live-DB
+migration + isolation run against a freshly-corrected dev environment (a pre-existing,
+unrelated table-ownership/grant drift on the shared dev Postgres — unrelated tables created under
+the wrong role over the course of this session — blocked migrations entirely until fixed; not a
+#365 defect).
+
+---
+
 ## 2026-08-12 — Issue #382: true concurrent-connections test for the advisory lock
 
 **Session type:** Test (follow-up from PR #380 review, one of four parallel workstreams
