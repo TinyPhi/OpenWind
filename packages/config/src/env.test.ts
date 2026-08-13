@@ -23,7 +23,7 @@ const MINIMAL_VALID_ENV = {
   OPENBAO_TOKEN: "dev-root-token",
 };
 
-describe("RATE_LIMIT_TENANT_PER_MIN (PR #375 review M1)", () => {
+describe("RATE_LIMIT_TENANT_PER_MIN", () => {
   it("defaults to 600 when absent from the environment", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
     expect(parsed.RATE_LIMIT_TENANT_PER_MIN).toBe(600);
