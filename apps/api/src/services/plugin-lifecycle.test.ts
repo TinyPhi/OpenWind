@@ -53,6 +53,7 @@ const {
   installPlugin,
   uninstallPlugin,
   listPluginsForTenant,
+  reportPluginRuntimeError,
   PluginLifecycleError,
 } = await import("./plugin-lifecycle.js");
 const { logger } = await import("@platform/logger");
@@ -465,5 +466,41 @@ describe("listPluginsForTenant", () => {
       status: null,
       errorCount: 0,
     });
+  });
+});
+
+describe("reportPluginRuntimeError", () => {
+  it("writes a runtime_exception row for the plugin", async () => {
+    mockDbSelect.mockReturnValueOnce(
+      makeSelectChain([{ id: PLUGIN_ID, slug: PLUGIN_SLUG }]),
+    );
+    mockTx.insert.mockReturnValueOnce({
+      values: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await reportPluginRuntimeError(TENANT_ID, PLUGIN_SLUG, {
+      slotName: "ticket-header",
+      message: "plugin blew up",
+    });
+
+    expect(mockTx.insert).toHaveBeenCalled();
+    const insertedValues =
+      mockTx.insert.mock.results[0]?.value.values.mock.calls[0]?.[0];
+    expect(insertedValues).toMatchObject({
+      tenantId: TENANT_ID,
+      pluginId: PLUGIN_ID,
+      kind: "runtime_exception",
+      detail: { slotName: "ticket-header", message: "plugin blew up" },
+    });
+  });
+
+  it("throws PLUGIN_NOT_FOUND for an unknown slug", async () => {
+    mockDbSelect.mockReturnValueOnce(makeSelectChain([]));
+
+    await expect(
+      reportPluginRuntimeError(TENANT_ID, "nonexistent", {
+        message: "x",
+      }),
+    ).rejects.toMatchObject({ code: "PLUGIN_NOT_FOUND" });
   });
 });

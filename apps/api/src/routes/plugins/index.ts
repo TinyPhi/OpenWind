@@ -9,6 +9,7 @@ import {
   installPlugin,
   uninstallPlugin,
   listPluginsForTenant,
+  reportPluginRuntimeError,
   PluginLifecycleError,
   PLUGIN_LIFECYCLE_ERROR_STATUS,
 } from "../../services/plugin-lifecycle.js";
@@ -31,6 +32,12 @@ const InstallBodySchema = z.object({
 
 const UninstallBodySchema = z.object({
   retainData: z.boolean().optional(),
+});
+
+const ReportErrorBodySchema = z.object({
+  slotName: z.string().max(200).optional(),
+  message: z.string().max(2000),
+  componentStack: z.string().max(4000).optional(),
 });
 
 // Require authentication for all plugin routes.
@@ -125,6 +132,45 @@ router.post(
       );
       return c.json(
         { error: "UNINSTALL_FAILED", message: "Failed to uninstall plugin" },
+        500,
+      );
+    }
+  },
+);
+
+// Client-side plugin failure reporting (R7 — a <PluginSlot> error boundary
+// catching a plugin UI exception). Any authenticated user can report — this
+// is telemetry, not a mutation of anything the caller owns, so no role check
+// beyond requireAuth (already applied to the whole router above).
+router.post(
+  "/:slug/errors",
+  zValidator("param", SlugParamSchema),
+  zValidator("json", ReportErrorBodySchema),
+  async (c) => {
+    const auth = c.get("auth");
+    const { slug } = c.req.valid("param");
+    const { slotName, message, componentStack } = c.req.valid("json");
+
+    try {
+      await reportPluginRuntimeError(auth.tenantId, slug, {
+        slotName,
+        message,
+        componentStack,
+      });
+      return c.json({ data: { reported: true } }, 201);
+    } catch (err: unknown) {
+      if (err instanceof PluginLifecycleError) {
+        return c.json(
+          { error: err.code, message: err.message },
+          PLUGIN_LIFECYCLE_ERROR_STATUS[err.code] as 400,
+        );
+      }
+      logger.error(
+        { err, tenantId: auth.tenantId, slug },
+        "reportPluginRuntimeError failed",
+      );
+      return c.json(
+        { error: "REPORT_FAILED", message: "Failed to report plugin error" },
         500,
       );
     }

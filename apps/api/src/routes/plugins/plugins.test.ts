@@ -8,6 +8,7 @@ import type * as PluginLifecycleModule from "../../services/plugin-lifecycle.js"
 const mockListPluginsForTenant = vi.fn();
 const mockInstallPlugin = vi.fn();
 const mockUninstallPlugin = vi.fn();
+const mockReportPluginRuntimeError = vi.fn();
 
 let currentRoles = ["user"];
 
@@ -45,6 +46,8 @@ vi.mock("../../services/plugin-lifecycle.js", async (importOriginal) => {
       mockListPluginsForTenant(...args),
     installPlugin: (...args: unknown[]) => mockInstallPlugin(...args),
     uninstallPlugin: (...args: unknown[]) => mockUninstallPlugin(...args),
+    reportPluginRuntimeError: (...args: unknown[]) =>
+      mockReportPluginRuntimeError(...args),
   };
 });
 
@@ -224,5 +227,63 @@ describe("POST /plugins/:slug/uninstall", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /plugins/:slug/errors", () => {
+  it("does not require admin — any authenticated user can report a plugin failure", async () => {
+    currentRoles = ["user"];
+    mockReportPluginRuntimeError.mockResolvedValueOnce(undefined);
+
+    const res = await makeApp().request("/plugins/widget_plugin/errors", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "plugin blew up" }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockReportPluginRuntimeError).toHaveBeenCalledWith(
+      "t-aaa",
+      "widget_plugin",
+      {
+        slotName: undefined,
+        message: "plugin blew up",
+        componentStack: undefined,
+      },
+    );
+  });
+
+  it("maps PLUGIN_NOT_FOUND to 404", async () => {
+    mockReportPluginRuntimeError.mockRejectedValueOnce(
+      new PluginLifecycleError("PLUGIN_NOT_FOUND"),
+    );
+
+    const res = await makeApp().request("/plugins/nonexistent/errors", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "x" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects a body with no message at the validator layer", async () => {
+    const res = await makeApp().request("/plugins/widget_plugin/errors", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    expect(mockReportPluginRuntimeError).not.toHaveBeenCalled();
+  });
+
+  it("returns a generic 500 for an unexpected error", async () => {
+    mockReportPluginRuntimeError.mockRejectedValueOnce(new Error("boom"));
+
+    const res = await makeApp().request("/plugins/widget_plugin/errors", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "x" }),
+    });
+    expect(res.status).toBe(500);
   });
 });

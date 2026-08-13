@@ -378,3 +378,35 @@ export async function listPluginsForTenant(
     errorCount: errorCountByPluginId.get(plugin.id) ?? 0,
   }));
 }
+
+/**
+ * Records a client-side plugin failure (R7 — a slot's error boundary catching
+ * a plugin UI exception) as a `runtime_exception` row, same table Phase 1's
+ * server-side failures (R3/R5) already write to. `detail` is caller-supplied
+ * (an error message + component stack from the browser) — bounded to a
+ * reasonable size by the route layer's Zod schema, not here.
+ */
+export async function reportPluginRuntimeError(
+  tenantId: string,
+  pluginSlug: string,
+  detail: Record<string, unknown>,
+): Promise<void> {
+  const [plugin] = await db
+    .select({ id: pluginDefinitions.id })
+    .from(pluginDefinitions)
+    .where(eq(pluginDefinitions.slug, pluginSlug))
+    .limit(1);
+
+  if (!plugin) {
+    throw new PluginLifecycleError("PLUGIN_NOT_FOUND", { pluginSlug });
+  }
+
+  await withTenantContext(tenantId, (tx) =>
+    tx.insert(pluginErrors).values({
+      tenantId,
+      pluginId: plugin.id,
+      kind: "runtime_exception",
+      detail,
+    }),
+  );
+}

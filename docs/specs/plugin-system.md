@@ -124,12 +124,31 @@ genuinely untrusted code (a bad plugin can affect host memory/state); the altern
 and deferred is iframe + `postMessage` isolation, which trades UI richness for real fault
 isolation and would be the right default the day a non-first-party plugin can install.
 ✓ Navigating into a plugin-registered page does not trigger a full browser page reload.
+**Implementation note (Phase 3):** `@module-federation/vite` is the Vite-team/VoidZero-recommended
+plugin (source-driven-development: https://github.com/module-federation/vite, which documents an
+explicit migration path away from the older `@originjs/vite-plugin-federation`) — but admin-ui
+only ever _consumes_ a plugin's remote dynamically at runtime (the remoteEntry URL is only known
+per-tenant, from that tenant's installed plugin row, never at build time), so no `vite.config.ts`
+change was needed at all. `apps/admin-ui/src/lib/plugin-remote-loader.ts` uses the plain
+`@module-federation/runtime` package's `registerRemotes`/`loadRemote`
+(https://module-federation.io/guide/runtime/runtime-api) directly — verified against that
+package's real installed `.d.ts` and a real production `vite build`, since the plugin the host
+would actually load doesn't exist yet to test end-to-end (see R12's note on the same gap).
 
 **R7 — `<Slot>` component with per-slot, per-plugin error boundaries.** A plugin UI failure
 inside one slot cannot propagate to the host or to other slots. Reads `SlotRegistration[]` from
 the installed plugin's manifest snapshot (R2).
 ✓ A slot's component throwing during render leaves every other slot on the page functional and
 writes a `runtime_exception` row to `plugin_errors` (R8).
+**Implementation note (Phase 3):** `apps/admin-ui/src/components/plugin-slot.tsx`'s `<PluginSlot>`
+deliberately does **not** use `React.lazy`/`Suspense` — React's own rule is that a lazy
+component's loader must be defined at module scope, not re-created per render, which conflicts
+with a loader that has to vary per (pluginSlug, slotName) pair. Uses a manual
+load-then-render-or-throw pattern instead (store an async failure in state, re-throw it
+synchronously on the next render so the error boundary catches it). The ✓ criterion's "writes a
+`runtime_exception` row" needed a real endpoint that didn't exist yet —
+`POST /plugins/:slug/errors` + `reportPluginRuntimeError` (added this phase) is what the error
+boundary actually calls.
 
 **R8 — Plugin error isolation.** New `plugin_errors` table (tenant-scoped, RLS) — any lifecycle
 failure, governor-limit breach (R5), or runtime exception surfaced by a slot's error boundary
@@ -172,6 +191,14 @@ despite the trust-tier decision, since the cost of doing it now is low and the a
 retrofitting it onto every already-installed plugin later.
 ✓ Serving a `remoteEntry.js` byte-mismatched against its registered hash fails to load with a
 visible error, not a silent execution of altered code.
+**Implementation note (Phase 3):** a naive implementation — fetch once to verify the hash, then
+let `registerRemotes`/`loadRemote` fetch the URL again to actually load it — has a TOCTOU gap:
+the second fetch is never re-verified, so a CDN swap between the two requests defeats the check
+entirely. `plugin-remote-loader.ts`'s `loadPluginRemote` closes this the same way this codebase's
+connector-sdk DNS-rebinding fix already does elsewhere (verify once, pin the exact verified
+resource, never re-resolve): the verified bytes are wrapped in a same-origin `Blob` and that
+`blob:` URL — never the original remote URL — is what gets registered with the federation
+runtime.
 
 **R13 — Tenant isolation within a plugin's own tables.** R4's `plugin_<slug>` schema isolates
 plugins _from each other_ — it does not isolate one tenant's data from another's _within_ a
