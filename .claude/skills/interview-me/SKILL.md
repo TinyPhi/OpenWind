@@ -1,3 +1,8 @@
+---
+name: interview-me
+description: Extracts what the user actually wants before any plan, spec, or code is written. Invoke when a request is missing who the user is, why now, what success looks like, or what's out of scope, or when starting Phase 3 planning before a spec or primer exists.
+---
+
 # Skill: interview-me
 
 Extract what the user actually wants before any plan, spec, or code is written.

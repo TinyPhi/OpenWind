@@ -1,3 +1,8 @@
+---
+name: idea-refine
+description: Transforms a vague concept into a sharp, actionable direction with explicit trade-offs. Invoke when an idea is too vague to spec, before committing to a direction that needs assumptions stress-tested, or when starting Phase 3B/3C design work that has no ADR yet.
+---
+
 # Skill: idea-refine
 
 Transform a vague concept into a sharp, actionable direction with explicit trade-offs.
