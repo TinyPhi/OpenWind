@@ -61,6 +61,75 @@ directly for the real entity/workflow-state names rather than guessing.
 
 ---
 
+## 2026-08-13 — Issue #364: inbound webhook gateway (ADR-009 Decision #3)
+
+**Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree
+`../openwind-feat-364`, running alongside issue #365)
+**Summary:** New `POST /webhooks/:connectorId/:tenantId` route, deliberately unauthenticated
+by JWT/API-key — the HMAC signature over the raw body is the authentication. Reuses
+`@platform/connector-sdk`'s outbound-envelope helpers built for #365's opposite direction
+(`verifyOutboundSignature`, `OUTBOUND_SIGNATURE_HEADER`/`OUTBOUND_DELIVERY_ID_HEADER`) rather
+than reimplementing HMAC verification or inventing different header names — this resolves
+#365's own "pending reconciliation" note into one signing convention shared by both
+directions. Cherry-picked #365's commit onto this branch first (verified byte-identical to
+that branch's own reviewed content) since #364 depends on its registry and signing helpers,
+neither of which existed on `main` yet.
+**Order of checks:** parse + range-check the `t=` timestamp (±5min tolerance, Stripe/Svix
+precedent) → look up the tenant+connector installation's signing secret from
+`connector_credentials.secrets` (a new well-known `webhookSigningSecret` credentialKey) →
+verify the signature against the raw body — all three failure modes collapse to an
+_identical_ 401 response (AC4's no-existence-oracle requirement: an attacker probing this
+endpoint cannot tell "wrong tenant/connector" apart from "right one, wrong signature").
+Replay-dedupe (a Redis `SET NX EX` keyed on the delivery-id header) runs after signature
+verification and deliberately fails **closed** — 409 on a genuine replay, 503 if the Redis
+check itself errors — a conscious divergence from `rate-limit.ts`'s fail-open
+`checkRateLimit` convention, since replay protection guards against a captured-and-resent
+_valid_ request (a real security concern this check exists specifically to catch), whereas a
+Redis outage failing closed here only delays processing (senders retry on no response), not
+loses data. AC5's connector/trigger dispatch reuses `getConnectorDefinition()` from #365's
+in-memory registry (fails closed, 401, if unregistered — no real connector exists yet, #368's
+job) rather than a second lookup mechanism; a missing webhook trigger or a rejected
+transform/malformed body are a _different_ failure class (400) since the caller already
+authenticated by that point. New `connectorInboundQueue` (`apps/worker/src/queues.ts`,
+mirrored producer-side in `apps/api/src/lib/connector-inbound-queue.ts` per the
+apps-can't-import-apps dependency rule) publishes the transformed event on success — no
+consumer exists yet, matching the issue's explicit producer/gateway-only scope. AC2's
+pre-auth IP-keyed flood guard is already satisfied by the existing global `rateLimit()`
+middleware (`app.use("*", rateLimit())` in `app.ts`) — no redundant second guard added.
+**Security-review findings, both fixed:**
+
+- **HIGH — replay-dedupe bypass via unsigned delivery-id.** The shared HMAC construction
+  (`packages/connector-sdk/src/outbound-envelope.ts`, built by #365) signed only
+  `${timestamp}.${rawBody}` — the delivery-id traveled outside the signed content. Since
+  this route's replay-dedupe keys solely on that (unsigned) header, an attacker who captured
+  one valid `(signature, timestamp, body)` triple could relabel it with a fresh delivery-id
+  and bypass replay protection entirely: the signature stayed valid because it never covered
+  the id. This is a gap in the shared signing convention itself (both directions use the same
+  function), not just this route's usage of it, so the fix landed in `outbound-envelope.ts`
+  (now signs `${deliveryId}.${timestamp}.${rawBody}`, matching Svix's own
+  `msgId.timestamp.payload` precedent this scheme was modeled on but had incompletely
+  ported) — coordinated with issue #365's already-open PR. Regression tests added in both
+  branches proving a relabeled delivery-id invalidates the signature.
+- **HIGH — timing side-channel defeats AC4's no-existence-oracle property.** The "installation
+  not found" branch returned 401 immediately, while the "found, bad signature" branch first
+  paid a real OpenBao network round-trip (`decryptCredential`) before its own 401 — a
+  measurable latency difference between two branches designed to be indistinguishable.
+  Fixed: the "not found" branch now pays an equivalent-shaped dummy decrypt call (result
+  discarded, error ignored) so both paths cost the same before responding. Regression test
+  asserts the dummy call actually fires.
+
+**Verification:** `pnpm typecheck`/`lint`: PASS. `pnpm test`: PASS (819/819, including the
+new `handler.test.ts` 14/14 covering every AC3/AC4/AC5 branch plus both security-review
+regressions — valid signature accepted, missing/invalid/expired-timestamp signature rejected
+identically, unknown installation rejected identically to bad signature (with an equivalent
+decrypt round-trip paid either way), missing signing-secret key rejected, a relabeled
+delivery-id rejected, replay rejected (409) and Redis-failure-during-replay-check fails
+closed (503), unregistered connector rejected, no-webhook-trigger/malformed-JSON/
+transform-rejection all 400). `pnpm test:isolation`: PASS (301/301) — no new table, so
+unaffected by design.
+
+---
+
 ## 2026-08-12 — Issue #365: connector outbound delivery + redactor wiring (ADR-009 Decisions #9/#10)
 
 **Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree
@@ -139,6 +208,56 @@ Design independently verified: confirmed the `.execute()`/`.transaction()` inter
 match `executor.ts`'s actual dedup-transaction structure, and confirmed the test environment's
 connection pool size genuinely allows two concurrent sessions rather than serializing on
 connection acquisition itself (which would have tested something other than what it claims).
+
+---
+
+## 2026-08-12 — Issue #365: connector outbound delivery + redactor wiring (ADR-009 Decisions #9/#10)
+
+**Session type:** Feature (Phase 3A Stage 2 runtime track, built in a parallel git worktree
+`../openwind-feat-365`, running alongside issue #364, per this session's parallel-orchestration
+pattern)
+**Summary:** New `connector_delivery_attempts` table (migration 0057 — RLS ships with both
+`USING`/`WITH CHECK` from day one, an improvement over `dead_letter_events`' original USING-only
+shape; `app_user` gets DELETE from the start per the #363 lesson that `tenant-purge.ts` needs it
+immediately, not as a follow-up migration). New `connectorOutboundQueue`
+(`apps/worker/src/queues.ts`): `attempts: 11`, exponential `delay: 45_000ms` — deliberately not
+`notifyOutboundQueue`'s 3-attempts/1s config (a ~7s window sized for internal outages, wrong for a
+third-party endpoint); worst-case cumulative delay ≈25.6h, close to the ADR's Stripe/Svix ~27h
+reference point. New pure module `packages/connector-sdk/src/outbound-envelope.ts`: HMAC-SHA256
+signing (`t=<unix>,v1=<hex>` header, `X-OpenWind-Delivery-Id`), a versioned envelope, and
+`validateActionOutput()` (size-before-schema check against a new `ActionDefinition.maxOutputBytes`,
+default 256KB). New `apps/worker/src/connector-outbound-worker.ts` queue consumer: resolves a
+job's connector/action from a new in-memory registry (`packages/connector-sdk/src/registry.ts` —
+needed because a BullMQ job's data crosses Redis as plain JSON and can't carry a live Zod schema),
+validates the raw payload (AC6), redacts pii/financial fields via `workflow-engine`'s existing
+`redactMetadata`/`buildSensitivityMap` (AC5, reused unchanged), then re-runs SSRF validation
+(`connector-sdk`'s `assertEgressAllowed`, from #362) and connection-pinning on **every** attempt,
+not just the first — target URL or entity-field sensitivity could change between retries of the
+same logical delivery.
+**Self-corrections during implementation:** (1) discovered the branch had forked before #363
+merged into sibling worktrees, so it was missing `connector_definitions`/`connector_credentials`
+that this issue's FK depends on — cherry-picked #363's already-reviewed commit onto this branch
+(verified byte-identical before doing so) rather than guessing at the schema; (2) caught its own
+missing `tenantId IS NULL OR tenantId = ?` guard in the entity-fields sensitivity-map query before
+reporting done, matching `workflow-engine/src/engine.ts`'s established pattern exactly.
+**Deliberately not built, per issue scope:** ADR-009 Decision #10's per-connector grant to cross
+the tenant boundary (redaction is always-on with no bypass — no storage mechanism exists for a
+grant yet) and any producer wiring into the new queue (the trigger source — polling scheduler
+#366, a built connector #368, or ADR-010's `event_subscriptions` — is separate, not-yet-built
+work). Also flagged for #364 to reconcile against (not yet built as of this issue): the
+`X-OpenWind-Signature`/`X-OpenWind-Delivery-Id` header scheme is a documented pick, not a verified
+match to whatever #364's inbound gateway ultimately uses.
+**Verification:** `pnpm typecheck`/`lint`: PASS (41/41). `pnpm test`: PASS (27/27 tasks; new
+`outbound-envelope.test.ts` 12/12 and `connector-outbound-worker.test.ts` 15/15 independently
+re-run standalone). `pnpm test:isolation`: PASS (48 files / 295 tests, including the new
+`connector-delivery-attempts.isolation.test.ts` 8/8: cross-tenant RLS read/write, `WITH CHECK` on
+insert, cross-tenant UPDATE blocked, same-tenant UPDATE/DELETE allowed, `status` CHECK constraint,
+`connector_id` ON DELETE SET NULL). Independently re-verified by the orchestrating session: full
+read of every new/changed file, fresh uncached runs of both new test files, and a live-DB
+migration + isolation run against a freshly-corrected dev environment (a pre-existing,
+unrelated table-ownership/grant drift on the shared dev Postgres — unrelated tables created under
+the wrong role over the course of this session — blocked migrations entirely until fixed; not a
+#365 defect).
 
 ---
 
