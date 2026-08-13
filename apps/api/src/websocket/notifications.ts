@@ -192,11 +192,11 @@ async function sendAccessRequestToRoom(
 
   const workflow = instance.workflowId
     ? await withTenantContext(tenantId, (tx) =>
-        getWorkflow(tx, tenantId, instance.workflowId as string, {
+        getWorkflow(tx, tenantId, instance.workflowId as string, { // TS: guaranteed non-null by the outer ternary
           userId: "",
           isGlobalAdmin: false,
         }),
-      ).catch(() => null)
+    ).catch(() => null)
     : null;
 
   const reducedMessage: AccessRequestRoomMessage = {
