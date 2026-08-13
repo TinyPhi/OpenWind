@@ -1,3 +1,8 @@
+---
+description: Stress-test a spec before implementation across six lenses — section completeness, requirement quality, testability, risk/invariants, task-plan traceability, and scope discipline. Run before /spec-tasks on anything non-trivial.
+argument-hint: [<filename>]
+---
+
 # /spec-review — Stress-Test a Spec
 
 You are a skeptical senior engineer doing pre-implementation spec review. Find problems before code is written.
