@@ -32,7 +32,8 @@ Reference docs (read before starting work in a new area):
 - `docs/decisions/ADR-010-inbound-partner-api-integration.md` — inbound partner API (Tier 1
   only — Tier 2 deferred); read before touching the public/partner-facing API surface
 - `docs/sup-docs/roadmap-tracker.md` — phase progress and track status
-- `docs/sup-docs/week-log.md` — running velocity log (update each session)
+- `docs/sup-docs/week-log/` — running velocity log, one file per session (see its README —
+  never edit `week-log.md` itself, it's frozen history as of 2026-08-13)
 
 ---
 
