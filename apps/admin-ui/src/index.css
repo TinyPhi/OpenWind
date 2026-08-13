@@ -194,10 +194,21 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .sidebar.sidebar-open { width: 240px; }
-.sidebar.sidebar-collapsed { width: 56px; }
+/* 76px, not 56px - at 56px the icon-only item's own padding+icon width
+   (12+18+12=42px) exceeded the space left after .sidebar-menu's 16px
+   side padding, forcing .sidebar-menu to scroll horizontally just to
+   show a single column of icons. 76px leaves enough room with margin. */
+.sidebar.sidebar-collapsed { width: 76px; }
 
 .menu-item-icon-only {
   justify-content: center;
+}
+
+/* Two classes, not one - .menu-item's own `padding: 12px 16px` (below) is
+   the same specificity as a bare `.menu-item-icon-only`, so source order
+   alone decided the winner and silently dropped this override. Compounding
+   the selector with .menu-item guarantees it wins regardless of order. */
+.menu-item.menu-item-icon-only {
   padding: 12px;
 }
 
@@ -270,16 +281,25 @@ h1, h2, h3, h4, h5, h6 {
   overflow-y: auto;
 }
 
+/* Padding/border-left/border-radius are the same for the resting, hover,
+   and active states - only background-color/color/stroke ever change.
+   Switching the active item used to also swap border-radius (0 vs
+   --radius-md) and padding-left (16px vs 13px, to offset the active-only
+   border-left), so every click reflowed the item's box - read as a
+   flicker even with `transition: var(--transition-fast)` (which
+   animates all properties, layout ones included) softening it. Keeping
+   geometry constant makes state changes an instant, un-animated swap. */
 .menu-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  border-radius: 0;
+  padding: 12px 16px 12px 13px;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-weight: 500;
   font-size: 14px;
-  transition: var(--transition-fast);
+  transition: background-color 0.15s ease, color 0.15s ease;
   cursor: pointer;
 }
 
@@ -287,30 +307,38 @@ h1, h2, h3, h4, h5, h6 {
   width: 18px;
   height: 18px;
   stroke: var(--text-secondary);
-  transition: var(--transition-fast);
+  transition: stroke 0.15s ease;
 }
 
 .menu-item:hover {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
-  border-radius: var(--radius-md);
 }
 
 .menu-item:hover svg {
   stroke: var(--text-primary);
-  transform: translateX(2px);
 }
 
 .menu-item.active {
   background-color: var(--accent-primary);
   color: #fff;
-  border-left: 3px solid var(--accent-primary);
-  border-radius: var(--radius-md);
-  padding-left: 13px; /* balance the border */
+  border-left-color: var(--accent-primary);
 }
 
 .menu-item.active svg {
   stroke: #fff;
+}
+
+/* Folded sidebar: the active item's highlight becomes a centered square
+   (not the full-width bar used when expanded) - no left accent border,
+   since there's no adjacent label text for it to set off. */
+.menu-item-icon-only.active {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  margin: 0 auto;
+  border-left: none;
+  border-radius: var(--radius-md);
 }
 
 /* Nav divider between main items and Settings */
@@ -672,6 +700,35 @@ button.menu-item.sidebar-logout {
   opacity: .8;
 }
 
+/* Floating logo + theme toggle used in place of .lp-topbar - no bar
+   chrome, just the two controls positioned where the bar used to sit. */
+.lp-float-logo {
+  position: absolute;
+  top: 24px;
+  left: 32px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--accent-gradient);
+  color: #fff;
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary) 35%, transparent);
+}
+.lp-float-theme-btn {
+  position: absolute;
+  top: 20px;
+  right: 32px;
+  z-index: 2;
+  padding: 8px;
+  gap: 0;
+}
+
 /* Main */
 .lp-main {
   position: relative;
@@ -718,12 +775,58 @@ button.menu-item.sidebar-logout {
   filter: blur(48px);
 }
 
+/* "Field notebook" page variant: solid background instead of the dotted
+   grid, and a single large accent-tinted light source anchored to the
+   top-right corner instead of the centered card-glow ellipse. Scoped to
+   .lp-page-notebook so it doesn't change the dotted default used
+   elsewhere; still driven entirely by --bg-primary/--accent-primary so it
+   follows both the theme toggle and the saved accent color. */
+.lp-page-notebook {
+  position: relative;
+  background-image: none;
+}
+.lp-page-notebook .lp-main {
+  overflow: hidden;
+}
+.lp-page-notebook .lp-card-glow {
+  top: 0;
+  left: auto;
+  right: 0;
+  transform: translate(30%, -35%);
+  width: 640px;
+  height: 640px;
+  max-width: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 40%, transparent) 0%, transparent 72%);
+  filter: blur(64px);
+}
+
+/* Matching light source in the opposite corner (bottom-left). Reuses the
+   .lp-main::before slot, overriding the base dotted-grid-highlight rule
+   entirely for this page variant rather than layering on top of it. */
+.lp-page-notebook .lp-main::before {
+  content: "";
+  display: block;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+  transform: translate(-30%, 35%);
+  width: 640px;
+  height: 640px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 40%, transparent) 0%, transparent 72%);
+  filter: blur(64px);
+}
+
 /* Card */
 .lp-card {
   position: relative;
   z-index: 1;
+  height: 350px;
   width: 100%;
-  max-width: 360px;
+  max-width: 450px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-top: 3px solid var(--accent-primary);
@@ -881,6 +984,66 @@ button.menu-item.sidebar-logout {
 .lp-footer-link:hover {
   color: var(--accent-primary);
   text-decoration: underline;
+}
+
+/* ── Login Page — "Field notebook" card ─────────────────────────────────
+   Keeps the existing single-card, centered layout (.lp-page/.lp-main/
+   .lp-card/.lp-card-glow above) exactly as-is - including the theme
+   toggle in .lp-topbar - and only restyles the card interior: a
+   breadcrumb-style header instead of the stacked logo/title/description
+   block, and a rounder card. Every value below reads from the same
+   --bg-*/--text-*/--accent-primary/--border-color tokens the rest of the
+   page already uses, so it follows the light/dark toggle and saved accent
+   color with no theme-specific overrides needed. */
+.lp-card-notebook {
+  border-radius: 18px;
+  border-top-width: 1px;
+  border-bottom-width: 1px;
+  box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.55);
+}
+.lp-notebook-head {
+  text-align: left;
+  padding: 40px 34px 22px;
+}
+.lp-notebook-crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 22px;
+}
+.lp-notebook-crumb-sep {
+  color: var(--border-color);
+}
+.lp-notebook-crumb-current {
+  color: var(--accent-primary);
+}
+.lp-notebook-title {
+  text-align: left;
+  font-size: 26px;
+}
+.lp-card-notebook .lp-card-desc {
+  text-align: left;
+}
+.lp-notebook-body {
+  padding: 24px 34px 0;
+}
+
+/* Quiet meta row instead of the filled security badge - a hairline top
+   rule with the note on the left, matching the notebook card's
+   understated pattern. */
+.lp-notebook-security {
+  margin: 24px 34px 32px;
+  padding: 16px 0 0;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-color);
+  border-radius: 0;
+  color: var(--text-muted);
 }
 
 /* Loader Styles */
@@ -2795,14 +2958,17 @@ select.form-input {
 .rcd-page {
   display: flex;
   flex-direction: column;
-  /* .main-content (the direct parent) is already flex:1 inside a height:100vh
-     app shell, so it has a definite, exact height — filling 100% of it (rather
-     than re-deriving the viewport math here, which drifts from the real header
-     height) is what lets .rcd-two-col below fill the rest with flex:1. */
-  height: 100%;
-  overflow-y: auto;
+  /* No height/overflow/background of its own - this used to give the page
+     a definite height (100% of .main-content) plus its own overflow-y:auto
+     and a distinct --bg-secondary fill, which made it read as a separate
+     scrollable box sitting inside .main-content rather than the page
+     itself. .main-content (the actual parent) already owns the scrolling
+     and the base --bg-primary background; letting this element size to its
+     content means the page scrolls as one piece, and .rcd-two-col's
+     children below (which depended on inheriting a bounded height to size
+     their own internal scrollbars) now size to content instead - no nested
+     scroll regions. */
   padding-bottom: 32px;
-  background: var(--bg-secondary);
 }
 
 /* breadcrumb nav strip */
@@ -2842,29 +3008,25 @@ select.form-input {
 }
 
 /* ── Two-column area below the detail card ── */
-/* Was a fixed 620px. rcd-page now has a definite height (see above), so
-   flex:1 here fills exactly whatever is left after the breadcrumb nav and
-   detail card — no viewport-math guessing, and both columns' bottoms land on
-   the same line since they stretch (align-items:stretch) to this container's
-   real height instead of an arbitrary fixed or guessed one. min-height:0
-   lets it shrink below its content's natural size so the inner cards' own
-   scrollbars (not the page's) handle overflow. */
+/* .rcd-page no longer has a bounded height (it sizes to its content, and
+   .main-content is the actual scroll container), so flex:1/height:100%
+   here and below are effectively inert - both columns size to their own
+   content instead of stretching to fill a fixed remaining height. The
+   min-height floors still keep short content from looking cramped, and
+   align-items:stretch still keeps both columns matched when one is taller
+   than the other's floor. */
 .rcd-two-col {
   display: flex;
   gap: 14px;
   align-items: stretch;
   padding: 14px 24px 0;
-  flex: 1;
-  min-height: 0;
 }
 .rcd-two-col > .rcd-card.rcd-activity-card {
   flex: 7;
   min-width: 0;
-  height: 100%;
   /* Matches the sidebar's floor (3 sections x 160px min-height + 2 x 12px gap)
-     so both columns share the same bottom edge when content is short; height:
-     100% (inherited from .rcd-two-col's flex:1 + align-items:stretch) still
-     lets it grow past this floor on taller screens. */
+     so both columns share the same bottom edge when content is short; content
+     taller than this floor grows the column (and the page) naturally. */
   min-height: 504px;
 }
 
@@ -2875,7 +3037,6 @@ select.form-input {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: 100%;
   min-height: 504px;
 }
 
@@ -2885,13 +3046,12 @@ select.form-input {
   border-radius: 14px;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
-  /* flex:1 on every section (sub-tasks, linked tickets, access) splits the
-     sidebar's height equally between however many are present — adaptive to
-     the sidebar's real height, not a fixed value. min-height keeps a section
-     usable (header + a couple of rows visible) if the sidebar as a whole is
-     short; each section's own rcd-sidebar-body scrolls internally past that. */
+  /* Sub-tasks and Linked tickets moved into the activity tabs, leaving
+     Access as the sidebar's only section - flex:1 now just means it fills
+     the whole sidebar (matching the activity card's floor via min-height)
+     instead of splitting space with siblings that no longer exist. */
   flex: 1;
-  min-height: 160px;
+  min-height: 504px;
   display: flex;
   flex-direction: column;
 }
@@ -3441,6 +3601,83 @@ select.form-input {
 }
 .rcd-child-unassigned { color: var(--text-muted) !important; font-style: italic; }
 
+/* ── Table view (Sub-tasks / Linked tickets tabs) ── */
+/* No border/card chrome - the table sits directly on the tab panel.
+   overflow-x:auto + min-width on the table itself makes the whole table
+   scroll horizontally as one unit on narrow viewports, instead of each
+   column squeezing/wrapping independently. */
+.rcd-table-wrap {
+  overflow-x: auto;
+}
+.rcd-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.rcd-table thead th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+.rcd-table tbody tr + tr td {
+  border-top: 1px solid var(--border-color);
+}
+.rcd-table td {
+  padding: 10px 14px;
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+.rcd-table-row {
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.rcd-table-row:hover {
+  background: var(--bg-tertiary);
+}
+.rcd-table-row-closed {
+  cursor: default;
+  opacity: 0.65;
+}
+.rcd-table-row-closed:hover {
+  background: none;
+}
+.rcd-table-ticket {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.rcd-table-ticket-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+.rcd-table-assignee {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rcd-table-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.rcd-table-actions-col {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
 /* ── Access cards (people with access) ── */
 .rcd-access-grid {
   display: grid;
@@ -3807,10 +4044,16 @@ select.form-input {
 .rcd-activity-card {
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* height comes from rcd-two-col container */
+  overflow: hidden;
 }
 
 /* Tab bar inside card */
+/* overflow-x:auto + nowrap lets the whole bar scroll horizontally instead
+   of tabs wrapping to a second line or shrinking when the card is narrow.
+   Scrollbar hidden across engines - .rcd-tabs is draggable with the mouse
+   (see tabsScrollRef handlers in record-detail.tsx) so touch/trackpad swipe
+   and mouse drag both work without a visible scrollbar. cursor:grab hints
+   at the drag affordance since there's no scrollbar to suggest it. */
 .rcd-tabs {
   display: flex; align-items: center; gap: 0;
   padding: 0 20px;
@@ -3818,13 +4061,22 @@ select.form-input {
   background: var(--bg-card);
   border-radius: 14px 14px 0 0;
   flex-shrink: 0;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  cursor: grab;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.rcd-tabs::-webkit-scrollbar { display: none; }
+.rcd-tabs:active { cursor: grabbing; }
 .rcd-tab {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 11px 16px;
   font-size: 13px; font-weight: 600; color: var(--text-muted);
   background: none; border: none; border-bottom: 2px solid transparent;
   cursor: pointer; margin-bottom: -1px;
+  flex-shrink: 0;
+  white-space: nowrap;
   transition: color .15s, border-color .15s;
 }
 .rcd-tab:hover { color: var(--text-secondary); }
@@ -3851,6 +4103,31 @@ select.form-input {
 }
 .rcd-tab-scroll::-webkit-scrollbar { width: 4px; }
 .rcd-tab-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+.rcd-linked-tab-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+/* Icon-only "Add"/"Link" trigger for the Sub-tasks/Linked tabs - a
+   circular, accent-tinted button rather than a labeled pill. Distinct
+   from .rcd-sidebar-add (still used, unchanged, for the Unlink action). */
+.rcd-tab-action-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-light);
+  border: 1px solid hsla(250, 84%, 60%, 0.35);
+  color: var(--accent-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+.rcd-tab-action-icon-btn:hover {
+  background: var(--accent-primary);
+  color: #fff;
+}
 
 /* Composer docked at bottom of activity card */
 .rcd-composer-dock {
