@@ -458,12 +458,14 @@ function KpiTile({
   icon,
   color,
   onClick,
+  active,
 }: {
   label: string;
   value: number;
   icon: string;
   color: string;
   onClick?: () => void;
+  active?: boolean;
 }): React.ReactElement {
   const hover = useHoverStyle({
     base: { borderColor: withAlpha(color, 0.25), boxShadow: "none" },
@@ -476,10 +478,10 @@ function KpiTile({
   return (
     <div
       onClick={onClick}
-      onMouseEnter={onClick ? hover.onMouseEnter : undefined}
-      onMouseLeave={onClick ? hover.onMouseLeave : undefined}
+      onMouseEnter={onClick && !active ? hover.onMouseEnter : undefined}
+      onMouseLeave={onClick && !active ? hover.onMouseLeave : undefined}
       style={{
-        background: withAlpha(color, 0.1),
+        background: active ? color : withAlpha(color, 0.1),
         border: "1px solid",
         borderRadius: "var(--radius-md)",
         padding: "18px 20px",
@@ -487,8 +489,13 @@ function KpiTile({
         display: "flex",
         alignItems: "center",
         gap: "14px",
-        transition: "border-color .15s, box-shadow .15s",
-        ...hover.style,
+        transition: "border-color .15s, box-shadow .15s, background .15s",
+        ...(active
+          ? {
+              borderColor: color,
+              boxShadow: `0 4px 20px ${withAlpha(color, 0.35)}`,
+            }
+          : hover.style),
       }}
     >
       <div
@@ -496,8 +503,10 @@ function KpiTile({
           width: "40px",
           height: "40px",
           borderRadius: "10px",
-          background: withAlpha(color, 0.16),
-          border: `1px solid ${withAlpha(color, 0.3)}`,
+          background: active ? "rgba(255,255,255,.22)" : withAlpha(color, 0.16),
+          border: active
+            ? "1px solid rgba(255,255,255,.4)"
+            : `1px solid ${withAlpha(color, 0.3)}`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -512,7 +521,7 @@ function KpiTile({
           style={{
             fontSize: "11px",
             fontWeight: 600,
-            color: "var(--text-muted)",
+            color: active ? "rgba(255,255,255,.85)" : "var(--text-muted)",
             textTransform: "uppercase",
             letterSpacing: "0.06em",
             marginBottom: "2px",
@@ -525,7 +534,7 @@ function KpiTile({
             fontSize: "24px",
             fontWeight: 800,
             fontFamily: "var(--font-heading)",
-            color: "var(--text-primary)",
+            color: active ? "#fff" : "var(--text-primary)",
             lineHeight: 1,
           }}
         >
@@ -536,9 +545,14 @@ function KpiTile({
   );
 }
 
-type TicketFilter = "all" | "due-soon" | "overdue";
+export type TicketFilter =
+  | "all"
+  | "due-soon"
+  | "overdue"
+  | "due-week"
+  | "at-risk";
 
-function FilterTabs({
+export function FilterTabs({
   active,
   onChange,
   counts,
@@ -997,12 +1011,26 @@ export function Dashboard(): React.ReactElement {
     () => view.tickets.items.filter((i) => i.isOverdue),
     [view.tickets.items],
   );
-  const dueSoonTickets = useMemo(
+  // 7-day window, matching the "Due This Week" KPI tile's own count above —
+  // distinct from the (now-removed) 2-day "due-soon" tab this replaced.
+  const dueThisWeekTickets = useMemo(
     () =>
       view.tickets.items.filter(
-        (i) => !i.isOverdue && i.dueDate !== null && daysUntil(i.dueDate) <= 2,
+        (i) => !i.isOverdue && i.dueDate !== null && daysUntil(i.dueDate) <= 7,
       ),
     [view.tickets.items],
+  );
+  // SLA risk stays a separate signal from due dates (§V: never merge the
+  // two into one score/list) — this only cross-references ids to filter the
+  // *ticket list* by "is this ticket also flagged at risk", it doesn't fold
+  // risk data into the ticket rows themselves.
+  const slaRiskIds = useMemo(
+    () => new Set(view.slaRisk.items.map((i) => i.entityId)),
+    [view.slaRisk.items],
+  );
+  const atRiskTickets = useMemo(
+    () => view.tickets.items.filter((i) => slaRiskIds.has(i.entityId)),
+    [view.tickets.items, slaRiskIds],
   );
   const [ticketFilter, setTicketFilter] = useState<TicketFilter>("all");
   const [ticketSearch, setTicketSearch] = useState("");
@@ -1010,9 +1038,11 @@ export function Dashboard(): React.ReactElement {
     const base =
       ticketFilter === "overdue"
         ? overdueTickets
-        : ticketFilter === "due-soon"
-          ? dueSoonTickets
-          : view.tickets.items;
+        : ticketFilter === "due-week"
+          ? dueThisWeekTickets
+          : ticketFilter === "at-risk"
+            ? atRiskTickets
+            : view.tickets.items;
     const query = ticketSearch.trim().toLowerCase();
     if (!query) return base;
     return base.filter((t) => t.title.toLowerCase().includes(query));
@@ -1020,7 +1050,8 @@ export function Dashboard(): React.ReactElement {
     ticketFilter,
     ticketSearch,
     overdueTickets,
-    dueSoonTickets,
+    dueThisWeekTickets,
+    atRiskTickets,
     view.tickets.items,
   ]);
   const maxWorkflowTotal = useMemo(
@@ -1215,32 +1246,40 @@ export function Dashboard(): React.ReactElement {
               value={loading ? 0 : totalTickets}
               icon="📋"
               color="hsl(211,100%,45%)"
-              onClick={() => navigate("/records")}
+              active={ticketFilter === "all"}
+              onClick={() => setTicketFilter("all")}
             />
             <KpiTile
               label="Due This Week"
               value={loading ? 0 : dueThisWeekCount}
               icon="📅"
               color="hsl(35,90%,50%)"
+              active={ticketFilter === "due-week"}
+              onClick={() => setTicketFilter("due-week")}
             />
             <KpiTile
               label="Overdue"
               value={loading ? 0 : overdueCount}
               icon="⏰"
               color="hsl(350,80%,60%)"
+              active={ticketFilter === "overdue"}
+              onClick={() => setTicketFilter("overdue")}
             />
             <KpiTile
               label="At SLA Risk"
               value={loading ? 0 : atRiskCount}
               icon="⚠️"
               color="hsl(340,80%,58%)"
+              active={ticketFilter === "at-risk"}
+              onClick={() => setTicketFilter("at-risk")}
             />
           </div>
 
           {/* ── My Tickets — flat across every workflow (not grouped), whether or
-          not they have a due date. Filterable via tabs (All / Due in 2 Days /
-          Overdue) instead of two separate tables. Clicking a row goes
-          straight to the ticket's detail page. ───────────────────────────── */}
+          not they have a due date. Filtered by which KPI tile above is
+          active (My Tickets / Due This Week / Overdue / At SLA Risk) rather
+          than a separate tab strip — the tiles ARE the filter control.
+          Clicking a row goes straight to the ticket's detail page. ──────── */}
           <Card
             accentColor="hsl(211,100%,50%)"
             style={{ marginBottom: "20px" }}
@@ -1268,15 +1307,6 @@ export function Dashboard(): React.ReactElement {
                 />
               }
             />
-            <FilterTabs
-              active={ticketFilter}
-              onChange={setTicketFilter}
-              counts={{
-                all: view.tickets.items.length,
-                dueSoon: dueSoonTickets.length,
-                overdue: overdueTickets.length,
-              }}
-            />
             <TicketDueDateTable
               items={filteredTickets}
               unavailable={view.tickets.unavailable}
@@ -1286,9 +1316,11 @@ export function Dashboard(): React.ReactElement {
                   ? "No tickets match your search."
                   : ticketFilter === "overdue"
                     ? "Nothing overdue. ✅"
-                    : ticketFilter === "due-soon"
-                      ? "Nothing due in the next 2 days."
-                      : "No tickets assigned, created, or watched by you yet."
+                    : ticketFilter === "due-week"
+                      ? "Nothing due this week."
+                      : ticketFilter === "at-risk"
+                        ? "Nothing over its SLA. ✅"
+                        : "No tickets assigned, created, or watched by you yet."
               }
               onOpen={openRecord}
             />
