@@ -263,7 +263,7 @@ Platform services
                            detail groups, saved views)
   OpenAPI spec              Auto-generated from Zod schemas via @hono/zod-openapi
 
-Module seeds (7) — INSERT statements only, zero TypeScript
+Module seeds (8) — INSERT statements only, zero TypeScript
   Helpdesk       Ticket · Comment · Article
                  Open → In Progress → Pending → Resolved + SLA
   Reimbursements Expense Claim · Receipt
@@ -278,6 +278,8 @@ Module seeds (7) — INSERT statements only, zero TypeScript
                  Draft → Sent → Paid / Overdue / Cancelled
   Procurement    Purchase Order · Vendor · RFQ
                  Draft → Approved → Sent → Fulfilled
+  Tender         Tender
+                 Draft → BOQ Preparation → ... → Submitted (8th module, ADR-005, 2026-07-23)
 
 Config-driven UI
   Entity list view     renders columns from view_configs + field defs
@@ -319,11 +321,18 @@ Webhook gateway
   Outbound  via automation engine webhook action
             → HMAC-signed → exponential backoff → 30-day delivery log
 
-First-party connectors
-  Communication   Slack · Email (SendGrid / Postmark) · WhatsApp
+First-party connectors — v1 pair (ADR-009 Decision #2): Email (SMTP/IMAP, inbound
+email-to-entity) · WhatsApp Business. Slack, Stripe, QuickBooks, and the rest below are
+"Important-not-Core" — deferred, not dropped:
+  Communication   Slack (deferred, was previously miscategorized as v1 alongside Email)
   Productivity    Google Workspace · Microsoft 365
   Finance         Stripe · Razorpay
   Dev tooling     GitHub · Linear · Jira
+
+Inbound partner API (ADR-010, accepted 2026-08-06)
+  Tier 1 (arms-length partners) — scoped api_key access via the action-string
+  scopes re-shape (ADR-008 Decision #6), rate-limited, versioned public API.
+  Tier 2 (in-house sibling products) deferred to a named trigger.
 
 iPaaS bridge (Trigger.dev)
   automation engine script action → spawn Trigger.dev workflow
