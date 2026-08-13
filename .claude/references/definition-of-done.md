@@ -36,7 +36,9 @@ A change is **done** only when every applicable box is true:
 ## Integration & docs
 
 - [ ] Works with the whole system; migrations/config/flags accounted for; backward-compat considered.
-- [ ] `docs/sup-docs/week-log.md` (dated entry) and `docs/sup-docs/roadmap-tracker.md` (status bump) updated.
+- [ ] A new dated file added under `docs/sup-docs/week-log/` (never edit `week-log.md` itself —
+      frozen history) and `docs/sup-docs/roadmap-tracker.md`'s **own track row** updated (leave
+      the Summary scorecard for reconciliation — see that doc's header).
 - [ ] `CHANGELOG.md` entry for user-facing changes.
 - [ ] If an architectural decision was made: an ADR is **flagged as needed** (ADRs are human-written — do not author one).
 - [ ] **Enforced separately at commit time**, not just here: `write-docs-marker.sh --touched` (docs are in the diff) or `--skip "<reason>"` (this diff genuinely has no doc surface) — the commit gate refuses without a marker matching the diff. See the Docs stage in `.claude/README.md`.

@@ -107,7 +107,10 @@ and are logged to `.claude/state/bypass.log`.
 2. `/spec-tasks` — turn spec into ordered task list **and freeze the plan-lock (you approve it)** — _Plan gate_
 3. Implement with tests in same pass — never implementation without tests. All edits first, no mid-review — _Code gate: needs the approved plan_
 4. `/review` (+ `/security-review` for auth/tables/routes/files/secrets) → `write-review.sh` — _Review gate: needs plan+code+tests_
-5. Update `docs/sup-docs/week-log.md` / `roadmap-tracker.md` / any other doc this change touches → `write-docs-marker.sh --touched`, or `--skip "<reason>"` if this diff genuinely has no doc surface — _Docs gate: needs a marker matching the diff_
+5. Add a new dated file under `docs/sup-docs/week-log/` (never edit `week-log.md` — frozen
+   history) / update your track's own row in `roadmap-tracker.md` / any other doc this change
+   touches → `write-docs-marker.sh --touched`, or `--skip "<reason>"` if this diff genuinely has
+   no doc surface — _Docs gate: needs a marker matching the diff_
 6. Commit procedure (exit condition → marker → `git commit` → push → PR) — never a bare `git commit` — _Ship gate_
 7. `/ultrareview` before merge
 

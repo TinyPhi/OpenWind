@@ -1,3 +1,8 @@
+---
+name: openwind-loop
+description: Project-specific autonomous delivery loop for OpenWind. Encodes the exact verification commands, config-first test, and autonomy rules for taking a CLAUDE.md Current Focus track (or an explicit feature spec) through Plan-lock, implementation, and the gated commit procedure. Invoke when CLAUDE.md's Current Focus names a track to implement.
+---
+
 # Skill: openwind-loop
 
 Project-specific loop skill for the OpenWind platform.
@@ -114,7 +119,9 @@ skill to learn):
 5. **Present the pass to the human; they type `approve-ship` in chat** to approve it — the agent
    must not self-approve. The commit gate stays blocked until that approval matches the diff. Required
    on every commit until the owner sets `OPENWIND_AUTOPASS=1`.
-6. Stage explicitly (never `git add -A`). Update `docs/sup-docs/week-log.md` + `roadmap-tracker.md`.
+6. Stage explicitly (never `git add -A`). Add a new dated file under
+   `docs/sup-docs/week-log/` (see its README — never edit `week-log.md`, it's frozen history)
+   and update your track's own row in `roadmap-tracker.md`.
 7. `.claude/hooks/write-ship-marker.sh` — **write the marker LAST**, after the exit condition and
    review have finished, so its 60-min window covers only stage→commit, not the (possibly slow)
    test run. Then `git commit` (Conventional Commits, lowercase subject). Use a **valid scope from
@@ -149,7 +156,8 @@ If **no** — proceed.
 The loop exits when every checkbox in the Current Focus acceptance criteria is checked
 AND `pnpm typecheck && pnpm lint && pnpm test && pnpm test:isolation` all pass.
 
-Update `docs/sup-docs/roadmap-tracker.md` and `docs/sup-docs/week-log.md` at the end of each completed track.
+Update `docs/sup-docs/roadmap-tracker.md` (your track's own row) and add a closing entry under
+`docs/sup-docs/week-log/` at the end of each completed track.
 
 ---
 

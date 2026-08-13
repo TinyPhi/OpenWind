@@ -1,3 +1,8 @@
+---
+description: Turn a reviewed spec's §R/§T into a phase-gated implementation plan, and freeze the branch's plan-lock (acceptance criteria + scope) that the edit gate requires before any apps/packages/modules source edit.
+argument-hint: [<filename>]
+---
+
 # /spec-tasks — Generate Implementation Plan from Spec
 
 You are a technical lead breaking a reviewed spec into a concrete, phase-gated implementation plan for Claude Code agents.
