@@ -10,54 +10,39 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
-## 2026-08-12 — Fix documentation drift in vision/roadmap/architecture-brief
+## 2026-08-13 — PR #374 merged: outbox/dead-letter RLS null-GUC cast fix (@TusharSharma991)
 
-**Session type:** Docs (requested audit + fix, at the close of this session's Phase 3A parallel
-batch)
-**Summary:** Audited `docs/platform-vision.md`, `docs/roadmap.md`, and `docs/architecture-brief.md`
-against actual current state (`CLAUDE.md`, `roadmap-tracker.md`, ADR-005/008/009/010, and the real
-shipped `packages/connector-sdk/src/types.ts`). Every HIGH/MEDIUM finding independently verified
-against a checkable ground truth before fixing (two LOW-confidence findings — a 30-day webhook
-delivery-log retention claim and an org-structure section — were left alone since neither had a
-checkable ground truth to confirm against). Fixes:
+**Session type:** Bug fix review + merge support (no-plan contributor PR)
+**PR:** #374 — `fix(db): restore no-context batch access on outbox_events/dead_letter_events RLS`
+**Branch:** `fix/PLAT-outbox-dead-letter-rls-null-guc` → `main`
 
-- **`roadmap.md`**: corrected the 3A connector table's Core/Important classification — it had
-  Slack as Core and WhatsApp Business as Important, the exact opposite of ADR-009 Decision #2's
-  accepted v1 pair (email SMTP/IMAP + WhatsApp Business are Core; Slack joins Stripe/QuickBooks
-  as deferred). Added the missing `tender` module row (ADR-005, 8th module) to the 2B table.
-  Noted `api_keys`' schema has been extended by ADR-008 since this table was written. Added a
-  reconciliation note at the top of the Phase 3 section pointing to ADR-008/009/010 +
-  `phase-3-primer.md` as authoritative (this doc predates all three ADRs and was never
-  line-by-line reconciled after they were accepted).
-- **`platform-vision.md`**: same Slack/WhatsApp fix, plus corrected the email connector's
-  mechanism (was listed as outbound SendGrid/Postmark; the accepted design is inbound SMTP/IMAP).
-  Module count `(7)` → `(8)`. Added a one-line mention of ADR-010 (Tier-1 inbound partner API),
-  previously absent from this doc's integration-layer section entirely.
-- **`architecture-brief.md`**: Appendix B's `ConnectorContext`/`TriggerDefinition`/
-  `ConnectorDefinition`/`auth` interfaces had drifted from the real shipped
-  `packages/connector-sdk/src/types.ts` on four points — a stale readable `credentials` field
-  (removed for security, ADR-009 Decision #5), a stale connector-authored `validateSignature`
-  callback (removed, centralized in the gateway, Decision #3), a missing required
-  `allowedHosts` egress allowlist, and an invented `auth` union with variants that were never
-  built. Replaced the whole appendix with the real file's actual content — diffed byte-for-byte
-  against it (only the `import` line differs, intentionally omitted from the excerpt). Section
-  6.4 (webhook gateway) now has an explicit "designed, not yet built" status note (the route is
-  issue #364, not started) — it was previously written in the same present-tense style as
-  sections describing genuinely shipped code, with no way to tell the difference. Appendix A's
-  "complete schema" claim was overclaiming — softened to accurately describe its actual scope
-  (three engines + outbox), with a pointer to `packages/db/src/schema/` for the real current
-  schema.
+Migration 0049 re-enabled RLS on `outbox_events` and `dead_letter_events` using a bare
+`current_setting('app.tenant_id', true)::uuid` cast. This silently broke two things:
 
-Two of these fixes reference issue #363's `connector_credentials.secrets` column and matching
-`types.ts` comment wording — that PR (#387) is still open, not yet merged into `main`, so this
-PR's wording was deliberately matched to #387's _upcoming_ content (already verified in that
-PR's own review) rather than `main`'s current pre-merge wording, to avoid a second round of drift
-the moment #387 lands.
+1. Both tables are intentionally read/written **without** tenant context by batch processes
+   (`outbox-poller.ts`, `notification-poller.ts`, and a documented no-context insert in
+   `notification-outbound-worker.ts`'s system.error dead-letter path).
+2. Once any pgbouncer-pooled connection has run a tenant-scoped query, Postgres permanently
+   registers `app.tenant_id` as a placeholder GUC defaulting to `''` (not NULL). Every later
+   no-context poller tick on that connection threw `invalid input syntax for type uuid: ""`
+   — blocking all outbox delivery platform-wide.
 
-**Verification:** docs-only change, no `pnpm typecheck`/`lint`/`test` surface affected. Every
-factual claim above independently verified against its cited ground truth (ADR text, actual
-source files, `roadmap-tracker.md`) before writing, including checking `modules/tender/seed/`
-directly for the real entity/workflow-state names rather than guessing.
+**Fix (migration 0058):** Restore the no-context batch-access exemption with
+`NULLIF(current_setting('app.tenant_id', true), '')::uuid` guarding the cast (prevents the
+eager-evaluation exception regardless of query planner choice) plus explicit OR branches for
+the IS NULL and `''` states. Tenant isolation is unchanged for sessions with a real tenant
+context set.
+
+**Review/merge work in this session:**
+
+- Two H1 test gaps fixed before merge: missing UPDATE tests for the outbox batch-access block,
+  and missing `dead_letter_events` batch-access describe block (SELECT + INSERT × 2 GUC states).
+- Merge conflict resolved: main landed PRs #387/#393 while the PR was open, claiming idx 56/57 —
+  PR #374's migration renumbered to idx 58. Rebuilt stale `dist/` for `@platform/connector-sdk`
+  and `@platform/db` that caused 25 `@typescript-eslint/no-unsafe-*` lint errors in the
+  merge commit's pre-commit hook.
+- LOW findings fixed: PR-reference comments stripped, all `0056` references updated to `0058`.
+- Reviewed and approved (no blocking findings). Merged 2026-08-13.
 
 ---
 
@@ -129,6 +114,55 @@ transform-rejection all 400). `pnpm test:isolation`: PASS (301/301) — no new t
 unaffected by design.
 
 ---
+
+## 2026-08-12 — Fix documentation drift in vision/roadmap/architecture-brief
+
+**Session type:** Docs (requested audit + fix, at the close of this session's Phase 3A parallel
+batch)
+**Summary:** Audited `docs/platform-vision.md`, `docs/roadmap.md`, and `docs/architecture-brief.md`
+against actual current state (`CLAUDE.md`, `roadmap-tracker.md`, ADR-005/008/009/010, and the real
+shipped `packages/connector-sdk/src/types.ts`). Every HIGH/MEDIUM finding independently verified
+against a checkable ground truth before fixing (two LOW-confidence findings — a 30-day webhook
+delivery-log retention claim and an org-structure section — were left alone since neither had a
+checkable ground truth to confirm against). Fixes:
+
+- **`roadmap.md`**: corrected the 3A connector table's Core/Important classification — it had
+  Slack as Core and WhatsApp Business as Important, the exact opposite of ADR-009 Decision #2's
+  accepted v1 pair (email SMTP/IMAP + WhatsApp Business are Core; Slack joins Stripe/QuickBooks
+  as deferred). Added the missing `tender` module row (ADR-005, 8th module) to the 2B table.
+  Noted `api_keys`' schema has been extended by ADR-008 since this table was written. Added a
+  reconciliation note at the top of the Phase 3 section pointing to ADR-008/009/010 +
+  `phase-3-primer.md` as authoritative (this doc predates all three ADRs and was never
+  line-by-line reconciled after they were accepted).
+- **`platform-vision.md`**: same Slack/WhatsApp fix, plus corrected the email connector's
+  mechanism (was listed as outbound SendGrid/Postmark; the accepted design is inbound SMTP/IMAP).
+  Module count `(7)` → `(8)`. Added a one-line mention of ADR-010 (Tier-1 inbound partner API),
+  previously absent from this doc's integration-layer section entirely.
+- **`architecture-brief.md`**: Appendix B's `ConnectorContext`/`TriggerDefinition`/
+  `ConnectorDefinition`/`auth` interfaces had drifted from the real shipped
+  `packages/connector-sdk/src/types.ts` on four points — a stale readable `credentials` field
+  (removed for security, ADR-009 Decision #5), a stale connector-authored `validateSignature`
+  callback (removed, centralized in the gateway, Decision #3), a missing required
+  `allowedHosts` egress allowlist, and an invented `auth` union with variants that were never
+  built. Replaced the whole appendix with the real file's actual content — diffed byte-for-byte
+  against it (only the `import` line differs, intentionally omitted from the excerpt). Section
+  6.4 (webhook gateway) now has an explicit "designed, not yet built" status note (the route is
+  issue #364, not started) — it was previously written in the same present-tense style as
+  sections describing genuinely shipped code, with no way to tell the difference. Appendix A's
+  "complete schema" claim was overclaiming — softened to accurately describe its actual scope
+  (three engines + outbox), with a pointer to `packages/db/src/schema/` for the real current
+  schema.
+
+Two of these fixes reference issue #363's `connector_credentials.secrets` column and matching
+`types.ts` comment wording — that PR (#387) is still open, not yet merged into `main`, so this
+PR's wording was deliberately matched to #387's _upcoming_ content (already verified in that
+PR's own review) rather than `main`'s current pre-merge wording, to avoid a second round of drift
+the moment #387 lands.
+
+**Verification:** docs-only change, no `pnpm typecheck`/`lint`/`test` surface affected. Every
+factual claim above independently verified against its cited ground truth (ADR text, actual
+source files, `roadmap-tracker.md`) before writing, including checking `modules/tender/seed/`
+directly for the real entity/workflow-state names rather than guessing.
 
 ## 2026-08-12 — Issue #365: connector outbound delivery + redactor wiring (ADR-009 Decisions #9/#10)
 
