@@ -1,3 +1,8 @@
+---
+name: source-driven-development
+description: Grounds a framework-specific implementation decision in official versioned documentation instead of training-data patterns. Invoke when implementing a pattern for a dependency not used recently in this project (BullMQ, Drizzle, Hono, Zitadel, Novu), when correctness depends on the exact version in use, or when wiring up a Phase 3A-3C external service integration.
+---
+
 # Skill: source-driven-development
 
 Ground every framework-specific decision in official versioned documentation.

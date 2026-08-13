@@ -1,3 +1,8 @@
+---
+name: debugging-and-error-recovery
+description: Systematic root-cause debugging when a failure isn't obvious. Invoke when a test you didn't write fails, a build/typecheck error spans multiple files, runtime behavior doesn't match what the code appears to do, or you're about to make a second attempt at fixing the same symptom.
+---
+
 # Skill: debugging-and-error-recovery
 
 Systematic root-cause debugging. Stop adding changes — preserve evidence and diagnose.
