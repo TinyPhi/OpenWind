@@ -8,6 +8,7 @@ import type * as EntityEngine from "@platform/entity-engine";
 
 const mockCreateEntity = vi.fn();
 const mockListUserIdsWithRole = vi.fn();
+const mockEnsureUserRefsKnown = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -29,6 +30,13 @@ vi.mock("@platform/auth", () => ({
 
 vi.mock("../../lib/zitadel-management.js", () => ({
   listUserIdsWithRole: (...args: unknown[]) => mockListUserIdsWithRole(...args),
+}));
+
+// ensureUserRefsKnown's own branching logic (org-membership lookup,
+// tenant_users upsert, short-circuits) is covered in ensure-user-refs.test.ts -
+// here we only need to confirm create.ts wires it in with the right args.
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  ensureUserRefsKnown: (...args: unknown[]) => mockEnsureUserRefsKnown(...args),
 }));
 
 const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
@@ -351,5 +359,39 @@ describe("POST /entities — linking file/files custom-field values (#289 follow
     });
 
     expect(mockUpdateWhere.mock.calls[0]?.[0]).toBeDefined();
+  });
+});
+
+describe("POST /entities — wiring ensureUserRefsKnown (first-login-cache gap fix)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateEntity.mockResolvedValue(fakeInstance);
+  });
+
+  it("calls ensureUserRefsKnown before createEntity, with the entity type/fields/org", async () => {
+    const order: string[] = [];
+    mockEnsureUserRefsKnown.mockImplementation(() => {
+      order.push("ensureUserRefsKnown");
+      return Promise.resolve();
+    });
+    mockCreateEntity.mockImplementation(() => {
+      order.push("createEntity");
+      return Promise.resolve(fakeInstance);
+    });
+
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ fields: { technical_reviewer: "u-reviewer" } }),
+    });
+
+    expect(mockEnsureUserRefsKnown).toHaveBeenCalledWith(
+      expect.any(Object),
+      "t-aaa",
+      TYPE_ID,
+      { technical_reviewer: "u-reviewer" },
+      "org-ccc",
+    );
+    expect(order).toEqual(["ensureUserRefsKnown", "createEntity"]);
   });
 });
