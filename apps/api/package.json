@@ -28,6 +28,7 @@
     "@platform/files": "workspace:*",
     "@platform/logger": "workspace:*",
     "@platform/notifications": "workspace:*",
+    "@platform/plugin-sdk": "workspace:*",
     "@platform/redis": "workspace:*",
     "@platform/secrets": "workspace:*",
     "@platform/workflow-engine": "workspace:*",
