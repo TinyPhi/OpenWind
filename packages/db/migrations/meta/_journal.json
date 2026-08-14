@@ -428,6 +428,13 @@
       "when": 1785542412000,
       "tag": "0060_connector_definitions_grants_fix",
       "breakpoints": false
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1785542413000,
+      "tag": "0061_app_user_default_grants_revoke",
+      "breakpoints": false
     }
   ]
 }
