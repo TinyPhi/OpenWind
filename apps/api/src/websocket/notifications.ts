@@ -192,6 +192,8 @@ async function sendAccessRequestToRoom(
 
   const workflow = instance.workflowId
     ? await withTenantContext(tenantId, (tx) =>
+        // workflowId is non-null here: the outer ternary guards instance.workflowId !== null,
+        // but TypeScript's narrowing doesn't propagate through the async withTenantContext callback.
         getWorkflow(tx, tenantId, instance.workflowId as string, {
           userId: "",
           isGlobalAdmin: false,

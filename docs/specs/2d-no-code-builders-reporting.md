@@ -71,14 +71,15 @@ RLS: SELECT/INSERT/UPDATE/DELETE restricted to rows where `tenant_id = current_t
 
 ### New API routes
 
-| method | path                                                  | auth          | purpose                          |
-| ------ | ----------------------------------------------------- | ------------- | -------------------------------- |
-| GET    | `/saved-views?entityTypeId=`                          | any role      | list user's saved views for type |
-| POST   | `/saved-views`                                        | any role      | create saved view                |
-| PATCH  | `/saved-views/:id`                                    | owner         | update name / filters            |
-| DELETE | `/saved-views/:id`                                    | owner         | delete                           |
-| GET    | `/entity-types/:id/export?format=csv\|xlsx&[filters]` | agent / admin | stream export                    |
-| POST   | `/reporting/embed-token`                              | admin         | signed Metabase embed URL        |
+| method | path                                                       | auth          | purpose                                |
+| ------ | ---------------------------------------------------------- | ------------- | -------------------------------------- |
+| GET    | `/saved-views?entityTypeId=`                               | any role      | list user's saved views for type       |
+| POST   | `/saved-views`                                             | any role      | create saved view                      |
+| PATCH  | `/saved-views/:id`                                         | owner         | update name / filters                  |
+| DELETE | `/saved-views/:id`                                         | owner         | delete                                 |
+| GET    | `/entity-types/:id/export?format=csv\|xlsx\|pdf&[filters]` | agent / admin | export entities (sync <=5k, async >5k) |
+| GET    | `/exports/:jobId/download`                                 | agent / admin | download async export job results      |
+| POST   | `/reporting/embed-token`                                   | admin         | signed Metabase embed URL              |
 
 Automation-rules CRUD API already exists at `/automation-rules` — **no new routes needed**.
 
@@ -107,11 +108,41 @@ Conditions: field comparisons only — `eq | neq | gt | gte | lt | lte | contain
 
 ### Export response contract
 
+#### Synchronous Path (≤ 5 000 rows)
+
+Directly streams binary payload:
+
 ```
-GET /entity-types/:id/export?format=csv&state=open&search=foo
-Content-Type: text/csv  (or application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)
+GET /entity-types/:id/export?format=csv&state=open
+Content-Type: text/csv; charset=utf-8 (or application/vnd.openxmlformats-officedocument.spreadsheetml.sheet or application/pdf)
 Content-Disposition: attachment; filename="<entityType>-export-<date>.csv"
-Transfer-Encoding: chunked
+```
+
+#### Asynchronous Path (> 5 000 and ≤ 10 000 rows)
+
+Enqueues BullMQ job and returns a job tracking ID:
+
+```
+GET /entity-types/:id/export?format=xlsx
+Response (202 Accepted):
+{
+  "jobId": "job-async-uuid"
+}
+```
+
+Client polls the download endpoint:
+
+```
+GET /exports/:jobId/download
+Response (200 OK):
+{
+  "data": {
+    "id": "job-async-uuid",
+    "status": "completed",
+    "downloadUrl": "https://...",
+    "error": null
+  }
+}
 ```
 
 Row order: `created_at DESC`. Columns: all non-sensitive entity fields in `sort_order`, plus `id`, `current_state`, `created_at`, `updated_at`. No field with `sensitivity = 'pii'` unless requester has explicit PII role.
@@ -182,17 +213,19 @@ R5: Users can save their current filter+sort state as a named view and reload it
 ✓ Cross-user: user cannot access saved views belonging to another user in same tenant (user_id check in RLS)
 ✓ Max 20 saved views per user per entity type; 21st save returns 409 with message
 
-### R6 — Entity export: CSV and Excel
+### R6 — Entity export: CSV, Excel, and PDF
 
 R6: Any entity list can be exported; download honours current filters.
-✓ "Export" button on every entity list page; dropdown: CSV / Excel
+✓ "Export" button on every entity list page; dropdown: CSV / Excel / PDF
 ✓ Export request includes same filter params as current list view (state, search, dateRange)
-✓ Response streams — first byte within 3 s for up to 10 000 rows
+✓ Sync path for ≤ 5 000 rows streams response directly
+✓ Async path for > 5 000 and ≤ 10 000 rows enqueues a background BullMQ job and returns `jobId` for polling
 ✓ CSV: UTF-8, headers row, one entity per row, fields in sort_order
 ✓ Excel: `.xlsx`, single sheet named after entity type plural, headers row, auto-column width
+✓ PDF: layout generated utilizing worker-side PDF renderer
 ✓ Sensitive fields (sensitivity ≠ null) excluded unless user has pii_export role
 ✓ Empty result set returns valid file with headers-only row, not 404
-✓ Rows > 10 000: returns 400 `EXPORT_TOO_LARGE` with count; user must apply filters first
+✓ Rows > 10 000: returns 400 `EXPORT_TOO_LARGE` with message; user must apply filters first
 
 ### R7 — Metabase embed: per-tenant dashboard
 

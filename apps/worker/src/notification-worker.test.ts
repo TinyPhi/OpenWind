@@ -6,6 +6,7 @@
  * proceed regardless of the flag; only the outbound enqueue is gated.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 
 let capturedProcessor:
   | ((job: {
@@ -97,7 +98,7 @@ vi.mock("drizzle-orm", () => ({
 const mockRedisPublish = vi.fn().mockResolvedValue(undefined);
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({ publish: mockRedisPublish }),
-  NOTIFICATION_PUSH_CHANNEL: "notifications:push",
+  NOTIFICATION_PUSH_CHANNEL: "notification:push",
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -189,7 +190,7 @@ describe("notificationWorker processor — ticket-room live push (docs/specs/tic
     });
 
     expect(mockRedisPublish).toHaveBeenCalledWith(
-      "notifications:push",
+      NOTIFICATION_PUSH_CHANNEL,
       expect.stringContaining('"kind":"room"'),
     );
     const [, raw] = mockRedisPublish.mock.calls.find(
