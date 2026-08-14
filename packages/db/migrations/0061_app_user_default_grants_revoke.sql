@@ -3,6 +3,7 @@
 --   GRANT INSERT, UPDATE, DELETE ON modules TO app_user;
 --   GRANT INSERT, DELETE ON tenants TO app_user;
 --   GRANT INSERT, DELETE ON platform_settings TO app_user;
+--   GRANT UPDATE, DELETE ON admin_audit_log TO app_user;
 --   -- (restores the over-grant this migration removes; do not apply this
 --   -- rollback without also understanding why — see rationale below)
 
@@ -19,3 +20,7 @@ REVOKE INSERT, DELETE ON tenants FROM app_user;
 
 -- Issue #406: Revoke INSERT, DELETE on platform_settings table from app_user
 REVOKE INSERT, DELETE ON platform_settings FROM app_user;
+
+-- Finding 1 (PR 407 security review): Revoke UPDATE, DELETE on admin_audit_log from app_user (append-only)
+REVOKE UPDATE, DELETE ON admin_audit_log FROM app_user;
+

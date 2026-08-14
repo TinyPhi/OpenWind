@@ -23,16 +23,18 @@
 
 - Added the required inline comment before the `as string` assertion on `instance.workflowId` inside the `sendAccessRequestToRoom` function in [notifications.ts](file:///d:/myrepo/OpenWind/apps/api/src/websocket/notifications.ts) as required by `code-style.md` ("No type assertions without an inline comment explaining why the type system can't infer it.").
 
-#### Issues #404, #405, #406 (Default-Privileges Over-Grants on `modules`, `tenants`, `platform_settings`)
+#### Issues #404, #405, #406 & PR Review Hardening (Default-Privileges Over-Grants on `modules`, `tenants`, `platform_settings`, `admin_audit_log`)
 
 - Merged the remote branch `origin/fix/PLAT-connector-definitions-default-grants` into `fix/issues-track` to pull in the migration `0060` fix for `connector_definitions` over-grant and ensure migration-sequence consistency.
-- Created migration `0061_app_user_default_grants_revoke.sql` to explicitly revoke over-granted default DML privileges from `app_user` on these three tables:
-  - **Issue #404:** Revoked `INSERT, UPDATE, DELETE` on `modules` (read-only platform catalog).
-  - **Issue #405:** Revoked `INSERT, DELETE` on `tenants` (prevent unauthorized tenant creation/destruction).
-  - **Issue #406:** Revoked `INSERT, DELETE` on `platform_settings` (prevent delete of the global settings row).
+- Created/updated migration `0061_app_user_default_grants_revoke.sql` to explicitly revoke over-granted default DML privileges from `app_user` on these tables:
+  - **Issue #404**: Revoked `INSERT, UPDATE, DELETE` on `modules` (read-only platform catalog).
+  - **Issue #405**: Revoked `INSERT, DELETE` on `tenants` (prevent unauthorized tenant creation/destruction).
+  - **Issue #406**: Revoked `INSERT, DELETE` on `platform_settings` (prevent delete of the global settings row).
+  - **PR Review Finding 1 (HIGH)**: Revoked `UPDATE, DELETE` on `admin_audit_log` (guarantees append-only audit trail integrity at the DB layer, preventing `app_user` from tampering with the audit logs).
 - Updated `packages/db/migrations/meta/_journal.json` to register migration `0061`.
 - Added new isolation tests to verify the DML restrictions on the database layer:
   - Appended INSERT and DELETE restriction tests for `platform_settings` in [platform-settings.isolation.test.ts](file:///d:/myrepo/OpenWind/apps/api/tests/isolation/platform-settings.isolation.test.ts).
+  - Appended UPDATE and DELETE restriction tests for `admin_audit_log` in [audit-log.isolation.test.ts](file:///d:/myrepo/OpenWind/apps/api/tests/isolation/audit-log.isolation.test.ts) (Finding 2).
   - Created a new test file [global-catalogs-write-restrictions.isolation.test.ts](file:///d:/myrepo/OpenWind/apps/api/tests/isolation/global-catalogs-write-restrictions.isolation.test.ts) to check INSERT, UPDATE, DELETE rejections (Postgres error `42501`) on `modules` and `tenants`.
 
 ### Phase snapshot

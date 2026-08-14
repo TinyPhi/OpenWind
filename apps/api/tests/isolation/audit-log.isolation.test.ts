@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db, withTenantContext } from "@platform/db";
 import { adminAuditLog } from "@platform/db";
 import { queryAuditLog } from "@platform/audit";
@@ -164,5 +164,30 @@ describe("queryAuditLog — cross-tenant isolation via @platform/audit API", () 
       const resourceIds = result.entries.map((e) => e.resourceId);
       expect(resourceIds).toContain(RESOURCE_ID_A);
     });
+  });
+});
+
+describe("admin_audit_log — write restriction (append-only, Finding 1)", () => {
+  it("app_user UPDATE fails with permission denied", async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx
+          .update(adminAuditLog)
+          .set({ actorId: "compromised-user" })
+          .where(eq(adminAuditLog.resourceId, RESOURCE_ID_A));
+      }),
+    ).rejects.toMatchObject({ cause: { code: "42501" } });
+  });
+
+  it("app_user DELETE fails with permission denied", async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx
+          .delete(adminAuditLog)
+          .where(eq(adminAuditLog.resourceId, RESOURCE_ID_A));
+      }),
+    ).rejects.toMatchObject({ cause: { code: "42501" } });
   });
 });
