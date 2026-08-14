@@ -10,15 +10,19 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@platform/config": "workspace:*",
-    "@platform/logger": "workspace:*"
+    "@platform/logger": "workspace:*",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@platform/tsconfig": "workspace:*",
     "@types/node": "^25.7.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
   }
 }

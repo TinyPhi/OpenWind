@@ -195,7 +195,7 @@ const EnvSchema = z
 
 export const env = EnvSchema.parse(process.env);
 export type Env = z.infer<typeof EnvSchema>;
-// Exported for env.test.ts (PR #375 review M1) — lets a default-value test
+// Exported for env.test.ts — lets a default-value test
 // parse a minimal env object directly instead of mutating process.env before
 // this module's top-level `env.parse(process.env)` side effect has already run.
 export { EnvSchema };

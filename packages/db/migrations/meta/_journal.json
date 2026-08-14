@@ -414,6 +414,13 @@
       "when": 1785542410000,
       "tag": "0058_outbox_dead_letter_rls_null_guc_fix",
       "breakpoints": false
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1785542411000,
+      "tag": "0059_plugin_system",
+      "breakpoints": false
     }
   ]
 }

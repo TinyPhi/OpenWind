@@ -11,11 +11,11 @@ Session-by-session narrative is in [week-log.md](week-log.md); don't duplicate i
 
 ## Summary scorecard
 
-| Phase                           | Tracks              | Done            | % Complete | Gate                                                                                               |
-| ------------------------------- | ------------------- | --------------- | ---------- | -------------------------------------------------------------------------------------------------- |
-| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security  | **100%**   | All phase:1 issues closed                                                                          |
-| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening | **100%**   | Pre-Phase 3 hardening complete — #125 closed via PR #211 (2026-07-29). All hardening items closed. |
-| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5             | **0%**     | Public launch / marketplace — not started, needs human planning sign-off per `CLAUDE.md`           |
+| Phase                           | Tracks              | Done                              | % Complete         | Gate                                                                                               |
+| ------------------------------- | ------------------- | --------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------- |
+| Phase 1 — Foundation            | 5 tracks + security | 5/5 + security                    | **100%**           | All phase:1 issues closed                                                                          |
+| Phase 2 — First Customer Apps   | 4 tracks            | 4/4 + hardening                   | **100%**           | Pre-Phase 3 hardening complete — #125 closed via PR #211 (2026-07-29). All hardening items closed. |
+| Phase 3 — Scale & Extensibility | 5 tracks            | 0/5 fully done (3A ~30% underway) | **~6%** (weighted) | 3A in progress; 3B/3C/3D/3-OPS not started, need human planning sign-off per `CLAUDE.md`           |
 
 ---
 
@@ -207,10 +207,16 @@ version GC, defer until 2D workflow editor — 2D shipped 2026-07-22, revisit), 
 
 ## How to update this doc
 
-1. When a GH issue closes → update `Status` to ✅ Done, log date in [week-log.md](week-log.md)
+1. When a GH issue closes → update `Status` to ✅ Done, log a new file under
+   [week-log/](week-log/) (never edit `week-log.md` itself — it's frozen history, see its header)
 2. When a track is partially done → update `%` to estimated progress and add a note
 3. When a new sub-item is identified → add a row, create a GH issue, link it
-4. Run session-start checks:
+4. **Parallel-track convention:** when a track's work happens on its own branch alongside other
+   tracks (e.g. 3B/3C/3D running concurrently), edit only **that track's own row** — never the
+   Summary scorecard from a track branch. Two branches both bumping the same scorecard cell is
+   the exact merge-conflict pattern that motivated the `week-log/` change above. Reconcile the
+   scorecard in whichever session lands last, or in a dedicated periodic sync pass.
+5. Run session-start checks:
    - `gh issue list --state open --label phase:2` — hardening sprint (must close before 3A starts)
    - `gh issue list --state open --label phase:3` — Phase 3 feature tracks
    - `gh pr list --state open` — anything awaiting review/merge (as of 2026-08-03: only #313, this

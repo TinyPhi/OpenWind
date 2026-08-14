@@ -367,3 +367,97 @@ export const connectorDeliveryAttempts = pgTable(
     ),
   }),
 );
+
+/**
+ * pluginDefinitions — platform-wide plugin catalog (3B, docs/specs/plugin-system.md
+ * R1). No tenant_id/RLS — same class as connectorDefinitions/modules. `trustTier` is
+ * a single-value enum today by design (migration 0059) — widening it later is a
+ * deliberate CHECK-constraint change, not a schema redesign, mirroring
+ * api_keys.scopes_format's explicit-column precedent (ADR-008 Decision #6).
+ * `slug` doubles as a Postgres identifier fragment (see create_plugin_schema in
+ * migration 0059) — its format is enforced by a DB CHECK, not just here.
+ */
+export const pluginDefinitions = pgTable("plugin_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  version: text("version").notNull(),
+  description: text("description"),
+  iconUrl: text("icon_url"),
+  docsUrl: text("docs_url"),
+  category: text("category").notNull(),
+  trustTier: text("trust_tier").default("first_party").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+/**
+ * installedPlugins — tenant-scoped install row (R2). `manifestSnapshot` freezes the
+ * exact PluginManifest this tenant installed at install time, so a later
+ * pluginDefinitions update doesn't retroactively change what's already running.
+ */
+export const installedPlugins = pgTable(
+  "installed_plugins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    pluginId: uuid("plugin_id")
+      .notNull()
+      .references(() => pluginDefinitions.id),
+    manifestSnapshot: jsonb("manifest_snapshot").notNull(),
+    version: text("version").notNull(),
+    /** installing | active | error | disabled — enforced by a DB CHECK (migration 0059). */
+    status: text("status", {
+      enum: ["installing", "active", "error", "disabled"],
+    })
+      .default("installing")
+      .notNull(),
+    errorReason: text("error_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantIdx: index("installed_plugins_tenant_idx").on(t.tenantId),
+    tenantPluginUnique: unique("installed_plugins_tenant_plugin_unique").on(
+      t.tenantId,
+      t.pluginId,
+    ),
+  }),
+);
+
+/**
+ * pluginErrors — R8. Any lifecycle failure / governor-limit breach (R5) / runtime
+ * exception (R7) writes here instead of crashing the platform process. `pluginId` is
+ * nullable + ON DELETE SET NULL, matching connectorDeliveryAttempts' pattern — the
+ * error record must outlive the catalog row it references.
+ */
+export const pluginErrors = pgTable(
+  "plugin_errors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    pluginId: uuid("plugin_id").references(() => pluginDefinitions.id),
+    /** lifecycle_failure | governor_limit_breach | runtime_exception — DB CHECK (migration 0059). */
+    kind: text("kind", {
+      enum: ["lifecycle_failure", "governor_limit_breach", "runtime_exception"],
+    }).notNull(),
+    detail: jsonb("detail").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantCreatedIdx: index("plugin_errors_tenant_created_idx").on(
+      t.tenantId,
+      t.createdAt,
+    ),
+  }),
+);
