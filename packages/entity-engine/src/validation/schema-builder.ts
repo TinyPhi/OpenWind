@@ -113,11 +113,11 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
         : z.array(z.string());
     }
 
-    // user_ref values are AuthNexus user ids - opaque Snowflake-style
-    // strings, not UUIDs (unlike entity_ref, which references another
-    // entity instance's real Postgres UUID) - see authProvider.ts /
-    // platform/users.ts / authnexus-management.ts, none of which produce
-    // or expect a UUID-shaped id.
+    // user_ref values are identity-provider user ids - not guaranteed to be
+    // UUID-shaped (unlike entity_ref, which references another entity
+    // instance's real Postgres UUID). Zitadel's ids happen to be UUIDs, but
+    // treating that as a hard requirement here would reject a perfectly
+    // valid user_ref on any org whose IdP hands out a different id format.
     case "user_ref":
       return z.string().min(1);
 

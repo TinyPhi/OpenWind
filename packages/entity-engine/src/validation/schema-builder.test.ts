@@ -270,12 +270,11 @@ describe("buildZodSchema", () => {
       ).toBe(true);
     });
 
-    // AuthNexus issues opaque Snowflake-style numeric-string user ids, not
-    // UUIDs (see authProvider.ts / platform/users.ts /
-    // authnexus-management.ts) - a real payload's sales_owner/reviewer/etc.
-    // fields look like "373453864726167555", which a .uuid() constraint
-    // rejected outright.
-    it("accepts a non-UUID AuthNexus-style user id", () => {
+    // Not every identity provider issues UUID-shaped user ids - some hand
+    // out opaque Snowflake-style numeric strings instead. A real payload's
+    // sales_owner/reviewer/etc. fields could look like "373453864726167555",
+    // which a .uuid() constraint rejected outright.
+    it("accepts a non-UUID identity-provider user id", () => {
       const schema = buildZodSchema(
         [makeField({ name: "owner", fieldType: "user_ref" })],
         "create",
