@@ -172,6 +172,9 @@ describe("admin_audit_log — write restriction (append-only, Finding 1)", () =>
     await expect(
       db.transaction(async (tx) => {
         await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx.execute(
+          sql`SELECT set_config('app.tenant_id', ${TENANT_A}, true)`,
+        );
         await tx
           .update(adminAuditLog)
           .set({ actorId: "compromised-user" })
@@ -184,6 +187,9 @@ describe("admin_audit_log — write restriction (append-only, Finding 1)", () =>
     await expect(
       db.transaction(async (tx) => {
         await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx.execute(
+          sql`SELECT set_config('app.tenant_id', ${TENANT_A}, true)`,
+        );
         await tx
           .delete(adminAuditLog)
           .where(eq(adminAuditLog.resourceId, RESOURCE_ID_A));
