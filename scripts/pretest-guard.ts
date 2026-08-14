@@ -18,8 +18,8 @@ import { execFileSync } from "child_process";
 
 if (!process.env.CI) {
   execFileSync(
-    "tsx",
+    process.platform === "win32" ? "tsx.cmd" : "tsx",
     ["scripts/check-docker-services.ts", ...process.argv.slice(2)],
-    { stdio: "inherit" },
+    { stdio: "inherit", shell: process.platform === "win32" },
   );
 }
