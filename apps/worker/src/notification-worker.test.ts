@@ -97,7 +97,7 @@ vi.mock("drizzle-orm", () => ({
 const mockRedisPublish = vi.fn().mockResolvedValue(undefined);
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({ publish: mockRedisPublish }),
-  NOTIFICATION_PUSH_CHANNEL: "notifications:push",
+  NOTIFICATION_PUSH_CHANNEL: "notification:push",
 }));
 
 vi.mock("@platform/logger", () => ({
