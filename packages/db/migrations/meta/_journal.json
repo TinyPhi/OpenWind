@@ -421,6 +421,13 @@
       "when": 1785542411000,
       "tag": "0059_plugin_system",
       "breakpoints": false
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1785542412000,
+      "tag": "0060_connector_definitions_grants_fix",
+      "breakpoints": false
     }
   ]
 }
