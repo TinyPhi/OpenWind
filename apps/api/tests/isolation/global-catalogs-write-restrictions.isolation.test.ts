@@ -71,4 +71,36 @@ describe("tenants — write restriction (Issue #405)", () => {
       }),
     ).rejects.toMatchObject({ cause: { code: "42501" } });
   });
+
+  it("app_user UPDATE on restricted column (plan) fails with permission denied", async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx
+          .update(tenants)
+          .set({ plan: "premium" })
+          .where(eq(tenants.id, "aaaaaaaa-0000-4000-a000-000000000060"));
+      }),
+    ).rejects.toMatchObject({ cause: { code: "42501" } });
+  });
+
+  it("app_user UPDATE on allowed column (config) succeeds", async () => {
+    let succeeded = false;
+    try {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx
+          .update(tenants)
+          .set({ config: { test: "value" } })
+          .where(eq(tenants.id, "aaaaaaaa-0000-4000-a000-000000000060"));
+        succeeded = true;
+        throw new Error("rollback");
+      });
+    } catch (e) {
+      if (e instanceof Error && e.message !== "rollback") {
+        throw e;
+      }
+    }
+    expect(succeeded).toBe(true);
+  });
 });
