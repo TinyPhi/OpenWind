@@ -2440,10 +2440,13 @@ export function CustomerRecordDetail(): React.ReactElement {
     }
   }, [oidcLoaded, loading, currentUserId, isAdminOrAgent, accessList]);
 
-  // Load access requests when owner (creator/assignee)
+  // Load access requests when owner (creator/assignee) or admin/agent — must
+  // match the Access Requests tab's own visibility gate below, or an
+  // admin/agent viewer never gets the initial/live list despite the tab
+  // showing for them.
   useEffect(() => {
-    if (isOwner && id) void loadAccessRequests();
-  }, [isOwner, id]);
+    if ((isOwner || isAdminOrAgent) && id) void loadAccessRequests();
+  }, [isOwner, isAdminOrAgent, id]);
 
   // Ticket-room live updates (docs/specs/ticket-live-updates.md) — re-fetches
   // via the same REST calls a manual refresh would use, rather than
@@ -2462,7 +2465,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           msg.type === "access_request.updated") &&
         msg.instanceId === id
       ) {
-        if (isOwner) void loadAccessRequests();
+        if (isOwner || isAdminOrAgent) void loadAccessRequests();
         if (msg.request.requestedBy === currentUserId) {
           setMyAccessReqStatus(msg.request.status);
         }
@@ -2474,7 +2477,7 @@ export function CustomerRecordDetail(): React.ReactElement {
     // including them would force spurious resubscribes without changing
     // behavior. (PR #376 review L1; this repo's eslint config doesn't enable
     // react-hooks/exhaustive-deps, so no suppression comment is needed here.)
-  }, [id, isOwner, currentUserId]);
+  }, [id, isOwner, isAdminOrAgent, currentUserId]);
 
   // Sync requester's own request status
   useEffect(() => {
@@ -2968,8 +2971,15 @@ export function CustomerRecordDetail(): React.ReactElement {
     const isAccessGrant = meta?.type === "access_grant";
     const isAccessUpdate = meta?.type === "access_update";
     const isAccessRevoke = meta?.type === "access_revoke";
+    const isAccessReject = meta?.type === "access_reject";
+    const isAccessRequestSubmitted = meta?.type === "access_request";
     const isFileAttached = meta?.type === "file_attached";
+    const isLinkCreated =
+      meta?.type === "link_created" || meta?.type === "reference_created";
+    const isLinkRemoved =
+      meta?.type === "link_removed" || meta?.type === "reference_removed";
     const isFileDeleted = meta?.type === "file_deleted";
+    const isFileDownloaded = meta?.type === "file_downloaded";
 
     if (isComment) {
       return (
@@ -2979,7 +2989,13 @@ export function CustomerRecordDetail(): React.ReactElement {
       );
     }
 
-    if (isAccessGrant || isAccessUpdate || isAccessRevoke) {
+    if (
+      isAccessGrant ||
+      isAccessUpdate ||
+      isAccessRevoke ||
+      isAccessReject ||
+      isAccessRequestSubmitted
+    ) {
       const actor = resolveActorName(event.actorDisplayName, event.actorId);
       const targetId = (meta as Record<string, unknown>)["targetUserId"] as
         | string
@@ -3035,6 +3051,14 @@ export function CustomerRecordDetail(): React.ReactElement {
                   removed <strong>{target}</strong>'s access
                 </>
               )}
+              {isAccessReject && (
+                <>
+                  rejected <strong>{target}</strong>'s access request
+                </>
+              )}
+              {isAccessRequestSubmitted && (
+                <>requested access{level ? ` (${level})` : ""}</>
+              )}
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -3050,11 +3074,16 @@ export function CustomerRecordDetail(): React.ReactElement {
       );
     }
 
-    if (isFileAttached || isFileDeleted) {
+    if (isFileAttached || isFileDeleted || isFileDownloaded) {
       const actor = resolveActorName(event.actorDisplayName, event.actorId);
       const fileName = String(
         (meta as Record<string, unknown>)["originalName"] ?? "a file",
       );
+      const fileVerb = isFileDeleted
+        ? "deleted"
+        : isFileDownloaded
+          ? "downloaded"
+          : "attached";
       return (
         <div key={event.id} className="rcd-feed-event">
           <div className="rcd-feed-event-icon-wrap">
@@ -3077,6 +3106,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <polyline points="14 2 14 8 20 8" />
                     <line x1="9" y1="13" x2="15" y2="13" />
                   </>
+                ) : isFileDownloaded ? (
+                  <>
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </>
                 ) : (
                   <>
                     <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -3091,8 +3126,57 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
-              <strong>{actor}</strong> {isFileAttached ? "attached" : "deleted"}{" "}
-              <strong>{fileName}</strong>
+              <strong>{actor}</strong> {fileVerb} <strong>{fileName}</strong>
+            </span>
+            <div className="rcd-feed-event-time">
+              {new Date(event.triggeredAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isLinkCreated || isLinkRemoved) {
+      const actor = resolveActorName(event.actorDisplayName, event.actorId);
+      const counterpartId = String(
+        (meta as Record<string, unknown>)["counterpartId"] ?? "",
+      );
+      const counterpartLabel = counterpartId
+        ? `#${counterpartId.slice(0, 8)}`
+        : "another ticket";
+      return (
+        <div key={event.id} className="rcd-feed-event">
+          <div className="rcd-feed-event-icon-wrap">
+            <div
+              className={`rcd-tl-icon ${isLinkRemoved ? "rcd-tl-icon-update" : "rcd-tl-icon-create"}`}
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+              </svg>
+            </div>
+            <div className="rcd-feed-event-line" />
+          </div>
+          <div className="rcd-feed-event-body">
+            <span className="rcd-feed-event-text">
+              <strong>{actor}</strong>{" "}
+              {isLinkRemoved ? "removed the link to" : "linked"}{" "}
+              <strong>{counterpartLabel}</strong>
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {

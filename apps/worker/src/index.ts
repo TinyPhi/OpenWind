@@ -11,6 +11,7 @@ import {
   stopDueDateScheduler,
 } from "./due-date-scheduler.js";
 import { dueDateWorker } from "./due-date-worker.js";
+import { dueDateApproachingWorker } from "./due-date-approaching-worker.js";
 import { stopAvScanWorker } from "./av-scan.js";
 import { scheduleFileCleanup, stopFileCleanupWorker } from "./file-cleanup.js";
 import { stopTenantPurgeWorker } from "./tenant-purge.js";
@@ -53,6 +54,7 @@ async function shutdown(): Promise<void> {
     slaBreacher.close(),
     alertWorker.close(),
     dueDateWorker.close(),
+    dueDateApproachingWorker.close(),
     stopAvScanWorker(),
     stopFileCleanupWorker(),
     stopTenantPurgeWorker(),

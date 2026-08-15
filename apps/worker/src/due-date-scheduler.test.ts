@@ -3,9 +3,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockDueDateQueueAdd = vi.fn().mockResolvedValue({ id: "job-1" });
+const mockDueDateApproachingQueueAdd = vi
+  .fn()
+  .mockResolvedValue({ id: "job-2" });
 
 vi.mock("./queues.js", () => ({
   dueDateQueue: { add: mockDueDateQueueAdd },
+  dueDateApproachingQueue: { add: mockDueDateApproachingQueueAdd },
   connection: {},
 }));
 
@@ -113,6 +117,53 @@ describe("Due date scheduler tick", () => {
 
     const opts = mockDueDateQueueAdd.mock.calls[0]?.[2] as { delay?: number };
     expect(opts.delay).toBe(0);
+  });
+
+  it("also enqueues an approaching-warning job, 2 days before the due date (§2.8)", async () => {
+    const dueDate = new Date(
+      Date.now() + 5 * 24 * 60 * 60 * 1000,
+    ).toISOString(); // 5 days out
+    mockTxExecute.mockResolvedValueOnce([
+      makeRow({ id: "outbox-abc", dueDate }),
+    ]);
+
+    await tick();
+
+    expect(mockDueDateApproachingQueueAdd).toHaveBeenCalledWith(
+      "duedate.approaching",
+      expect.objectContaining({
+        outboxEventId: "outbox-abc",
+        instanceId: "instance-222",
+      }),
+      expect.objectContaining({ jobId: "duedate-approaching-outbox-abc" }),
+    );
+    const opts = mockDueDateApproachingQueueAdd.mock.calls[0]?.[2] as {
+      delay?: number;
+    };
+    // ~3 days until the 2-day-prior mark (5 days out minus the 2-day lead).
+    expect(opts.delay).toBeGreaterThan(2.9 * 24 * 60 * 60 * 1000);
+    expect(opts.delay).toBeLessThan(3.1 * 24 * 60 * 60 * 1000);
+  });
+
+  it("uses delay=0 for the approaching job when already within the 2-day window", async () => {
+    const dueDate = new Date(Date.now() + 3_600_000).toISOString(); // 1 hour out
+    mockTxExecute.mockResolvedValueOnce([makeRow({ dueDate })]);
+
+    await tick();
+
+    const opts = mockDueDateApproachingQueueAdd.mock.calls[0]?.[2] as {
+      delay?: number;
+    };
+    expect(opts.delay).toBe(0);
+  });
+
+  it("does not enqueue an approaching job for a due date already in the past (overdue path covers it instead)", async () => {
+    const dueDate = new Date(Date.now() - 5_000).toISOString();
+    mockTxExecute.mockResolvedValueOnce([makeRow({ dueDate })]);
+
+    await tick();
+
+    expect(mockDueDateApproachingQueueAdd).not.toHaveBeenCalled();
   });
 
   it("marks outbox events as delivered after enqueueing", async () => {

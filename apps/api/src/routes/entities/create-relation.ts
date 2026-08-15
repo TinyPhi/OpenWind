@@ -44,6 +44,7 @@ export const createRelationHandler = factory.createHandlers(
           fromInstanceId,
           toInstanceId: input.toInstanceId,
           relationType: input.relationType,
+          actorId: auth.userId,
         });
       });
       return c.json({ data: relation }, 201);

@@ -29,7 +29,7 @@
 import { sql, inArray } from "drizzle-orm";
 import { db, outboxEvents, setOutboxSweeperRole } from "@platform/db";
 import { logger } from "@platform/logger";
-import { dueDateQueue } from "./queues.js";
+import { dueDateQueue, dueDateApproachingQueue } from "./queues.js";
 
 export type DueDateJobData = {
   outboxEventId: string;
@@ -43,6 +43,10 @@ const BATCH_SIZE = 50;
 const DEFAULT_POLL_INTERVAL_MS = 10_000;
 
 export const STALE_DUE_DATE_THRESHOLD_MS = 48 * 60 * 60 * 1000;
+
+// ui-feature-checklist-and-rules.md §2.8 — how far ahead of the due date the
+// "approaching" warning fires.
+export const DUE_DATE_APPROACHING_LEAD_MS = 2 * 24 * 60 * 60 * 1000;
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let activeTick: Promise<void> | null = null;
@@ -124,6 +128,35 @@ export async function tick(): Promise<void> {
             } satisfies DueDateJobData,
             { jobId, delay },
           );
+
+          // §2.8 — only worth scheduling if the 2-day-prior mark hasn't
+          // already passed the due date itself (an already-overdue ticket
+          // gets the overdue path above, not an "approaching" warning).
+          // Idempotency: this outbox row is marked delivered once, at the
+          // end of this same tick (see below) — it is never reprocessed, so
+          // this enqueue (and BullMQ's own jobId dedup) together guarantee
+          // exactly one approaching job per due-date-scheduling event.
+          if (dueDate > now) {
+            const approachingDelay = Math.max(
+              0,
+              dueDate - DUE_DATE_APPROACHING_LEAD_MS - now,
+            );
+            await dueDateApproachingQueue.add(
+              "duedate.approaching",
+              {
+                outboxEventId: row.id,
+                tenantId: row.tenant_id,
+                instanceId: row.payload.instanceId,
+                entityTypeId: row.payload.entityTypeId,
+                dueDate: row.payload.dueDate,
+              } satisfies DueDateJobData,
+              {
+                jobId: `duedate-approaching-${row.id}`,
+                delay: approachingDelay,
+              },
+            );
+          }
+
           return row.id;
         }),
       );
