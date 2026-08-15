@@ -1,9 +1,10 @@
 /**
- * Isolation tests for modules (Issue #404) and tenants (Issue #405) tables.
+ * Isolation tests for modules (Issue #404) and tenants (Issue #405, #408) tables.
  *
  * modules and tenants are platform-wide tables with specific privilege gates.
  * app_user should not have INSERT, UPDATE, or DELETE on modules, and should not
- * have INSERT or DELETE on tenants.
+ * have INSERT or DELETE on tenants. UPDATE on tenants is column-scoped and restricted
+ * to config and updated_at (Issue #408).
  *
  * Uses a real Postgres database (no mocks).
  */
@@ -84,14 +85,14 @@ describe("tenants — write restriction (Issue #405)", () => {
     ).rejects.toMatchObject({ cause: { code: "42501" } });
   });
 
-  it("app_user UPDATE on allowed column (config) succeeds", async () => {
+  it("app_user UPDATE on allowed columns (config, updatedAt) succeeds", async () => {
     let succeeded = false;
     try {
       await db.transaction(async (tx) => {
         await tx.execute(sql`SET LOCAL ROLE app_user`);
         await tx
           .update(tenants)
-          .set({ config: { test: "value" } })
+          .set({ config: { test: "value" }, updatedAt: new Date() })
           .where(eq(tenants.id, "aaaaaaaa-0000-4000-a000-000000000060"));
         succeeded = true;
         throw new Error("rollback");
