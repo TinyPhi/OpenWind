@@ -421,6 +421,13 @@
       "when": 1785542411000,
       "tag": "0059_outbox_sweeper_role",
       "breakpoints": false
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1785542412000,
+      "tag": "0060_notifications_type_check_missing_types",
+      "breakpoints": false
     }
   ]
 }
