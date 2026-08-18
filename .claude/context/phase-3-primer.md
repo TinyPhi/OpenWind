@@ -117,7 +117,12 @@ Runtime track — full detail for all done items: `docs/sup-docs/week-log.md`'s 
       bugs `/review` caught and fixed pre-merge (BullMQ `job.id` never populated by
       `getRepeatableJobs()`; cursor-keyed dedup id colliding across cycles when a connector never
       advances its cursor). [#366](../../issues/366)
-- [ ] Kill switch (non-destructive disable, not just install/uninstall). [#367](../../issues/367)
+- [x] Kill switch (non-destructive disable, not just install/uninstall) — done 2026-08-18.
+      `disabled_at`/`disabled_by` on `connector_credentials` (mirrors `api_keys.revoked_at`'s
+      shape), checked by the webhook gateway, outbound delivery worker, and polling
+      scheduler/worker. See week-log 2026-08-18 entry for review findings fixed pre-merge
+      (unredacted-dead-letter ordering bug, fail-open on missing installation, a TOCTOU race in
+      the route's audit trail). [#367](../../issues/367)
 - [ ] Build email (SMTP/IMAP) + WhatsApp Business connectors _together with_ the runtime — the
       runtime's shape is sized for exactly these two, not for a five-connector launch.
       [#368](../../issues/368)

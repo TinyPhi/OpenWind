@@ -46,6 +46,7 @@ vi.mock("./queues.js", () => ({
 let selectResult: Array<{
   secrets: Record<string, string>;
   cursorState: unknown;
+  disabledAt?: Date | null;
 }>;
 
 const mockLimit = vi.fn(() => Promise.resolve(selectResult));
@@ -67,7 +68,13 @@ vi.mock("@platform/db", () => ({
     connectorId: "connectorId",
     secrets: "secrets",
     cursorState: "cursorState",
+    disabledAt: "disabledAt",
   },
+  connectorInstallationFilter: (tenantId: string, connectorId: string) => ({
+    op: "connectorInstallationFilter",
+    tenantId,
+    connectorId,
+  }),
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(tx),
   isTenantActive: (...args: unknown[]) => mockIsTenantActive(...args),
@@ -328,6 +335,22 @@ describe("connector poll worker", () => {
 
   it("skips without throwing when the installation no longer exists", async () => {
     selectResult = [];
+    registerPollingConnector(async () => ({ events: [{ x: 1 }] }));
+
+    await runJob();
+
+    expect(mockConnectorInboundAdd).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("skips without throwing when the installation is disabled (issue #367 kill switch)", async () => {
+    selectResult = [
+      {
+        secrets: { k: "ciphertext" },
+        cursorState: null,
+        disabledAt: new Date(),
+      },
+    ];
     registerPollingConnector(async () => ({ events: [{ x: 1 }] }));
 
     await runJob();

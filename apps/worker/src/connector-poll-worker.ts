@@ -36,8 +36,11 @@
  */
 
 import { Worker, type Job } from "bullmq";
-import { eq, and } from "drizzle-orm";
-import { connectorCredentials, withTenantContext } from "@platform/db";
+import {
+  connectorCredentials,
+  connectorInstallationFilter,
+  withTenantContext,
+} from "@platform/db";
 import {
   getConnectorDefinition,
   createConnectorContext,
@@ -109,14 +112,10 @@ async function processPollJob(job: Job<ConnectorPollJobData>): Promise<void> {
       .select({
         secrets: connectorCredentials.secrets,
         cursorState: connectorCredentials.cursorState,
+        disabledAt: connectorCredentials.disabledAt,
       })
       .from(connectorCredentials)
-      .where(
-        and(
-          eq(connectorCredentials.tenantId, tenantId),
-          eq(connectorCredentials.connectorId, connectorId),
-        ),
-      )
+      .where(connectorInstallationFilter(tenantId, connectorId))
       .limit(1),
   );
 
@@ -124,6 +123,19 @@ async function processPollJob(job: Job<ConnectorPollJobData>): Promise<void> {
     logger.warn(
       { tenantId, connectorId },
       "connector-poll-worker: installation no longer exists — skipping (reconciler will remove the stale job)",
+    );
+    return;
+  }
+
+  if (installation.disabledAt) {
+    // Kill switch (issue #367) — a race against the reconcile tick (a job
+    // already scheduled before the installation was disabled can still
+    // fire once). Skip, don't throw: the next reconcile tick removes this
+    // job's repeatable schedule on its own, same as a deregistered
+    // connector or a removed installation above.
+    logger.info(
+      { tenantId, connectorId },
+      "connector-poll-worker: installation disabled — skipping poll",
     );
     return;
   }
@@ -172,12 +184,7 @@ async function processPollJob(job: Job<ConnectorPollJobData>): Promise<void> {
       tx
         .update(connectorCredentials)
         .set({ cursorState: { cursor: result.nextCursor } })
-        .where(
-          and(
-            eq(connectorCredentials.tenantId, tenantId),
-            eq(connectorCredentials.connectorId, connectorId),
-          ),
-        ),
+        .where(connectorInstallationFilter(tenantId, connectorId)),
     );
   }
 
