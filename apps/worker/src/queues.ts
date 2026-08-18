@@ -147,3 +147,18 @@ export const connectorInboundQueue = new Queue("connector-inbound", {
     backoff: { type: "exponential", delay: 1_000 },
   },
 });
+
+// Connector polling scheduler (ADR-009 Decision #7, issue #366) — repeatable
+// jobs, one per (tenantId, connectorId) polling-type installation, that call
+// the connector's trigger.polling.fetch() and forward results onto
+// connectorInboundQueue above. Same internal-processing-failure retry
+// semantics as connectorInboundQueue (a failure here is this platform's own
+// processing failure, not a third-party endpoint being down) — deliberately
+// NOT connectorOutboundQueue's hours-long tail.
+export const connectorPollQueue = new Queue("connector-poll", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});
