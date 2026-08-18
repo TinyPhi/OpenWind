@@ -17,6 +17,7 @@ import { AuthCallback } from "./pages/callback.js";
 import { Dashboard } from "./pages/dashboard.js";
 import { Analytics } from "./pages/analytics.js";
 import { Modules } from "./pages/modules.js";
+import { Plugins } from "./pages/plugins.js";
 import { EntityTypeDetail } from "./pages/entity-types/detail.js";
 import { EntityInstanceCreate } from "./pages/entity-types/instance-create.js";
 import { Workflows } from "./pages/workflows/index.js";
@@ -77,6 +78,7 @@ export function App(): React.ReactElement {
             meta: { label: "Analytics" },
           },
           { name: "modules", list: "/modules", meta: { label: "Templates" } },
+          { name: "plugins", list: "/plugins", meta: { label: "Plugins" } },
           {
             name: "records",
             list: "/records",
@@ -143,6 +145,7 @@ export function App(): React.ReactElement {
             <Route path="/settings" element={<Settings />} />
 
             <Route path="/modules" element={<Modules />} />
+            <Route path="/plugins" element={<Plugins />} />
 
             {/* Workflow detail — access checked inside component (admin or workflow assignee) */}
             <Route

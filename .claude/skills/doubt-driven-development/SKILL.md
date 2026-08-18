@@ -1,3 +1,8 @@
+---
+name: doubt-driven-development
+description: Subjects a non-trivial decision to adversarial review before it stands. Invoke for branching logic, a change crossing a service/security/data boundary, or correctness that can't be directly verified (thread safety, idempotency, RLS enforcement, lock ordering) — skip for mechanical operations like renaming or formatting.
+---
+
 # Skill: doubt-driven-development
 
 Subjects non-trivial decisions to adversarial review before they stand.

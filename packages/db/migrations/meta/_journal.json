@@ -419,14 +419,42 @@
       "idx": 59,
       "version": "7",
       "when": 1785542411000,
-      "tag": "0059_outbox_sweeper_role",
+      "tag": "0059_plugin_system",
       "breakpoints": false
     },
     {
       "idx": 60,
       "version": "7",
       "when": 1785542412000,
-      "tag": "0060_notifications_type_check_missing_types",
+      "tag": "0060_connector_definitions_grants_fix",
+      "breakpoints": false
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1785542413000,
+      "tag": "0061_app_user_default_grants_revoke",
+      "breakpoints": false
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1785542414000,
+      "tag": "0062_tenants_column_scoped_update",
+      "breakpoints": false
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1785542415000,
+      "tag": "0063_outbox_sweeper_role",
+      "breakpoints": false
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1785542416000,
+      "tag": "0064_notifications_type_check_missing_types",
       "breakpoints": false
     }
   ]

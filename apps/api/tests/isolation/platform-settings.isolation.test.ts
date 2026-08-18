@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, afterEach } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { db, platformSettings } from "@platform/db";
@@ -119,5 +119,28 @@ describe("PATCH /admin/platform-settings — role gate and real update", () => {
       .where(eq(platformSettings.id, 1));
     expect(row?.outboundNotificationsEnabled).toBe(false);
     expect(row?.updatedBy).toBe("isolation-test-user");
+  });
+});
+
+describe("platform_settings — app_user DML restrictions (Issue #406)", () => {
+  it("app_user INSERT fails with permission denied", async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx.insert(platformSettings).values({
+          id: 2,
+          outboundNotificationsEnabled: false,
+        });
+      }),
+    ).rejects.toMatchObject({ cause: { code: "42501" } });
+  });
+
+  it("app_user DELETE fails with permission denied", async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx.delete(platformSettings).where(eq(platformSettings.id, 1));
+      }),
+    ).rejects.toMatchObject({ cause: { code: "42501" } });
   });
 });

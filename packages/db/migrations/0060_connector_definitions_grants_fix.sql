@@ -1,0 +1,26 @@
+-- analytics: excluded (no new table — grant fix only)
+-- down:
+--   GRANT INSERT, UPDATE, DELETE ON connector_definitions TO app_user;
+--   -- (restores the over-grant this migration removes; do not apply this
+--   -- rollback without also understanding why — see rationale below)
+
+-- Migration 0056 declared connector_definitions "readable by app_user; writes
+-- are migration_user-only (no INSERT/UPDATE/DELETE grant below)" via a single
+-- `GRANT SELECT ON connector_definitions TO app_user`. That comment's intent
+-- was never actually enforced: docker/postgres/init/001_setup.sql's
+-- `ALTER DEFAULT PRIVILEGES FOR ROLE migration_user IN SCHEMA public GRANT
+-- SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user` auto-grants full DML
+-- to app_user on every new table CREATEd by migration_user — an explicit
+-- GRANT SELECT alone does not narrow that back down; only an explicit REVOKE
+-- does. This is the identical gap migration 0059 already fixed for
+-- plugin_definitions/plugin_errors (see that migration's own comment) —
+-- connector_definitions predates that fix and was missed.
+--
+-- Confirmed live in the real `platform` database (migrations run there via
+-- migration_user, per docker-compose.yml's MIGRATION_DATABASE_URL): app_user
+-- has arwd (full DML) on connector_definitions today. Confirmed NOT
+-- reproducible against `platform_test` (CI's migration role there is the
+-- `platform` superuser, not migration_user, so the default-privileges rule
+-- never fires) -- a separate, broader finding about CI's migration-role
+-- divergence from production, tracked outside this migration.
+REVOKE INSERT, UPDATE, DELETE ON connector_definitions FROM app_user;

@@ -12,7 +12,7 @@
  * platform-wide.
  *
  * Two independent fixes for this same outage now both exist:
- * 0059_outbox_sweeper_role.sql (this repo's own direct-to-server hotfix,
+ * 0063_outbox_sweeper_role.sql (this repo's own direct-to-server hotfix,
  * predates PR #374) grants a narrowly-scoped BYPASSRLS role to the three
  * sweep call sites via SET LOCAL ROLE. 0058_outbox_dead_letter_rls_null_guc_fix.sql
  * (PR #374, merged later upstream) takes a broader approach: it widens the

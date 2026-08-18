@@ -1,5 +1,13 @@
 # Week-over-Week Progress Log
 
+**FROZEN as of 2026-08-13.** This file stopped growing here — do not prepend new entries.
+Every session's entry is the same shared insertion point at the top of this file, so two
+parallel branches adding one each collide almost every time; this got materially worse once
+tracks started running in parallel branches (3B/3C/3D). New entries go in
+[week-log/](week-log/) instead — one file per session, named by date, so there's no shared
+line for concurrent branches to fight over. See that directory's README for the convention.
+Everything below this line is unchanged history; read it exactly as before.
+
 **Format:** One entry per session or per milestone close. Newest at top.
 **Purpose:** Running velocity record for an AI-first dev team. Update this at the start/end of each work session.
 

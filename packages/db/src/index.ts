@@ -1,4 +1,11 @@
-export { db, executeRawInTenantContext, isTenantActive } from "./client.js";
+export {
+  db,
+  executeRawInTenantContext,
+  isTenantActive,
+  runPluginMigration,
+  purgeTenantDataFromPluginSchema,
+  InvalidPluginSlugError,
+} from "./client.js";
 export {
   withTenantContext,
   withTenantAndUserContext,
