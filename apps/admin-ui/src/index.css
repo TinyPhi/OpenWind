@@ -4103,6 +4103,17 @@ select.form-input {
 }
 .rcd-tab-scroll::-webkit-scrollbar { width: 4px; }
 .rcd-tab-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+/* Comments panel only -- .rcd-tab-scroll's flex:1/overflow-y:auto never
+   actually scrolls above the 900px breakpoint because .rcd-two-col is
+   deliberately page-scrolling there (2026-08-13 redesign, for Sub-tasks/
+   Linked), leaving .rcd-activity-card unbounded so there's nothing for
+   flex:1 to size against. This bounds the comments panel specifically so
+   its existing auto-scroll-to-bottom effect has a real container to scroll
+   within, without reintroducing page-scroll for Sub-tasks/Linked. Below
+   900px, .rcd-activity-card already gets a fixed height (see media query
+   below) so this is deliberately uncapped there -- flex:1 already sizes it
+   correctly within that fixed card height. */
+.rcd-comments-scroll { min-height: 320px; max-height: 640px; }
 .rcd-linked-tab-actions {
   display: flex;
   justify-content: flex-end;
@@ -4194,6 +4205,7 @@ select.form-input {
 @media (max-width: 900px) {
   .rcd-two-col { flex-direction: column; min-height: 0; height: auto; }
   .rcd-two-col > .rcd-card.rcd-activity-card { flex: none; height: 520px; }
+  .rcd-comments-scroll { max-height: none; }
   .rcd-sidebar { flex: none; height: auto; }
   .rcd-sidebar-section { flex: none; min-height: 200px; max-height: 320px; }
 }

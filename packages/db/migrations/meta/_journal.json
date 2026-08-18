@@ -456,6 +456,13 @@
       "when": 1785542416000,
       "tag": "0064_notifications_type_check_missing_types",
       "breakpoints": false
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1785542417000,
+      "tag": "0065_notifications_entity_unassigned_type",
+      "breakpoints": false
     }
   ]
 }
