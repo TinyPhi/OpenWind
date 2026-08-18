@@ -164,6 +164,91 @@ describe("connector_credentials — cross-tenant RLS isolation", () => {
   });
 });
 
+describe("connector_credentials — cursor_state (issue #366, ADR-009 Decision #7)", () => {
+  let cursorConnectorId: string;
+  let rowAId: string;
+
+  beforeAll(async () => {
+    const [conn] = await db
+      .insert(connectorDefinitions)
+      .values({
+        slug: `isolation_test_connector_creds_cursor_${Date.now()}`,
+        name: "Isolation Test Connector (cursor_state)",
+        version: "1.0.0",
+        category: "other",
+        allowedHosts: ["example.com"],
+      })
+      .returning();
+    if (!conn) throw new Error("setup: failed to seed connector row");
+    cursorConnectorId = conn.id;
+
+    const [rowA] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .insert(connectorCredentials)
+        .values({
+          tenantId: TENANT_A,
+          connectorId: cursorConnectorId,
+          secrets: {},
+        })
+        .returning({ id: connectorCredentials.id }),
+    );
+    if (!rowA) throw new Error("setup: tenant A insert failed");
+    rowAId = rowA.id;
+  });
+
+  afterAll(async () => {
+    await db
+      .delete(connectorCredentials)
+      .where(eq(connectorCredentials.connectorId, cursorConnectorId));
+    await db
+      .delete(connectorDefinitions)
+      .where(eq(connectorDefinitions.id, cursorConnectorId));
+  });
+
+  it("a tenant can write and read back its own cursor_state", async () => {
+    await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .update(connectorCredentials)
+        .set({ cursorState: { cursor: "imap-uid-42" } })
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+
+    const [row] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .select({ cursorState: connectorCredentials.cursorState })
+        .from(connectorCredentials)
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+    expect(row?.cursorState).toEqual({ cursor: "imap-uid-42" });
+  });
+
+  it("another tenant cannot read or overwrite this row's cursor_state via RLS", async () => {
+    const rows = await withTenantContext(TENANT_B, (tx) =>
+      tx
+        .select({ cursorState: connectorCredentials.cursorState })
+        .from(connectorCredentials)
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+    expect(rows).toHaveLength(0);
+
+    await withTenantContext(TENANT_B, (tx) =>
+      tx
+        .update(connectorCredentials)
+        .set({ cursorState: { cursor: "attacker-overwrite" } })
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+
+    // The row is unaffected by tenant B's blind (RLS-filtered-to-zero-rows) update.
+    const [rowAfter] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .select({ cursorState: connectorCredentials.cursorState })
+        .from(connectorCredentials)
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+    expect(rowAfter?.cursorState).toEqual({ cursor: "imap-uid-42" });
+  });
+});
+
 describe("connector_credentials — (tenant_id, connector_id) uniqueness", () => {
   it("a second install of the same connector for the same tenant is rejected", async () => {
     const [conn] = await db
