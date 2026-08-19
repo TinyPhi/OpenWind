@@ -12,13 +12,29 @@ import type { ConnectorDefinition } from "@platform/connector-sdk";
 
 // ── @platform/db ─────────────────────────────────────────────────────────────
 
-let installationRows: Array<{ tenantId: string; connectorId: string }>;
-const mockDbFrom = vi.fn(() => Promise.resolve(installationRows));
+let installationRows: Array<{
+  tenantId: string;
+  connectorId: string;
+  disabledAt?: Date | null;
+}>;
+// The real query filters disabled installations in SQL (WHERE
+// isNull(disabledAt)), so the mock chain does the same — a test asserting
+// "a disabled installation never enters the desired set" would otherwise
+// pass or fail for the wrong reason depending on whether this mock happens
+// to forward .where()'s filtering intent.
+const mockDbWhere = vi.fn(() =>
+  Promise.resolve(installationRows.filter((r) => !r.disabledAt)),
+);
+const mockDbFrom = vi.fn(() => ({ where: mockDbWhere }));
 const mockDbSelect = vi.fn(() => ({ from: mockDbFrom }));
 
 vi.mock("@platform/db", () => ({
   db: { select: (...args: unknown[]) => mockDbSelect(...args) },
-  connectorCredentials: { tenantId: "tenantId", connectorId: "connectorId" },
+  connectorCredentials: {
+    tenantId: "tenantId",
+    connectorId: "connectorId",
+    disabledAt: "disabledAt",
+  },
 }));
 
 // ── ./queues.js ──────────────────────────────────────────────────────────────
@@ -190,6 +206,42 @@ describe("connector poll scheduler", () => {
       expect(mockRemoveRepeatableByKey).not.toHaveBeenCalled();
     });
 
+    it("excludes a disabled installation from the desired set (issue #367 kill switch)", async () => {
+      registerPollingConnector(5);
+      installationRows = [
+        {
+          tenantId: TENANT_ID,
+          connectorId: CONNECTOR_ID,
+          disabledAt: new Date(),
+        },
+      ];
+
+      await reconcile();
+
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+    });
+
+    it("removes an existing repeatable job once its installation becomes disabled", async () => {
+      registerPollingConnector(5);
+      installationRows = [
+        {
+          tenantId: TENANT_ID,
+          connectorId: CONNECTOR_ID,
+          disabledAt: new Date(),
+        },
+      ];
+      repeatableJobs = [
+        { key: pollJobId(TENANT_ID, CONNECTOR_ID), every: "300000" },
+      ];
+
+      await reconcile();
+
+      expect(mockRemoveRepeatableByKey).toHaveBeenCalledWith(
+        pollJobId(TENANT_ID, CONNECTOR_ID),
+      );
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+    });
+
     it("skips an installation whose connector is not registered", async () => {
       installationRows = [{ tenantId: TENANT_ID, connectorId: CONNECTOR_ID }];
 
@@ -216,7 +268,7 @@ describe("connector poll scheduler", () => {
     });
 
     it("does not throw when the DB query fails — logs and returns", async () => {
-      mockDbFrom.mockRejectedValueOnce(new Error("connection reset"));
+      mockDbWhere.mockRejectedValueOnce(new Error("connection reset"));
 
       await expect(reconcile()).resolves.toBeUndefined();
     });
@@ -243,7 +295,7 @@ describe("connector poll scheduler", () => {
       const slowTick = new Promise<unknown[]>((res) => {
         resolveTick = res as unknown as () => void;
       });
-      mockDbFrom.mockReturnValueOnce(slowTick);
+      mockDbWhere.mockReturnValueOnce(slowTick);
 
       startConnectorPollScheduler(100);
       await Promise.resolve();

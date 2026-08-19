@@ -249,6 +249,110 @@ describe("connector_credentials — cursor_state (issue #366, ADR-009 Decision #
   });
 });
 
+describe("connector_credentials — kill switch (issue #367, ADR-009 Decision #9)", () => {
+  let killSwitchConnectorId: string;
+  let rowAId: string;
+
+  beforeAll(async () => {
+    const [conn] = await db
+      .insert(connectorDefinitions)
+      .values({
+        slug: `isolation_test_connector_creds_kill_switch_${Date.now()}`,
+        name: "Isolation Test Connector (kill switch)",
+        version: "1.0.0",
+        category: "other",
+        allowedHosts: ["example.com"],
+      })
+      .returning();
+    if (!conn) throw new Error("setup: failed to seed connector row");
+    killSwitchConnectorId = conn.id;
+
+    const [rowA] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .insert(connectorCredentials)
+        .values({
+          tenantId: TENANT_A,
+          connectorId: killSwitchConnectorId,
+          secrets: {},
+        })
+        .returning({ id: connectorCredentials.id }),
+    );
+    if (!rowA) throw new Error("setup: tenant A insert failed");
+    rowAId = rowA.id;
+  });
+
+  afterAll(async () => {
+    await db
+      .delete(connectorCredentials)
+      .where(eq(connectorCredentials.connectorId, killSwitchConnectorId));
+    await db
+      .delete(connectorDefinitions)
+      .where(eq(connectorDefinitions.id, killSwitchConnectorId));
+  });
+
+  it("a tenant can disable and re-enable its own installation", async () => {
+    await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .update(connectorCredentials)
+        .set({ disabledAt: new Date(), disabledBy: "isolation-test-actor" })
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+
+    const [disabledRow] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .select({
+          disabledAt: connectorCredentials.disabledAt,
+          disabledBy: connectorCredentials.disabledBy,
+        })
+        .from(connectorCredentials)
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+    expect(disabledRow?.disabledAt).toBeInstanceOf(Date);
+    expect(disabledRow?.disabledBy).toBe("isolation-test-actor");
+
+    await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .update(connectorCredentials)
+        .set({ disabledAt: null, disabledBy: null })
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+
+    const [enabledRow] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .select({ disabledAt: connectorCredentials.disabledAt })
+        .from(connectorCredentials)
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+    expect(enabledRow?.disabledAt).toBeNull();
+  });
+
+  it("another tenant cannot read or disable this row via RLS", async () => {
+    const rows = await withTenantContext(TENANT_B, (tx) =>
+      tx
+        .select({ disabledAt: connectorCredentials.disabledAt })
+        .from(connectorCredentials)
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+    expect(rows).toHaveLength(0);
+
+    await withTenantContext(TENANT_B, (tx) =>
+      tx
+        .update(connectorCredentials)
+        .set({ disabledAt: new Date(), disabledBy: "attacker" })
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+
+    // Tenant B's blind (RLS-filtered-to-zero-rows) update had no effect.
+    const [rowAfter] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .select({ disabledAt: connectorCredentials.disabledAt })
+        .from(connectorCredentials)
+        .where(eq(connectorCredentials.id, rowAId)),
+    );
+    expect(rowAfter?.disabledAt).toBeNull();
+  });
+});
+
 describe("connector_credentials — (tenant_id, connector_id) uniqueness", () => {
   it("a second install of the same connector for the same tenant is rejected", async () => {
     const [conn] = await db
