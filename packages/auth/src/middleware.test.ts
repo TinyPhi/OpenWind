@@ -266,6 +266,7 @@ describe("requireAuth", () => {
   it("returns 401 when API key is not found in db", async () => {
     const mockDb = {
       execute: vi.fn().mockResolvedValue([]),
+      select: mockModuleDbSelect,
     };
 
     const app = makeApp([
@@ -288,6 +289,7 @@ describe("requireAuth", () => {
     };
     const mockDb = {
       execute: vi.fn().mockResolvedValue([fakeRow]),
+      select: mockModuleDbSelect,
     };
 
     const app = makeApp([
@@ -308,6 +310,7 @@ describe("requireAuth", () => {
       mockArgon2Verify.mockResolvedValueOnce(false);
       const mockDb = {
         execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
       };
 
       const app = makeApp([
@@ -326,6 +329,7 @@ describe("requireAuth", () => {
       };
       const mockDb = {
         execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
       };
 
       const app = makeApp([
@@ -345,6 +349,7 @@ describe("requireAuth", () => {
       };
       const mockDb = {
         execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
       };
 
       const app = makeApp([
@@ -461,7 +466,10 @@ describe("requireAuth", () => {
         tenant_id: "tenant-abc",
         scopes: ["read"],
       };
-      const mockDb = { execute: vi.fn().mockResolvedValue([fakeRow]) };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
 
       const app = makeApp([
         requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
@@ -482,7 +490,10 @@ describe("requireAuth", () => {
         tenant_id: "tenant-abc",
         scopes: ["read"],
       };
-      const mockDb = { execute: vi.fn().mockResolvedValue([fakeRow]) };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
       mockCheckRateLimit.mockResolvedValueOnce({
         allowed: false,
         remaining: 0,
@@ -601,6 +612,7 @@ describe("requireIntrospection", () => {
     };
     const mockDb = {
       execute: vi.fn().mockResolvedValue([fakeRow]),
+      select: mockModuleDbSelect,
     };
 
     const app = new Hono();

@@ -511,11 +511,6 @@ export async function lookupOrgIdByTenantId(
   if (cached !== undefined) return cached;
 
   const activeDb = dbHandle ?? db;
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-  if (!activeDb || typeof (activeDb as any).select !== "function") {
-    return null;
-  }
-
   const [row] = await activeDb
     .select({ zitadelOrgId: tenants.zitadelOrgId })
     .from(tenants)
