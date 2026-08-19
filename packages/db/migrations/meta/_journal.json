@@ -442,6 +442,13 @@
       "when": 1785542414000,
       "tag": "0062_tenants_column_scoped_update",
       "breakpoints": false
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1785542415000,
+      "tag": "0063_connector_credentials_kill_switch",
+      "breakpoints": false
     }
   ]
 }

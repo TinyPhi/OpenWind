@@ -82,6 +82,8 @@ import {
   db,
   withTenantContext,
   entityFields,
+  connectorCredentials,
+  connectorInstallationFilter,
   connectorDeliveryAttempts,
   deadLetterEvents,
 } from "@platform/db";
@@ -379,6 +381,35 @@ async function processJob(job: Job<ConnectorOutboundJobData>): Promise<void> {
       validatedRecord,
     );
     payloadForDeadLetter = redacted;
+
+    // Step 4.5 (issue #367, kill switch) — deliberately AFTER Step 4, not
+    // before Step 2 as originally written: this throw can dead-letter the
+    // attempt on isLastAttempt, and payloadForDeadLetter must already be in
+    // its redacted form by the time ANY throw below can reach that write
+    // (see this function's own module doc for why redaction runs
+    // per-attempt) — putting this check earlier reopened exactly the
+    // unredacted-dead-letter gap that doc claims is closed (security review
+    // finding). Skips only the genuinely risky/expensive steps that follow
+    // (SSRF, signing, the network call) — Steps 2-4 above are cheap/pure and
+    // gate this table's exhausted-attempt dead-letter regardless.
+    // Fail-closed on a missing installation row too (not just disabledAt
+    // truthy) — matches connector-poll-worker.ts's stance that "no
+    // installation" is at least as strong a stop signal as "disabled",
+    // rather than defaulting to "proceed" for the missing-row case.
+    // Re-checked on every retry (not cached): an installation can be
+    // re-enabled between attempts.
+    const [installation] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .select({ disabledAt: connectorCredentials.disabledAt })
+        .from(connectorCredentials)
+        .where(connectorInstallationFilter(tenantId, connectorId))
+        .limit(1),
+    );
+    if (!installation || installation.disabledAt) {
+      throw new Error(
+        `Connector "${connectorId}" is disabled or uninstalled for tenant "${tenantId}"`,
+      );
+    }
 
     // Step 5 (AC4) — mandatory per-attempt SSRF re-validation. Never cached
     // across attempts: targetUrl could have been reconfigured to point at an

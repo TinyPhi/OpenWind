@@ -18,6 +18,7 @@
  * install time yet.
  */
 
+import { isNull } from "drizzle-orm";
 import { connectorPollQueue } from "./queues.js";
 import { db, connectorCredentials } from "@platform/db";
 import { getConnectorDefinition } from "@platform/connector-sdk";
@@ -45,12 +46,17 @@ interface DesiredPollJob {
 }
 
 async function buildDesiredJobs(): Promise<Map<string, DesiredPollJob>> {
+  // Kill switch (issue #367) — filtered in SQL, not after the fact in JS:
+  // a disabled installation's row never crosses the wire into this process,
+  // and is excluded from the desired set entirely rather than merely
+  // skipped at execution time — no repeatable job is scheduled for it.
   const installations = await db
     .select({
       tenantId: connectorCredentials.tenantId,
       connectorId: connectorCredentials.connectorId,
     })
-    .from(connectorCredentials);
+    .from(connectorCredentials)
+    .where(isNull(connectorCredentials.disabledAt));
 
   const desired = new Map<string, DesiredPollJob>();
 

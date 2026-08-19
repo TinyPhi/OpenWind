@@ -284,6 +284,9 @@ export const connectorDefinitions = pgTable("connector_definitions", {
  * exactly — actual plaintext credentials are never stored here.
  * `cursor_state` is 1:1 polling-cursor state for polling connectors
  * (ADR-009 Decision #7), nullable.
+ * `disabled_at`/`disabled_by` (migration 0063, issue #367) are the kill
+ * switch — non-destructive, NULL means enabled. Every column above is
+ * untouched by a disable/enable toggle.
  *
  * RLS (tenant_read/tenant_write, migration 0001) and the app_user grant
  * (SELECT/INSERT/UPDATE/DELETE, migration 0019) are unchanged by migration
@@ -302,6 +305,10 @@ export const connectorCredentials = pgTable(
     secrets: jsonb("secrets").default({}).notNull(),
     /** Polling-connector cursor (e.g. last-seen IMAP UID) — 1:1 with this installation row. */
     cursorState: jsonb("cursor_state"),
+    /** Kill switch (issue #367) — soft, non-destructive disable, NULL means enabled. Mirrors api_keys.revoked_at's shape. Checked by the inbound webhook gateway, outbound delivery worker, and polling scheduler/worker before processing. */
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    /** Actor (Zitadel user id) who last flipped disabledAt, if any. */
+    disabledBy: text("disabled_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
