@@ -7,6 +7,7 @@ import { updateEntity } from "@platform/entity-engine";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { ensureUserRefsKnown } from "../../lib/ensure-user-refs.js";
 
 const UpdateEntitySchema = z.object({
   fields: z.record(z.unknown()).optional(),
@@ -21,7 +22,7 @@ export const updateEntityHandler = factory.createHandlers(
   zValidator("json", UpdateEntitySchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId, userId, roles } = c.get("auth");
+    const { tenantId, userId, roles, orgId } = c.get("auth");
     const input = c.req.valid("json");
 
     const isAdminOrAgent = roles.includes("admin") || roles.includes("agent");
@@ -99,14 +100,40 @@ export const updateEntityHandler = factory.createHandlers(
             ? dbUser.email
             : null;
 
-      const instance = await withTenantContext(tenantId, (tx) =>
-        updateEntity(tx, tenantId, id, {
+      const instance = await withTenantContext(tenantId, async (tx) => {
+        // Upsert tenant_users for any user_ref field referencing a genuine
+        // org member who hasn't logged into this app yet - otherwise
+        // updateEntity's own validateUserRefs (tenant_users-only) wrongly
+        // rejects them. Must run inside this same transaction, before
+        // updateEntity, so its validation sees the freshly-inserted rows.
+        if (input.fields !== undefined) {
+          const [existing] = await tx
+            .select({ entityTypeId: entityInstances.entityTypeId })
+            .from(entityInstances)
+            .where(
+              and(
+                eq(entityInstances.id, id),
+                eq(entityInstances.tenantId, tenantId),
+              ),
+            )
+            .limit(1);
+          if (existing) {
+            await ensureUserRefsKnown(
+              tx,
+              tenantId,
+              existing.entityTypeId,
+              input.fields,
+              orgId,
+            );
+          }
+        }
+        return updateEntity(tx, tenantId, id, {
           ...input,
           actorId: userId,
           actorType: "user",
           actorName: actorName ?? undefined,
-        }),
-      );
+        });
+      });
       return c.json({ data: instance });
     } catch (err) {
       return handleEntityError(c, err);

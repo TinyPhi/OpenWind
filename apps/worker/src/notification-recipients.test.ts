@@ -5,12 +5,22 @@ let workflowRow: {
   assignedTo: string[] | null;
 } | null = null;
 let tenantUserRow: { userId: string } | null = null;
+let entityInstanceRow: {
+  createdBy: string | null;
+  assignedTo: string | null;
+  fields?: Record<string, unknown>;
+} | null = null;
+let accessRequestRow: { requesterId: string } | null = null;
 
 const mockLimit = vi.fn(() => {
   // Distinguish which table is being queried by inspecting the last `from`
   // call recorded below.
   if (currentFrom === "workflows")
     return Promise.resolve(workflowRow ? [workflowRow] : []);
+  if (currentFrom === "entity_instances")
+    return Promise.resolve(entityInstanceRow ? [entityInstanceRow] : []);
+  if (currentFrom === "access_requests")
+    return Promise.resolve(accessRequestRow ? [accessRequestRow] : []);
   return Promise.resolve(tenantUserRow ? [tenantUserRow] : []);
 });
 let currentFrom: string | null = null;
@@ -29,6 +39,8 @@ vi.mock("@platform/db", () => ({
     fn(mockTx),
   workflows: "workflows",
   tenantUsers: "tenant_users",
+  entityInstances: "entity_instances",
+  accessRequests: "access_requests",
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -49,6 +61,8 @@ describe("resolveRecipients", () => {
   beforeEach(() => {
     workflowRow = null;
     tenantUserRow = null;
+    entityInstanceRow = null;
+    accessRequestRow = null;
     systemAdminUserId = undefined;
   });
 
@@ -125,6 +139,150 @@ describe("resolveRecipients", () => {
     expect(revoked.recipients).toEqual(["u-target"]);
   });
 
+  it("access.updated (level change, §2.3): the target user only", async () => {
+    const result = await resolveRecipients("t-1", "access.updated", {
+      actorId: "u-admin",
+      targetUserId: "u-target",
+    });
+    expect(result.recipients).toEqual(["u-target"]);
+
+    const selfUpdate = await resolveRecipients("t-1", "access.updated", {
+      actorId: "u-target",
+      targetUserId: "u-target",
+    });
+    expect(selfUpdate.recipients).toEqual([]);
+  });
+
+  it("access_request.created: the ticket's creator and assignee, self-suppressed if the requester is one of them", async () => {
+    entityInstanceRow = { createdBy: "u-owner", assignedTo: "u-assignee" };
+    const result = await resolveRecipients("t-1", "access_request.created", {
+      actorId: "u-requester",
+      instanceId: "e-1",
+    });
+    expect(result.recipients.sort()).toEqual(["u-assignee", "u-owner"]);
+
+    const selfOwned = await resolveRecipients("t-1", "access_request.created", {
+      actorId: "u-owner",
+      instanceId: "e-1",
+    });
+    expect(selfOwned.recipients).toEqual(["u-assignee"]);
+  });
+
+  it("access_request.created: not the wider __accessUsers ACL, only creator/assignee", async () => {
+    entityInstanceRow = { createdBy: "u-owner", assignedTo: null };
+    const result = await resolveRecipients("t-1", "access_request.created", {
+      actorId: "u-requester",
+      instanceId: "e-1",
+    });
+    expect(result.recipients).toEqual(["u-owner"]);
+  });
+
+  it("access_request.created: no recipients if the entity can't be found", async () => {
+    entityInstanceRow = null;
+    const result = await resolveRecipients("t-1", "access_request.created", {
+      actorId: "u-requester",
+      instanceId: "e-missing",
+    });
+    expect(result.recipients).toEqual([]);
+  });
+
+  it("access_request.updated: the original requester only, self-suppressed if they resolved their own request", async () => {
+    accessRequestRow = { requesterId: "u-requester" };
+    const result = await resolveRecipients("t-1", "access_request.updated", {
+      actorId: "u-admin",
+      instanceId: "e-1",
+      requestId: "req-1",
+      status: "approved",
+    });
+    expect(result.recipients).toEqual(["u-requester"]);
+    expect(result.reason).toBe("approved");
+
+    const selfResolved = await resolveRecipients(
+      "t-1",
+      "access_request.updated",
+      {
+        actorId: "u-requester",
+        instanceId: "e-1",
+        requestId: "req-1",
+        status: "rejected",
+      },
+    );
+    expect(selfResolved.recipients).toEqual([]);
+  });
+
+  it("access_request.updated: no recipients if the request can't be found", async () => {
+    accessRequestRow = null;
+    const result = await resolveRecipients("t-1", "access_request.updated", {
+      actorId: "u-admin",
+      instanceId: "e-1",
+      requestId: "req-missing",
+      status: "approved",
+    });
+    expect(result.recipients).toEqual([]);
+  });
+
+  it("workflow.transitioned: the ticket's creator and assignee, self-suppressed if the actor is one of them (§2.4)", async () => {
+    entityInstanceRow = { createdBy: "u-owner", assignedTo: "u-assignee" };
+    const result = await resolveRecipients("t-1", "workflow.transitioned", {
+      actorId: "u-agent",
+      instanceId: "e-1",
+      fromState: "open",
+      toState: "done",
+    });
+    expect(result.recipients.sort()).toEqual(["u-assignee", "u-owner"]);
+    expect(result.reason).toBe("done");
+
+    const selfTransitioned = await resolveRecipients(
+      "t-1",
+      "workflow.transitioned",
+      {
+        actorId: "u-owner",
+        instanceId: "e-1",
+        toState: "done",
+      },
+    );
+    expect(selfTransitioned.recipients).toEqual(["u-assignee"]);
+  });
+
+  it("workflow.transitioned: no recipients if the entity can't be found", async () => {
+    entityInstanceRow = null;
+    const result = await resolveRecipients("t-1", "workflow.transitioned", {
+      actorId: "u-agent",
+      instanceId: "e-missing",
+      toState: "done",
+    });
+    expect(result.recipients).toEqual([]);
+  });
+
+  it("entity.due_date_approaching: the FULL access list (creator + assignedTo + every __accessUsers entry), §2.8", async () => {
+    entityInstanceRow = {
+      createdBy: "u-owner",
+      assignedTo: "u-assignee",
+      fields: {
+        __accessUsers: { "u-viewer-1": { level: "read_only" }, "u-owner": {} },
+      },
+    };
+    const result = await resolveRecipients(
+      "t-1",
+      "entity.due_date_approaching",
+      { instanceId: "e-1" },
+    );
+    expect(result.recipients.sort()).toEqual(
+      ["u-assignee", "u-owner", "u-viewer-1"].sort(),
+    );
+    expect(result.actorId).toBeNull();
+  });
+
+  it("entity.due_date_approaching: no recipients if the entity can't be found", async () => {
+    entityInstanceRow = null;
+    const result = await resolveRecipients(
+      "t-1",
+      "entity.due_date_approaching",
+      { instanceId: "e-missing" },
+    );
+    expect(result.recipients).toEqual([]);
+  });
+
   it("workflow.sla_breached: all current workflow admins (createdBy + assignedTo, deduped)", async () => {
     workflowRow = { createdBy: "u-owner", assignedTo: ["u-admin1", "u-owner"] };
     const result = await resolveRecipients("t-1", "workflow.sla_breached", {
@@ -177,6 +335,11 @@ describe("resolveRecipients", () => {
       "comment.replied",
       "access.granted",
       "access.revoked",
+      "access.updated",
+      "access_request.created",
+      "access_request.updated",
+      "workflow.transitioned",
+      "entity.due_date_approaching",
       "workflow.sla_breached",
       "system.error",
     ];

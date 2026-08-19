@@ -24,7 +24,12 @@
  */
 
 import { sql, inArray } from "drizzle-orm";
-import { db, outboxEvents, deadLetterEvents } from "@platform/db";
+import {
+  db,
+  outboxEvents,
+  deadLetterEvents,
+  setOutboxSweeperRole,
+} from "@platform/db";
 import { logger } from "@platform/logger";
 import { slaQueue } from "./queues.js";
 
@@ -67,6 +72,10 @@ type SlaOutboxRow = {
 export async function tick(): Promise<void> {
   try {
     await db.transaction(async (tx) => {
+      // This sweep is deliberately cross-tenant, so it can't set
+      // app.tenant_id — see setOutboxSweeperRole's doc comment.
+      await setOutboxSweeperRole(tx);
+
       const rows = await tx.execute<SlaOutboxRow>(sql`
         SELECT id, tenant_id, payload
         FROM outbox_events
@@ -173,7 +182,13 @@ export async function tick(): Promise<void> {
         );
       }
 
-      // Mark all rows (fresh + stale) as delivered so they are not re-processed
+      // Mark all rows (fresh + stale, spanning every tenant in this batch) as
+      // delivered so they are not re-processed. The stale loop above may have
+      // left the transaction on app_user scoped to one tenant — restore the
+      // cross-tenant sweeper role first, or this UPDATE would silently only
+      // affect that one tenant's rows under RLS (the rest would be reprocessed
+      // forever).
+      await setOutboxSweeperRole(tx);
       await tx
         .update(outboxEvents)
         .set({ deliveredAt: new Date() })

@@ -38,6 +38,7 @@ export const createReferenceHandler = factory.createHandlers(
         return createReferenceLink(tx, tenantId, {
           fromInstanceId,
           toInstanceId: input.toInstanceId,
+          actorId: userId,
         });
       });
       return c.json({ data: result.relations }, 201);

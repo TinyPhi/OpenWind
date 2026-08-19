@@ -770,6 +770,29 @@ export async function updateEntity(
           },
         });
       }
+
+      // ui-feature-checklist-and-rules.md §2.5 — a genuine custom-field edit
+      // notifies creator + assignedTo. Deliberately excludes the case where
+      // `changed` contains ONLY the synthetic "assignedTo"/"state" pseudo-keys
+      // above — those are entity.assigned's and workflow.transitioned's jobs
+      // respectively (§2.4), and firing both here too would double-notify.
+      const realFieldKeys = Object.keys(changed).filter(
+        (k) => k !== "assignedTo" && k !== "state",
+      );
+      if (realFieldKeys.length > 0) {
+        await db.insert(outboxEvents).values({
+          tenantId,
+          eventType: "entity.updated",
+          version: 1,
+          payload: {
+            eventType: "entity.updated",
+            version: 1,
+            tenantId,
+            instanceId,
+            actorId: input.actorId ?? null,
+          },
+        });
+      }
     }
 
     logger.info({ tenantId, instanceId }, "Entity updated");
