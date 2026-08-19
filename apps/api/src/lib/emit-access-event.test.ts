@@ -41,7 +41,12 @@ vi.mock("@platform/db", () => ({
     fn(mockTx),
 }));
 
-const { emitAccessEvent } = await import("./emit-access-event.js");
+const {
+  emitAccessEvent,
+  emitAccessRequestSubmitted,
+  emitFileDownloaded,
+  emitFileDeleted,
+} = await import("./emit-access-event.js");
 
 describe("emitAccessEvent", () => {
   beforeEach(() => {
@@ -86,19 +91,29 @@ describe("emitAccessEvent", () => {
     });
   });
 
-  it("does not write an outbox event for access_update or access_reject", async () => {
+  it("writes an access.updated outbox event for an access_update (§2.3)", async () => {
     await emitAccessEvent("t-aaa", "inst-1", "u-actor", {
       type: "access_update",
       targetUserId: "u-target",
       level: "read_only",
       oldLevel: "read_write",
     });
+
+    expect(workflowEventInserts.length).toBe(1);
+    expect(outboxEventInserts.length).toBe(1);
+    expect(outboxEventInserts[0]).toMatchObject({
+      eventType: "access.updated",
+      payload: { targetUserId: "u-target" },
+    });
+  });
+
+  it("does not write an outbox event for access_reject — only the requester is notified, via access_request.updated", async () => {
     await emitAccessEvent("t-aaa", "inst-1", "u-actor", {
       type: "access_reject",
       targetUserId: "u-target",
     });
 
-    expect(workflowEventInserts.length).toBe(2);
+    expect(workflowEventInserts.length).toBe(1);
     expect(outboxEventInserts.length).toBe(0);
   });
 
@@ -111,6 +126,118 @@ describe("emitAccessEvent", () => {
     });
 
     expect(workflowEventInserts.length).toBe(0);
+    expect(outboxEventInserts.length).toBe(0);
+  });
+});
+
+describe("emitAccessRequestSubmitted (§3.6)", () => {
+  beforeEach(() => {
+    workflowEventInserts.length = 0;
+    outboxEventInserts.length = 0;
+    instanceRow = { workflowId: "wf-1", currentState: "open" };
+  });
+
+  it("writes a workflow_events row with the requester as actor, never an outbox event", async () => {
+    await emitAccessRequestSubmitted(
+      "t-aaa",
+      "inst-1",
+      "u-requester",
+      "read_write",
+    );
+
+    expect(workflowEventInserts.length).toBe(1);
+    expect(workflowEventInserts[0]).toMatchObject({
+      tenantId: "t-aaa",
+      instanceId: "inst-1",
+      actorId: "u-requester",
+      metadata: { type: "access_request", level: "read_write" },
+    });
+    // Deliberately no notification here — 2.9 already notifies
+    // creator/assignedTo via its own access_request.created outbox write in
+    // request-access.ts; this function only covers the history line.
+    expect(outboxEventInserts.length).toBe(0);
+  });
+
+  it("writes nothing when the instance has no resolvable workflow", async () => {
+    instanceRow = { workflowId: null, currentState: null };
+
+    await emitAccessRequestSubmitted(
+      "t-aaa",
+      "inst-1",
+      "u-requester",
+      "read_only",
+    );
+
+    expect(workflowEventInserts.length).toBe(0);
+  });
+});
+
+describe("emitFileDownloaded (§3.4)", () => {
+  beforeEach(() => {
+    workflowEventInserts.length = 0;
+    outboxEventInserts.length = 0;
+    instanceRow = { workflowId: "wf-1", currentState: "open" };
+  });
+
+  it("writes a file_downloaded workflow_events row, never an outbox event", async () => {
+    await emitFileDownloaded(
+      "t-aaa",
+      "inst-1",
+      "u-viewer",
+      "file-1",
+      "report.pdf",
+    );
+
+    expect(workflowEventInserts.length).toBe(1);
+    expect(workflowEventInserts[0]).toMatchObject({
+      tenantId: "t-aaa",
+      instanceId: "inst-1",
+      actorId: "u-viewer",
+      metadata: {
+        type: "file_downloaded",
+        fileId: "file-1",
+        originalName: "report.pdf",
+      },
+    });
+    expect(outboxEventInserts.length).toBe(0);
+  });
+
+  it("writes nothing when the instance has no resolvable workflow", async () => {
+    instanceRow = { workflowId: null, currentState: null };
+
+    await emitFileDownloaded(
+      "t-aaa",
+      "inst-1",
+      "u-viewer",
+      "file-1",
+      "report.pdf",
+    );
+
+    expect(workflowEventInserts.length).toBe(0);
+  });
+});
+
+describe("emitFileDeleted (§3.5)", () => {
+  beforeEach(() => {
+    workflowEventInserts.length = 0;
+    outboxEventInserts.length = 0;
+    instanceRow = { workflowId: "wf-1", currentState: "open" };
+  });
+
+  it("writes a file_deleted workflow_events row, never an outbox event", async () => {
+    await emitFileDeleted("t-aaa", "inst-1", "u-admin", "file-1", "report.pdf");
+
+    expect(workflowEventInserts.length).toBe(1);
+    expect(workflowEventInserts[0]).toMatchObject({
+      tenantId: "t-aaa",
+      instanceId: "inst-1",
+      actorId: "u-admin",
+      metadata: {
+        type: "file_deleted",
+        fileId: "file-1",
+        originalName: "report.pdf",
+      },
+    });
     expect(outboxEventInserts.length).toBe(0);
   });
 });
