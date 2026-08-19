@@ -8,6 +8,14 @@ import type * as WorkflowEngine from "@platform/workflow-engine";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockUpdateEntity = vi.fn();
+const mockEnsureUserRefsKnown = vi.fn().mockResolvedValue(undefined);
+
+// ensureUserRefsKnown's own branching logic is covered in
+// ensure-user-refs.test.ts - here we only need to confirm update.ts wires
+// it in with the right args.
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  ensureUserRefsKnown: (...args: unknown[]) => mockEnsureUserRefsKnown(...args),
+}));
 
 let currentAuth: AuthContext = {
   tenantId: "t-aaa",
@@ -31,9 +39,14 @@ vi.mock("@platform/auth", () => ({
 // Row returned by the non-admin/agent ownership lookup in update.ts (only
 // consulted when the auth role isn't admin/agent — most tests here run as
 // admin and never touch this).
+// Also doubles as the row returned by update.ts's entityTypeId lookup (used
+// to call ensureUserRefsKnown) when running as admin/agent, since that path
+// never consults the ownership fields — see the dedicated describe block
+// below for why this dual use is safe.
 let ownershipRow: {
-  createdBy: string | null;
-  workflowId: string | null;
+  createdBy?: string | null;
+  workflowId?: string | null;
+  entityTypeId?: string;
 } | null = null;
 
 const mockTx = {
@@ -285,5 +298,65 @@ describe("PATCH /entities/:id", () => {
 
       expect(res.status).toBe(200);
     });
+  });
+});
+
+describe("PATCH /entities/:id — wiring ensureUserRefsKnown (first-login-cache gap fix)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-bbb",
+      roles: ["admin"],
+      email: "test@example.com",
+      orgId: "org-ccc",
+    };
+    ownershipRow = null;
+  });
+
+  it("calls ensureUserRefsKnown before updateEntity when fields are provided", async () => {
+    // Admin role skips the (unrelated) ownership-check consumer of
+    // ownershipRow, leaving update.ts's own entityTypeId lookup as the sole
+    // consumer of mockTx.limit() for this request - see the field's comment.
+    ownershipRow = { entityTypeId: "type-x" };
+    const order: string[] = [];
+    mockEnsureUserRefsKnown.mockImplementation(() => {
+      order.push("ensureUserRefsKnown");
+      return Promise.resolve();
+    });
+    mockUpdateEntity.mockImplementation(() => {
+      order.push("updateEntity");
+      return Promise.resolve(
+        makeInstance({ technical_reviewer: "u-reviewer" }),
+      );
+    });
+
+    await makeApp().request(`/${INST_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: { technical_reviewer: "u-reviewer" } }),
+    });
+
+    expect(mockEnsureUserRefsKnown).toHaveBeenCalledWith(
+      expect.any(Object),
+      "t-aaa",
+      "type-x",
+      { technical_reviewer: "u-reviewer" },
+      "org-ccc",
+    );
+    expect(order).toEqual(["ensureUserRefsKnown", "updateEntity"]);
+  });
+
+  it("does not call ensureUserRefsKnown when the update has no fields", async () => {
+    ownershipRow = { entityTypeId: "type-x" };
+    mockUpdateEntity.mockResolvedValue(makeInstance());
+
+    await makeApp().request(`/${INST_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dueDate: "2026-06-01T00:00:00.000Z" }),
+    });
+
+    expect(mockEnsureUserRefsKnown).not.toHaveBeenCalled();
   });
 });

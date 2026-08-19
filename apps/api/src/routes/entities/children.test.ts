@@ -138,6 +138,30 @@ describe("POST /:id/children", () => {
     expect(body.data.instance.id).toBe(CHILD_ID);
   });
 
+  it("forwards dueDate to createChildRelation", async () => {
+    mockCreateChildRelation.mockResolvedValue({
+      instance: fakeChild,
+      relations: [],
+    });
+
+    const res = await app.request(`/${PARENT_ID}/children`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId: ENTITY_TYPE_ID,
+        fields: { title: "Sub" },
+        dueDate: "2026-09-01T00:00:00.000Z",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockCreateChildRelation).toHaveBeenCalledWith(
+      {},
+      TENANT,
+      expect.objectContaining({ dueDate: "2026-09-01T00:00:00.000Z" }),
+    );
+  });
+
   it("returns 422 when entity-engine throws CHILDREN_DISABLED", async () => {
     mockCreateChildRelation.mockRejectedValue(
       Object.assign(new Error("disabled"), {

@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+// Some identity providers (e.g. AuthNexus) issue numeric-string user ids, not
+// UUIDs. These 5 fields previously required z.string().uuid(), which threw
+// INVALID_EVENT_PAYLOAD for any non-UUID id and silently dead-lettered every
+// assignment/unassignment/creation/transition automation trigger for as long
+// as such a provider was in use. Bounded (not fully unbounded) so a
+// malformed/oversized id can't propagate through automation rules and
+// notification rows unchecked.
+const userIdField = z.string().min(1).max(255);
+
 const baseEvent = z.object({
   version: z.literal(1),
   tenantId: z.string().uuid(),
@@ -18,7 +27,7 @@ export const WorkflowTransitionedV1Schema = baseEvent.extend({
   fromState: z.string().nullable(),
   toState: z.string(),
   triggeredBy: z.enum(["user", "automation", "api", "system"]),
-  actorId: z.string().uuid().nullable(),
+  actorId: userIdField.nullable(),
   occurredAt: z.string().datetime(),
   // Automation recursion depth this transition was triggered at (see issue #120).
   // Absent on events from direct user/API transitions, which start at depth 0.
@@ -51,15 +60,15 @@ export const EntityCreatedV1Schema = baseEvent.extend({
   instanceId: z.string().uuid(),
   entityTypeId: z.string().uuid(),
   fields: z.record(z.unknown()),
-  createdBy: z.string().uuid().nullable(),
+  createdBy: userIdField.nullable(),
 });
 
 export const EntityAssignedV1Schema = baseEvent.extend({
   eventType: z.literal("entity.assigned"),
   instanceId: z.string().uuid(),
   entityTypeId: z.string().uuid(),
-  assigneeId: z.string().uuid(),
-  assignedBy: z.string().uuid().nullable(),
+  assigneeId: userIdField,
+  assignedBy: userIdField.nullable(),
 });
 
 // Notifies the user who LOST the assignment — see
@@ -70,8 +79,8 @@ export const EntityUnassignedV1Schema = baseEvent.extend({
   eventType: z.literal("entity.unassigned"),
   instanceId: z.string().uuid(),
   entityTypeId: z.string().uuid(),
-  previousAssigneeId: z.string().uuid(),
-  actorId: z.string().uuid().nullable(),
+  previousAssigneeId: userIdField,
+  actorId: userIdField.nullable(),
 });
 
 export const EntityDueDateOverdueV1Schema = baseEvent.extend({
