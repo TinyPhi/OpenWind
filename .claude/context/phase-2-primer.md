@@ -49,8 +49,10 @@ Template IDs are defined in Novu (not TypeScript). No platform DB table for temp
 ### Files (`@platform/files`)
 
 - Upload: `POST /files` → validates tenant, writes to `{tenantId}/{moduleSlug}/{entityId}/filename`, records in `files` table
-- Download: `GET /files/:id` → validates tenant owns the file, returns presigned URL (never public URL)
+- Download: `GET /files/:id` → validates tenant owns the file, streams the file body directly
+  (local-disk storage since PR #340 — no presigned URL / S3 involved; MinIO was replaced)
 - File table is tenant-scoped with RLS. Quota enforced from `tenant_config.storage_quota_mb`.
+- Async ClamAV scan on upload (real scanning since PR #340, not a stub).
 
 ### Audit log (`@platform/audit`)
 
