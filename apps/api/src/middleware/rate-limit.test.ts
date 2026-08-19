@@ -85,6 +85,30 @@ describe("rateLimit — pre-auth IP-only keying (#195)", () => {
     expect(keys[0]).not.toBe(keys[1]);
   });
 
+  it("takes only the first hop of a chained x-forwarded-for header", async () => {
+    await makeApp().request("/entities", {
+      headers: { "x-forwarded-for": "1.2.3.4, 10.0.0.5, 10.0.0.6" },
+    });
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      "rl:ip:1.2.3.4:api",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it("falls back to x-real-ip when x-forwarded-for is absent", async () => {
+    await makeApp().request("/entities", {
+      headers: { "x-real-ip": "9.8.7.6" },
+    });
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      "rl:ip:9.8.7.6:api",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
   it("falls back to 'unknown' when no IP header is present", async () => {
     await makeApp().request("/entities");
     expect(mockCheckRateLimit).toHaveBeenCalledWith(

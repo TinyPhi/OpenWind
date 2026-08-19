@@ -17,6 +17,17 @@ type UserOption = {
   email?: string;
 };
 
+// Derives a singular display label from the entity type's plural (e.g.
+// "NSI Amendment Requests" -> "NSI Amendment Request") rather than falling
+// back to entityType.name, which for several entity types is a raw
+// snake_case/lowercase identifier (e.g. "nsi_amendment_request", "ticket")
+// never meant for display.
+function singularize(plural: string): string {
+  if (/[a-z]ies$/.test(plural)) return plural.replace(/ies$/, "y");
+  if (/s$/i.test(plural)) return plural.replace(/s$/i, "");
+  return plural;
+}
+
 function initials(name: string): string {
   return name
     .split(/\s+/)
@@ -541,7 +552,7 @@ export function CustomerRecordCreate(): React.ReactElement {
       <h1 className="portal-page-title">
         {currentWorkflowName
           ? `Create New Ticket in '${currentWorkflowName}'`
-          : `New ${entityType?.name ?? "Ticket"}`}
+          : `New ${entityType?.plural ? singularize(entityType.plural) : (entityType?.name ?? "Ticket")}`}
       </h1>
       <form
         onSubmit={(e) => void handleSubmit(e)}
@@ -639,7 +650,7 @@ export function CustomerRecordCreate(): React.ReactElement {
             disabled={saving || pendingCount > 0}
             title={pendingCount > 0 ? "Waiting for file scan…" : undefined}
           >
-            {saving ? "Creating…" : `Create ${entityType?.name ?? "Ticket"}`}
+            {saving ? "Creating…" : "Create Ticket"}
           </button>
         </div>
       </form>

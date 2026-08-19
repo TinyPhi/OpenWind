@@ -21,9 +21,12 @@ const mockTransaction = vi.fn(async (fn: (tx: unknown) => Promise<void>) => {
   await fn({ execute: mockTxExecute, update: mockTxUpdate });
 });
 
+const mockSetOutboxSweeperRole = vi.fn();
+
 vi.mock("@platform/db", () => ({
   db: { transaction: mockTransaction },
   outboxEvents: "outbox_events_mock",
+  setOutboxSweeperRole: mockSetOutboxSweeperRole,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -74,6 +77,14 @@ describe("alert scheduler tick() (§R5, §V — independent of sla-scheduler.ts)
       expect.objectContaining({ alertId: "alert-aaa", tenantId: "tenant-111" }),
       expect.objectContaining({ jobId: "alert-alert-aaa" }),
     );
+  });
+
+  it("switches to the BYPASSRLS outbox_sweeper role for this cross-tenant sweep (#125 hotfix)", async () => {
+    mockTxExecute.mockResolvedValueOnce([makeRow()]);
+
+    await tick();
+
+    expect(mockSetOutboxSweeperRole).toHaveBeenCalled();
   });
 
   it("computes delay=0 for a fireAt already in the past but within the stale threshold", async () => {

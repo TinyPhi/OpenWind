@@ -60,13 +60,12 @@ const mockSelectWhere = vi.fn(() => Promise.resolve(recipientRows));
 const mockFrom = vi.fn(() => ({ where: mockSelectWhere }));
 const mockSelect = vi.fn(() => ({ from: mockFrom }));
 
-const tx = { update: mockUpdate, select: mockSelect };
-
 const mockInsertValues = vi.fn().mockResolvedValue(undefined);
 const mockInsert = vi.fn(() => ({ values: mockInsertValues }));
 
+const tx = { update: mockUpdate, select: mockSelect, insert: mockInsert };
+
 vi.mock("@platform/db", () => ({
-  db: { insert: (...args: unknown[]) => mockInsert(...args) },
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(tx),
   notifications: {
