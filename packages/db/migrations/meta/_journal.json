@@ -447,21 +447,28 @@
       "idx": 63,
       "version": "7",
       "when": 1785542415000,
-      "tag": "0063_outbox_sweeper_role",
+      "tag": "0063_connector_credentials_kill_switch",
       "breakpoints": false
     },
     {
       "idx": 64,
       "version": "7",
       "when": 1785542416000,
-      "tag": "0064_notifications_type_check_missing_types",
+      "tag": "0064_outbox_sweeper_role",
       "breakpoints": false
     },
     {
       "idx": 65,
       "version": "7",
       "when": 1785542417000,
-      "tag": "0065_notifications_entity_unassigned_type",
+      "tag": "0065_notifications_type_check_missing_types",
+      "breakpoints": false
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1785542418000,
+      "tag": "0066_notifications_entity_unassigned_type",
       "breakpoints": false
     }
   ]

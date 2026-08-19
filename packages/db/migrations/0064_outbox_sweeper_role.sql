@@ -1,4 +1,4 @@
--- Migration: 0063_outbox_sweeper_role
+-- Migration: 0064_outbox_sweeper_role
 -- analytics: excluded (creates a DB role + grants — no table, no analytics surface)
 --
 -- Fixes a production outage: 0050_outbox_events_rls.sql enabled RLS on

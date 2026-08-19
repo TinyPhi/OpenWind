@@ -31,7 +31,7 @@ export async function withTenantContext<T>(
 }
 
 /**
- * Switches to outbox_sweeper (BYPASSRLS, see 0063_outbox_sweeper_role.sql)
+ * Switches to outbox_sweeper (BYPASSRLS, see 0064_outbox_sweeper_role.sql)
  * for the remainder of the current transaction. For the handful of workers
  * that sweep outbox_events *across all tenants* in one query (there is no
  * single tenant to scope app.tenant_id to) — outbox-poller.ts,

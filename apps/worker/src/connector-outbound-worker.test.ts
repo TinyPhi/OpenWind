@@ -71,7 +71,18 @@ const mockDeadLetterInsert = vi.fn(() => ({ values: mockDeadLetterValues }));
 const mockConnectorDeliveryAttemptsTable = { id: "id", tenantId: "tenantId" };
 const mockDeadLetterEventsTable = {};
 
+// issue #367 kill-switch check — a SEPARATE select path from
+// entityFieldRows below, since it goes through withTenantContext's `tx`
+// (matching the real code's `withTenantContext(tenantId, tx => tx.select(...))`)
+// rather than the plain `db.select` the redaction lookup uses.
+let installationRows: Array<{ disabledAt: Date | null }> = [];
+const mockTxSelectLimit = vi.fn(() => Promise.resolve(installationRows));
+const mockTxSelectWhere = vi.fn(() => ({ limit: mockTxSelectLimit }));
+const mockTxSelectFrom = vi.fn(() => ({ where: mockTxSelectWhere }));
+const mockTxSelect = vi.fn(() => ({ from: mockTxSelectFrom }));
+
 const tx = {
+  select: (...args: unknown[]) => mockTxSelect(...args),
   insert: (table: unknown) =>
     table === mockDeadLetterEventsTable
       ? mockDeadLetterInsert()
@@ -95,6 +106,16 @@ vi.mock("@platform/db", () => ({
     entityTypeId: "entityTypeId",
     tenantId: "tenantId",
   },
+  connectorCredentials: {
+    tenantId: "tenantId",
+    connectorId: "connectorId",
+    disabledAt: "disabledAt",
+  },
+  connectorInstallationFilter: (tenantId: string, connectorId: string) => ({
+    op: "connectorInstallationFilter",
+    tenantId,
+    connectorId,
+  }),
   connectorDeliveryAttempts: mockConnectorDeliveryAttemptsTable,
   deadLetterEvents: mockDeadLetterEventsTable,
   isTenantActive: (...args: unknown[]) => mockIsTenantActive(...args),
@@ -290,6 +311,7 @@ beforeEach(() => {
   insertedAttemptId = "attempt-row-1";
   insertReturningResult = [{ id: insertedAttemptId }];
   entityFieldRows = [];
+  installationRows = [{ disabledAt: null }]; // installed, enabled — the default for every test not exercising the kill switch itself
   capturedLookupFn = undefined;
   capturedRequestOptions = undefined;
   capturedRequestBody = "";
@@ -403,6 +425,59 @@ describe("connector-outbound-worker: fail-closed registry lookup", () => {
     await expect(
       capturedProcessor!(baseJob({ actionId: "does-not-exist" })),
     ).rejects.toThrow(/has no action/);
+  });
+});
+
+describe("connector-outbound-worker: kill switch (issue #367)", () => {
+  it("fails the attempt when the installation is disabled, before any SSRF check or credential decrypt", async () => {
+    registerTestConnector();
+    installationRows = [{ disabledAt: new Date() }];
+
+    await expect(capturedProcessor!(baseJob())).rejects.toThrow(/disabled/);
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+    expect(mockAssertEgressAllowed).not.toHaveBeenCalled();
+    expect(mockDecryptCredential).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the installation row no longer exists, not just when disabledAt is set", async () => {
+    registerTestConnector();
+    installationRows = []; // uninstalled — a stronger stop signal than merely disabled
+
+    await expect(capturedProcessor!(baseJob())).rejects.toThrow(
+      /disabled or uninstalled/,
+    );
+    expect(mockAssertEgressAllowed).not.toHaveBeenCalled();
+  });
+
+  it("dead-letters a disabled installation's exhausted final attempt with the REDACTED payload, not the raw one", async () => {
+    registerTestConnector();
+    installationRows = [{ disabledAt: new Date() }];
+    entityFieldRows = [{ name: "email", sensitivity: "pii" }];
+    const job = baseJob({ entityTypeId: "ticket-type-1" });
+    job.attemptsMade = 10; // attempt 11 of 11 (opts.attempts = 11) — the last one.
+
+    await expect(capturedProcessor!(job)).rejects.toThrow(/disabled/);
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "exhausted" }),
+    );
+    expect(mockDeadLetterValues).toHaveBeenCalled();
+    const dlPayload = mockDeadLetterValues.mock.calls[0]?.[0]?.payload?.payload;
+    expect(dlPayload.email).toBe("[REDACTED]");
+  });
+
+  it("delivers normally when the installation is not disabled", async () => {
+    registerTestConnector();
+    installationRows = [{ disabledAt: null }];
+
+    await capturedProcessor!(baseJob());
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "success" }),
+    );
   });
 });
 
