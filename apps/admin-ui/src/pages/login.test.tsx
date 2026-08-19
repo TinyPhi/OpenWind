@@ -29,11 +29,9 @@ describe("Login", () => {
   it("renders translated strings from the i18n common namespace", () => {
     render(<Login />);
 
+    expect(screen.getByRole("heading", { name: "Welcome back" })).toBeDefined();
     expect(
-      screen.getByRole("heading", { name: "Sign in to OpenWind" }),
-    ).toBeDefined();
-    expect(
-      screen.getByRole("button", { name: /Sign in with Zitadel/ }),
+      screen.getByRole("button", { name: /Continue with SSO/ }),
     ).toBeDefined();
     expect(screen.getByText("Contact your admin")).toBeDefined();
   });

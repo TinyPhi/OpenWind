@@ -156,6 +156,27 @@ describe("FileFieldPicker", () => {
     expect(onChange).toHaveBeenCalledWith("file-9");
   });
 
+  // Regression test for the bug where a brand-new record's untouched field
+  // arrives as `undefined` (no key yet in fieldValues) rather than `null` -
+  // idsFromValue only checked `=== null`, so `undefined` fell through to
+  // `[value]` i.e. `[undefined]`, which got spread into the onChange call
+  // and serialized to a stray leading `null` in the submitted payload
+  // (e.g. `[null, "fea6b18f-..."]`).
+  it("calls onChange with just the new id when value starts as undefined (new-record create flow)", () => {
+    mockUpload({ cleanFileIds: ["file-9"] });
+    const onChange = vi.fn();
+    render(
+      <FileFieldPicker
+        value={undefined}
+        onChange={onChange}
+        multiple={true}
+        moduleSlug="helpdesk"
+        entityId={undefined}
+      />,
+    );
+    expect(onChange).toHaveBeenCalledWith(["file-9"]);
+  });
+
   it("calls onChange with an appended array once upload completes (multiple)", () => {
     mockUpload({ cleanFileIds: ["file-1", "file-9"] });
     const onChange = vi.fn();
