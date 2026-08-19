@@ -113,6 +113,50 @@ export async function buildNotificationContent(
         body: `${actorName} revoked your access to a ticket`,
         link,
       };
+    case "access.updated":
+      return {
+        title: "Access level changed",
+        body: `${actorName} changed your access level on a ticket`,
+        link,
+      };
+    case "access_request.created":
+      return {
+        title: "Access requested",
+        body: `${actorName} requested access to a ticket`,
+        link,
+      };
+    case "access_request.updated":
+      return {
+        title:
+          reason === "rejected"
+            ? "Access request denied"
+            : "Access request approved",
+        body:
+          reason === "rejected"
+            ? "Your access request was denied"
+            : "Your access request was approved",
+        link,
+      };
+    case "entity.updated":
+      return {
+        title: "Ticket updated",
+        body: `${actorName} updated a ticket's fields`,
+        link,
+      };
+    case "workflow.transitioned":
+      return {
+        title: "Ticket status changed",
+        body: reason
+          ? `${actorName} moved a ticket to "${reason}"`
+          : `${actorName} updated a ticket's status`,
+        link,
+      };
+    case "entity.due_date_approaching":
+      return {
+        title: "Due date approaching",
+        body: "A ticket's due date is coming up in 2 days",
+        link,
+      };
     case "workflow.sla_breached":
       return {
         title: "SLA breached",

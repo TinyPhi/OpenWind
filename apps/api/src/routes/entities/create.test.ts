@@ -8,6 +8,7 @@ import type * as EntityEngine from "@platform/entity-engine";
 
 const mockCreateEntity = vi.fn();
 const mockListUserIdsWithRole = vi.fn();
+const mockEnsureUserRefsKnown = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -31,16 +32,34 @@ vi.mock("../../lib/zitadel-management.js", () => ({
   listUserIdsWithRole: (...args: unknown[]) => mockListUserIdsWithRole(...args),
 }));
 
+// ensureUserRefsKnown's own branching logic (org-membership lookup,
+// tenant_users upsert, short-circuits) is covered in ensure-user-refs.test.ts -
+// here we only need to confirm create.ts wires it in with the right args.
+vi.mock("../../lib/ensure-user-refs.js", () => ({
+  ensureUserRefsKnown: (...args: unknown[]) => mockEnsureUserRefsKnown(...args),
+}));
+
+const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
+const mockUpdateSet = vi.fn(() => ({ where: mockUpdateWhere }));
+const mockUpdate = vi.fn(() => ({ set: mockUpdateSet }));
+
 const mockTx = {
   select: () => mockTx,
   from: () => mockTx,
   where: () => mockTx,
   limit: () => Promise.resolve([]),
+  update: mockUpdate,
 };
 
 vi.mock("@platform/db", () => ({
   db: {},
   tenantUsers: {},
+  files: {
+    id: "id",
+    tenantId: "tenant_id",
+    uploadedBy: "uploaded_by",
+    entityId: "entity_id",
+  },
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(mockTx),
 }));
@@ -281,5 +300,98 @@ describe("POST /entities — assignedTo validation (R3)", () => {
 
     expect(res.status).toBe(201);
     expect(mockListUserIdsWithRole).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /entities — linking file/files custom-field values (#289 follow-up)", () => {
+  const FILE_ID = "11111111-1111-1111-1111-111111111111";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUserIdsWithRole.mockResolvedValue(new Set());
+    mockCreateEntity.mockResolvedValue(fakeInstance);
+  });
+
+  it("links a file id from a single-value file field to the new entity", async () => {
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ fields: { amendment_letter: FILE_ID } }),
+    });
+
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith({ entityId: fakeInstance.id });
+    expect(mockUpdateWhere).toHaveBeenCalled();
+  });
+
+  it("links every file id from a files-array field to the new entity", async () => {
+    const otherId = "22222222-2222-2222-2222-222222222222";
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ fields: { compliance_docs: [FILE_ID, otherId] } }),
+    });
+
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith({ entityId: fakeInstance.id });
+  });
+
+  it("does not touch the files table when no field value looks like a file id", async () => {
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ fields: { subject: "just some text" } }),
+    });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  // The actual safety guard - entity_id IS NULL / tenant_id match /
+  // uploaded_by match - is real Postgres behavior a mocked unit test can't
+  // exercise; that protection is covered by an integration/isolation test
+  // instead. This just confirms a WHERE condition is always passed, not a
+  // bare unconditional update.
+  it("passes a WHERE condition to the update (not an unconditional update)", async () => {
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ fields: { amendment_letter: FILE_ID } }),
+    });
+
+    expect(mockUpdateWhere.mock.calls[0]?.[0]).toBeDefined();
+  });
+});
+
+describe("POST /entities — wiring ensureUserRefsKnown (first-login-cache gap fix)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateEntity.mockResolvedValue(fakeInstance);
+  });
+
+  it("calls ensureUserRefsKnown before createEntity, with the entity type/fields/org", async () => {
+    const order: string[] = [];
+    mockEnsureUserRefsKnown.mockImplementation(() => {
+      order.push("ensureUserRefsKnown");
+      return Promise.resolve();
+    });
+    mockCreateEntity.mockImplementation(() => {
+      order.push("createEntity");
+      return Promise.resolve(fakeInstance);
+    });
+
+    await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ fields: { technical_reviewer: "u-reviewer" } }),
+    });
+
+    expect(mockEnsureUserRefsKnown).toHaveBeenCalledWith(
+      expect.any(Object),
+      "t-aaa",
+      TYPE_ID,
+      { technical_reviewer: "u-reviewer" },
+      "org-ccc",
+    );
+    expect(order).toEqual(["ensureUserRefsKnown", "createEntity"]);
   });
 });

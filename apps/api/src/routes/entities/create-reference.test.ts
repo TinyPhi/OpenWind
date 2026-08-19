@@ -98,6 +98,7 @@ describe("POST /entities/:id/references", () => {
     expect(mockCreateReferenceLink).toHaveBeenCalledWith({}, "t-aaa", {
       fromInstanceId: FROM_ID,
       toInstanceId: TO_ID,
+      actorId: "u-bbb",
     });
   });
 

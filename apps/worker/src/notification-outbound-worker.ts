@@ -1,7 +1,6 @@
 import { Worker, type Job } from "bullmq";
 import { eq, and, ne } from "drizzle-orm";
 import {
-  db,
   withTenantContext,
   notifications,
   notificationRecipients,
@@ -237,21 +236,29 @@ async function handleFailedJob(
     // R14: a permanently failed handoff is never silently dropped — it
     // surfaces as a system.error event, which flows through the exact same
     // notification hub (recipients = tenant admins) rather than a separate
-    // failure-reporting path. outbox_events has RLS disabled by design
-    // (0006_remove_internal_table_rls.sql) — it's written/read cross-tenant
-    // by pollers, so no tenant context is needed for this insert.
-    await db.insert(outboxEvents).values({
-      tenantId,
-      eventType: "system.error",
-      version: 1,
-      payload: {
+    // failure-reporting path. This write is single-tenant (we already have
+    // `tenantId` from job.data), so it goes through withTenantContext like
+    // every other tenant-scoped write — NOT setOutboxSweeperRole, which is
+    // reserved for the cross-tenant *sweep* queries in outbox-poller.ts etc.
+    // (0006_remove_internal_table_rls.sql disabled RLS here, but 0050
+    // re-enabled it with a tenant_id::uuid WITH CHECK — a plain db.insert()
+    // with no tenant context hits that check with an unset GUC and fails
+    // with `invalid input syntax for type uuid`, silently losing the very
+    // failure report this code exists to never drop.)
+    await withTenantContext(tenantId, (tx) =>
+      tx.insert(outboxEvents).values({
+        tenantId,
         eventType: "system.error",
         version: 1,
-        tenantId,
-        context: { notificationId },
-        reason: `Outbound handoff failed after ${job.attemptsMade} attempts: ${err.message}`,
-      },
-    });
+        payload: {
+          eventType: "system.error",
+          version: 1,
+          tenantId,
+          context: { notificationId },
+          reason: `Outbound handoff failed after ${job.attemptsMade} attempts: ${err.message}`,
+        },
+      }),
+    );
   } catch (dlqErr) {
     logger.error(
       { notificationId, dlqErr },

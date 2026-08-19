@@ -9,11 +9,11 @@ export const deleteRelationHandler = factory.createHandlers(
   requireRole("admin", "agent"),
   async (c) => {
     const relationId = c.req.param("relationId") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
 
     try {
       await withTenantContext(tenantId, (tx) =>
-        deleteRelation(tx, tenantId, relationId),
+        deleteRelation(tx, tenantId, relationId, userId),
       );
       return c.body(null, 204);
     } catch (err) {

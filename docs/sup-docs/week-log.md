@@ -18,6 +18,24 @@ detail (typecheck/lint/test pass state) is only included where a PR's own body r
 
 ---
 
+## 2026-08-10 — fix outbound-notification dead-letter write missing tenant context
+
+**Session type:** Follow-up hotfix, same incident family as the outbox-sweeper fix
+**Summary:** `notification-outbound-worker.ts`'s `handleFailedJob` recorded a permanently-failed
+outbound handoff via a bare `db.insert(outboxEvents)` with no tenant context. Its own comment
+claimed "RLS disabled by design" citing `0006_remove_internal_table_rls.sql`, which was true
+until `0050_outbox_events_rls.sql` re-enabled RLS on this table and the comment was never
+updated — so this insert hit the same invalid-uuid RLS failure as the sweeper bug, silently
+losing the one fallback that exists so a failed email delivery is never dropped without a trace.
+**Fix:** wrapped the insert in `withTenantContext(tenantId, ...)`, matching every other
+tenant-scoped outbox write in the codebase (`av-scan.ts`, `due-date-worker.ts`,
+`sla-breacher.ts`) — not `setOutboxSweeperRole`, which is reserved for genuinely cross-tenant
+sweeps. Removed the now-unused `db` import; updated the existing unit test's `@platform/db` mock
+to route `insert` through the same `tx` mock `withTenantContext` already uses.
+**Verification:** `pnpm typecheck`/`lint` PASS, `pnpm --filter @platform/worker test` PASS.
+
+---
+
 ## 2026-08-13 — PR #374 merged: outbox/dead-letter RLS null-GUC cast fix (@TusharSharma991)
 
 **Session type:** Bug fix review + merge support (no-plan contributor PR)
@@ -720,6 +738,42 @@ Fixed by extending `afterAll` to delete everything `beforeAll` creates, in FK-de
 Verified: 7 consecutive local runs all pass with zero leftover rows after each.
 **Verification:** `pnpm typecheck`/`lint`: PASS (40/40). `pnpm test`: PASS (732/732 — up from
 731/732, #360 gone). `pnpm test:isolation`: PASS (261/261).
+
+---
+
+## 2026-08-10 — fix outbox RLS cross-tenant sweep outage (hotfix)
+
+**Session type:** Production incident hotfix, direct to server-hosting worktree (no PR)
+**Summary:** Live incident: a comment @mention got neither an in-app notification nor an email.
+Server logs (`docker compose logs ow-worker`) showed the outbox poller failing every tick with
+`invalid input syntax for type uuid: ""`. Root cause: `0050_outbox_events_rls.sql` enabled RLS on
+`outbox_events` requiring `tenant_id = current_setting('app.tenant_id', true)::uuid`, but
+`outbox-poller.ts` and `notification-poller.ts` both sweep `outbox_events` **across all tenants**
+in one query and never set `app.tenant_id` — there's no single tenant to scope a cross-tenant
+sweep to. Under `app_user` (`NOBYPASSRLS`), every sweep tick since `0050` shipped either errored
+(observed in prod) or silently returned zero rows (clean-session case) — no automation triggers or
+in-app/email notifications were delivered platform-wide, not just this one mention.
+**Fix:** `0059_outbox_sweeper_role.sql` adds a narrowly-scoped `BYPASSRLS` role (`outbox_sweeper`),
+granted only to `app_user`, with `SELECT`/`UPDATE` on `outbox_events` only. A shared
+`setOutboxSweeperRole(tx)` helper (`packages/db/src/middleware.ts`) switches to it inside just
+the sweep transaction. `/review` (run twice, adversarially) found the same unguarded sweep in
+three more workers beyond the original two — `sla-scheduler.ts`, `alert-scheduler.ts`,
+`due-date-scheduler.ts` — all fixed the same way; `sla-scheduler.ts` additionally needed the role
+restored _after_ its per-tenant dead-letter loop (which switches down to `app_user`), or the
+final cross-tenant `delivered_at` UPDATE would have silently only affected the last tenant
+touched by that loop. Every worker that sweeps `outbox_events` across tenants is now covered.
+New isolation test `outbox-sweeper-role.isolation.test.ts` reproduces the outage and verifies the
+fix; four existing unit-test files' `@platform/db` mocks updated to include the new export.
+**Verification:** `pnpm typecheck` PASS, `pnpm lint` PASS, `pnpm test:isolation` PASS for the
+outbox/notification/SLA RLS suites (13/13); full suite 259/264, the 5 failures (automation-worker
+BullMQ timeouts needing a live queue consumer) confirmed via `git stash` to fail identically on
+unmodified code — pre-existing, unrelated. `pnpm --filter @platform/worker test` PASS (128/128).
+`/review` clean on the final diff (two follow-up findings on the review-of-the-review were
+verified false positives: test cleanup relies on the test DB's superuser role, confirmed via
+direct psql — 0 orphaned rows after repeated runs; and the disclosed app_user-wide grant caveat
+was already reviewed and accepted in the migration's own comment).
+**Next:** Deploy to server — `git pull`, run `pnpm db:migrate` (or apply
+`0059_outbox_sweeper_role.sql` directly against `platform`), restart `ow-worker` and `ow-backend`.
 
 ---
 

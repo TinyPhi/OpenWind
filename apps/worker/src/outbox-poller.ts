@@ -1,5 +1,5 @@
 import { sql, inArray } from "drizzle-orm";
-import { db, outboxEvents } from "@platform/db";
+import { db, outboxEvents, setOutboxSweeperRole } from "@platform/db";
 import { logger } from "@platform/logger";
 import { automationQueue } from "./queues.js";
 
@@ -12,6 +12,10 @@ let activeTick: Promise<void> | null = null;
 async function tick(): Promise<void> {
   try {
     await db.transaction(async (tx) => {
+      // This sweep is deliberately cross-tenant, so it can't set
+      // app.tenant_id — see setOutboxSweeperRole's doc comment.
+      await setOutboxSweeperRole(tx);
+
       // Only claims outbox event types that are actually automation triggers —
       // i.e. the exact literals in TriggerEventSchema's discriminated union
       // (packages/automation-engine/src/event-schemas.ts). A positive allowlist,
