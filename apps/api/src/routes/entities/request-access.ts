@@ -11,6 +11,7 @@ import {
 } from "@platform/db";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { emitAccessRequestSubmitted } from "../../lib/emit-access-event.js";
 
 const RequestAccessSchema = z.object({
   requestedLevel: z
@@ -76,6 +77,12 @@ export const requestAccessHandler = factory.createHandlers(
             .set({ requestedLevel, updatedAt: new Date() })
             .where(eq(accessRequests.id, pendingRow.id)),
         );
+        void emitAccessRequestSubmitted(
+          tenantId,
+          id,
+          requesterId,
+          requestedLevel,
+        );
         return c.json({ data: { id: pendingRow.id, created: false } }, 200);
       }
 
@@ -93,6 +100,12 @@ export const requestAccessHandler = factory.createHandlers(
 
       const requestId = inserted[0]?.id;
       if (requestId) {
+        void emitAccessRequestSubmitted(
+          tenantId,
+          id,
+          requesterId,
+          requestedLevel,
+        );
         // Feeds the ticket-room WS live-push path
         // (docs/specs/ticket-live-updates.md) — a re-request against an
         // existing pending row (the branch above) doesn't re-fire this, only
