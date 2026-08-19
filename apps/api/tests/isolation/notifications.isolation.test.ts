@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import {
@@ -177,6 +177,91 @@ describe("notification_recipients — idempotency (R1, R16)", () => {
       .where(eq(notificationRecipients.notificationId, notificationAId));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.readAt).toBeNull();
+  });
+});
+
+// ── notifications_type_check constraint coverage (docs/specs/port-nexus-ow-fixes.md R1) ──
+// A CHECK constraint enum mismatch is invisible to a mocked-DB unit test -- it only
+// surfaces as a real INSERT failure (silently dead-lettered in production). These tests
+// insert against the real constraint, not a mock, to prove the DB layer itself accepts
+// every type the application code is allowed to write.
+
+const ALL_NOTIFICATION_TYPES = [
+  "entity.assigned",
+  "comment.mentioned",
+  "comment.mention_access_granted",
+  "comment.replied",
+  "access.granted",
+  "access.revoked",
+  "workflow.sla_breached",
+  "system.error",
+  "automation.notify",
+  "ticket.alert",
+  "access.updated",
+  "workflow.transitioned",
+  "entity.updated",
+  "entity.due_date_approaching",
+  "access_request.created",
+  "access_request.updated",
+  "entity.unassigned",
+] as const;
+
+describe("notifications_type_check — accepts every application-known type (R1)", () => {
+  const insertedIds: string[] = [];
+
+  afterAll(async () => {
+    // Scoped to exactly the rows this describe block inserted -- a blanket
+    // delete on tenantId would also remove the beforeAll-seeded notificationA
+    // fixture the later unread-count suite depends on.
+    if (insertedIds.length === 0) return;
+    await db
+      .delete(notifications)
+      .where(inArray(notifications.id, insertedIds));
+  });
+
+  it("inserts a notification with type 'entity.unassigned' successfully", async () => {
+    const [row] = await db
+      .insert(notifications)
+      .values({
+        tenantId: TENANT_A,
+        type: "entity.unassigned",
+        title: "Unassigned",
+        body: "Ticket unassigned",
+        link: null,
+      })
+      .returning({ id: notifications.id });
+    expect(row?.id).toBeTruthy();
+    if (row?.id) insertedIds.push(row.id);
+  });
+
+  it.each(ALL_NOTIFICATION_TYPES)(
+    "accepts type '%s' without violating notifications_type_check",
+    async (type) => {
+      const [row] = await db
+        .insert(notifications)
+        .values({
+          tenantId: TENANT_A,
+          type,
+          title: "Type coverage",
+          body: "Constraint regression check",
+          link: null,
+        })
+        .returning({ id: notifications.id });
+      expect(row?.id).toBeTruthy();
+      if (row?.id) insertedIds.push(row.id);
+    },
+  );
+
+  it("rejects a type not on the allowlist", async () => {
+    await expect(
+      db.insert(notifications).values({
+        tenantId: TENANT_A,
+        type: "not.a.real.type",
+        title: "Should fail",
+        body: "Constraint should reject this",
+        link: null,
+      }),
+    ).rejects.toThrow();
   });
 });
 

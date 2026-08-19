@@ -94,6 +94,19 @@ export const dueDateQueue = new Queue("due-date", {
   },
 });
 
+// ui-feature-checklist-and-rules.md §2.8 — "due date approaching" (2 days
+// prior) warning. A sibling of dueDateQueue, not a merge into it: it fires at
+// a different offset (dueDate - 2 days, not dueDate itself) and feeds a
+// different outbox event type, but shares due-date-scheduler.ts's polling
+// tick and due-date.md's TOCTOU-guard pattern (see due-date-approaching-worker.ts).
+export const dueDateApproachingQueue = new Queue("due-date-approaching", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});
+
 // Outbound handoff — the single seam to the externally-owned email/SMS/
 // WhatsApp service (contract TBD). 3 attempts/exponential backoff matches the
 // automation queue convention (issue #123).

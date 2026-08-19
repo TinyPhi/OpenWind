@@ -355,7 +355,7 @@
     {
       "idx": 50,
       "version": "7",
-      "when": 1785542402000,
+      "when": 1783417696000,
       "tag": "0050_workflow_transitions_sort_order",
       "breakpoints": false
     },
@@ -441,6 +441,27 @@
       "version": "7",
       "when": 1785542414000,
       "tag": "0062_tenants_column_scoped_update",
+      "breakpoints": false
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1785542415000,
+      "tag": "0063_outbox_sweeper_role",
+      "breakpoints": false
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1785542416000,
+      "tag": "0064_notifications_type_check_missing_types",
+      "breakpoints": false
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1785542417000,
+      "tag": "0065_notifications_entity_unassigned_type",
       "breakpoints": false
     }
   ]
