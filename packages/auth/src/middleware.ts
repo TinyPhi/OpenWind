@@ -497,6 +497,36 @@ export async function lookupTenantIdByOrgId(
   return tenantId;
 }
 
+const _tenantOrgCache = new Map<string, string | null>();
+
+/**
+ * Resolve a Zitadel org id from the tenant's internal UUID. Returns
+ * null if no org is mapped to this tenant.
+ */
+export async function lookupOrgIdByTenantId(
+  tenantId: string,
+  dbHandle?: DbOrTx,
+): Promise<string | null> {
+  const cached = _tenantOrgCache.get(tenantId);
+  if (cached !== undefined) return cached;
+
+  const activeDb = dbHandle ?? db;
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+  if (!activeDb || typeof (activeDb as any).select !== "function") {
+    return null;
+  }
+
+  const [row] = await activeDb
+    .select({ zitadelOrgId: tenants.zitadelOrgId })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1);
+
+  const orgId = row?.zitadelOrgId ?? null;
+  _tenantOrgCache.set(tenantId, orgId);
+  return orgId;
+}
+
 // Argon2id verification is intentionally slow (~50–100 ms). Cache the result
 // keyed by SHA-256(rawKey) so repeated requests with the same key only pay
 // that cost once per TTL window.
@@ -583,12 +613,15 @@ async function resolveApiKey(
     );
   });
 
+  const orgId = await lookupOrgIdByTenantId(row.tenant_id, db);
+
   return {
     userId: `apikey:${row.id}`,
     tenantId: row.tenant_id,
     roles: row.scopes,
     email: "",
     displayName: `API Key ${row.id.slice(0, 8)}`,
+    orgId: orgId ?? undefined,
   };
 }
 
