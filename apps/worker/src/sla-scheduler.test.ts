@@ -28,10 +28,13 @@ const mockTransaction = vi.fn(async (fn: (tx: unknown) => Promise<void>) => {
   });
 });
 
+const mockSetOutboxSweeperRole = vi.fn();
+
 vi.mock("@platform/db", () => ({
   db: { transaction: mockTransaction },
   outboxEvents: "outbox_events_mock",
   deadLetterEvents: "dead_letter_events_mock",
+  setOutboxSweeperRole: mockSetOutboxSweeperRole,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -212,6 +215,21 @@ describe("SLA scheduler tick", () => {
       );
       expect(sqlTexts).toContain("SET LOCAL ROLE app_user");
       expect(sqlTexts.some((t) => t.includes("set_config"))).toBe(true);
+    });
+
+    it("restores outbox_sweeper after the per-tenant dead-letter loop before the final delivered_at UPDATE (#125 hotfix)", async () => {
+      const fireAt = new Date(
+        Date.now() - STALE_SLA_THRESHOLD_MS - 3_600_000,
+      ).toISOString();
+      mockTxExecute.mockResolvedValueOnce([makeRow({ fireAt })]);
+
+      await tick();
+
+      // Once at tick start for the cross-tenant SELECT, once more after the
+      // stale loop switched down to app_user — without this second call the
+      // final UPDATE would silently only affect the last tenant touched by
+      // that loop under RLS (see setOutboxSweeperRole's doc comment).
+      expect(mockSetOutboxSweeperRole).toHaveBeenCalledTimes(2);
     });
 
     it("dead-letters events with a malformed (NaN) fireAt instead of enqueuing with NaN delay", async () => {
