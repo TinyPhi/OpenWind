@@ -35,6 +35,7 @@ vi.mock("@platform/files", () => ({
 const mockFilesSelectResult: {
   entityId: string | null;
   uploadedBy?: string;
+  originalName?: string;
 }[] = [];
 const mockEntitySelectResult: Record<string, unknown>[] = [];
 
@@ -73,6 +74,13 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("../../lib/redis.js", () => ({
   connection: {},
+}));
+
+const mockEmitFileDownloaded = vi.fn();
+const mockEmitFileDeleted = vi.fn();
+vi.mock("../../lib/emit-access-event.js", () => ({
+  emitFileDownloaded: (...args: unknown[]) => mockEmitFileDownloaded(...args),
+  emitFileDeleted: (...args: unknown[]) => mockEmitFileDeleted(...args),
 }));
 
 let mockAuth = {
@@ -163,6 +171,8 @@ beforeEach(() => {
   mockFilesSelectResult.length = 0;
   mockEntitySelectResult.length = 0;
   mockAuth = { tenantId: "tenant-1", userId: "user-1", roles: ["admin"] };
+  mockEmitFileDownloaded.mockReset();
+  mockEmitFileDeleted.mockReset();
 });
 
 // ── POST /files — saveUpload ──────────────────────────────────────────────────
@@ -469,6 +479,52 @@ describe("GET /files/:id", () => {
     expect(res.status).toBe(200);
   });
 
+  it("logs a file_downloaded history event when the file is bound to an entity (§3.4)", async () => {
+    mockAuth = { tenantId: "tenant-1", userId: "user-admin", roles: ["admin"] };
+    mockFilesSelectResult.push({
+      entityId: "entity-1",
+      uploadedBy: "user-owner",
+    });
+    mockEntitySelectResult.push({
+      createdBy: "user-owner",
+      assignedTo: null,
+      fields: {},
+    });
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream(),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 13,
+    });
+
+    const app = buildApp();
+    await app.request(`/files/${EXISTING_FILE_ID}`);
+
+    expect(mockEmitFileDownloaded).toHaveBeenCalledWith(
+      "tenant-1",
+      "entity-1",
+      "user-admin",
+      EXISTING_FILE_ID,
+      "report.pdf",
+    );
+  });
+
+  it("does not log a history event for an unbound file (no entityId)", async () => {
+    mockAuth = { tenantId: "tenant-1", userId: "user-owner", roles: ["user"] };
+    mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
+    vi.mocked(getFileStream).mockResolvedValue({
+      stream: makeStream(),
+      originalName: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 13,
+    });
+
+    const app = buildApp();
+    await app.request(`/files/${EXISTING_FILE_ID}`);
+
+    expect(mockEmitFileDownloaded).not.toHaveBeenCalled();
+  });
+
   it("allows the uploader to download their own unbound file (#224)", async () => {
     mockAuth = { tenantId: "tenant-1", userId: "user-owner", roles: ["user"] };
     mockFilesSelectResult.push({ entityId: null, uploadedBy: "user-owner" });
@@ -528,6 +584,35 @@ describe("DELETE /files/:id", () => {
       method: "DELETE",
     });
     expect(res.status).toBe(204);
+  });
+
+  it("logs a file_deleted history event when the file is bound to an entity (§3.5)", async () => {
+    mockFilesSelectResult.push({
+      entityId: "entity-1",
+      originalName: "report.pdf",
+    });
+    vi.mocked(deleteFile).mockResolvedValue(undefined);
+
+    const app = buildApp();
+    await app.request(`/files/${EXISTING_FILE_ID}`, { method: "DELETE" });
+
+    expect(mockEmitFileDeleted).toHaveBeenCalledWith(
+      "tenant-1",
+      "entity-1",
+      "user-1",
+      EXISTING_FILE_ID,
+      "report.pdf",
+    );
+  });
+
+  it("does not log a history event for an unbound file (no entityId)", async () => {
+    mockFilesSelectResult.push({ entityId: null, originalName: "report.pdf" });
+    vi.mocked(deleteFile).mockResolvedValue(undefined);
+
+    const app = buildApp();
+    await app.request(`/files/${EXISTING_FILE_ID}`, { method: "DELETE" });
+
+    expect(mockEmitFileDeleted).not.toHaveBeenCalled();
   });
 
   it("returns 404 when file not found", async () => {

@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { getFileStream, FileError } from "@platform/files";
 import { factory } from "./factory.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
+import { emitFileDownloaded } from "../../lib/emit-access-event.js";
 
 const FileIdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -80,6 +81,20 @@ export const getDownloadUrlHandler = factory.createHandlers(
       const result = await withTenantContext(tenantId, (tx) =>
         getFileStream(tx, tenantId, fileId),
       );
+
+      // §3.4 — fire-and-forget, best-effort (see emitFileDownloaded); a
+      // history-write failure must never turn a successful download into an
+      // error response. Unbound files (no entityId) have no ticket to log
+      // against, so they're skipped entirely.
+      if (file?.entityId) {
+        void emitFileDownloaded(
+          tenantId,
+          file.entityId,
+          userId,
+          fileId,
+          result.originalName,
+        );
+      }
 
       // Strip characters that can break or inject the Content-Disposition header:
       // \r\n ends the header line and lets an attacker inject arbitrary headers;
