@@ -6,21 +6,7 @@ import type { AuthContext } from "@platform/auth";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockUpdateWorkflow = vi.fn();
-
-// makeTx returns a drizzle-like chainable tx object whose `.where()` resolves
-// to `rows` directly (no `.limit()` — the assignee check validates every id
-// in the assignedTo array via inArray, not a single row).
-function makeTx(rows: unknown[]) {
-  const tx: Record<string, unknown> = {};
-  tx["select"] = () => tx;
-  tx["from"] = () => tx;
-  tx["where"] = () => Promise.resolve(rows);
-  return tx;
-}
-
-// withTenantContext mock: first call (assignee check) uses `assigneeTx`,
-// second call (updateWorkflow) returns the updateWorkflow result directly.
-let assigneeTx: ReturnType<typeof makeTx>;
+const mockListOrgUsers = vi.fn();
 
 vi.mock("@platform/auth", () => ({
   requireAuth:
@@ -41,19 +27,21 @@ vi.mock("@platform/auth", () => ({
 }));
 
 vi.mock("@platform/db", () => ({
-  tenantUsers: { userId: "userId", tenantId: "tenantId" },
-  withTenantContext: (tenantId: string, fn: (tx: unknown) => unknown) =>
-    fn(assigneeTx),
+  withTenantContext: (_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn({}),
 }));
 
 vi.mock("@platform/workflow-engine", () => ({
   updateWorkflow: (...args: unknown[]) => mockUpdateWorkflow(...args),
 }));
 
-vi.mock("drizzle-orm", () => ({
-  eq: (a: unknown, b: unknown) => ({ eq: [a, b] }),
-  and: (...args: unknown[]) => ({ and: args }),
-  inArray: (a: unknown, b: unknown) => ({ inArray: [a, b] }),
+vi.mock("../../lib/zitadel-management.js", () => ({
+  listOrgUsers: (...args: unknown[]) => mockListOrgUsers(...args),
+}));
+
+const mockLoggerWarn = vi.fn();
+vi.mock("@platform/logger", () => ({
+  logger: { warn: (...args: unknown[]) => mockLoggerWarn(...args) },
 }));
 
 vi.mock("../../lib/handle-workflow-error.js", () => ({
@@ -80,12 +68,18 @@ function makeApp() {
 describe("PATCH /workflows/:id", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    assigneeTx = makeTx([{ userId: "user-bbb" }]);
+    mockListOrgUsers.mockResolvedValue([
+      {
+        userId: "user-bbb",
+        email: "b@x.com",
+        displayName: "B",
+        loginName: "b",
+      },
+    ]);
     mockUpdateWorkflow.mockResolvedValue({ id: "wf-001", isActive: false });
   });
 
-  it("uses withTenantContext when validating workflow admins — never bare db", async () => {
-    const selectSpy = vi.spyOn(assigneeTx, "select" as never);
+  it("validates workflow admins against Zitadel org membership, not local login state", async () => {
     const app = makeApp();
     await app.request("/wf-001", {
       method: "PATCH",
@@ -93,19 +87,40 @@ describe("PATCH /workflows/:id", () => {
       body: JSON.stringify({ assignedTo: ["user-bbb"] }),
     });
 
-    // The tx object injected by withTenantContext was used — proving the handler
-    // never calls bare db.select().
-    expect(selectSpy).toHaveBeenCalled();
+    expect(mockListOrgUsers).toHaveBeenCalledWith("org-ccc");
   });
 
-  it("rejects a workflow admin id from a different tenant (user not found)", async () => {
-    assigneeTx = makeTx([]); // empty result = none of the ids are in this tenant
+  it("allows assigning an org member who has never logged into this app", async () => {
+    // The org member exists in Zitadel but has no tenant_users row —
+    // exactly the case that used to 404 before this fix.
+    mockListOrgUsers.mockResolvedValue([
+      {
+        userId: "never-logged-in-user",
+        email: "new@x.com",
+        displayName: "New Hire",
+        loginName: "new",
+      },
+    ]);
 
     const app = makeApp();
     const res = await app.request("/wf-001", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assignedTo: ["user-other-tenant"] }),
+      body: JSON.stringify({ assignedTo: ["never-logged-in-user"] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateWorkflow).toHaveBeenCalled();
+  });
+
+  it("rejects a workflow admin id that is not a real member of this org", async () => {
+    mockListOrgUsers.mockResolvedValue([]); // no org members match
+
+    const app = makeApp();
+    const res = await app.request("/wf-001", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignedTo: ["not-a-real-user"] }),
     });
 
     expect(res.status).toBe(404);
@@ -114,22 +129,44 @@ describe("PATCH /workflows/:id", () => {
     expect(mockUpdateWorkflow).not.toHaveBeenCalled();
   });
 
-  it("rejects if only some workflow admin ids belong to this tenant", async () => {
-    assigneeTx = makeTx([{ userId: "user-bbb" }]); // only one of two ids found
+  it("logs a diagnostic warning when listOrgUsers returns zero users, since that could mean a Zitadel outage rather than a genuinely empty org", async () => {
+    mockListOrgUsers.mockResolvedValue([]);
+
+    const app = makeApp();
+    await app.request("/wf-001", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignedTo: ["not-a-real-user"] }),
+    });
+
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-ccc", workflowId: "wf-001" }),
+      expect.stringContaining("listOrgUsers returned zero users"),
+    );
+  });
+
+  it("rejects if only some workflow admin ids belong to this org", async () => {
+    mockListOrgUsers.mockResolvedValue([
+      {
+        userId: "user-bbb",
+        email: "b@x.com",
+        displayName: "B",
+        loginName: "b",
+      },
+    ]);
 
     const app = makeApp();
     const res = await app.request("/wf-001", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assignedTo: ["user-bbb", "user-other-tenant"] }),
+      body: JSON.stringify({ assignedTo: ["user-bbb", "not-a-real-user"] }),
     });
 
     expect(res.status).toBe(404);
     expect(mockUpdateWorkflow).not.toHaveBeenCalled();
   });
 
-  it("allows an empty assignedTo array without running the tenant check", async () => {
-    const selectSpy = vi.spyOn(assigneeTx, "select" as never);
+  it("allows an empty assignedTo array without calling listOrgUsers", async () => {
     mockUpdateWorkflow.mockResolvedValue({ id: "wf-001", assignedTo: [] });
 
     const app = makeApp();
@@ -140,13 +177,10 @@ describe("PATCH /workflows/:id", () => {
     });
 
     expect(res.status).toBe(200);
-    // assignee check tx was never consulted — empty array bypasses the lookup
-    expect(selectSpy).not.toHaveBeenCalled();
+    expect(mockListOrgUsers).not.toHaveBeenCalled();
   });
 
-  it("allows omitting assignedTo without running the tenant check", async () => {
-    const selectSpy = vi.spyOn(assigneeTx, "select" as never);
-
+  it("allows omitting assignedTo without calling listOrgUsers", async () => {
     const app = makeApp();
     const res = await app.request("/wf-001", {
       method: "PATCH",
@@ -155,6 +189,6 @@ describe("PATCH /workflows/:id", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(selectSpy).not.toHaveBeenCalled();
+    expect(mockListOrgUsers).not.toHaveBeenCalled();
   });
 });
