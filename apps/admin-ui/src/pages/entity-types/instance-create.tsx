@@ -5,6 +5,17 @@ import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { FieldInput } from "../../components/field-input.js";
 import { Button } from "@platform/ui";
 
+// Derives a singular display label from the entity type's plural (e.g.
+// "NSI Amendment Requests" -> "NSI Amendment Request") rather than falling
+// back to entityType.name, which for several entity types is a raw
+// snake_case/lowercase identifier (e.g. "nsi_amendment_request", "ticket")
+// never meant for display.
+function singularize(plural: string): string {
+  if (/[a-z]ies$/.test(plural)) return plural.replace(/ies$/, "y");
+  if (/s$/i.test(plural)) return plural.replace(/s$/i, "");
+  return plural;
+}
+
 type EntityField = {
   id: string;
   name: string;
@@ -154,7 +165,9 @@ export function EntityInstanceCreate(): React.ReactElement {
       </div>
     );
 
-  const typeName = entityType?.name ?? "Record";
+  const typeName = entityType?.plural
+    ? singularize(entityType.plural)
+    : (entityType?.name ?? "Record");
 
   return (
     <div style={{ maxWidth: "720px" }}>
@@ -285,7 +298,7 @@ export function EntityInstanceCreate(): React.ReactElement {
             <Link to={`/entity-types/${entityTypeId ?? ""}`}>Cancel</Link>
           </Button>
           <Button type="submit" variant="primary" disabled={saving}>
-            {saving ? "Creating…" : `Create ${typeName}`}
+            {saving ? "Creating…" : "Create Ticket"}
           </Button>
         </div>
       </form>
