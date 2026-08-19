@@ -383,6 +383,84 @@ describe("updateEntity", () => {
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
+
+  it("fires an entity.updated outbox event for a genuine field change on a ticket with a workflow (§2.5)", async () => {
+    const instanceWithWorkflow = { ...fakeInstance, workflowId: "wf-1" };
+    dbMock.select.mockReset();
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [instanceWithWorkflow]))
+      .mockReturnValueOnce(makeQueryBuilder(() => [])) // isChildTicket: no
+      .mockReturnValueOnce(makeQueryBuilder(() => [fakeEntityType]))
+      .mockReturnValue(makeQueryBuilder(() => []));
+    mockUpdateReturning.mockResolvedValue([
+      {
+        ...instanceWithWorkflow,
+        fields: { subject: "Updated" },
+      },
+    ]);
+
+    await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+      fields: { subject: "Updated" },
+      actorId: "actor-1",
+    });
+
+    const dbModule = await import("@platform/db");
+    const outboxCall = mockInsertValues.mock.calls.find(
+      ([table]) => table === dbModule.outboxEvents,
+    );
+    expect(outboxCall?.[1]).toMatchObject({
+      eventType: "entity.updated",
+      payload: expect.objectContaining({
+        eventType: "entity.updated",
+        instanceId: INSTANCE_ID,
+        actorId: "actor-1",
+      }),
+    });
+  });
+
+  it("does not fire entity.updated when the only change is assignedTo (that's entity.assigned's job, §2.4/§2.5 must not double-notify)", async () => {
+    const instanceWithWorkflow = {
+      ...fakeInstance,
+      workflowId: "wf-1",
+      assignedTo: null,
+    };
+    dbMock.select.mockReset();
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [instanceWithWorkflow]))
+      .mockReturnValueOnce(makeQueryBuilder(() => []))
+      .mockReturnValueOnce(makeQueryBuilder(() => [fakeEntityType]))
+      .mockReturnValue(makeQueryBuilder(() => []));
+    mockGetValidationSchema.mockResolvedValue(makePassingSchema({}));
+    mockUpdateReturning.mockResolvedValue([
+      {
+        ...instanceWithWorkflow,
+        // Fields unchanged from `existing` — only assignedTo differs.
+        fields: instanceWithWorkflow.fields,
+        assignedTo: "u-new-assignee",
+      },
+    ]);
+
+    await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+      fields: {},
+      assignedTo: "u-new-assignee",
+      actorId: "actor-1",
+    });
+
+    const dbModule = await import("@platform/db");
+    const entityUpdatedCall = mockInsertValues.mock.calls.find(
+      ([table, rows]) =>
+        table === dbModule.outboxEvents &&
+        (rows as { eventType?: string }).eventType === "entity.updated",
+    );
+    expect(entityUpdatedCall).toBeUndefined();
+    // entity.assigned still fires — this test only proves no *double* fire.
+    const assignedCall = mockInsertValues.mock.calls.find(
+      ([table, rows]) =>
+        table === dbModule.outboxEvents &&
+        (rows as { eventType?: string }).eventType === "entity.assigned",
+    );
+    expect(assignedCall).toBeDefined();
+  });
 });
 
 describe("updateEntity — dueDate", () => {

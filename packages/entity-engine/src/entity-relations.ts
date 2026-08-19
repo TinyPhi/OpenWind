@@ -1,6 +1,6 @@
 import { eq, and, or, asc, gt, isNull, sql } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
-import { entityRelations, entityInstances } from "@platform/db";
+import { entityRelations, entityInstances, workflowEvents } from "@platform/db";
 import { logger } from "@platform/logger";
 import type { EntityRelation } from "./types.js";
 import { EntityError } from "./errors.js";
@@ -19,12 +19,113 @@ export type CreateRelationInput = {
   fromInstanceId: string;
   toInstanceId: string;
   relationType: string;
+  actorId?: string | null;
 };
 
 export type CreateReferenceLinkInput = {
   fromInstanceId: string;
   toInstanceId: string;
+  actorId?: string | null;
 };
+
+// ui-feature-checklist-and-rules.md §3.1/§3.2 — linking/unlinking must log a
+// workflow_events row on BOTH tickets involved, not just a server log line.
+// Mirrors apps/api/src/lib/emit-access-event.ts's resolveWorkflowContext
+// (child tickets may have a null workflowId of their own; walk up to the
+// parent's) — duplicated rather than imported since entity-engine's
+// dependency rule is "db only" and that helper lives in apps/api.
+async function resolveWorkflowContextForHistory(
+  db: DbOrTx,
+  tenantId: string,
+  instanceId: string,
+): Promise<{ workflowId: string; currentState: string } | null> {
+  const [row] = await db
+    .select({
+      workflowId: entityInstances.workflowId,
+      currentState: entityInstances.currentState,
+    })
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.id, instanceId),
+        eq(entityInstances.tenantId, tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return null;
+
+  let workflowId = row.workflowId;
+  if (!workflowId) {
+    const [parentRel] = await db
+      .select({ toInstanceId: entityRelations.toInstanceId })
+      .from(entityRelations)
+      .where(
+        and(
+          eq(entityRelations.fromInstanceId, instanceId),
+          eq(entityRelations.tenantId, tenantId),
+          eq(entityRelations.relationType, "child_of"),
+          isNull(entityRelations.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (parentRel) {
+      const [parent] = await db
+        .select({ workflowId: entityInstances.workflowId })
+        .from(entityInstances)
+        .where(
+          and(
+            eq(entityInstances.id, parentRel.toInstanceId),
+            eq(entityInstances.tenantId, tenantId),
+          ),
+        )
+        .limit(1);
+      workflowId = parent?.workflowId ?? null;
+    }
+  }
+
+  if (!workflowId) return null;
+  return { workflowId, currentState: row.currentState };
+}
+
+type LinkHistoryType =
+  | "link_created"
+  | "link_removed"
+  | "reference_created"
+  | "reference_removed";
+
+async function writeLinkHistoryEvent(
+  db: DbOrTx,
+  tenantId: string,
+  instanceId: string,
+  counterpartId: string,
+  relationType: string,
+  actorId: string | null,
+  type: LinkHistoryType,
+): Promise<void> {
+  try {
+    const ctx = await resolveWorkflowContextForHistory(
+      db,
+      tenantId,
+      instanceId,
+    );
+    if (!ctx) return;
+
+    await db.insert(workflowEvents).values({
+      tenantId,
+      instanceId,
+      workflowId: ctx.workflowId,
+      fromState: ctx.currentState,
+      toState: ctx.currentState,
+      triggeredBy: "user",
+      actorId,
+      comment: null,
+      metadata: { type, counterpartId, relationType },
+    });
+  } catch {
+    // Best-effort — never block the main link/unlink operation.
+  }
+}
 
 export type ListRelationsInput = {
   direction?: "from" | "to" | "both" | undefined;
@@ -91,6 +192,28 @@ export async function createRelation(
     { tenantId, relationId: row.id, relationType: input.relationType },
     "Entity relation created",
   );
+
+  const actorId = input.actorId ?? null;
+  await Promise.all([
+    writeLinkHistoryEvent(
+      db,
+      tenantId,
+      input.fromInstanceId,
+      input.toInstanceId,
+      input.relationType,
+      actorId,
+      "link_created",
+    ),
+    writeLinkHistoryEvent(
+      db,
+      tenantId,
+      input.toInstanceId,
+      input.fromInstanceId,
+      input.relationType,
+      actorId,
+      "link_created",
+    ),
+  ]);
 
   return rowToRelation(row);
 }
@@ -192,6 +315,28 @@ export async function createReferenceLink(
     "Reference link created",
   );
 
+  const actorId = input.actorId ?? null;
+  await Promise.all([
+    writeLinkHistoryEvent(
+      db,
+      tenantId,
+      fromInstanceId,
+      toInstanceId,
+      RELATION_REFERENCES,
+      actorId,
+      "reference_created",
+    ),
+    writeLinkHistoryEvent(
+      db,
+      tenantId,
+      toInstanceId,
+      fromInstanceId,
+      RELATION_REFERENCES,
+      actorId,
+      "reference_created",
+    ),
+  ]);
+
   return { relations: relationRows.map(rowToRelation) };
 }
 
@@ -290,6 +435,7 @@ export async function deleteReferenceLink(
   db: DbOrTx,
   tenantId: string,
   relationId: string,
+  actorId?: string | null,
 ): Promise<void> {
   const relation = await getReferenceRelation(db, tenantId, relationId);
   if (!relation) throw new EntityError("RELATION_NOT_FOUND", { relationId });
@@ -323,15 +469,42 @@ export async function deleteReferenceLink(
     { tenantId, relationId: relation.id },
     "Reference link soft-deleted",
   );
+
+  await Promise.all([
+    writeLinkHistoryEvent(
+      db,
+      tenantId,
+      relation.fromInstanceId,
+      relation.toInstanceId,
+      relation.relationType,
+      actorId ?? null,
+      "reference_removed",
+    ),
+    writeLinkHistoryEvent(
+      db,
+      tenantId,
+      relation.toInstanceId,
+      relation.fromInstanceId,
+      relation.relationType,
+      actorId ?? null,
+      "reference_removed",
+    ),
+  ]);
 }
 
 export async function deleteRelation(
   db: DbOrTx,
   tenantId: string,
   relationId: string,
+  actorId?: string | null,
 ): Promise<void> {
   const [existing] = await db
-    .select({ id: entityRelations.id })
+    .select({
+      id: entityRelations.id,
+      fromInstanceId: entityRelations.fromInstanceId,
+      toInstanceId: entityRelations.toInstanceId,
+      relationType: entityRelations.relationType,
+    })
     .from(entityRelations)
     .where(
       and(
@@ -349,6 +522,27 @@ export async function deleteRelation(
     .where(eq(entityRelations.id, relationId));
 
   logger.info({ tenantId, relationId }, "Entity relation soft-deleted");
+
+  await Promise.all([
+    writeLinkHistoryEvent(
+      db,
+      tenantId,
+      existing.fromInstanceId,
+      existing.toInstanceId,
+      existing.relationType,
+      actorId ?? null,
+      "link_removed",
+    ),
+    writeLinkHistoryEvent(
+      db,
+      tenantId,
+      existing.toInstanceId,
+      existing.fromInstanceId,
+      existing.relationType,
+      actorId ?? null,
+      "link_removed",
+    ),
+  ]);
 }
 
 function rowToRelation(

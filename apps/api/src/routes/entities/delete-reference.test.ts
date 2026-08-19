@@ -92,6 +92,7 @@ describe("DELETE /entities/:id/references/:relationId", () => {
       {},
       "t-aaa",
       RELATION_ID,
+      "u-bbb",
     );
   });
 

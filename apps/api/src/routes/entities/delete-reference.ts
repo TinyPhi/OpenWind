@@ -43,7 +43,7 @@ export const deleteReferenceHandler = factory.createHandlers(
           throw new EntityError("RELATION_NOT_FOUND", { relationId });
         }
 
-        await deleteReferenceLink(tx, tenantId, relationId);
+        await deleteReferenceLink(tx, tenantId, relationId, userId);
       });
       return c.body(null, 204);
     } catch (err) {
