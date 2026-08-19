@@ -74,56 +74,54 @@ export function Login(): React.ReactElement {
   const isDark = theme === "dark";
 
   return (
-    <div className="lp-page" data-theme={theme}>
-      {/* ── Top bar ── */}
-      <header className="lp-topbar">
-        <div className="lp-topbar-inner">
-          {/* Brand */}
-          <div className="lp-brand">
-            <div className="lp-brand-logo">W</div>
-            <span className="lp-brand-name">{t("login.brandName")}</span>
-          </div>
+    <div className="lp-page lp-page-notebook" data-theme={theme}>
+      {/* Logo, floating top-left — no bar chrome, no brand name (the
+          sign-in card already names OpenWind) */}
+      <div className="lp-float-logo">W</div>
 
-          {/* Theme toggle */}
-          <button
-            className="lp-theme-btn"
-            onClick={toggleTheme}
-            aria-label={
-              isDark
-                ? t("login.theme.switchToLight")
-                : t("login.theme.switchToDark")
-            }
-            title={
-              isDark
-                ? t("login.theme.switchToLight")
-                : t("login.theme.switchToDark")
-            }
-          >
-            {isDark ? <SunIcon /> : <MoonIcon />}
-            <span>
-              {isDark ? t("login.theme.light") : t("login.theme.dark")}
-            </span>
-          </button>
-        </div>
-
-        {/* Bottom accent line */}
-        <div className="lp-topbar-accent" />
-      </header>
+      {/* Theme toggle, floating top-right — icon only, no label */}
+      <button
+        className="lp-theme-btn lp-float-theme-btn"
+        onClick={toggleTheme}
+        aria-label={
+          isDark
+            ? t("login.theme.switchToLight")
+            : t("login.theme.switchToDark")
+        }
+        title={
+          isDark
+            ? t("login.theme.switchToLight")
+            : t("login.theme.switchToDark")
+        }
+      >
+        {isDark ? <SunIcon /> : <MoonIcon />}
+      </button>
 
       {/* ── Main ── */}
       <main className="lp-main">
-        <div className="lp-card">
-          {/* Card header */}
-          <div className="lp-card-head">
-            <div className="lp-card-logo">W</div>
-            <h1 className="lp-card-title">{t("login.title")}</h1>
+        {/* Soft light source behind the card, tinted with the active accent
+            color so it matches whichever theme/accent the user has picked */}
+        <div className="lp-card-glow" aria-hidden="true" />
+        <div className="lp-card lp-card-notebook">
+          {/* Breadcrumb-style header, replacing the stacked logo/title/desc block */}
+          <div className="lp-card-head lp-notebook-head">
+            <div className="lp-notebook-crumb">
+              <span>{t("login.brandName")}</span>
+              <span className="lp-notebook-crumb-sep" aria-hidden="true">
+                /
+              </span>
+              <span className="lp-notebook-crumb-current">
+                {t("login.signInTag")}
+              </span>
+            </div>
+            <h1 className="lp-card-title lp-notebook-title">
+              {t("login.title")}
+            </h1>
             <p className="lp-card-desc">{t("login.description")}</p>
           </div>
 
-          <div className="lp-card-divider" />
-
           {/* SSO section */}
-          <div className="lp-card-body">
+          <div className="lp-card-body lp-notebook-body">
             <button
               className="lp-signin-btn"
               onClick={() => void handleLogin()}
@@ -157,8 +155,8 @@ export function Login(): React.ReactElement {
             </button>
           </div>
 
-          {/* Security badge */}
-          <div className="lp-security">
+          {/* Security note */}
+          <div className="lp-security lp-notebook-security">
             <svg
               width="13"
               height="13"

@@ -6,7 +6,7 @@ import { useEntityTypes } from "../../entity-type-context.js";
 import type { EntityType } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { resolveCardIcon } from "../../lib/icon.js";
-import { Button, TOKENS, useHoverStyle } from "@platform/ui";
+import { Button } from "@platform/ui";
 
 function toWorkflowSlug(name: string): string {
   return name
@@ -475,12 +475,6 @@ function WorkflowCard({
   const et = item.etMap.get(item.entityTypeId);
   const activeStates = item.states.filter((s) => !s.isTerminal);
   const terminalStates = item.states.filter((s) => s.isTerminal);
-  const cardHover = useHoverStyle({
-    // shadow-sm has no TOKENS entry yet (only shadowLg is defined) -- left as
-    // a literal rather than inventing a new token for this fix.
-    base: { transform: "translateY(0)", boxShadow: "var(--shadow-sm)" },
-    hover: { transform: "translateY(-3px)", boxShadow: TOKENS.shadowLg },
-  });
 
   return (
     <div
@@ -494,11 +488,8 @@ function WorkflowCard({
         cursor: "pointer",
         border: "1px solid var(--border-color)",
         background: "var(--bg-secondary)",
-        transition: "transform .15s, box-shadow .15s",
-        ...cardHover.style,
+        boxShadow: "var(--shadow-sm)",
       }}
-      onMouseEnter={cardHover.onMouseEnter}
-      onMouseLeave={cardHover.onMouseLeave}
     >
       {/* Gradient header — fixed height, top half */}
       <div
@@ -556,7 +547,12 @@ function WorkflowCard({
         )}
       </div>
 
-      {/* Card body — bottom half, fills remaining fixed height */}
+      {/* Card body — bottom half, fills remaining fixed height. The tag
+          list sits in its own flex:1/overflow:hidden wrapper so it clips
+          itself when it grows (many states, wraps to extra lines) instead
+          of pushing the button below — the button is a flexShrink:0
+          sibling outside that wrapper, so it always stays visible at a
+          fixed spot at the bottom of the card. */}
       <div
         style={{
           flex: 1,
@@ -567,69 +563,70 @@ function WorkflowCard({
           overflow: "hidden",
         }}
       >
-        {item.states.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              gap: "6px",
-              flexWrap: "wrap",
-              marginBottom: "16px",
-            }}
-          >
-            {activeStates.slice(0, 4).map((s) => (
-              <span
-                key={s.name}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  padding: "2px 8px",
-                  borderRadius: "20px",
-                  fontSize: "11px",
-                  fontWeight: 500,
-                  background: s.color ? `${s.color}22` : "var(--bg-tertiary)",
-                  color: s.color ?? "var(--text-muted)",
-                  border: `1px solid ${s.color ? `${s.color}44` : "var(--border-color)"}`,
-                }}
-              >
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+          {item.states.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                gap: "6px",
+                flexWrap: "wrap",
+              }}
+            >
+              {activeStates.slice(0, 4).map((s) => (
+                <span
+                  key={s.name}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "2px 8px",
+                    borderRadius: "20px",
+                    fontSize: "11px",
+                    fontWeight: 500,
+                    background: s.color ? `${s.color}22` : "var(--bg-tertiary)",
+                    color: s.color ?? "var(--text-muted)",
+                    border: `1px solid ${s.color ? `${s.color}44` : "var(--border-color)"}`,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: "6px",
+                      height: "6px",
+                      borderRadius: "50%",
+                      background: s.color ?? "var(--text-muted)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  {s.label}
+                </span>
+              ))}
+              {terminalStates.length > 0 && (
                 <span
                   style={{
-                    width: "6px",
-                    height: "6px",
-                    borderRadius: "50%",
-                    background: s.color ?? "var(--text-muted)",
-                    flexShrink: 0,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "2px 8px",
+                    borderRadius: "20px",
+                    fontSize: "11px",
+                    color: "var(--text-muted)",
+                    background: "var(--bg-tertiary)",
+                    border: "1px solid var(--border-color)",
                   }}
-                />
-                {s.label}
-              </span>
-            ))}
-            {terminalStates.length > 0 && (
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  padding: "2px 8px",
-                  borderRadius: "20px",
-                  fontSize: "11px",
-                  color: "var(--text-muted)",
-                  background: "var(--bg-tertiary)",
-                  border: "1px solid var(--border-color)",
-                }}
-              >
-                ⬡ {terminalStates[0]?.label}
-              </span>
-            )}
-          </div>
-        )}
+                >
+                  ⬡ {terminalStates[0]?.label}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
         <Button
           variant="primary"
           style={{
             width: "100%",
             justifyContent: "center",
-            marginTop: "auto",
+            marginTop: "16px",
             flexShrink: 0,
           }}
           onClick={(e) => {

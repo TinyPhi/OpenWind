@@ -21,15 +21,19 @@ import {
  */
 
 export interface FileFieldPickerProps {
-  value: string | string[] | null;
+  value: string | string[] | null | undefined;
   onChange: (v: string | string[] | null) => void;
   multiple: boolean;
   moduleSlug: string;
   entityId: string | undefined;
 }
 
-function idsFromValue(value: string | string[] | null): string[] {
-  if (value === null) return [];
+function idsFromValue(value: string | string[] | null | undefined): string[] {
+  // A brand-new record's untouched field arrives as `undefined` (no key yet
+  // in fieldValues), not `null` - checking only `=== null` let it fall
+  // through to `[value]`, i.e. `[undefined]`, which then got spread into
+  // the submitted array and serialized to a stray leading `null`.
+  if (value === null || value === undefined) return [];
   return Array.isArray(value) ? value : [value];
 }
 

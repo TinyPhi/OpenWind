@@ -69,7 +69,12 @@ type ChildInstance = {
   currentState: string | null;
   fields: Record<string, unknown>;
   assignedTo: string | null;
+  dueDate: string | null;
   deletedAt: string | null;
+  // Already present on every row GET /entities/:id/children returns (full
+  // EntityInstance rows) — just untyped here until the table view needed them.
+  createdBy: string | null;
+  createdAt: string;
 };
 type Transition = {
   id: string;
@@ -104,6 +109,7 @@ type LinkedTicket = {
   workflowName: string | null;
   linkedAt: string;
   targetCreatedAt: string | null;
+  targetCreatedBy: string | null;
   deleted: boolean;
 };
 type LinkCandidate = {
@@ -132,13 +138,40 @@ function FieldValue({
   value,
   fieldType,
   field,
+  attachments,
+  onPreviewFile,
 }: {
   value: unknown;
   fieldType: string;
   field?: EntityField;
+  attachments?: AttachmentFile[];
+  onPreviewFile?: (file: AttachmentFile) => void;
 }): React.ReactElement {
   if (value === null || value === undefined)
     return <span className="rcd-muted">—</span>;
+  if (fieldType === "file" || fieldType === "files") {
+    // Stored as plain file-id string(s) - resolve against the entity's
+    // already-loaded attachments list (same lookup pattern comment file
+    // chips use) rather than rendering the raw id.
+    const ids = Array.isArray(value) ? value : [value];
+    const known = ids
+      .filter((v): v is string => typeof v === "string")
+      .map((fid) => attachments?.find((a) => a.id === fid))
+      .filter((f): f is AttachmentFile => f !== undefined);
+    if (known.length === 0) return <span className="rcd-muted">—</span>;
+    return (
+      <div className="cmt-file-chips">
+        {known.map((file) => (
+          <FileChip
+            key={file.id}
+            file={file}
+            onPreview={onPreviewFile ?? (() => {})}
+            canDelete={false}
+          />
+        ))}
+      </div>
+    );
+  }
   if (fieldType === "boolean") {
     const bv = Boolean(value);
     return (
@@ -594,11 +627,13 @@ function AssignDropdown({
   users,
   disabled,
   onChange,
+  className,
 }: {
   value: string;
   users: OrgUser[];
   disabled?: boolean;
   onChange: (userId: string) => void;
+  className?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -639,7 +674,7 @@ function AssignDropdown({
   }
 
   return (
-    <div ref={containerRef} className="asgn-drop">
+    <div ref={containerRef} className={`asgn-drop ${className ?? ""}`}>
       <button
         type="button"
         className={`asgn-trigger ${open ? "asgn-trigger-open" : ""}`}
@@ -882,8 +917,24 @@ function StateDropdown({
   );
 }
 
-function formatFieldValue(value: unknown): string {
+function formatFieldValue(
+  value: unknown,
+  fieldType?: string,
+  attachments?: AttachmentFile[],
+): string {
   if (value === null || value === undefined) return "—";
+  if (fieldType === "file" || fieldType === "files") {
+    // Stored as plain file-id string(s) - resolve against the entity's
+    // attachments list (same lookup FieldValue uses for the read-only field
+    // display) so the history diff shows names instead of raw ids.
+    const ids = Array.isArray(value) ? value : [value];
+    const names = ids
+      .filter((v): v is string => typeof v === "string")
+      .map(
+        (fid) => attachments?.find((a) => a.id === fid)?.originalName ?? fid,
+      );
+    return names.length > 0 ? names.join(", ") : "—";
+  }
   if (typeof value === "object") {
     const obj = value as Record<string, unknown>;
     if ("amount" in obj && "currency" in obj)
@@ -1153,7 +1204,7 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "comments" | "history" | "access-requests"
+    "comments" | "history" | "subtasks" | "linked" | "access-requests"
   >("comments");
   const [quickAssigning, setQuickAssigning] = useState(false);
   const [quickSettingDueDate, setQuickSettingDueDate] = useState(false);
@@ -1166,6 +1217,30 @@ export function CustomerRecordDetail(): React.ReactElement {
   const initializedCollapse = useRef(false);
   const commentsScrollRef = useRef<HTMLDivElement>(null);
   const historyScrollRef = useRef<HTMLDivElement>(null);
+  const tabsScrollRef = useRef<HTMLDivElement>(null);
+  // Drag-to-scroll for the tab bar (no visible scrollbar, mouse drag only —
+  // touch/trackpad already scroll it natively via overflow-x).
+  const tabsDrag = useRef({ dragging: false, startX: 0, startScrollLeft: 0 });
+
+  function handleTabsMouseDown(e: React.MouseEvent<HTMLDivElement>): void {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    tabsDrag.current = {
+      dragging: true,
+      startX: e.clientX,
+      startScrollLeft: el.scrollLeft,
+    };
+  }
+  function handleTabsMouseMove(e: React.MouseEvent<HTMLDivElement>): void {
+    const el = tabsScrollRef.current;
+    if (!el || !tabsDrag.current.dragging) return;
+    e.preventDefault();
+    el.scrollLeft =
+      tabsDrag.current.startScrollLeft - (e.clientX - tabsDrag.current.startX);
+  }
+  function endTabsDrag(): void {
+    tabsDrag.current.dragging = false;
+  }
 
   // File attachments
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
@@ -1368,6 +1443,19 @@ export function CustomerRecordDetail(): React.ReactElement {
     (record?.createdBy === currentUserId ||
       record?.assignedTo === currentUserId);
 
+  // Link-ticket and sub-task creation: creator, assignee, workflow admin, or
+  // global admin/agent (isAdminOrAgent covers the latter two) — everyone
+  // else with mere read/comment access to the ticket must not get these.
+  // NOT used for the field-edit gate below — that stays creator-only
+  // (+admin/agent/workflow-admin), matching update.ts's deliberate exclusion
+  // of the plain assignee from editing state/dueDate/assignedTo/fields (see
+  // docs/specs/due-date.md).
+  const canLinkOrCreateSubtask = isAdminOrAgent || isOwner;
+
+  const isRecordCreator =
+    currentUserId !== null && record?.createdBy === currentUserId;
+  const canEditTicket = isAdminOrAgent || isRecordCreator;
+
   // Derived: true when viewing a child ticket (has a parent)
   const isChildTicket = !!record?.parentId;
 
@@ -1459,8 +1547,9 @@ export function CustomerRecordDetail(): React.ReactElement {
   // tightened API write gate in apps/api/src/routes/entities/update.ts.
   const canChangeDueDate = canChangeAssignedTo;
 
-  // isAdminOrAgent already includes workflow-admin status (see its definition).
-  const canCreateChild = isAdminOrAgent;
+  // Creator/assignee get sub-task creation too, alongside admin/agent/
+  // workflow-admin (isAdminOrAgent) — see canLinkOrCreateSubtask above.
+  const canCreateChild = canLinkOrCreateSubtask;
 
   async function handleAccessChange(): Promise<void> {
     if (!id || !accessChangeModal) return;
@@ -1818,6 +1907,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               workflowName,
               linkedAt: row.createdAt,
               targetCreatedAt: inst.createdAt,
+              targetCreatedBy: inst.createdBy,
               deleted: !!inst.deletedAt,
             };
           } catch {
@@ -1831,6 +1921,7 @@ export function CustomerRecordDetail(): React.ReactElement {
               workflowName: null,
               linkedAt: row.createdAt,
               targetCreatedAt: null,
+              targetCreatedBy: null,
               deleted: true,
             };
           }
@@ -2169,7 +2260,6 @@ export function CustomerRecordDetail(): React.ReactElement {
       const childFields: Record<string, string> = {
         title: newChildTitle.trim(),
       };
-      if (newChildDueDate) childFields.dueDate = newChildDueDate;
       if (newChildDescription.trim())
         childFields.description = newChildDescription.trim();
       await fetchWithAuth(`${API_URL}/entities/${id}/children`, {
@@ -2178,6 +2268,9 @@ export function CustomerRecordDetail(): React.ReactElement {
           entityTypeId: effectiveEntityTypeId,
           fields: childFields,
           ...(newChildAssignedTo ? { assignedTo: newChildAssignedTo } : {}),
+          ...(newChildDueDate
+            ? { dueDate: new Date(newChildDueDate).toISOString() }
+            : {}),
         }),
       });
       setNewChildTitle("");
@@ -2347,10 +2440,13 @@ export function CustomerRecordDetail(): React.ReactElement {
     }
   }, [oidcLoaded, loading, currentUserId, isAdminOrAgent, accessList]);
 
-  // Load access requests when owner (creator/assignee)
+  // Load access requests when owner (creator/assignee) or admin/agent — must
+  // match the Access Requests tab's own visibility gate below, or an
+  // admin/agent viewer never gets the initial/live list despite the tab
+  // showing for them.
   useEffect(() => {
-    if (isOwner && id) void loadAccessRequests();
-  }, [isOwner, id]);
+    if ((isOwner || isAdminOrAgent) && id) void loadAccessRequests();
+  }, [isOwner, isAdminOrAgent, id]);
 
   // Ticket-room live updates (docs/specs/ticket-live-updates.md) — re-fetches
   // via the same REST calls a manual refresh would use, rather than
@@ -2369,7 +2465,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           msg.type === "access_request.updated") &&
         msg.instanceId === id
       ) {
-        if (isOwner) void loadAccessRequests();
+        if (isOwner || isAdminOrAgent) void loadAccessRequests();
         if (msg.request.requestedBy === currentUserId) {
           setMyAccessReqStatus(msg.request.status);
         }
@@ -2381,7 +2477,7 @@ export function CustomerRecordDetail(): React.ReactElement {
     // including them would force spurious resubscribes without changing
     // behavior. (PR #376 review L1; this repo's eslint config doesn't enable
     // react-hooks/exhaustive-deps, so no suppression comment is needed here.)
-  }, [id, isOwner, currentUserId]);
+  }, [id, isOwner, isAdminOrAgent, currentUserId]);
 
   // Sync requester's own request status
   useEffect(() => {
@@ -2475,7 +2571,11 @@ export function CustomerRecordDetail(): React.ReactElement {
       });
       setEditing(false);
       setLoading(true);
-      void loadRecord();
+      // loadRecord() alone only refreshes fields/users/access - a file/files
+      // field edit binds a new file to this entity, but without also
+      // refreshing `attachments` the file-chip lookup in FieldValue keeps
+      // resolving against the pre-edit list until a full page reload.
+      void Promise.all([loadRecord(), refreshAttachments()]);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -2678,9 +2778,12 @@ export function CustomerRecordDetail(): React.ReactElement {
   const titleField = fields.find(
     (f) => f.name === "subject" || f.name === "title" || f.name === "name",
   );
-  const recordTitle = titleField
-    ? String(record.fields[titleField.name] ?? "")
-    : `${entityType?.name ?? "Record"} #${record.id.slice(0, 8)}`;
+  // No id suffix here — the id already renders in its own chip right below
+  // the title (rcd-id-chip); appending it here too just duplicated it.
+  const recordTitle =
+    titleField && String(record.fields[titleField.name] ?? "").trim()
+      ? String(record.fields[titleField.name])
+      : (entityType?.name ?? "Record");
 
   const createdByEvent = historyEvents.find(
     (e) => e.metadata?.type === "create",
@@ -2868,8 +2971,15 @@ export function CustomerRecordDetail(): React.ReactElement {
     const isAccessGrant = meta?.type === "access_grant";
     const isAccessUpdate = meta?.type === "access_update";
     const isAccessRevoke = meta?.type === "access_revoke";
+    const isAccessReject = meta?.type === "access_reject";
+    const isAccessRequestSubmitted = meta?.type === "access_request";
     const isFileAttached = meta?.type === "file_attached";
+    const isLinkCreated =
+      meta?.type === "link_created" || meta?.type === "reference_created";
+    const isLinkRemoved =
+      meta?.type === "link_removed" || meta?.type === "reference_removed";
     const isFileDeleted = meta?.type === "file_deleted";
+    const isFileDownloaded = meta?.type === "file_downloaded";
 
     if (isComment) {
       return (
@@ -2879,7 +2989,13 @@ export function CustomerRecordDetail(): React.ReactElement {
       );
     }
 
-    if (isAccessGrant || isAccessUpdate || isAccessRevoke) {
+    if (
+      isAccessGrant ||
+      isAccessUpdate ||
+      isAccessRevoke ||
+      isAccessReject ||
+      isAccessRequestSubmitted
+    ) {
       const actor = resolveActorName(event.actorDisplayName, event.actorId);
       const targetId = (meta as Record<string, unknown>)["targetUserId"] as
         | string
@@ -2935,6 +3051,14 @@ export function CustomerRecordDetail(): React.ReactElement {
                   removed <strong>{target}</strong>'s access
                 </>
               )}
+              {isAccessReject && (
+                <>
+                  rejected <strong>{target}</strong>'s access request
+                </>
+              )}
+              {isAccessRequestSubmitted && (
+                <>requested access{level ? ` (${level})` : ""}</>
+              )}
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -2950,11 +3074,16 @@ export function CustomerRecordDetail(): React.ReactElement {
       );
     }
 
-    if (isFileAttached || isFileDeleted) {
+    if (isFileAttached || isFileDeleted || isFileDownloaded) {
       const actor = resolveActorName(event.actorDisplayName, event.actorId);
       const fileName = String(
         (meta as Record<string, unknown>)["originalName"] ?? "a file",
       );
+      const fileVerb = isFileDeleted
+        ? "deleted"
+        : isFileDownloaded
+          ? "downloaded"
+          : "attached";
       return (
         <div key={event.id} className="rcd-feed-event">
           <div className="rcd-feed-event-icon-wrap">
@@ -2977,6 +3106,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                     <polyline points="14 2 14 8 20 8" />
                     <line x1="9" y1="13" x2="15" y2="13" />
                   </>
+                ) : isFileDownloaded ? (
+                  <>
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </>
                 ) : (
                   <>
                     <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -2991,8 +3126,57 @@ export function CustomerRecordDetail(): React.ReactElement {
           </div>
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
-              <strong>{actor}</strong> {isFileAttached ? "attached" : "deleted"}{" "}
-              <strong>{fileName}</strong>
+              <strong>{actor}</strong> {fileVerb} <strong>{fileName}</strong>
+            </span>
+            <div className="rcd-feed-event-time">
+              {new Date(event.triggeredAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isLinkCreated || isLinkRemoved) {
+      const actor = resolveActorName(event.actorDisplayName, event.actorId);
+      const counterpartId = String(
+        (meta as Record<string, unknown>)["counterpartId"] ?? "",
+      );
+      const counterpartLabel = counterpartId
+        ? `#${counterpartId.slice(0, 8)}`
+        : "another ticket";
+      return (
+        <div key={event.id} className="rcd-feed-event">
+          <div className="rcd-feed-event-icon-wrap">
+            <div
+              className={`rcd-tl-icon ${isLinkRemoved ? "rcd-tl-icon-update" : "rcd-tl-icon-create"}`}
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+              </svg>
+            </div>
+            <div className="rcd-feed-event-line" />
+          </div>
+          <div className="rcd-feed-event-body">
+            <span className="rcd-feed-event-text">
+              <strong>{actor}</strong>{" "}
+              {isLinkRemoved ? "removed the link to" : "linked"}{" "}
+              <strong>{counterpartLabel}</strong>
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -3052,12 +3236,22 @@ export function CustomerRecordDetail(): React.ReactElement {
                         {fieldName === "assignedTo"
                           ? ((change["oldName"] as string | null) ??
                             getActorName(change["old"] as string | null))
-                          : formatFieldValue(change["old"])}
+                          : formatFieldValue(
+                              change["old"],
+                              fields.find((f) => f.name === fieldName)
+                                ?.fieldType,
+                              attachments,
+                            )}
                         {" → "}
                         {fieldName === "assignedTo"
                           ? ((change["newName"] as string | null) ??
                             getActorName(change["new"] as string | null))
-                          : formatFieldValue(change["new"])}
+                          : formatFieldValue(
+                              change["new"],
+                              fields.find((f) => f.name === fieldName)
+                                ?.fieldType,
+                              attachments,
+                            )}
                       </li>
                     ))}
                   </ul>
@@ -3279,7 +3473,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                         onClick={() => setKebabMenuOpen(false)}
                       />
                       <div className="rcd-kebab-menu">
-                        {isAdminOrAgent && (
+                        {canEditTicket && (
                           <button
                             type="button"
                             className="rcd-kebab-menu-item"
@@ -3596,6 +3790,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                             value={record.fields[f.name]}
                             fieldType={f.fieldType}
                             field={f}
+                            attachments={attachments}
+                            onPreviewFile={setPreviewFile}
                           />
                         </div>
                       </div>
@@ -3805,7 +4001,14 @@ export function CustomerRecordDetail(): React.ReactElement {
         {/* Activity panel */}
         <div className="rcd-card rcd-activity-card">
           {/* Tab bar */}
-          <div className="rcd-tabs">
+          <div
+            className="rcd-tabs"
+            ref={tabsScrollRef}
+            onMouseDown={handleTabsMouseDown}
+            onMouseMove={handleTabsMouseMove}
+            onMouseUp={endTabsDrag}
+            onMouseLeave={endTabsDrag}
+          >
             <button
               type="button"
               className={`rcd-tab ${activeTab === "comments" ? "rcd-tab-active" : ""}`}
@@ -3856,6 +4059,56 @@ export function CustomerRecordDetail(): React.ReactElement {
                 <span className="rcd-tab-count">{timelineEvents.length}</span>
               )}
             </button>
+            {record.canAddChildren && (
+              <button
+                type="button"
+                className={`rcd-tab ${activeTab === "subtasks" ? "rcd-tab-active" : ""}`}
+                onClick={() => setActiveTab("subtasks")}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M9 11l3 3L22 4" />
+                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                </svg>
+                Sub-tasks
+                {children.length > 0 && (
+                  <span className="rcd-tab-count">{children.length}</span>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              className={`rcd-tab ${activeTab === "linked" ? "rcd-tab-active" : ""}`}
+              onClick={() => setActiveTab("linked")}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+              </svg>
+              Linked
+              {linkedTickets.length > 0 && (
+                <span className="rcd-tab-count">{linkedTickets.length}</span>
+              )}
+            </button>
             {(isOwner || isAdminOrAgent) && (
               <button
                 type="button"
@@ -3896,7 +4149,10 @@ export function CustomerRecordDetail(): React.ReactElement {
           <div className="rcd-tab-panel">
             {activeTab === "comments" ? (
               <>
-                <div className="rcd-tab-scroll" ref={commentsScrollRef}>
+                <div
+                  className="rcd-tab-scroll rcd-comments-scroll"
+                  ref={commentsScrollRef}
+                >
                   {topLevelComments.length === 0 ? (
                     <p className="rcd-empty-hint rcd-empty-hint-feed">
                       No comments yet. Be the first to comment.
@@ -3997,6 +4253,351 @@ export function CustomerRecordDetail(): React.ReactElement {
                   </div>
                 )}
               </div>
+            ) : activeTab === "subtasks" ? (
+              <div className="rcd-tab-scroll">
+                {canCreateChild && !record.deletedAt && (
+                  <div className="rcd-linked-tab-actions">
+                    <button
+                      type="button"
+                      className="rcd-tab-action-icon-btn"
+                      title="Add sub-task"
+                      aria-label="Add sub-task"
+                      onClick={() => {
+                        setShowCreateChild(true);
+                        setNewChildTitle("");
+                        setCreateChildError(null);
+                      }}
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                {childrenLoading ? (
+                  <p className="rcd-empty-hint rcd-empty-hint-feed">Loading…</p>
+                ) : children.length === 0 ? (
+                  <p className="rcd-empty-hint rcd-empty-hint-feed">
+                    No sub-tasks yet.
+                  </p>
+                ) : (
+                  <>
+                    {(() => {
+                      const closed = children.filter(
+                        (c) =>
+                          c.deletedAt !== null || c.currentState === "closed",
+                      ).length;
+                      const pct = Math.round((closed / children.length) * 100);
+                      return (
+                        <div
+                          className="rcd-subtasks-progress-wrap"
+                          title={`${closed} of ${children.length} closed`}
+                        >
+                          <div className="rcd-subtasks-progress-bar">
+                            <div
+                              className="rcd-subtasks-progress-fill"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="rcd-subtasks-progress-label">
+                            {closed}/{children.length}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                    <div className="rcd-table-wrap">
+                      <table className="rcd-table">
+                        <thead>
+                          <tr>
+                            <th>Ticket</th>
+                            <th>State</th>
+                            <th>Due date</th>
+                            <th>Assignee</th>
+                            <th>Created</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {children.map((child) => {
+                            const childTitleField = [
+                              "subject",
+                              "title",
+                              "name",
+                            ].find((k) => child.fields[k]);
+                            const childTitle = childTitleField
+                              ? String(child.fields[childTitleField])
+                              : `#${child.id.slice(0, 8)}`;
+                            const isClosed =
+                              child.deletedAt !== null ||
+                              child.currentState === "closed";
+                            const assignee = users.find(
+                              (u) => u.userId === child.assignedTo,
+                            );
+                            const childState = CHILD_TICKET_STATES.find(
+                              (s) => s.name === child.currentState,
+                            );
+                            const dueDate =
+                              child.dueDate &&
+                              !isNaN(new Date(child.dueDate).getTime())
+                                ? new Date(child.dueDate)
+                                : null;
+
+                            // Urgency: days until due (negative = overdue)
+                            const now = new Date();
+                            now.setHours(0, 0, 0, 0);
+                            const dueDaysDiff = dueDate
+                              ? Math.ceil(
+                                  (dueDate.getTime() - now.getTime()) /
+                                    86400000,
+                                )
+                              : null;
+                            const isPastDue =
+                              dueDaysDiff !== null && dueDaysDiff < 0;
+                            const isDueToday = dueDaysDiff === 0;
+                            const isDueSoon =
+                              dueDaysDiff !== null && dueDaysDiff === 1;
+
+                            const dueDateStr = dueDate
+                              ? dueDate.toLocaleDateString(undefined, {
+                                  month: "short",
+                                  day: "numeric",
+                                })
+                              : null;
+                            const dueDateLabel = (() => {
+                              if (!dueDateStr || isClosed) return dueDateStr;
+                              if (isPastDue) return `Overdue · ${dueDateStr}`;
+                              if (isDueToday) return `Due today`;
+                              if (isDueSoon) return `Due tomorrow`;
+                              return dueDateStr;
+                            })();
+
+                            const creator = child.createdBy
+                              ? users.find((u) => u.userId === child.createdBy)
+                              : undefined;
+                            const createdDateStr = new Date(
+                              child.createdAt,
+                            ).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                            });
+
+                            return (
+                              <tr
+                                key={child.id}
+                                className={`rcd-table-row ${isClosed ? "rcd-table-row-closed" : ""}`}
+                                onClick={() =>
+                                  navigate(
+                                    `/records/${typeSlug ?? ""}/${child.id}`,
+                                  )
+                                }
+                              >
+                                <td>
+                                  <div className="rcd-table-ticket">
+                                    <span className="rcd-table-ticket-title">
+                                      {childTitle}
+                                    </span>
+                                    <span className="rcd-child-id">
+                                      #{child.id.slice(0, 6)}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td>
+                                  {childState && (
+                                    <span
+                                      className="rcd-child-state"
+                                      style={
+                                        childState.color
+                                          ? {
+                                              color: childState.color,
+                                              background: `${childState.color}18`,
+                                              borderColor: `${childState.color}40`,
+                                            }
+                                          : undefined
+                                      }
+                                    >
+                                      <span
+                                        className="rcd-state-dot"
+                                        style={
+                                          childState.color
+                                            ? { background: childState.color }
+                                            : undefined
+                                        }
+                                      />
+                                      {childState.label}
+                                    </span>
+                                  )}
+                                </td>
+                                <td>
+                                  {dueDateLabel && (
+                                    <span
+                                      className={`rcd-child-due${isPastDue || isDueToday ? " rcd-child-due-overdue" : isDueSoon ? " rcd-child-due-warn" : ""}`}
+                                    >
+                                      {dueDateLabel}
+                                    </span>
+                                  )}
+                                </td>
+                                <td>
+                                  {assignee ? (
+                                    <div className="rcd-table-assignee">
+                                      <span className="rcd-child-card-avatar">
+                                        {(
+                                          assignee.displayName ?? assignee.email
+                                        )
+                                          .slice(0, 1)
+                                          .toUpperCase()}
+                                      </span>
+                                      <span className="rcd-child-card-assignee-name">
+                                        {assignee.displayName ?? assignee.email}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="rcd-child-card-assignee-name rcd-child-unassigned">
+                                      Unassigned
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="rcd-table-muted">
+                                  {createdDateStr}
+                                  {creator &&
+                                    ` · ${creator.displayName ?? creator.email}`}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : activeTab === "linked" ? (
+              <div className="rcd-tab-scroll">
+                {!record.deletedAt && canLinkOrCreateSubtask && (
+                  <div className="rcd-linked-tab-actions">
+                    <button
+                      type="button"
+                      className="rcd-tab-action-icon-btn"
+                      title="Link a ticket"
+                      aria-label="Link a ticket"
+                      onClick={() => void openLinkModal()}
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                {linkedTicketsLoading ? (
+                  <p className="rcd-empty-hint rcd-empty-hint-feed">Loading…</p>
+                ) : linkedTickets.length === 0 ? (
+                  <p className="rcd-empty-hint rcd-empty-hint-feed">
+                    No linked tickets yet.
+                  </p>
+                ) : (
+                  <div className="rcd-table-wrap">
+                    <table className="rcd-table">
+                      <thead>
+                        <tr>
+                          <th>Ticket</th>
+                          <th>Workflow</th>
+                          <th>Linked</th>
+                          <th>Created by</th>
+                          <th className="rcd-table-actions-col">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {linkedTickets.map((lt) => {
+                          const isDeleted = lt.deleted || !lt.typeSlug;
+                          const creator = lt.targetCreatedBy
+                            ? users.find((u) => u.userId === lt.targetCreatedBy)
+                            : undefined;
+                          return (
+                            <tr
+                              key={lt.relationId}
+                              className={`rcd-table-row ${isDeleted ? "rcd-table-row-closed" : ""}`}
+                              onClick={
+                                isDeleted
+                                  ? undefined
+                                  : () =>
+                                      navigate(
+                                        `/records/${lt.typeSlug}/${lt.targetId}`,
+                                      )
+                              }
+                            >
+                              <td>
+                                <div className="rcd-table-ticket">
+                                  <span className="rcd-table-ticket-title">
+                                    {isDeleted
+                                      ? "Linked ticket (deleted)"
+                                      : lt.title}
+                                  </span>
+                                  {!isDeleted && (
+                                    <span className="rcd-child-id">
+                                      #{lt.targetId.slice(0, 6)}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td>
+                                {lt.workflowName && (
+                                  <span className="rcd-child-state">
+                                    {lt.workflowName}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="rcd-table-muted">
+                                {new Date(lt.linkedAt).toLocaleDateString()}
+                              </td>
+                              <td className="rcd-table-muted">
+                                {lt.targetCreatedAt
+                                  ? new Date(
+                                      lt.targetCreatedAt,
+                                    ).toLocaleDateString()
+                                  : "—"}
+                                {creator &&
+                                  ` · ${creator.displayName ?? creator.email}`}
+                              </td>
+                              <td className="rcd-table-actions-col">
+                                <button
+                                  type="button"
+                                  className="rcd-sidebar-add"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUnlinkConfirm(lt.relationId);
+                                  }}
+                                >
+                                  Unlink
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="rcd-tab-scroll">
                 {!accessReqLoaded ? (
@@ -4066,370 +4667,6 @@ export function CustomerRecordDetail(): React.ReactElement {
 
         {/* ── Right sidebar ──────────────────────────────── */}
         <div className="rcd-sidebar">
-          {/* Child tickets — shown only when workflow depth config allows another level */}
-          {record.canAddChildren && (
-            <div className="rcd-sidebar-section">
-              <div className="rcd-sidebar-hdr">
-                <span className="rcd-sidebar-hdr-title">
-                  Sub-tasks
-                  {children.length > 0 && (
-                    <span className="rcd-sidebar-count">{children.length}</span>
-                  )}
-                </span>
-                {canCreateChild && !record.deletedAt && (
-                  <button
-                    type="button"
-                    className="rcd-sidebar-add"
-                    onClick={() => {
-                      setShowCreateChild(true);
-                      setNewChildTitle("");
-                      setCreateChildError(null);
-                    }}
-                  >
-                    <svg
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                    Add
-                  </button>
-                )}
-              </div>
-
-              <div className="rcd-sidebar-body">
-                {childrenLoading ? (
-                  <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
-                    Loading…
-                  </p>
-                ) : children.length === 0 ? (
-                  <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
-                    No sub-tasks yet.
-                  </p>
-                ) : (
-                  <>
-                    {(() => {
-                      const closed = children.filter(
-                        (c) =>
-                          c.deletedAt !== null || c.currentState === "closed",
-                      ).length;
-                      const pct = Math.round((closed / children.length) * 100);
-                      return (
-                        <div
-                          className="rcd-subtasks-progress-wrap"
-                          title={`${closed} of ${children.length} closed`}
-                        >
-                          <div className="rcd-subtasks-progress-bar">
-                            <div
-                              className="rcd-subtasks-progress-fill"
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                          <span className="rcd-subtasks-progress-label">
-                            {closed}/{children.length}
-                          </span>
-                        </div>
-                      );
-                    })()}
-                    <div className="rcd-sidebar-children">
-                      {children.map((child) => {
-                        const childTitleField = [
-                          "subject",
-                          "title",
-                          "name",
-                        ].find((k) => child.fields[k]);
-                        const childTitle = childTitleField
-                          ? String(child.fields[childTitleField])
-                          : `#${child.id.slice(0, 8)}`;
-                        const isClosed =
-                          child.deletedAt !== null ||
-                          child.currentState === "closed";
-                        const assignee = users.find(
-                          (u) => u.userId === child.assignedTo,
-                        );
-                        const childState = CHILD_TICKET_STATES.find(
-                          (s) => s.name === child.currentState,
-                        );
-                        const dueDateField = [
-                          "due_date",
-                          "dueDate",
-                          "due",
-                        ].find((k) => child.fields[k]);
-                        const dueDate =
-                          dueDateField &&
-                          !isNaN(
-                            new Date(
-                              child.fields[dueDateField] as string,
-                            ).getTime(),
-                          )
-                            ? new Date(child.fields[dueDateField] as string)
-                            : null;
-
-                        // Urgency: days until due (negative = overdue)
-                        const now = new Date();
-                        now.setHours(0, 0, 0, 0);
-                        const dueDaysDiff = dueDate
-                          ? Math.ceil(
-                              (dueDate.getTime() - now.getTime()) / 86400000,
-                            )
-                          : null;
-                        const isPastDue =
-                          dueDaysDiff !== null && dueDaysDiff < 0;
-                        const isDueToday = dueDaysDiff === 0;
-                        const isDueSoon =
-                          dueDaysDiff !== null && dueDaysDiff === 1;
-
-                        // Border colour: red ≤0d, amber 1d, green otherwise (no colour for closed)
-                        let urgencyBorder = "var(--border-color)";
-                        let urgencyBg = "transparent";
-                        if (!isClosed && dueDaysDiff !== null) {
-                          if (isPastDue || isDueToday) {
-                            urgencyBorder = "#ef4444";
-                            urgencyBg = "rgba(239,68,68,0.04)";
-                          } else if (isDueSoon) {
-                            urgencyBorder = "#f59e0b";
-                            urgencyBg = "rgba(245,158,11,0.04)";
-                          } else {
-                            urgencyBorder = "rgba(34,197,94,0.5)";
-                            urgencyBg = "rgba(34,197,94,0.03)";
-                          }
-                        }
-
-                        const dueDateStr = dueDate
-                          ? dueDate.toLocaleDateString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                            })
-                          : null;
-                        const dueDateLabel = (() => {
-                          if (!dueDateStr || isClosed) return dueDateStr;
-                          if (isPastDue) return `Overdue · ${dueDateStr}`;
-                          if (isDueToday) return `Due today`;
-                          if (isDueSoon) return `Due tomorrow`;
-                          return dueDateStr;
-                        })();
-
-                        return (
-                          <Link
-                            key={child.id}
-                            to={`/records/${typeSlug ?? ""}/${child.id}`}
-                            className={`rcd-child-card ${isClosed ? "rcd-child-card-closed" : ""}`}
-                            style={{
-                              borderColor: urgencyBorder,
-                              background: urgencyBg,
-                            }}
-                          >
-                            {/* Title + ID */}
-                            <div className="rcd-child-card-title-row">
-                              <span className="rcd-child-card-title">
-                                {childTitle}
-                              </span>
-                              <span className="rcd-child-id">
-                                #{child.id.slice(0, 6)}
-                              </span>
-                            </div>
-
-                            {/* State + due date */}
-                            <div className="rcd-child-card-meta">
-                              {childState && (
-                                <span
-                                  className="rcd-child-state"
-                                  style={
-                                    childState.color
-                                      ? {
-                                          color: childState.color,
-                                          background: `${childState.color}18`,
-                                          borderColor: `${childState.color}40`,
-                                        }
-                                      : undefined
-                                  }
-                                >
-                                  <span
-                                    className="rcd-state-dot"
-                                    style={
-                                      childState.color
-                                        ? { background: childState.color }
-                                        : undefined
-                                    }
-                                  />
-                                  {childState.label}
-                                </span>
-                              )}
-                              {dueDateLabel && (
-                                <span
-                                  className={`rcd-child-due${isPastDue || isDueToday ? " rcd-child-due-overdue" : isDueSoon ? " rcd-child-due-warn" : ""}`}
-                                >
-                                  {dueDateLabel}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Assignee */}
-                            <div className="rcd-child-card-assignee">
-                              {assignee ? (
-                                <>
-                                  <span className="rcd-child-card-avatar">
-                                    {(assignee.displayName ?? assignee.email)
-                                      .slice(0, 1)
-                                      .toUpperCase()}
-                                  </span>
-                                  <span className="rcd-child-card-assignee-name">
-                                    {assignee.displayName ?? assignee.email}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="rcd-child-card-assignee-name rcd-child-unassigned">
-                                  Unassigned
-                                </span>
-                              )}
-                            </div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-              {/* close rcd-sidebar-body */}
-            </div>
-          )}
-          {/* end depth-limit guard */}
-
-          {/* Linked tickets — cross-workflow references, no workflow coupling */}
-          <div className="rcd-sidebar-section">
-            <div className="rcd-sidebar-hdr">
-              <span className="rcd-sidebar-hdr-title">
-                Linked tickets
-                {linkedTickets.length > 0 && (
-                  <span className="rcd-sidebar-count">
-                    {linkedTickets.length}
-                  </span>
-                )}
-              </span>
-              {!record.deletedAt && (
-                <button
-                  type="button"
-                  className="rcd-sidebar-add"
-                  onClick={() => void openLinkModal()}
-                >
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                  Link
-                </button>
-              )}
-            </div>
-            <div className="rcd-sidebar-body">
-              {linkedTicketsLoading ? (
-                <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
-                  Loading…
-                </p>
-              ) : linkedTickets.length === 0 ? (
-                <p className="rcd-sidebar-hint" style={{ padding: "8px 0" }}>
-                  No linked tickets yet.
-                </p>
-              ) : (
-                <div className="rcd-sidebar-children">
-                  {linkedTickets.map((lt) =>
-                    lt.deleted || !lt.typeSlug ? (
-                      <div
-                        key={lt.relationId}
-                        className="rcd-child-card rcd-child-card-closed"
-                        style={{ opacity: 0.6, cursor: "default" }}
-                      >
-                        <div className="rcd-child-card-title-row">
-                          <span className="rcd-child-card-title">
-                            Linked ticket (deleted)
-                          </span>
-                          <button
-                            type="button"
-                            className="rcd-sidebar-add"
-                            onClick={() => setUnlinkConfirm(lt.relationId)}
-                          >
-                            Unlink
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        key={lt.relationId}
-                        className="rcd-child-card"
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: 8,
-                        }}
-                      >
-                        <Link
-                          to={`/records/${lt.typeSlug}/${lt.targetId}`}
-                          style={{ flex: 1, minWidth: 0 }}
-                        >
-                          <div className="rcd-child-card-title-row">
-                            <span className="rcd-child-card-title">
-                              {lt.title}
-                            </span>
-                            <span className="rcd-child-id">
-                              #{lt.targetId.slice(0, 6)}
-                            </span>
-                          </div>
-                          <div className="rcd-child-card-meta">
-                            {lt.workflowName && (
-                              <span className="rcd-child-state">
-                                {lt.workflowName}
-                              </span>
-                            )}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "11px",
-                              color: "var(--text-muted)",
-                              marginTop: 4,
-                            }}
-                          >
-                            Linked {new Date(lt.linkedAt).toLocaleDateString()}
-                            {lt.targetCreatedAt &&
-                              ` · Created ${new Date(
-                                lt.targetCreatedAt,
-                              ).toLocaleDateString()}`}
-                          </div>
-                        </Link>
-                        <button
-                          type="button"
-                          className="rcd-sidebar-add"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setUnlinkConfirm(lt.relationId);
-                          }}
-                        >
-                          Unlink
-                        </button>
-                      </div>
-                    ),
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* People with access — always visible */}
           <div className="rcd-sidebar-section">
             <div className="rcd-sidebar-hdr">
@@ -4928,24 +5165,18 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
             <div className="form-group">
               <label className="form-label">Assign to</label>
-              <select
-                className="form-input"
+              <AssignDropdown
                 value={newChildAssignedTo}
-                onChange={(e) => setNewChildAssignedTo(e.target.value)}
-              >
-                <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.userId} value={u.userId}>
-                    {u.displayName ?? u.email}
-                  </option>
-                ))}
-              </select>
+                users={users}
+                onChange={setNewChildAssignedTo}
+                className="asgn-drop-full"
+              />
             </div>
             <div className="form-group">
               <label className="form-label">Due date</label>
               <input
                 className="form-input"
-                type="date"
+                type="datetime-local"
                 value={newChildDueDate}
                 onChange={(e) => setNewChildDueDate(e.target.value)}
               />
