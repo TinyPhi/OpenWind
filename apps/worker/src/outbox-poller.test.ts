@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockExecute = vi.fn();
 const mockUpdate = vi.fn();
 const mockAdd = vi.fn();
+const mockSetOutboxSweeperRole = vi.fn();
 
 vi.mock("@platform/db", () => ({
   db: {
@@ -21,6 +22,7 @@ vi.mock("@platform/db", () => ({
     id: "id",
     deliveredAt: "deliveredAt",
   },
+  setOutboxSweeperRole: mockSetOutboxSweeperRole,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -72,6 +74,10 @@ describe("outbox poller tick", () => {
       expect.objectContaining({ jobId: fakeRow.id }),
     );
     expect(mockUpdate).toHaveBeenCalled();
+    // This sweep is cross-tenant — it must switch to the BYPASSRLS
+    // outbox_sweeper role or every row is silently dropped under RLS (#125
+    // hotfix, 0064_outbox_sweeper_role.sql).
+    expect(mockSetOutboxSweeperRole).toHaveBeenCalled();
   });
 
   it("does not call queue.add when no undelivered rows", async () => {

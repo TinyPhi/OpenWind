@@ -103,6 +103,83 @@ describe("buildNotificationContent", () => {
     expect(content.link).toBe("/records/support-ticket/inst-1");
   });
 
+  it("access.updated (level change) has a distinct message from grant/revoke", async () => {
+    const content = await buildNotificationContent("access.updated", {
+      tenantId: "t-1",
+      instanceId: "inst-1",
+      actorName: "Jane Doe",
+      reason: undefined,
+    });
+    expect(content.title).toBe("Access level changed");
+    expect(content.body).toBe("Jane Doe changed your access level on a ticket");
+  });
+
+  it("workflow.transitioned (§2.4) mentions the destination state when given a reason, falls back generically otherwise", async () => {
+    const withState = await buildNotificationContent("workflow.transitioned", {
+      tenantId: "t-1",
+      instanceId: "inst-1",
+      actorName: "Jane Doe",
+      reason: "done",
+    });
+    expect(withState.title).toBe("Ticket status changed");
+    expect(withState.body).toBe('Jane Doe moved a ticket to "done"');
+
+    const noState = await buildNotificationContent("workflow.transitioned", {
+      tenantId: "t-1",
+      instanceId: "inst-1",
+      actorName: "System",
+      reason: undefined,
+    });
+    expect(noState.body).toBe("System updated a ticket's status");
+  });
+
+  it("access_request.created notifies the ticket owner that access was requested", async () => {
+    const content = await buildNotificationContent("access_request.created", {
+      tenantId: "t-1",
+      instanceId: "inst-1",
+      actorName: "Jane Doe",
+      reason: undefined,
+    });
+    expect(content.title).toBe("Access requested");
+    expect(content.body).toBe("Jane Doe requested access to a ticket");
+    expect(content.link).toBe("/records/support-ticket/inst-1");
+  });
+
+  it("access_request.updated tells the requester the outcome, distinct wording for approved vs rejected", async () => {
+    const approved = await buildNotificationContent("access_request.updated", {
+      tenantId: "t-1",
+      instanceId: "inst-1",
+      actorName: "Jane Doe",
+      reason: "approved",
+    });
+    expect(approved.title).toBe("Access request approved");
+    expect(approved.body).toBe("Your access request was approved");
+
+    const rejected = await buildNotificationContent("access_request.updated", {
+      tenantId: "t-1",
+      instanceId: "inst-1",
+      actorName: "Jane Doe",
+      reason: "rejected",
+    });
+    expect(rejected.title).toBe("Access request denied");
+    expect(rejected.body).toBe("Your access request was denied");
+  });
+
+  it("entity.due_date_approaching (§2.8) has its own title/body", async () => {
+    const content = await buildNotificationContent(
+      "entity.due_date_approaching",
+      {
+        tenantId: "t-1",
+        instanceId: "inst-1",
+        actorName: "System",
+        reason: undefined,
+      },
+    );
+    expect(content.title).toBe("Due date approaching");
+    expect(content.body).toBe("A ticket's due date is coming up in 2 days");
+    expect(content.link).toBe("/records/support-ticket/inst-1");
+  });
+
   it("system.error always links to the system-logs page, not an entity", async () => {
     const content = await buildNotificationContent("system.error", {
       tenantId: "t-1",

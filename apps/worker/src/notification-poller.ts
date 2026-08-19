@@ -1,5 +1,5 @@
 import { sql, inArray } from "drizzle-orm";
-import { db, outboxEvents } from "@platform/db";
+import { db, outboxEvents, setOutboxSweeperRole } from "@platform/db";
 import { logger } from "@platform/logger";
 import { notifyQueue } from "./queues.js";
 
@@ -17,12 +17,16 @@ const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const NOTIFICATION_EVENT_TYPES = [
   "entity.assigned",
   "entity.unassigned",
+  "entity.updated",
   "comment.mentioned",
   "comment.mention_access_granted",
   "comment.replied",
   "access.granted",
   "access.revoked",
+  "access.updated",
+  "workflow.transitioned",
   "workflow.sla_breached",
+  "entity.due_date_approaching",
   "system.error",
   "comment.created",
   "access_request.created",
@@ -35,6 +39,10 @@ let activeTick: Promise<void> | null = null;
 async function tick(): Promise<void> {
   try {
     await db.transaction(async (tx) => {
+      // This sweep is deliberately cross-tenant, so it can't set
+      // app.tenant_id — see setOutboxSweeperRole's doc comment.
+      await setOutboxSweeperRole(tx);
+
       // Claims against notified_delivered_at, a column independent of
       // outbox-poller.ts's delivered_at — the automation engine and the
       // notification hub are two separate consumers of the same outbox and

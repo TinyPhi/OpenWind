@@ -3,15 +3,14 @@
     "brandName": "OpenWind",
     "theme": {
       "switchToLight": "Switch to light mode",
-      "switchToDark": "Switch to dark mode",
-      "light": "Light",
-      "dark": "Dark"
+      "switchToDark": "Switch to dark mode"
     },
-    "title": "Sign in to OpenWind",
-    "description": "Your modular workflow platform. Access modules, configure workflows, and manage your workspace.",
-    "signInButton": "Sign in with Zitadel",
+    "title": "Welcome back",
+    "description": "Continue with your organisation's identity provider to access your workspace.",
+    "signInTag": "Sign in",
+    "signInButton": "Continue with SSO",
     "redirecting": "Redirecting…",
-    "securityNote": "Access is secured and session-scoped to your organisation",
+    "securityNote": "Encrypted session · access is scoped to your organisation",
     "helpPrompt": "Need access?",
     "contactAdmin": "Contact your admin",
     "footer": {

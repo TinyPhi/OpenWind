@@ -563,6 +563,7 @@ export function WorkflowRecords(): React.ReactElement {
               id: string;
               name: string;
               entityTypeId: string;
+              createdBy: string | null;
               assignedTo: string[] | null;
               states: WorkflowState[];
               transitions: Transition[];
@@ -590,9 +591,23 @@ export function WorkflowRecords(): React.ReactElement {
           return [...kept, ...added];
         });
 
+        // A "user"-role caller who is this workflow's creator or in its
+        // assignedTo list is a workflow admin and gets the same unrestricted
+        // list access as admin/agent (mirrors apps/api/src/routes/entities/
+        // list.ts's isWorkflowAdmin check) - isUserRole alone only reflects
+        // the raw admin/agent role, so without this a workflow admin was
+        // silently routed through /entities/my-tickets and only ever saw
+        // their own tickets.
+        const isWorkflowAdminForThisWorkflow =
+          isUserRole &&
+          currentUserId !== null &&
+          (currentUserId === wf.createdBy ||
+            ((wf.assignedTo as string[] | null) ?? []).includes(currentUserId));
+        const useMyTickets = isUserRole && !isWorkflowAdminForThisWorkflow;
+
         const [fieldsRes, recRes, usersRes] = await Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
-          isUserRole
+          useMyTickets
             ? fetchWithAuth(
                 `${API_URL}/entities/my-tickets?workflowId=${wf.id}`,
               )
@@ -606,7 +621,7 @@ export function WorkflowRecords(): React.ReactElement {
             (f) => !f.isSystem,
           ),
         );
-        if (isUserRole) {
+        if (useMyTickets) {
           const myData =
             (
               recRes as {
@@ -1890,6 +1905,45 @@ export function WorkflowRecords(): React.ReactElement {
         }
         .tm-btn-confirm:hover:not(:disabled) { opacity: .88; }
         .tm-btn-confirm:disabled { opacity: .45; cursor: not-allowed; }
+
+        /* ── Mobile responsiveness ──────────────────────────────────────
+           Topbar-left (back + heading + count) and topbar-right (search,
+           filter, settings, new) both had flex-shrink:0 with no wrap —
+           their combined minimum width already exceeds a 375px viewport
+           even with the search collapsed, let alone expanded. Wrap the
+           topbar to two rows on mobile instead of letting it overflow. */
+        @media (max-width: 640px) {
+          .kb-topbar {
+            flex-wrap: wrap;
+            padding: 16px 16px 12px;
+          }
+          .kb-topbar-left {
+            flex-shrink: 1;
+            min-width: 0;
+          }
+          .kb-heading {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .kb-topbar-right {
+            width: 100%;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+          }
+          .kb-divider { margin: 0 16px; }
+          .kb-board-scroll { padding: 16px 16px 20px; }
+          .kb-error { margin: 20px 16px; }
+        }
+
+        @media (max-width: 480px) {
+          .kb-topbar { padding: 14px 14px 10px; }
+          .kb-search-wrap-open { width: 150px; }
+          .kb-board-scroll { padding: 14px 14px 18px; }
+          .kb-col { width: 240px; }
+          .kb-filter-panel { max-width: calc(100vw - 24px); }
+        }
       `}</style>
     </div>
   );
