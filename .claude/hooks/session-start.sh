@@ -24,9 +24,13 @@ Best-effort blocks (with documented bypass env, all logged to .claude/state/bypa
   - edit on main/develop, modules/*.ts, ADRs, .github/workflows/*        (OPENWIND_OFFLIMITS=ack / OPENWIND_ALLOW_MODULE_TS=1)
   - rm -rf risky / DROP / --no-verify / push --force                     (no bypass)
 
+Graduated-trust toggles (skip only the HUMAN-typing step; the underlying artifact - plan-lock
+or review+docs+marker - is still required, and these are NOT logged as bypasses):
+  - approve-plan typing not required, plan-lock still required           (OPENWIND_PLAN_AUTOPASS=1)
+  - approve-ship typing not required, marker+review+docs still required  (OPENWIND_AUTOPASS=1)
+
 Completion: when you are sure the unit is done, run .claude/hooks/mark-done.sh; the Stop hook then
-confirms the pipeline actually finished (everything committed) before the session can end. The human
-pass-approval ("approve-ship") is required on every commit until the owner sets OPENWIND_AUTOPASS=1.
+confirms the pipeline actually finished (everything committed) before the session can end.
 
 Source of truth: CLAUDE.md (Current Focus + Off-limits), the relevant docs/decisions/ADR,
 docs/sup-docs/{roadmap-tracker,week-log}.md, .claude/references/definition-of-done.md, .claude/README.md.
