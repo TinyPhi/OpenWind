@@ -4,7 +4,9 @@ import type * as ConnectorSdk from "@platform/connector-sdk";
 
 // ── @platform/db ─────────────────────────────────────────────────────────────
 
-let installationRow: { secrets: Record<string, string> } | undefined;
+let installationRow:
+  | { secrets: Record<string, string>; disabledAt?: Date | null }
+  | undefined;
 
 const mockSelectLimit = vi.fn(() =>
   Promise.resolve(installationRow ? [installationRow] : []),
@@ -19,7 +21,13 @@ vi.mock("@platform/db", () => ({
     tenantId: "tenantId",
     connectorId: "connectorId",
     secrets: "secrets",
+    disabledAt: "disabledAt",
   },
+  connectorInstallationFilter: (tenantId: string, connectorId: string) => ({
+    op: "connectorInstallationFilter",
+    tenantId,
+    connectorId,
+  }),
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
     fn(tx),
 }));
@@ -212,6 +220,33 @@ describe("POST /webhooks/:connectorId/:tenantId — AC4 no existence oracle", ()
     const body = JSON.stringify({});
     const res = await sendWebhook(body, validHeaders(body));
     expect(res.status).toBe(401);
+  });
+
+  it("returns the identical 401 body for a disabled installation and an unknown one (issue #367)", async () => {
+    const body = JSON.stringify({});
+
+    installationRow = undefined;
+    const unknownRes = await sendWebhook(body, validHeaders(body));
+
+    installationRow = {
+      secrets: { webhookSigningSecret: "ciphertext" },
+      disabledAt: new Date(),
+    };
+    const disabledRes = await sendWebhook(body, validHeaders(body));
+
+    expect(unknownRes.status).toBe(401);
+    expect(disabledRes.status).toBe(401);
+    expect(await unknownRes.json()).toEqual(await disabledRes.json());
+  });
+
+  it("pays an equivalent decrypt round-trip for a disabled installation (timing equalization, issue #367)", async () => {
+    installationRow = {
+      secrets: { webhookSigningSecret: "ciphertext" },
+      disabledAt: new Date(),
+    };
+    const body = JSON.stringify({});
+    await sendWebhook(body, validHeaders(body));
+    expect(mockDecryptCredential).toHaveBeenCalledTimes(1);
   });
 
   it("pays an equivalent decrypt round-trip when no installation is found (timing equalization, security review)", async () => {
