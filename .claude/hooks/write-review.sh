@@ -20,9 +20,9 @@ const src=args.find(a=>!a.startsWith("--"));
 if(!src){console.error("usage: write-review.sh <payload.json|-> [--allow-no-tests]");process.exit(1);}
 const branch=ctx.branchOf(repo);
 const plan=ctx.readJSON(ctx.statePath(repo,"plan",branch));
-// Mirrors edit-gate.sh's OPENWIND_PLAN_AUTOPASS handling: the plan-lock artifact still has to
-// exist for this branch, it just doesn't need the human "approve-plan" keypress when the owner
-// has granted standing trust. Not logged to bypass.log - same rationale as edit-gate.
+// Mirrors the OPENWIND_PLAN_AUTOPASS handling in edit-gate.sh: the plan-lock artifact still
+// has to exist for this branch, it just does not need the human "approve-plan" keypress when
+// the owner has granted standing trust. Not logged to bypass.log -- same rationale as edit-gate.
 const planAutopass=process.env.OPENWIND_PLAN_AUTOPASS==="1";
 if(!(plan&&plan.branch===branch&&(plan.approved===true||planAutopass))){console.error("Cannot review: no APPROVED plan-lock for "+branch+". Freeze + approve a plan first (or set OPENWIND_PLAN_AUTOPASS=1).");process.exit(1);}
 // Hash the RAW (untrimmed) diff buffer - must match the sha("diff HEAD") computed by

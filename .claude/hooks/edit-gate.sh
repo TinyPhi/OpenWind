@@ -42,10 +42,10 @@ if (process.env.OPENWIND_GATE === "off") {
 const branch = ctx.branchOf(repo);
 const plan = ctx.readJSON(ctx.statePath(repo, "plan", branch));
 const planExists = plan && plan.branch === branch;
-// Graduated-trust mode, mirrors commit-gate's OPENWIND_AUTOPASS: the plan-lock artifact
-// still has to exist (agent must have run /spec-tasks and scoped the work), it just does
-// not need the human to type "approve-plan" for it. Not logged to bypass.log - unlike
-// OPENWIND_GATE=off, this isn't skipping a check, it's the owner's standing trust grant.
+// Graduated-trust mode, mirrors the OPENWIND_AUTOPASS toggle in commit-gate: the plan-lock
+// artifact still has to exist (agent must have run /spec-tasks and scoped the work), it just
+// is not required for the human to type "approve-plan" for it. Not logged to bypass.log --
+// unlike OPENWIND_GATE=off, this is not skipping a check, it is the owner standing trust grant.
 const autopass = process.env.OPENWIND_PLAN_AUTOPASS === "1";
 const ok = planExists && (plan.approved === true || autopass);
 if (ok) process.exit(0);
