@@ -190,6 +190,53 @@ describe("createChildRelation", () => {
     expect(result.relations[1]?.relationType).toBe("child_of");
   });
 
+  it("stores the provided dueDate on the child instance", async () => {
+    mockSelectSeq.push(() => [fakeParent]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []); // ancestorDepth = 0
+    mockSelectSeq.push(() => [{ n: 0 }]); // countActiveChildren
+    mockSelectSeq.push(() => []); // loadEntityFields
+    mockInsertReturning
+      .mockResolvedValueOnce([fakeChild])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+      dueDate: "2026-09-01T00:00:00.000Z",
+    });
+
+    const insertCall = mockInsertValues.mock.calls.find(
+      (call) => (call[0] as { fields?: unknown })?.fields !== undefined,
+    );
+    expect((insertCall?.[0] as { dueDate?: Date })?.dueDate).toEqual(
+      new Date("2026-09-01T00:00:00.000Z"),
+    );
+  });
+
+  it("leaves dueDate null when none is provided", async () => {
+    mockSelectSeq.push(() => [fakeParent]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []); // ancestorDepth = 0
+    mockSelectSeq.push(() => [{ n: 0 }]); // countActiveChildren
+    mockSelectSeq.push(() => []); // loadEntityFields
+    mockInsertReturning
+      .mockResolvedValueOnce([fakeChild])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+    });
+
+    const insertCall = mockInsertValues.mock.calls.find(
+      (call) => (call[0] as { fields?: unknown })?.fields !== undefined,
+    );
+    expect((insertCall?.[0] as { dueDate?: Date | null })?.dueDate).toBeNull();
+  });
+
   it("emits an entity.created outbox event for the child (IMP-6)", async () => {
     mockSelectSeq.push(() => [fakeParent]);
     mockSelectSeq.push(() => [fakeLimits]);
@@ -206,17 +253,81 @@ describe("createChildRelation", () => {
       entityTypeId: "et-aaa",
     });
 
-    const outboxCall = mockInsertValues.mock.calls.find(
-      (call) =>
-        (call[0] as { eventType?: string })?.eventType === "entity.created",
+    const outboxCall = mockInsertValues.mock.calls.find((call) =>
+      (call[0] as Array<{ eventType?: string }>)?.some?.(
+        (row) => row.eventType === "entity.created",
+      ),
     );
     expect(outboxCall).toBeDefined();
-    const payload = outboxCall?.[0] as {
+    const rows = outboxCall?.[0] as Array<{
       eventType: string;
       payload: { instanceId: string; entityTypeId: string };
-    };
-    expect(payload.payload.instanceId).toBe(CHILD_ID);
-    expect(payload.payload.entityTypeId).toBe("et-aaa");
+    }>;
+    const payload = rows.find((row) => row.eventType === "entity.created");
+    expect(payload?.payload.instanceId).toBe(CHILD_ID);
+    expect(payload?.payload.entityTypeId).toBe("et-aaa");
+  });
+
+  it("also emits an entity.assigned outbox event when the child is assigned at creation", async () => {
+    mockSelectSeq.push(() => [fakeParent]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []); // ancestorDepth = 0
+    mockSelectSeq.push(() => [{ n: 0 }]); // countActiveChildren
+    mockSelectSeq.push(() => []); // loadEntityFields
+    mockInsertReturning
+      .mockResolvedValueOnce([{ ...fakeChild, assignedTo: "user-ccc" }])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+      assignedTo: "user-ccc",
+      createdBy: "user-bbb",
+    });
+
+    const outboxCall = mockInsertValues.mock.calls.find((call) =>
+      (call[0] as Array<{ eventType?: string }>)?.some?.(
+        (row) => row.eventType === "entity.assigned",
+      ),
+    );
+    expect(outboxCall).toBeDefined();
+    const rows = outboxCall?.[0] as Array<{
+      eventType: string;
+      payload: {
+        instanceId: string;
+        assigneeId: string;
+        assignedBy: string | null;
+      };
+    }>;
+    const payload = rows.find((row) => row.eventType === "entity.assigned");
+    expect(payload?.payload.instanceId).toBe(CHILD_ID);
+    expect(payload?.payload.assigneeId).toBe("user-ccc");
+    expect(payload?.payload.assignedBy).toBe("user-bbb");
+  });
+
+  it("does not emit an entity.assigned outbox event when the child has no assignee", async () => {
+    mockSelectSeq.push(() => [fakeParent]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []); // ancestorDepth = 0
+    mockSelectSeq.push(() => [{ n: 0 }]); // countActiveChildren
+    mockSelectSeq.push(() => []); // loadEntityFields
+    mockInsertReturning
+      .mockResolvedValueOnce([fakeChild])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+    });
+
+    const outboxCall = mockInsertValues.mock.calls.find((call) =>
+      (call[0] as Array<{ eventType?: string }>)?.some?.(
+        (row) => row.eventType === "entity.assigned",
+      ),
+    );
+    expect(outboxCall).toBeUndefined();
   });
 
   it("throws ENTITY_NOT_FOUND when parent is archived (deleted_at set)", async () => {

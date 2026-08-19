@@ -15,11 +15,18 @@ import {
 } from "./pagination.js";
 import { logger } from "@platform/logger";
 import { EntityError } from "./errors.js";
-import { buildEntityCreatedPayload, loadEntityFields } from "./engine.js";
+import {
+  buildEntityAssignedPayload,
+  buildEntityCreatedPayload,
+  loadEntityFields,
+  resolveAssignedBy,
+} from "./engine.js";
 import { redactFields, buildSensitivityMap } from "./redact.js";
 import type {
   EntityInstance,
   EntityRelation,
+  EntityCreatedEvent,
+  EntityAssignedEvent,
   CreateChildRelationInput,
   MoveChildRelationInput,
 } from "./types.js";
@@ -173,7 +180,14 @@ export async function createChildRelation(
   tenantId: string,
   input: CreateChildRelationInput,
 ): Promise<{ instance: EntityInstance; relations: EntityRelation[] }> {
-  const { parentId, childFields, entityTypeId, assignedTo, createdBy } = input;
+  const {
+    parentId,
+    childFields,
+    entityTypeId,
+    assignedTo,
+    createdBy,
+    dueDate,
+  } = input;
 
   // Load parent — lock row to prevent concurrent race on cap/depth
   const [parent] = await db
@@ -252,6 +266,7 @@ export async function createChildRelation(
       assignedTo: assignedTo ?? null,
       createdBy: createdBy ?? null,
       currentState: "open",
+      dueDate: dueDate ? new Date(dueDate) : null,
     })
     .returning();
 
@@ -270,25 +285,44 @@ export async function createChildRelation(
     metadata: { type: "create", actorName: createdBy ?? null },
   });
 
-  // Outbox event for entity.created automations (#126) — child tickets go
-  // through this path, not createEntity, so they need their own emission.
+  // Outbox events for entity.created/entity.assigned automations (#126) —
+  // child tickets go through this path, not createEntity, so they need their
+  // own emission. Without the entity.assigned row, an assignee set at
+  // sub-task creation never gets the notify-action email/in-app notification
+  // that top-level ticket creation already fires.
   const allFields = await loadEntityFields(db, entityTypeId, tenantId);
   const redactedFieldsForEvents = redactFields(
     childInstance.fields as Record<string, unknown>,
     buildSensitivityMap(allFields),
   );
-  await db.insert(outboxEvents).values({
-    tenantId,
-    eventType: "entity.created",
-    version: 1,
-    payload: buildEntityCreatedPayload(
+  const outboxRows: Array<EntityCreatedEvent | EntityAssignedEvent> = [
+    buildEntityCreatedPayload(
       tenantId,
       childInstance.id,
       entityTypeId,
       redactedFieldsForEvents,
       childInstance.createdBy,
     ),
-  });
+  ];
+  if (childInstance.assignedTo !== null) {
+    outboxRows.push(
+      buildEntityAssignedPayload(
+        tenantId,
+        childInstance.id,
+        entityTypeId,
+        childInstance.assignedTo,
+        resolveAssignedBy(createdBy, childInstance.createdBy),
+      ),
+    );
+  }
+  await db.insert(outboxEvents).values(
+    outboxRows.map((payload) => ({
+      tenantId,
+      eventType: payload.eventType,
+      version: 1,
+      payload,
+    })),
+  );
 
   // Insert both relation rows atomically
   const relationRows = await db

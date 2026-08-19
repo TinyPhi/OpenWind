@@ -113,31 +113,28 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
         : z.array(z.string());
     }
 
+    // user_ref values are identity-provider user ids - not guaranteed to be
+    // UUID-shaped (unlike entity_ref, which references another entity
+    // instance's real Postgres UUID). Zitadel's ids happen to be UUIDs, but
+    // treating that as a hard requirement here would reject a perfectly
+    // valid user_ref on any org whose IdP hands out a different id format.
     case "user_ref":
+      return z.string().min(1);
+
     case "entity_ref":
       return z.string().uuid();
 
+    // The frontend (file-field-picker.tsx) has only ever submitted plain
+    // file-id strings, matching the attachments-binding pattern used
+    // elsewhere (POST /entities/:id/attachments with {fileId}) - never the
+    // full {key,name,size,mimeType} object this schema used to require.
     case "file":
-      return z.object({
-        key: z.string(),
-        name: z.string(),
-        size: z.number().int().positive(),
-        mimeType: z.string(),
-      });
+      return z.string().min(1);
 
     case "files": {
       const maxCount =
         typeof cfg["maxCount"] === "number" ? cfg["maxCount"] : 20;
-      return z
-        .array(
-          z.object({
-            key: z.string(),
-            name: z.string(),
-            size: z.number().int().positive(),
-            mimeType: z.string(),
-          }),
-        )
-        .max(maxCount);
+      return z.array(z.string().min(1)).max(maxCount);
     }
 
     default:
