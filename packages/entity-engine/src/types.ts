@@ -64,6 +64,8 @@ export type CreateChildRelationInput = {
   entityTypeId: string;
   assignedTo?: string | undefined;
   createdBy?: string | undefined;
+  /** ISO datetime string, or null. Independent of workflow state/SLA. */
+  dueDate?: string | null | undefined;
 };
 
 export type MoveChildRelationInput = {

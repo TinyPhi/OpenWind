@@ -217,6 +217,73 @@ describe("listEntities — cross-tenant list isolation", () => {
   });
 });
 
+// ── ACCESS-LIST SCOPING (ui-feature-checklist-and-rules.md §1) ────────────────
+// Real-Postgres proof of the three-tier records-visibility rule's third tier:
+// a plain (non-privileged) caller sees a ticket via scopeToUserId if they
+// created it, are assigned to it, OR hold ANY __accessUsers entry — including
+// a bare "read_only" grant. This is a jsonb `?` key-existence check
+// (packages/entity-engine/src/engine.ts), not a value comparison, so it can
+// only be proven against a real Postgres jsonb column — a mocked unit test
+// (engine.test.ts) can assert the SQL builder was *called*, but not that the
+// operator actually behaves this way. Guards against silently narrowing this
+// to read_write/read_comment only, which the checklist flags as an easy
+// accidental regression.
+
+describe("listEntities — access-list scoping honors any __accessUsers level (§1)", () => {
+  const READ_ONLY_VIEWER = "isolation-read-only-viewer";
+  let scopedInstance: EntityInstance;
+
+  beforeAll(async () => {
+    scopedInstance = await withTenantContext(TENANT_A, (tx) =>
+      createEntity(tx, TENANT_A, {
+        entityTypeId: entityType.id,
+        fields: {},
+      }),
+    );
+    // Mirrors grant-access.ts's raw jsonb write — a read_only grant is
+    // deliberately the weakest access level, to prove even it is sufficient
+    // for list visibility.
+    await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .update(entityInstances)
+        .set({
+          fields: {
+            __accessUsers: { [READ_ONLY_VIEWER]: { level: "read_only" } },
+          },
+        })
+        .where(eq(entityInstances.id, scopedInstance.id)),
+    );
+  });
+
+  afterAll(async () => {
+    await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .delete(entityInstances)
+        .where(eq(entityInstances.id, scopedInstance.id)),
+    );
+  });
+
+  it("a read_only __accessUsers grant is sufficient to appear in scopeToUserId results", async () => {
+    await withTenantContext(TENANT_A, async (tx) => {
+      const page = await listEntities(tx, TENANT_A, {
+        entityTypeId: entityType.id,
+        scopeToUserId: READ_ONLY_VIEWER,
+      });
+      expect(page.data.some((i) => i.id === scopedInstance.id)).toBe(true);
+    });
+  });
+
+  it("a caller with no createdBy/assignedTo/__accessUsers relationship does not see the ticket", async () => {
+    await withTenantContext(TENANT_A, async (tx) => {
+      const page = await listEntities(tx, TENANT_A, {
+        entityTypeId: entityType.id,
+        scopeToUserId: "isolation-unrelated-user",
+      });
+      expect(page.data.some((i) => i.id === scopedInstance.id)).toBe(false);
+    });
+  });
+});
+
 // ── RELATIONS isolation ───────────────────────────────────────────────────────
 
 describe("createRelation — cross-tenant relation isolation", () => {

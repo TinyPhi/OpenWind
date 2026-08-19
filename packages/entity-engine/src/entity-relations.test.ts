@@ -18,11 +18,16 @@ function makeQueryBuilder(finalResult: () => unknown[]) {
 }
 
 const mockUpdateSet = vi.fn(() => ({ where: vi.fn().mockResolvedValue([]) }));
+const mockInsertValues = vi.fn((table: unknown, rows: unknown) => ({
+  returning: mockInsertReturning,
+  rows,
+  table,
+}));
 
 const dbMock = {
   select: vi.fn(() => makeQueryBuilder(mockSelectResult)),
-  insert: vi.fn(() => ({
-    values: vi.fn(() => ({ returning: mockInsertReturning })),
+  insert: vi.fn((table: unknown) => ({
+    values: (rows: unknown) => mockInsertValues(table, rows),
   })),
   delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue([]) })),
   update: vi.fn(() => ({ set: mockUpdateSet })),
@@ -40,8 +45,11 @@ vi.mock("@platform/db", () => ({
   entityInstances: {
     id: "id",
     tenantId: "tenant_id",
+    workflowId: "workflow_id",
+    currentState: "current_state",
     deletedAt: { deleted_at: "deleted_at" },
   },
+  workflowEvents: { id: "id" },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -60,8 +68,13 @@ vi.mock("@platform/logger", () => ({
 
 // ── Import AFTER mocks ────────────────────────────────────────────────────────
 
-const { createRelation, listRelations, deleteRelation, createReferenceLink } =
-  await import("./entity-relations.js");
+const {
+  createRelation,
+  listRelations,
+  deleteRelation,
+  createReferenceLink,
+  deleteReferenceLink,
+} = await import("./entity-relations.js");
 
 const TENANT_ID = "tenant-aaa";
 const FROM_ID = "instance-from";
@@ -155,6 +168,121 @@ describe("createRelation", () => {
     ).rejects.toMatchObject({ code: "RELATION_TARGET_NOT_FOUND" });
 
     expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("createRelation — link history events (§3.1)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("writes a link_created workflow_events row on BOTH tickets when each resolves a workflow", async () => {
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: FROM_ID }])) // from exists
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: TO_ID }])) // to exists
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          { workflowId: "wf-from", currentState: "open" },
+        ]),
+      ) // from's own workflow context
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ workflowId: "wf-to", currentState: "new" }]),
+      ); // to's own workflow context
+    mockInsertReturning.mockResolvedValue([fakeRelation]);
+
+    await createRelation(dbMock as never, TENANT_ID, {
+      fromInstanceId: FROM_ID,
+      toInstanceId: TO_ID,
+      relationType: "blocks",
+      actorId: "u-actor",
+    });
+
+    // entityRelations (1 call) + workflowEvents (2 calls, one per side).
+    expect(mockInsertValues.mock.calls.length).toBe(3);
+
+    const historyRows = mockInsertValues.mock.calls
+      .slice(1)
+      .map(([, rows]) => rows as Record<string, unknown>);
+    expect(historyRows).toHaveLength(2);
+    expect(historyRows[0]).toMatchObject({
+      instanceId: FROM_ID,
+      workflowId: "wf-from",
+      actorId: "u-actor",
+      metadata: {
+        type: "link_created",
+        counterpartId: TO_ID,
+        relationType: "blocks",
+      },
+    });
+    expect(historyRows[1]).toMatchObject({
+      instanceId: TO_ID,
+      workflowId: "wf-to",
+      actorId: "u-actor",
+      metadata: {
+        type: "link_created",
+        counterpartId: FROM_ID,
+        relationType: "blocks",
+      },
+    });
+  });
+
+  it("does not throw and still returns the created relation when neither side resolves a workflow", async () => {
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: FROM_ID }]))
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: TO_ID }]))
+      // Both history lookups return nothing resolvable — the entity_instances
+      // select comes back empty, so resolveWorkflowContextForHistory bails.
+      .mockReturnValue(makeQueryBuilder(() => []));
+    mockInsertReturning.mockResolvedValue([fakeRelation]);
+
+    const result = await createRelation(dbMock as never, TENANT_ID, {
+      fromInstanceId: FROM_ID,
+      toInstanceId: TO_ID,
+      relationType: "blocks",
+    });
+
+    expect(result.id).toBe(RELATION_ID);
+    // Only the original entityRelations insert — no workflow_events rows.
+    expect(mockInsertValues.mock.calls.length).toBe(1);
+  });
+});
+
+describe("deleteRelation — link history events (§3.2)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("writes a link_removed workflow_events row on both tickets", async () => {
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: RELATION_ID,
+            fromInstanceId: FROM_ID,
+            toInstanceId: TO_ID,
+            relationType: "blocks",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          { workflowId: "wf-from", currentState: "open" },
+        ]),
+      )
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ workflowId: "wf-to", currentState: "new" }]),
+      );
+
+    await deleteRelation(dbMock as never, TENANT_ID, RELATION_ID, "u-actor");
+
+    const historyRows = mockInsertValues.mock.calls.map(
+      ([, rows]) => rows as Record<string, unknown>,
+    );
+    expect(historyRows).toHaveLength(2);
+    expect(historyRows[0]).toMatchObject({
+      instanceId: FROM_ID,
+      metadata: { type: "link_removed", counterpartId: TO_ID },
+    });
+    expect(historyRows[1]).toMatchObject({
+      instanceId: TO_ID,
+      metadata: { type: "link_removed", counterpartId: FROM_ID },
+    });
   });
 });
 
@@ -294,6 +422,100 @@ describe("createReferenceLink", () => {
     ).rejects.toMatchObject({ code: "RELATION_ALREADY_EXISTS" });
 
     expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+
+  it("writes a reference_created workflow_events row on both tickets (§3.1)", async () => {
+    dbMock.select
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: FROM_ID }]))
+      .mockReturnValueOnce(makeQueryBuilder(() => [{ id: TO_ID }]))
+      .mockReturnValueOnce(makeQueryBuilder(() => [])) // no existing active link
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          { workflowId: "wf-from", currentState: "open" },
+        ]),
+      )
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ workflowId: "wf-to", currentState: "new" }]),
+      );
+    mockInsertReturning.mockResolvedValue([
+      { ...fakeRelation, relationType: "references" },
+      {
+        ...fakeRelation,
+        id: "relation-ddd",
+        fromInstanceId: TO_ID,
+        toInstanceId: FROM_ID,
+        relationType: "referenced_by",
+      },
+    ]);
+
+    await createReferenceLink(dbMock as never, TENANT_ID, {
+      fromInstanceId: FROM_ID,
+      toInstanceId: TO_ID,
+      actorId: "u-actor",
+    });
+
+    // insert #1 is the mirrored entityRelations pair (one .values() call with
+    // both rows); insert #2/#3 are the two workflow_events history rows.
+    const historyRows = mockInsertValues.mock.calls
+      .slice(1)
+      .map(([, rows]) => rows as Record<string, unknown>);
+    expect(historyRows).toHaveLength(2);
+    expect(historyRows[0]).toMatchObject({
+      instanceId: FROM_ID,
+      actorId: "u-actor",
+      metadata: { type: "reference_created", counterpartId: TO_ID },
+    });
+    expect(historyRows[1]).toMatchObject({
+      instanceId: TO_ID,
+      actorId: "u-actor",
+      metadata: { type: "reference_created", counterpartId: FROM_ID },
+    });
+  });
+});
+
+describe("deleteReferenceLink — link history events (§3.2)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("writes a reference_removed workflow_events row on both tickets", async () => {
+    dbMock.select
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          {
+            id: RELATION_ID,
+            fromInstanceId: FROM_ID,
+            toInstanceId: TO_ID,
+            relationType: "references",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [
+          { workflowId: "wf-from", currentState: "open" },
+        ]),
+      )
+      .mockReturnValueOnce(
+        makeQueryBuilder(() => [{ workflowId: "wf-to", currentState: "new" }]),
+      );
+
+    await deleteReferenceLink(
+      dbMock as never,
+      TENANT_ID,
+      RELATION_ID,
+      "u-actor",
+    );
+
+    const historyRows = mockInsertValues.mock.calls.map(
+      ([, rows]) => rows as Record<string, unknown>,
+    );
+    expect(historyRows).toHaveLength(2);
+    expect(historyRows[0]).toMatchObject({
+      instanceId: FROM_ID,
+      metadata: { type: "reference_removed", counterpartId: TO_ID },
+    });
+    expect(historyRows[1]).toMatchObject({
+      instanceId: TO_ID,
+      metadata: { type: "reference_removed", counterpartId: FROM_ID },
+    });
   });
 });
 
