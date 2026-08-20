@@ -497,7 +497,28 @@ export async function lookupTenantIdByOrgId(
   return tenantId;
 }
 
-const _tenantOrgCache = new Map<string, string | null>();
+const TENANT_ORG_CACHE_TTL_MS = 5 * 60_000;
+const _tenantOrgCache = new Map<
+  string,
+  { orgId: string | null; exp: number }
+>();
+
+function getCachedTenantOrgId(tenantId: string): string | null | undefined {
+  const entry = _tenantOrgCache.get(tenantId);
+  if (!entry) return undefined;
+  if (Date.now() > entry.exp) {
+    _tenantOrgCache.delete(tenantId);
+    return undefined;
+  }
+  return entry.orgId;
+}
+
+function setCachedTenantOrgId(tenantId: string, orgId: string | null): void {
+  _tenantOrgCache.set(tenantId, {
+    orgId,
+    exp: Date.now() + TENANT_ORG_CACHE_TTL_MS,
+  });
+}
 
 /**
  * Resolve a Zitadel org id from the tenant's internal UUID. Returns
@@ -507,7 +528,7 @@ export async function lookupOrgIdByTenantId(
   tenantId: string,
   dbHandle?: DbOrTx,
 ): Promise<string | null> {
-  const cached = _tenantOrgCache.get(tenantId);
+  const cached = getCachedTenantOrgId(tenantId);
   if (cached !== undefined) return cached;
 
   const activeDb = dbHandle ?? db;
@@ -518,7 +539,7 @@ export async function lookupOrgIdByTenantId(
     .limit(1);
 
   const orgId = row?.zitadelOrgId ?? null;
-  _tenantOrgCache.set(tenantId, orgId);
+  setCachedTenantOrgId(tenantId, orgId);
   return orgId;
 }
 

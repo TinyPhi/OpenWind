@@ -56,12 +56,16 @@ vi.mock("./introspection.js", () => ({
   introspectToken: (...args: unknown[]) => mockIntrospectToken(...args),
 }));
 
-// Module-level db fallback for both resolveTenantStatus (status) and the new
-// lookupTenantIdByOrgId (id) — both go through db.select(...).from(tenants)
-// .where(...).limit(1), so one shared row shape covers either caller.
-// undefined = "no row" (org has no mapped tenant / tenant not found).
-let mockTenantRow: { id?: string; status?: string } | undefined = {
+// Module-level db fallback for resolveTenantStatus (status), the new
+// lookupTenantIdByOrgId (id), and lookupOrgIdByTenantId (zitadelOrgId) —
+// all three go through db.select(...).from(tenants).where(...).limit(1),
+// so one shared row shape covers all three callers.
+// undefined = "no row" (org/tenant has no mapping).
+let mockTenantRow:
+  | { id?: string; status?: string; zitadelOrgId?: string | null }
+  | undefined = {
   status: "active",
+  zitadelOrgId: "org-ccc",
 };
 const mockModuleDbSelect = vi.fn(() => ({
   from: vi.fn(() => ({
@@ -166,7 +170,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockExistingTenantUser = undefined;
   mockNodeEnv = undefined;
-  mockTenantRow = { status: "active" };
+  mockTenantRow = { status: "active", zitadelOrgId: "org-ccc" };
   mockCheckRateLimit.mockResolvedValue({
     allowed: true,
     remaining: 99,
@@ -281,7 +285,7 @@ describe("requireAuth", () => {
     // resolve_api_key_by_hash SECURITY DEFINER function (execute), not a
     // plain select, since api_keys' RLS policy can't be satisfied before the
     // tenant is known. resolveTenantStatus's select still goes through the
-    // module-level db (mockModuleDbSelect), already wired for "active".
+    // module-level db (mockModuleDbSelect), already wired for "active" and "org-ccc".
     const fakeRow = {
       id: "key-id-1",
       tenant_id: "tenant-abc",
@@ -292,11 +296,25 @@ describe("requireAuth", () => {
       select: mockModuleDbSelect,
     };
 
-    const app = makeApp([
+    // eslint-disable-next-line no-undef
+    const app = new Hono<{ Variables: { auth: AuthContext } }>();
+    // eslint-disable-next-line no-undef
+    let authContext: AuthContext | undefined;
+    app.get(
+      "/test",
       requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
-    ]);
-    const res = await get(app, "sk_validkey");
+      (c) => {
+        authContext = c.get("auth");
+        return c.json({ ok: true });
+      },
+    );
+
+    const res = await app.request("/test", {
+      headers: { Authorization: "Bearer sk_validkey" },
+    });
     expect(res.status).toBe(200);
+    expect(authContext).toBeDefined();
+    expect(authContext?.orgId).toBe("org-ccc");
   });
 
   describe("argon2id verification (#237)", () => {
