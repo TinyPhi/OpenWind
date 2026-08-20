@@ -1,6 +1,6 @@
 /**
  * Isolation tests for the api_keys.zitadel_client_id partial unique index
- * (migration 0067, ADR-012 Phase A, spec R7/§V).
+ * (migration 0068, ADR-012 Phase A, spec R7/§V).
  *
  * Uses a real Postgres database (no mocks). Proves, against the real
  * constraint:
@@ -69,7 +69,7 @@ afterAll(async () => {
   await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
 });
 
-describe("api_keys.zitadel_client_id uniqueness (migration 0067)", () => {
+describe("api_keys.zitadel_client_id uniqueness (migration 0068)", () => {
   it("rejects a second active key with the same zitadel_client_id, even in a different tenant", async () => {
     await insertKey(TENANT_A, {
       name: "first-active",

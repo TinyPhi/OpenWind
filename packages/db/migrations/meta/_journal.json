@@ -475,7 +475,14 @@
       "idx": 67,
       "version": "7",
       "when": 1785542419000,
-      "tag": "0067_api_keys_third_party_application_metadata",
+      "tag": "0067_replay_uuid_validation_dead_letter_events",
+      "breakpoints": false
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1785542420000,
+      "tag": "0068_api_keys_third_party_application_metadata",
       "breakpoints": false
     }
   ]
