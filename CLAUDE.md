@@ -141,6 +141,9 @@ automation-engine  → db, workflow-engine, entity-engine
 
 Cross-module communication: event bus, entity engine relations API, or tRPC only.
 
+Same rule, also checkable on the full transitive graph (not just per-file import specifiers)
+via `pnpm dep:check` — see `.claude/context/dependency-graph.md`.
+
 ---
 
 ## Commands
@@ -200,8 +203,12 @@ Full setup: `docs/local-setup.md`
 1. Check the relevant ADR in `docs/decisions/` — the decision and reasoning are there
 2. Check existing tests — they document expected behavior precisely
 3. Check `.claude/context/` for domain-specific guides (entity-engine.md, workflow-engine.md, automation-engine.md)
-4. Check `docs/sup-docs/roadmap-tracker.md` — understand the phase context before changing scope
-5. If a decision isn't covered by an ADR, write one before implementing
+4. Need to know what depends on a file before changing it? `pnpm dep:impact -- '<path-regex>'`
+   gives a transitive answer grep can't — but a stale `dist/` makes it silently
+   under-report, so treat an empty result as inconclusive, not "nothing depends on this",
+   and cross-check with grep before trusting it — see `.claude/context/dependency-graph.md`
+5. Check `docs/sup-docs/roadmap-tracker.md` — understand the phase context before changing scope
+6. If a decision isn't covered by an ADR, write one before implementing
 
 ---
 
