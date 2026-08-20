@@ -1,4 +1,4 @@
-# ADR-011: Third-Party API Access to OpenWind Tickets
+# ADR-012: Third-Party API Access to OpenWind Tickets
 
 **Status:** Accepted.
 **Date:** 2026-08-20.
