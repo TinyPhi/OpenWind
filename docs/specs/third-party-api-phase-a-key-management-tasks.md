@@ -2,8 +2,13 @@
 
 **Spec:** docs/specs/third-party-api-phase-a-key-management.md
 **Generated:** 2026-08-17 (updated 2026-08-18 — Round 7 changed R8 from a coarse permission
-tier to the platform's real action-scope system; T1/T2/T8/T9 below reflect that)
-**Status:** not started
+tier to the platform's real action-scope system; T1/T2/T8/T9 below reflect that. Updated
+2026-08-20, post PR A1 review — T1's column list corrected to match what migration 0068
+actually shipped, per PrabhuVijit's review on PR #439: `scopes`, `expires_at`, and
+`rotated_from`/`rotation_predecessor_id` already existed on `api_keys` from ADR-008 and were
+reused rather than duplicated; `status` and `rotation_successor_id` were never added — both are
+derivable from existing columns instead.)
+**Status:** Phase 1 (T1) done; Phase 2 (T2) in progress on PR A2
 
 ---
 
@@ -14,9 +19,9 @@ expiry notification) need, with the constraints that make those features correct
 **Gate:** migration applies cleanly, unique constraint on `zitadel_client_id` (active keys only)
 enforced at the DB layer → then Phase 2
 
-| task                                                                                                                                                                                                                                                                                                                                                                                                                  | requirement     | status |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ------ |
-| T1: Migration — add `application_name`, `application_description`, `application_contact_email`, `zitadel_client_id`, `scopes` (text[]/jsonb, references the vocabulary in `packages/auth/src/scopes.ts`), `expires_at`, `rotation_predecessor_id`, `rotation_successor_id` to `api_keys`; partial unique index on `zitadel_client_id` scoped to active keys; RLS/grants per `db-conventions.md`; analytics annotation | R6, R7, R8, R11 | todo   |
+| task                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | requirement     | status         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- | -------------- |
+| T1: Migration (0068) — add `application_name`, `application_description`, `application_contact_email`, `zitadel_client_id` to `api_keys`; partial unique index on `zitadel_client_id` scoped to active (non-revoked) keys. Reuses the existing `scopes`/`scopes_format`, `expires_at`, and `rotated_from` columns from ADR-008 instead of adding parallel ones; does not add a `status` column or a `rotation_successor_id` column, both fully derivable from existing columns. RLS/grants unchanged (already present on `api_keys`); analytics annotation on the migration (column-additions-only, no new table). | R6, R7, R8, R11 | done — PR #439 |
 
 ---
 
@@ -26,14 +31,14 @@ enforced at the DB layer → then Phase 2
 exactly per §R — including the 2-key lineage cap and Emergency Rotate's taint propagation.
 **Gate:** integration tests pass + Phase 1 gate still green → then Phase 3
 
-| task                                                                                                                                                                                                                   | requirement | status |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T2: Mint endpoint — require non-empty `scopes` validated against the known vocabulary (reject unknown scope strings), validate application record fields, enforce Client ID uniqueness, stamp `expires_at` = now + 3mo | R6, R7, R8  | todo   |
-| T3: Revoke endpoint — instant hard-kill, no grace, no stale-auth window                                                                                                                                                | R2          | todo   |
-| T4: Rotate endpoint — issue successor with 24h grace on predecessor; before creating the new rotation, instantly kill any existing dying predecessor in this lineage (caps lineage at 2 nodes)                         | R3, R4      | todo   |
-| T5: Emergency Rotate endpoint — instant kill of target key; if target has a live successor (mid-grace-window case), kill that too and issue one genuinely fresh key covering both                                      | R5          | todo   |
-| T6: Auth middleware — reject a key past `expires_at` via the same rejection path as revoked (no second "expired" branch)                                                                                               | R6          | todo   |
-| T7: Disconnect/decommission action — instant kill, reuses Revoke's path, works even mid-rotation-grace                                                                                                                 | R9          | todo   |
+| task                                                                                                                                                                                                                                                                                                                                                                                      | requirement | status              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------- |
+| T2: Mint endpoint — require non-empty `scopes` validated against the known vocabulary (reject unknown scope strings), validate application record fields, enforce Client ID uniqueness (including reclaiming an expired-but-not-yet-revoked key's Client ID by auto-revoking it, since migration 0068's partial index can't exclude that case on its own), stamp `expires_at` = now + 3mo | R6, R7, R8  | in-progress (PR A2) |
+| T3: Revoke endpoint — instant hard-kill, no grace, no stale-auth window                                                                                                                                                                                                                                                                                                                   | R2          | todo                |
+| T4: Rotate endpoint — issue successor with 24h grace on predecessor; before creating the new rotation, instantly kill any existing dying predecessor in this lineage (caps lineage at 2 nodes)                                                                                                                                                                                            | R3, R4      | todo                |
+| T5: Emergency Rotate endpoint — instant kill of target key; if target has a live successor (mid-grace-window case), kill that too and issue one genuinely fresh key covering both                                                                                                                                                                                                         | R5          | todo                |
+| T6: Auth middleware — reject a key past `expires_at` via the same rejection path as revoked (no second "expired" branch)                                                                                                                                                                                                                                                                  | R6          | todo                |
+| T7: Disconnect/decommission action — instant kill, reuses Revoke's path, works even mid-rotation-grace                                                                                                                                                                                                                                                                                    | R9          | todo                |
 
 ---
 
