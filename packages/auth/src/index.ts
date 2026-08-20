@@ -5,6 +5,7 @@ export {
   hashApiKey,
   hashApiKeyArgon2,
   lookupTenantIdByOrgId,
+  lookupOrgIdByTenantId,
   API_KEY_DEFAULT_TTL_DAYS,
   API_KEY_ROTATION_OVERLAP_HOURS,
 } from "./middleware.js";

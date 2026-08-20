@@ -470,6 +470,13 @@
       "when": 1785542418000,
       "tag": "0066_notifications_entity_unassigned_type",
       "breakpoints": false
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785542419000,
+      "tag": "0067_replay_uuid_validation_dead_letter_events",
+      "breakpoints": false
     }
   ]
 }

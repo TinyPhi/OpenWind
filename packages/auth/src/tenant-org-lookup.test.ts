@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, tenants } from "@platform/db";
-import { lookupTenantIdByOrgId } from "./middleware.js";
+import { lookupTenantIdByOrgId, lookupOrgIdByTenantId } from "./middleware.js";
 
 // Real database, not mocked — per testing-conventions.md's real-implementation
 // preference, and because this proves the actual requirement (R5): a second
@@ -52,6 +52,21 @@ describe("lookupTenantIdByOrgId", () => {
 
   it("returns null for an org with no mapped tenant", async () => {
     const resolved = await lookupTenantIdByOrgId("no-such-org-ever");
+    expect(resolved).toBeNull();
+  });
+
+  it("resolves each tenant to its own distinct org", async () => {
+    const resolvedA = await lookupOrgIdByTenantId(TENANT_A);
+    const resolvedB = await lookupOrgIdByTenantId(TENANT_B);
+
+    expect(resolvedA).toBe(ORG_A);
+    expect(resolvedB).toBe(ORG_B);
+  });
+
+  it("returns null for a tenant with no mapped org", async () => {
+    const resolved = await lookupOrgIdByTenantId(
+      "00000000-0000-4000-a000-000000000000",
+    );
     expect(resolved).toBeNull();
   });
 });

@@ -184,8 +184,9 @@ export async function tick(): Promise<void> {
 
       // Mark all rows (fresh + stale, spanning every tenant in this batch) as
       // delivered so they are not re-processed. The stale loop above may have
-      // left the transaction on app_user scoped to one tenant — restore the
-      // cross-tenant sweeper role first, or this UPDATE would silently only
+      // left the transaction on app_user scoped to one tenant (SET LOCAL resets
+      // to the outer role at the end of each inner transaction savepoint) —
+      // restore the cross-tenant sweeper role first, or this UPDATE would silently
       // affect that one tenant's rows under RLS (the rest would be reprocessed
       // forever).
       await setOutboxSweeperRole(tx);
