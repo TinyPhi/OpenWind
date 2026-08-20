@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
+import type { AuthContext } from "./types.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -296,9 +297,7 @@ describe("requireAuth", () => {
       select: mockModuleDbSelect,
     };
 
-    // eslint-disable-next-line no-undef
     const app = new Hono<{ Variables: { auth: AuthContext } }>();
-    // eslint-disable-next-line no-undef
     let authContext: AuthContext | undefined;
     app.get(
       "/test",
