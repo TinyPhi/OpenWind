@@ -7,6 +7,7 @@ import {
   timestamp,
   index,
   unique,
+  uniqueIndex,
   boolean,
   integer,
   type AnyPgColumn,
@@ -92,9 +93,24 @@ export const apiKeys = pgTable(
     revokedBy: text("revoked_by"),
     /** Set on the replacement key minted by POST /api-keys/:id/rotate; points at the key it replaced. */
     rotatedFrom: uuid("rotated_from").references((): AnyPgColumn => apiKeys.id),
+    /** Third-party application record (ADR-012 Phase A). NULL for keys not minted through the third-party key-management flow. */
+    applicationName: text("application_name"),
+    applicationDescription: text("application_description"),
+    /** Unblocks a deferred expiry-notification fast-follow (ADR-012 Decision #10). */
+    applicationContactEmail: text("application_contact_email"),
+    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across active (non-revoked) keys — see migration 0067's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
+    zitadelClientId: text("zitadel_client_id"),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
+    // Migration 0067 — active (non-revoked) keys only; see that migration's
+    // comment for why expired-but-not-revoked reuse can't also live in this
+    // predicate (partial-index predicates must be immutable, `now()` isn't).
+    zitadelClientIdActiveUnique: uniqueIndex(
+      "api_keys_zitadel_client_id_active_unique",
+    )
+      .on(t.zitadelClientId)
+      .where(sql`${t.revokedAt} IS NULL AND ${t.zitadelClientId} IS NOT NULL`),
   }),
 );
 
