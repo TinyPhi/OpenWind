@@ -149,3 +149,70 @@ describe("GET /api-keys — excludes revoked keys (ADR-008 Decision #4)", () => 
     expect(json.data[0].scopesFormat).toBe("role");
   });
 });
+
+describe("GET /api-keys — includeRevoked opt-in (ADR-012 Phase A, PR A5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSelectRows.length = 0;
+  });
+
+  it("still filters on tenantId AND revokedAt IS NULL when includeRevoked is omitted — ADR-008 Decision #4's default is unchanged", async () => {
+    const res = await makeApp().request("/");
+    expect(res.status).toBe(200);
+    const [andCall] = mockWhere.mock.calls[0];
+    expect(andCall.op).toBe("and");
+    expect(andCall.args.some((a: { op: string }) => a.op === "isNull")).toBe(
+      true,
+    );
+  });
+
+  it("filters on tenantId only (no revokedAt exclusion) when includeRevoked=true", async () => {
+    const res = await makeApp().request("/?includeRevoked=true");
+    expect(res.status).toBe(200);
+    const [eqCall] = mockWhere.mock.calls[0];
+    expect(eqCall.op).toBe("eq");
+  });
+
+  it("surfaces applicationName, rotatedFrom, and revokedAt for each row", async () => {
+    mockSelectRows.push({
+      id: "key-1",
+      name: "third-party-key",
+      scopes: ["entity:ticket:read"],
+      scopesFormat: "action",
+      applicationName: "Acme Helpdesk Sync",
+      rotatedFrom: "key-0",
+      lastUsedAt: null,
+      createdAt: new Date(),
+      createdBy: "u-bbb",
+      expiresAt: new Date("2027-08-09T00:00:00Z"),
+      revokedAt: null,
+    });
+    const res = await makeApp().request("/?includeRevoked=true");
+    const json = await res.json();
+    expect(json.data[0].applicationName).toBe("Acme Helpdesk Sync");
+    expect(json.data[0].rotatedFrom).toBe("key-0");
+    expect(json.data[0].revokedAt).toBeNull();
+  });
+
+  it("surfaces applicationDescription and applicationContactEmail so the UI can pre-fill an edit form (PR A5 AC7)", async () => {
+    mockSelectRows.push({
+      id: "key-1",
+      name: "third-party-key",
+      scopes: ["entity:ticket:read"],
+      scopesFormat: "action",
+      applicationName: "Acme Helpdesk Sync",
+      applicationDescription: "Syncs tickets nightly",
+      applicationContactEmail: "ops@acme.example",
+      rotatedFrom: null,
+      lastUsedAt: null,
+      createdAt: new Date(),
+      createdBy: "u-bbb",
+      expiresAt: new Date("2027-08-09T00:00:00Z"),
+      revokedAt: null,
+    });
+    const res = await makeApp().request("/?includeRevoked=true");
+    const json = await res.json();
+    expect(json.data[0].applicationDescription).toBe("Syncs tickets nightly");
+    expect(json.data[0].applicationContactEmail).toBe("ops@acme.example");
+  });
+});
