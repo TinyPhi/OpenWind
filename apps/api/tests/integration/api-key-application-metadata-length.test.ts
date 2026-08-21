@@ -1,7 +1,9 @@
 /**
- * DB-level tests for migration 0069's CHECK constraints bounding
+ * DB-level tests for migrations 0069/0070's CHECK constraints bounding
  * api_keys.application_name/application_description/
- * application_contact_email (issue #445, found during PR #439 review).
+ * application_contact_email (issue #445, found during PR #439 review) and
+ * zitadel_client_id (issue #451, the same defect shape flagged in the same
+ * review but kept out of #445's scope).
  *
  * Uses a real Postgres database (no mocks). These columns were added
  * unbounded by migration 0068 — the API layer's Zod schema (create.ts)
@@ -18,8 +20,9 @@
  * non-tenant-isolation coverage instead.
  */
 
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db, withTenantContext, apiKeys, tenants } from "@platform/db";
 import { hashApiKey } from "@platform/auth";
 
@@ -58,9 +61,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const id of insertedKeyIds) {
-    await db.delete(apiKeys).where(eq(apiKeys.id, id));
-  }
+  await db.delete(apiKeys).where(inArray(apiKeys.id, insertedKeyIds));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT]));
 });
 
@@ -82,9 +83,20 @@ const BOUNDED_COLUMNS = [
     // the whole value at exactly n.
     valueAtLength: (n: number) => `${"a".repeat(n - 6)}@a.com`,
   },
+  {
+    column: "zitadelClientId" as const,
+    limit: 200,
+    // Each generated value must be unique — zitadelClientId also carries a
+    // partial unique index (migration 0068) among non-revoked keys, and
+    // every insertKey() call here leaves its row active. randomUUID()
+    // guarantees a fixed-length hex string, unlike Math.random()'s
+    // variable-length base-36 output.
+    valueAtLength: (n: number) =>
+      `${"a".repeat(n - 6)}${randomUUID().replace(/-/g, "").slice(0, 6)}`,
+  },
 ];
 
-describe("api_keys application metadata length constraints (migration 0069)", () => {
+describe("api_keys column length constraints (migrations 0069/0070)", () => {
   it.each(BOUNDED_COLUMNS)(
     "rejects $column over its $limit-char limit",
     async ({ column, limit, valueAtLength }) => {

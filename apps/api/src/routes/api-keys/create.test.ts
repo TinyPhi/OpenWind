@@ -533,4 +533,34 @@ describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)"
     // matching unrelated unique-violations.
     expect(res.status).not.toBe(409);
   });
+
+  it("returns 422 (not an unhandled 500) when the insert hits any api_keys_<column>_length CHECK constraint — e.g. zitadelClientId's DB-layer bound (migration 0070)", async () => {
+    mockSelectResult.rows = [];
+    mockInsertError.error = {
+      code: "23514",
+      constraint_name: "api_keys_zitadel_client_id_length",
+    };
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("VALIDATION_ERROR");
+  });
+
+  it("does not misreport an unrelated CHECK-violation (a constraint not ending in _length) as a field-too-long error", async () => {
+    mockSelectResult.rows = [];
+    mockInsertError.error = {
+      code: "23514",
+      constraint_name: "api_keys_scopes_format_check",
+    };
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    expect(res.status).not.toBe(422);
+  });
 });
