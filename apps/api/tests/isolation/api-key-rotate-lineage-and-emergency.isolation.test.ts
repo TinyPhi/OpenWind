@@ -109,6 +109,58 @@ describe("POST /api-keys/:id/rotate — lineage cap, real Postgres (ADR-012 Phas
     expect(grandparentRow?.revokedAt).not.toBeNull();
     expect(grandparentRow?.revokedBy).toBe("system:rotation-lineage-cap");
   });
+
+  // Regression test for a real bug found via manual testing: the
+  // lineage-cleanup query excluded original.id but not the just-inserted
+  // successor's own id, so it caught and instantly revoked the key it had
+  // just created — on every single rotation, not just genuine
+  // multi-generation scenarios. Two consecutive rotates against real
+  // Postgres both self-revoked their own new key within milliseconds before
+  // the fix.
+  it("does not self-revoke the newly-created successor on an ordinary rotate with no prior lineage", async () => {
+    const originalId = await insertKey({ name: "fresh-rotate-original" });
+
+    const res = await makeApp().request(`/${originalId}/rotate`, {
+      method: "POST",
+      headers: skHeaders(),
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { data: { id: string } };
+    allKeyIds.push(json.data.id);
+
+    const [successorRow] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ revokedAt: apiKeys.revokedAt, revokedBy: apiKeys.revokedBy })
+        .from(apiKeys)
+        .where(eq(apiKeys.id, json.data.id)),
+    );
+    expect(successorRow?.revokedAt).toBeNull();
+    expect(successorRow?.revokedBy).toBeNull();
+  });
+
+  it("does not self-revoke either the successor when rotating a key that has a live predecessor", async () => {
+    const grandparentId = await insertKey({ name: "grandparent-2" });
+    const parentId = await insertKey({
+      name: "parent-2",
+      rotatedFrom: grandparentId,
+    });
+
+    const res = await makeApp().request(`/${parentId}/rotate`, {
+      method: "POST",
+      headers: skHeaders(),
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { data: { id: string } };
+    allKeyIds.push(json.data.id);
+
+    const [successorRow] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ revokedAt: apiKeys.revokedAt })
+        .from(apiKeys)
+        .where(eq(apiKeys.id, json.data.id)),
+    );
+    expect(successorRow?.revokedAt).toBeNull();
+  });
 });
 
 describe("POST /api-keys/:id/rotate — Client ID handoff, real Postgres (migration 0069)", () => {

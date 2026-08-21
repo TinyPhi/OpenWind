@@ -399,7 +399,7 @@ describe("POST /api-keys/:id/rotate — lineage cap (ADR-012 Phase A spec R4, PR
     expect(setArg.revokedBy).toBe("system:rotation-lineage-cap");
   });
 
-  it("still issues the lineage-cleanup update even when there is no predecessor to clean up (the WHERE clause matches nothing in that case)", async () => {
+  it("still issues the lineage-cleanup update even when there is no stale predecessor/successor to clean up", async () => {
     mockOriginalRows = [
       {
         id: "orig-1",
@@ -412,5 +412,39 @@ describe("POST /api-keys/:id/rotate — lineage cap (ADR-012 Phase A spec R4, PR
     ];
     await makeApp().request("/orig-1/rotate", { method: "POST" });
     expect(mockUpdateSet).toHaveBeenCalledTimes(2);
+  });
+
+  // Regression test: the lineage-cleanup query's WHERE clause excluded
+  // original.id but not the just-inserted successor's own id — and since
+  // every successor's rotatedFrom always equals original.id by construction,
+  // the query caught and instantly revoked the key it had just created, on
+  // every single rotation (found via manual testing against real Postgres:
+  // two consecutive rotates both self-revoked their own new key within
+  // milliseconds). This asserts the WHERE clause excludes BOTH ids, not just
+  // original's — the mocked drizzle-orm ne() calls are inspectable by their
+  // recorded args since the real query builder isn't actually evaluated here.
+  it("excludes both original.id AND the newly-created successor's own id from the lineage-cleanup query — a fresh rotate must never self-revoke its own result", async () => {
+    mockOriginalRows = [
+      {
+        id: "orig-1",
+        name: "ci-key",
+        scopes: ["agent"],
+        scopesFormat: "role",
+        expiresAt: null,
+        rotatedFrom: null,
+      },
+    ];
+    const res = await makeApp().request("/orig-1/rotate", { method: "POST" });
+    const json = (await res.json()) as { data: { id: string } };
+    const createdId = json.data.id;
+
+    const [andCall] = mockUpdateWhere.mock.calls[1] as [
+      { op: string; args: Array<{ op: string; args: unknown[] }> },
+    ];
+    expect(andCall.op).toBe("and");
+    const neCalls = andCall.args.filter((a) => a.op === "ne");
+    const excludedIds = neCalls.map((c) => c.args[1]);
+    expect(excludedIds).toContain("orig-1");
+    expect(excludedIds).toContain(createdId);
   });
 });
