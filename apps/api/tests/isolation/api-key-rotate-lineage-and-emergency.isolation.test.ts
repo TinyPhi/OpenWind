@@ -257,4 +257,43 @@ describe("POST /api-keys/:id/emergency-rotate — real Postgres (ADR-012 Phase A
     );
     expect(successorRow?.revokedAt).not.toBeNull();
   });
+
+  // Regression test for a real bug found by review (PrabhuVijit, PR #446):
+  // the target/successor revoke used to run AFTER the insert. For a
+  // third-party key the new row carries the target's own zitadelClientId
+  // forward, so with the target still holding zitadel_client_id_active=true
+  // at insert time, this always hit the api_keys_zitadel_client_id_active_unique
+  // constraint — a genuine 500, not the intended clean success. The two
+  // tests above never caught this because they only used role-format keys
+  // (zitadelClientId always null), which can never collide on that index.
+  it("emergency-rotates a real third-party key without hitting the zitadel_client_id unique constraint", async () => {
+    const clientId = `emergency-rotate-test-${Math.random().toString(36).slice(2)}`;
+    const targetId = await insertKey({
+      name: "emergency-third-party-target",
+      scopes: ["entity:ticket:read"],
+      scopesFormat: "action",
+      applicationName: "Emergency Rotate Test App",
+      applicationContactEmail: "ops@emergency-rotate-test.example",
+      zitadelClientId: clientId,
+    });
+
+    const res = await makeApp().request(`/${targetId}/emergency-rotate`, {
+      method: "POST",
+      headers: skHeaders(),
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as {
+      data: { id: string; zitadelClientId: string };
+    };
+    allKeyIds.push(json.data.id);
+    expect(json.data.zitadelClientId).toBe(clientId);
+
+    const [targetRow] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ revokedAt: apiKeys.revokedAt })
+        .from(apiKeys)
+        .where(eq(apiKeys.id, targetId)),
+    );
+    expect(targetRow?.revokedAt).not.toBeNull();
+  });
 });
