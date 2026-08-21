@@ -50,63 +50,72 @@ const mockUpdateSet = vi.fn();
 const mockWriteAuditEntry = vi.fn();
 
 // Hoisted so tests can control what the pre-insert Client ID conflict lookup
-// (the `tx.select(...).from(apiKeys).where(...)` in create.ts) returns,
-// without needing a real database.
+// (the `db.select(...).from(apiKeys).where(...)` in create.ts — the bare,
+// RLS-bypassing client, not the tenant-scoped `tx`) returns, without needing
+// a real database.
 const { mockSelectResult, mockInsertError } = vi.hoisted(() => ({
   mockSelectResult: { rows: [] as unknown[] },
   // Lets a test simulate the database's own unique-violation on insert —
-  // e.g. a cross-tenant Client ID conflict, which RLS makes invisible to the
-  // pre-insert conflict SELECT (that select only ever sees the caller's own
-  // tenant's rows), so it can only ever be caught here.
+  // e.g. two concurrent requests racing for the same Client ID, both passing
+  // the pre-insert check before either has inserted — so it can only ever be
+  // caught here.
   mockInsertError: {
     error: null as { code: string; constraint_name: string } | null,
   },
 }));
 
-vi.mock("@platform/db", () => ({
-  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
-    const tx = {
-      select: () => tx,
-      from: () => tx,
-      where: () => Promise.resolve(mockSelectResult.rows),
-      insert: () => tx,
-      update: () => tx,
-      set: (...args: unknown[]) => {
-        mockUpdateSet(...args);
-        return tx;
-      },
-      values: (...args: unknown[]) => {
-        mockInsertValues(...args);
-        return tx;
-      },
-      returning: () => {
-        if (mockInsertError.error) {
-          // Matches Drizzle's real shape: a DrizzleQueryError whose `.cause`
-          // is the actual PostgresError carrying code/constraint_name — not
-          // those fields on the thrown error itself.
-          const cause = new Error(
-            "duplicate key value violates unique constraint",
-          );
-          Object.assign(cause, mockInsertError.error);
-          const err = new Error("Failed query", { cause });
-          return Promise.reject(err);
-        }
-        return Promise.resolve([
-          {
-            id: "key-1",
-            name: "test-key",
-            scopes: [],
-            scopesFormat: "role",
-            createdAt: new Date(),
-            expiresAt: new Date("2027-08-09T00:00:00Z"),
-          },
-        ]);
-      },
-    };
-    return fn(tx);
-  },
-  apiKeys: {},
-}));
+vi.mock("@platform/db", () => {
+  // The bare `db` client — used only for the pre-insert Client ID
+  // conflict check/reclaim, which is deliberately global (bypasses RLS),
+  // not tenant-scoped.
+  const db = {
+    select: () => db,
+    from: () => db,
+    where: () => Promise.resolve(mockSelectResult.rows),
+    update: () => db,
+    set: (...args: unknown[]) => {
+      mockUpdateSet(...args);
+      return db;
+    },
+  };
+  return {
+    db,
+    withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
+      const tx = {
+        insert: () => tx,
+        values: (...args: unknown[]) => {
+          mockInsertValues(...args);
+          return tx;
+        },
+        returning: () => {
+          if (mockInsertError.error) {
+            // Matches Drizzle's real shape: a DrizzleQueryError whose `.cause`
+            // is the actual PostgresError carrying code/constraint_name — not
+            // those fields on the thrown error itself.
+            const cause = new Error(
+              "duplicate key value violates unique constraint",
+            );
+            Object.assign(cause, mockInsertError.error);
+            const err = new Error("Failed query", { cause });
+            return Promise.reject(err);
+          }
+          return Promise.resolve([
+            {
+              id: "key-1",
+              name: "test-key",
+              scopes: [],
+              scopesFormat: "role",
+              createdAt: new Date(),
+              expiresAt: new Date("2027-08-09T00:00:00Z"),
+            },
+          ]);
+        },
+      };
+      return fn(tx);
+    },
+    apiKeys: {},
+  };
+});
 
 vi.mock("@platform/audit", () => ({
   writeAuditEntry: (...args: unknown[]) => {
@@ -478,8 +487,8 @@ describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)"
     expect(mockUpdateSet).not.toHaveBeenCalled();
   });
 
-  it("returns 409 (not an unhandled 500) when the pre-insert check finds no conflict but the insert itself hits the unique index — e.g. a cross-tenant conflict RLS hides from the pre-check", async () => {
-    mockSelectResult.rows = []; // pre-check sees nothing — RLS scopes it to this tenant only
+  it("returns 409 (not an unhandled 500) when the pre-insert check finds no conflict but the insert itself hits the unique index — e.g. two concurrent requests racing for the same Client ID", async () => {
+    mockSelectResult.rows = []; // pre-check sees nothing — a concurrent insert wins the race first
     mockInsertError.error = {
       code: "23505",
       constraint_name: "api_keys_zitadel_client_id_active_unique",

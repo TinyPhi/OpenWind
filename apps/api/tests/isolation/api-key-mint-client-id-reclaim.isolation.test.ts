@@ -158,7 +158,7 @@ describe("POST /api-keys — third-party mint Client ID reclaim, real Postgres (
     expect(staleRow?.revokedBy).toBe("system:expiry-reclaim");
   });
 
-  it("rejects a cross-tenant Client ID conflict with a clean 409, not an unhandled 500 — RLS hides the other tenant's row from the pre-insert check, so this can only be caught at the actual DB unique-violation", async () => {
+  it("rejects a cross-tenant Client ID conflict with a clean 409 when the other tenant's key is still active", async () => {
     const clientId = "reclaim-test-cross-tenant-conflict-1";
 
     const inTenantA = await makeApp(TENANT_A).request("/", {
@@ -178,5 +178,54 @@ describe("POST /api-keys — third-party mint Client ID reclaim, real Postgres (
     expect(inTenantB.status).toBe(409);
     const jsonB = (await inTenantB.json()) as { error: string };
     expect(jsonB.error).toBe("CLIENT_ID_IN_USE");
+  });
+
+  // Regression test for the review finding on PR #440 (PrabhuVijit): the
+  // pre-insert conflict check used to run inside withTenantContext, so RLS's
+  // tenant_read policy on api_keys hid every other tenant's rows from it —
+  // including an *expired* one. Tenant B could then never reclaim a Client ID
+  // that Tenant A had let expire, because the pre-check saw no conflict (so
+  // no reclaim happened) while the DB's global unique index still rejected
+  // the insert, permanently locking Tenant B out. Fixed by running the
+  // conflict/reclaim check on the bare, RLS-bypassing `db` client instead —
+  // this test fails with a 409 CLIENT_ID_IN_USE on the pre-fix code and must
+  // pass with a 201 (Tenant A's expired key actually reclaimed) here.
+  it("reclaims a cross-tenant EXPIRED Client ID instead of permanently blocking it", async () => {
+    const clientId = "reclaim-test-cross-tenant-expired-1";
+
+    const inTenantA = await makeApp(TENANT_A).request("/", {
+      method: "POST",
+      headers: skHeaders(),
+      body: mintBody(clientId),
+    });
+    expect(inTenantA.status).toBe(201);
+    const jsonA = (await inTenantA.json()) as { data: { id: string } };
+    mintedKeyIdsA.push(jsonA.data.id);
+
+    // Simulate Tenant A's key having expired without ever being revoked.
+    await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .update(apiKeys)
+        .set({ expiresAt: new Date(Date.now() - 60_000) })
+        .where(eq(apiKeys.id, jsonA.data.id)),
+    );
+
+    const inTenantB = await makeApp(TENANT_B).request("/", {
+      method: "POST",
+      headers: skHeaders(),
+      body: mintBody(clientId),
+    });
+    expect(inTenantB.status).toBe(201);
+    const jsonB = (await inTenantB.json()) as { data: { id: string } };
+    mintedKeyIdsB.push(jsonB.data.id);
+
+    const [staleRowA] = await withTenantContext(TENANT_A, (tx) =>
+      tx
+        .select({ revokedAt: apiKeys.revokedAt, revokedBy: apiKeys.revokedBy })
+        .from(apiKeys)
+        .where(eq(apiKeys.id, jsonA.data.id)),
+    );
+    expect(staleRowA?.revokedAt).not.toBeNull();
+    expect(staleRowA?.revokedBy).toBe("system:expiry-reclaim");
   });
 });

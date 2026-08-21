@@ -11,7 +11,7 @@ import {
   detectScopesFormat,
   unknownTicketActionScopes,
 } from "@platform/auth";
-import { withTenantContext, apiKeys } from "@platform/db";
+import { db, withTenantContext, apiKeys } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import { and, eq, isNull } from "drizzle-orm";
 import { factory } from "./factory.js";
@@ -121,50 +121,71 @@ export const createApiKeyHandler = factory.createHandlers(
         ? new Date(Date.now() + THREE_MONTHS_MS)
         : new Date(Date.now() + API_KEY_DEFAULT_TTL_DAYS * 24 * 60 * 60 * 1000);
 
+    // Spec R7/§V + migration 0068's own comment: the partial unique index
+    // only excludes *revoked* keys from the uniqueness check, not
+    // expired-but-not-yet-revoked ones (Postgres partial-index predicates
+    // can't reference now()). An expired row therefore still holds its
+    // Client ID as far as the DB index is concerned, even though the
+    // platform's own invariant says an expired key's Client ID should be
+    // reusable, same as a revoked one. Reconciled here: if the conflicting
+    // row is actually expired, revoke it as part of reclaiming its Client ID
+    // (it was already functionally dead — this just makes that formal) so
+    // the DB insert below succeeds instead of hitting the unique-violation.
+    // A conflicting row that is NOT expired is a real conflict and is
+    // rejected.
+    //
+    // Runs on the bare `db` client (OUTSIDE withTenantContext), not the
+    // tenant-scoped `tx` — a Zitadel Client ID identifies one external
+    // application, not one tenant's registration of it (migration 0068's own
+    // isolation test), so this check is deliberately global, not per-tenant.
+    // Running it inside withTenantContext instead (as an earlier version of
+    // this handler did) meant RLS's tenant_read policy hid every other
+    // tenant's rows from the query entirely — an *expired* key belonging to
+    // a different tenant would never be found and reclaimed, permanently
+    // locking that Client ID out for the platform (review finding, PR #440
+    // by PrabhuVijit). `db` connects as a superuser that bypasses RLS by
+    // design (see client.ts's own comment on this), same precedent already
+    // relied on by isTenantActive() for the same "this must see across
+    // tenants" reason.
+    if (scopesFormat === "action" && zitadelClientId) {
+      const [conflict] = await db
+        .select({
+          id: apiKeys.id,
+          expiresAt: apiKeys.expiresAt,
+        })
+        .from(apiKeys)
+        .where(
+          and(
+            eq(apiKeys.zitadelClientId, zitadelClientId),
+            isNull(apiKeys.revokedAt),
+          ),
+        );
+
+      if (conflict) {
+        const isExpired =
+          conflict.expiresAt !== null && conflict.expiresAt <= new Date();
+        if (!isExpired) {
+          return c.json(
+            {
+              error: "CLIENT_ID_IN_USE",
+              message:
+                "This Zitadel Client ID is already registered to another active key",
+            },
+            409,
+          );
+        }
+        await db
+          .update(apiKeys)
+          .set({
+            revokedAt: new Date(),
+            revokedBy: "system:expiry-reclaim",
+          })
+          .where(eq(apiKeys.id, conflict.id));
+      }
+    }
+
     try {
       const created = await withTenantContext(tenantId, async (tx) => {
-        if (scopesFormat === "action" && zitadelClientId) {
-          // Spec R7/§V + migration 0068's own comment: the partial unique
-          // index only excludes *revoked* keys from the uniqueness check,
-          // not expired-but-not-yet-revoked ones (Postgres partial-index
-          // predicates can't reference now()). An expired row therefore
-          // still holds its Client ID as far as the DB index is concerned,
-          // even though the platform's own invariant says an expired key's
-          // Client ID should be reusable, same as a revoked one. Reconciled
-          // here: if the conflicting row is actually expired, revoke it as
-          // part of reclaiming its Client ID (it was already functionally
-          // dead — this just makes that formal) so the DB insert below
-          // succeeds instead of hitting the unique-violation. A conflicting
-          // row that is NOT expired is a real conflict and is rejected.
-          const [conflict] = await tx
-            .select({
-              id: apiKeys.id,
-              expiresAt: apiKeys.expiresAt,
-            })
-            .from(apiKeys)
-            .where(
-              and(
-                eq(apiKeys.zitadelClientId, zitadelClientId),
-                isNull(apiKeys.revokedAt),
-              ),
-            );
-
-          if (conflict) {
-            const isExpired =
-              conflict.expiresAt !== null && conflict.expiresAt <= new Date();
-            if (!isExpired) {
-              throw new ClientIdInUseError();
-            }
-            await tx
-              .update(apiKeys)
-              .set({
-                revokedAt: new Date(),
-                revokedBy: "system:expiry-reclaim",
-              })
-              .where(eq(apiKeys.id, conflict.id));
-          }
-        }
-
         let row;
         try {
           [row] = await tx
@@ -198,18 +219,13 @@ export const createApiKeyHandler = factory.createHandlers(
               zitadelClientId: apiKeys.zitadelClientId,
             });
         } catch (err) {
-          // The pre-insert conflict check above runs inside this same
-          // tenant-scoped transaction, so RLS (tenant_read/tenant_write on
-          // api_keys, migration 0001) only ever lets it see *this* tenant's
-          // rows — but migration 0068's uniqueness constraint is genuinely
-          // global (a Client ID identifies one external application, not
-          // one tenant's registration of it; see that migration's own
-          // isolation test). A conflicting, still-active row belonging to a
-          // *different* tenant is therefore invisible to the pre-check and
-          // only surfaces here, as the database's own unique-violation on
-          // the insert. Translated to the same clean 409 a same-tenant
-          // conflict gets, rather than leaking a raw DB error as an
-          // unhandled 500.
+          // Defense-in-depth for the race the pre-insert conflict check above
+          // can't fully close: two concurrent requests for the same Client ID
+          // can both pass that check before either has inserted. Whichever
+          // insert loses the race hits the DB's own unique-violation — caught
+          // here and translated to the same clean 409 a pre-check-caught
+          // conflict gets, rather than leaking a raw DB error as an unhandled
+          // 500.
           // Drizzle wraps the raw postgres.js error as a DrizzleQueryError,
           // with the actual PostgresError (code, constraint_name, etc.) on
           // `.cause` — not on the thrown error itself.
