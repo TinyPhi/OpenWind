@@ -132,7 +132,6 @@ describe("api_keys.zitadel_client_id uniqueness (migration 0068)", () => {
       }),
     ).rejects.toThrow();
   });
-
   it("never collides on NULL zitadel_client_id across multiple keys", async () => {
     await expect(
       Promise.all([

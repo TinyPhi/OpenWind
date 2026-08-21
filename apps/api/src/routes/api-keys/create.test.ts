@@ -41,36 +41,81 @@ vi.mock("@platform/auth", async () => {
     hashApiKeyArgon2: async (key: string) => `argon2id:${key}`,
     API_KEY_DEFAULT_TTL_DAYS: 365,
     detectScopesFormat: actual.detectScopesFormat,
+    unknownTicketActionScopes: actual.unknownTicketActionScopes,
   };
 });
 
 const mockInsertValues = vi.fn();
+const mockUpdateSet = vi.fn();
 const mockWriteAuditEntry = vi.fn();
 
-vi.mock("@platform/db", () => ({
-  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
-    const tx = {
-      insert: () => tx,
-      values: (...args: unknown[]) => {
-        mockInsertValues(...args);
-        return tx;
-      },
-      returning: () =>
-        Promise.resolve([
-          {
-            id: "key-1",
-            name: "test-key",
-            scopes: [],
-            scopesFormat: "role",
-            createdAt: new Date(),
-            expiresAt: new Date("2027-08-09T00:00:00Z"),
-          },
-        ]),
-    };
-    return fn(tx);
+// Hoisted so tests can control what the pre-insert Client ID conflict lookup
+// (the `db.select(...).from(apiKeys).where(...)` in create.ts — the bare,
+// RLS-bypassing client, not the tenant-scoped `tx`) returns, without needing
+// a real database.
+const { mockSelectResult, mockInsertError } = vi.hoisted(() => ({
+  mockSelectResult: { rows: [] as unknown[] },
+  // Lets a test simulate the database's own unique-violation on insert —
+  // e.g. two concurrent requests racing for the same Client ID, both passing
+  // the pre-insert check before either has inserted — so it can only ever be
+  // caught here.
+  mockInsertError: {
+    error: null as { code: string; constraint_name: string } | null,
   },
-  apiKeys: {},
 }));
+
+vi.mock("@platform/db", () => {
+  // The bare `db` client — used only for the pre-insert Client ID
+  // conflict check/reclaim, which is deliberately global (bypasses RLS),
+  // not tenant-scoped.
+  const db = {
+    select: () => db,
+    from: () => db,
+    where: () => Promise.resolve(mockSelectResult.rows),
+    update: () => db,
+    set: (...args: unknown[]) => {
+      mockUpdateSet(...args);
+      return db;
+    },
+  };
+  return {
+    db,
+    withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
+      const tx = {
+        insert: () => tx,
+        values: (...args: unknown[]) => {
+          mockInsertValues(...args);
+          return tx;
+        },
+        returning: () => {
+          if (mockInsertError.error) {
+            // Matches Drizzle's real shape: a DrizzleQueryError whose `.cause`
+            // is the actual PostgresError carrying code/constraint_name — not
+            // those fields on the thrown error itself.
+            const cause = new Error(
+              "duplicate key value violates unique constraint",
+            );
+            Object.assign(cause, mockInsertError.error);
+            const err = new Error("Failed query", { cause });
+            return Promise.reject(err);
+          }
+          return Promise.resolve([
+            {
+              id: "key-1",
+              name: "test-key",
+              scopes: [],
+              scopesFormat: "role",
+              createdAt: new Date(),
+              expiresAt: new Date("2027-08-09T00:00:00Z"),
+            },
+          ]);
+        },
+      };
+      return fn(tx);
+    },
+    apiKeys: {},
+  };
+});
 
 vi.mock("@platform/audit", () => ({
   writeAuditEntry: (...args: unknown[]) => {
@@ -287,5 +332,193 @@ describe("POST /api-keys — lifecycle hardening (ADR-008 Decision #2/#3)", () =
 
     const json = await res.json();
     expect(json.data.expiresAt).toBeDefined();
+  });
+});
+
+function thirdPartyBody(overrides: Record<string, unknown> = {}) {
+  return body({
+    scopes: ["entity:ticket:read"],
+    applicationName: "Acme Helpdesk Sync",
+    applicationContactEmail: "ops@acme.example",
+    zitadelClientId: "acme-helpdesk-sync-client",
+    ...overrides,
+  });
+}
+
+describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.roles = ["admin"];
+    mockSelectResult.rows = [];
+    mockInsertError.error = null;
+  });
+
+  it("returns 201 for a well-formed third-party key request, bypassing the role ceiling entirely", async () => {
+    mockAuth.roles = ["agent"]; // would 403 on the role-format path (#223) — must not apply here
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    expect(res.status).toBe(201);
+
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.scopesFormat).toBe("action");
+    expect(insertArg.applicationName).toBe("Acme Helpdesk Sync");
+    expect(insertArg.zitadelClientId).toBe("acme-helpdesk-sync-client");
+  });
+
+  it("stamps a 3-month expiry, not the internal-key default TTL", async () => {
+    const before = Date.now();
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    expect(res.status).toBe(201);
+
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    const expiresAt = (insertArg.expiresAt as Date).getTime();
+    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+    expect(expiresAt).toBeGreaterThan(before + ninetyDaysMs - 5000);
+    expect(expiresAt).toBeLessThan(before + ninetyDaysMs + 5000);
+  });
+
+  it("treats application fields + an empty scopes array as an ordinary role-format request (201, not 422) — an empty array can never classify as action-format", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ scopes: [] }),
+    });
+    expect(res.status).toBe(201);
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.scopesFormat).toBe("role");
+  });
+
+  it("returns 422 for an unknown entity:ticket:<verb> scope string", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ scopes: ["entity:ticket:delete"] }),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("INVALID_SCOPES");
+  });
+
+  it("returns 422 when applicationName is missing", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ applicationName: undefined }),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 422 when applicationContactEmail is missing", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ applicationContactEmail: undefined }),
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 422 when zitadelClientId is missing", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ zitadelClientId: undefined }),
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 400 for a malformed applicationContactEmail", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ applicationContactEmail: "not-an-email" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 409 when the Client ID is already held by another active (non-expired) key", async () => {
+    mockSelectResult.rows = [
+      { id: "other-key", expiresAt: new Date(Date.now() + 60_000) },
+    ];
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toBe("CLIENT_ID_IN_USE");
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("reclaims (auto-revokes) an expired-but-not-yet-revoked key holding the same Client ID, then succeeds", async () => {
+    mockSelectResult.rows = [
+      { id: "stale-expired-key", expiresAt: new Date(Date.now() - 60_000) },
+    ];
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    expect(res.status).toBe(201);
+    expect(mockUpdateSet).toHaveBeenCalledOnce();
+    const updateArg = mockUpdateSet.mock.calls[0][0];
+    expect(updateArg.revokedAt).toBeInstanceOf(Date);
+    expect(updateArg.revokedBy).toBe("system:expiry-reclaim");
+    expect(mockInsertValues).toHaveBeenCalledOnce();
+  });
+
+  it("proceeds with no conflict check needed when no existing row holds the Client ID", async () => {
+    mockSelectResult.rows = [];
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    expect(res.status).toBe(201);
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 (not an unhandled 500) when the pre-insert check finds no conflict but the insert itself hits the unique index — e.g. two concurrent requests racing for the same Client ID", async () => {
+    mockSelectResult.rows = []; // pre-check sees nothing — a concurrent insert wins the race first
+    mockInsertError.error = {
+      code: "23505",
+      constraint_name: "api_keys_zitadel_client_id_active_unique",
+    };
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toBe("CLIENT_ID_IN_USE");
+  });
+
+  it("does not misreport an unrelated unique-violation (a different constraint) as a Client ID conflict", async () => {
+    mockSelectResult.rows = [];
+    mockInsertError.error = {
+      code: "23505",
+      constraint_name: "api_keys_key_hash_key",
+    };
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody(),
+    });
+    // Hono's default error handling resolves with a plain 500 for an
+    // unhandled throw rather than rejecting the request() call — the point
+    // of this test is just that it is NOT the specific 409 CLIENT_ID_IN_USE
+    // response, i.e. the constraint-name check in create.ts's catch isn't
+    // matching unrelated unique-violations.
+    expect(res.status).not.toBe(409);
   });
 });

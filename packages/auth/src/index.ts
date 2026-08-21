@@ -30,5 +30,9 @@ export {
   invalidateUserCache,
 } from "./zitadel-management.js";
 export type { OrgUser } from "./zitadel-management.js";
-export { detectScopesFormat } from "./scopes.js";
-export type { ScopesFormat } from "./scopes.js";
+export {
+  detectScopesFormat,
+  unknownTicketActionScopes,
+  TICKET_ACTION_VERBS,
+} from "./scopes.js";
+export type { ScopesFormat, TicketActionVerb } from "./scopes.js";
