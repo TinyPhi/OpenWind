@@ -202,6 +202,15 @@ export const rotateApiKeyHandler = factory.createHandlers(
             eq(apiKeys.tenantId, tenantId),
             isNull(apiKeys.revokedAt),
             ne(apiKeys.id, original.id),
+            // The row just inserted above also has rotatedFrom = original.id
+            // (that's how every successor is linked to its predecessor) —
+            // without this exclusion this query catches and instantly
+            // revokes the key it just created, on every single rotation,
+            // not just the genuine multi-generation lineage-cap scenarios
+            // this is meant for (found via manual testing: two consecutive
+            // rotates both self-revoked their own new key within
+            // milliseconds).
+            ne(apiKeys.id, created.id),
             or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
             or(
               original.rotatedFrom
