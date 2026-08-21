@@ -139,6 +139,13 @@ phase gate: all unit + integration tests pass before advancing to next phase
 | B2  | After T8's fix, `middleware.test.ts`'s "fails open when checkRateLimit throws" test started failing (500 instead of 200)             | Removed `enforceTenantRateLimit`'s try/catch on the assumption `checkRateLimit` can no longer throw — true for the real implementation, but the unit test's mock can still be made to reject, and a caller this broadly used (every authenticated request) shouldn't rely on a callee's internal contract alone                                                                     | no — addressed by keeping a second, independent try/catch in the caller rather than promoting to a new invariant (already covered by the §V entry above) |
 | —   | T7 scope revised from "prove independent bucketing against real Redis" to "prove tenant isolation still holds through the new stage" | this repo's dev/CI Redis container has no host port mapping by design (docker-compose.yml) — a host-run isolation suite can never reach it, so the sliding-window bucketing itself is unit-tested (mocked pipeline) rather than isolation-tested                                                                                                                                    | n/a                                                                                                                                                      |
 
+**Update (2026-08-21, issue #450):** the premise of the row above no longer holds — Redis
+gained a loopback-only host port mapping, so a host-run suite _can_ now reach it. T7's scope
+is unchanged regardless: real bucketing state would be shared/mutated by whatever else is
+concurrently hitting the same dev Redis instance, making a real-Redis assertion here flaky by
+construction, not just unreachable. Recorded here rather than editing the frozen row above,
+since that row is an accurate historical record of the reasoning at the time.
+
 ---
 
 _spec is source of truth — update as decisions are made_

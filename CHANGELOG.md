@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — redis host port mapping]
+
+### Added
+
+- **`REDIS_HOST_PORT`** env var — remaps Redis's host port the same way `POSTGRES_HOST_PORT`/
+  `ADMIN_UI_HOST_PORT` already do, fixing host-mode `pnpm test`/`pnpm dev` previously being
+  unable to reach Redis at all (it had no host port mapping). Binds loopback-only
+  (`127.0.0.1`), since Redis has no authentication configured.
+
+---
+
 ## [Unreleased — ticket due date]
 
 ### Added
