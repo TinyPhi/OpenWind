@@ -376,9 +376,13 @@ describe("requireAuth end-to-end with an API key (real Postgres, no mocks)", () 
   // #195: requireAuth() now runs a post-auth, tenant-scoped rate-limit check
   // (packages/redis's checkRateLimit, keyed on the verified auth.tenantId)
   // before calling next(). It fails open on a Redis error, so this doesn't
-  // assert on real bucketing here — this repo's dev/CI Redis container has no
-  // host port mapping by design (docker-compose.yml), so a host-run isolation
-  // suite can't reach it at all. The actual sliding-window bucketing logic is
+  // assert on real bucketing here — Redis is reachable from a host-run
+  // isolation suite (docker-compose.yml's redis service, loopback-only host
+  // port mapping, issue #450), but this suite still doesn't assert on it:
+  // real bucketing state would be shared/mutated by whatever else is
+  // concurrently hitting the same dev Redis instance (other test files, a
+  // running dev server), making a real-Redis assertion here flaky by
+  // construction. The actual sliding-window bucketing logic is
   // unit-tested with a mocked Redis pipeline in packages/redis/src/
   // rate-limit.test.ts and packages/auth/src/middleware.test.ts. What IS
   // verified here, against real Postgres, is the thing an isolation suite
