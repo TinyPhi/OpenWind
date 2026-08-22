@@ -26,7 +26,10 @@ const CreateApiKeySchema = z.object({
   scopes: z.array(z.string().min(1)).default([]),
   applicationName: z.string().min(1).max(200).optional(),
   applicationDescription: z.string().max(2000).optional(),
-  applicationContactEmail: z.string().email().optional(),
+  // 320 = RFC 5321's max total address length; matches migration 0069's
+  // CHECK constraint (issue #445) so an oversized value 400s here, not at
+  // the DB.
+  applicationContactEmail: z.string().email().max(320).optional(),
   zitadelClientId: z.string().min(1).max(200).optional(),
 });
 
@@ -241,6 +244,21 @@ export const createApiKeyHandler = factory.createHandlers(
           ) {
             throw new ClientIdInUseError();
           }
+          // Migration 0069's CHECK constraints bound application_name/
+          // application_description/application_contact_email at the DB
+          // layer with the same limits this schema's .max() already
+          // enforces — this branch is defense-in-depth for the two bounds
+          // ever drifting apart, not an expected path today.
+          if (
+            cause instanceof Error &&
+            "code" in cause &&
+            cause.code === "23514" &&
+            "constraint_name" in cause &&
+            typeof cause.constraint_name === "string" &&
+            cause.constraint_name.startsWith("api_keys_application_")
+          ) {
+            throw new ApplicationMetadataTooLongError();
+          }
           throw err;
         }
         if (!row) {
@@ -284,9 +302,19 @@ export const createApiKeyHandler = factory.createHandlers(
           409,
         );
       }
+      if (err instanceof ApplicationMetadataTooLongError) {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "One or more application metadata fields is too long",
+          },
+          422,
+        );
+      }
       throw err;
     }
   },
 );
 
 class ClientIdInUseError extends Error {}
+class ApplicationMetadataTooLongError extends Error {}
