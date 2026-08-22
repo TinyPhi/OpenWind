@@ -118,8 +118,13 @@ export const requireActingPerson = (): MiddlewareHandler =>
       // mapped Zitadel org, already resolved by requireAuth's API-key path.
       const tokenOrgId = claims["urn:zitadel:iam:user:resourceowner:id"];
       if (!tokenOrgId || tokenOrgId !== auth.orgId) {
+        // Deliberately omits apiKeyId/tokenOrgId from this log line — the
+        // API key's own audit trail (create/rotate/revoke) already records
+        // the specific key involved elsewhere; tenantId alone is enough to
+        // triage a mismatch here without logging identifiers CodeQL's
+        // clear-text-logging query treats as sensitive.
         logger.warn(
-          { tenantId: auth.tenantId, apiKeyId },
+          { tenantId: auth.tenantId },
           "acting-person token org does not match the presented key's tenant",
         );
         return unauthorized(c);
