@@ -105,7 +105,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
       //
       // Run BEFORE the insert below, not after — Postgres checks unique
       // constraints immediately (not deferred), so if the successor's insert
-      // ran first, both rows would briefly hold zitadel_client_id_active =
+      // ran first, both rows would briefly hold oidc_client_id_active =
       // true at once and the insert itself would fail the very index this
       // handoff exists to satisfy.
       const newExpiresAt =
