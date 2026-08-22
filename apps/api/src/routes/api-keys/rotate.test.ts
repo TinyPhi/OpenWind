@@ -260,6 +260,21 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
     expect(hoursFromNow).toBeGreaterThan(0);
   });
 
+  // ADR-012 Phase A spec R3: "old key continues authenticating for exactly
+  // 24h from rotation timestamp" — the test above only bounds the window to
+  // (0, 25) hours, loose enough that a bug setting the overlap to e.g. 1h or
+  // 20h would slip through undetected. Pin it tightly (±5s, matching the
+  // tolerance already used for the 3-month expiry stamp below) so a wrong
+  // constant or unit-conversion error (minutes vs hours) fails this test.
+  it("sets the overlap window to exactly 24h from now, not merely 'less than 25h'", async () => {
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    const setArg = mockUpdateSet.mock.calls[0][0];
+    const msFromNow = setArg.expiresAt.getTime() - Date.now();
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    expect(msFromNow).toBeGreaterThan(twentyFourHoursMs - 5000);
+    expect(msFromNow).toBeLessThan(twentyFourHoursMs + 5000);
+  });
+
   it("keeps the original's already-sooner expiresAt instead of extending it to the overlap window (security review finding)", async () => {
     // Original expires in 2 hours — shorter than the 24h overlap window.
     // Rotation must NOT push this out to 24h; that would resurrect a
