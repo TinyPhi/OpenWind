@@ -444,6 +444,18 @@ describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)"
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 for an applicationContactEmail longer than the RFC 5321 320-char limit", async () => {
+    // 317 'a's (local part) + "@a.com" (6 chars) = 323 total, over the
+    // RFC 5321 320-char limit while still parsing as a well-formed email.
+    const oversizedEmail = `${"a".repeat(317)}@a.com`;
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ applicationContactEmail: oversizedEmail }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("returns 409 when the Client ID is already held by another active (non-expired) key", async () => {
     mockSelectResult.rows = [
       { id: "other-key", expiresAt: new Date(Date.now() + 60_000) },
