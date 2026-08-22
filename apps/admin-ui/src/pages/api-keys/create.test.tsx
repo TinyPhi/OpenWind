@@ -193,7 +193,7 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
       },
     );
     mockFetchWithAuth.mockRejectedValueOnce(
-      new Error("This Zitadel Client ID is already registered"),
+      new Error("This OIDC Client ID is already registered"),
     );
     fireEvent.click(screen.getByRole("button", { name: /^create key$/i }));
 

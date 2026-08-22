@@ -2,9 +2,9 @@
  * Isolation tests for PR A3 (ADR-012 Phase A) against a real Postgres:
  * - rotation lineage cap (spec R4) — rotating a key that itself has a live
  *   predecessor instantly kills that predecessor
- * - rotation's Client-ID handoff (migration 0069) — rotating a third-party
- *   key succeeds without hitting the zitadel_client_id partial unique index,
- *   because the predecessor's zitadel_client_id_active flag is cleared
+ * - rotation's Client-ID handoff (migration 0069/0071) — rotating a third-party
+ *   key succeeds without hitting the oidc_client_id partial unique index,
+ *   because the predecessor's oidc_client_id_active flag is cleared
  * - Emergency Rotate (spec R5) — instant kill, and killing a live successor
  *   too when the target was itself mid-grace as a Rotate predecessor
  */
@@ -165,8 +165,8 @@ describe("POST /api-keys/:id/rotate — lineage cap, real Postgres (ADR-012 Phas
   });
 });
 
-describe("POST /api-keys/:id/rotate — Client ID handoff, real Postgres (migration 0069)", () => {
-  it("rotates a third-party key successfully without hitting the zitadel_client_id unique index", async () => {
+describe("POST /api-keys/:id/rotate — Client ID handoff, real Postgres (migration 0069/0071)", () => {
+  it("rotates a third-party key successfully without hitting the oidc_client_id unique index", async () => {
     const clientId = `rotate-handoff-test-${Math.random().toString(36).slice(2)}`;
     const originalId = await insertKey({
       name: "third-party-original",
@@ -174,7 +174,7 @@ describe("POST /api-keys/:id/rotate — Client ID handoff, real Postgres (migrat
       scopesFormat: "action",
       applicationName: "Handoff Test App",
       applicationContactEmail: "ops@handoff-test.example",
-      zitadelClientId: clientId,
+      oidcClientId: clientId,
     });
 
     const res = await makeApp().request(`/${originalId}/rotate`, {
@@ -183,17 +183,17 @@ describe("POST /api-keys/:id/rotate — Client ID handoff, real Postgres (migrat
     });
     expect(res.status).toBe(201);
     const json = (await res.json()) as {
-      data: { id: string; zitadelClientId: string };
+      data: { id: string; oidcClientId: string };
     };
     allKeyIds.push(json.data.id);
-    expect(json.data.zitadelClientId).toBe(clientId);
+    expect(json.data.oidcClientId).toBe(clientId);
 
     const [originalRow] = await withTenantContext(TENANT, (tx) =>
       tx
         .select({
           revokedAt: apiKeys.revokedAt,
-          zitadelClientIdActive: apiKeys.zitadelClientIdActive,
-          zitadelClientId: apiKeys.zitadelClientId,
+          oidcClientIdActive: apiKeys.oidcClientIdActive,
+          oidcClientId: apiKeys.oidcClientId,
         })
         .from(apiKeys)
         .where(eq(apiKeys.id, originalId)),
@@ -202,8 +202,8 @@ describe("POST /api-keys/:id/rotate — Client ID handoff, real Postgres (migrat
     // window — but no longer the uniqueness holder, and its Client ID value
     // is unchanged (still identifies the right application).
     expect(originalRow?.revokedAt).toBeNull();
-    expect(originalRow?.zitadelClientIdActive).toBe(false);
-    expect(originalRow?.zitadelClientId).toBe(clientId);
+    expect(originalRow?.oidcClientIdActive).toBe(false);
+    expect(originalRow?.oidcClientId).toBe(clientId);
   });
 });
 
@@ -262,13 +262,13 @@ describe("POST /api-keys/:id/emergency-rotate — real Postgres (ADR-012 Phase A
 
   // Regression test for a real bug found by review (PrabhuVijit, PR #446):
   // the target/successor revoke used to run AFTER the insert. For a
-  // third-party key the new row carries the target's own zitadelClientId
-  // forward, so with the target still holding zitadel_client_id_active=true
-  // at insert time, this always hit the api_keys_zitadel_client_id_active_unique
+  // third-party key the new row carries the target's own oidcClientId
+  // forward, so with the target still holding oidc_client_id_active=true
+  // at insert time, this always hit the api_keys_oidc_client_id_active_unique
   // constraint — a genuine 500, not the intended clean success. The two
   // tests above never caught this because they only used role-format keys
-  // (zitadelClientId always null), which can never collide on that index.
-  it("emergency-rotates a real third-party key without hitting the zitadel_client_id unique constraint", async () => {
+  // (oidcClientId always null), which can never collide on that index.
+  it("emergency-rotates a real third-party key without hitting the oidc_client_id unique constraint", async () => {
     const clientId = `emergency-rotate-test-${Math.random().toString(36).slice(2)}`;
     const targetId = await insertKey({
       name: "emergency-third-party-target",
@@ -276,7 +276,7 @@ describe("POST /api-keys/:id/emergency-rotate — real Postgres (ADR-012 Phase A
       scopesFormat: "action",
       applicationName: "Emergency Rotate Test App",
       applicationContactEmail: "ops@emergency-rotate-test.example",
-      zitadelClientId: clientId,
+      oidcClientId: clientId,
     });
 
     const res = await makeApp().request(`/${targetId}/emergency-rotate`, {
@@ -285,10 +285,10 @@ describe("POST /api-keys/:id/emergency-rotate — real Postgres (ADR-012 Phase A
     });
     expect(res.status).toBe(201);
     const json = (await res.json()) as {
-      data: { id: string; zitadelClientId: string };
+      data: { id: string; oidcClientId: string };
     };
     allKeyIds.push(json.data.id);
-    expect(json.data.zitadelClientId).toBe(clientId);
+    expect(json.data.oidcClientId).toBe(clientId);
 
     const [targetRow] = await withTenantContext(TENANT, (tx) =>
       tx

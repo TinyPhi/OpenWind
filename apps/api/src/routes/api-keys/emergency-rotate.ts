@@ -44,7 +44,7 @@ export const emergencyRotateApiKeyHandler = factory.createHandlers(
           applicationName: apiKeys.applicationName,
           applicationDescription: apiKeys.applicationDescription,
           applicationContactEmail: apiKeys.applicationContactEmail,
-          zitadelClientId: apiKeys.zitadelClientId,
+          oidcClientId: apiKeys.oidcClientId,
         })
         .from(apiKeys)
         .where(
@@ -101,9 +101,9 @@ export const emergencyRotateApiKeyHandler = factory.createHandlers(
       // — revoked_at is set immediately, the defining difference of this
       // endpoint. Run BEFORE the insert below, not after (review finding,
       // PrabhuVijit on PR #446) — the new row carries the target's own
-      // zitadelClientId forward for action-format keys, and Postgres checks
+      // oidcClientId forward for action-format keys, and Postgres checks
       // unique constraints immediately (not deferred), so if the insert ran
-      // first, both rows would briefly hold zitadel_client_id_active = true
+      // first, both rows would briefly hold oidc_client_id_active = true
       // at once and the insert itself would fail the very index this instant
       // kill exists to satisfy — the exact ordering rotate.ts's own handoff
       // comment already documents.
@@ -140,7 +140,7 @@ export const emergencyRotateApiKeyHandler = factory.createHandlers(
                 applicationName: target.applicationName,
                 applicationDescription: target.applicationDescription,
                 applicationContactEmail: target.applicationContactEmail,
-                zitadelClientId: target.zitadelClientId,
+                oidcClientId: target.oidcClientId,
               }
             : {}),
         })
@@ -152,7 +152,7 @@ export const emergencyRotateApiKeyHandler = factory.createHandlers(
           createdAt: apiKeys.createdAt,
           expiresAt: apiKeys.expiresAt,
           applicationName: apiKeys.applicationName,
-          zitadelClientId: apiKeys.zitadelClientId,
+          oidcClientId: apiKeys.oidcClientId,
         });
       if (!created) {
         throw new Error("api_keys insert returned no row");

@@ -1,16 +1,16 @@
 /**
- * Isolation tests for the api_keys.zitadel_client_id partial unique index
- * (migration 0068, ADR-012 Phase A, spec R7/§V).
+ * Isolation tests for the api_keys.oidc_client_id partial unique index
+ * (migration 0071, ADR-012 Phase A, spec R7/§V).
  *
  * Uses a real Postgres database (no mocks). Proves, against the real
  * constraint:
- * - two active keys cannot share the same zitadel_client_id, even across
+ * - two active keys cannot share the same oidc_client_id, even across
  *   tenants (the index is not tenant-scoped — a Client ID identifies one
  *   external application, not one tenant's registration of it)
- * - a revoked key's zitadel_client_id becomes reusable by a new key
- * - NULL zitadel_client_id (keys not minted through the third-party flow)
+ * - a revoked key's oidc_client_id becomes reusable by a new key
+ * - NULL oidc_client_id (keys not minted through the third-party flow)
  *   never collides with anything, including another NULL row
- * - an EXPIRED-but-not-yet-revoked key's zitadel_client_id is, on its own at
+ * - an EXPIRED-but-not-yet-revoked key's oidc_client_id is, on its own at
  *   the DB layer, still rejected by the index (documented below, not a bug —
  *   see that test's own comment and the migration's). This is exactly why
  *   the mint endpoint (T2, PR A2) does its own expired-row reclaim check
@@ -74,25 +74,25 @@ afterAll(async () => {
   await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
 });
 
-describe("api_keys.zitadel_client_id uniqueness (migration 0068)", () => {
-  it("rejects a second active key with the same zitadel_client_id, even in a different tenant", async () => {
+describe("api_keys.oidc_client_id uniqueness (migration 0071)", () => {
+  it("rejects a second active key with the same oidc_client_id, even in a different tenant", async () => {
     await insertKey(TENANT_A, {
       name: "first-active",
-      zitadelClientId: "client-dup-test-1",
+      oidcClientId: "client-dup-test-1",
     });
 
     await expect(
       insertKey(TENANT_B, {
         name: "second-active-same-client-id",
-        zitadelClientId: "client-dup-test-1",
+        oidcClientId: "client-dup-test-1",
       }),
     ).rejects.toThrow();
   });
 
-  it("allows a new key to reuse a revoked key's zitadel_client_id", async () => {
+  it("allows a new key to reuse a revoked key's oidc_client_id", async () => {
     const revokedId = await insertKey(TENANT_A, {
       name: "will-be-revoked",
-      zitadelClientId: "client-reuse-test-1",
+      oidcClientId: "client-reuse-test-1",
     });
     await db
       .update(apiKeys)
@@ -101,13 +101,13 @@ describe("api_keys.zitadel_client_id uniqueness (migration 0068)", () => {
 
     const reusedId = await insertKey(TENANT_A, {
       name: "reuses-revoked-client-id",
-      zitadelClientId: "client-reuse-test-1",
+      oidcClientId: "client-reuse-test-1",
     });
 
     expect(reusedId).not.toBe(revokedId);
   });
 
-  it("STILL rejects reuse of an expired-but-not-yet-revoked key's zitadel_client_id at the DB layer alone — this is the documented gap the mint endpoint (T2/PR A2) must close itself, not a bug in this index", async () => {
+  it("STILL rejects reuse of an expired-but-not-yet-revoked key's oidc_client_id at the DB layer alone — this is the documented gap the mint endpoint (T2/PR A2) must close itself, not a bug in this index", async () => {
     // Postgres partial-index predicates must be immutable, so this index's
     // predicate can only be `revoked_at IS NULL` — it cannot also say
     // "and not expired" (that would need `expires_at > now()`, which is
@@ -121,18 +121,18 @@ describe("api_keys.zitadel_client_id uniqueness (migration 0068)", () => {
     // (reclaim-by-auto-revoking the stale expired row), not by this index.
     await insertKey(TENANT_A, {
       name: "expired-not-revoked",
-      zitadelClientId: "client-expired-reuse-test-1",
+      oidcClientId: "client-expired-reuse-test-1",
       expiresAt: new Date(Date.now() - 60_000),
     });
 
     await expect(
       insertKey(TENANT_A, {
         name: "attempts-reuse-of-expired-clients-id",
-        zitadelClientId: "client-expired-reuse-test-1",
+        oidcClientId: "client-expired-reuse-test-1",
       }),
     ).rejects.toThrow();
   });
-  it("never collides on NULL zitadel_client_id across multiple keys", async () => {
+  it("never collides on NULL oidc_client_id across multiple keys", async () => {
     await expect(
       Promise.all([
         insertKey(TENANT_A, { name: "no-client-id-1" }),

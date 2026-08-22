@@ -83,18 +83,18 @@ export const requireActingPerson = (): MiddlewareHandler =>
       // revealing which case applied.
       const [keyRow] = await withTenantContext(auth.tenantId, (tx) =>
         tx
-          .select({ zitadelClientId: apiKeys.zitadelClientId })
+          .select({ oidcClientId: apiKeys.oidcClientId })
           .from(apiKeys)
           .where(and(eq(apiKeys.id, apiKeyId), isNull(apiKeys.revokedAt)))
           .limit(1),
       );
-      if (!keyRow?.zitadelClientId) {
+      if (!keyRow?.oidcClientId) {
         return unauthorized(c);
       }
 
       const claims = await verifyJwtWithAudience(
         personToken,
-        keyRow.zitadelClientId,
+        keyRow.oidcClientId,
       );
       if (!claims) {
         return unauthorized(c);
@@ -108,7 +108,10 @@ export const requireActingPerson = (): MiddlewareHandler =>
         return unauthorized(c);
       }
       const ageSeconds = Date.now() / 1000 - issuedAt;
-      if (ageSeconds > ACTING_PERSON_TOKEN_MAX_AGE_MINUTES * 60) {
+      if (
+        ageSeconds > ACTING_PERSON_TOKEN_MAX_AGE_MINUTES * 60 ||
+        ageSeconds < -60
+      ) {
         return unauthorized(c);
       }
 
