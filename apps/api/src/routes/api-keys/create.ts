@@ -161,6 +161,7 @@ export const createApiKeyHandler = factory.createHandlers(
           and(
             eq(apiKeys.zitadelClientId, zitadelClientId),
             isNull(apiKeys.revokedAt),
+            eq(apiKeys.zitadelClientIdActive, true),
           ),
         );
 
@@ -247,7 +248,7 @@ export const createApiKeyHandler = factory.createHandlers(
           ) {
             throw new ClientIdInUseError();
           }
-          // Migrations 0069/0070's CHECK constraints bound application_name/
+          // Migrations 0070/0071's CHECK constraints bound application_name/
           // application_description/application_contact_email/
           // zitadel_client_id at the DB layer with the same limits this
           // schema's .max() already enforces — every one of them is named

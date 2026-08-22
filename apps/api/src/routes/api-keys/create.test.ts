@@ -534,7 +534,7 @@ describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)"
     expect(res.status).not.toBe(409);
   });
 
-  it("returns 422 (not an unhandled 500) when the insert hits any api_keys_<column>_length CHECK constraint — e.g. zitadelClientId's DB-layer bound (migration 0070)", async () => {
+  it("returns 422 (not an unhandled 500) when the insert hits any api_keys_<column>_length CHECK constraint — e.g. zitadelClientId's DB-layer bound (migration 0071)", async () => {
     mockSelectResult.rows = [];
     mockInsertError.error = {
       code: "23514",

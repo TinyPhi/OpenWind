@@ -9,10 +9,12 @@ A1→A2 in this same feature)
 
 #### Issue #451 (zitadel_client_id had the same DB-unbounded-but-Zod-bounded gap #445 fixed for three sibling columns)
 
-- Migration `0070_api_keys_zitadel_client_id_length_limit.sql`: `CHECK (char_length(zitadel_client_id) <= 200)`,
-  matching `create.ts`'s existing Zod `.max(200)` bound. Audited `platform_test` first (zero
-  rows with any `zitadel_client_id` populated) before applying, per migration 0037/0069's
-  established precedent.
+- Migration `0071_api_keys_zitadel_client_id_length_limit.sql` (renumbered from 0070 during a
+  later rebase — main's tip claimed 0069/0070 first via PR #446/PR #452, same shape as #445's
+  own 0069→0070 renumber): `CHECK (char_length(zitadel_client_id) <= 200)`, matching
+  `create.ts`'s existing Zod `.max(200)` bound. Audited `platform_test` first (zero rows with
+  any `zitadel_client_id` populated) before applying, per migration 0037/0070's established
+  precedent.
 - `create.ts`'s existing `23514`→`422` mapping (added in #445) generalized from
   `constraint_name.startsWith("api_keys_application_")` to `.endsWith("_length")` — covers all
   four length-bound columns by naming convention instead of hardcoding each one; verified no

@@ -145,11 +145,23 @@ services:
     container_name: ow-cache
     image: redis:7-alpine
     restart: unless-stopped
-    # No host port mapping: apps/worker runs as a container on this deployment
-    # (fully containerized, no host-side `pnpm dev` process reaching in), and
-    # ow-backend/worker reach redis over the Docker network by service name.
-    # A host mapping here also collides with other projects' redis containers
-    # sharing this host on the default 6379 port.
+    ports:
+      # Loopback-only (127.0.0.1), not 0.0.0.0: redis has no auth configured
+      # (no `requirepass`/ACL) — an unqualified host mapping would expose it,
+      # unauthenticated, to the whole network on a server deployment (this
+      # compose file is "the standard way to run the app, in dev and on
+      # servers alike" per CLAUDE.md). Loopback-only still satisfies the
+      # actual need (host-mode `pnpm test`/`pnpm dev` reaching in from the
+      # same machine) without that exposure.
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    # ow-backend/worker reach redis over the Docker network by service name —
+    # this host mapping is only for host-mode `pnpm test`/`pnpm dev` reaching
+    # in (same reason postgres has POSTGRES_HOST_PORT). The default still
+    # binds host port 6379, so a host already running another redis container
+    # on that port (a second OpenWind checkout, an unrelated project) will
+    # fail to start ow-cache — set REDIS_HOST_PORT to a free port to resolve
+    # that, same as POSTGRES_HOST_PORT (issue #450) — see
+    # .env.example's own note on that var for the override caveat.
     command: >
       redis-server
         --maxmemory 512mb

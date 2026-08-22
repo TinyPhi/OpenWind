@@ -7,7 +7,8 @@
 
 #### Issue #445 (api_keys application metadata columns were unbounded at the DB layer)
 
-- Migration `0069_api_keys_application_metadata_length_limits.sql` adds `CHECK` constraints
+- Migration `0070_api_keys_application_metadata_length_limits.sql` (renumbered from 0069 to
+  0070 during a later rebase — main's tip claimed 0069 first via PR #446) adds `CHECK` constraints
   bounding `application_name` (≤200), `application_description` (≤2000), and
   `application_contact_email` (≤320, RFC 5321's max address length) on `api_keys` — these
   columns were added unbounded `text` by migration 0068 (PR #439).

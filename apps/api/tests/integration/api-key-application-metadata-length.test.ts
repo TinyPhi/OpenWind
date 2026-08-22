@@ -1,5 +1,5 @@
 /**
- * DB-level tests for migrations 0069/0070's CHECK constraints bounding
+ * DB-level tests for migrations 0070/0071's CHECK constraints bounding
  * api_keys.application_name/application_description/
  * application_contact_email (issue #445, found during PR #439 review) and
  * zitadel_client_id (issue #451, the same defect shape flagged in the same
@@ -96,7 +96,7 @@ const BOUNDED_COLUMNS = [
   },
 ];
 
-describe("api_keys column length constraints (migrations 0069/0070)", () => {
+describe("api_keys column length constraints (migrations 0070/0071)", () => {
   it.each(BOUNDED_COLUMNS)(
     "rejects $column over its $limit-char limit",
     async ({ column, limit, valueAtLength }) => {
