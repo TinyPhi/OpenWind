@@ -2,7 +2,7 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole, requireIntrospection } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, desc } from "drizzle-orm";
 import { factory } from "./factory.js";
 
 const ListApiKeysQuerySchema = z.object({
@@ -48,7 +48,7 @@ export const listApiKeysHandler = factory.createHandlers(
             ? eq(apiKeys.tenantId, tenantId)
             : and(eq(apiKeys.tenantId, tenantId), isNull(apiKeys.revokedAt)),
         )
-        .orderBy(apiKeys.createdAt)
+        .orderBy(desc(apiKeys.createdAt))
         .limit(limit)
         .offset(offset),
     );

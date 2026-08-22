@@ -51,6 +51,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ op: "eq", args })),
   and: vi.fn((...args: unknown[]) => ({ op: "and", args })),
   isNull: vi.fn((...args: unknown[]) => ({ op: "isNull", args })),
+  desc: vi.fn((...args: unknown[]) => ({ op: "desc", args })),
 }));
 
 const { listApiKeysHandler } = await import("./list.js");
