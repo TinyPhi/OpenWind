@@ -330,7 +330,7 @@ export function Layout({
           <span />
           <span />
         </button>
-        <div className="logo-icon">OW</div>
+        <img src="/ow-logo.png" alt="OpenWind" className="logo-icon" />
         <div className="logo-text">OpenWind</div>
       </div>
 
