@@ -159,8 +159,10 @@ const EnvSchema = z
       .string()
       .transform((v) => v === "true")
       .default("false"),
+    // Secrets Provider: "openbao" for external vault, "local" for local AES-256-GCM encryption
+    SECRETS_PROVIDER: z.enum(["openbao", "local"]).default("openbao"),
     // OpenBao — Transit envelope encryption for connector credentials
-    OPENBAO_ADDR: z.string().url(),
+    OPENBAO_ADDR: z.string().url().optional(),
     OPENBAO_TRANSIT_KEY: z.string().default("platform-credentials"),
     // Dev: static root token. Prod: leave unset and use AppRole instead.
     OPENBAO_TOKEN: z.string().optional(),
@@ -169,12 +171,19 @@ const EnvSchema = z
     OPENBAO_SECRET_ID: z.string().optional(),
   })
   .refine(
+    (v) => v.SECRETS_PROVIDER !== "openbao" || v.OPENBAO_ADDR !== undefined,
+    {
+      message: "OPENBAO_ADDR is required when SECRETS_PROVIDER is 'openbao'",
+    },
+  )
+  .refine(
     (v) =>
+      v.SECRETS_PROVIDER !== "openbao" ||
       v.OPENBAO_TOKEN !== undefined ||
       (v.OPENBAO_ROLE_ID !== undefined && v.OPENBAO_SECRET_ID !== undefined),
     {
       message:
-        "Either OPENBAO_TOKEN (dev) or both OPENBAO_ROLE_ID and OPENBAO_SECRET_ID (prod) must be set",
+        "Either OPENBAO_TOKEN (dev) or both OPENBAO_ROLE_ID and OPENBAO_SECRET_ID (prod) must be set for 'openbao' provider",
     },
   )
   .refine(

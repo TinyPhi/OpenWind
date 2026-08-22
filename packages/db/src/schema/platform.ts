@@ -303,7 +303,7 @@ export const connectorDefinitions = pgTable("connector_definitions", {
  * (packages/connector-sdk/src/types.ts) rather than creating a second,
  * differently-named table.
  *
- * `secrets` is a JSONB map of credentialKey -> OpenBao ciphertext, matching
+ * `secrets` is a JSONB map of credentialKey -> vault/encryption provider ciphertext, matching
  * runtime.ts's `encryptedCredentials: Record<string, string>` parameter
  * exactly — actual plaintext credentials are never stored here.
  * `cursor_state` is 1:1 polling-cursor state for polling connectors
@@ -325,7 +325,7 @@ export const connectorCredentials = pgTable(
     connectorId: uuid("connector_id")
       .notNull()
       .references(() => connectorDefinitions.id),
-    /** credentialKey -> OpenBao ciphertext (see ConnectorAuthConfig). Never plaintext. */
+    /** credentialKey -> vault/encryption provider ciphertext (see ConnectorAuthConfig). Never plaintext. */
     secrets: jsonb("secrets").default({}).notNull(),
     /** Polling-connector cursor (e.g. last-seen IMAP UID) — 1:1 with this installation row. */
     cursorState: jsonb("cursor_state"),
