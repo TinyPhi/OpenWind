@@ -161,6 +161,7 @@ export const createApiKeyHandler = factory.createHandlers(
           and(
             eq(apiKeys.zitadelClientId, zitadelClientId),
             isNull(apiKeys.revokedAt),
+            eq(apiKeys.zitadelClientIdActive, true),
           ),
         );
 

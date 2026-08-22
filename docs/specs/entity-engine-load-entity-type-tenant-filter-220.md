@@ -103,6 +103,12 @@ phase gate: T1–T3 land as one commit set; T4 all green before opening PR
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | B1  | Full `pnpm test:isolation`/`pnpm test` runs during T4 initially showed failures in `ticket-alerts*.isolation.test.ts` (duplicate-key/FK errors), `modules.test.ts`/`quarantine-flow.test.ts`/`upload-flow.test.ts` (Redis `ECONNREFUSED`), and `view-configs.test.ts` (already-tracked #149) | (a) local test DB had pending migrations (`ticket_alerts` table missing) plus dangling rows from earlier interrupted runs in this same session — fixed by running migrations + manual cleanup; (b) Redis has no host port mapping in this repo's `docker-compose.yml` (intentional, see CLAUDE.md maintenance notes) so host-mode `pnpm test` can't reach it — this only affects local host-mode runs, not CI/`docker compose up -d`; (c) #149 is pre-existing, already filed, unrelated to this change | no — (a) was one-off local sandbox drift, not a recurring class; (b)/(c) are already-known environmental/tracked issues, not new invariants for this spec |
 
+**Update (2026-08-21, issue #450):** row B1(b)'s premise no longer holds — Redis gained a
+loopback-only host port mapping, so host-mode `pnpm test` can now reach it. The
+"CLAUDE.md maintenance notes" citation was already stale independent of this (no such note
+exists in current CLAUDE.md). Recorded here rather than editing the row above, matching this
+spec's own Bugs-log convention of leaving prior entries verbatim.
+
 ---
 
 _spec is source of truth — update as decisions are made_
