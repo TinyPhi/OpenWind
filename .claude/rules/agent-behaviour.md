@@ -63,6 +63,17 @@ reference: `.claude/README.md`; completion contract: `.claude/references/definit
 | **Docs**   | update `docs/**`/`CLAUDE.md`/`README.md`/`.claude/**/*.md` → `write-docs-marker.sh --touched`, or `--skip "<reason>"` if genuinely none apply | `commit-gate` needs a docs marker matching the diff (touched or explicitly skipped)               |
 | **Ship**   | the loop's **commit procedure** (exit condition → marker → commit → PR)                                                                       | `commit-gate` blocks `git commit` without a fresh marker + matching review + matching docs marker |
 
+**Scale review effort to diff size and risk — this is a cost control, not optional polish.**
+`/review` can fan out into many parallel sub-agents; that fan-out is appropriate for large or
+security-sensitive diffs (new tables/routes/auth paths, multi-file features) but wasteful for a
+small, mechanical, or config/docs-only change (a single migration, a comment fix, a one-file
+docker-compose tweak). For the latter, ask for a low/quick-effort pass explicitly (pass an
+effort hint in the skill's `args`, e.g. "low effort, small config-only diff") rather than
+defaulting to full fan-out every time. Don't re-invoke `/review` repeatedly on the same diff
+once it returns clean — one pass per meaningfully-changed diff is enough. This was a real
+incident: an unscaled multi-round review of a handful of docker-compose/docs edits alone spent
+a large fraction of a session's token budget and contributed to hitting the org's spend limit.
+
 The human approves twice: type `approve-plan` (start) and `approve-ship` (end) in chat. The
 `approval-gate` hook fires on your prompt rather than agent output, which makes _accidental_
 self-approval unlikely — but it is not a hard guarantee (the approval state is a plain file). The
