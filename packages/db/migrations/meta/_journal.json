@@ -484,6 +484,13 @@
       "when": 1785542420000,
       "tag": "0068_api_keys_third_party_application_metadata",
       "breakpoints": false
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1785542421000,
+      "tag": "0069_api_keys_client_id_rotation_handoff",
+      "breakpoints": false
     }
   ]
 }
