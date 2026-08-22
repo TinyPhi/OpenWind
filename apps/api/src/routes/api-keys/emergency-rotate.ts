@@ -97,6 +97,32 @@ export const emergencyRotateApiKeyHandler = factory.createHandlers(
               Date.now() + API_KEY_DEFAULT_TTL_DAYS * 24 * 60 * 60 * 1000,
             );
 
+      // Zero grace, unlike rotate.ts's shortened-but-nonzero overlap window
+      // — revoked_at is set immediately, the defining difference of this
+      // endpoint. Run BEFORE the insert below, not after (review finding,
+      // PrabhuVijit on PR #446) — the new row carries the target's own
+      // zitadelClientId forward for action-format keys, and Postgres checks
+      // unique constraints immediately (not deferred), so if the insert ran
+      // first, both rows would briefly hold zitadel_client_id_active = true
+      // at once and the insert itself would fail the very index this instant
+      // kill exists to satisfy — the exact ordering rotate.ts's own handoff
+      // comment already documents.
+      await tx
+        .update(apiKeys)
+        .set({ revokedAt: new Date(), revokedBy: userId })
+        .where(and(eq(apiKeys.id, target.id), eq(apiKeys.tenantId, tenantId)));
+
+      if (liveSuccessor) {
+        await tx
+          .update(apiKeys)
+          .set({ revokedAt: new Date(), revokedBy: userId })
+          .where(
+            and(
+              eq(apiKeys.id, liveSuccessor.id),
+              eq(apiKeys.tenantId, tenantId),
+            ),
+          );
+      }
       const [created] = await tx
         .insert(apiKeys)
         .values({
@@ -130,31 +156,6 @@ export const emergencyRotateApiKeyHandler = factory.createHandlers(
         });
       if (!created) {
         throw new Error("api_keys insert returned no row");
-      }
-
-      // Zero grace, unlike rotate.ts's shortened-but-nonzero overlap window
-      // — revoked_at is set immediately, the defining difference of this
-      // endpoint. Because revoked_at is set (not just a shortened expiresAt
-      // left at NULL), the target is excluded from the zitadel_client_id
-      // partial unique index (migration 0068/0069) the instant this commits
-      // — no separate zitadel_client_id_active handoff is needed here the
-      // way rotate.ts needs one, since there's no coexistence window for the
-      // old and new key to conflict during.
-      await tx
-        .update(apiKeys)
-        .set({ revokedAt: new Date(), revokedBy: userId })
-        .where(and(eq(apiKeys.id, target.id), eq(apiKeys.tenantId, tenantId)));
-
-      if (liveSuccessor) {
-        await tx
-          .update(apiKeys)
-          .set({ revokedAt: new Date(), revokedBy: userId })
-          .where(
-            and(
-              eq(apiKeys.id, liveSuccessor.id),
-              eq(apiKeys.tenantId, tenantId),
-            ),
-          );
       }
 
       await writeAuditEntry(tx, {
