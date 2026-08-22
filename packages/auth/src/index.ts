@@ -19,7 +19,16 @@ export type {
   ZitadelClaims,
   IntrospectionResult,
 } from "./types.js";
-export { verifyJwt, extractAuthContext } from "./jwks.js";
+export {
+  verifyJwt,
+  verifyJwtWithAudience,
+  extractAuthContext,
+} from "./jwks.js";
+export {
+  requireActingPerson,
+  ACTING_PERSON_TOKEN_MAX_AGE_MINUTES,
+} from "./dual-identity.js";
+export type { ActingPersonContext } from "./dual-identity.js";
 export { introspectToken } from "./introspection.js";
 export {
   listProjectRoles,

@@ -17,6 +17,7 @@ import { hashApiKey } from "@platform/auth";
 import type { AuthContext } from "@platform/auth";
 import { rotateApiKeyHandler } from "../../src/routes/api-keys/rotate.js";
 import { emergencyRotateApiKeyHandler } from "../../src/routes/api-keys/emergency-rotate.js";
+import { deleteApiKeyHandler } from "../../src/routes/api-keys/delete.js";
 
 const TENANT = "aaaaaaaa-0000-4000-a000-000000000440";
 
@@ -54,6 +55,7 @@ function makeApp() {
   });
   app.post("/:id/rotate", ...rotateApiKeyHandler);
   app.post("/:id/emergency-rotate", ...emergencyRotateApiKeyHandler);
+  app.delete("/:id", ...deleteApiKeyHandler);
   return app;
 }
 
@@ -295,5 +297,51 @@ describe("POST /api-keys/:id/emergency-rotate — real Postgres (ADR-012 Phase A
         .where(eq(apiKeys.id, targetId)),
     );
     expect(targetRow?.revokedAt).not.toBeNull();
+  });
+});
+
+describe("DELETE /api-keys/:id — decommission a key mid-rotation-grace, real Postgres (ADR-012 Phase A spec R9)", () => {
+  // Spec R9: "same rejection path as Revoke — no grace, regardless of
+  // whether the key was mid-rotation-grace at the time." Revoke and
+  // decommission share one handler (delete.ts) with no special-casing for a
+  // key's rotation-lineage state, so this is the case that would break first
+  // if a future change ever taught delete.ts to look at rotatedFrom/grace
+  // status — a still-dying predecessor must die on revoke exactly as
+  // instantly as any ordinary active key would.
+  it("instantly revokes a dying predecessor instead of letting it finish its 24h grace", async () => {
+    const originalId = await insertKey({ name: "decommission-mid-grace" });
+
+    const rotateRes = await makeApp().request(`/${originalId}/rotate`, {
+      method: "POST",
+      headers: skHeaders(),
+    });
+    expect(rotateRes.status).toBe(201);
+    const rotateJson = (await rotateRes.json()) as { data: { id: string } };
+    allKeyIds.push(rotateJson.data.id);
+
+    // originalId is now the dying predecessor, mid-24h-grace, revokedAt still
+    // null and expiresAt still ~24h out — exactly the state R9 targets.
+    const [beforeRow] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ revokedAt: apiKeys.revokedAt, expiresAt: apiKeys.expiresAt })
+        .from(apiKeys)
+        .where(eq(apiKeys.id, originalId)),
+    );
+    expect(beforeRow?.revokedAt).toBeNull();
+    expect(beforeRow?.expiresAt?.getTime()).toBeGreaterThan(Date.now());
+
+    const deleteRes = await makeApp().request(`/${originalId}`, {
+      method: "DELETE",
+      headers: skHeaders(),
+    });
+    expect(deleteRes.status).toBe(204);
+
+    const [afterRow] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ revokedAt: apiKeys.revokedAt })
+        .from(apiKeys)
+        .where(eq(apiKeys.id, originalId)),
+    );
+    expect(afterRow?.revokedAt).not.toBeNull();
   });
 });
