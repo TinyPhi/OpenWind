@@ -98,19 +98,27 @@ export const apiKeys = pgTable(
     applicationDescription: text("application_description"),
     /** Unblocks a deferred expiry-notification fast-follow (ADR-012 Decision #10). */
     applicationContactEmail: text("application_contact_email"),
-    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across active (non-revoked) keys — see migration 0068's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
+    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND zitadel_client_id_active) keys — see migration 0068/0069's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
     zitadelClientId: text("zitadel_client_id"),
+    /** Migration 0069 — separates "still authenticating" (revoked_at) from "currently holds this Client ID for uniqueness purposes." Rotation needs both the dying predecessor and the new successor to authenticate/carry the same zitadel_client_id value during the 24h grace window, but only one of them should count toward uniqueness — rotate.ts flips this false on the predecessor in the same transaction that inserts the successor (which keeps the column default, true). Every other code path leaves this untouched. */
+    zitadelClientIdActive: boolean("zitadel_client_id_active")
+      .default(true)
+      .notNull(),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
-    // Migration 0068 — active (non-revoked) keys only; see that migration's
-    // comment for why expired-but-not-revoked reuse can't also live in this
-    // predicate (partial-index predicates must be immutable, `now()` isn't).
+    // Migration 0068/0069 — active (non-revoked, zitadel_client_id_active)
+    // keys only; see those migrations' comments for why expired-but-not-
+    // revoked reuse can't also live in this predicate (partial-index
+    // predicates must be immutable, `now()` isn't), and why the separate
+    // zitadel_client_id_active flag exists (rotation's grace-window handoff).
     zitadelClientIdActiveUnique: uniqueIndex(
       "api_keys_zitadel_client_id_active_unique",
     )
       .on(t.zitadelClientId)
-      .where(sql`${t.revokedAt} IS NULL AND ${t.zitadelClientId} IS NOT NULL`),
+      .where(
+        sql`${t.revokedAt} IS NULL AND ${t.zitadelClientIdActive} = true AND ${t.zitadelClientId} IS NOT NULL`,
+      ),
   }),
 );
 
