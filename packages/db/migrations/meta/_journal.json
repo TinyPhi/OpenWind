@@ -498,6 +498,13 @@
       "when": 1785542422000,
       "tag": "0070_api_keys_application_metadata_length_limits",
       "breakpoints": false
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1785542423000,
+      "tag": "0071_api_keys_zitadel_client_id_length_limit",
+      "breakpoints": false
     }
   ]
 }

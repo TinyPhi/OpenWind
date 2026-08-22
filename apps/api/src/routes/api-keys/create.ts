@@ -235,29 +235,32 @@ export const createApiKeyHandler = factory.createHandlers(
           // `.cause` — not on the thrown error itself.
           const cause =
             err instanceof Error && "cause" in err ? err.cause : undefined;
-          if (
+          const constraintName =
             cause instanceof Error &&
             "code" in cause &&
-            cause.code === "23505" &&
             "constraint_name" in cause &&
-            cause.constraint_name === "api_keys_zitadel_client_id_active_unique"
+            typeof cause.constraint_name === "string"
+              ? { code: cause.code, name: cause.constraint_name }
+              : undefined;
+          if (
+            constraintName?.code === "23505" &&
+            constraintName.name === "api_keys_zitadel_client_id_active_unique"
           ) {
             throw new ClientIdInUseError();
           }
-          // Migration 0069's CHECK constraints bound application_name/
-          // application_description/application_contact_email at the DB
-          // layer with the same limits this schema's .max() already
-          // enforces — this branch is defense-in-depth for the two bounds
-          // ever drifting apart, not an expected path today.
+          // Migrations 0070/0071's CHECK constraints bound application_name/
+          // application_description/application_contact_email/
+          // zitadel_client_id at the DB layer with the same limits this
+          // schema's .max() already enforces — every one of them is named
+          // api_keys_<column>_length (verified: no other constraint on this
+          // table ends in _length), so matching the suffix covers all four
+          // without hardcoding each name. Defense-in-depth for the two
+          // bounds ever drifting apart, not an expected path today.
           if (
-            cause instanceof Error &&
-            "code" in cause &&
-            cause.code === "23514" &&
-            "constraint_name" in cause &&
-            typeof cause.constraint_name === "string" &&
-            cause.constraint_name.startsWith("api_keys_application_")
+            constraintName?.code === "23514" &&
+            constraintName.name.endsWith("_length")
           ) {
-            throw new ApplicationMetadataTooLongError();
+            throw new FieldTooLongError();
           }
           throw err;
         }
@@ -302,11 +305,11 @@ export const createApiKeyHandler = factory.createHandlers(
           409,
         );
       }
-      if (err instanceof ApplicationMetadataTooLongError) {
+      if (err instanceof FieldTooLongError) {
         return c.json(
           {
             error: "VALIDATION_ERROR",
-            message: "One or more application metadata fields is too long",
+            message: "One or more fields exceeds its maximum length",
           },
           422,
         );
@@ -317,4 +320,4 @@ export const createApiKeyHandler = factory.createHandlers(
 );
 
 class ClientIdInUseError extends Error {}
-class ApplicationMetadataTooLongError extends Error {}
+class FieldTooLongError extends Error {}
