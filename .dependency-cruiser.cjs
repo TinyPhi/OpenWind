@@ -32,17 +32,50 @@ function packageNameOf(dir, folder) {
   }
 }
 
+const appDirNames = fs
+  .readdirSync(path.join(__dirname, "apps"), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name);
+
 // App package names (e.g. "@platform/api") don't follow a predictable prefix the way
 // packages/modules do, so they have to be read from each app's package.json rather than
 // pattern-matched.
-const appPackageNames = fs
-  .readdirSync(path.join(__dirname, "apps"), { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => packageNameOf("apps", entry.name))
+const appPackageNames = appDirNames
+  .map((dirName) => packageNameOf("apps", dirName))
   .filter((name) => typeof name === "string");
 
 const appAliasAlternatives = appPackageNames.map((name) => `${escapeRegex(name)}(?:$|/)`);
 const packagesNoAppsPattern = ["apps/", ...appAliasAlternatives].join("|");
+
+// One rule per app (not a single backreference-based rule like no-cross-module) —
+// app package names don't derive from the folder name predictably (see
+// appPackageNames's own comment above), so a single "$1"-style self-exclusion
+// can't be built generically across apps the way it can for modules/*. Skips
+// generating a rule at all when there are no sibling apps (otherAlternatives
+// would be empty and `^(?:)` matches every string, inverting a no-op into
+// "forbid everything from this app" — not reachable today at 3 apps, but a
+// silent trap if this ever runs against a single-app workspace).
+const noCrossAppRules = appDirNames
+  .map((dirName) => {
+    const otherAlternatives = appDirNames
+      .filter((other) => other !== dirName)
+      .flatMap((other) => {
+        const pkgName = packageNameOf("apps", other);
+        return [
+          `apps/${escapeRegex(other)}/`,
+          ...(pkgName ? [`${escapeRegex(pkgName)}(?:$|/)`] : []),
+        ];
+      });
+    if (otherAlternatives.length === 0) return null;
+    return {
+      name: `no-cross-app-${dirName}`,
+      comment: `apps/${dirName} cannot import from other apps.`,
+      severity: "error",
+      from: { path: `^apps/${escapeRegex(dirName)}/` },
+      to: { path: `^(?:${otherAlternatives.join("|")})` },
+    };
+  })
+  .filter((rule) => rule !== null);
 
 module.exports = {
   forbidden: [
@@ -93,6 +126,7 @@ module.exports = {
       from: { path: "^packages/workflow-engine/" },
       to: { path: "^(?:packages/automation-engine/|@platform/automation-engine(?:$|/))" },
     },
+    ...noCrossAppRules,
   ],
   options: {
     // "dist" alongside node_modules: cross-package imports (@platform/*) resolve through

@@ -42,10 +42,23 @@ Both scripts pass `--cache` (default location `node_modules/.cache/dependency-cr
 already covered by the repo's `node_modules/` gitignore entry) — repeated queries in the same
 session only re-parse files that changed since the last run.
 
+## Gotcha: `--cache` only sees files git knows about
+
+`--cache` (both scripts) diffs against `git` to decide which files changed since the last cruise
+— a brand-new file that hasn't been `git add`ed yet is invisible to it, and the run silently
+reports the pre-existing (stale) result instead of an error. Verified empirically while adding
+the `no-cross-app-*` rules below: a genuinely violating new file gave a clean
+`✔ no dependency violations found` from `pnpm dep:check` right up until `git add`, at which point
+the exact same command correctly reported it. Plain `depcruise` (no `--cache`) always re-scans
+the full tree and doesn't have this gap — reach for that (or `git add` first) when checking work
+you haven't staged yet, and don't trust a clean `dep:check`/`dep:impact` result for files still
+sitting untracked.
+
 ## Gotcha: forbidden imports can't be told apart from missing ones by path alone
 
 The rules in `.dependency-cruiser.cjs` (`no-cross-module`, `packages-no-apps`, `packages-no-modules`,
-`entity-engine-no-workflow-or-automation`, `workflow-engine-no-automation`) each match **two**
+`entity-engine-no-workflow-or-automation`, `workflow-engine-no-automation`, `no-cross-app-*`) each
+match **two**
 forms of the same violation, and dropping either form silently breaks the rule:
 
 1. **A resolved path** (e.g. a relative import that reaches into another module's folder) —
@@ -93,6 +106,7 @@ with dist included as crawl roots, vs. 698 / 3024 without — same repo).
 - No framework-specific understanding — it's a syntactic import/require graph, not aware of
   Zod schema inference, Drizzle query builders, or Hono route wiring. It answers "who imports
   this file," not "who is affected by this runtime behavior."
-- Re-cruises the whole graph each run (`--cache` only skips re-parsing unchanged files within
-  that); it isn't a persisted index across sessions the way a language server or a tool like
-  GitNexus's MCP server would be. Fine at this repo's current scale (a few seconds cold).
+- Re-cruises the whole graph each run (`--cache` only skips re-parsing unchanged **tracked**
+  files — see the git-visibility gotcha above); it isn't a persisted index across sessions the
+  way a language server or a tool like GitNexus's MCP server would be. Fine at this repo's
+  current scale (a few seconds cold).
