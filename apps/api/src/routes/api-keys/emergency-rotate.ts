@@ -123,7 +123,6 @@ export const emergencyRotateApiKeyHandler = factory.createHandlers(
             ),
           );
       }
-
       const [created] = await tx
         .insert(apiKeys)
         .values({
