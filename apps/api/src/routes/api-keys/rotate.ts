@@ -116,7 +116,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
         .update(apiKeys)
         .set({
           expiresAt: newExpiresAt,
-          // Migration 0069/0071: the dying predecessor keeps authenticating
+          // Migration 0069/0072: the dying predecessor keeps authenticating
           // (revoked_at untouched) and keeps its oidc_client_id *value*
           // (so it still identifies the right application if anything reads
           // it during the grace window), but hands off the Client ID's

@@ -98,16 +98,16 @@ export const apiKeys = pgTable(
     applicationDescription: text("application_description"),
     /** Unblocks a deferred expiry-notification fast-follow (ADR-012 Decision #10). */
     applicationContactEmail: text("application_contact_email"),
-    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND oidc_client_id_active) keys — see migration 0068/0069/0071's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
+    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND oidc_client_id_active) keys — see migration 0068/0069/0072's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
     oidcClientId: text("oidc_client_id"),
-    /** Migration 0069/0071 — separates "still authenticating" (revoked_at) from "currently holds this Client ID for uniqueness purposes." Rotation needs both the dying predecessor and the new successor to authenticate/carry the same oidc_client_id value during the 24h grace window, but only one of them should count toward uniqueness — rotate.ts flips this false on the predecessor in the same transaction that inserts the successor (which keeps the column default, true). Every other code path leaves this untouched. */
+    /** Migration 0069/0072 — separates "still authenticating" (revoked_at) from "currently holds this Client ID for uniqueness purposes." Rotation needs both the dying predecessor and the new successor to authenticate/carry the same oidc_client_id value during the 24h grace window, but only one of them should count toward uniqueness — rotate.ts flips this false on the predecessor in the same transaction that inserts the successor (which keeps the column default, true). Every other code path leaves this untouched. */
     oidcClientIdActive: boolean("oidc_client_id_active")
       .default(true)
       .notNull(),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
-    // Migration 0068/0069/0071 — active (non-revoked, oidc_client_id_active)
+    // Migration 0068/0069/0072 — active (non-revoked, oidc_client_id_active)
     // keys only; see those migrations' comments for why expired-but-not-
     // revoked reuse can't also live in this predicate (partial-index
     // predicates must be immutable, `now()` isn't), and why the separate

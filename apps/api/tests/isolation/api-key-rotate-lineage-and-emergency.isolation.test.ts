@@ -2,7 +2,7 @@
  * Isolation tests for PR A3 (ADR-012 Phase A) against a real Postgres:
  * - rotation lineage cap (spec R4) — rotating a key that itself has a live
  *   predecessor instantly kills that predecessor
- * - rotation's Client-ID handoff (migration 0069/0071) — rotating a third-party
+ * - rotation's Client-ID handoff (migration 0069/0072) — rotating a third-party
  *   key succeeds without hitting the oidc_client_id partial unique index,
  *   because the predecessor's oidc_client_id_active flag is cleared
  * - Emergency Rotate (spec R5) — instant kill, and killing a live successor
@@ -165,7 +165,7 @@ describe("POST /api-keys/:id/rotate — lineage cap, real Postgres (ADR-012 Phas
   });
 });
 
-describe("POST /api-keys/:id/rotate — Client ID handoff, real Postgres (migration 0069/0071)", () => {
+describe("POST /api-keys/:id/rotate — Client ID handoff, real Postgres (migration 0069/0072)", () => {
   it("rotates a third-party key successfully without hitting the oidc_client_id unique index", async () => {
     const clientId = `rotate-handoff-test-${Math.random().toString(36).slice(2)}`;
     const originalId = await insertKey({
