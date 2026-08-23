@@ -409,7 +409,9 @@ export async function createEntity(
     db,
     tenantId,
     actorId: input.createdBy ?? "system",
-    actorType: input.createdBy !== undefined ? "user" : "system",
+    actorType:
+      input.actorType ?? (input.createdBy !== undefined ? "user" : "system"),
+    actingPersonId: input.actingPersonId,
     resourceType: entityType.name,
     resourceId: row.id,
     action: "created",

@@ -82,6 +82,9 @@ export type CreateEntityInput = {
   fields: Record<string, unknown>;
   createdBy?: string | undefined;
   actorId?: string | undefined;
+  actorType?: "user" | "api_key" | "system" | undefined;
+  /** ADR-012 Phase B, spec R9/GAP-05 — the real person acting through a third-party API key (actorId/actorType above), distinct so the audit trail can search by person or by key independently. */
+  actingPersonId?: string | undefined;
   /** Display name snapshot stored in event metadata for immutable history. */
   actorName?: string | undefined;
   assignedTo?: string | undefined;
