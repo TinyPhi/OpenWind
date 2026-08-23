@@ -56,7 +56,9 @@ vi.mock("@platform/db", () => ({
     };
     return fn(tx);
   },
-  apiKeys: {},
+  apiKeys: {
+    scopesFormat: "api_keys.scopes_format",
+  },
 }));
 
 vi.mock("@platform/audit", () => ({
@@ -134,11 +136,11 @@ describe("PATCH /api-keys/:id — description/contact-email only (ADR-012 Phase 
     expect(res.status).toBe(400);
   });
 
-  it("rejects an attempt to change zitadelClientId — the schema doesn't accept that field at all", async () => {
+  it("rejects an attempt to change oidcClientId — the schema doesn't accept that field at all", async () => {
     const res = await makeApp().request("/key-1", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ zitadelClientId: "some-other-client" }),
+      body: JSON.stringify({ oidcClientId: "some-other-client" }),
     });
     expect(res.status).toBe(400);
   });
@@ -183,6 +185,23 @@ describe("PATCH /api-keys/:id — description/contact-email only (ADR-012 Phase 
     expect(andCall.args.some((a: { op: string }) => a.op === "isNull")).toBe(
       true,
     );
+  });
+
+  it("guards the update with eq(scopesFormat, 'action') — only action-format keys can be edited", async () => {
+    await makeApp().request("/key-1", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: body(),
+    });
+    const [andCall] = mockWhere.mock.calls[0];
+    expect(andCall.op).toBe("and");
+    const hasScopesFormatCheck = andCall.args.some(
+      (a: { op: string; args: unknown[] }) =>
+        a.op === "eq" &&
+        a.args[0] === "api_keys.scopes_format" &&
+        a.args[1] === "action",
+    );
+    expect(hasScopesFormatCheck).toBe(true);
   });
 
   it("returns 404 when the key doesn't exist, belongs to another tenant, or is revoked", async () => {

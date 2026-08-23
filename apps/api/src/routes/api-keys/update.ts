@@ -7,10 +7,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import { factory } from "./factory.js";
 
 // ADR-012 Phase A (PR A5): only these two fields are ever editable after
-// creation. name, scopes, and zitadelClientId are security/identity-defining
+// creation. name, scopes, and oidcClientId are security/identity-defining
 // — spec R8/§V already declares scopes immutable ("need different
 // permissions -> issue a new key"), and the same reasoning applies to
-// zitadelClientId (it identifies WHICH external application the key belongs
+// oidcClientId (it identifies WHICH external application the key belongs
 // to; changing it is a different registration, not an edit) and name.
 // applicationDescription/applicationContactEmail are purely informational —
 // changing them has no security or authorization effect, so unlike the
@@ -54,6 +54,7 @@ export const updateApiKeyHandler = factory.createHandlers(
             eq(apiKeys.id, id),
             eq(apiKeys.tenantId, tenantId),
             isNull(apiKeys.revokedAt),
+            eq(apiKeys.scopesFormat, "action"),
           ),
         )
         .returning({

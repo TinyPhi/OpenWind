@@ -11,7 +11,13 @@ import {
   detectScopesFormat,
   unknownTicketActionScopes,
 } from "@platform/auth";
-import { db, withTenantContext, apiKeys } from "@platform/db";
+import {
+  db,
+  withTenantContext,
+  apiKeys,
+  isUniqueViolation,
+  isCheckViolation,
+} from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import { and, eq, isNull } from "drizzle-orm";
 import { factory } from "./factory.js";
@@ -30,7 +36,7 @@ const CreateApiKeySchema = z.object({
   // CHECK constraint (issue #445) so an oversized value 400s here, not at
   // the DB.
   applicationContactEmail: z.string().email().max(320).optional(),
-  zitadelClientId: z.string().min(1).max(200).optional(),
+  oidcClientId: z.string().min(1).max(200).optional(),
 });
 
 const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
@@ -47,7 +53,7 @@ export const createApiKeyHandler = factory.createHandlers(
       applicationName,
       applicationDescription,
       applicationContactEmail,
-      zitadelClientId,
+      oidcClientId,
     } = c.req.valid("json");
     const { tenantId, roles, userId } = c.get("auth");
 
@@ -99,12 +105,12 @@ export const createApiKeyHandler = factory.createHandlers(
       // Spec R7: a formal application record is mandatory for a third-party
       // key — these fields are optional at the schema level only so the
       // role-format path above doesn't need to supply dummy values.
-      if (!applicationName || !applicationContactEmail || !zitadelClientId) {
+      if (!applicationName || !applicationContactEmail || !oidcClientId) {
         return c.json(
           {
             error: "VALIDATION_ERROR",
             message:
-              "applicationName, applicationContactEmail, and zitadelClientId are required for an action-scoped key",
+              "applicationName, applicationContactEmail, and oidcClientId are required for an action-scoped key",
           },
           422,
         );
@@ -150,7 +156,7 @@ export const createApiKeyHandler = factory.createHandlers(
     // design (see client.ts's own comment on this), same precedent already
     // relied on by isTenantActive() for the same "this must see across
     // tenants" reason.
-    if (scopesFormat === "action" && zitadelClientId) {
+    if (scopesFormat === "action" && oidcClientId) {
       const [conflict] = await db
         .select({
           id: apiKeys.id,
@@ -159,9 +165,9 @@ export const createApiKeyHandler = factory.createHandlers(
         .from(apiKeys)
         .where(
           and(
-            eq(apiKeys.zitadelClientId, zitadelClientId),
+            eq(apiKeys.oidcClientId, oidcClientId),
             isNull(apiKeys.revokedAt),
-            eq(apiKeys.zitadelClientIdActive, true),
+            eq(apiKeys.oidcClientIdActive, true),
           ),
         );
 
@@ -208,7 +214,7 @@ export const createApiKeyHandler = factory.createHandlers(
                     applicationName,
                     applicationDescription,
                     applicationContactEmail,
-                    zitadelClientId,
+                    oidcClientId,
                   }
                 : {}),
             })
@@ -220,7 +226,7 @@ export const createApiKeyHandler = factory.createHandlers(
               createdAt: apiKeys.createdAt,
               expiresAt: apiKeys.expiresAt,
               applicationName: apiKeys.applicationName,
-              zitadelClientId: apiKeys.zitadelClientId,
+              oidcClientId: apiKeys.oidcClientId,
             });
         } catch (err) {
           // Defense-in-depth for the race the pre-insert conflict check above
@@ -230,36 +236,18 @@ export const createApiKeyHandler = factory.createHandlers(
           // here and translated to the same clean 409 a pre-check-caught
           // conflict gets, rather than leaking a raw DB error as an unhandled
           // 500.
-          // Drizzle wraps the raw postgres.js error as a DrizzleQueryError,
-          // with the actual PostgresError (code, constraint_name, etc.) on
-          // `.cause` — not on the thrown error itself.
-          const cause =
-            err instanceof Error && "cause" in err ? err.cause : undefined;
-          const constraintName =
-            cause instanceof Error &&
-            "code" in cause &&
-            "constraint_name" in cause &&
-            typeof cause.constraint_name === "string"
-              ? { code: cause.code, name: cause.constraint_name }
-              : undefined;
-          if (
-            constraintName?.code === "23505" &&
-            constraintName.name === "api_keys_zitadel_client_id_active_unique"
-          ) {
+          if (isUniqueViolation(err, "api_keys_oidc_client_id_active_unique")) {
             throw new ClientIdInUseError();
           }
           // Migrations 0070/0071's CHECK constraints bound application_name/
           // application_description/application_contact_email/
-          // zitadel_client_id at the DB layer with the same limits this
+          // oidc_client_id at the DB layer with the same limits this
           // schema's .max() already enforces — every one of them is named
           // api_keys_<column>_length (verified: no other constraint on this
           // table ends in _length), so matching the suffix covers all four
           // without hardcoding each name. Defense-in-depth for the two
           // bounds ever drifting apart, not an expected path today.
-          if (
-            constraintName?.code === "23514" &&
-            constraintName.name.endsWith("_length")
-          ) {
+          if (isCheckViolation(err, (name) => name.endsWith("_length"))) {
             throw new FieldTooLongError();
           }
           throw err;

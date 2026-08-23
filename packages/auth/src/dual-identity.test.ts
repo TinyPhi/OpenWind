@@ -16,8 +16,8 @@ vi.mock("./jwks.js", () => ({
 
 // Row returned for the tenant-scoped api_keys lookup — undefined means "no
 // row" (key doesn't exist / already revoked, filtered by the WHERE clause).
-let mockKeyRow: { zitadelClientId: string | null } | undefined = {
-  zitadelClientId: "client-abc",
+let mockKeyRow: { oidcClientId: string | null } | undefined = {
+  oidcClientId: "client-abc",
 };
 
 const mockDbSelect = vi.fn(() => ({
@@ -31,7 +31,7 @@ const mockDbSelect = vi.fn(() => ({
 vi.mock("@platform/db", () => ({
   apiKeys: {
     id: "api_keys.id",
-    zitadelClientId: "api_keys.zitadel_client_id",
+    oidcClientId: "api_keys.oidc_client_id",
     revokedAt: "api_keys.revoked_at",
   },
   withTenantContext: vi.fn((_tenantId: string, fn: (tx: unknown) => unknown) =>
@@ -95,7 +95,7 @@ async function get(app: Hono, personToken?: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockKeyRow = { zitadelClientId: "client-abc" };
+  mockKeyRow = { oidcClientId: "client-abc" };
   mockVerifyJwtWithAudience.mockResolvedValue({
     sub: "person-1",
     email: "person1@example.com",
@@ -121,7 +121,7 @@ describe("requireActingPerson", () => {
   });
 
   it("rejects when the presented key has no registered Zitadel Client ID", async () => {
-    mockKeyRow = { zitadelClientId: null };
+    mockKeyRow = { oidcClientId: null };
     const res = await get(makeApp(API_KEY_AUTH), "some-token");
     expect(res.status).toBe(401);
     expect(mockVerifyJwtWithAudience).not.toHaveBeenCalled();
@@ -175,6 +175,28 @@ describe("requireActingPerson", () => {
       sub: "person-1",
       email: "person1@example.com",
       iat: nowSeconds() - ACTING_PERSON_TOKEN_MAX_AGE_MINUTES * 60 - 1,
+      "urn:zitadel:iam:user:resourceowner:id": "org-ccc",
+    });
+    const res = await get(makeApp(API_KEY_AUTH), "some-token");
+    expect(res.status).toBe(401);
+  });
+
+  it("tolerates a minor future clock skew", async () => {
+    mockVerifyJwtWithAudience.mockResolvedValue({
+      sub: "person-1",
+      email: "person1@example.com",
+      iat: nowSeconds() + 10,
+      "urn:zitadel:iam:user:resourceowner:id": "org-ccc",
+    });
+    const res = await get(makeApp(API_KEY_AUTH), "some-token");
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a token from the future exceeding clock skew tolerance", async () => {
+    mockVerifyJwtWithAudience.mockResolvedValue({
+      sub: "person-1",
+      email: "person1@example.com",
+      iat: nowSeconds() + 70,
       "urn:zitadel:iam:user:resourceowner:id": "org-ccc",
     });
     const res = await get(makeApp(API_KEY_AUTH), "some-token");
@@ -252,9 +274,9 @@ describe("requireActingPerson", () => {
 
   it("produces byte-identical error responses across every distinct failure case (spec R14)", async () => {
     const noHeader = await get(makeApp(API_KEY_AUTH));
-    mockKeyRow = { zitadelClientId: null };
+    mockKeyRow = { oidcClientId: null };
     const noClientId = await get(makeApp(API_KEY_AUTH), "t");
-    mockKeyRow = { zitadelClientId: "client-abc" };
+    mockKeyRow = { oidcClientId: "client-abc" };
     mockVerifyJwtWithAudience.mockResolvedValue(null);
     const badToken = await get(makeApp(API_KEY_AUTH), "t");
 

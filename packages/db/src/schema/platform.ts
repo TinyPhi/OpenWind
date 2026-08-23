@@ -98,26 +98,26 @@ export const apiKeys = pgTable(
     applicationDescription: text("application_description"),
     /** Unblocks a deferred expiry-notification fast-follow (ADR-012 Decision #10). */
     applicationContactEmail: text("application_contact_email"),
-    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND zitadel_client_id_active) keys — see migration 0068/0069's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
-    zitadelClientId: text("zitadel_client_id"),
-    /** Migration 0069 — separates "still authenticating" (revoked_at) from "currently holds this Client ID for uniqueness purposes." Rotation needs both the dying predecessor and the new successor to authenticate/carry the same zitadel_client_id value during the 24h grace window, but only one of them should count toward uniqueness — rotate.ts flips this false on the predecessor in the same transaction that inserts the successor (which keeps the column default, true). Every other code path leaves this untouched. */
-    zitadelClientIdActive: boolean("zitadel_client_id_active")
+    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND oidc_client_id_active) keys — see migration 0068/0069/0072's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
+    oidcClientId: text("oidc_client_id"),
+    /** Migration 0069/0072 — separates "still authenticating" (revoked_at) from "currently holds this Client ID for uniqueness purposes." Rotation needs both the dying predecessor and the new successor to authenticate/carry the same oidc_client_id value during the 24h grace window, but only one of them should count toward uniqueness — rotate.ts flips this false on the predecessor in the same transaction that inserts the successor (which keeps the column default, true). Every other code path leaves this untouched. */
+    oidcClientIdActive: boolean("oidc_client_id_active")
       .default(true)
       .notNull(),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
-    // Migration 0068/0069 — active (non-revoked, zitadel_client_id_active)
+    // Migration 0068/0069/0072 — active (non-revoked, oidc_client_id_active)
     // keys only; see those migrations' comments for why expired-but-not-
     // revoked reuse can't also live in this predicate (partial-index
     // predicates must be immutable, `now()` isn't), and why the separate
-    // zitadel_client_id_active flag exists (rotation's grace-window handoff).
-    zitadelClientIdActiveUnique: uniqueIndex(
-      "api_keys_zitadel_client_id_active_unique",
+    // oidc_client_id_active flag exists (rotation's grace-window handoff).
+    oidcClientIdActiveUnique: uniqueIndex(
+      "api_keys_oidc_client_id_active_unique",
     )
-      .on(t.zitadelClientId)
+      .on(t.oidcClientId)
       .where(
-        sql`${t.revokedAt} IS NULL AND ${t.zitadelClientIdActive} = true AND ${t.zitadelClientId} IS NOT NULL`,
+        sql`${t.revokedAt} IS NULL AND ${t.oidcClientIdActive} = true AND ${t.oidcClientId} IS NOT NULL`,
       ),
   }),
 );
@@ -303,7 +303,7 @@ export const connectorDefinitions = pgTable("connector_definitions", {
  * (packages/connector-sdk/src/types.ts) rather than creating a second,
  * differently-named table.
  *
- * `secrets` is a JSONB map of credentialKey -> OpenBao ciphertext, matching
+ * `secrets` is a JSONB map of credentialKey -> vault/encryption provider ciphertext, matching
  * runtime.ts's `encryptedCredentials: Record<string, string>` parameter
  * exactly — actual plaintext credentials are never stored here.
  * `cursor_state` is 1:1 polling-cursor state for polling connectors
@@ -325,7 +325,7 @@ export const connectorCredentials = pgTable(
     connectorId: uuid("connector_id")
       .notNull()
       .references(() => connectorDefinitions.id),
-    /** credentialKey -> OpenBao ciphertext (see ConnectorAuthConfig). Never plaintext. */
+    /** credentialKey -> vault/encryption provider ciphertext (see ConnectorAuthConfig). Never plaintext. */
     secrets: jsonb("secrets").default({}).notNull(),
     /** Polling-connector cursor (e.g. last-seen IMAP UID) — 1:1 with this installation row. */
     cursorState: jsonb("cursor_state"),

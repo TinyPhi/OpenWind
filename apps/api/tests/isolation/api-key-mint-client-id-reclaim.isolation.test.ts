@@ -79,7 +79,7 @@ function mintBody(clientId: string, overrides: Record<string, unknown> = {}) {
     scopes: ["entity:ticket:read"],
     applicationName: "Reclaim Test App",
     applicationContactEmail: "ops@reclaim-test.example",
-    zitadelClientId: clientId,
+    oidcClientId: clientId,
     ...overrides,
   });
 }

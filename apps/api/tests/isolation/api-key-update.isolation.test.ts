@@ -62,7 +62,8 @@ async function insertKey(overrides: Partial<typeof apiKeys.$inferInsert> = {}) {
         tenantId: TENANT_A,
         name: "update-test-key",
         keyHash: `sha256:update-test-${Math.random().toString(36).slice(2)}`,
-        scopes: ["agent"],
+        scopes: ["entity:ticket:read"],
+        scopesFormat: "action",
         applicationName: "Update Test App",
         applicationDescription: "Original description",
         applicationContactEmail: "original@example.com",
@@ -131,11 +132,25 @@ describe("PATCH /api-keys/:id — real Postgres (ADR-012 Phase A PR A5, AC7)", (
     expect(res.status).toBe(404);
   });
 
-  it("leaves name, scopes, and zitadelClientId completely unchanged — only description/email are ever accepted", async () => {
+  it("returns 404 when trying to update a role-format (internal) key", async () => {
+    const id = await insertKey({
+      scopes: ["agent"],
+      scopesFormat: "role",
+    });
+
+    const res = await makeApp(TENANT_A).request(`/${id}`, {
+      method: "PATCH",
+      headers: skHeaders(),
+      body: JSON.stringify({ applicationDescription: "Should fail" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("leaves name, scopes, and oidcClientId completely unchanged — only description/email are ever accepted", async () => {
     const id = await insertKey({
       scopes: ["entity:ticket:read"],
       scopesFormat: "action",
-      zitadelClientId: `update-test-client-${Math.random().toString(36).slice(2)}`,
+      oidcClientId: `update-test-client-${Math.random().toString(36).slice(2)}`,
     });
 
     await makeApp(TENANT_A).request(`/${id}`, {
@@ -149,13 +164,13 @@ describe("PATCH /api-keys/:id — real Postgres (ADR-012 Phase A PR A5, AC7)", (
         .select({
           name: apiKeys.name,
           scopes: apiKeys.scopes,
-          zitadelClientId: apiKeys.zitadelClientId,
+          oidcClientId: apiKeys.oidcClientId,
         })
         .from(apiKeys)
         .where(eq(apiKeys.id, id)),
     );
     expect(row?.name).toBe("update-test-key");
     expect(row?.scopes).toEqual(["entity:ticket:read"]);
-    expect(row?.zitadelClientId).toMatch(/^update-test-client-/);
+    expect(row?.oidcClientId).toMatch(/^update-test-client-/);
   });
 });

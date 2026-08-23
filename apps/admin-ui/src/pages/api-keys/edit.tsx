@@ -16,7 +16,7 @@ export interface EditApiKeyModalProps {
 }
 
 // ADR-012 Phase A (PR A5, AC7): only these two fields are ever editable —
-// name/scopes/zitadelClientId stay permanently immutable after creation
+// name/scopes/oidcClientId stay permanently immutable after creation
 // (see update.ts's own comment for the full reasoning). Mirrors
 // PATCH /api-keys/:id's UpdateApiKeySchema exactly.
 export function EditApiKeyModal({

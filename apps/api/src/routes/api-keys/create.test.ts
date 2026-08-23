@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as PlatformAuth from "@platform/auth";
+import type * as dbType from "@platform/db";
 
 // ── Hoisted mutable auth fixture ──────────────────────────────────────────────
 
@@ -64,7 +65,8 @@ const { mockSelectResult, mockInsertError } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@platform/db", () => {
+vi.mock("@platform/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof dbType>();
   // The bare `db` client — used only for the pre-insert Client ID
   // conflict check/reclaim, which is deliberately global (bypasses RLS),
   // not tenant-scoped.
@@ -79,6 +81,7 @@ vi.mock("@platform/db", () => {
     },
   };
   return {
+    ...actual,
     db,
     withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) => {
       const tx = {
@@ -340,7 +343,7 @@ function thirdPartyBody(overrides: Record<string, unknown> = {}) {
     scopes: ["entity:ticket:read"],
     applicationName: "Acme Helpdesk Sync",
     applicationContactEmail: "ops@acme.example",
-    zitadelClientId: "acme-helpdesk-sync-client",
+    oidcClientId: "acme-helpdesk-sync-client",
     ...overrides,
   });
 }
@@ -365,7 +368,7 @@ describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)"
     const insertArg = mockInsertValues.mock.calls[0][0];
     expect(insertArg.scopesFormat).toBe("action");
     expect(insertArg.applicationName).toBe("Acme Helpdesk Sync");
-    expect(insertArg.zitadelClientId).toBe("acme-helpdesk-sync-client");
+    expect(insertArg.oidcClientId).toBe("acme-helpdesk-sync-client");
   });
 
   it("stamps a 3-month expiry, not the internal-key default TTL", async () => {
@@ -426,11 +429,11 @@ describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)"
     expect(res.status).toBe(422);
   });
 
-  it("returns 422 when zitadelClientId is missing", async () => {
+  it("returns 422 when oidcClientId is missing", async () => {
     const res = await makeApp().request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: thirdPartyBody({ zitadelClientId: undefined }),
+      body: thirdPartyBody({ oidcClientId: undefined }),
     });
     expect(res.status).toBe(422);
   });
@@ -503,7 +506,7 @@ describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)"
     mockSelectResult.rows = []; // pre-check sees nothing — a concurrent insert wins the race first
     mockInsertError.error = {
       code: "23505",
-      constraint_name: "api_keys_zitadel_client_id_active_unique",
+      constraint_name: "api_keys_oidc_client_id_active_unique",
     };
     const res = await makeApp().request("/", {
       method: "POST",

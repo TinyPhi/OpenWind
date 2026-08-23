@@ -37,3 +37,26 @@ describe("RATE_LIMIT_TENANT_PER_MIN", () => {
     expect(parsed.RATE_LIMIT_TENANT_PER_MIN).toBe(1200);
   });
 });
+
+describe("SECRETS_PROVIDER", () => {
+  it("defaults to openbao and requires OPENBAO_ADDR", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.SECRETS_PROVIDER).toBe("openbao");
+
+    const invalidEnv = { ...MINIMAL_VALID_ENV };
+    delete (invalidEnv as Record<string, unknown>).OPENBAO_ADDR;
+    expect(() => EnvSchema.parse(invalidEnv)).toThrow();
+  });
+
+  it("allows setting SECRETS_PROVIDER to local, bypassing OpenBao checks", () => {
+    const localEnv = {
+      ...MINIMAL_VALID_ENV,
+      SECRETS_PROVIDER: "local",
+    };
+    delete (localEnv as Record<string, unknown>).OPENBAO_ADDR;
+    delete (localEnv as Record<string, unknown>).OPENBAO_TOKEN;
+
+    const parsed = EnvSchema.parse(localEnv);
+    expect(parsed.SECRETS_PROVIDER).toBe("local");
+  });
+});
