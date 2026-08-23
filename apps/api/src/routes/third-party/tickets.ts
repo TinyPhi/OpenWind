@@ -1,9 +1,14 @@
+import { z } from "zod";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db } from "@platform/db";
-import { getEntity } from "@platform/entity-engine";
+import { getEntity, createEntity } from "@platform/entity-engine";
+import { getWorkflow } from "@platform/workflow-engine";
+import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
+import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { validateFieldsPayload } from "./validate-fields-payload.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -73,6 +78,80 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
         return notFound(c);
       }
       throw err;
+    }
+  },
+);
+
+const CreateThirdPartyTicketSchema = z.object({
+  workflowId: z.string().uuid(),
+  fields: z.record(z.unknown()).default({}),
+  assignedTo: z.string().optional(),
+  // Any `state`/`currentState` field the caller sends is intentionally NOT
+  // part of this schema — Zod's default "strip unknown keys" behavior drops
+  // it silently, with no rejection (spec R6: force-to-initial-state
+  // unconditionally, confirmed decision, no error path for this case).
+});
+
+/**
+ * POST /api/v1/tickets — ADR-012 Phase B, spec R6/R8/R9/R11/R13/R14.
+ *
+ * Always creates into the workflow's initial state: createEntity is never
+ * given a `currentState`, so it falls into entity-engine's own
+ * resolve-initial-state branch (packages/entity-engine/src/engine.ts) —
+ * there is no separate "force to initial" flag to maintain, and no way for
+ * a caller-supplied state to reach the engine at all.
+ *
+ * Creator identity: actorType is explicitly "api_key" (not inferred as
+ * "user" the way the human-UI route's createdBy-based heuristic would),
+ * and actingPersonId carries the real person distinctly — resolves the
+ * ambiguity flagged since the very first gap analysis (#3) and Round 7's
+ * GAP-05. createdBy itself is also stamped with the acting person's id, so
+ * the created record's own creator field shows the real person, not the
+ * key.
+ */
+export const createThirdPartyTicketHandler = factory.createHandlers(
+  requireAuth(db),
+  requireActingPerson(),
+  requireTicketScope("create"),
+  zValidator("json", CreateThirdPartyTicketSchema),
+  async (c) => {
+    const { tenantId } = c.get("auth");
+    const { userId: actingPersonId } = c.get("actingPerson");
+    const input = c.req.valid("json");
+
+    const fieldsCheck = validateFieldsPayload(input.fields);
+    if (!fieldsCheck.ok) {
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          message: "Validation failed",
+          fields: { fields: fieldsCheck.reason },
+        },
+        422,
+      );
+    }
+
+    try {
+      const instance = await withTenantContext(tenantId, async (tx) => {
+        const workflow = await getWorkflow(tx, tenantId, input.workflowId, {
+          userId: actingPersonId,
+          isGlobalAdmin: false,
+        });
+        return createEntity(tx, tenantId, {
+          entityTypeId: workflow.entityTypeId,
+          workflowId: workflow.id,
+          fields: input.fields,
+          assignedTo: input.assignedTo,
+          createdBy: actingPersonId,
+          actorId: actingPersonId,
+          actorType: "api_key",
+          actingPersonId,
+        });
+      });
+
+      return c.json({ data: instance }, 201);
+    } catch (err) {
+      return handleEntityError(c, err);
     }
   },
 );

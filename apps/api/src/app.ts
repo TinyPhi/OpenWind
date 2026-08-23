@@ -40,6 +40,7 @@ registerEntityAuditHook(async (p) => {
     tenantId: p.tenantId,
     actorId: p.actorId,
     actorType: p.actorType,
+    actingPersonId: p.actingPersonId,
     resourceType: p.resourceType,
     resourceId: p.resourceId,
     action: p.action,

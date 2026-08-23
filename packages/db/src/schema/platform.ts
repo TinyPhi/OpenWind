@@ -209,6 +209,8 @@ export const adminAuditLog = pgTable(
     actorId: text("actor_id").notNull(),
     /** user | api_key | system */
     actorType: text("actor_type").notNull(),
+    /** ADR-012 Phase B, spec R9/GAP-05 — the real person acting through a third-party API key, distinct from actorId (the key itself). NULL for every non-third-party actor. */
+    actingPersonId: text("acting_person_id"),
     resourceType: text("resource_type").notNull(),
     resourceId: uuid("resource_id").notNull(),
     /** created | updated | deleted | transitioned | restored */
