@@ -45,6 +45,14 @@ vi.mock("@platform/auth", () => ({
     async (c: Context, next: Next): Promise<void> => {
       await next();
     },
+  // Not exercised by this suite (it never hits the third-party /api/v1
+  // routes) — a no-op stub avoids app.ts's full route tree (which imports
+  // requireActingPerson, ADR-012 Phase B) failing this mock's strict shape.
+  requireActingPerson:
+    () =>
+    async (c: Context, next: Next): Promise<void> => {
+      await next();
+    },
 }));
 
 describe("Module System Integration Tests", () => {

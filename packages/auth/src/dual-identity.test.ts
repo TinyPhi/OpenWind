@@ -108,6 +108,31 @@ beforeEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("requireActingPerson", () => {
+  it("short-circuits when actingPerson is already pre-populated (test-fixture injection), same precedent as requireAuth", async () => {
+    const app = new Hono();
+    app.get(
+      "/test",
+      async (c, next) => {
+        c.set("auth", API_KEY_AUTH);
+        c.set("actingPerson", {
+          userId: "pre-set-person",
+          email: "preset@example.com",
+          displayName: "Pre Set",
+          orgId: "org-preset",
+        });
+        await next();
+      },
+      requireActingPerson(),
+      (c) => c.json({ ok: true, actingPerson: c.get("actingPerson") }),
+    );
+    const res = await app.request("/test");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { actingPerson: { userId: string } };
+    expect(body.actingPerson.userId).toBe("pre-set-person");
+    // Never touches token verification — the whole point of the bypass.
+    expect(mockVerifyJwtWithAudience).not.toHaveBeenCalled();
+  });
+
   it("rejects a request with no acting-person token header", async () => {
     const res = await get(makeApp(API_KEY_AUTH));
     expect(res.status).toBe(401);

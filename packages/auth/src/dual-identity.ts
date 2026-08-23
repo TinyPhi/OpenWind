@@ -59,6 +59,17 @@ export const requireActingPerson = (): MiddlewareHandler =>
       c: Context<ActingPersonVariables>,
       next: Next,
     ): Promise<Response | void> => {
+      // Short-circuit when actingPerson has been pre-populated (test
+      // fixtures) — same precedent as requireAuth's own early-return in
+      // middleware.ts. Hono's Variables type marks it as always-present
+      // after this middleware runs, but here we ARE the setter — at call
+      // time it may genuinely be absent.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (c.get("actingPerson")) {
+        await next();
+        return;
+      }
+
       const auth = c.get("auth");
 
       // requireAuth sets userId to `apikey:<id>` on the API-key path
