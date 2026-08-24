@@ -37,6 +37,19 @@ Reference docs (read before starting work in a new area):
   webhook gateway, outbound delivery; read before starting any Phase 3A connector work
 - `docs/decisions/ADR-010-inbound-partner-api-integration.md` — inbound partner API (Tier 1
   only — Tier 2 deferred); read before touching the public/partner-facing API surface
+- `docs/decisions/ADR-011-plugin-system.md` — plugin system (Module Federation, slot registry,
+  lifecycle service); read before touching `packages/plugin-sdk` or plugin install/uninstall
+  routes. Two known gaps tracked in the ADR itself (no wrapped DB client/governor limits wired,
+  no plugin can run backend code yet — only migrations execute) — see issue #433.
+- `docs/decisions/ADR-012-third-party-api-ticket-access.md` — third-party API access to tickets
+  (dual-identity auth, action-scopes, presigned attachment uploads); read before touching the
+  Phase A–G third-party API implementation (`docs/third-party-api-design.md` is the canonical
+  behavioral detail). See issue #471 for a governance note on how this ADR was accepted.
+- `docs/decisions/ADR-013-unified-rate-limiting-strategy.md` — platform-wide rate-limiting tiers
+  (per-key-and-person / per-key / per-tenant); read before touching `packages/redis/src/rate-limit.ts`,
+  `apps/api/src/middleware/rate-limit.ts`, or `packages/auth/src/middleware.ts`'s rate-limit checks.
+- `docs/decisions/ADR-014-notification-sla-retry-escalation.md` — notification retry/exhaustion
+  policy; read before touching `apps/worker/src/notification-*.ts` or `alert-worker.ts`.
 - `docs/sup-docs/roadmap-tracker.md` — phase progress and track status
 - `docs/sup-docs/week-log/` — running velocity log, one file per session (see its README —
   never edit `week-log.md` itself, it's frozen history as of 2026-08-13)
