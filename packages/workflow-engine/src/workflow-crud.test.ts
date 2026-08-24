@@ -201,6 +201,30 @@ describe("listWorkflowsSummary — limit parameter (#261)", () => {
   });
 });
 
+describe("updateWorkflow — allowAutoGrantOnMention (ADR-012 Phase C, spec R5)", () => {
+  it("writes allowAutoGrantOnMention when provided", async () => {
+    selectQueue = [() => [workflowRow]]; // load + ownership check
+
+    await updateWorkflow(dbMock as never, TENANT_ID, WORKFLOW_ID, CALLER, {
+      allowAutoGrantOnMention: true,
+    });
+
+    const call = updateCalls.find((c) => c.table === "workflows_mock");
+    expect(call?.setVals.allowAutoGrantOnMention).toBe(true);
+  });
+
+  it("leaves allowAutoGrantOnMention untouched when not provided", async () => {
+    selectQueue = [() => [workflowRow]];
+
+    await updateWorkflow(dbMock as never, TENANT_ID, WORKFLOW_ID, CALLER, {
+      isActive: false,
+    });
+
+    const call = updateCalls.find((c) => c.table === "workflows_mock");
+    expect(call?.setVals.allowAutoGrantOnMention).toBeUndefined();
+  });
+});
+
 describe("updateWorkflowState — rename cascade", () => {
   it("cascades a rename into transitions, initialState, and entity_instances.currentState", async () => {
     selectQueue = [

@@ -154,6 +154,7 @@ type WorkflowFull = {
   transitions: WorkflowTransition[];
   maxChildDepth: number | null;
   maxChildrenPerParent: number | null;
+  allowAutoGrantOnMention: boolean;
 };
 
 type EntityField = {
@@ -1316,6 +1317,40 @@ export function WorkflowDetail(): React.ReactElement {
       // ignore
     } finally {
       setSavingChildSettings(false);
+    }
+  }
+
+  // ADR-012 Phase C, spec R5 — per-workflow toggle for whether an
+  // API-submitted @mention of someone with workflow-but-not-ticket access
+  // auto-grants read-only access (ON) or creates an access-request instead
+  // (OFF, default). Saved independently of the sub-task settings above —
+  // it's an access-control decision, not a nesting-limit one.
+  const [allowAutoGrantOnMention, setAllowAutoGrantOnMention] = useState(false);
+  const [savingMentionToggle, setSavingMentionToggle] = useState(false);
+
+  useEffect(() => {
+    if (data?.data) {
+      const wf = data.data as WorkflowFull;
+      setAllowAutoGrantOnMention(wf.allowAutoGrantOnMention);
+    }
+  }, [data?.data]);
+
+  async function handleToggleAutoGrantOnMention(
+    checked: boolean,
+  ): Promise<void> {
+    if (!id) return;
+    setAllowAutoGrantOnMention(checked);
+    setSavingMentionToggle(true);
+    try {
+      await fetchWithAuth(`${API_URL}/workflows/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ allowAutoGrantOnMention: checked }),
+      });
+      void refetch();
+    } catch {
+      setAllowAutoGrantOnMention(!checked);
+    } finally {
+      setSavingMentionToggle(false);
     }
   }
 
@@ -3289,6 +3324,38 @@ export function WorkflowDetail(): React.ReactElement {
                 >
                   {savingChildSettings ? "Saving…" : "Save limits"}
                 </Button>
+              </div>
+
+              {/* Third-party API mention auto-grant (ADR-012 Phase C, R5) */}
+              <div className="data-panel wfd-settings-panel">
+                <SectionHeader label="Third-Party API Mentions" />
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--text-muted)",
+                    marginBottom: "14px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  When a comment posted via the third-party API @mentions
+                  someone who has access to this workflow but not the specific
+                  ticket, choose what happens.
+                </p>
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={allowAutoGrantOnMention}
+                    disabled={savingMentionToggle}
+                    onChange={(e) =>
+                      void handleToggleAutoGrantOnMention(e.target.checked)
+                    }
+                  />
+                  <span>
+                    Automatically grant read-only access on mention (off by
+                    default — otherwise an access request is created for the
+                    ticket's creator, assignee, or a workflow admin to approve)
+                  </span>
+                </label>
               </div>
 
               {/* Activate / Deactivate */}

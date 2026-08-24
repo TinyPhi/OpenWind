@@ -13,6 +13,12 @@ export interface WorkflowDefinition {
   maxChildDepth: number;
   /** Max direct children per parent. Default 10. */
   maxChildrenPerParent: number;
+  /**
+   * ADR-012 Phase C, spec R5 — governs whether an API-submitted @mention of
+   * someone with workflow-but-not-ticket access auto-grants read-only access
+   * (true) or creates an access-request instead (false, default).
+   */
+  allowAutoGrantOnMention: boolean;
   createdAt: Date;
 }
 
@@ -119,6 +125,7 @@ export type UpdateWorkflowInput = {
   /** Must name an existing, non-terminal state on this workflow — see
    * updateWorkflow's validation and addWorkflowState's auto-heal. */
   initialState?: string | undefined;
+  allowAutoGrantOnMention?: boolean | undefined;
 };
 
 // Caller identity for per-workflow authorization checks (see authorization.ts).

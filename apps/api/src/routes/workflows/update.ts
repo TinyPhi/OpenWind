@@ -15,6 +15,7 @@ const UpdateWorkflowSchema = z.object({
   maxChildDepth: z.number().int().min(0).max(10).nullable().optional(),
   maxChildrenPerParent: z.number().int().min(1).max(100).nullable().optional(),
   initialState: z.string().min(1).max(100).optional(),
+  allowAutoGrantOnMention: z.boolean().optional(),
 });
 
 export const updateWorkflowHandler = factory.createHandlers(
