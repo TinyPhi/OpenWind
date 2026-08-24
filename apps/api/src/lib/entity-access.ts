@@ -64,6 +64,36 @@ export function explicitAccessListUserIds(
 }
 
 /**
+ * Comment-level access check — stricter than hasEntityReadAccess: a caller
+ * whose only __accessUsers grant is "read_only" can view the record but not
+ * comment on it (only "read_comment"/"read_write" or ownership qualify).
+ * Extracted from add-comment.ts's original inline check (ADR-012 Phase C,
+ * spec R2) so the human-UI comment route and the third-party comment
+ * endpoint share one definition instead of two independently maintained
+ * copies.
+ */
+export function hasEntityCommentAccess(
+  instance: {
+    createdBy: string | null;
+    assignedTo: string | null;
+    fields: unknown;
+  },
+  userId: string,
+  roles: string[],
+): boolean {
+  if (roles.includes("admin") || roles.includes("agent")) return true;
+  if (instance.createdBy === userId || instance.assignedTo === userId) {
+    return true;
+  }
+
+  const accessUsers =
+    (instance.fields as Record<string, unknown> | null)?.__accessUsers ?? {};
+  const level = (accessUsers as Record<string, { level: string }>)[userId]
+    ?.level;
+  return level === "read_comment" || level === "read_write";
+}
+
+/**
  * Full record-level access check: hasEntityReadAccess plus "is the caller an
  * admin (creator or assigned_to) of this record's workflow" — a workflow
  * admin gets full access to every record in their workflow, not just ones
@@ -83,6 +113,34 @@ export async function hasEntityAccess(
   roles: string[],
 ): Promise<boolean> {
   if (hasEntityReadAccess(instance, userId, roles)) return true;
+  if (!instance.workflowId) return false;
+
+  const workflow = await getWorkflow(tx, tenantId, instance.workflowId, {
+    userId,
+    isGlobalAdmin: false,
+  });
+  return isWorkflowAdmin(userId, workflow);
+}
+
+/**
+ * Full comment-access check: hasEntityCommentAccess plus workflow-admin
+ * fallback, mirroring hasEntityAccess's shape but gated on comment-level
+ * access rather than mere read access. Use this wherever the instance's
+ * workflowId is available (ADR-012 Phase C, spec R1/R2).
+ */
+export async function hasEntityCommentAccessFull(
+  tx: DbOrTx,
+  tenantId: string,
+  instance: {
+    createdBy: string | null;
+    assignedTo: string | null;
+    fields: unknown;
+    workflowId: string | null;
+  },
+  userId: string,
+  roles: string[],
+): Promise<boolean> {
+  if (hasEntityCommentAccess(instance, userId, roles)) return true;
   if (!instance.workflowId) return false;
 
   const workflow = await getWorkflow(tx, tenantId, instance.workflowId, {
