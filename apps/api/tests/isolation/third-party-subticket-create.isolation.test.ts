@@ -32,6 +32,7 @@ let mentionedTicketId: string;
 let noAccessTicketId: string;
 let otherTenantTicketId: string;
 let grandchildParentId: string;
+let softDeletedTicketId: string;
 
 const CREATOR = "third-party-child-creator";
 const MENTIONED_PERSON = "third-party-child-mentioned";
@@ -161,6 +162,19 @@ beforeAll(async () => {
     currentState: "open",
   });
   grandchildParentId = grandchildParentTicket.id;
+
+  const softDeletedTicket = await createEntity(db, TENANT, {
+    entityTypeId,
+    fields: {},
+    createdBy: CREATOR,
+    workflowId,
+    currentState: "open",
+  });
+  softDeletedTicketId = softDeletedTicket.id;
+  await db
+    .update(entityInstances)
+    .set({ deletedAt: new Date() })
+    .where(eq(entityInstances.id, softDeletedTicketId));
 });
 
 afterAll(async () => {
@@ -261,6 +275,14 @@ describe("POST /api/v1/tickets/:id/children", () => {
     );
     const res = await postChild(app, creatorTicketId, { title: "x" });
     expect(res.status).toBe(403);
+  });
+
+  it("a soft-deleted parent produces the same 404 as a nonexistent one, not a different error", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await postChild(app, softDeletedTicketId, { title: "x" });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body).toEqual({ error: "NOT_FOUND", message: "Record not found" });
   });
 
   it("rejects creating a sub-ticket under an already-API-created sub-ticket (1-level nesting cap)", async () => {

@@ -74,6 +74,16 @@ export type CreateChildRelationInput = {
    */
   actorType?: "user" | "api_key" | "system" | undefined;
   actingPersonId?: string | undefined;
+  /**
+   * ADR-012 Phase C, spec R9 — an optional caller-supplied cap on the
+   * parent's ancestor depth, stricter than the workflow's own general
+   * maxChildDepth. Checked under the same row lock createChildRelation
+   * already takes on the parent (and reuses the same ancestorDepth
+   * computation it already does for its own general depth check) — a
+   * separate, unlocked pre-check in the caller would race against a
+   * concurrent moveChildRelation call and could be bypassed.
+   */
+  maxAncestorDepth?: number | undefined;
 };
 
 export type MoveChildRelationInput = {

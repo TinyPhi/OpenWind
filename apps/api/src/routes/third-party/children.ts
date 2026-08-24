@@ -1,20 +1,15 @@
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db, entityInstances } from "@platform/db";
-import { createChildRelation, getAncestorDepth } from "@platform/entity-engine";
+import { createChildRelation, EntityError } from "@platform/entity-engine";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
-
-function notFound(c: {
-  json: (body: unknown, status: 404) => Response;
-}): Response {
-  return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
-}
+import { notFound } from "./not-found.js";
 
 const CreateThirdPartyChildSchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -40,6 +35,10 @@ const CreateThirdPartyChildSchema = z.object({
  * endpoint. This is an API-specific restriction layered on top of
  * createChildRelation's own general CHILD_DEPTH_EXCEEDED check (which is
  * keyed off the workflow's own, possibly deeper, max_child_depth setting).
+ * Enforced via createChildRelation's maxAncestorDepth param, checked under
+ * the same row lock as everything else it validates — a separate, unlocked
+ * pre-check here would race against a concurrent moveChildRelation call
+ * that reparents the target between this check and the actual create.
  */
 export const createThirdPartyChildHandler = factory.createHandlers(
   requireAuth(db),
@@ -64,6 +63,12 @@ export const createThirdPartyChildHandler = factory.createHandlers(
       );
     }
 
+    // deletedAt filtered out here (unlike a plain existence check) so a
+    // soft-deleted parent 404s at this route the same way getEntity already
+    // does for the sibling GET route — otherwise it would pass this access
+    // check, then fail inside createChildRelation's own re-fetch with a
+    // differently-shaped error, reopening the existence-oracle leak the
+    // design doc's Round 2 finding required closed.
     const [parent] = await withTenantContext(tenantId, (tx) =>
       tx
         .select({
@@ -79,6 +84,7 @@ export const createThirdPartyChildHandler = factory.createHandlers(
           and(
             eq(entityInstances.id, parentId),
             eq(entityInstances.tenantId, tenantId),
+            isNull(entityInstances.deletedAt),
           ),
         )
         .limit(1),
@@ -96,20 +102,6 @@ export const createThirdPartyChildHandler = factory.createHandlers(
     }
 
     try {
-      const ancestorDepth = await withTenantContext(tenantId, (tx) =>
-        getAncestorDepth(tx, tenantId, parentId),
-      );
-      if (ancestorDepth >= 1) {
-        return c.json(
-          {
-            error: "SUBTICKET_NESTING_EXCEEDED",
-            message:
-              "An API-created sub-ticket cannot itself have a sub-ticket created via this API",
-          },
-          400,
-        );
-      }
-
       const result = await withTenantContext(tenantId, (tx) =>
         createChildRelation(tx, tenantId, {
           parentId,
@@ -119,10 +111,25 @@ export const createThirdPartyChildHandler = factory.createHandlers(
           createdBy: actingPersonId,
           actorType: "api_key",
           actingPersonId,
+          maxAncestorDepth: 1,
         }),
       );
       return c.json({ data: result.instance }, 201);
     } catch (err) {
+      if (
+        err instanceof EntityError &&
+        err.code === "CHILD_DEPTH_EXCEEDED" &&
+        err.meta?.reason === "caller_max_ancestor_depth"
+      ) {
+        return c.json(
+          {
+            error: "SUBTICKET_NESTING_EXCEEDED",
+            message:
+              "An API-created sub-ticket cannot itself have a sub-ticket created via this API",
+          },
+          400,
+        );
+      }
       return handleEntityError(c, err);
     }
   },
