@@ -85,8 +85,16 @@ describe("outbox-poller no longer excludes automation-triggered transitions (#37
     // Poll instead of a fixed sleep — the poller processes BATCH_SIZE rows
     // per tick oldest-first, so any pre-existing backlog elsewhere in the
     // table (e.g. from other suites' fixtures) delays reaching this test's
-    // own rows by an amount that isn't fixed. Bounded to 5s so a real bug
-    // (a row never gets claimed at all) still fails the test promptly.
+    // own rows by an amount that isn't fixed. Bounded to 5s of sleep so a
+    // real bug (a row never gets claimed at all) still fails promptly —
+    // note that bound is about when this loop gives up, not this test's
+    // own timeout below, which needs separate headroom (#436): each
+    // iteration also does 2 db.select() round trips, so 100 iterations can
+    // legitimately take noticeably more than 100*50ms of wall clock time
+    // under backlog/contention, and vitest's default 5000ms per-test
+    // timeout has zero margin for that on top of the loop's own 5s sleep
+    // budget — this is what made the test flake under load rather than
+    // any bug in the poller itself.
     let automationRow: { deliveredAt: Date | null } | undefined;
     let userRow: { deliveredAt: Date | null } | undefined;
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -116,5 +124,5 @@ describe("outbox-poller no longer excludes automation-triggered transitions (#37
       expect.objectContaining({ outboxEventId: userRowId }),
       expect.anything(),
     );
-  });
+  }, 15_000);
 });
