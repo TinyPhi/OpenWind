@@ -16,6 +16,7 @@ import {
   workflows,
   workflowStates,
   attachments,
+  files,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
@@ -194,6 +195,24 @@ async function createUploadedAttachment(
     },
   );
   expect(uploadRes.status).toBe(201);
+
+  // Force the underlying file straight to 'clean' -- same pattern as
+  // files.isolation.test.ts. Without SKIP_AV_SCAN (unset in CI, unlike some
+  // local .env.local setups), the real AV-scan job is enqueued async and
+  // won't have completed by the time a download test runs immediately
+  // after upload; this helper isn't exercising the scan pipeline itself,
+  // only download access-gating, so it doesn't need to wait for a real scan.
+  const [row] = await db
+    .select({ filesId: attachments.filesId })
+    .from(attachments)
+    .where(eq(attachments.id, data.attachmentId));
+  if (row?.filesId) {
+    await db
+      .update(files)
+      .set({ scanStatus: "clean" })
+      .where(eq(files.id, row.filesId));
+  }
+
   return data.attachmentId;
 }
 
