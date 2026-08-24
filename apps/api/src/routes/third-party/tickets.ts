@@ -9,6 +9,7 @@ import { requireTicketScope } from "./require-ticket-scope.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
+import { notFound } from "./not-found.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -16,20 +17,6 @@ function isEntityNotFound(err: unknown): boolean {
     err.name === "EntityError" &&
     (err as Error & { code?: string }).code === "ENTITY_NOT_FOUND"
   );
-}
-
-// Deliberately the exact same body as the access-denied branch below — this
-// is the specific ticket-existence-oracle the design doc's Round 2 CRITICAL
-// finding requires closed: a genuinely nonexistent ticket and an
-// inaccessible one must be indistinguishable to the caller, not just share
-// a 404 status with different error codes/messages (the human-UI route,
-// entities/get.ts, doesn't hold to this bar via handleEntityError's generic
-// ENTITY_NOT_FOUND mapping — that's fine for a session that already knows
-// which IDs plausibly exist, but not for this API).
-function notFound(c: {
-  json: (body: unknown, status: 404) => Response;
-}): Response {
-  return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
 }
 
 /**
