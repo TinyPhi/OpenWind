@@ -4,9 +4,9 @@
 > needs to create one correctly: list workflows, create ticket, fetch ticket detail. No
 > comments/tagging/attachments/transitions yet — that's Phase C+.
 
-status: draft
+status: implemented
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-23
 
 source: `third-party-api-design.md` (canonical behavioral spec, `work docs\OW\API exposur\`),
 `third-party-api-enablement-phases.md` Phase B section + Rounds 2–9 resolutions,
