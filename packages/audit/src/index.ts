@@ -39,7 +39,17 @@ export type AuditAction =
   | "transitioned"
   | "restored"
   | "purge.completed"
-  | "purge.failed";
+  | "purge.failed"
+  // ADR-012 Phase C, spec R6/R7 — third-party API tag-resolution outcomes and
+  // the tagging-driven auto-grant rate cap. Interim sink until Phase F's
+  // Access Logs screen exists to read these (see the Phase C spec's §C
+  // "new schema" row) — no new table, just new action strings.
+  | "tag.resolved_existing_access"
+  | "tag.auto_granted"
+  | "tag.access_request_created"
+  | "tag.fallback"
+  | "tag.resolution_failed"
+  | "tag.misuse_rate_capped";
 
 export type AuditEntryInput = {
   tenantId: string;

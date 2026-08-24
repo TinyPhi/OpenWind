@@ -29,6 +29,7 @@ import {
   stopConnectorPollScheduler,
 } from "./connector-poll-scheduler.js";
 import { stopConnectorPollWorker } from "./connector-poll-worker.js";
+import { stopMentionResolutionWorker } from "./mention-resolution-worker.js";
 
 logger.info({}, "Worker process starting");
 
@@ -71,6 +72,7 @@ async function shutdown(): Promise<void> {
     stopConnectorOutboundWorker(),
     stopConnectorPollScheduler(),
     stopConnectorPollWorker(),
+    stopMentionResolutionWorker(),
     closeRedis(),
   ]);
   process.exit(0);
