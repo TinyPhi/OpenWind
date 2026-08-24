@@ -187,6 +187,8 @@ export async function createChildRelation(
     assignedTo,
     createdBy,
     dueDate,
+    actorType,
+    actingPersonId,
   } = input;
 
   // Load parent — lock row to prevent concurrent race on cap/depth
@@ -195,6 +197,7 @@ export async function createChildRelation(
       id: entityInstances.id,
       workflowId: entityInstances.workflowId,
       deletedAt: entityInstances.deletedAt,
+      fields: entityInstances.fields,
     })
     .from(entityInstances)
     .where(
@@ -248,6 +251,27 @@ export async function createChildRelation(
     });
   }
 
+  // Seed the child's access list with the UNION of the parent's own
+  // __accessUsers grants and the new assignee — previously this only ever
+  // seeded from assignedTo, so a person with mention-grant access on the
+  // parent (not just its creator/assignee) lost visibility into any child
+  // created under it (ADR-012 Phase C, spec R9 bug fix). The assignee's
+  // fresh read_write grant is applied last so it always wins over a stale
+  // inherited level for that same user (e.g. the parent's assignee is being
+  // reassigned to the child too).
+  const parentAccessUsers =
+    (parent.fields as Record<string, unknown> | null)?.__accessUsers ?? {};
+  const inheritedAccessUsers =
+    typeof parentAccessUsers === "object"
+      ? { ...(parentAccessUsers as Record<string, unknown>) }
+      : {};
+  const childAccessUsers: Record<string, unknown> = {
+    ...inheritedAccessUsers,
+    ...(assignedTo
+      ? { [assignedTo]: { level: "read_write", tag: "assigned" } }
+      : {}),
+  };
+
   // Insert child instance — inherit parent's workflowId so comments/history work
   const [childInstance] = await db
     .insert(entityInstances)
@@ -258,10 +282,7 @@ export async function createChildRelation(
       fields: {
         ...childFields,
         child_status: "open",
-        // Seed access list with assignee (if any) — stored as {userId: {level, tag}}
-        __accessUsers: assignedTo
-          ? { [assignedTo]: { level: "read_write", tag: "assigned" } }
-          : {},
+        __accessUsers: childAccessUsers,
       },
       assignedTo: assignedTo ?? null,
       createdBy: createdBy ?? null,
@@ -279,10 +300,15 @@ export async function createChildRelation(
     workflowId: parent.workflowId,
     fromState: null,
     toState: "open",
-    triggeredBy: "user",
+    triggeredBy: actorType ?? "user",
     actorId: createdBy ?? "system",
     comment: null,
-    metadata: { type: "create", actorName: createdBy ?? null },
+    metadata: {
+      type: "create",
+      actorName: createdBy ?? null,
+      ...(actorType && { actorType }),
+      ...(actingPersonId && { actingPersonId }),
+    },
   });
 
   // Outbox events for entity.created/entity.assigned automations (#126) —

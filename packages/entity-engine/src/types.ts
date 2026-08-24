@@ -66,6 +66,14 @@ export type CreateChildRelationInput = {
   createdBy?: string | undefined;
   /** ISO datetime string, or null. Independent of workflow state/SLA. */
   dueDate?: string | null | undefined;
+  /**
+   * ADR-012 Phase C, spec R10 — dual-identity attribution for a third-party
+   * sub-ticket creation, mirroring createEntity's actorType/actingPersonId
+   * (packages/entity-engine/src/engine.ts). Undefined preserves the
+   * pre-existing human-UI behavior (triggeredBy "user").
+   */
+  actorType?: "user" | "api_key" | "system" | undefined;
+  actingPersonId?: string | undefined;
 };
 
 export type MoveChildRelationInput = {
