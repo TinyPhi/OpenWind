@@ -61,7 +61,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432" # direct postgres for pnpm db:migrate from host
+      # Loopback-only (127.0.0.1), not 0.0.0.0: direct postgres is only needed
+      # for host-mode migrations (`pnpm db:migrate`). An unqualified mapping
+      # exposes Postgres with dev credentials to the entire network on server
+      # deployments (issue #454). Loopback-only keeps it reachable from the
+      # host machine without that exposure.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432" # direct postgres for pnpm db:migrate from host
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
       interval: 5s
@@ -90,7 +95,9 @@ services:
       AUTH_TYPE: scram-sha-256
       SERVER_TLS_SSLMODE: disable
     ports:
-      - "6432:5432" # App connects here, not 5432
+      # Loopback-only (127.0.0.1), not 0.0.0.0: host-mode app/tests connect
+      # via PgBouncer. Unqualified mapping would expose PgBouncer to the network.
+      - "127.0.0.1:${PGBOUNCER_HOST_PORT:-6432}:5432" # App connects here, not 5432
     depends_on:
       postgres:
         condition: service_healthy
@@ -113,7 +120,12 @@ services:
       BAO_ADDR: http://0.0.0.0:8200
       BAO_LOG_LEVEL: warn
     ports:
-      - "8200:8200"
+      # Loopback-only (127.0.0.1), not 0.0.0.0: openbao runs in dev mode with
+      # a hardcoded static root token (BAO_DEV_ROOT_TOKEN_ID=dev-root-token).
+      # An unqualified mapping exposes the platform secrets manager to the entire
+      # network (issue #455). Loopback-only satisfies host-mode tooling while
+      # restricting network exposure.
+      - "127.0.0.1:${OPENBAO_HOST_PORT:-8200}:8200"
     cap_add:
       - IPC_LOCK
     healthcheck:
