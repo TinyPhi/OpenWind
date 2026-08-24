@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — loopback host port mappings (Postgres, PgBouncer, OpenBao)]
+
+### Security
+
+- **Loopback-only host ports** — `postgres`, `pgbouncer`, and `openbao` host port mappings in
+  `docker-compose.yml` are now restricted to `127.0.0.1` (loopback only) instead of `0.0.0.0`,
+  preventing direct external network access to the database (dev credentials) and OpenBao
+  secrets manager (`-dev` mode static root token) on server deployments (#454, #455).
+
+### Added
+
+- **`OPENBAO_HOST_PORT`** & **`PGBOUNCER_HOST_PORT`** env vars — allow remapping OpenBao and
+  PgBouncer host ports without editing `docker-compose.yml` directly (#454, #455).
+
+---
+
 ## [Unreleased — redis host port mapping]
 
 ### Added
