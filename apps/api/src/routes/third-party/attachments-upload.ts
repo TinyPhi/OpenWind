@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db, attachments } from "@platform/db";
-import { saveUpload, FileError } from "@platform/files";
+import { saveUpload, deleteFile, FileError } from "@platform/files";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { connection } from "../../lib/redis.js";
@@ -137,7 +137,14 @@ export const uploadAttachmentHandler = factory.createHandlers(
         ),
       );
 
-      await withTenantContext(tenantId, (tx) =>
+      // Conditioned on status = 'uploading' (full-phase security review
+      // finding): saveUpload above can take long enough for a slow request
+      // to cross the slot's own TTL mid-flight, during which
+      // attachment-cleanup.ts's sweep could flip this row to 'expired'.
+      // Without this guard, this write would silently resurrect an expired
+      // slot as 'uploaded' with a real filesId once the request finally
+      // finishes — a real TTL bypass, not just a cosmetic race.
+      const [finalized] = await withTenantContext(tenantId, (tx) =>
         tx
           .update(attachments)
           .set({
@@ -145,8 +152,24 @@ export const uploadAttachmentHandler = factory.createHandlers(
             filesId: result.fileId,
             updatedAt: new Date(),
           })
-          .where(eq(attachments.id, id)),
+          .where(
+            and(eq(attachments.id, id), eq(attachments.status, "uploading")),
+          )
+          .returning({ id: attachments.id }),
       );
+
+      if (!finalized) {
+        // Lost the race to the cleanup sweep -- the file was already saved
+        // to disk by saveUpload above, so clean it up rather than leaving
+        // an orphaned file with no reachable attachment row.
+        await withTenantContext(tenantId, (tx) =>
+          deleteFile(tx, tenantId, result.fileId),
+        );
+        return c.json(
+          { error: "UPLOAD_EXPIRED", message: "This upload slot has expired" },
+          410,
+        );
+      }
 
       return c.json(
         { data: { attachmentId: id, status: result.scanStatus } },

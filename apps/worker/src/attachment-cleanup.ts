@@ -7,6 +7,14 @@
  * table never held a quota reservation to release (spec R2 -- quota is
  * enforced at upload-completion time via saveUpload, not at presign) so
  * this job only marks/removes stale rows, no disk or quota bookkeeping.
+ *
+ * Two-phase: mark-then-delete, not delete-on-sight. A newly-expired slot is
+ * first flipped to 'expired' (keeps a short-lived trail in case an
+ * in-flight upload request loses the race against this exact sweep --
+ * attachments-upload.ts checks for that and 410s cleanly). Only once a row
+ * has sat in 'expired' past its own grace period is it actually deleted,
+ * which is what bounds the table's growth from a sustained
+ * presign-and-abandon pattern (full-phase security review finding).
  */
 
 import { Worker, Queue } from "bullmq";
@@ -18,6 +26,8 @@ import { connection } from "./queues.js";
 const QUEUE_NAME = "attachment-cleanup";
 /** Max rows per cleanup run -- prevents unbounded memory usage. */
 const BATCH_LIMIT = 500;
+/** How long an 'expired' row survives before hard deletion. */
+const EXPIRED_GRACE_HOURS = 1;
 
 // No withTenantContext/explicit tenant_id filter here -- same accepted
 // pattern as file-cleanup.ts's own cross-tenant sweep. Every write below
@@ -72,7 +82,25 @@ async function runCleanup(): Promise<void> {
     }
   }
 
-  logger.info({ purged, errors }, "attachment-cleanup: run complete");
+  logger.info({ purged, errors }, "attachment-cleanup: expire pass complete");
+
+  const graceCutoff = new Date(
+    now.getTime() - EXPIRED_GRACE_HOURS * 60 * 60 * 1000,
+  );
+  const deleted = await db
+    .delete(attachments)
+    .where(
+      and(
+        eq(attachments.status, "expired"),
+        lt(attachments.updatedAt, graceCutoff),
+      ),
+    )
+    .returning({ id: attachments.id });
+
+  logger.info(
+    { deleted: deleted.length },
+    "attachment-cleanup: delete pass complete",
+  );
 }
 
 export const attachmentCleanupWorker = new Worker(
