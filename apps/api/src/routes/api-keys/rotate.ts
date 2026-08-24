@@ -38,7 +38,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
           applicationName: apiKeys.applicationName,
           applicationDescription: apiKeys.applicationDescription,
           applicationContactEmail: apiKeys.applicationContactEmail,
-          zitadelClientId: apiKeys.zitadelClientId,
+          oidcClientId: apiKeys.oidcClientId,
         })
         .from(apiKeys)
         .where(
@@ -105,7 +105,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
       //
       // Run BEFORE the insert below, not after — Postgres checks unique
       // constraints immediately (not deferred), so if the successor's insert
-      // ran first, both rows would briefly hold zitadel_client_id_active =
+      // ran first, both rows would briefly hold oidc_client_id_active =
       // true at once and the insert itself would fail the very index this
       // handoff exists to satisfy.
       const newExpiresAt =
@@ -116,15 +116,15 @@ export const rotateApiKeyHandler = factory.createHandlers(
         .update(apiKeys)
         .set({
           expiresAt: newExpiresAt,
-          // Migration 0069: the dying predecessor keeps authenticating
-          // (revoked_at untouched) and keeps its zitadel_client_id *value*
+          // Migration 0069/0072: the dying predecessor keeps authenticating
+          // (revoked_at untouched) and keeps its oidc_client_id *value*
           // (so it still identifies the right application if anything reads
           // it during the grace window), but hands off the Client ID's
           // uniqueness claim to the successor immediately — the successor
           // keeps the column's own default (true), so exactly one row is
           // ever the "holder" at a time. A no-op for role-format keys
           // (column stays at its default there regardless).
-          zitadelClientIdActive: false,
+          oidcClientIdActive: false,
         })
         .where(
           and(eq(apiKeys.id, original.id), eq(apiKeys.tenantId, tenantId)),
@@ -154,7 +154,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
                 applicationName: original.applicationName,
                 applicationDescription: original.applicationDescription,
                 applicationContactEmail: original.applicationContactEmail,
-                zitadelClientId: original.zitadelClientId,
+                oidcClientId: original.oidcClientId,
               }
             : {}),
         })
@@ -166,7 +166,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
           createdAt: apiKeys.createdAt,
           expiresAt: apiKeys.expiresAt,
           applicationName: apiKeys.applicationName,
-          zitadelClientId: apiKeys.zitadelClientId,
+          oidcClientId: apiKeys.oidcClientId,
         });
       if (!created) {
         throw new Error("api_keys insert returned no row");
@@ -213,10 +213,14 @@ export const rotateApiKeyHandler = factory.createHandlers(
             ne(apiKeys.id, created.id),
             or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
             or(
-              original.rotatedFrom
-                ? eq(apiKeys.id, original.rotatedFrom)
-                : undefined,
-              eq(apiKeys.rotatedFrom, original.id),
+              ...[
+                original.rotatedFrom
+                  ? eq(apiKeys.id, original.rotatedFrom)
+                  : undefined,
+                eq(apiKeys.rotatedFrom, original.id),
+              ].filter(
+                (cond): cond is NonNullable<typeof cond> => cond !== undefined,
+              ),
             ),
           ),
         );

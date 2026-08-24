@@ -83,7 +83,7 @@ export async function verifyJwt(
  * API key is minted for *that third-party application's own Zitadel login*,
  * never for OpenWind itself — so it will never carry ZITADEL_AUDIENCE. Its
  * `aud` must instead be checked against the specific API key's own
- * registered `zitadel_client_id` (Round 5 correction of an earlier,
+ * registered `oidc_client_id` (Round 5 correction of an earlier,
  * incorrect Round 4 fix that compared against OpenWind's own client ID — no
  * legitimate third-party token would ever match that value).
  */

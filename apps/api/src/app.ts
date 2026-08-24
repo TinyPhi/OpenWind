@@ -26,6 +26,7 @@ import { exportsRouter } from "./routes/exports/download.js";
 import { dashboardRouter } from "./routes/dashboard/index.js";
 import { webhooksRouter } from "./routes/webhooks/index.js";
 import { connectorsRouter } from "./routes/connectors/index.js";
+import { thirdPartyRouter } from "./routes/third-party/index.js";
 import { openApiSpec } from "./openapi.js";
 import { registerEntityAuditHook } from "@platform/entity-engine";
 import { writeAuditEntry } from "@platform/audit";
@@ -39,6 +40,7 @@ registerEntityAuditHook(async (p) => {
     tenantId: p.tenantId,
     actorId: p.actorId,
     actorType: p.actorType,
+    actingPersonId: p.actingPersonId,
     resourceType: p.resourceType,
     resourceId: p.resourceId,
     action: p.action,
@@ -122,6 +124,10 @@ export function createApp(): Hono<AppVars> {
   app.route("/exports", exportsRouter);
   app.route("/dashboard", dashboardRouter);
   app.route("/connectors", connectorsRouter);
+  // ADR-012 Phase B — third-party ticket-lifecycle API, versioned separately
+  // from every other route above since it's a public/partner-facing surface
+  // (ADR-010) rather than the admin-ui's own internal API.
+  app.route("/api/v1", thirdPartyRouter);
   // Unauthenticated by design — HMAC-verified inside the handler, per
   // ADR-009 Decision #3. AC2's pre-auth, IP-keyed flood guard is already
   // satisfied by the global rateLimit() middleware applied above (step 4) —

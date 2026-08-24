@@ -255,7 +255,7 @@ describe("POST /api-keys/:id/emergency-rotate — third-party (action-scoped) ke
         applicationName: "Acme Helpdesk Sync",
         applicationDescription: null,
         applicationContactEmail: "ops@acme.example",
-        zitadelClientId: "acme-helpdesk-sync-client",
+        oidcClientId: "acme-helpdesk-sync-client",
       },
     ];
     mockLiveSuccessorRows = [];
@@ -268,7 +268,7 @@ describe("POST /api-keys/:id/emergency-rotate — third-party (action-scoped) ke
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
         applicationName: "Acme Helpdesk Sync",
-        zitadelClientId: "acme-helpdesk-sync-client",
+        oidcClientId: "acme-helpdesk-sync-client",
       },
     ];
   });
@@ -284,7 +284,7 @@ describe("POST /api-keys/:id/emergency-rotate — third-party (action-scoped) ke
     await makeApp().request("/target-1/emergency-rotate", { method: "POST" });
     const insertArg = mockInsertValues.mock.calls[0][0];
     expect(insertArg.applicationName).toBe("Acme Helpdesk Sync");
-    expect(insertArg.zitadelClientId).toBe("acme-helpdesk-sync-client");
+    expect(insertArg.oidcClientId).toBe("acme-helpdesk-sync-client");
   });
 
   it("stamps a 3-month expiry, not the internal-key default TTL", async () => {

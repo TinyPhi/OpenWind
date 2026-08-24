@@ -341,7 +341,7 @@ describe("POST /api-keys/:id/rotate — third-party (action-scoped) keys (ADR-01
         applicationName: "Acme Helpdesk Sync",
         applicationDescription: null,
         applicationContactEmail: "ops@acme.example",
-        zitadelClientId: "acme-helpdesk-sync-client",
+        oidcClientId: "acme-helpdesk-sync-client",
       },
     ];
     mockInsertReturns = [
@@ -353,7 +353,7 @@ describe("POST /api-keys/:id/rotate — third-party (action-scoped) keys (ADR-01
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
         applicationName: "Acme Helpdesk Sync",
-        zitadelClientId: "acme-helpdesk-sync-client",
+        oidcClientId: "acme-helpdesk-sync-client",
       },
     ];
   });
@@ -367,7 +367,7 @@ describe("POST /api-keys/:id/rotate — third-party (action-scoped) keys (ADR-01
     await makeApp().request("/orig-1/rotate", { method: "POST" });
     const insertArg = mockInsertValues.mock.calls[0][0];
     expect(insertArg.applicationName).toBe("Acme Helpdesk Sync");
-    expect(insertArg.zitadelClientId).toBe("acme-helpdesk-sync-client");
+    expect(insertArg.oidcClientId).toBe("acme-helpdesk-sync-client");
   });
 
   it("stamps a 3-month expiry on the successor, not the internal-key default TTL", async () => {
@@ -380,12 +380,12 @@ describe("POST /api-keys/:id/rotate — third-party (action-scoped) keys (ADR-01
     expect(expiresAt).toBeLessThan(before + ninetyDaysMs + 5000);
   });
 
-  it("hands off the Client ID's uniqueness claim by setting the predecessor's zitadelClientIdActive to false", async () => {
+  it("hands off the Client ID's uniqueness claim by setting the predecessor's oidcClientIdActive to false", async () => {
     await makeApp().request("/orig-1/rotate", { method: "POST" });
     // calls[0] is the pre-existing expiresAt-shortening update (position
     // preserved for the existing role-format test suite above).
     const setArg = mockUpdateSet.mock.calls[0][0];
-    expect(setArg.zitadelClientIdActive).toBe(false);
+    expect(setArg.oidcClientIdActive).toBe(false);
   });
 });
 

@@ -2,8 +2,9 @@
  * DB-level tests for migrations 0070/0071's CHECK constraints bounding
  * api_keys.application_name/application_description/
  * application_contact_email (issue #445, found during PR #439 review) and
- * zitadel_client_id (issue #451, the same defect shape flagged in the same
- * review but kept out of #445's scope).
+ * oidc_client_id (issue #451, the same defect shape flagged in the same
+ * review but kept out of #445's scope; column renamed from zitadel_client_id
+ * by migration 0072).
  *
  * Uses a real Postgres database (no mocks). These columns were added
  * unbounded by migration 0068 — the API layer's Zod schema (create.ts)
@@ -84,13 +85,13 @@ const BOUNDED_COLUMNS = [
     valueAtLength: (n: number) => `${"a".repeat(n - 6)}@a.com`,
   },
   {
-    column: "zitadelClientId" as const,
+    column: "oidcClientId" as const,
     limit: 200,
-    // Each generated value must be unique — zitadelClientId also carries a
-    // partial unique index (migration 0068) among non-revoked keys, and
-    // every insertKey() call here leaves its row active. randomUUID()
-    // guarantees a fixed-length hex string, unlike Math.random()'s
-    // variable-length base-36 output.
+    // Each generated value must be unique — oidcClientId also carries a
+    // partial unique index (migration 0068, renamed by 0072) among
+    // non-revoked keys, and every insertKey() call here leaves its row
+    // active. randomUUID() guarantees a fixed-length hex string, unlike
+    // Math.random()'s variable-length base-36 output.
     valueAtLength: (n: number) =>
       `${"a".repeat(n - 6)}${randomUUID().replace(/-/g, "").slice(0, 6)}`,
   },

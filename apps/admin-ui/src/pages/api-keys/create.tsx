@@ -38,7 +38,7 @@ export function CreateApiKeyModal({
   const [applicationName, setApplicationName] = useState("");
   const [applicationDescription, setApplicationDescription] = useState("");
   const [applicationContactEmail, setApplicationContactEmail] = useState("");
-  const [zitadelClientId, setZitadelClientId] = useState("");
+  const [oidcClientId, setOidcClientId] = useState("");
   const [scopeMode, setScopeMode] = useState<ScopeMode>("read-only");
   const [customScopes, setCustomScopes] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -55,14 +55,14 @@ export function CreateApiKeyModal({
   const isValid =
     applicationName.trim().length > 0 &&
     applicationContactEmail.trim().length > 0 &&
-    zitadelClientId.trim().length > 0 &&
+    oidcClientId.trim().length > 0 &&
     scopes.length > 0;
 
   function resetForm(): void {
     setApplicationName("");
     setApplicationDescription("");
     setApplicationContactEmail("");
-    setZitadelClientId("");
+    setOidcClientId("");
     setScopeMode("read-only");
     setCustomScopes([]);
     setError(null);
@@ -89,7 +89,7 @@ export function CreateApiKeyModal({
           applicationName: applicationName.trim(),
           applicationDescription: applicationDescription.trim() || undefined,
           applicationContactEmail: applicationContactEmail.trim(),
-          zitadelClientId: zitadelClientId.trim(),
+          oidcClientId: oidcClientId.trim(),
         }),
       })) as { data: { key: string } };
       setCreatedKey(res.data.key);
@@ -222,12 +222,12 @@ export function CreateApiKeyModal({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Zitadel Client ID *</label>
+                <label className="form-label">OIDC Client ID *</label>
                 <input
                   className="form-input"
                   placeholder="acme-helpdesk-sync-client"
-                  value={zitadelClientId}
-                  onChange={(e) => setZitadelClientId(e.target.value)}
+                  value={oidcClientId}
+                  onChange={(e) => setOidcClientId(e.target.value)}
                   required
                 />
               </div>

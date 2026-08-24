@@ -59,6 +59,17 @@ export const requireActingPerson = (): MiddlewareHandler =>
       c: Context<ActingPersonVariables>,
       next: Next,
     ): Promise<Response | void> => {
+      // Short-circuit when actingPerson has been pre-populated (test
+      // fixtures) — same precedent as requireAuth's own early-return in
+      // middleware.ts. Hono's Variables type marks it as always-present
+      // after this middleware runs, but here we ARE the setter — at call
+      // time it may genuinely be absent.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (c.get("actingPerson")) {
+        await next();
+        return;
+      }
+
       const auth = c.get("auth");
 
       // requireAuth sets userId to `apikey:<id>` on the API-key path
@@ -83,18 +94,18 @@ export const requireActingPerson = (): MiddlewareHandler =>
       // revealing which case applied.
       const [keyRow] = await withTenantContext(auth.tenantId, (tx) =>
         tx
-          .select({ zitadelClientId: apiKeys.zitadelClientId })
+          .select({ oidcClientId: apiKeys.oidcClientId })
           .from(apiKeys)
           .where(and(eq(apiKeys.id, apiKeyId), isNull(apiKeys.revokedAt)))
           .limit(1),
       );
-      if (!keyRow?.zitadelClientId) {
+      if (!keyRow?.oidcClientId) {
         return unauthorized(c);
       }
 
       const claims = await verifyJwtWithAudience(
         personToken,
-        keyRow.zitadelClientId,
+        keyRow.oidcClientId,
       );
       if (!claims) {
         return unauthorized(c);
@@ -108,7 +119,10 @@ export const requireActingPerson = (): MiddlewareHandler =>
         return unauthorized(c);
       }
       const ageSeconds = Date.now() / 1000 - issuedAt;
-      if (ageSeconds > ACTING_PERSON_TOKEN_MAX_AGE_MINUTES * 60) {
+      if (
+        ageSeconds > ACTING_PERSON_TOKEN_MAX_AGE_MINUTES * 60 ||
+        ageSeconds < -60
+      ) {
         return unauthorized(c);
       }
 

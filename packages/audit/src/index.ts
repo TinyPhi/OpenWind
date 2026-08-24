@@ -45,6 +45,8 @@ export type AuditEntryInput = {
   tenantId: string;
   actorId: string;
   actorType: AuditActorType;
+  /** ADR-012 Phase B spec R9/GAP-05 — the real person acting through a third-party API key (actorId/actorType above), distinct identity so search-by-person and search-by-key both work independently. Omit for every non-third-party actor. */
+  actingPersonId?: string | undefined;
   resourceType: string;
   resourceId: string;
   action: AuditAction;
@@ -93,6 +95,7 @@ export async function writeAuditEntry(
     tenantId: input.tenantId,
     actorId: input.actorId,
     actorType: input.actorType,
+    actingPersonId: input.actingPersonId ?? null,
     resourceType: input.resourceType,
     resourceId: input.resourceId,
     action: input.action,
