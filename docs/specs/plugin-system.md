@@ -3,6 +3,9 @@
 **Status:** draft
 **Author:** Claude Code (session), planning decisions confirmed by @abmish 2026-08-13
 **Date:** 2026-08-13
+**Decision record:** `docs/decisions/ADR-011-plugin-system.md` (Accepted 2026-08-24) formalizes
+the decisions this spec implements, including 2 known gaps (no wrapped DB client/governor limits
+wired, no plugin backend-code loader yet — see issue #433) and the current Open Questions.
 
 ---
 
