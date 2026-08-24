@@ -9,6 +9,11 @@ import { requireTicketScope } from "./require-ticket-scope.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
+import {
+  referenceAttachments,
+  AttachmentReferenceError,
+  MAX_ATTACHMENTS_PER_TICKET,
+} from "./attachments-reference.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -90,6 +95,12 @@ const CreateThirdPartyTicketSchema = z.object({
   // part of this schema — Zod's default "strip unknown keys" behavior drops
   // it silently, with no rejection (spec R6: force-to-initial-state
   // unconditionally, confirmed decision, no error path for this case).
+  // ADR-012 Phase D, spec R3 -- references completed attachment uploads
+  // presigned without a ticketId (the create-time-attach case).
+  attachmentIds: z
+    .array(z.string().uuid())
+    .max(MAX_ATTACHMENTS_PER_TICKET)
+    .default([]),
 });
 
 /**
@@ -137,7 +148,7 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           userId: actingPersonId,
           isGlobalAdmin: false,
         });
-        return createEntity(tx, tenantId, {
+        const created = await createEntity(tx, tenantId, {
           entityTypeId: workflow.entityTypeId,
           workflowId: workflow.id,
           fields: input.fields,
@@ -147,10 +158,23 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           actorType: "api_key",
           actingPersonId,
         });
+        // Same transaction as the create above -- a rejected attachment
+        // reference rolls back the whole ticket creation, never leaving a
+        // ticket with a dangling bad attachmentId (spec R3).
+        await referenceAttachments(
+          tx,
+          tenantId,
+          created.id,
+          input.attachmentIds,
+        );
+        return created;
       });
 
       return c.json({ data: instance }, 201);
     } catch (err) {
+      if (err instanceof AttachmentReferenceError) {
+        return c.json(err.body, err.status);
+      }
       return handleEntityError(c, err);
     }
   },

@@ -12,6 +12,11 @@ import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
 import { hasEntityCommentAccessFull } from "../../lib/entity-access.js";
 import { mentionResolutionQueue } from "../../lib/mention-resolution-queue.js";
+import {
+  referenceAttachments,
+  AttachmentReferenceError,
+  MAX_ATTACHMENTS_PER_TICKET,
+} from "./attachments-reference.js";
 
 // Same forbidden-char set as validate-fields-payload.ts (ADR-012 Phase B,
 // R11) — null byte/control-character rejection at ingress, ahead of any
@@ -32,6 +37,12 @@ const CreateThirdPartyCommentSchema = z.object({
   // name (spec R4). Resolution happens fully async, after this response is
   // already sent (spec R5/R6) — see mention-resolution-worker.ts.
   mentions: z.array(z.string().min(1)).max(20).default([]),
+  // ADR-012 Phase D, spec R3 -- references completed attachment uploads;
+  // never file content itself (spec R2, see attachments-presign.ts).
+  attachmentIds: z
+    .array(z.string().uuid())
+    .max(MAX_ATTACHMENTS_PER_TICKET)
+    .default([]),
 });
 
 function notFound(c: {
@@ -63,7 +74,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     const id = c.req.param("id") ?? "";
     const { tenantId, orgId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
-    const { text, mentions } = c.req.valid("json");
+    const { text, mentions, attachmentIds } = c.req.valid("json");
 
     const [instance] = await withTenantContext(tenantId, (tx) =>
       tx
@@ -94,6 +105,27 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     );
     if (!allowed) {
       return notFound(c);
+    }
+
+    // Validate + bind attachment references BEFORE creating the comment
+    // (spec R3) -- a rejected reference must never leave an orphaned
+    // comment behind. This runs in its own transaction, separate from the
+    // comment insert below (unlike tickets.ts, which shares one transaction
+    // with createEntity) -- if the bind succeeds here but the insert below
+    // fails for an unrelated reason, the attachment stays bound with no
+    // comment referencing it. Accepted: the attachment is still
+    // tenant/ticket-scoped and access-gated identically either way, and the
+    // idempotent-re-reference path (see attachments-reference.ts) lets a
+    // retried request safely re-bind to the same ticket.
+    try {
+      await withTenantContext(tenantId, (tx) =>
+        referenceAttachments(tx, tenantId, id, attachmentIds),
+      );
+    } catch (err) {
+      if (err instanceof AttachmentReferenceError) {
+        return c.json(err.body, err.status);
+      }
+      throw err;
     }
 
     // actorType/actingPersonId in metadata (not a dedicated column —
