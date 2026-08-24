@@ -187,6 +187,9 @@ export async function createChildRelation(
     assignedTo,
     createdBy,
     dueDate,
+    actorType,
+    actingPersonId,
+    maxAncestorDepth,
   } = input;
 
   // Load parent — lock row to prevent concurrent race on cap/depth
@@ -195,6 +198,7 @@ export async function createChildRelation(
       id: entityInstances.id,
       workflowId: entityInstances.workflowId,
       deletedAt: entityInstances.deletedAt,
+      fields: entityInstances.fields,
     })
     .from(entityInstances)
     .where(
@@ -229,6 +233,22 @@ export async function createChildRelation(
   // One-parent constraint on the parent itself: is parent already a child?
   // If so, adding children to it would increase chain depth
   const ancestorDepth = await getAncestorDepth(db, tenantId, parentId);
+
+  // Caller-supplied stricter cap (e.g. the third-party API's 1-level
+  // nesting rule), checked here under the row lock taken above rather than
+  // as a separate pre-check in the caller — reusing this same
+  // already-computed ancestorDepth closes the race a separate unlocked
+  // getAncestorDepth call would have against a concurrent moveChildRelation.
+  // meta.reason lets a caller distinguish this from the general
+  // maxChildDepth check below without a second EntityErrorCode.
+  if (maxAncestorDepth !== undefined && ancestorDepth >= maxAncestorDepth) {
+    throw new EntityError("CHILD_DEPTH_EXCEEDED", {
+      instanceId: parentId,
+      currentAncestorDepth: ancestorDepth,
+      maxAncestorDepth,
+      reason: "caller_max_ancestor_depth",
+    });
+  }
   // New chain = ancestorDepth (levels above parent) + 1 (parent→child link)
   const newChainDepth = ancestorDepth + 1;
   if (newChainDepth > limits.maxChildDepth) {
@@ -248,6 +268,47 @@ export async function createChildRelation(
     });
   }
 
+  // Seed the child's access list with the UNION of the parent's own
+  // __accessUsers grants and the new assignee — previously this only ever
+  // seeded from assignedTo, so a person with mention-grant access on the
+  // parent (not just its creator/assignee) lost visibility into any child
+  // created under it (ADR-012 Phase C, spec R9 bug fix). The assignee's
+  // fresh read_write grant is applied last so it always wins over a stale
+  // inherited level for that same user (e.g. the parent's assignee is being
+  // reassigned to the child too).
+  // __accessUsers has two on-disk shapes (legacy string[] and the current
+  // {userId: {level,tag}} map — see get-access.ts's parseAccessUsers and
+  // entity-access.ts's explicitAccessListUserIds for the same two-shape
+  // handling elsewhere). `typeof x === "object"` is also true for arrays, so
+  // checking it alone before spreading would turn a legacy string[] into
+  // {"0": uid1, "1": uid2, ...} instead of real per-user grants — the
+  // opposite of this inheritance fix's intent, and silently drops every
+  // legacy grantee's access on any child created under a pre-migration
+  // parent. Array.isArray must be checked first.
+  const rawParentAccessUsers = (parent.fields as Record<string, unknown> | null)
+    ?.__accessUsers;
+  let inheritedAccessUsers: Record<string, unknown>;
+  if (Array.isArray(rawParentAccessUsers)) {
+    inheritedAccessUsers = Object.fromEntries(
+      (rawParentAccessUsers as string[]).map((uid) => [
+        uid,
+        { level: "read_comment", tag: "mention" },
+      ]),
+    );
+  } else if (rawParentAccessUsers && typeof rawParentAccessUsers === "object") {
+    inheritedAccessUsers = {
+      ...(rawParentAccessUsers as Record<string, unknown>),
+    };
+  } else {
+    inheritedAccessUsers = {};
+  }
+  const childAccessUsers: Record<string, unknown> = {
+    ...inheritedAccessUsers,
+    ...(assignedTo
+      ? { [assignedTo]: { level: "read_write", tag: "assigned" } }
+      : {}),
+  };
+
   // Insert child instance — inherit parent's workflowId so comments/history work
   const [childInstance] = await db
     .insert(entityInstances)
@@ -258,10 +319,7 @@ export async function createChildRelation(
       fields: {
         ...childFields,
         child_status: "open",
-        // Seed access list with assignee (if any) — stored as {userId: {level, tag}}
-        __accessUsers: assignedTo
-          ? { [assignedTo]: { level: "read_write", tag: "assigned" } }
-          : {},
+        __accessUsers: childAccessUsers,
       },
       assignedTo: assignedTo ?? null,
       createdBy: createdBy ?? null,
@@ -272,6 +330,18 @@ export async function createChildRelation(
 
   if (!childInstance) throw new EntityError("ENTITY_NOT_FOUND", {});
 
+  // workflow_events.triggered_by has its own canonical vocabulary
+  // (user|automation|api|system — see event-schemas.ts's
+  // WorkflowTransitionedV1Schema) distinct from actorType's
+  // (user|api_key|system, used for admin_audit_log/comment metadata) —
+  // "api_key" is never a valid triggered_by value, so it must be mapped to
+  // "api" here rather than passed through directly (every other producer
+  // already writes the mapped value; getWorkflowEventLog does an unchecked
+  // cast on read, so an unmapped value would be served as-is to
+  // GET /entities/:id/events consumers expecting one of the 4 canonical
+  // strings).
+  const triggeredBy = actorType === "api_key" ? "api" : (actorType ?? "user");
+
   // Emit create event so history and comments work on the child
   await db.insert(workflowEvents).values({
     tenantId,
@@ -279,10 +349,15 @@ export async function createChildRelation(
     workflowId: parent.workflowId,
     fromState: null,
     toState: "open",
-    triggeredBy: "user",
+    triggeredBy,
     actorId: createdBy ?? "system",
     comment: null,
-    metadata: { type: "create", actorName: createdBy ?? null },
+    metadata: {
+      type: "create",
+      actorName: createdBy ?? null,
+      ...(actorType && { actorType }),
+      ...(actingPersonId && { actingPersonId }),
+    },
   });
 
   // Outbox events for entity.created/entity.assigned automations (#126) —
