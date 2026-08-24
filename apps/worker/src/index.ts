@@ -30,6 +30,10 @@ import {
 } from "./connector-poll-scheduler.js";
 import { stopConnectorPollWorker } from "./connector-poll-worker.js";
 import { stopMentionResolutionWorker } from "./mention-resolution-worker.js";
+import {
+  scheduleAttachmentCleanup,
+  stopAttachmentCleanupWorker,
+} from "./attachment-cleanup.js";
 
 logger.info({}, "Worker process starting");
 
@@ -44,6 +48,7 @@ startConnectorPollScheduler();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
 void scheduleFileCleanup();
+void scheduleAttachmentCleanup();
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
 // notificationWorker, notificationOutboundWorker, connectorOutboundWorker,
@@ -73,6 +78,7 @@ async function shutdown(): Promise<void> {
     stopConnectorPollScheduler(),
     stopConnectorPollWorker(),
     stopMentionResolutionWorker(),
+    stopAttachmentCleanupWorker(),
     closeRedis(),
   ]);
   process.exit(0);

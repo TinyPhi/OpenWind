@@ -6,6 +6,8 @@ import {
   createThirdPartyTicketHandler,
 } from "./tickets.js";
 import { createThirdPartyCommentHandler } from "./comments.js";
+import { presignAttachmentHandler } from "./attachments-presign.js";
+import { uploadAttachmentHandler } from "./attachments-upload.js";
 
 const router = new Hono<{
   Variables: { auth: AuthContext; actingPerson: ActingPersonContext };
@@ -15,5 +17,7 @@ router.get("/workflows", ...listThirdPartyWorkflowsHandler);
 router.post("/tickets", ...createThirdPartyTicketHandler);
 router.get("/tickets/:id", ...getThirdPartyTicketHandler);
 router.post("/tickets/:id/comments", ...createThirdPartyCommentHandler);
+router.post("/attachments/presign", ...presignAttachmentHandler);
+router.put("/attachments/:id/upload", ...uploadAttachmentHandler);
 
 export { router as thirdPartyRouter };

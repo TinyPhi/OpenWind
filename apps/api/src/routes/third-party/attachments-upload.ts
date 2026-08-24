@@ -1,0 +1,181 @@
+import { z } from "zod";
+import { timingSafeEqual } from "node:crypto";
+import { eq, and } from "drizzle-orm";
+import { requireAuth, requireActingPerson } from "@platform/auth";
+import { withTenantContext, db, attachments } from "@platform/db";
+import { saveUpload, FileError } from "@platform/files";
+import { zValidator } from "../../lib/validator.js";
+import { factory } from "./factory.js";
+import { connection } from "../../lib/redis.js";
+import { hashUploadToken } from "./attachments-presign.js";
+
+const UploadQuerySchema = z.object({
+  token: z.string().min(1),
+});
+
+function notFound(c: {
+  json: (body: unknown, status: 404) => Response;
+}): Response {
+  return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
+}
+
+/**
+ * PUT /api/v1/attachments/:id/upload — ADR-012 Phase D, spec R2.
+ *
+ * Single-use: a completed or expired slot rejects any further PUT (409/410)
+ * rather than silently overwriting or re-processing. Raw bytes only -- no
+ * JSON/multipart parsing, so the ticket/comment create endpoints never see
+ * file content (spec R2, the whole point of this phase).
+ *
+ * Reuses saveUpload's existing quota-at-write-time enforcement and AV-scan
+ * enqueue (@platform/files) rather than duplicating that logic -- this is
+ * the same pipeline human-UI uploads go through.
+ */
+export const uploadAttachmentHandler = factory.createHandlers(
+  requireAuth(db),
+  requireActingPerson(),
+  zValidator("query", UploadQuerySchema),
+  async (c) => {
+    const id = c.req.param("id") ?? "";
+    const { tenantId } = c.get("auth");
+    const { userId: actingPersonId } = c.get("actingPerson");
+    const { token } = c.req.valid("query");
+
+    const [attachment] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .select()
+        .from(attachments)
+        .where(and(eq(attachments.id, id), eq(attachments.tenantId, tenantId)))
+        .limit(1),
+    );
+
+    if (!attachment) {
+      return notFound(c);
+    }
+    const providedHash = Buffer.from(hashUploadToken(token), "hex");
+    const storedHash = Buffer.from(attachment.uploadTokenHash, "hex");
+    if (
+      providedHash.length !== storedHash.length ||
+      !timingSafeEqual(providedHash, storedHash)
+    ) {
+      return notFound(c);
+    }
+    if (attachment.status === "uploaded" || attachment.status === "uploading") {
+      return c.json(
+        {
+          error: "ALREADY_UPLOADED",
+          message: "This upload slot has already been used",
+        },
+        409,
+      );
+    }
+    if (
+      attachment.status === "expired" ||
+      attachment.uploadExpiresAt < new Date()
+    ) {
+      return c.json(
+        { error: "UPLOAD_EXPIRED", message: "This upload slot has expired" },
+        410,
+      );
+    }
+
+    // Atomic claim: closes the TOCTOU window where two concurrent PUTs could
+    // both pass the read-only checks above and both proceed to saveUpload
+    // (double file write, double quota charge, one filesId silently
+    // orphaned). Only the request whose UPDATE actually flips pending ->
+    // uploading proceeds; a concurrent loser sees 0 rows affected and 409s
+    // instead of racing through the upload.
+    const [claimed] = await withTenantContext(tenantId, (tx) =>
+      tx
+        .update(attachments)
+        .set({ status: "uploading", updatedAt: new Date() })
+        .where(and(eq(attachments.id, id), eq(attachments.status, "pending")))
+        .returning({ id: attachments.id }),
+    );
+    if (!claimed) {
+      return c.json(
+        {
+          error: "ALREADY_UPLOADED",
+          message: "This upload slot has already been used",
+        },
+        409,
+      );
+    }
+
+    const bytes = Buffer.from(await c.req.arrayBuffer());
+
+    if (bytes.byteLength !== attachment.declaredSizeBytes) {
+      // Release the claim so a retry with the correct byte count can still
+      // succeed before the slot's own expiry.
+      await withTenantContext(tenantId, (tx) =>
+        tx
+          .update(attachments)
+          .set({ status: "pending", updatedAt: new Date() })
+          .where(eq(attachments.id, id)),
+      );
+      return c.json(
+        {
+          error: "SIZE_MISMATCH",
+          message: "Uploaded byte count does not match the declared size",
+        },
+        422,
+      );
+    }
+
+    try {
+      const result = await withTenantContext(tenantId, (tx) =>
+        saveUpload(
+          tx,
+          connection,
+          tenantId,
+          actingPersonId,
+          "third-party-attachments",
+          attachment.ticketId,
+          attachment.declaredFilename,
+          attachment.declaredMimeType,
+          bytes,
+        ),
+      );
+
+      await withTenantContext(tenantId, (tx) =>
+        tx
+          .update(attachments)
+          .set({
+            status: "uploaded",
+            filesId: result.fileId,
+            updatedAt: new Date(),
+          })
+          .where(eq(attachments.id, id)),
+      );
+
+      return c.json(
+        { data: { attachmentId: id, status: result.scanStatus } },
+        201,
+      );
+    } catch (err: unknown) {
+      // Release the claim on failure so the slot isn't permanently stuck in
+      // 'uploading' until its natural expiry.
+      await withTenantContext(tenantId, (tx) =>
+        tx
+          .update(attachments)
+          .set({ status: "pending", updatedAt: new Date() })
+          .where(eq(attachments.id, id)),
+      );
+      if (err instanceof FileError) {
+        switch (err.code) {
+          case "FILE_TOO_LARGE":
+            return c.json(
+              { error: err.code, message: "File exceeds the allowed size" },
+              422,
+            );
+          case "QUOTA_EXCEEDED":
+            return c.json(
+              { error: err.code, message: "Storage quota exceeded" },
+              422,
+            );
+        }
+      }
+      throw err;
+    }
+  },
+);
