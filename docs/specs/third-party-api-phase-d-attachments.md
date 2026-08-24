@@ -36,20 +36,32 @@ as human-UI uploads (`@platform/files`) — no parallel, weaker path.
 
 **Upload flow (adapted presign — not real S3):**
 
-1. `POST /api/v1/attachments/presign` — `{ filename, sizeBytes, mimeType }` → validates against
-   10MB/file + (implicitly, at reference time) 10-files/ticket, returns `{ attachmentId, uploadUrl, expiresAt }`.
-   `uploadUrl` is a short-lived, single-use, OpenWind-hosted endpoint (not a real S3 presigned
-   URL) bound to exactly this `attachmentId` — it accepts exactly one `PUT` of the exact
-   declared byte size, then is permanently invalidated.
+1. `POST /api/v1/attachments/presign` — `{ filename, sizeBytes, mimeType, ticketId? }` →
+   validates against 10MB/file, returns `{ attachmentId, uploadUrl, expiresAt }`. `ticketId` is
+   **optional** (omitted when attaching during ticket _create_, since the ticket doesn't exist
+   yet) but when present, presign requires the same comment-access check comment-post uses
+   (`hasEntityCommentAccessFull`) on that ticket — closes the abuse case of an authenticated key
+   with no real access to any ticket minting unbounded storage slots. `uploadUrl` is a
+   short-lived, single-use, OpenWind-hosted endpoint (not a real S3 presigned URL) bound to
+   exactly this `attachmentId` — it accepts exactly one successful `PUT` of the exact declared
+   byte size, then is permanently invalidated (a second `PUT` to an already-completed or
+   already-expired slot gets `409`/`410`, never silently overwrites).
 2. Third party `PUT`s raw file bytes to `uploadUrl`. Bytes never pass through the JSON body
    parser of any ticket/comment route. Actual size is re-verified against the declared size at
    this step; a mismatch (real bytes larger than declared) is rejected here, before the file is
-   persisted.
+   persisted. Tenant storage quota (the existing `@platform/files` per-tenant cap) is checked
+   atomically at this step, the same way `saveUpload` already does it — not reserved at presign
+   time, so abandoned/never-completed slots never hold a phantom quota lock.
 3. `POST /api/v1/tickets` (fields) or `POST /api/v1/tickets/:id/comments` gains an optional
    `attachmentIds: string[]` (max 10) referencing step-1 IDs whose upload (step 2) has
    completed. A referenced ID whose upload never completed is rejected (`422`) at this step. A
    referenced ID that completed upload but is still mid-AV-scan (`scanning`) is accepted — the
-   ticket/comment is created immediately, attachment shown in `scanning` state.
+   ticket/comment is created immediately, attachment shown in `scanning` state. **Binding is
+   permanent and single-ticket**: the first successful reference binds the attachment to that
+   ticket; any later attempt to reference the same `attachmentId` from a different ticket is
+   rejected (`422`) — an attachment is never shared across tickets. A `ticketId` supplied at
+   presign time must match the ticket it's ultimately referenced from, or the reference is
+   rejected.
 4. `GET /api/v1/attachments/:id/download` — 404 unless `ready` (maps to `@platform/files`'
    `scanStatus = 'clean'`); response carries a sanitized `Content-Disposition` filename and
    `Content-Security-Policy: sandbox`.
@@ -61,22 +73,35 @@ Attachment lifecycle states (mapped onto `@platform/files`' existing `files.scan
 
 ## §R Requirements
 
-R1: A third party can request an upload slot for a file before uploading any bytes.
+R1: A third party can request an upload slot for a file before uploading any bytes, and cannot
+use presign to bypass access control on a ticket it can't act on.
 ✓ `POST /attachments/presign` with a valid filename/size/MIME returns `201` with an
 `attachmentId` + single-use `uploadUrl`.
 ✓ A request declaring a size over 10MB is rejected at presign time (`422`), before any upload
 URL is issued.
 ✓ A request that would push the referencing ticket/comment over 10 files is rejected at
 reference time (R3), not at presign time (presign doesn't know the target yet).
+✓ Presign with a `ticketId` the acting person has no comment access to → `404` (same
+not-403 convention), no upload slot issued.
+✓ Presign with no `ticketId` (create-time attach case) succeeds for any authenticated
+dual-identity caller — the slot is unbound until R3's reference step binds it.
 
-R2: File bytes reach storage without ever passing through a ticket/comment JSON body.
+R2: File bytes reach storage without ever passing through a ticket/comment JSON body, and
+storage quota is enforced where bytes actually land, not speculatively at presign.
 ✓ The presign response's `uploadUrl` accepts exactly one `PUT` of raw bytes; the ticket/comment
 create/comment-post request bodies contain only an `attachmentIds` array of strings, never
 file content.
 ✓ A file that uploads with more bytes than its declared size is rejected at upload-completion
 time, not silently truncated or accepted.
+✓ A second `PUT` to an already-completed upload slot is rejected (`409`), never overwrites the
+first upload.
+✓ A `PUT` after the slot's 5-minute expiry is rejected (`410`).
+✓ Upload completion that would exceed the tenant's storage quota is rejected atomically at that
+point (same `SELECT FOR UPDATE` pattern as `saveUpload`); an abandoned, never-completed slot
+never holds a quota reservation in the meantime.
 
-R3: A ticket or comment can reference completed uploads by ID.
+R3: A ticket or comment can reference completed uploads by ID, and an attachment is bound to
+exactly one ticket for its lifetime.
 ✓ Referencing an attachment ID whose upload never completed (no bytes arrived) → `422` at
 create/comment time, ticket/comment not created.
 ✓ Referencing an attachment ID still `scanning` → ticket/comment created successfully,
@@ -85,6 +110,10 @@ attachment shows `scanning`.
 enforcement as the multipart human-UI path.
 ✓ Referencing an attachment ID belonging to a different tenant → `404` (same not-403 convention
 as the rest of this API).
+✓ An attachment successfully referenced by ticket A, then referenced again from a create/comment
+call on ticket B → `422`, the attachment stays bound to ticket A only.
+✓ An attachment presigned with `ticketId: A` but referenced from ticket B → `422`, rejected
+before binding.
 
 R4: Uploaded files are never accessible by a scanning or quarantined status.
 ✓ `GET /attachments/:id/download` on a `scanning` attachment → `404` or a distinguishable
@@ -134,6 +163,10 @@ existing `@platform/files` 24h-pending-file cleanup), releasing any reserved quo
 - File bytes are never routed through a JSON-body-parsing route — this is the entire reason
   Phase D exists instead of a simpler multipart/base64 design; any future change to this flow
   must preserve that property.
+- Attachment IDs are opaque and globally-routable by design (they appear in URLs before any
+  ticket binding exists) — every attachment-touching endpoint (presign, upload, reference,
+  download) must independently re-check `tenant_id` and, once bound, ticket-level access; never
+  assume a prior step in the same flow already proved it.
 
 ---
 
