@@ -526,6 +526,13 @@
       "when": 1787552478620,
       "tag": "0074_workflows_allow_auto_grant_on_mention",
       "breakpoints": false
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1787560915780,
+      "tag": "0075_admin_audit_log_tag_actions",
+      "breakpoints": false
     }
   ]
 }
