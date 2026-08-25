@@ -25,6 +25,7 @@ import { sendNotification } from "@platform/notifications";
 import { resolveStoragePath } from "@platform/files";
 import { connection } from "./queues.js";
 import { validateActiveTenant } from "./tenant-guard.js";
+import { handleAttachmentScanFailure } from "./attachment-scan-failure.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -215,6 +216,18 @@ export const avScanWorker = new Worker<AvScanJob>(
         "av-scan: failed to send quarantine notification",
       );
     }
+
+    // ADR-012 Phase D, spec R5 -- no-op unless this file backs a bound
+    // third-party attachment. Non-fatal: the file is already quarantined
+    // regardless of whether this side-effect succeeds.
+    try {
+      await handleAttachmentScanFailure(tenantId, fileId, "quarantined");
+    } catch (noteErr) {
+      logger.warn(
+        { tenantId, fileId, err: String(noteErr) },
+        "av-scan: failed to write attachment scan-failure system note",
+      );
+    }
   },
   {
     connection,
@@ -271,6 +284,15 @@ avScanWorker.on("failed", (job, err) => {
         logger.error(
           { tenantId, fileId, writeErr: String(writeErr) },
           "av-scan: failed to write scan_failed status",
+        );
+      }
+
+      try {
+        await handleAttachmentScanFailure(tenantId, fileId, "scan_failed");
+      } catch (noteErr) {
+        logger.warn(
+          { tenantId, fileId, err: String(noteErr) },
+          "av-scan: failed to write attachment scan-failure system note",
         );
       }
     })();
