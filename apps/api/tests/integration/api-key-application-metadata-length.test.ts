@@ -1,10 +1,9 @@
 /**
- * DB-level tests for migrations 0070/0071's CHECK constraints bounding
+ * DB-level tests for migrations 0070/0071/0075's CHECK constraints bounding
  * api_keys.application_name/application_description/
  * application_contact_email (issue #445, found during PR #439 review) and
- * oidc_client_id (issue #451, the same defect shape flagged in the same
- * review but kept out of #445's scope; column renamed from zitadel_client_id
- * by migration 0072).
+ * oidc_client_id (issue #451 / issue #474; column renamed from zitadel_client_id
+ * by migration 0072, and forward-reconciled by migration 0075).
  *
  * Uses a real Postgres database (no mocks). These columns were added
  * unbounded by migration 0068 — the API layer's Zod schema (create.ts)
@@ -97,7 +96,7 @@ const BOUNDED_COLUMNS = [
   },
 ];
 
-describe("api_keys column length constraints (migrations 0070/0071)", () => {
+describe("api_keys column length constraints (migrations 0070/0071/0075)", () => {
   it.each(BOUNDED_COLUMNS)(
     "rejects $column over its $limit-char limit",
     async ({ column, limit, valueAtLength }) => {
