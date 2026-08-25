@@ -27,7 +27,7 @@ const PROBE_TIMEOUT_MS = 3_000;
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_CAP_MS = 30_000;
 const DEBOUNCE_MS = 1_500;
-const RECOVERED_DISPLAY_MS = 4_000;
+export const RECOVERED_DISPLAY_MS = 4_000;
 
 let serverReachable = true;
 let snapshot: NetworkBannerState = { kind: "online" };
@@ -39,6 +39,8 @@ let recoveredTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempt = 0;
 let probeInFlight = false;
 let started = false;
+let unsubscribeConnectionState: (() => void) | null = null;
+let debounceShownDownState = false;
 
 function emit(next: NetworkBannerState): void {
   snapshot = next;
@@ -81,6 +83,7 @@ async function probe(): Promise<void> {
   try {
     const res = await fetch(`${API_URL}/health`, {
       cache: "no-store",
+      credentials: "omit",
       redirect: "error",
       signal: controller.signal,
     });
@@ -92,20 +95,25 @@ async function probe(): Promise<void> {
     probeInFlight = false;
   }
 
-  const wasReachable = serverReachable;
   serverReachable = ok;
 
   if (ok) {
     clearRetry();
     clearDebounce();
     retryAttempt = 0;
-    if (!wasReachable) {
+    // "recovered" is shown only if a down-state was actually SHOWN to the
+    // user (debounceShownDownState) — not merely because serverReachable
+    // flipped internally. A blip that resolves before the 1.5s debounce ever
+    // fires never displayed anything wrong; flashing "Back online" for a
+    // problem the user never saw is its own confusing false signal.
+    if (debounceShownDownState) {
+      debounceShownDownState = false;
       emit({ kind: "recovered" });
       if (recoveredTimer) clearTimeout(recoveredTimer);
-      recoveredTimer = setTimeout(
-        () => emit({ kind: "online" }),
-        RECOVERED_DISPLAY_MS,
-      );
+      recoveredTimer = setTimeout(() => {
+        recoveredTimer = null;
+        emit({ kind: "online" });
+      }, RECOVERED_DISPLAY_MS);
     } else {
       emit({ kind: "online" });
     }
@@ -131,7 +139,10 @@ async function probe(): Promise<void> {
   // window, so the down-state would never actually show during a real outage.
   debounceTimer ??= setTimeout(() => {
     debounceTimer = null;
-    if (!serverReachable) emit({ kind: currentDownKind() });
+    if (!serverReachable) {
+      debounceShownDownState = true;
+      emit({ kind: currentDownKind() });
+    }
   }, DEBOUNCE_MS);
 }
 
@@ -167,7 +178,40 @@ function start(): void {
   window.addEventListener("network:transport-failure", requestProbe);
   document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("pageshow", handlePageShow);
-  subscribeToConnectionState(handleConnectionState);
+  unsubscribeConnectionState = subscribeToConnectionState(
+    handleConnectionState,
+  );
+}
+
+/**
+ * Tears down all listeners/timers and resets module state. The app itself
+ * never calls this — the store is meant to live for the page's lifetime —
+ * this exists so tests (which reset the module between cases via
+ * vi.resetModules()) can avoid leaking a previous test's listeners onto the
+ * shared `window`/`document` objects, which jsdom does NOT reset between
+ * module instances.
+ */
+export function stop(): void {
+  window.removeEventListener("online", requestProbe);
+  window.removeEventListener("offline", requestProbe);
+  window.removeEventListener("network:transport-failure", requestProbe);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+  window.removeEventListener("pageshow", handlePageShow);
+  unsubscribeConnectionState?.();
+  unsubscribeConnectionState = null;
+  clearRetry();
+  clearDebounce();
+  if (recoveredTimer) {
+    clearTimeout(recoveredTimer);
+    recoveredTimer = null;
+  }
+  started = false;
+  serverReachable = true;
+  snapshot = { kind: "online" };
+  retryAttempt = 0;
+  probeInFlight = false;
+  debounceShownDownState = false;
+  listeners.clear();
 }
 
 export function subscribe(listener: () => void): () => void {

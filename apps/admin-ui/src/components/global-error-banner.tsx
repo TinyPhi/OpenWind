@@ -48,22 +48,17 @@ export function GlobalErrorBanner(): React.ReactElement | null {
     return () => window.removeEventListener("api:error", handler);
   }, [dismiss]);
 
+  // Network banners are never dismissible (unlike auth/server banners) — the
+  // "recovered" state's own auto-transition to "online" (network-status.ts)
+  // is what removes it, so there's no per-banner dismiss affordance to gate.
   const networkBanner = (() => {
     switch (network.kind) {
       case "offline":
-        return { icon: "🔌", message: t("network.offline"), persistent: true };
+        return { icon: "🔌", message: t("network.offline") };
       case "reconnecting":
-        return {
-          icon: "⚠️",
-          message: t("network.reconnecting"),
-          persistent: true,
-        };
+        return { icon: "⚠️", message: t("network.reconnecting") };
       case "recovered":
-        return {
-          icon: "✅",
-          message: t("network.backOnline"),
-          persistent: false,
-        };
+        return { icon: "✅", message: t("network.backOnline") };
       case "online":
         return null;
     }
@@ -72,7 +67,12 @@ export function GlobalErrorBanner(): React.ReactElement | null {
   if (banners.length === 0 && !networkBanner) return null;
 
   return (
-    <div className="geb-stack" role="status" aria-live="polite">
+    <div
+      className="geb-stack"
+      role="status"
+      aria-live="polite"
+      aria-label={t("network.regionLabel")}
+    >
       {networkBanner && (
         <div className="geb-banner geb-network">
           <span className="geb-icon" aria-hidden="true">

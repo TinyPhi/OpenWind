@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type * as NetworkStatusModule from "./network-status.js";
+import { RECOVERED_DISPLAY_MS } from "./network-status.js";
 
 const mockSubscribeToConnectionState = vi.fn().mockReturnValue(() => {});
 
@@ -36,6 +37,12 @@ describe("network-status", () => {
   });
 
   afterEach(() => {
+    // jsdom's window/document persist across tests within this file even
+    // though vi.resetModules() gives each test a fresh module instance —
+    // without an explicit teardown, the PREVIOUS test's listeners stay
+    // attached to the shared window and fire (with orphaned module state)
+    // alongside the current test's, on every subsequent dispatched event.
+    networkStatus.stop();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -116,9 +123,7 @@ describe("network-status", () => {
     //
     // Explicit 15s timeout (default is 5s): several vi.advanceTimersByTimeAsync
     // calls drain many microtasks each — under full-suite CPU contention this
-    // has room to exceed the default before completing, same failure mode
-    // documented for a similar flake in apps/worker's outbox-poller isolation
-    // tests (issue #436).
+    // has room to exceed the default before completing.
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.01);
     fetchMock.mockResolvedValue(jsonServerError());
     const listener = vi.fn();
@@ -132,7 +137,7 @@ describe("network-status", () => {
     await vi.advanceTimersByTimeAsync(1_000); // next retry (base delay, random=0 -> 0ms, but timer granularity)
     expect(networkStatus.getSnapshot()).toEqual({ kind: "recovered" });
 
-    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(RECOVERED_DISPLAY_MS);
     expect(networkStatus.getSnapshot()).toEqual({ kind: "online" });
     randomSpy.mockRestore();
   }, 15_000);
@@ -170,6 +175,20 @@ describe("network-status", () => {
 
     randomSpy.mockRestore();
   }, 15_000);
+
+  it("sends the health probe with credentials omitted, never the session cookie", async () => {
+    fetchMock.mockResolvedValue(jsonOk());
+    const listener = vi.fn();
+    networkStatus.subscribe(listener);
+
+    window.dispatchEvent(new Event("network:transport-failure"));
+    await vi.runAllTimersAsync();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/health",
+      expect.objectContaining({ credentials: "omit" }),
+    );
+  });
 
   it("re-probes on pageshow with persisted true", async () => {
     fetchMock.mockResolvedValue(jsonOk());

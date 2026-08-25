@@ -26,6 +26,7 @@
     "verifying": "Verifying credentials and synchronizing session..."
   },
   "network": {
+    "regionLabel": "Notifications",
     "logInAgain": "Log in again",
     "dismiss": "Dismiss",
     "offline": "You're offline",
