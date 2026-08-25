@@ -61,24 +61,26 @@ R4: RPO/RTO policy is stated as policy, not left implicit in a script comment
 - Backup tooling must never reference a storage backend the app no longer uses — a stale backup script is worse than no script, since it creates false confidence until the day it's needed and fails.
 - Every backup-affecting architecture change (e.g. a future move off local-disk storage) must update `scripts/backup.sh` in the same PR — this is now the second time the backup script has drifted from `packages/files`' actual storage backend.
 - RTO in the runbook must always be a measured number with a date, not an estimate — an unmeasured RTO gives false confidence during an actual incident.
+- A backup script must never exit 0 for a state it cannot distinguish from silent data loss (e.g. an expected source path missing) — fail loudly instead. A backup script that always reports success regardless of what it actually captured is worse than no backup script at all.
 
 ## §T Tasks
 
 | id  | task                                                                                                                                                                             | phase | status | depends |
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
-| T1  | fix `scripts/backup.sh`: remove MinIO mirror step, add local-disk files directory backup (tar or rsync of `FILES_STORAGE_PATH_HOST`)                                             | 1     | todo   | —       |
-| T2  | add/update a test for `scripts/backup.sh` if a test harness pattern exists for shell scripts in this repo; otherwise document manual verification in the PR                      | 1     | todo   | T1      |
-| T3  | write a cron entry / systemd timer example wiring `backup.sh` to a 24h schedule                                                                                                  | 2     | todo   | T1      |
-| T4  | perform one supervised test restore (`pg_restore` + files-directory restore) against a non-prod target, time it                                                                  | 2     | todo   | T1      |
-| T5  | rewrite `docs/local-setup.md`'s Backup & Disaster Recovery section: RPO/RTO policy statement, schedule, exact restore procedure with measured timing, explicit out-of-scope list | 2     | todo   | T3,T4   |
+| T1  | fix `scripts/backup.sh`: remove MinIO mirror step, add local-disk files directory backup (tar or rsync of `FILES_STORAGE_PATH_HOST`)                                             | 1     | done   | —       |
+| T2  | add/update a test for `scripts/backup.sh` if a test harness pattern exists for shell scripts in this repo; otherwise document manual verification in the PR                      | 1     | done   | T1      |
+| T3  | write a cron entry / systemd timer example wiring `backup.sh` to a 24h schedule                                                                                                  | 2     | done   | T1      |
+| T4  | perform one supervised test restore (`pg_restore` + files-directory restore) against a non-prod target, time it                                                                  | 2     | done   | T1      |
+| T5  | rewrite `docs/local-setup.md`'s Backup & Disaster Recovery section: RPO/RTO policy statement, schedule, exact restore procedure with measured timing, explicit out-of-scope list | 2     | done   | T3,T4   |
 
 phase gate: all unit + integration tests pass before advancing to next phase (N/A for shell-script-only changes beyond manual verification — record this explicitly rather than silently skipping the gate)
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed                                               | root cause                                                                                                                                                                                       | promoted to §V? |
-| --- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- |
-| B1  | `scripts/backup.sh` fails today against the current stack | script mirrors a MinIO bucket via the `minio-init` service, which PR #340 commented out of `docker-compose.yml` when file storage moved to local disk — backup tooling wasn't updated in that PR | yes — see §V    |
+| id  | what failed                                                                                                                                                                                         | root cause                                                                                                                                                                                                                                                                      | promoted to §V? |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| B1  | `scripts/backup.sh` fails today against the current stack                                                                                                                                           | script mirrors a MinIO bucket via the `minio-init` service, which PR #340 commented out of `docker-compose.yml` when file storage moved to local disk — backup tooling wasn't updated in that PR                                                                                | yes — see §V    |
+| B2  | PR #482 review (F-01): `scripts/backup.sh`'s files-copy step silently exited 0 with an empty backup when `FILES_STORAGE_PATH_HOST` didn't exist — warned to stdout, created an empty dir, continued | else-branch treated a missing source directory as equivalent to a genuinely-empty one, when it's actually ambiguous (misconfigured path vs. fresh deploy) and — if misconfigured — every nightly backup would report success with zero files until an actual restore was needed | yes — see §V    |
 
 ---
 

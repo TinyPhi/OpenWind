@@ -53,14 +53,25 @@ echo "    -> ${PG_DUMP_FILE} ($(du -h "$PG_DUMP_FILE" | cut -f1))"
 
 echo "==> [2/2] Copying file storage directory '${FILES_STORAGE_PATH_HOST}'..."
 FILES_DIR="${RUN_DIR}/files"
-if [ -d "$FILES_STORAGE_PATH_HOST" ]; then
-  mkdir -p "$FILES_DIR"
-  cp -a "${FILES_STORAGE_PATH_HOST}/." "$FILES_DIR/"
-else
-  echo "    (warning: ${FILES_STORAGE_PATH_HOST} does not exist yet — nothing uploaded, or path misconfigured. Creating empty directory.)"
-  mkdir -p "$FILES_DIR"
+if [ ! -d "$FILES_STORAGE_PATH_HOST" ]; then
+  # A missing directory is ambiguous (misconfigured env var vs. a freshly
+  # deployed host with no uploads yet) and dangerous to guess wrong on in a
+  # backup context — silently continuing here would let a cron job report
+  # success every night while producing empty file backups, with nobody
+  # noticing until a real restore is needed and every backup for months
+  # turns out to have zero files. Fail loudly instead; a genuinely empty
+  # store is handled by pre-creating the (existing, empty) directory below.
+  echo "ERROR: FILES_STORAGE_PATH_HOST=${FILES_STORAGE_PATH_HOST} does not exist." >&2
+  echo "       If freshly deployed with no uploads yet, pre-create the directory:" >&2
+  echo "       mkdir -p ${FILES_STORAGE_PATH_HOST}" >&2
+  exit 1
 fi
+mkdir -p "$FILES_DIR"
+cp -a "${FILES_STORAGE_PATH_HOST}/." "$FILES_DIR/"
 FILE_COUNT=$(find "$FILES_DIR" -type f | wc -l | tr -d ' ')
+if [ "$FILE_COUNT" -eq 0 ]; then
+  echo "    INFO: 0 files backed up — expected if no attachments have been uploaded yet."
+fi
 echo "    -> ${FILES_DIR} (${FILE_COUNT} file(s))"
 
 echo "==> Backup complete: ${RUN_DIR}"

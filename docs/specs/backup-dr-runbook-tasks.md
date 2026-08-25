@@ -13,8 +13,8 @@
 
 | task                                                                                                                                                                     | requirement | status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ------ |
-| T1: remove MinIO mirror step from `scripts/backup.sh`; add a step that copies/tars the host's `FILES_STORAGE_PATH_HOST` directory into the backup run directory          | R1          | todo   |
-| T2: manually verify by running `./scripts/backup.sh` against the live stack; record output in PROGRESS.md (no existing shell-script test harness in this repo to extend) | R1          | todo   |
+| T1: remove MinIO mirror step from `scripts/backup.sh`; add a step that copies/tars the host's `FILES_STORAGE_PATH_HOST` directory into the backup run directory          | R1          | done   |
+| T2: manually verify by running `./scripts/backup.sh` against the live stack; record output in PROGRESS.md (no existing shell-script test harness in this repo to extend) | R1          | done   |
 
 ---
 
@@ -25,9 +25,9 @@
 
 | task                                                                                                                                                                                                                                       | requirement | status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ------ |
-| T3: write a cron entry / systemd timer example (as a doc snippet, and a checked-in `.timer`/`.service` unit file if that fits the repo's existing ops-file conventions) wiring `backup.sh` to a nightly schedule                           | R2          | todo   |
-| T4: perform one supervised restore (`pg_restore` into a scratch DB/container + files-directory restore) against a non-prod target; time it wall-clock                                                                                      | R3          | todo   |
-| T5: rewrite `docs/local-setup.md`'s Backup & Disaster Recovery section — state RPO=24h/RTO=<measured>, the schedule, the exact restore commands used in T4, and the explicit out-of-scope list (PITR, offsite storage, per-tenant restore) | R3, R4      | todo   |
+| T3: write a cron entry / systemd timer example (as a doc snippet, and a checked-in `.timer`/`.service` unit file if that fits the repo's existing ops-file conventions) wiring `backup.sh` to a nightly schedule                           | R2          | done   |
+| T4: perform one supervised restore (`pg_restore` into a scratch DB/container + files-directory restore) against a non-prod target; time it wall-clock                                                                                      | R3          | done   |
+| T5: rewrite `docs/local-setup.md`'s Backup & Disaster Recovery section — state RPO=24h/RTO=<measured>, the schedule, the exact restore commands used in T4, and the explicit out-of-scope list (PITR, offsite storage, per-tenant restore) | R3, R4      | done   |
 
 ---
 

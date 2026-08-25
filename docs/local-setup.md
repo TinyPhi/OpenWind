@@ -491,6 +491,10 @@ whatever host runs the `docker compose` stack:
 0 2 * * * cd /path/to/OpenWind && BACKUP_DIR=/var/backups/openwind ./scripts/backup.sh >> /var/log/openwind-backup.log 2>&1
 ```
 
+The log file above has no rotation configured and will grow unbounded — add a
+`logrotate` entry for `/var/log/openwind-backup.log` if using cron, or prefer
+the systemd timer below (logs to `journalctl`, rotated automatically).
+
 **systemd timer** (preferred on a systemd host — survives reboots without
 re-adding a crontab entry, and logs go to `journalctl` instead of a
 hand-rolled log file):
@@ -502,6 +506,10 @@ Description=OpenWind nightly backup
 
 [Service]
 Type=oneshot
+# Whoever runs `docker compose up -d` on this host — running as root
+# unnecessarily widens blast radius if this script ever has a bug.
+User=<deploy-user>
+Group=<deploy-group>
 WorkingDirectory=/path/to/OpenWind
 Environment=BACKUP_DIR=/var/backups/openwind
 ExecStart=/path/to/OpenWind/scripts/backup.sh
@@ -545,11 +553,31 @@ docker compose exec -T postgres pg_restore -U platform -d platform_restore_check
   --no-owner --no-privileges < ./backups/<timestamp>/postgres-platform.dump
 ```
 
-**Files** — plain copy back to the storage path:
+**Files** — stop the application first, then copy back to the storage path.
+Unlike the Postgres restore above (which goes into a scratch database and is
+safe to run live), this writes directly to the path `ow-backend`/`ow-worker`
+actively read and write — restoring over a live directory can overwrite newer
+legitimate uploads with older versions, or leave a dangling reference if a
+file mid-ClamAV-scan gets clobbered:
 
 ```bash
+# Stop the application before restoring files to avoid write conflicts
+docker compose stop ow-backend ow-worker
+
 cp -a ./backups/<timestamp>/files/. "${FILES_STORAGE_PATH_HOST:-../openwind-files}/"
+
+# Restart after restore is verified
+docker compose start ow-backend ow-worker
 ```
+
+**Consistency note**: `pg_dump` takes a transactionally consistent snapshot;
+the files copy does not — it's a point-in-time filesystem copy taken
+separately, while the application may be mid-write. A file in
+`packages/files`' atomic write pipeline (ClamAV-scanning a temp path, not yet
+renamed to its final location) at backup time may be absent from the files
+backup even though its Postgres row already exists, or vice versa. This is
+acceptable at the current 24h RPO — the number of in-flight uploads at any
+given moment is small — but is a real gap, not a hidden one.
 
 **Verified 2026-08-25** (supervised test restore, dev stack,
 `docker compose up -d postgres` only, no application traffic): a `pg_dump` of
