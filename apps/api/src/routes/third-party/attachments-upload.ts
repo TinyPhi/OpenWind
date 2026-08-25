@@ -89,7 +89,13 @@ export const uploadAttachmentHandler = factory.createHandlers(
       tx
         .update(attachments)
         .set({ status: "uploading", updatedAt: new Date() })
-        .where(and(eq(attachments.id, id), eq(attachments.status, "pending")))
+        .where(
+          and(
+            eq(attachments.id, id),
+            eq(attachments.tenantId, tenantId),
+            eq(attachments.status, "pending"),
+          ),
+        )
         .returning({ id: attachments.id }),
     );
     if (!claimed) {
@@ -111,7 +117,13 @@ export const uploadAttachmentHandler = factory.createHandlers(
         tx
           .update(attachments)
           .set({ status: "pending", updatedAt: new Date() })
-          .where(eq(attachments.id, id)),
+          .where(
+            and(
+              eq(attachments.id, id),
+              eq(attachments.tenantId, tenantId),
+              eq(attachments.status, "uploading"),
+            ),
+          ),
       );
       return c.json(
         {
@@ -153,7 +165,11 @@ export const uploadAttachmentHandler = factory.createHandlers(
             updatedAt: new Date(),
           })
           .where(
-            and(eq(attachments.id, id), eq(attachments.status, "uploading")),
+            and(
+              eq(attachments.id, id),
+              eq(attachments.tenantId, tenantId),
+              eq(attachments.status, "uploading"),
+            ),
           )
           .returning({ id: attachments.id }),
       );
@@ -182,7 +198,13 @@ export const uploadAttachmentHandler = factory.createHandlers(
         tx
           .update(attachments)
           .set({ status: "pending", updatedAt: new Date() })
-          .where(eq(attachments.id, id)),
+          .where(
+            and(
+              eq(attachments.id, id),
+              eq(attachments.tenantId, tenantId),
+              eq(attachments.status, "uploading"),
+            ),
+          ),
       );
       if (err instanceof FileError) {
         switch (err.code) {

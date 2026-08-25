@@ -29,6 +29,14 @@ const mockSelectResult = { rows: [] as { id: string; tenantId: string }[] };
 const mockDbUpdate = vi.fn().mockReturnValue({
   set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
 });
+const mockDeleteResult = { rows: [] as { id: string }[] };
+const mockDbDelete = vi.fn().mockReturnValue({
+  where: vi.fn().mockReturnValue({
+    returning: vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(mockDeleteResult.rows)),
+  }),
+});
 
 vi.mock("@platform/db", () => ({
   db: {
@@ -42,12 +50,14 @@ vi.mock("@platform/db", () => ({
       }),
     }),
     update: (...args: unknown[]) => mockDbUpdate(...args),
+    delete: (...args: unknown[]) => mockDbDelete(...args),
   },
   attachments: {
     id: "id",
     tenantId: "tenantId",
     status: "status",
     uploadExpiresAt: "uploadExpiresAt",
+    updatedAt: "updatedAt",
   },
 }));
 
@@ -62,6 +72,7 @@ vi.mock("./queues.js", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mockSelectResult.rows = [];
+  mockDeleteResult.rows = [];
 });
 
 describe("attachment-cleanup", () => {
@@ -101,5 +112,16 @@ describe("attachment-cleanup", () => {
     ];
     await expect(capturedProcessor!()).resolves.toBeUndefined();
     expect(mockDbUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  it("hard-deletes rows past their expired grace period, in a delete pass separate from the expire pass", async () => {
+    await import("./attachment-cleanup.js");
+    mockSelectResult.rows = [];
+    mockDeleteResult.rows = [{ id: "attach-old-1" }, { id: "attach-old-2" }];
+
+    await capturedProcessor!();
+
+    expect(mockDbUpdate).not.toHaveBeenCalled();
+    expect(mockDbDelete).toHaveBeenCalledTimes(1);
   });
 });

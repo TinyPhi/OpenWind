@@ -55,35 +55,41 @@ async function runCleanup(): Promise<void> {
 
   if (staleSlots.length === 0) {
     logger.info({}, "attachment-cleanup: no stale slots found");
-    return;
-  }
+  } else {
+    logger.info(
+      { count: staleSlots.length },
+      "attachment-cleanup: processing stale slots",
+    );
 
-  logger.info(
-    { count: staleSlots.length },
-    "attachment-cleanup: processing stale slots",
-  );
+    let purged = 0;
+    let errors = 0;
 
-  let purged = 0;
-  let errors = 0;
-
-  for (const slot of staleSlots) {
-    try {
-      await db
-        .update(attachments)
-        .set({ status: "expired", updatedAt: new Date() })
-        .where(eq(attachments.id, slot.id));
-      purged++;
-    } catch (err) {
-      errors++;
-      logger.error(
-        { tenantId: slot.tenantId, attachmentId: slot.id, err: String(err) },
-        "attachment-cleanup: failed to expire slot",
-      );
+    for (const slot of staleSlots) {
+      try {
+        await db
+          .update(attachments)
+          .set({ status: "expired", updatedAt: new Date() })
+          .where(eq(attachments.id, slot.id));
+        purged++;
+      } catch (err) {
+        errors++;
+        logger.error(
+          { tenantId: slot.tenantId, attachmentId: slot.id, err: String(err) },
+          "attachment-cleanup: failed to expire slot",
+        );
+      }
     }
+
+    logger.info({ purged, errors }, "attachment-cleanup: expire pass complete");
   }
 
-  logger.info({ purged, errors }, "attachment-cleanup: expire pass complete");
-
+  // Runs every cycle regardless of whether the expire pass above found
+  // anything -- an earlier version of this function `return`ed early when
+  // staleSlots was empty, which meant a cycle with no NEW stale slots (the
+  // common case once an initial spike settles) skipped this delete pass
+  // forever, defeating the whole point of bounding table growth from a
+  // sustained presign-and-abandon pattern (the bug this two-phase design
+  // exists to fix).
   const graceCutoff = new Date(
     now.getTime() - EXPIRED_GRACE_HOURS * 60 * 60 * 1000,
   );

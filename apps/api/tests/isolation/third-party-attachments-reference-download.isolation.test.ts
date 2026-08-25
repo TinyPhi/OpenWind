@@ -9,12 +9,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray, eq } from "drizzle-orm";
+import { inArray, eq, sql } from "drizzle-orm";
 import {
   db,
   tenants,
   workflows,
   workflowStates,
+  entityInstances,
   attachments,
   files,
 } from "@platform/db";
@@ -38,6 +39,32 @@ let otherTenantAttachmentId: string;
 
 const CREATOR = "third-party-attachment-ref-creator";
 const NO_ACCESS_PERSON = "third-party-attachment-ref-no-access";
+const READ_COMMENT_PERSON = "third-party-attachment-ref-read-comment";
+
+async function grantAccess(
+  ticketId: string,
+  userId: string,
+  level: "read_only" | "read_comment" | "read_write",
+) {
+  await db
+    .update(entityInstances)
+    .set({
+      fields: sql`jsonb_set(
+        jsonb_set(
+          fields,
+          '{__accessUsers}',
+          CASE
+            WHEN jsonb_typeof(COALESCE(fields->'__accessUsers', 'null'::jsonb)) = 'object'
+            THEN fields->'__accessUsers'
+            ELSE '{}'::jsonb
+          END
+        ),
+        ARRAY['__accessUsers', ${userId}::text],
+        jsonb_build_object('level', to_jsonb(${level}::text), 'tag', 'mention')
+      )`,
+    })
+    .where(eq(entityInstances.id, ticketId));
+}
 
 beforeAll(async () => {
   await db.insert(tenants).values([
@@ -87,6 +114,7 @@ beforeAll(async () => {
     currentState: "open",
   });
   ticketA = a.id;
+  await grantAccess(ticketA, READ_COMMENT_PERSON, "read_comment");
 
   const b = await createEntity(db, TENANT, {
     entityTypeId,
@@ -384,6 +412,77 @@ describe("attachment references on comment-post", () => {
       .from(attachments)
       .where(eq(attachments.id, data.attachmentId));
     expect(row?.boundAt).toBeNull();
+  });
+
+  it("rejects binding an attachment uploaded by a different acting person, even with ticket access", async () => {
+    const app = makeApp();
+    const attachmentId = await createUploadedAttachment(app, CREATOR);
+
+    const res = await app.request(`/tickets/${ticketA}/comments`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-acting-person": NO_ACCESS_PERSON,
+      },
+      body: JSON.stringify({
+        text: "stolen attachment",
+        attachmentIds: [attachmentId],
+      }),
+    });
+    expect(res.status).toBe(404);
+
+    const [row] = await db
+      .select({ boundAt: attachments.boundAt })
+      .from(attachments)
+      .where(eq(attachments.id, attachmentId));
+    expect(row?.boundAt).toBeNull();
+  });
+
+  it("deduplicates a repeated attachment id instead of rolling back on ATTACHMENT_ALREADY_BOUND", async () => {
+    const app = makeApp();
+    const attachmentId = await createUploadedAttachment(app);
+
+    const res = await app.request(`/tickets/${ticketA}/comments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        text: "duplicate id in payload",
+        attachmentIds: [attachmentId, attachmentId],
+      }),
+    });
+    expect(res.status).toBe(201);
+
+    const [row] = await db
+      .select({ ticketId: attachments.ticketId, boundAt: attachments.boundAt })
+      .from(attachments)
+      .where(eq(attachments.id, attachmentId));
+    expect(row?.ticketId).toBe(ticketA);
+    expect(row?.boundAt).not.toBeNull();
+  });
+
+  it("allows idempotent re-reference by a DIFFERENT ticket-authorized actor than the uploader", async () => {
+    const app = makeApp();
+    const attachmentId = await createUploadedAttachment(app, CREATOR);
+
+    const first = await app.request(`/tickets/${ticketA}/comments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "first", attachmentIds: [attachmentId] }),
+    });
+    expect(first.status).toBe(201);
+
+    const again = await app.request(`/tickets/${ticketA}/comments`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-acting-person": READ_COMMENT_PERSON,
+      },
+      body: JSON.stringify({
+        text: "second reference to the same ticket by a different actor",
+        attachmentIds: [attachmentId],
+      }),
+    });
+    expect(again.status).toBe(201);
   });
 
   it("no-access person cannot bind an attachment via a comment on an inaccessible ticket", async () => {
