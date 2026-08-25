@@ -32,3 +32,10 @@ export {
   hasEntityAccess,
   hasEntityCommentAccessFull,
 } from "./entity-access.js";
+export {
+  resolveWorkflowContext,
+  emitAccessEvent,
+  emitAccessRequestSubmitted,
+  emitFileDownloaded,
+  emitFileDeleted,
+} from "./emit-access-event.js";
