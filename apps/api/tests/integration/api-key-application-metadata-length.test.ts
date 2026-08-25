@@ -21,8 +21,11 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { db, withTenantContext, apiKeys, tenants } from "@platform/db";
 import { hashApiKey } from "@platform/auth";
 
@@ -125,5 +128,86 @@ describe("api_keys column length constraints (migrations 0070/0071/0075)", () =>
     await expect(
       insertKey({ name: "no-application-metadata" }),
     ).resolves.toBeDefined();
+  });
+});
+
+/**
+ * PR #479 review (issue #474): the BOUNDED_COLUMNS suite above only exercises
+ * migration 0075's Branch 2 (neither constraint name exists -> ADD), which is
+ * the fresh-DB path. Branch 1 (RENAME -- the path every pre-existing database
+ * where 0071 ran before 0072 actually takes, i.e. the scenario that motivated
+ * this fix) and Branch 3 (no-op -- new name already present) had zero coverage.
+ * Re-executes 0075's own DO block SQL directly (not a copy of its logic) against
+ * simulated pre-migration states, so this proves the shipped migration file
+ * itself, not a re-implementation that could drift from it.
+ */
+describe("migration 0075 DO block branches (rename / no-op)", () => {
+  const migration0075Sql = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../../packages/db/migrations/0075_api_keys_oidc_client_id_length_limit.sql",
+    ),
+    "utf8",
+  );
+
+  async function constraintExists(name: string): Promise<boolean> {
+    const [row] = await db.execute<{ exists: boolean }>(
+      sql`SELECT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = ${name} AND conrelid = 'public.api_keys'::regclass
+      ) AS exists`,
+    );
+    return row?.exists ?? false;
+  }
+
+  // Same shape as BOUNDED_COLUMNS's oidcClientId.valueAtLength(201) above --
+  // over the 200-char limit and unique, so it can't collide with the partial
+  // uniqueness index and only the length CHECK is what rejects the insert.
+  function overLimitOidcClientId(): string {
+    return `${"a".repeat(195)}${randomUUID().replace(/-/g, "").slice(0, 6)}`;
+  }
+
+  it("Branch 3 (no-op): re-running 0075 when api_keys_oidc_client_id_length already exists leaves it untouched", async () => {
+    expect(await constraintExists("api_keys_oidc_client_id_length")).toBe(true);
+
+    await db.execute(sql.raw(migration0075Sql));
+
+    expect(await constraintExists("api_keys_oidc_client_id_length")).toBe(true);
+    expect(await constraintExists("api_keys_zitadel_client_id_length")).toBe(
+      false,
+    );
+    await expect(
+      insertKey({
+        name: "0075-no-op-branch-enforcement",
+        oidcClientId: overLimitOidcClientId(),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("Branch 1 (rename): simulated State A -- 0071's pre-rename constraint name is renamed forward by 0075, not dropped", async () => {
+    // Simulate State A: an environment where 0071 ran before 0072, so the
+    // length constraint still carries its original (pre-column-rename) name.
+    await db.execute(
+      sql`ALTER TABLE api_keys RENAME CONSTRAINT api_keys_oidc_client_id_length TO api_keys_zitadel_client_id_length`,
+    );
+    expect(await constraintExists("api_keys_zitadel_client_id_length")).toBe(
+      true,
+    );
+    expect(await constraintExists("api_keys_oidc_client_id_length")).toBe(
+      false,
+    );
+
+    await db.execute(sql.raw(migration0075Sql));
+
+    expect(await constraintExists("api_keys_oidc_client_id_length")).toBe(true);
+    expect(await constraintExists("api_keys_zitadel_client_id_length")).toBe(
+      false,
+    );
+    await expect(
+      insertKey({
+        name: "0075-rename-branch-enforcement",
+        oidcClientId: overLimitOidcClientId(),
+      }),
+    ).rejects.toThrow();
   });
 });
