@@ -54,8 +54,9 @@ export const options = {
     },
   },
   thresholds: {
-    // Informational, not a pass/fail gate for this exploratory tool — a
-    // failed threshold just gets called out in the run's own summary output.
+    // Always-passing sentinel (rate<1 means <100% error rate) — only here to
+    // surface http_req_failed in the summary output, not as a real pass/fail
+    // gate. Use rate<0.01 if you want a meaningful 1%-error threshold.
     http_req_failed: ["rate<1"],
   },
 };

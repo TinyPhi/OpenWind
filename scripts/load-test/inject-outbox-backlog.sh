@@ -38,6 +38,7 @@ if [ "${1:-}" = "--cleanup" ]; then
 fi
 
 COUNT="${1:-5000}"
+[[ "$COUNT" =~ ^[0-9]+$ ]] || { echo "ERROR: COUNT must be a positive integer" >&2; exit 1; }
 echo "==> Inserting ${COUNT} synthetic outbox_events rows (tenant=${DEMO_TENANT_ID}, event_type=${EVENT_TYPE})..."
 docker compose exec -T "$POSTGRES_SERVICE" \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \

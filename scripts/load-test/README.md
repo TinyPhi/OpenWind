@@ -85,6 +85,16 @@ before/during the k6 run:
 ./scripts/load-test/inject-outbox-backlog.sh --cleanup  # remove exactly those rows
 ```
 
+**Note on outbox-poller behavior with synthetic rows:** the outbox-poller reads events
+where `deliveredAt IS NULL` and marks them delivered as it processes them. The synthetic
+`loadtest.synthetic_backlog` event type has no registered automation handler, so the
+poller marks these rows delivered immediately without doing any real work — the backlog
+will drain in seconds under a running `ow-worker`, providing less sustained pool pressure
+than a real handler backlog would. This is still useful for observing peak pool contention
+at the moment the poller batch runs, but don't expect it to hold the worker under load for
+the full k6 duration. If sustained worker pressure is needed, pause `ow-worker` before
+injecting, then start it once the k6 run is underway.
+
 ## 5. Write up the results
 
 Copy the previous run's file under `docs/sup-docs/load-test-results/` as a template and
