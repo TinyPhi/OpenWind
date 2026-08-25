@@ -113,11 +113,28 @@ vi.mock("@platform/auth", () => ({
   listUserRolesByUserId: vi.fn(() => Promise.resolve(mockRolesByUserId)),
 }));
 
-// ── hasEntityAccess mock ─────────────────────────────────────────────────────
+// ── hasEntityAccess / emitAccessEvent mocks ─────────────────────────────────
 
 let mockHasEntityAccess = false;
+const emitAccessEventCalls: Array<{
+  tenantId: string;
+  instanceId: string;
+  actorId: string;
+  payload: unknown;
+}> = [];
 vi.mock("@platform/workflow-engine", () => ({
   hasEntityAccess: vi.fn(() => Promise.resolve(mockHasEntityAccess)),
+  emitAccessEvent: vi.fn(
+    (
+      tenantId: string,
+      instanceId: string,
+      actorId: string,
+      payload: unknown,
+    ) => {
+      emitAccessEventCalls.push({ tenantId, instanceId, actorId, payload });
+      return Promise.resolve();
+    },
+  ),
 }));
 
 // ── Audit mock ───────────────────────────────────────────────────────────────
@@ -199,6 +216,7 @@ beforeEach(() => {
   insertCalls.length = 0;
   updateCalls.length = 0;
   auditEntries.length = 0;
+  emitAccessEventCalls.length = 0;
   onConflictReturning = [{ id: "req-1" }];
   mockOrgUsers = [
     {
@@ -300,6 +318,64 @@ describe("mention-resolution-worker", () => {
     expect(auditEntries).toEqual([
       expect.objectContaining({ action: "tag.auto_granted" }),
     ]);
+  });
+
+  it("outcome 2, toggle ON, under the rate cap: emits an access_grant event so the granted user gets a timeline entry and notification — PR #470 review finding 1", async () => {
+    selectQueue = [
+      () => [instanceRow],
+      () => [{ allowAutoGrantOnMention: true }],
+    ];
+    mockRateLimitAllowed = true;
+
+    await capturedProcessor!(baseJob());
+
+    expect(emitAccessEventCalls).toEqual([
+      {
+        tenantId: TENANT_ID,
+        instanceId: TICKET_ID,
+        actorId: ACTING_PERSON_ID,
+        payload: {
+          type: "access_grant",
+          targetUserId: MENTIONED_USER_ID,
+          level: "read_only",
+          tag: "mention",
+        },
+      },
+    ]);
+  });
+
+  it("outcome 2, toggle ON, over the rate cap: does not emit an access_grant event since no grant happened", async () => {
+    selectQueue = [
+      () => [instanceRow],
+      () => [{ allowAutoGrantOnMention: true }],
+    ];
+    mockRateLimitAllowed = false;
+
+    await capturedProcessor!(baseJob());
+
+    expect(emitAccessEventCalls).toHaveLength(0);
+  });
+
+  it("a stalled-job replay after the grant already committed resolves to outcome 1, not a second auto-grant — never double-fires emitAccessEvent/tag.auto_granted", async () => {
+    // Every job run does a fresh SELECT of the instance (line ~115) and
+    // recomputes `outcome` from whatever it finds — it never trusts stale
+    // in-memory state from a prior attempt. Once a grant has actually
+    // committed, hasEntityAccess (real implementation) reads read_only from
+    // __accessUsers and returns true for the granted user, so a replay
+    // lands on outcome 1 ("already has access") long before it could reach
+    // the auto-grant/emitAccessEvent branch a second time. This test
+    // simulates exactly that post-commit replay via the same
+    // mockHasEntityAccess toggle outcome-1's own test above uses.
+    selectQueue = [() => [instanceRow]];
+    mockHasEntityAccess = true;
+
+    await capturedProcessor!(baseJob());
+
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.resolved_existing_access" }),
+    ]);
+    expect(updateCalls).toHaveLength(0);
+    expect(emitAccessEventCalls).toHaveLength(0);
   });
 
   it("outcome 2, toggle ON, over the rate cap: does not grant, logs tag.misuse_rate_capped instead", async () => {

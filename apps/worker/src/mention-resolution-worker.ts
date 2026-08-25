@@ -40,7 +40,7 @@ import {
   listUserRolesByUserId,
   type OrgUser,
 } from "@platform/auth";
-import { hasEntityAccess } from "@platform/workflow-engine";
+import { hasEntityAccess, emitAccessEvent } from "@platform/workflow-engine";
 import { writeAuditEntry } from "@platform/audit";
 import { checkRateLimit, getRedis } from "@platform/redis";
 import { logger } from "@platform/logger";
@@ -327,6 +327,20 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
         action: "tag.auto_granted",
         metadata: { commentId, mentionIdentifier, grantedUserId },
       });
+    });
+
+    // PR #470 review fix: the jsonb_set update above only mutates the
+    // __accessUsers field directly -- without this, the auto-granted user
+    // gets no ticket-timeline entry and no access.granted notification,
+    // unlike every other access-grant path in the app (grant-access.ts,
+    // resolve-access-request.ts). emitAccessEvent is itself best-effort
+    // (swallows its own errors), so a failure here never turns an
+    // already-successful grant into a failed job.
+    await emitAccessEvent(tenantId, ticketId, actingPersonId, {
+      type: "access_grant",
+      targetUserId: grantedUserId,
+      level: "read_only",
+      tag: "mention",
     });
   },
   { connection, concurrency: 4 },

@@ -18,7 +18,18 @@ export type MentionResolutionJob = {
   commentId: string;
 };
 
+// PR #470 review fix: without an explicit defaultJobOptions, BullMQ defaults
+// to attempts: 1, so a single transient Zitadel/DB failure inside the
+// processor would abort immediately and record tag.resolution_failed rather
+// than retrying -- matching apps/worker/src/queues.ts's established
+// attempts/backoff pattern for every other queue in this codebase.
 export const mentionResolutionQueue = new Queue<MentionResolutionJob>(
   "mention-resolution",
-  { connection },
+  {
+    connection,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: "exponential", delay: 1_000 },
+    },
+  },
 );
