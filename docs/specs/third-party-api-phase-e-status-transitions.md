@@ -4,7 +4,7 @@
 
 status: draft
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-25 (spec-review fixes: 409 response, race-condition invariant, exactly-once outbox assertion, boundary test moved to phase 1)
 
 ---
 
@@ -33,6 +33,7 @@ POST /api/v1/tickets/:id/transitions
 body: { transitionId: uuid, comment?: string, idempotencyKey?: string, metadata?: object }
 201 -> { data: <workflow event> }        (same shape executeTransition already returns)
 404 -> NOT_FOUND                          (nonexistent / cross-tenant / access-denied — no distinguishable body)
+409 -> TRANSITION_LOCKED                  (engine's existing pessimistic-lock retry response, inherited unmodified — see workflow-engine.md)
 422 -> engine's existing transition-validation error body (invalid/skip-ahead transition — same as human UI)
 403 -> scope-missing (same convention as every other third-party route)
 ```
@@ -71,6 +72,10 @@ human UI.
 ✓ An SLA timer cancel/reschedule and a notification rule bound to the target state both fire for
 an API-driven transition, verified against the same outbox-event path `executeTransition` already
 writes for human-triggered transitions (no new/duplicate outbox write introduced by this route).
+✓ Exactly one `workflow.transitioned`-shaped outbox row is written per successful transition — not
+zero, not two — asserted directly (not just "no _new_ write introduced"), closing the gap where an
+under-specified "don't duplicate" criterion could pass even if the route accidentally suppressed
+the write entirely.
 
 R5: Cross-tenant and nonexistent ticket IDs are indistinguishable from an access-denied one.
 ✓ A transition request against a different tenant's ticket ID returns the identical 404 body as an
@@ -89,16 +94,23 @@ access-denied request on an existing same-tenant ticket.
 found"}`) regardless of cause (nonexistent, cross-tenant, granted-but-not-owner, no access at
   all) — the platform's standing 404-not-403 convention (security.md), applies here with one more
   cause (granted-only) than prior third-party routes had to cover.
+- The new T1 access-check helper calls `getWorkflow`/`isWorkflowAdmin`, which can throw
+  `WORKFLOW_NOT_FOUND` if the workflow is deleted between the instance fetch and this call — the
+  same race (#184) already closed on the comment-post and attachment routes via a try/catch
+  folding the error into the identical 404. This has recurred on every third-party route that
+  reaches `isWorkflowAdmin` so far; T2's route implementation MUST wrap the T1 check the same way
+  from the first commit, not as a follow-up review fix.
 
 ## §T Tasks
 
-| id  | task                                                                                                                                                                                                                                                                                                   | phase | status | depends |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ------ | ------- |
-| T1  | New narrow access-check helper (creator/assignee/workflow-admin only, no `__accessUsers`) — likely `packages/workflow-engine` alongside `hasEntityAccess`, since it needs the same `getWorkflow`/`isWorkflowAdmin` dependency                                                                          | 1     | todo   | —       |
-| T2  | `POST /api/v1/tickets/:id/transitions` route: auth+scope, fetch instance (tenant-filtered, soft-delete-excluded), T1 check, call `executeTransition` unmodified, map engine errors through the existing 404/422 conventions                                                                            | 1     | todo   | T1      |
-| T3  | `admin_audit_log` allowed/denied logging on every attempt (not just success) — extend `AuditAction` union + CHECK constraint in the same commit (self-imposed rule from the Phase C B1 incident)                                                                                                       | 1     | todo   | T2      |
-| T4  | Isolation tests: valid-transition success (creator/assignee/admin, 3 separate cases), invalid/skip-ahead rejection (422, same body as human UI), granted-read_write-but-not-owner rejection (404 — the critical boundary test), cross-tenant/nonexistent 404 parity, SLA/notification automation fires | 2     | todo   | T2, T3  |
-| T5  | `/security-review` — STRIDE on the new access-check boundary specifically (can a granted identity escalate via any path this phase adds?), tenant isolation, `/review`, docs marker, commit procedure, PR                                                                                              | 2     | todo   | T4      |
+| id  | task                                                                                                                                                                                                                                                                                                         | phase | status | depends |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ------ | ------- |
+| T1  | New narrow access-check helper (creator/assignee/workflow-admin only, no `__accessUsers`) — likely `packages/workflow-engine` alongside `hasEntityAccess`, since it needs the same `getWorkflow`/`isWorkflowAdmin` dependency                                                                                | 1     | todo   | —       |
+| T2  | `POST /api/v1/tickets/:id/transitions` route: auth+scope, fetch instance (tenant-filtered, soft-delete-excluded), T1 check, call `executeTransition` unmodified, map engine errors through the existing 404/422 conventions                                                                                  | 1     | todo   | T1      |
+| T3  | `admin_audit_log` allowed/denied logging on every attempt (not just success) — extend `AuditAction` union + CHECK constraint in the same commit (self-imposed rule from the Phase C B1 incident)                                                                                                             | 1     | todo   | T2      |
+| T4a | Isolation test: granted-read_write-but-not-owner rejection (404) — the single most safety-critical case in this spec, kept in phase 1 rather than deferred, so the boundary this phase exists to enforce is proven before anything else lands                                                                | 1     | todo   | T2, T3  |
+| T4b | Remaining isolation tests: valid-transition success (creator/assignee/admin, 3 separate cases), invalid/skip-ahead rejection (422, same body as human UI), cross-tenant/nonexistent 404 parity, exactly-one-outbox-row assertion, SLA/notification automation fires, workflow-deleted-mid-request 404 parity | 2     | todo   | T4a     |
+| T5  | `/security-review` — STRIDE on the new access-check boundary specifically (can a granted identity escalate via any path this phase adds?), tenant isolation, `/review`, docs marker, commit procedure, PR                                                                                                    | 2     | todo   | T4b     |
 
 phase gate: all unit + isolation tests pass, `/security-review` clean, before PR opens
 
