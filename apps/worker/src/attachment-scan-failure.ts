@@ -79,8 +79,19 @@ export async function handleAttachmentScanFailure(
       ? "An attached file failed antivirus scanning and was quarantined."
       : "An attached file could not be scanned for viruses after repeated attempts.";
 
-  await withTenantContext(tenantId, (tx) =>
-    tx.insert(workflowEvents).values({
+  const action: AuditAction =
+    reason === "quarantined"
+      ? "attachment.quarantined"
+      : "attachment.scan_failed";
+
+  // System-note + audit entry share ONE transaction (PrabhuVijit round-2
+  // review, PR #475) -- writing them separately would let one succeed and
+  // the other fail independently, leaving a ticket-timeline note with no
+  // audit trail or an audit entry with no visible timeline note. Mirrors
+  // the same fix already applied to the third-party transition route
+  // (apps/api/src/routes/third-party/transitions.ts).
+  await withTenantContext(tenantId, async (tx) => {
+    await tx.insert(workflowEvents).values({
       tenantId,
       instanceId: ticketId,
       workflowId: instance.workflowId as string,
@@ -95,15 +106,9 @@ export async function handleAttachmentScanFailure(
         reason: `attachment_${reason}`,
         attachmentId: attachment.id,
       },
-    }),
-  );
+    });
 
-  const action: AuditAction =
-    reason === "quarantined"
-      ? "attachment.quarantined"
-      : "attachment.scan_failed";
-  await withTenantContext(tenantId, (tx) =>
-    writeAuditEntry(tx, {
+    await writeAuditEntry(tx, {
       tenantId,
       actorId: "system",
       actorType: "system",
@@ -111,8 +116,8 @@ export async function handleAttachmentScanFailure(
       resourceId: ticketId,
       action,
       metadata: { attachmentId: attachment.id, fileId },
-    }),
-  );
+    });
+  });
 
   logger.info(
     { tenantId, fileId, attachmentId: attachment.id, ticketId, reason },
