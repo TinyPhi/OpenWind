@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db, attachments } from "@platform/db";
-import { saveUpload, FileError } from "@platform/files";
+import { saveUpload, deleteFile, FileError } from "@platform/files";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { connection } from "../../lib/redis.js";
@@ -151,20 +151,14 @@ export const uploadAttachmentHandler = factory.createHandlers(
         ),
       );
 
-      // Conditional on tenantId + still-"uploading": if the cleanup sweep's
-      // own expiry UPDATE won the race and already flipped this slot to
-      // "expired" (right at the shared TTL boundary), this affects 0 rows
-      // instead of silently resurrecting an expired slot back to "uploaded".
-      // Accepted residual risk (PR #472 review finding 1): saveUpload above
-      // has, by this point, already written the file to disk and charged
-      // the tenant's quota. Losing this race leaves that file orphaned --
-      // referenced by no "uploaded" attachment row, so it's invisible to
-      // both this endpoint's own retry path and download. Closing this
-      // fully would require holding a row lock across the entire upload
-      // byte-transfer duration, which is disproportionate for a multi-minute
-      // TTL race window this narrow; same tier of accepted gap as the
-      // separate-transaction race documented in comments.ts.
-      const [updated] = await withTenantContext(tenantId, (tx) =>
+      // Conditioned on status = 'uploading' (full-phase security review
+      // finding): saveUpload above can take long enough for a slow request
+      // to cross the slot's own TTL mid-flight, during which
+      // attachment-cleanup.ts's sweep could flip this row to 'expired'.
+      // Without this guard, this write would silently resurrect an expired
+      // slot as 'uploaded' with a real filesId once the request finally
+      // finishes — a real TTL bypass, not just a cosmetic race.
+      const [finalized] = await withTenantContext(tenantId, (tx) =>
         tx
           .update(attachments)
           .set({
@@ -181,7 +175,14 @@ export const uploadAttachmentHandler = factory.createHandlers(
           )
           .returning({ id: attachments.id }),
       );
-      if (!updated) {
+
+      if (!finalized) {
+        // Lost the race to the cleanup sweep -- the file was already saved
+        // to disk by saveUpload above, so clean it up rather than leaving
+        // an orphaned file with no reachable attachment row.
+        await withTenantContext(tenantId, (tx) =>
+          deleteFile(tx, tenantId, result.fileId),
+        );
         return c.json(
           { error: "UPLOAD_EXPIRED", message: "This upload slot has expired" },
           410,
