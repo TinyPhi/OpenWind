@@ -3,6 +3,22 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as WorkflowEngine from "@platform/workflow-engine";
+import type * as EntityAccess from "../../lib/entity-access.js";
+
+// hasEntityCommentAccessFull now lives in packages/workflow-engine and calls
+// getWorkflow via a relative import internal to that package — mocking
+// "@platform/workflow-engine"'s getWorkflow (below) no longer reaches that
+// internal call, only calls made directly from apps/api. To simulate a
+// getWorkflow failure inside hasEntityCommentAccessFull, mock this re-export
+// boundary directly instead (real implementation by default, override
+// per-test with mockRejectedValueOnce/mockResolvedValueOnce as needed).
+vi.mock("../../lib/entity-access.js", async (importOriginal) => {
+  const real = await importOriginal<typeof EntityAccess>();
+  return {
+    ...real,
+    hasEntityCommentAccessFull: vi.fn(real.hasEntityCommentAccessFull),
+  };
+});
 
 // ── Strategy: real drizzle-orm operators (no-op mocked) since add-comment.ts
 // builds several distinct queries (instance lookup, tenant_users lookup,
@@ -154,7 +170,6 @@ vi.mock("@platform/db", () => ({
 }));
 
 const { addCommentHandler } = await import("./add-comment.js");
-const { getWorkflow } = await import("@platform/workflow-engine");
 
 function makeApp() {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
@@ -540,7 +555,9 @@ describe("POST /entities/:id/comments — workflow lookup errors (#184)", () => 
 
   it("returns 404, not 500, when the record's workflow was deleted before the workflow-admin check", async () => {
     const { WorkflowError } = await import("@platform/workflow-engine");
-    vi.mocked(getWorkflow).mockRejectedValue(
+    const { hasEntityCommentAccessFull } =
+      await import("../../lib/entity-access.js");
+    vi.mocked(hasEntityCommentAccessFull).mockRejectedValueOnce(
       new WorkflowError("WORKFLOW_NOT_FOUND", { workflowId: "wf-deleted" }),
     );
 

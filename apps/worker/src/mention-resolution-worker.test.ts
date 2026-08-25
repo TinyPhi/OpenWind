@@ -1,0 +1,352 @@
+/**
+ * mention-resolution-worker.test.ts
+ *
+ * Unit tests for the mention-resolution BullMQ processor (ADR-012 Phase C,
+ * spec R4/R5/R6/R7). DB, Zitadel, and Redis are fully mocked.
+ */
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// ── Capture the processor + failure handler passed to Worker ───────────────────
+
+type JobLike = {
+  data: Record<string, unknown>;
+  id: string;
+  attemptsMade: number;
+  opts: { attempts?: number };
+};
+
+let capturedProcessor: ((job: JobLike) => Promise<void>) | undefined;
+let capturedFailedHandler:
+  | ((job: JobLike | undefined, err: Error) => void)
+  | undefined;
+
+vi.mock("bullmq", () => ({
+  Worker: vi.fn().mockImplementation(function (
+    _queue: string,
+    processor: (job: JobLike) => Promise<void>,
+  ) {
+    capturedProcessor = processor;
+    return {
+      on: vi.fn((event: string, handler: typeof capturedFailedHandler) => {
+        if (event === "failed") capturedFailedHandler = handler;
+      }),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+  }),
+  Queue: vi.fn().mockImplementation(() => ({
+    add: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+// ── DB mock: sequential select queue (same convention as workflow-crud.test.ts) ─
+
+let selectQueue: Array<() => unknown[]> = [];
+let selectCallIndex = 0;
+
+function nextSelect() {
+  const fn = selectQueue[selectCallIndex++] ?? (() => []);
+  const q: Record<string, unknown> = {};
+  q["from"] = () => q;
+  q["where"] = () => q;
+  q["limit"] = () => Promise.resolve(fn());
+  return q;
+}
+
+const insertCalls: Array<{ table: unknown; values: unknown }> = [];
+let onConflictReturning: unknown[] = [{ id: "req-1" }];
+const updateCalls: Array<{ table: unknown; setVals: unknown }> = [];
+
+const mockTx = {
+  select: () => nextSelect(),
+  insert: (table: unknown) => ({
+    values: (values: unknown) => {
+      insertCalls.push({ table, values });
+      return {
+        onConflictDoNothing: () => ({
+          returning: () => Promise.resolve(onConflictReturning),
+        }),
+      };
+    },
+  }),
+  update: (table: unknown) => ({
+    set: (setVals: unknown) => {
+      updateCalls.push({ table, setVals });
+      return { where: () => Promise.resolve(undefined) };
+    },
+  }),
+};
+
+vi.mock("@platform/db", () => ({
+  entityInstances: "entity_instances_mock",
+  workflows: "workflows_mock",
+  accessRequests: { id: "access_requests.id" },
+  outboxEvents: "outbox_events_mock",
+  withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
+    fn(mockTx),
+  isTenantActive: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock("drizzle-orm", () => ({
+  eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
+  and: vi.fn((...args) => ({ args, op: "and" })),
+  sql: vi.fn((strings: TemplateStringsArray, ...vals: unknown[]) => ({
+    strings,
+    vals,
+  })),
+}));
+
+// ── Zitadel / auth mock ──────────────────────────────────────────────────────
+
+let mockOrgUsers: Array<{
+  userId: string;
+  email: string;
+  displayName: string;
+  loginName: string;
+  phone: undefined;
+}> = [];
+let mockRolesByUserId = new Map<string, string[]>();
+
+vi.mock("@platform/auth", () => ({
+  listOrgUsers: vi.fn(() => Promise.resolve(mockOrgUsers)),
+  listUserRolesByUserId: vi.fn(() => Promise.resolve(mockRolesByUserId)),
+}));
+
+// ── hasEntityAccess mock ─────────────────────────────────────────────────────
+
+let mockHasEntityAccess = false;
+vi.mock("@platform/workflow-engine", () => ({
+  hasEntityAccess: vi.fn(() => Promise.resolve(mockHasEntityAccess)),
+}));
+
+// ── Audit mock ───────────────────────────────────────────────────────────────
+
+const auditEntries: Array<{ action: string; metadata?: unknown }> = [];
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: vi.fn(
+    (_tx: unknown, input: { action: string; metadata?: unknown }) => {
+      auditEntries.push({ action: input.action, metadata: input.metadata });
+      return Promise.resolve();
+    },
+  ),
+}));
+
+// ── Redis mock ───────────────────────────────────────────────────────────────
+
+let mockRateLimitAllowed = true;
+vi.mock("@platform/redis", () => ({
+  checkRateLimit: vi.fn(() =>
+    Promise.resolve({
+      allowed: mockRateLimitAllowed,
+      remaining: 0,
+      resetAt: 0,
+    }),
+  ),
+  getRedis: vi.fn(() => ({})),
+}));
+
+vi.mock("@platform/logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock("./queues.js", () => ({ connection: {} }));
+
+const { stopMentionResolutionWorker } =
+  await import("./mention-resolution-worker.js");
+void stopMentionResolutionWorker; // exercised only for import-side-effect coverage
+
+// ── Fixtures ─────────────────────────────────────────────────────────────────
+
+const TENANT_ID = "tenant-1";
+const TICKET_ID = "ticket-1";
+const WORKFLOW_ID = "workflow-1";
+const ORG_ID = "org-1";
+const ACTING_PERSON_ID = "acting-person-1";
+const COMMENT_ID = "comment-1";
+const MENTIONED_USER_ID = "mentioned-user-1";
+const MENTIONED_EMAIL = "mentioned@example.com";
+
+const instanceRow = {
+  id: TICKET_ID,
+  workflowId: WORKFLOW_ID,
+  createdBy: "creator-1",
+  assignedTo: null,
+  fields: {},
+};
+
+function baseJob(overrides: Partial<JobLike["data"]> = {}): JobLike {
+  return {
+    id: "job-1",
+    attemptsMade: 1,
+    opts: { attempts: 3 },
+    data: {
+      tenantId: TENANT_ID,
+      orgId: ORG_ID,
+      ticketId: TICKET_ID,
+      workflowId: WORKFLOW_ID,
+      mentionIdentifier: MENTIONED_EMAIL,
+      actingPersonId: ACTING_PERSON_ID,
+      commentId: COMMENT_ID,
+      ...overrides,
+    },
+  };
+}
+
+beforeEach(() => {
+  selectQueue = [];
+  selectCallIndex = 0;
+  insertCalls.length = 0;
+  updateCalls.length = 0;
+  auditEntries.length = 0;
+  onConflictReturning = [{ id: "req-1" }];
+  mockOrgUsers = [
+    {
+      userId: MENTIONED_USER_ID,
+      email: MENTIONED_EMAIL,
+      displayName: "Mentioned Person",
+      loginName: MENTIONED_EMAIL,
+      phone: undefined,
+    },
+  ];
+  mockRolesByUserId = new Map([[MENTIONED_USER_ID, ["user"]]]);
+  mockHasEntityAccess = false;
+  mockRateLimitAllowed = true;
+});
+
+describe("mention-resolution-worker", () => {
+  it("outcome 1: already has ticket access — logs tag.resolved_existing_access, no grant/request", async () => {
+    selectQueue = [() => [instanceRow]];
+    mockHasEntityAccess = true;
+
+    await capturedProcessor!(baseJob());
+
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.resolved_existing_access" }),
+    ]);
+    expect(insertCalls).toHaveLength(0);
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("outcome 3: identifier doesn't resolve to any org user — logs tag.fallback", async () => {
+    selectQueue = [() => [instanceRow]];
+    mockOrgUsers = [];
+
+    await capturedProcessor!(
+      baseJob({ mentionIdentifier: "nobody@example.com" }),
+    );
+
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.fallback" }),
+    ]);
+  });
+
+  it("outcome 3: identifier resolves but the person doesn't hold the 'user' role — logs tag.fallback", async () => {
+    selectQueue = [() => [instanceRow]];
+    mockRolesByUserId = new Map([[MENTIONED_USER_ID, ["agent"]]]);
+
+    await capturedProcessor!(baseJob());
+
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.fallback" }),
+    ]);
+  });
+
+  it("outcome 2, toggle OFF (default): creates an access-request + notification outbox event, logs tag.access_request_created", async () => {
+    selectQueue = [
+      () => [instanceRow],
+      () => [{ allowAutoGrantOnMention: false }],
+    ];
+    mockHasEntityAccess = false;
+
+    await capturedProcessor!(baseJob());
+
+    expect(insertCalls).toHaveLength(2); // access_requests + outbox_events
+    expect(
+      (insertCalls[0]?.values as { requesterId: string }).requesterId,
+    ).toBe(MENTIONED_USER_ID);
+    expect(insertCalls[1]?.table).toBe("outbox_events_mock");
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.access_request_created" }),
+    ]);
+  });
+
+  it("outcome 2, toggle OFF: does not emit the notification outbox event when the insert conflicts (already-pending request)", async () => {
+    selectQueue = [
+      () => [instanceRow],
+      () => [{ allowAutoGrantOnMention: false }],
+    ];
+    onConflictReturning = [];
+
+    await capturedProcessor!(baseJob());
+
+    expect(insertCalls).toHaveLength(1); // access_requests only, no outbox row
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.access_request_created" }),
+    ]);
+  });
+
+  it("outcome 2, toggle ON, under the rate cap: auto-grants read-only and logs tag.auto_granted", async () => {
+    selectQueue = [
+      () => [instanceRow],
+      () => [{ allowAutoGrantOnMention: true }],
+    ];
+    mockRateLimitAllowed = true;
+
+    await capturedProcessor!(baseJob());
+
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.table).toBe("entity_instances_mock");
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.auto_granted" }),
+    ]);
+  });
+
+  it("outcome 2, toggle ON, over the rate cap: does not grant, logs tag.misuse_rate_capped instead", async () => {
+    selectQueue = [
+      () => [instanceRow],
+      () => [{ allowAutoGrantOnMention: true }],
+    ];
+    mockRateLimitAllowed = false;
+
+    await capturedProcessor!(baseJob());
+
+    expect(updateCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(0);
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.misuse_rate_capped" }),
+    ]);
+  });
+
+  it("ticket not found: returns early, no audit entry written", async () => {
+    selectQueue = [() => []];
+
+    await capturedProcessor!(baseJob());
+
+    expect(auditEntries).toHaveLength(0);
+  });
+
+  it("on final-attempt failure, writes a tag.resolution_failed audit entry", async () => {
+    const job = baseJob();
+    job.attemptsMade = 3;
+    job.opts = { attempts: 3 };
+
+    capturedFailedHandler!(job, new Error("boom"));
+    await new Promise((r) => setTimeout(r, 0)); // let the fire-and-forget audit write settle
+
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.resolution_failed" }),
+    ]);
+  });
+
+  it("does not write a resolution_failed entry when retries remain", async () => {
+    const job = baseJob();
+    job.attemptsMade = 1;
+    job.opts = { attempts: 3 };
+
+    capturedFailedHandler!(job, new Error("transient"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(auditEntries).toHaveLength(0);
+  });
+});
