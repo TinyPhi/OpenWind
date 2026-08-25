@@ -40,8 +40,18 @@ export type AuditAction =
   | "restored"
   | "purge.completed"
   | "purge.failed"
+  // ADR-012 Phase C, spec R6/R7 — third-party API tag-resolution outcomes and
+  // the tagging-driven auto-grant rate cap. Interim sink until Phase F's
+  // Access Logs screen exists to read these (see the Phase C spec's §C
+  // "new schema" row) — no new table, just new action strings.
+  | "tag.resolved_existing_access"
+  | "tag.auto_granted"
+  | "tag.access_request_created"
+  | "tag.fallback"
+  | "tag.resolution_failed"
+  | "tag.misuse_rate_capped"
   // ADR-012 Phase E, spec R3 — third-party status-transition attempts,
-  // migration 0074_admin_audit_log_transition_actions.sql extends the DB
+  // migration 0078_admin_audit_log_transition_actions.sql extends the DB
   // CHECK constraint in the same commit.
   | "transition.executed"
   | "transition.access_denied";

@@ -98,7 +98,7 @@ export const apiKeys = pgTable(
     applicationDescription: text("application_description"),
     /** Unblocks a deferred expiry-notification fast-follow (ADR-012 Decision #10). */
     applicationContactEmail: text("application_contact_email"),
-    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND oidc_client_id_active) keys — see migration 0068/0069/0072's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
+    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND oidc_client_id_active) keys — see migration 0068/0069/0072's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. CHECK constraint (migration 0075): char_length ≤ 200; Drizzle's text() type doesn't model this, so keep this comment in sync with that CHECK if it ever changes. */
     oidcClientId: text("oidc_client_id"),
     /** Migration 0069/0072 — separates "still authenticating" (revoked_at) from "currently holds this Client ID for uniqueness purposes." Rotation needs both the dying predecessor and the new successor to authenticate/carry the same oidc_client_id value during the 24h grace window, but only one of them should count toward uniqueness — rotate.ts flips this false on the predecessor in the same transaction that inserts the successor (which keeps the column default, true). Every other code path leaves this untouched. */
     oidcClientIdActive: boolean("oidc_client_id_active")
@@ -193,6 +193,58 @@ export const files = pgTable(
     entityCleanScanIdx: index("files_entity_clean_scan_idx")
       .on(t.tenantId, t.entityId, t.scanStatus)
       .where(sql`scan_status = 'clean'`),
+  }),
+);
+
+/**
+ * attachments — ADR-012 Phase D, third-party API file attachment lifecycle
+ * (presign -> upload -> ticket binding), ahead of the actual bytes landing
+ * in `files` (filesId nullable until upload completes).
+ * RLS: enforced via app.tenant_id GUC.
+ */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    ticketId: uuid("ticket_id"),
+    boundAt: timestamp("bound_at", { withTimezone: true }),
+    uploadedBy: text("uploaded_by").notNull(),
+    actingPersonId: text("acting_person_id").notNull(),
+    declaredFilename: text("declared_filename").notNull(),
+    declaredSizeBytes: bigint("declared_size_bytes", {
+      mode: "number",
+    }).notNull(),
+    declaredMimeType: text("declared_mime_type").notNull(),
+    uploadTokenHash: text("upload_token_hash").notNull(),
+    uploadExpiresAt: timestamp("upload_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    filesId: uuid("files_id"),
+    /** pending | uploaded | expired */
+    status: text("status").default("pending").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    // Partial predicates below must match migration 0077_attachments.sql's
+    // actual CREATE INDEX statements exactly -- Drizzle doesn't introspect
+    // partial indexes from SQL migrations, so a mismatch here would make the
+    // next `drizzle-kit generate` emit a spurious drop/recreate migration.
+    tenantTicketIdx: index("attachments_tenant_ticket_idx")
+      .on(t.tenantId, t.ticketId)
+      .where(sql`${t.ticketId} IS NOT NULL`),
+    tenantStatusIdx: index("attachments_tenant_status_idx").on(
+      t.tenantId,
+      t.status,
+    ),
+    expiryIdx: index("attachments_expiry_idx")
+      .on(t.uploadExpiresAt)
+      .where(sql`${t.status} = 'pending'`),
   }),
 );
 

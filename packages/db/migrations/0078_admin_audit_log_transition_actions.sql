@@ -16,10 +16,23 @@
 --   ALTER TABLE admin_audit_log DROP CONSTRAINT audit_log_action_check;
 --   ALTER TABLE admin_audit_log
 --     ADD CONSTRAINT audit_log_action_check
---     CHECK (action IN ('created', 'updated', 'deleted', 'transitioned', 'restored', 'purge.completed', 'purge.failed'));
+--     CHECK (action IN (
+--       'created', 'updated', 'deleted', 'transitioned', 'restored',
+--       'purge.completed', 'purge.failed',
+--       'tag.resolved_existing_access', 'tag.auto_granted',
+--       'tag.access_request_created', 'tag.fallback',
+--       'tag.resolution_failed', 'tag.misuse_rate_capped'
+--     ));
 
 ALTER TABLE admin_audit_log DROP CONSTRAINT audit_log_action_check;
 
 ALTER TABLE admin_audit_log
   ADD CONSTRAINT audit_log_action_check
-  CHECK (action IN ('created', 'updated', 'deleted', 'transitioned', 'restored', 'purge.completed', 'purge.failed', 'transition.executed', 'transition.access_denied'));
+  CHECK (action IN (
+    'created', 'updated', 'deleted', 'transitioned', 'restored',
+    'purge.completed', 'purge.failed',
+    'tag.resolved_existing_access', 'tag.auto_granted',
+    'tag.access_request_created', 'tag.fallback',
+    'tag.resolution_failed', 'tag.misuse_rate_capped',
+    'transition.executed', 'transition.access_denied'
+  ));

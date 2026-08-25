@@ -33,6 +33,14 @@ export const workflows = pgTable(
     maxChildrenPerParent: integer("max_children_per_parent")
       .default(10)
       .notNull(),
+    /**
+     * ADR-012 Phase C, spec R5 — governs whether an API-submitted @mention of
+     * someone with workflow-but-not-ticket access auto-grants read-only
+     * access (true) or creates an access-request instead (false, default).
+     */
+    allowAutoGrantOnMention: boolean("allow_auto_grant_on_mention")
+      .default(false)
+      .notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

@@ -38,6 +38,7 @@ function rowToWorkflow(r: typeof workflows.$inferSelect): WorkflowDefinition {
     assignedTo: (r.assignedTo as string[] | null) ?? [],
     maxChildDepth: r.maxChildDepth,
     maxChildrenPerParent: r.maxChildrenPerParent,
+    allowAutoGrantOnMention: r.allowAutoGrantOnMention,
     createdAt: r.createdAt,
   };
 }
@@ -427,6 +428,8 @@ export async function updateWorkflow(
     updates.maxChildrenPerParent = input.maxChildrenPerParent ?? 10;
   if (input.initialState !== undefined)
     updates.initialState = input.initialState;
+  if (input.allowAutoGrantOnMention !== undefined)
+    updates.allowAutoGrantOnMention = input.allowAutoGrantOnMention;
 
   if (Object.keys(updates).length === 0) {
     const [current] = await db
