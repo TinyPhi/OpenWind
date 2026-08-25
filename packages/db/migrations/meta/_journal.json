@@ -519,6 +519,13 @@
       "when": 1785542424000,
       "tag": "0073_admin_audit_log_acting_person",
       "breakpoints": false
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1787648626569,
+      "tag": "0074_admin_audit_log_transition_actions",
+      "breakpoints": false
     }
   ]
 }

@@ -34,7 +34,7 @@ body: { transitionId: uuid, comment?: string, idempotencyKey?: string, metadata?
 201 -> { data: <workflow event> }        (same shape executeTransition already returns)
 404 -> NOT_FOUND                          (nonexistent / cross-tenant / access-denied — no distinguishable body)
 409 -> TRANSITION_LOCKED                  (engine's existing pessimistic-lock retry response, inherited unmodified — see workflow-engine.md)
-422 -> engine's existing transition-validation error body (invalid/skip-ahead transition — same as human UI)
+409 -> TRANSITION_NOT_AVAILABLE           (invalid/skip-ahead transition — engine's existing error, identical to human UI; corrected from an earlier draft's incorrect 422)
 403 -> scope-missing (same convention as every other third-party route)
 ```
 
@@ -61,8 +61,9 @@ workflow-admin) is rejected on every transition attempt — 404, same body as a 
 
 R3: Every transition attempt — success or denial — is attributable to both the calling application
 and the acting person.
-✓ A successful transition's `workflow_events` row carries `triggeredBy: "api_key"` and the acting
-person's ID in metadata, same pattern as Phase C's comment-post route.
+✓ A successful transition's `workflow_events` row carries `triggeredBy: "api"` (the canonical
+`workflow_events.triggered_by` vocabulary value, distinct from `actorType`'s `"api_key"`) and the
+acting person's ID in metadata, same pattern as Phase C's comment-post route.
 ✓ Every attempt (allowed or denied) writes an `admin_audit_log` entry with `actorType: "api_key"`,
 `actingPersonId`, and an action distinguishing allowed vs. denied (e.g. `transition.executed` /
 `transition.access_denied`).

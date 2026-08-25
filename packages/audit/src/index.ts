@@ -39,7 +39,12 @@ export type AuditAction =
   | "transitioned"
   | "restored"
   | "purge.completed"
-  | "purge.failed";
+  | "purge.failed"
+  // ADR-012 Phase E, spec R3 — third-party status-transition attempts,
+  // migration 0074_admin_audit_log_transition_actions.sql extends the DB
+  // CHECK constraint in the same commit.
+  | "transition.executed"
+  | "transition.access_denied";
 
 export type AuditEntryInput = {
   tenantId: string;
