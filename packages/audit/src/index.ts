@@ -49,7 +49,13 @@ export type AuditAction =
   | "tag.access_request_created"
   | "tag.fallback"
   | "tag.resolution_failed"
-  | "tag.misuse_rate_capped";
+  | "tag.misuse_rate_capped"
+  // ADR-012 Phase D, spec R5 — an AV scan quarantining or failing a file
+  // backing a bound third-party attachment. DB CHECK constraint extended in
+  // the SAME migration that adds these (0077) -- see that file's comment for
+  // why this is a hard rule now, not a suggestion (Phase C's B1 incident).
+  | "attachment.quarantined"
+  | "attachment.scan_failed";
 
 export type AuditEntryInput = {
   tenantId: string;

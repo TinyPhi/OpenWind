@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration: 0076_attachments
+-- Migration: 0077_attachments
 -- ADR-012 Phase D, spec R1/R2/R3/R8 — third-party API file attachments.
 -- Tracks the presign -> upload -> ticket-binding lifecycle ahead of the
 -- actual file bytes landing in the `files` table (that FK is nullable

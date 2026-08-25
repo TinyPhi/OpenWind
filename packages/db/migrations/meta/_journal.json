@@ -547,6 +547,13 @@
       "when": 1787565066774,
       "tag": "0077_attachments",
       "breakpoints": false
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1787570226256,
+      "tag": "0078_admin_audit_log_attachment_scan_actions",
+      "breakpoints": false
     }
   ]
 }

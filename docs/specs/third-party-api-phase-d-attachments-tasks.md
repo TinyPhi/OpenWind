@@ -2,7 +2,10 @@
 
 **Spec:** docs/specs/third-party-api-phase-d-attachments.md
 **Generated:** 2026-08-24
-**Status:** Stage 1 + Stage 2 done (PR #472, CI green); Stage 3 (scan-failure handling) not started — will ship as its own stacked PR
+**Status:** All 3 stages done. Stage 1+2 in PR #472 (CI green). Stage 3 (scan-failure handling +
+full-phase security review) on `feat/third-party-api-phase-d-scan-failure`, stacked on #472 —
+PR pending. Phase D is functionally complete pending that PR's merge; Phase E's `/spec-tasks` is
+clear to freeze once it lands.
 
 Note: "Stage" below refers to this task plan's internal sequencing only — distinct from the
 project-level Phase A/B/C/D naming (this whole plan implements Phase D).
@@ -52,12 +55,12 @@ original chunking plan and the Phase C precedent, rather than continuing to grow
 **Goal:** a failed scan is handled safely end-to-end; the whole phase passes security review.
 **Gate:** §R acceptance criteria fully met, `/security-review` clean
 
-| task | task description                                                                                                                                                                                                                              | requirement | status                |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------------------- |
-| T7a  | Extend `AuditAction` union with `attachment.quarantined` / `attachment.scan_failed` (or reuse existing `@platform/files` scan-failure hook if one already fires) — **same commit must extend the DB CHECK constraint** (§V invariant from B1) | R5          | todo (new stacked PR) |
-| T7b  | On scan failure (worker-side hook into existing AV-scan pipeline): quarantine the attachment, write an automatic system note on the bound ticket/comment, write the audit entry — no notification to the API caller                           | R5          | todo (new stacked PR) |
-| T8   | Unit + isolation tests: scan-failure quarantine + system-note + audit-log-with-constraint-check (real Postgres, not mocked — per the B1 lesson), no caller-facing notification path exists                                                    | R5          | todo (new stacked PR) |
-| T9   | `/security-review` across the full phase — presign-abuse (STRIDE), tenant isolation on every new endpoint, quota-bypass attempts, single-ticket-binding bypass attempts                                                                       | all         | todo (new stacked PR) |
+| task | task description                                                                                                                                                                                                                              | requirement | status                                                                                              |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------- |
+| T7a  | Extend `AuditAction` union with `attachment.quarantined` / `attachment.scan_failed` (or reuse existing `@platform/files` scan-failure hook if one already fires) — **same commit must extend the DB CHECK constraint** (§V invariant from B1) | R5          | done (feat/third-party-api-phase-d-scan-failure)                                                    |
+| T7b  | On scan failure (worker-side hook into existing AV-scan pipeline): quarantine the attachment, write an automatic system note on the bound ticket/comment, write the audit entry — no notification to the API caller                           | R5          | done (feat/third-party-api-phase-d-scan-failure)                                                    |
+| T8   | Unit + isolation tests: scan-failure quarantine + system-note + audit-log-with-constraint-check (real Postgres, not mocked — per the B1 lesson), no caller-facing notification path exists                                                    | R5          | done (feat/third-party-api-phase-d-scan-failure)                                                    |
+| T9   | `/security-review` across the full phase — presign-abuse (STRIDE), tenant isolation on every new endpoint, quota-bypass attempts, single-ticket-binding bypass attempts                                                                       | all         | done — found + fixed a TTL-bypass race and unbounded table growth; 2 low-severity findings deferred |
 
 phase gate: all unit + integration + isolation tests pass before advancing to the next stage; Stage 3 additionally requires a clean `/security-review` before PR.
 
