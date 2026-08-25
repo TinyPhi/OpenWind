@@ -6,7 +6,9 @@ import {
   db,
   entityInstances,
   workflowEvents,
+  outboxEvents,
 } from "@platform/db";
+import { logger } from "@platform/logger";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
@@ -17,6 +19,7 @@ import {
   AttachmentReferenceError,
   MAX_ATTACHMENTS_PER_TICKET,
 } from "./attachments-reference.js";
+import { notFound } from "./not-found.js";
 
 // Same forbidden-char set as validate-fields-payload.ts (ADR-012 Phase B,
 // R11) — null byte/control-character rejection at ingress, ahead of any
@@ -44,12 +47,6 @@ const CreateThirdPartyCommentSchema = z.object({
     .max(MAX_ATTACHMENTS_PER_TICKET)
     .default([]),
 });
-
-function notFound(c: {
-  json: (body: unknown, status: 404) => Response;
-}): Response {
-  return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
-}
 
 /**
  * POST /api/v1/tickets/:id/comments — ADR-012 Phase C, spec R1/R2/R3.
@@ -100,9 +97,21 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
       return notFound(c);
     }
 
-    const allowed = await withTenantContext(tenantId, (tx) =>
-      hasEntityCommentAccessFull(tx, tenantId, instance, actingPersonId, []),
-    );
+    // hasEntityCommentAccessFull does an internal getWorkflow lookup, which
+    // can throw WORKFLOW_NOT_FOUND if the workflow is deleted between the
+    // instance fetch above and this call (#184, same race add-comment.ts
+    // handles). Caught here and folded into the same notFound() every other
+    // denial on this route returns — this route's own isolation tests assert
+    // an identical 404 body regardless of cause, stricter than
+    // handleEntityError's differently-shaped WORKFLOW_NOT_FOUND body.
+    let allowed: boolean;
+    try {
+      allowed = await withTenantContext(tenantId, (tx) =>
+        hasEntityCommentAccessFull(tx, tenantId, instance, actingPersonId, []),
+      );
+    } catch {
+      return notFound(c);
+    }
     if (!allowed) {
       return notFound(c);
     }
@@ -159,6 +168,34 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
       return c.json(
         { error: "INTERNAL_ERROR", message: "Failed to record comment" },
         500,
+      );
+    }
+
+    // Fires for every comment, same as add-comment.ts's own comment.created
+    // write -- feeds the ticket-room WS live-push path and comment-triggered
+    // automations. Without this, a third-party-posted comment silently never
+    // reaches either. Fire-and-forget: an outbox write failure must never
+    // turn an already-successful comment creation into an error response.
+    try {
+      await withTenantContext(tenantId, (tx) =>
+        tx.insert(outboxEvents).values({
+          tenantId,
+          eventType: "comment.created",
+          version: 1,
+          payload: {
+            eventType: "comment.created",
+            version: 1,
+            tenantId,
+            instanceId: id,
+            actorId: actingPersonId,
+            commentId: event.id,
+          },
+        }),
+      );
+    } catch (outboxErr) {
+      logger.warn(
+        { outboxErr, tenantId, instanceId: id, eventType: "comment.created" },
+        "third-party comment: outbox write failed — live push/automations missed, primary operation succeeded",
       );
     }
 

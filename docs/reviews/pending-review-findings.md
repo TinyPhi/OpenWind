@@ -55,8 +55,7 @@ filed as GitHub issues; they're tracked here and via `CLAUDE.md`'s Phase 3 table
 - ADR-002 addendum for a design gap surfaced during the consulting review (see the review itself
   in git history for detail if picked up — not re-summarized here)
 - MT-02/WE-05 triage items (see git history for the original review for detail)
-- ADRs still needed for: plugin system (3B), AI layer (3C), observability (3D), **rate-limiting
-  strategy**, notification SLA policy
+- ADRs still needed for: AI layer (3C), observability (3D)
 
 ---
 

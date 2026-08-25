@@ -3,7 +3,7 @@
  * functional testing (ADR-012 Phase C): admin_audit_log.action has a
  * Postgres CHECK constraint allowlist (0011_admin_audit_log.sql) that
  * mention-resolution-worker.ts's 6 tag.* actions were never added to
- * (0075_admin_audit_log_tag_actions.sql fixes it). Every unit test around
+ * (0076_admin_audit_log_tag_actions.sql fixes it). Every unit test around
  * that worker mocks @platform/db, so nothing exercised the real constraint
  * before this — this test inserts against a live Postgres instance
  * specifically so a future action string can't reintroduce the same gap

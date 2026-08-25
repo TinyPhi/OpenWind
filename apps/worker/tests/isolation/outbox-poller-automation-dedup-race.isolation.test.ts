@@ -286,6 +286,13 @@ describe("outbox-poller's real query + executor.ts dedup together prevent a doub
     // workflow.transitioned row.
     startOutboxPoller(50);
 
+    // #436: this loop sleeps up to 100*50ms=5000ms waiting for the real
+    // poller to claim `doneRow`, plus a db.select() per iteration — that left
+    // zero margin against vitest's default 5000ms per-test timeout under
+    // backlog/contention, causing an opaque "Test timed out" failure
+    // unrelated to any poller bug. This it()'s explicit timeout gives real
+    // headroom; the loop's own 100-attempt bound still reports a clear
+    // assertion failure below if delivery genuinely never happens.
     let claimedDoneRow: { deliveredAt: Date | null } | undefined;
     for (let attempt = 0; attempt < 100; attempt++) {
       [claimedDoneRow] = await db
@@ -352,5 +359,5 @@ describe("outbox-poller's real query + executor.ts dedup together prevent a doub
         ),
       );
     expect(sentNotifications).toHaveLength(1);
-  });
+  }, 15_000);
 });
