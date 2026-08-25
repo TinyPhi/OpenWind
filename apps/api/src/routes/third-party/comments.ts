@@ -119,7 +119,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     // retried request safely re-bind to the same ticket.
     try {
       await withTenantContext(tenantId, (tx) =>
-        referenceAttachments(tx, tenantId, id, attachmentIds),
+        referenceAttachments(tx, tenantId, id, attachmentIds, actingPersonId),
       );
     } catch (err) {
       if (err instanceof AttachmentReferenceError) {

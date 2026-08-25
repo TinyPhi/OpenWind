@@ -89,7 +89,13 @@ export const uploadAttachmentHandler = factory.createHandlers(
       tx
         .update(attachments)
         .set({ status: "uploading", updatedAt: new Date() })
-        .where(and(eq(attachments.id, id), eq(attachments.status, "pending")))
+        .where(
+          and(
+            eq(attachments.id, id),
+            eq(attachments.tenantId, tenantId),
+            eq(attachments.status, "pending"),
+          ),
+        )
         .returning({ id: attachments.id }),
     );
     if (!claimed) {
@@ -106,12 +112,20 @@ export const uploadAttachmentHandler = factory.createHandlers(
 
     if (bytes.byteLength !== attachment.declaredSizeBytes) {
       // Release the claim so a retry with the correct byte count can still
-      // succeed before the slot's own expiry.
+      // succeed before the slot's own expiry. Conditional on tenantId +
+      // still-"uploading" so this can't affect another tenant's row, nor
+      // resurrect a slot the cleanup sweep already expired concurrently.
       await withTenantContext(tenantId, (tx) =>
         tx
           .update(attachments)
           .set({ status: "pending", updatedAt: new Date() })
-          .where(eq(attachments.id, id)),
+          .where(
+            and(
+              eq(attachments.id, id),
+              eq(attachments.tenantId, tenantId),
+              eq(attachments.status, "uploading"),
+            ),
+          ),
       );
       return c.json(
         {
@@ -137,7 +151,20 @@ export const uploadAttachmentHandler = factory.createHandlers(
         ),
       );
 
-      await withTenantContext(tenantId, (tx) =>
+      // Conditional on tenantId + still-"uploading": if the cleanup sweep's
+      // own expiry UPDATE won the race and already flipped this slot to
+      // "expired" (right at the shared TTL boundary), this affects 0 rows
+      // instead of silently resurrecting an expired slot back to "uploaded".
+      // Accepted residual risk (PR #472 review finding 1): saveUpload above
+      // has, by this point, already written the file to disk and charged
+      // the tenant's quota. Losing this race leaves that file orphaned --
+      // referenced by no "uploaded" attachment row, so it's invisible to
+      // both this endpoint's own retry path and download. Closing this
+      // fully would require holding a row lock across the entire upload
+      // byte-transfer duration, which is disproportionate for a multi-minute
+      // TTL race window this narrow; same tier of accepted gap as the
+      // separate-transaction race documented in comments.ts.
+      const [updated] = await withTenantContext(tenantId, (tx) =>
         tx
           .update(attachments)
           .set({
@@ -145,8 +172,21 @@ export const uploadAttachmentHandler = factory.createHandlers(
             filesId: result.fileId,
             updatedAt: new Date(),
           })
-          .where(eq(attachments.id, id)),
+          .where(
+            and(
+              eq(attachments.id, id),
+              eq(attachments.tenantId, tenantId),
+              eq(attachments.status, "uploading"),
+            ),
+          )
+          .returning({ id: attachments.id }),
       );
+      if (!updated) {
+        return c.json(
+          { error: "UPLOAD_EXPIRED", message: "This upload slot has expired" },
+          410,
+        );
+      }
 
       return c.json(
         { data: { attachmentId: id, status: result.scanStatus } },
@@ -154,12 +194,19 @@ export const uploadAttachmentHandler = factory.createHandlers(
       );
     } catch (err: unknown) {
       // Release the claim on failure so the slot isn't permanently stuck in
-      // 'uploading' until its natural expiry.
+      // 'uploading' until its natural expiry. Conditional on tenantId +
+      // still-"uploading", same rationale as the size-mismatch release above.
       await withTenantContext(tenantId, (tx) =>
         tx
           .update(attachments)
           .set({ status: "pending", updatedAt: new Date() })
-          .where(eq(attachments.id, id)),
+          .where(
+            and(
+              eq(attachments.id, id),
+              eq(attachments.tenantId, tenantId),
+              eq(attachments.status, "uploading"),
+            ),
+          ),
       );
       if (err instanceof FileError) {
         switch (err.code) {

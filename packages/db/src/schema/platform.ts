@@ -231,15 +231,20 @@ export const attachments = pgTable(
       .notNull(),
   },
   (t) => ({
-    tenantTicketIdx: index("attachments_tenant_ticket_idx").on(
-      t.tenantId,
-      t.ticketId,
-    ),
+    // Partial predicates below must match migration 0076_attachments.sql's
+    // actual CREATE INDEX statements exactly -- Drizzle doesn't introspect
+    // partial indexes from SQL migrations, so a mismatch here would make the
+    // next `drizzle-kit generate` emit a spurious drop/recreate migration.
+    tenantTicketIdx: index("attachments_tenant_ticket_idx")
+      .on(t.tenantId, t.ticketId)
+      .where(sql`${t.ticketId} IS NOT NULL`),
     tenantStatusIdx: index("attachments_tenant_status_idx").on(
       t.tenantId,
       t.status,
     ),
-    expiryIdx: index("attachments_expiry_idx").on(t.uploadExpiresAt),
+    expiryIdx: index("attachments_expiry_idx")
+      .on(t.uploadExpiresAt)
+      .where(sql`${t.status} = 'pending'`),
   }),
 );
 

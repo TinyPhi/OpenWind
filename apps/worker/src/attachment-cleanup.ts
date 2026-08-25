@@ -58,10 +58,20 @@ async function runCleanup(): Promise<void> {
 
   for (const slot of staleSlots) {
     try {
+      // Conditional on status still being pending/uploading (matching the
+      // SELECT above) -- without this, a slow-but-successful upload that
+      // completes right at the TTL boundary, after this row was read but
+      // before this UPDATE runs, would get its fresh "uploaded" status
+      // clobbered back to "expired" (PR #472 review finding 3).
       await db
         .update(attachments)
         .set({ status: "expired", updatedAt: new Date() })
-        .where(eq(attachments.id, slot.id));
+        .where(
+          and(
+            eq(attachments.id, slot.id),
+            inArray(attachments.status, ["pending", "uploading"]),
+          ),
+        );
       purged++;
     } catch (err) {
       errors++;

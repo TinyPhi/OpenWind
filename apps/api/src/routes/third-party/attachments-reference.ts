@@ -33,15 +33,29 @@ export class AttachmentReferenceError extends Error {
  *    "presigned for ticket A, referenced from ticket B" gap named in
  *    spec-review).
  *  - Cross-tenant attachment IDs are rejected as 404 (not-403 convention).
+ *  - An attachment uploaded by a different acting person than the one making
+ *    this reference call is rejected -- 404 (not-403, same convention as
+ *    cross-tenant: otherwise the response itself would confirm the ID
+ *    belongs to *someone's* attachment, just not this caller's). This check
+ *    only gates a NEW binding -- it's skipped once boundAt is already set to
+ *    this exact ticket, so the idempotent-retry path above stays reachable
+ *    by any ticket-authorized caller, not just the original uploader.
  */
 export async function referenceAttachments(
   tx: DbOrTx,
   tenantId: string,
   ticketId: string,
   attachmentIds: string[],
+  actingPersonId: string,
 ): Promise<void> {
   if (attachmentIds.length === 0) return;
-  if (attachmentIds.length > MAX_ATTACHMENTS_PER_TICKET) {
+  // Dedup before the length/bind checks -- a client-side duplicate ID must
+  // never count twice against MAX_ATTACHMENTS_PER_TICKET, and must never
+  // reach the bind loop twice (the second occurrence would find boundAt
+  // already set by the first and roll back the whole create/comment on an
+  // accidental repeat, not a real conflict).
+  const uniqueIds = Array.from(new Set(attachmentIds));
+  if (uniqueIds.length > MAX_ATTACHMENTS_PER_TICKET) {
     throw new AttachmentReferenceError(422, {
       error: "TOO_MANY_ATTACHMENTS",
       message: `A ticket may reference at most ${MAX_ATTACHMENTS_PER_TICKET} attachments`,
@@ -53,14 +67,14 @@ export async function referenceAttachments(
     .from(attachments)
     .where(
       and(
-        inArray(attachments.id, attachmentIds),
+        inArray(attachments.id, uniqueIds),
         eq(attachments.tenantId, tenantId),
       ),
     );
   const byId = new Map(rows.map((r) => [r.id, r]));
 
   const toBind: string[] = [];
-  for (const id of attachmentIds) {
+  for (const id of uniqueIds) {
     const row = byId.get(id);
     if (!row) {
       throw new AttachmentReferenceError(404, {
@@ -81,8 +95,19 @@ export async function referenceAttachments(
           message: "This attachment is already attached to a different ticket",
         });
       }
-      // Already bound to this exact ticket -- idempotent no-op.
+      // Already bound to this exact ticket -- idempotent no-op. Checked
+      // BEFORE the ownership check below: once an attachment is legitimately
+      // bound to this ticket, anyone with access to re-reference it (e.g. a
+      // retried request) must still hit this no-op, not a spurious 404 --
+      // the ownership check exists to gate NEW bindings, not to re-litigate
+      // ownership of an already-settled one.
       continue;
+    }
+    if (row.actingPersonId !== actingPersonId) {
+      throw new AttachmentReferenceError(404, {
+        error: "NOT_FOUND",
+        message: "Record not found",
+      });
     }
     if (row.ticketId && row.ticketId !== ticketId) {
       throw new AttachmentReferenceError(422, {

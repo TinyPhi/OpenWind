@@ -166,6 +166,7 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           tenantId,
           created.id,
           input.attachmentIds,
+          actingPersonId,
         );
         return created;
       });

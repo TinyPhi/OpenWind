@@ -1,13 +1,13 @@
 /**
  * attachment-cleanup.test.ts
  *
- * Unit tests for the attachment-cleanup worker processor.
- * DB is fully mocked -- the real-Postgres path (RLS, tenant isolation) is
- * covered by apps/api/tests/isolation/third-party-attachments-presign-upload.isolation.test.ts,
- * this file only exercises the sweep logic itself.
+ * Unit tests for the attachment cleanup worker. DB is fully mocked, same
+ * pattern as file-cleanup.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// ── Mocks ──────────────────────────────────────────────────────────────────────
 
 let capturedProcessor: (() => Promise<void>) | undefined;
 
@@ -17,7 +17,10 @@ vi.mock("bullmq", () => ({
     processor: () => Promise<void>,
   ) {
     capturedProcessor = processor;
-    return { on: vi.fn(), close: vi.fn().mockResolvedValue(undefined) };
+    return {
+      on: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
   }),
   Queue: vi.fn().mockImplementation(() => ({
     add: vi.fn().mockResolvedValue(undefined),
@@ -25,22 +28,12 @@ vi.mock("bullmq", () => ({
   })),
 }));
 
-const mockSelectResult = { rows: [] as { id: string; tenantId: string }[] };
-const mockDbUpdate = vi.fn().mockReturnValue({
-  set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
-});
+const mockDbSelect = vi.fn();
+const mockDbUpdate = vi.fn();
 
 vi.mock("@platform/db", () => ({
   db: {
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          limit: vi
-            .fn()
-            .mockImplementation(() => Promise.resolve(mockSelectResult.rows)),
-        }),
-      }),
-    }),
+    select: (...args: unknown[]) => mockDbSelect(...args),
     update: (...args: unknown[]) => mockDbUpdate(...args),
   },
   attachments: {
@@ -48,6 +41,7 @@ vi.mock("@platform/db", () => ({
     tenantId: "tenantId",
     status: "status",
     uploadExpiresAt: "uploadExpiresAt",
+    updatedAt: "updatedAt",
   },
 }));
 
@@ -59,47 +53,90 @@ vi.mock("./queues.js", () => ({
   connection: {},
 }));
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function mockSelect(rows: unknown[]) {
+  const chain = {
+    select: vi.fn(),
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+  };
+  chain.select.mockReturnValue(chain);
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.limit.mockResolvedValue(rows);
+  mockDbSelect.mockReturnValue(chain);
+  return chain;
+}
+
+function mockUpdate() {
+  const chain = {
+    set: vi.fn(),
+    where: vi.fn().mockResolvedValue(undefined),
+  };
+  chain.set.mockReturnValue(chain);
+  mockDbUpdate.mockReturnValue(chain);
+  return chain;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mockSelectResult.rows = [];
 });
 
-describe("attachment-cleanup", () => {
-  it("does nothing when no stale slots are found", async () => {
-    await import("./attachment-cleanup.js");
-    mockSelectResult.rows = [];
+await import("./attachment-cleanup.js");
+
+// ── Tests ──────────────────────────────────────────────────────────────────────
+
+describe("attachment-cleanup worker", () => {
+  it("does nothing when no stale slots found", async () => {
+    mockSelect([]);
+
+    expect(capturedProcessor).toBeDefined();
     await capturedProcessor!();
+
     expect(mockDbUpdate).not.toHaveBeenCalled();
   });
 
-  it("marks each stale slot as expired", async () => {
-    await import("./attachment-cleanup.js");
-    mockSelectResult.rows = [
-      { id: "attach-1", tenantId: "tenant-1" },
-      { id: "attach-2", tenantId: "tenant-1" },
-    ];
+  it("expires a stale slot conditionally on its status still being pending/uploading — PR #472 review finding 3", async () => {
+    mockSelect([{ id: "attachment-1", tenantId: "tenant-1" }]);
+    const updateChain = mockUpdate();
+
     await capturedProcessor!();
-    expect(mockDbUpdate).toHaveBeenCalledTimes(2);
+
+    expect(mockDbUpdate).toHaveBeenCalledTimes(1);
+    expect(updateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "expired" }),
+    );
+    // The where() clause must re-check status (not just filter by id) so a
+    // slot that completed its upload between the SELECT above and this
+    // UPDATE can't be clobbered back to "expired" — asserting the drizzle
+    // `and(...)` condition tree references the id, tenant, and inArray
+    // status-check operands (via their stringified SQL) rather than a bare
+    // eq(id) alone.
+    const whereArg = updateChain.where.mock.calls[0]?.[0];
+    expect(whereArg).toBeDefined();
+    const serialized = JSON.stringify(whereArg);
+    expect(serialized).toContain("status");
   });
 
-  it("continues past a per-row failure and still processes the rest", async () => {
-    await import("./attachment-cleanup.js");
-    mockDbUpdate
-      .mockReturnValueOnce({
-        set: vi.fn().mockReturnValue({
-          where: vi.fn().mockRejectedValue(new Error("db error")),
-        }),
-      })
-      .mockReturnValueOnce({
-        set: vi
-          .fn()
-          .mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
-      });
-    mockSelectResult.rows = [
-      { id: "attach-1", tenantId: "tenant-1" },
-      { id: "attach-2", tenantId: "tenant-1" },
-    ];
-    await expect(capturedProcessor!()).resolves.toBeUndefined();
-    expect(mockDbUpdate).toHaveBeenCalledTimes(2);
+  it("continues processing remaining slots if one update fails", async () => {
+    mockSelect([
+      { id: "attachment-1", tenantId: "tenant-1" },
+      { id: "attachment-2", tenantId: "tenant-1" },
+    ]);
+    const chain = {
+      set: vi.fn(),
+      where: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("db error"))
+        .mockResolvedValueOnce(undefined),
+    };
+    chain.set.mockReturnValue(chain);
+    mockDbUpdate.mockReturnValue(chain);
+
+    await capturedProcessor!();
+
+    expect(chain.where).toHaveBeenCalledTimes(2);
   });
 });
