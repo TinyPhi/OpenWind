@@ -112,7 +112,9 @@ export const uploadAttachmentHandler = factory.createHandlers(
 
     if (bytes.byteLength !== attachment.declaredSizeBytes) {
       // Release the claim so a retry with the correct byte count can still
-      // succeed before the slot's own expiry.
+      // succeed before the slot's own expiry. Conditional on tenantId +
+      // still-"uploading" so this can't affect another tenant's row, nor
+      // resurrect a slot the cleanup sweep already expired concurrently.
       await withTenantContext(tenantId, (tx) =>
         tx
           .update(attachments)
@@ -193,7 +195,8 @@ export const uploadAttachmentHandler = factory.createHandlers(
       );
     } catch (err: unknown) {
       // Release the claim on failure so the slot isn't permanently stuck in
-      // 'uploading' until its natural expiry.
+      // 'uploading' until its natural expiry. Conditional on tenantId +
+      // still-"uploading", same rationale as the size-mismatch release above.
       await withTenantContext(tenantId, (tx) =>
         tx
           .update(attachments)

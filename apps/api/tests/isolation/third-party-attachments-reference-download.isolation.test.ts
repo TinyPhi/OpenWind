@@ -414,7 +414,7 @@ describe("attachment references on comment-post", () => {
     expect(row?.boundAt).toBeNull();
   });
 
-  it("rejects binding an attachment uploaded by a different acting person, even with ticket access", async () => {
+  it("rejects binding an attachment uploaded by a different acting person, even with ticket access — PR #472 review finding 2", async () => {
     const app = makeApp();
     const attachmentId = await createUploadedAttachment(app, CREATOR);
 
@@ -438,7 +438,7 @@ describe("attachment references on comment-post", () => {
     expect(row?.boundAt).toBeNull();
   });
 
-  it("deduplicates a repeated attachment id instead of rolling back on ATTACHMENT_ALREADY_BOUND", async () => {
+  it("deduplicates a repeated attachment id instead of rolling back on ATTACHMENT_ALREADY_BOUND — PR #472 review finding 4", async () => {
     const app = makeApp();
     const attachmentId = await createUploadedAttachment(app);
 
@@ -460,7 +460,7 @@ describe("attachment references on comment-post", () => {
     expect(row?.boundAt).not.toBeNull();
   });
 
-  it("allows idempotent re-reference by a DIFFERENT ticket-authorized actor than the uploader", async () => {
+  it("allows idempotent re-reference by a DIFFERENT ticket-authorized actor than the uploader — ownership check must not re-litigate an already-settled bind", async () => {
     const app = makeApp();
     const attachmentId = await createUploadedAttachment(app, CREATOR);
 
@@ -471,6 +471,10 @@ describe("attachment references on comment-post", () => {
     });
     expect(first.status).toBe(201);
 
+    // READ_COMMENT_PERSON has comment access to ticketA but is NOT the
+    // attachment's uploader (CREATOR is) -- re-referencing the
+    // already-bound attachment must still succeed as an idempotent no-op;
+    // the ownership check must not re-litigate a bind that already settled.
     const again = await app.request(`/tickets/${ticketA}/comments`, {
       method: "POST",
       headers: {
