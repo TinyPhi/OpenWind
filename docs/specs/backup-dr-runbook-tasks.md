@@ -2,7 +2,7 @@
 
 **Spec:** docs/specs/backup-dr-runbook.md
 **Generated:** 2026-08-25
-**Status:** not started
+**Status:** done
 
 ---
 
