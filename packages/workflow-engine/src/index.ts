@@ -25,3 +25,17 @@ export {
   updateWorkflowTransition,
   deleteWorkflowTransition,
 } from "./workflow-crud.js";
+export {
+  hasEntityReadAccess,
+  explicitAccessListUserIds,
+  hasEntityCommentAccess,
+  hasEntityAccess,
+  hasEntityCommentAccessFull,
+} from "./entity-access.js";
+export {
+  resolveWorkflowContext,
+  emitAccessEvent,
+  emitAccessRequestSubmitted,
+  emitFileDownloaded,
+  emitFileDeleted,
+} from "./emit-access-event.js";

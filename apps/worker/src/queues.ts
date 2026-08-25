@@ -175,3 +175,18 @@ export const connectorPollQueue = new Queue("connector-poll", {
     backoff: { type: "exponential", delay: 1_000 },
   },
 });
+
+// ADR-012 Phase C, spec R5 — third-party API mention resolution. Enqueued by
+// apps/api/src/lib/mention-resolution-queue.ts (a separate Queue instance
+// with the same name — apps/api cannot import from apps/worker) after a
+// third-party comment's own API response has already been sent, so
+// resolution never adds latency to that response (spec R5/R6). attempts: 3
+// matches automationQueue's rationale — a transient DB/Zitadel failure
+// should be retried before the resolution is considered failed.
+export const mentionResolutionQueue = new Queue("mention-resolution", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1_000 },
+  },
+});

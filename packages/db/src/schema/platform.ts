@@ -197,6 +197,58 @@ export const files = pgTable(
 );
 
 /**
+ * attachments — ADR-012 Phase D, third-party API file attachment lifecycle
+ * (presign -> upload -> ticket binding), ahead of the actual bytes landing
+ * in `files` (filesId nullable until upload completes).
+ * RLS: enforced via app.tenant_id GUC.
+ */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    ticketId: uuid("ticket_id"),
+    boundAt: timestamp("bound_at", { withTimezone: true }),
+    uploadedBy: text("uploaded_by").notNull(),
+    actingPersonId: text("acting_person_id").notNull(),
+    declaredFilename: text("declared_filename").notNull(),
+    declaredSizeBytes: bigint("declared_size_bytes", {
+      mode: "number",
+    }).notNull(),
+    declaredMimeType: text("declared_mime_type").notNull(),
+    uploadTokenHash: text("upload_token_hash").notNull(),
+    uploadExpiresAt: timestamp("upload_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    filesId: uuid("files_id"),
+    /** pending | uploaded | expired */
+    status: text("status").default("pending").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    // Partial predicates below must match migration 0077_attachments.sql's
+    // actual CREATE INDEX statements exactly -- Drizzle doesn't introspect
+    // partial indexes from SQL migrations, so a mismatch here would make the
+    // next `drizzle-kit generate` emit a spurious drop/recreate migration.
+    tenantTicketIdx: index("attachments_tenant_ticket_idx")
+      .on(t.tenantId, t.ticketId)
+      .where(sql`${t.ticketId} IS NOT NULL`),
+    tenantStatusIdx: index("attachments_tenant_status_idx").on(
+      t.tenantId,
+      t.status,
+    ),
+    expiryIdx: index("attachments_expiry_idx")
+      .on(t.uploadExpiresAt)
+      .where(sql`${t.status} = 'pending'`),
+  }),
+);
+
+/**
  * adminAuditLog — append-only audit log for all entity mutations.
  * GRANT: INSERT + SELECT only for app_user; no UPDATE or DELETE.
  * RLS: USING only policy (app_user cannot read rows outside their tenant).

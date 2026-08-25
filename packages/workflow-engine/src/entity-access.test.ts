@@ -1,8 +1,22 @@
-import { describe, it, expect } from "vitest";
-import {
-  hasEntityReadAccess,
-  hasEntityCommentAccess,
-} from "./entity-access.js";
+import { describe, it, expect, vi } from "vitest";
+
+// entity-access.ts imports getWorkflow from ./workflow-crud.js at module
+// load time, which imports the real @platform/db client — without this
+// mock, merely importing this test file (regardless of which functions the
+// tests below actually call) pulls in @platform/config's full env-schema
+// validation and fails in any environment missing every one of its
+// required vars (e.g. CI's restricted secret set for this package, which
+// never previously needed to load the real client since every other test
+// file in this package already mocks @platform/db).
+vi.mock("@platform/db", () => ({
+  workflows: {},
+  workflowStates: {},
+  workflowTransitions: {},
+  entityInstances: {},
+}));
+
+const { hasEntityReadAccess, hasEntityCommentAccess } =
+  await import("./entity-access.js");
 
 function instance(fields: unknown = {}) {
   return { createdBy: "creator-1", assignedTo: "assignee-1", fields };
