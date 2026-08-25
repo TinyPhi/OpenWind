@@ -21,6 +21,7 @@ import {
   workflowStates,
   entityInstances,
   workflowEvents,
+  outboxEvents,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
@@ -240,6 +241,31 @@ describe("POST /api/v1/tickets/:id/comments", () => {
     });
   });
 
+  it("writes a comment.created outbox event so WS live-push/automations still fire", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await postComment(
+      app,
+      creatorTicketId,
+      "outbox regression check",
+    );
+    expect(res.status).toBe(201);
+    const { data } = (await res.json()) as { data: { id: string } };
+
+    const [outboxRow] = await db
+      .select()
+      .from(outboxEvents)
+      .where(
+        sql`${outboxEvents.tenantId} = ${TENANT} AND ${outboxEvents.eventType} = 'comment.created' AND payload->>'commentId' = ${data.id}`,
+      );
+    expect(outboxRow).toBeDefined();
+    expect(outboxRow?.payload).toMatchObject({
+      eventType: "comment.created",
+      instanceId: creatorTicketId,
+      actorId: CREATOR,
+      commentId: data.id,
+    });
+  });
+
   it("a person with only read_comment access can comment", async () => {
     const app = makeApp(apiKeyAuth(), actingAs(READ_COMMENT_PERSON));
     const res = await postComment(app, readCommentTicketId, "commenting in");
@@ -298,5 +324,58 @@ describe("POST /api/v1/tickets/:id/comments", () => {
       `bad${String.fromCharCode(0)}value`,
     );
     expect(res.status).toBe(400);
+  });
+
+  it("returns the same identical 404 when the workflow is deleted out from under the access check, not a distinguishable error", async () => {
+    // A workflow-admin-only person (not creator/assignee/on any access list)
+    // forces hasEntityCommentAccessFull down its getWorkflow path -- deleting
+    // the workflow row before the request reproduces the exact race #184
+    // documents (workflow deleted between the instance fetch and this
+    // lookup), deterministically rather than via real concurrency.
+    const WORKFLOW_ADMIN_PERSON = "third-party-comment-workflow-admin";
+    const raceEntityType = await createEntityType(db, null, {
+      name: `third_party_comment_race_test_${Date.now()}`,
+      plural: "third_party_comment_race_tests",
+      allowCustomFields: true,
+    });
+    const [raceWorkflow] = await db
+      .insert(workflows)
+      .values({
+        tenantId: TENANT,
+        entityTypeId: raceEntityType.id,
+        name: "3P Comment Race Workflow",
+        initialState: "open",
+        assignedTo: [WORKFLOW_ADMIN_PERSON],
+      })
+      .returning({ id: workflows.id });
+    const raceWorkflowId = raceWorkflow!.id;
+    await db.insert(workflowStates).values({
+      tenantId: TENANT,
+      workflowId: raceWorkflowId,
+      name: "open",
+      label: "Open",
+      sortOrder: 0,
+    });
+    const raceTicket = await createEntity(db, TENANT, {
+      entityTypeId: raceEntityType.id,
+      fields: {},
+      createdBy: "someone-else",
+      workflowId: raceWorkflowId,
+      currentState: "open",
+    });
+
+    await db
+      .delete(workflowEvents)
+      .where(eq(workflowEvents.workflowId, raceWorkflowId));
+    await db
+      .delete(workflowStates)
+      .where(eq(workflowStates.workflowId, raceWorkflowId));
+    await db.delete(workflows).where(eq(workflows.id, raceWorkflowId));
+
+    const app = makeApp(apiKeyAuth(), actingAs(WORKFLOW_ADMIN_PERSON));
+    const res = await postComment(app, raceTicket.id, "should 404 cleanly");
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body).toEqual({ error: "NOT_FOUND", message: "Record not found" });
   });
 });

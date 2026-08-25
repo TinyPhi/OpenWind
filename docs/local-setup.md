@@ -274,7 +274,7 @@ new ones.
 
 | Container       | Internal port | Host port  | URL                                                              |
 | --------------- | ------------- | ---------- | ---------------------------------------------------------------- |
-| ow-database     | 5432          | —          | Internal only                                                    |
+| ow-database     | 5432          | 5432       | `localhost:5432` (host-mode `pnpm db:migrate` only)              |
 | ow-pgbouncer    | 5432          | 6432       | `localhost:6432`                                                 |
 | ow-cache        | 6379          | 6379       | `redis://localhost:6379` (host-mode `pnpm test`/`pnpm dev` only) |
 | ow-backend      | 3000          | —          | Internal only (proxied)                                          |
@@ -597,8 +597,8 @@ netstat -ano | findstr :3001
 ```
 
 Change the conflicting host port: `ADMIN_UI_HOST_PORT` / `ZITADEL_HOST_PORT` env vars for the
-frontend/Zitadel ports (see the production section), `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT`
-for direct host-mode DB/cache access, or edit `docker-compose.yml` directly for the others.
+frontend/Zitadel ports (see the production section), `POSTGRES_HOST_PORT` / `PGBOUNCER_HOST_PORT` / `REDIS_HOST_PORT` / `OPENBAO_HOST_PORT`
+for direct host-mode access, or edit `docker-compose.yml` directly for the others.
 
 ### Platform-specific notes
 
