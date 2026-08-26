@@ -16,6 +16,7 @@ import {
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
+import { withIdempotency } from "../../lib/idempotency.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -126,9 +127,11 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
   requireTicketScope("create"),
   zValidator("json", CreateThirdPartyTicketSchema),
   async (c) => {
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const input = c.req.valid("json");
+    const apiKeyId = userId.slice("apikey:".length);
+    const idempotencyKey = c.req.header("Idempotency-Key");
 
     const fieldsCheck = validateFieldsPayload(input.fields);
     if (!fieldsCheck.ok) {
@@ -142,41 +145,62 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
       );
     }
 
-    try {
-      const instance = await withTenantContext(tenantId, async (tx) => {
-        const workflow = await getWorkflow(tx, tenantId, input.workflowId, {
-          userId: actingPersonId,
-          isGlobalAdmin: false,
-        });
-        const created = await createEntity(tx, tenantId, {
-          entityTypeId: workflow.entityTypeId,
-          workflowId: workflow.id,
-          fields: input.fields,
-          assignedTo: input.assignedTo,
-          createdBy: actingPersonId,
-          actorId: actingPersonId,
-          actorType: "api_key",
-          actingPersonId,
-        });
-        // Same transaction as the create above -- a rejected attachment
-        // reference rolls back the whole ticket creation, never leaving a
-        // ticket with a dangling bad attachmentId (spec R3).
-        await referenceAttachments(
-          tx,
-          tenantId,
-          created.id,
-          input.attachmentIds,
-          actingPersonId,
-        );
-        return created;
-      });
+    // ADR-012 Phase G, spec R3/R4/R5 -- idempotency wraps only the actual
+    // mutating operation, not upstream validation, so a caller retrying a
+    // request that already 422'd above re-validates fresh rather than
+    // replaying a cached failure forever under the same key.
+    const response = await withIdempotency(
+      { tenantId, apiKeyId, actingPersonId, idempotencyKey },
+      {
+        workflowId: input.workflowId,
+        fields: input.fields,
+        assignedTo: input.assignedTo ?? null,
+        attachmentIds: input.attachmentIds,
+      },
+      async () => {
+        try {
+          const instance = await withTenantContext(tenantId, async (tx) => {
+            const workflow = await getWorkflow(tx, tenantId, input.workflowId, {
+              userId: actingPersonId,
+              isGlobalAdmin: false,
+            });
+            const created = await createEntity(tx, tenantId, {
+              entityTypeId: workflow.entityTypeId,
+              workflowId: workflow.id,
+              fields: input.fields,
+              assignedTo: input.assignedTo,
+              createdBy: actingPersonId,
+              actorId: actingPersonId,
+              actorType: "api_key",
+              actingPersonId,
+            });
+            // Same transaction as the create above -- a rejected attachment
+            // reference rolls back the whole ticket creation, never leaving a
+            // ticket with a dangling bad attachmentId (spec R3).
+            await referenceAttachments(
+              tx,
+              tenantId,
+              created.id,
+              input.attachmentIds,
+              actingPersonId,
+            );
+            return created;
+          });
 
-      return c.json({ data: instance }, 201);
-    } catch (err) {
-      if (err instanceof AttachmentReferenceError) {
-        return c.json(err.body, err.status);
-      }
-      return handleEntityError(c, err);
-    }
+          return { status: 201, body: { data: instance } };
+        } catch (err) {
+          if (err instanceof AttachmentReferenceError) {
+            return { status: err.status, body: err.body };
+          }
+          const errResponse = handleEntityError(c, err);
+          return {
+            status: errResponse.status,
+            body: (await errResponse.json()) as unknown,
+          };
+        }
+      },
+    );
+
+    return c.json(response.body as object, response.status as never);
   },
 );

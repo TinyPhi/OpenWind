@@ -5,11 +5,14 @@
 
 status: draft
 created: 2026-08-26
-updated: 2026-08-26 (Phase 1 implementation done: T1-T5 all marked done, T2's §I interface
-sketch corrected to reflect the actual implementation — tenants.config JSONB key, not a new
-column; spec-review pass before that: quantified R1/R2's rate-limit numbers and
-cache-staleness bound, added R10 for idempotency-cache tenant-purge coverage, renumbered
-R10-R12 to R11-R13, added 2 invariants, added T10 and clarified T2/T3's scope)
+updated: 2026-08-26 (Phase 2 implementation done: T6-T7 marked done — idempotency_keys table,
+RFC 8785 content-hash via the `canonicalize` package, 30s Redis in-flight lock + 24h result
+cache, wired into create/comment/sub-ticket/transition third-party routes; Phase 1
+implementation done before that: T1-T5 all marked done, T2's §I interface sketch corrected to
+reflect the actual implementation — tenants.config JSONB key, not a new column; spec-review
+pass before that: quantified R1/R2's rate-limit numbers and cache-staleness bound, added R10
+for idempotency-cache tenant-purge coverage, renumbered R10-R12 to R11-R13, added 2
+invariants, added T10 and clarified T2/T3's scope)
 
 ---
 
@@ -46,10 +49,12 @@ read path cached in-process, 5s TTL (packages/auth/src/tenant-rate-limit.ts) -- 
 
 PATCH /admin/tenants/:id/rate-limit  { ratePerMin: number | null }   -- admin-editable, superadmin only
 
--- Idempotency (new table, e.g. idempotency_keys)
+-- Idempotency (implemented: packages/db/migrations/0081_idempotency_keys.sql)
 idempotency_keys: (id, tenant_id, api_key_id, acting_person_id, idempotency_key,
                     content_hash, response_status, response_body, created_at, expires_at)
   unique (tenant_id, api_key_id, acting_person_id, idempotency_key)
+-- content_hash: RFC 8785 JCS via the `canonicalize` npm package (reference
+-- implementation), sha256 hex -- apps/api/src/lib/idempotency.ts
 
 -- request header: Idempotency-Key: <caller-supplied string>
 -- 30s in-flight lock: Redis key `idempotency-lock:<tenantId>:<apiKeyId>:<personId>:<key>`, NX + 30s TTL
@@ -208,8 +213,8 @@ verdict.
 | T3  | JWT `iat` max-age check (config-driven, default 15min, startup sanity warning); confirm interaction with the existing `clockTolerance: 5` at the 15-min boundary                                     | 1     | done   | —       |
 | T4  | PII redaction wired into third-party ticket-detail and workflow-list read routes                                                                                                                     | 1     | done   | —       |
 | T5  | TLS/HTTPS enforcement point — verify infra-level enforcement OR add an app-level check; document which                                                                                               | 1     | done   | —       |
-| T6  | Idempotency: schema (`idempotency_keys` table), RFC 8785 canonicalization + content-hash helper                                                                                                      | 2     | todo   | —       |
-| T7  | Idempotency: 30s in-flight lock (409 + Retry-After) + 24h result-cache read/write, wired into create/comment/sub-ticket/transition routes                                                            | 2     | todo   | T6      |
+| T6  | Idempotency: schema (`idempotency_keys` table), RFC 8785 canonicalization + content-hash helper                                                                                                      | 2     | done   | —       |
+| T7  | Idempotency: 30s in-flight lock (409 + Retry-After) + 24h result-cache read/write, wired into create/comment/sub-ticket/transition routes                                                            | 2     | done   | T6      |
 | T8  | Access-log retention: scheduled 90-day sweep job + aggregate rollup table                                                                                                                            | 3     | todo   | —       |
 | T9  | Tenant-purge: replace the current "retain forever" behavior with immediate anonymization of that tenant's `admin_audit_log` rows                                                                     | 3     | todo   | T8      |
 | T10 | Tenant-purge: extend the same purge path to delete that tenant's `idempotency_keys` rows outright (R10)                                                                                              | 3     | todo   | T6, T9  |

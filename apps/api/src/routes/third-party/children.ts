@@ -10,6 +10,7 @@ import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
 import { notFound } from "./not-found.js";
+import { withIdempotency } from "../../lib/idempotency.js";
 
 const CreateThirdPartyChildSchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -47,9 +48,11 @@ export const createThirdPartyChildHandler = factory.createHandlers(
   zValidator("json", CreateThirdPartyChildSchema),
   async (c) => {
     const parentId = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const input = c.req.valid("json");
+    const apiKeyId = userId.slice("apikey:".length);
+    const idempotencyKey = c.req.header("Idempotency-Key");
 
     const fieldsCheck = validateFieldsPayload(input.fields);
     if (!fieldsCheck.ok) {
@@ -101,36 +104,53 @@ export const createThirdPartyChildHandler = factory.createHandlers(
       return notFound(c);
     }
 
-    try {
-      const result = await withTenantContext(tenantId, (tx) =>
-        createChildRelation(tx, tenantId, {
-          parentId,
-          entityTypeId: input.entityTypeId,
-          childFields: input.fields,
-          assignedTo: input.assignedTo,
-          createdBy: actingPersonId,
-          actorType: "api_key",
-          actingPersonId,
-          maxAncestorDepth: 1,
-        }),
-      );
-      return c.json({ data: result.instance }, 201);
-    } catch (err) {
-      if (
-        err instanceof EntityError &&
-        err.code === "CHILD_DEPTH_EXCEEDED" &&
-        err.meta?.reason === "caller_max_ancestor_depth"
-      ) {
-        return c.json(
-          {
-            error: "SUBTICKET_NESTING_EXCEEDED",
-            message:
-              "An API-created sub-ticket cannot itself have a sub-ticket created via this API",
-          },
-          400,
-        );
-      }
-      return handleEntityError(c, err);
-    }
+    const response = await withIdempotency(
+      { tenantId, apiKeyId, actingPersonId, idempotencyKey },
+      {
+        parentId,
+        entityTypeId: input.entityTypeId,
+        fields: input.fields,
+        assignedTo: input.assignedTo ?? null,
+      },
+      async () => {
+        try {
+          const result = await withTenantContext(tenantId, (tx) =>
+            createChildRelation(tx, tenantId, {
+              parentId,
+              entityTypeId: input.entityTypeId,
+              childFields: input.fields,
+              assignedTo: input.assignedTo,
+              createdBy: actingPersonId,
+              actorType: "api_key",
+              actingPersonId,
+              maxAncestorDepth: 1,
+            }),
+          );
+          return { status: 201, body: { data: result.instance } };
+        } catch (err) {
+          if (
+            err instanceof EntityError &&
+            err.code === "CHILD_DEPTH_EXCEEDED" &&
+            err.meta?.reason === "caller_max_ancestor_depth"
+          ) {
+            return {
+              status: 400,
+              body: {
+                error: "SUBTICKET_NESTING_EXCEEDED",
+                message:
+                  "An API-created sub-ticket cannot itself have a sub-ticket created via this API",
+              },
+            };
+          }
+          const errResponse = handleEntityError(c, err);
+          return {
+            status: errResponse.status,
+            body: (await errResponse.json()) as unknown,
+          };
+        }
+      },
+    );
+
+    return c.json(response.body as object, response.status as never);
   },
 );

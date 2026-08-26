@@ -1,10 +1,14 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-08-26 — ADR-012 Phase G ("hardening" closing gate) Phase 1 (T1-T5: 3-tier
-rate limiting, per-tenant admin-editable ceiling, JWT iat max-age, PII redaction on third-party
-reads, TLS enforcement) implemented on `feat/third-party-api-phase-g-hardening`, spec at
-`docs/specs/third-party-api-phase-g-hardening.md`; Phase E (status transitions, PR #484) merged
-and Phase F (access logs + misuse alerts, PR #489) is open/CI-green, both ahead of this branch.
+**Last updated:** 2026-08-26 — ADR-012 Phase G ("hardening" closing gate) Phase 2 (T6-T7:
+idempotency-key support — `idempotency_keys` table, RFC 8785 canonicalization, 30s in-flight
+lock, 24h result cache — wired into create/comment/sub-ticket/transition routes) implemented on
+`feat/third-party-api-phase-g-idempotency` (stacked on Phase 1's `feat/third-party-api-phase-g-hardening`,
+PR #495, CI-green); spec at `docs/specs/third-party-api-phase-g-hardening.md`. Phase 1 (T1-T5:
+3-tier rate limiting, per-tenant admin-editable ceiling, JWT iat max-age, PII redaction on
+third-party reads, TLS enforcement) code-complete and CI-green as PR #495. Phase E (status
+transitions, PR #484) merged and Phase F (access logs + misuse alerts, PR #489) is open/CI-green,
+both ahead of this branch.
 Previously — 2026-08-25 — ADR-012 Phase E (status transitions) PR #484 opened, following
 Phase C (#467–#470) and Phase D Stage 1-2 (#472) merging. Reworked 2026-08-24: fully-closed
 historical detail tables (Phase 1 carry-overs full list, module-seed detail, pre-Phase-3 hardening

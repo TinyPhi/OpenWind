@@ -11,6 +11,7 @@ import { hasTransitionAccess } from "../../lib/transition-access.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
+import { withIdempotency } from "../../lib/idempotency.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -82,10 +83,17 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
   zValidator("json", ExecuteThirdPartyTransitionSchema),
   async (c) => {
     const instanceId = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
+    // `idempotencyKey` here is the pre-existing, narrower body field that
+    // feeds workflow-engine's own event-dedup column
+    // (workflow_events.idempotency_key) -- distinct from ADR-012 Phase G's
+    // `Idempotency-Key` HTTP header handled below (apps/api/src/lib/
+    // idempotency.ts), which caches the whole HTTP response.
     const { transitionId, comment, idempotencyKey, metadata } =
       c.req.valid("json");
+    const apiKeyId = userId.slice("apikey:".length);
+    const idempotencyHeaderKey = c.req.header("Idempotency-Key");
 
     let instance;
     try {
@@ -128,47 +136,72 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
       return notFound(c);
     }
 
-    try {
-      const request: TransitionRequest = {
+    const response = await withIdempotency(
+      {
+        tenantId,
+        apiKeyId,
+        actingPersonId,
+        idempotencyKey: idempotencyHeaderKey,
+      },
+      {
         instanceId,
         transitionId,
-        actorId: actingPersonId,
-        actorRoles: [],
-        triggeredBy: "api",
-        ...(comment !== undefined && { comment }),
-        ...(idempotencyKey !== undefined && { idempotencyKey }),
-        ...(metadata !== undefined && { metadata }),
-      };
+        comment: comment ?? null,
+        metadata: metadata ?? null,
+      },
+      async () => {
+        try {
+          const request: TransitionRequest = {
+            instanceId,
+            transitionId,
+            actorId: actingPersonId,
+            actorRoles: [],
+            triggeredBy: "api",
+            ...(comment !== undefined && { comment }),
+            ...(idempotencyKey !== undefined && { idempotencyKey }),
+            ...(metadata !== undefined && { metadata }),
+          };
 
-      // executeTransition and its audit entry share the SAME transaction
-      // (security-reviewer finding) -- writeAuditEntry's own module doc
-      // requires this ("call inside the same transaction as the entity
-      // mutation"). Splitting them into separate withTenantContext calls
-      // would let the transition commit and then the audit write fail
-      // independently, producing a repudiation gap (a real state change
-      // with zero audit trail) and a misleading 500 for a request that
-      // actually succeeded.
-      const event = await withTenantContext(tenantId, async (tx) => {
-        const result = await executeTransition(tx, tenantId, request);
-        await writeAuditEntry(tx, {
-          tenantId,
-          actorId: actingPersonId,
-          actorType: "api_key",
-          actingPersonId,
-          resourceType: "ticket",
-          resourceId: instanceId,
-          action: "transition.executed",
-          metadata: { transitionId, eventId: result.id },
-        });
-        return result;
-      });
+          // executeTransition and its audit entry share the SAME transaction
+          // (security-reviewer finding) -- writeAuditEntry's own module doc
+          // requires this ("call inside the same transaction as the entity
+          // mutation"). Splitting them into separate withTenantContext calls
+          // would let the transition commit and then the audit write fail
+          // independently, producing a repudiation gap (a real state change
+          // with zero audit trail) and a misleading 500 for a request that
+          // actually succeeded.
+          const event = await withTenantContext(tenantId, async (tx) => {
+            const result = await executeTransition(tx, tenantId, request);
+            await writeAuditEntry(tx, {
+              tenantId,
+              actorId: actingPersonId,
+              actorType: "api_key",
+              actingPersonId,
+              resourceType: "ticket",
+              resourceId: instanceId,
+              action: "transition.executed",
+              metadata: { transitionId, eventId: result.id },
+            });
+            return result;
+          });
 
-      return c.json({ data: event }, 201);
-    } catch (err) {
-      if (isExistenceRevealingWorkflowError(err)) {
-        return notFound(c);
-      }
-      return handleWorkflowError(c, err);
-    }
+          return { status: 201, body: { data: event } };
+        } catch (err) {
+          if (isExistenceRevealingWorkflowError(err)) {
+            return {
+              status: 404,
+              body: { error: "NOT_FOUND", message: "Record not found" },
+            };
+          }
+          const errResponse = handleWorkflowError(c, err);
+          return {
+            status: errResponse.status,
+            body: (await errResponse.json()) as unknown,
+          };
+        }
+      },
+    );
+
+    return c.json(response.body as object, response.status as never);
   },
 );
