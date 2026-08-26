@@ -10,7 +10,7 @@ import {
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import { writeAuditEntry } from "@platform/audit";
-import { apiKeyIdFromUserId } from "../../lib/api-key-id.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
@@ -74,7 +74,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     const { tenantId, orgId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const { text, mentions, attachmentIds } = c.req.valid("json");
-    const apiKeyId = apiKeyIdFromUserId(authUserId);
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     const [instance] = await withTenantContext(tenantId, (tx) =>
       tx
@@ -123,7 +123,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
         await withTenantContext(tenantId, (tx) =>
           writeAuditEntry(tx, {
             tenantId,
-            actorId: apiKeyId,
+            actorId: applicationActorId,
             actorType: "api_key",
             actingPersonId,
             resourceType: "ticket",
@@ -158,7 +158,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
           id,
           attachmentIds,
           actingPersonId,
-          apiKeyId,
+          applicationActorId,
         ),
       );
     } catch (err) {
@@ -196,7 +196,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
       if (inserted) {
         await writeAuditEntry(tx, {
           tenantId,
-          actorId: apiKeyId,
+          actorId: applicationActorId,
           actorType: "api_key",
           actingPersonId,
           resourceType: "ticket",

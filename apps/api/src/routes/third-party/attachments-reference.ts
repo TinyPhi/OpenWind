@@ -49,7 +49,7 @@ export async function referenceAttachments(
   ticketId: string,
   attachmentIds: string[],
   actingPersonId: string,
-  apiKeyId: string,
+  applicationActorId: string,
 ): Promise<void> {
   try {
     await doReferenceAttachments(
@@ -58,7 +58,7 @@ export async function referenceAttachments(
       ticketId,
       attachmentIds,
       actingPersonId,
-      apiKeyId,
+      applicationActorId,
     );
   } catch (err) {
     // Only the 404 (existence-oracle) throws represent an actual access
@@ -73,7 +73,7 @@ export async function referenceAttachments(
         await withTenantContext(tenantId, (auditTx) =>
           writeAuditEntry(auditTx, {
             tenantId,
-            actorId: apiKeyId,
+            actorId: applicationActorId,
             actorType: "api_key",
             actingPersonId,
             resourceType: "ticket",
@@ -99,7 +99,7 @@ async function doReferenceAttachments(
   ticketId: string,
   attachmentIds: string[],
   actingPersonId: string,
-  apiKeyId: string,
+  applicationActorId: string,
 ): Promise<void> {
   if (attachmentIds.length === 0) return;
   // Dedup before the length/bind checks -- a client-side duplicate ID must
@@ -202,7 +202,7 @@ async function doReferenceAttachments(
   // outcome from the caller's perspective.
   await writeAuditEntry(tx, {
     tenantId,
-    actorId: apiKeyId,
+    actorId: applicationActorId,
     actorType: "api_key",
     actingPersonId,
     resourceType: "ticket",

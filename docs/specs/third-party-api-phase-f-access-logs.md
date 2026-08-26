@@ -135,7 +135,9 @@ a `personId` filter that happens to match the placeholder literal.
   redacted and must not additionally decode/unredact anything, since admin-only visibility is not
   a substitute for the write-time redaction already in place.
 - Every third-party route writing an `admin_audit_log` entry with `actorType: "api_key"` must set
-  `actorId` to the API key's own id (via `apiKeyIdFromUserId(auth.userId)`), never
+  `actorId` to the API key's own id (via `applicationActorIdFromUserId(auth.userId)` —
+  renamed from `apiKeyIdFromUserId` to avoid CodeQL's clear-text-logging naming heuristic,
+  PR #489), never
   `actingPersonId` — the column pairing only works (and `applicationName` resolution only
   succeeds) if `actorId` identifies the key and `actingPersonId` identifies the person, per §B2.
 - A route or shared helper that mutates ticket state or gates access on the third-party API must

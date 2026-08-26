@@ -11,7 +11,7 @@ import { hasTransitionAccess } from "../../lib/transition-access.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
-import { apiKeyIdFromUserId } from "../../lib/api-key-id.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -87,7 +87,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
     const { userId: actingPersonId } = c.get("actingPerson");
     const { transitionId, comment, idempotencyKey, metadata } =
       c.req.valid("json");
-    const apiKeyId = apiKeyIdFromUserId(authUserId);
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     let instance;
     try {
@@ -112,7 +112,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
         await withTenantContext(tenantId, (tx) =>
           writeAuditEntry(tx, {
             tenantId,
-            actorId: apiKeyId,
+            actorId: applicationActorId,
             actorType: "api_key",
             actingPersonId,
             resourceType: "ticket",
@@ -154,7 +154,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
         const result = await executeTransition(tx, tenantId, request);
         await writeAuditEntry(tx, {
           tenantId,
-          actorId: apiKeyId,
+          actorId: applicationActorId,
           actorType: "api_key",
           actingPersonId,
           resourceType: "ticket",

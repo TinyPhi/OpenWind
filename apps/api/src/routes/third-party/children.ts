@@ -12,7 +12,7 @@ import { validateFieldsPayload } from "./validate-fields-payload.js";
 import { notFound } from "./not-found.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
-import { apiKeyIdFromUserId } from "../../lib/api-key-id.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 const CreateThirdPartyChildSchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -53,7 +53,7 @@ export const createThirdPartyChildHandler = factory.createHandlers(
     const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const input = c.req.valid("json");
-    const apiKeyId = apiKeyIdFromUserId(authUserId);
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     const fieldsCheck = validateFieldsPayload(input.fields);
     if (!fieldsCheck.ok) {
@@ -109,7 +109,7 @@ export const createThirdPartyChildHandler = factory.createHandlers(
         await withTenantContext(tenantId, (tx) =>
           writeAuditEntry(tx, {
             tenantId,
-            actorId: apiKeyId,
+            actorId: applicationActorId,
             actorType: "api_key",
             actingPersonId,
             resourceType: "ticket",
@@ -140,7 +140,7 @@ export const createThirdPartyChildHandler = factory.createHandlers(
         });
         await writeAuditEntry(tx, {
           tenantId,
-          actorId: apiKeyId,
+          actorId: applicationActorId,
           actorType: "api_key",
           actingPersonId,
           resourceType: "ticket",
