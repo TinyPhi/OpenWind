@@ -5,20 +5,16 @@ import type {
   ActingPersonContext,
   TicketActionVerb,
 } from "@platform/auth";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
+import {
+  recordScopeDenialAndMaybeAlert,
+  recordRequestVolumeAndMaybeAlert,
+} from "../../lib/misuse-alerts.js";
 import { enforceKeyPersonRateLimit } from "../../lib/rate-limit-tiers.js";
 
 type Variables = {
   Variables: { auth: AuthContext; actingPerson: ActingPersonContext };
 };
-
-// requireAuth (@platform/auth) sets auth.userId to "apikey:<id>" on the
-// API-key path -- every third-party route is reachable only via that path
-// (requireActingPerson, which runs before this middleware in every route's
-// chain, already 401s on any userId that doesn't match this shape), so
-// parsing it here needs no fallback branch.
-function applicationActorIdFromUserId(userId: string): string {
-  return userId.slice("apikey:".length);
-}
 
 /**
  * ADR-012 Phase B, spec R8 — no `requireScope()` helper exists yet in
@@ -30,12 +26,15 @@ function applicationActorIdFromUserId(userId: string): string {
  * tenant RLS) — the other two are enforced downstream by the access-list
  * check (hasEntityAccess) and withTenantContext respectively.
  *
- * ADR-012 Phase G, ADR-013 — also the single point every real third-party
- * route passes through after requireAuth + requireActingPerson, making it
- * the natural place to enforce the per-(key,person) rate-limit tier: the
- * tenant tier and per-key aggregate tier (both in @platform/auth's
- * requireAuth) can't see the acting person, since that identity isn't
- * resolved until requireActingPerson runs, later in the same chain.
+ * ADR-012 Phase F, spec R4 / Phase G, ADR-013 — this is also the single
+ * point every real third-party route (all but attachments-upload, which is
+ * presign-token-gated, not scope-gated) passes through after requireAuth +
+ * requireActingPerson, making it the natural place to hook misuse triggers
+ * 1 (scope-denial rate) and 2 (request volume), AND to enforce the
+ * per-(key,person) rate-limit tier: the tenant tier and per-key aggregate
+ * tier (both in @platform/auth's requireAuth) can't see the acting person,
+ * since that identity isn't resolved until requireActingPerson runs, later
+ * in the same chain.
  */
 export const requireTicketScope = (verb: TicketActionVerb): MiddlewareHandler =>
   createMiddleware<Variables>(
@@ -57,11 +56,13 @@ export const requireTicketScope = (verb: TicketActionVerb): MiddlewareHandler =>
       }
 
       if (!scopes.includes(`entity:ticket:${verb}`)) {
+        await recordScopeDenialAndMaybeAlert(tenantId, applicationActorId);
         return c.json(
           { error: "FORBIDDEN", message: "Insufficient permissions" },
           403,
         );
       }
+      await recordRequestVolumeAndMaybeAlert(tenantId, applicationActorId);
       await next();
       return;
     },

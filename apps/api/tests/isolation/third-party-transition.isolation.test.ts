@@ -394,6 +394,12 @@ describe("POST /api/v1/tickets/:id/transitions", () => {
     expect(allowedRows.length).toBeGreaterThanOrEqual(1);
     expect(allowedRows[0]?.actorType).toBe("api_key");
     expect(allowedRows[0]?.actingPersonId).toBe(CREATOR);
+    // spec AC6 -- actorId is the API key's own id (parsed from auth.userId's
+    // "apikey:<id>" prefix), NOT actingPersonId, so Phase F's admin route can
+    // resolve applicationName from it.
+    expect(allowedRows[0]?.actorId).toBe(
+      "66666666-6666-4666-6666-666666666666",
+    );
 
     const deniedRows = await db
       .select()

@@ -21,7 +21,7 @@
  * Call this inside the same transaction as the entity mutation.
  */
 
-import { eq, desc, and, gte, lte, lt } from "drizzle-orm";
+import { eq, desc, and, gte, lte, lt, inArray } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import { adminAuditLog } from "@platform/db";
 import { logger } from "@platform/logger";
@@ -30,6 +30,13 @@ import {
   buildSensitivityMap,
   type FieldSensitivity,
 } from "@platform/workflow-engine";
+
+export {
+  classifyOutcome,
+  actionsForOutcome,
+  type AuditOutcome,
+} from "./outcome.js";
+import { actionsForOutcome, type AuditOutcome } from "./outcome.js";
 
 export type AuditActorType = "user" | "api_key" | "system";
 export type AuditAction =
@@ -60,7 +67,18 @@ export type AuditAction =
   // migration 0080_admin_audit_log_transition_actions.sql extends the DB
   // CHECK constraint in the same commit.
   | "transition.executed"
-  | "transition.access_denied";
+  | "transition.access_denied"
+  // ADR-012 Phase F, spec AC4 — retrofits comments.ts/children.ts/
+  // attachments-reference.ts (previously unaudited) onto the same
+  // atomic-write pattern transitions.ts established. Migration
+  // 0081_admin_audit_log_comment_child_attachment_actions.sql extends the
+  // DB CHECK constraint in the same commit.
+  | "comment.created"
+  | "comment.access_denied"
+  | "child.created"
+  | "child.access_denied"
+  | "attachment.referenced"
+  | "attachment.reference_denied";
 
 export type AuditEntryInput = {
   tenantId: string;
@@ -144,6 +162,7 @@ export type AuditLogEntry = {
   tenantId: string;
   actorId: string;
   actorType: AuditActorType;
+  actingPersonId: string | null;
   resourceType: string;
   resourceId: string;
   action: AuditAction;
@@ -159,6 +178,10 @@ export type QueryAuditLogInput = {
   resourceId?: string | undefined;
   actorId?: string | undefined;
   actorType?: AuditActorType | undefined;
+  /** ADR-012 Phase F — the real person acting through a third-party API key, distinct from actorId (the key itself). */
+  actingPersonId?: string | undefined;
+  /** ADR-012 Phase F — outcome is derived (see classifyOutcome), not stored; this filters by the set of AuditAction values that classify to the given outcome. */
+  outcome?: AuditOutcome | undefined;
   /** Filter entries created at or after this timestamp */
   from?: Date | undefined;
   /** Filter entries created at or before this timestamp */
@@ -203,6 +226,12 @@ export async function queryAuditLog(
     conditions.push(eq(adminAuditLog.resourceType, input.resourceType));
   if (input.resourceId !== undefined)
     conditions.push(eq(adminAuditLog.resourceId, input.resourceId));
+  if (input.actingPersonId !== undefined)
+    conditions.push(eq(adminAuditLog.actingPersonId, input.actingPersonId));
+  if (input.outcome !== undefined)
+    conditions.push(
+      inArray(adminAuditLog.action, actionsForOutcome(input.outcome)),
+    );
   if (input.from !== undefined)
     conditions.push(gte(adminAuditLog.createdAt, input.from));
   if (input.to !== undefined)
@@ -236,6 +265,7 @@ export async function queryAuditLog(
     tenantId: r.tenantId,
     actorId: r.actorId,
     actorType: r.actorType as AuditActorType,
+    actingPersonId: r.actingPersonId,
     resourceType: r.resourceType,
     resourceId: r.resourceId,
     action: r.action as AuditAction,
