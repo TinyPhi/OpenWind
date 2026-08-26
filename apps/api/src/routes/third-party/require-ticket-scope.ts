@@ -5,6 +5,11 @@ import type {
   ActingPersonContext,
   TicketActionVerb,
 } from "@platform/auth";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
+import {
+  recordScopeDenialAndMaybeAlert,
+  recordRequestVolumeAndMaybeAlert,
+} from "../../lib/misuse-alerts.js";
 
 type Variables = {
   Variables: { auth: AuthContext; actingPerson: ActingPersonContext };
@@ -19,17 +24,26 @@ type Variables = {
  * the key-scopes half of R8's 3-way intersection (key scopes ∩ person RBAC ∩
  * tenant RLS) — the other two are enforced downstream by the access-list
  * check (hasEntityAccess) and withTenantContext respectively.
+ *
+ * ADR-012 Phase F, spec R4 — this is also the single point every real
+ * third-party route (all but attachments-upload, which is presign-token-
+ * gated, not scope-gated) passes through after requireAuth, making it the
+ * natural place to hook misuse triggers 1 (scope-denial rate) and 2
+ * (request volume) without touching every route handler individually.
  */
 export const requireTicketScope = (verb: TicketActionVerb): MiddlewareHandler =>
   createMiddleware<Variables>(
     async (c: Context<Variables>, next: Next): Promise<Response | void> => {
-      const { roles: scopes } = c.get("auth");
+      const { tenantId, roles: scopes, userId } = c.get("auth");
+      const applicationActorId = applicationActorIdFromUserId(userId);
       if (!scopes.includes(`entity:ticket:${verb}`)) {
+        await recordScopeDenialAndMaybeAlert(tenantId, applicationActorId);
         return c.json(
           { error: "FORBIDDEN", message: "Insufficient permissions" },
           403,
         );
       }
+      await recordRequestVolumeAndMaybeAlert(tenantId, applicationActorId);
       await next();
       return;
     },
