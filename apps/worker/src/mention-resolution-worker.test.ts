@@ -73,7 +73,11 @@ const mockTx = {
   update: (table: unknown) => ({
     set: (setVals: unknown) => {
       updateCalls.push({ table, setVals });
-      return { where: () => Promise.resolve(undefined) };
+      return {
+        where: () => ({
+          returning: () => Promise.resolve([{ id: "instance-1" }]),
+        }),
+      };
     },
   }),
 };
@@ -401,6 +405,17 @@ describe("mention-resolution-worker", () => {
     await capturedProcessor!(baseJob());
 
     expect(auditEntries).toHaveLength(0);
+  });
+
+  it("soft-deleted ticket (returns empty instance fetch): returns early and does not audit or grant", async () => {
+    // Select returns empty array representing that the ticket is soft-deleted/missing due to the isNull(deletedAt) filter
+    selectQueue = [() => []];
+
+    await capturedProcessor!(baseJob());
+
+    expect(updateCalls).toHaveLength(0);
+    expect(auditEntries).toHaveLength(0);
+    expect(emitAccessEventCalls).toHaveLength(0);
   });
 
   it("on final-attempt failure, writes a tag.resolution_failed audit entry", async () => {
