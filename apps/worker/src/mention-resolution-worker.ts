@@ -294,8 +294,7 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
       return;
     }
 
-    const state = { grantApplied: false };
-    await withTenantContext(tenantId, async (tx) => {
+    const grantApplied = await withTenantContext(tenantId, async (tx) => {
       const updatedRows = await tx
         .update(entityInstances)
         .set({
@@ -323,7 +322,6 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
         .returning({ id: entityInstances.id });
 
       if (updatedRows.length > 0) {
-        state.grantApplied = true;
         await writeAuditEntry(tx, {
           tenantId,
           actorId: actingPersonId,
@@ -334,10 +332,12 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
           action: "tag.auto_granted",
           metadata: { commentId, mentionIdentifier, grantedUserId },
         });
+        return true;
       }
+      return false;
     });
 
-    if (state.grantApplied) {
+    if (grantApplied) {
       // PR #470 review fix: the jsonb_set update above only mutates the
       // __accessUsers field directly -- without this, the auto-granted user
       // gets no ticket-timeline entry and no access.granted notification,

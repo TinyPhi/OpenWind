@@ -56,6 +56,7 @@ function nextSelect() {
 
 const insertCalls: Array<{ table: unknown; values: unknown }> = [];
 let onConflictReturning: unknown[] = [{ id: "req-1" }];
+let mockUpdateReturning: unknown[] = [{ id: "instance-1" }];
 const updateCalls: Array<{ table: unknown; setVals: unknown }> = [];
 
 const mockTx = {
@@ -75,7 +76,7 @@ const mockTx = {
       updateCalls.push({ table, setVals });
       return {
         where: () => ({
-          returning: () => Promise.resolve([{ id: "instance-1" }]),
+          returning: () => Promise.resolve(mockUpdateReturning),
         }),
       };
     },
@@ -235,6 +236,7 @@ beforeEach(() => {
   mockRolesByUserId = new Map([[MENTIONED_USER_ID, ["user"]]]);
   mockHasEntityAccess = false;
   mockRateLimitAllowed = true;
+  mockUpdateReturning = [{ id: "instance-1" }];
 });
 
 describe("mention-resolution-worker", () => {
@@ -416,6 +418,21 @@ describe("mention-resolution-worker", () => {
     expect(updateCalls).toHaveLength(0);
     expect(auditEntries).toHaveLength(0);
     expect(emitAccessEventCalls).toHaveLength(0);
+  });
+
+  it("outcome 2, toggle ON, under the rate cap but UPDATE matches 0 rows (soft-deleted mid-transaction race): does not audit or emit grant event", async () => {
+    selectQueue = [
+      () => [instanceRow],
+      () => [{ allowAutoGrantOnMention: true }],
+    ];
+    mockRateLimitAllowed = true;
+    mockUpdateReturning = []; // UPDATE matches 0 rows (e.g. ticket was soft-deleted after select but before update)
+
+    await capturedProcessor!(baseJob());
+
+    expect(updateCalls).toHaveLength(1);
+    expect(auditEntries).toHaveLength(0); // no tag.auto_granted audit written
+    expect(emitAccessEventCalls).toHaveLength(0); // no timeline event or outbox notification
   });
 
   it("on final-attempt failure, writes a tag.resolution_failed audit entry", async () => {
