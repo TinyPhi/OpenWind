@@ -3,9 +3,14 @@
 > Closing gate before any real external party gets a key: rate limiting (per-key/per-tenant),
 > idempotency, TLS enforcement, PII redaction on reads, and access-log retention/anonymization.
 
-status: draft
+status: implemented
 created: 2026-08-26
-updated: 2026-08-26 (Phase 2 implementation done: T6-T7 marked done — idempotency_keys table,
+updated: 2026-08-26 (Phase 3 implementation done: T8-T12 marked done — access-log-retention
+sweep + admin_audit_log_daily_rollup table, tenant-purge anonymizes admin_audit_log and
+deletes idempotency_keys, Phase F residual-risk disclosure confirmed accurate, final
+cross-phase /security-review run with a "not ready yet" verdict resolved in-session — see B2
+and the R11 resolution note below. All of Phase G (T1-T12) is now done; Phase 2 implementation
+done before that: T6-T7 marked done — idempotency_keys table,
 RFC 8785 content-hash via the `canonicalize` package, 30s Redis in-flight lock + 24h result
 cache, wired into create/comment/sub-ticket/transition third-party routes; Phase 1
 implementation done before that: T1-T5 all marked done, T2's §I interface sketch corrected to
@@ -215,19 +220,22 @@ verdict.
 | T5  | TLS/HTTPS enforcement point — verify infra-level enforcement OR add an app-level check; document which                                                                                               | 1     | done   | —       |
 | T6  | Idempotency: schema (`idempotency_keys` table), RFC 8785 canonicalization + content-hash helper                                                                                                      | 2     | done   | —       |
 | T7  | Idempotency: 30s in-flight lock (409 + Retry-After) + 24h result-cache read/write, wired into create/comment/sub-ticket/transition routes                                                            | 2     | done   | T6      |
-| T8  | Access-log retention: scheduled 90-day sweep job + aggregate rollup table                                                                                                                            | 3     | todo   | —       |
-| T9  | Tenant-purge: replace the current "retain forever" behavior with immediate anonymization of that tenant's `admin_audit_log` rows                                                                     | 3     | todo   | T8      |
-| T10 | Tenant-purge: extend the same purge path to delete that tenant's `idempotency_keys` rows outright (R10)                                                                                              | 3     | todo   | T6, T9  |
-| T11 | Confirm Phase F's residual-risk disclosure is still accurate/visible (verification only, code change only if it's found missing)                                                                     | 3     | todo   | —       |
-| T12 | Full end-to-end `/security-review` across Phases A–G + isolation tests for every new table/route + PR                                                                                                | 3     | todo   | T1–T11  |
+| T8  | Access-log retention: scheduled 90-day sweep job + aggregate rollup table                                                                                                                            | 3     | done   | —       |
+| T9  | Tenant-purge: replace the current "retain forever" behavior with immediate anonymization of that tenant's `admin_audit_log` rows                                                                     | 3     | done   | T8      |
+| T10 | Tenant-purge: extend the same purge path to delete that tenant's `idempotency_keys` rows outright (R10)                                                                                              | 3     | done   | T6, T9  |
+| T11 | Confirm Phase F's residual-risk disclosure is still accurate/visible (verification only, code change only if it's found missing)                                                                     | 3     | done   | —       |
+| T12 | Full end-to-end `/security-review` across Phases A–G + isolation tests for every new table/route + PR                                                                                                | 3     | done   | T1–T11  |
 
 phase gate: all unit + isolation tests pass, `/security-review` clean, before each stage's PR opens
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed                                                                                             | root cause                                                                                                                                                          | promoted to §V?                                                     |
-| --- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| B1  | Design doc's checklist listed "Tier 1 token-freshness: implemented in Phase B" as already done — false. | `packages/auth/src/jwks.ts`'s `jwtVerify` call only sets `clockTolerance: 5` (clock-skew leeway); no `maxTokenAge`/`iat` check exists anywhere in the auth package. | Yes — R6 added as a real requirement, not a confirmation-only task. |
+| id  | what failed                                                                                                                                                                                                              | root cause                                                                                                                                                                                                                  | promoted to §V?                                                                                                                        |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | Design doc's checklist listed "Tier 1 token-freshness: implemented in Phase B" as already done — false.                                                                                                                  | `packages/auth/src/jwks.ts`'s `jwtVerify` call only sets `clockTolerance: 5` (clock-skew leeway); no `maxTokenAge`/`iat` check exists anywhere in the auth package.                                                         | Yes — R6 added as a real requirement, not a confirmation-only task.                                                                    |
+| B2  | Final `/security-review` (T12) found `admin_audit_log_daily_rollup`'s own migration comment claimed to follow a "no-RLS precedent" set by `admin_audit_log` — false, `admin_audit_log` has had RLS since migration 0011. | Comment was written from tenant-purge.ts's write-path description ("plain `db`, not withTenantContext") without checking whether that plain-`db` table itself has RLS — it does; RLS is orthogonal to which role writes it. | No — one-off documentation error, not a recurring class; fixed in the same migration file (0083) rather than promoted to an invariant. |
+
+R11 resolution (recorded per its own acceptance criterion, not a bug): the app-level check branch was chosen — `apps/api/src/middleware/https-enforcement.ts`, production-only, rejects only when `x-forwarded-proto` is explicitly `http`. No reverse-proxy/infra config exists anywhere in this repo to verify instead, so the "documented infra verification" branch was not available; the app-level check is what satisfies R11 for this codebase today.
 
 ---
 

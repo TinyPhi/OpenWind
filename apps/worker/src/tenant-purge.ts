@@ -9,8 +9,8 @@
  *   → workflows → entityRelations → entityInstances → entityFields → entityTypes
  *   → automationExecutions → automationRules → deadLetterEvents → outboxEvents
  *   → connectorDeliveryAttempts → connectorCredentials → apiKeys → tenantUsers
- *   → viewConfigs → pluginErrors → installedPlugins
- *   [audit log retained for compliance]
+ *   → viewConfigs → pluginErrors → installedPlugins → idempotencyKeys
+ *   [admin_audit_log rows anonymized in place, not deleted -- spec R9]
  *   → tenant.status = 'purged'
  *   then on-disk files purged (best-effort, outside DB transaction)
  *
@@ -55,7 +55,7 @@ import {
   pluginDefinitions,
 } from "@platform/db";
 import { logger } from "@platform/logger";
-import { writeAuditEntry } from "@platform/audit";
+import { writeAuditEntry, anonymizeAuditLogForTenant } from "@platform/audit";
 import { deleteTenantFiles } from "@platform/files";
 import { connection } from "./queues.js";
 
@@ -73,6 +73,7 @@ import {
   outboxEvents,
   deadLetterEvents,
   connectorDeliveryAttempts,
+  idempotencyKeys,
 } from "@platform/db";
 
 const QUEUE_NAME = "tenant-purge";
@@ -227,9 +228,25 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       await tx
         .delete(installedPlugins)
         .where(eq(installedPlugins.tenantId, tenantId));
+
+      // ADR-012 Phase G, spec R10 -- idempotency_keys.response_body can
+      // contain full ticket/comment content (PII), not just metadata, so
+      // unlike admin_audit_log below, there's no operational-history reason
+      // to keep a placeholder row here: deleted outright, not anonymized.
+      await tx
+        .delete(idempotencyKeys)
+        .where(eq(idempotencyKeys.tenantId, tenantId));
     });
 
-    // Audit log entries are retained for compliance — we do NOT delete them.
+    // ADR-012 Phase G, spec R9 -- admin_audit_log rows are anonymized in
+    // place (person-identifying fields replaced with a placeholder), never
+    // deleted: aggregate operational history (action/resourceType/outcome/
+    // timestamp) must survive a purge the same way it survives the R8 age-
+    // based sweep. Runs via plain `db` (not withTenantContext), same as
+    // every other admin_audit_log write in this file -- see
+    // anonymizeAuditLogForTenant's own doc comment for why.
+    await anonymizeAuditLogForTenant(db, tenantId);
+
     // Mark the tenant row as 'purged' (keeps a tombstone for audit trail).
     await db
       .update(tenants)

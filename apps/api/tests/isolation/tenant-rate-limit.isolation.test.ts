@@ -10,8 +10,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray } from "drizzle-orm";
-import { db, tenants } from "@platform/db";
+import { inArray, eq, and, desc } from "drizzle-orm";
+import { db, tenants, adminAuditLog } from "@platform/db";
 import type { AuthContext } from "@platform/auth";
 import {
   getTenantRateLimitOverride,
@@ -31,6 +31,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.delete(tenants).where(inArray(tenants.id, [TENANT]));
+  await db.delete(adminAuditLog).where(eq(adminAuditLog.tenantId, TENANT));
 });
 
 function makeApp(roles: string[]) {
@@ -97,6 +98,25 @@ describe("PATCH /admin/tenants/:id/rate-limit — real update", () => {
 
     const override = await getTenantRateLimitOverride(db, TENANT);
     expect(override).toBe(1200);
+
+    // ADR-012 Phase G, final /security-review (T12) finding -- this route
+    // previously had no audit trail, unlike every sibling tenant-lifecycle
+    // mutation.
+    const [auditRow] = await db
+      .select()
+      .from(adminAuditLog)
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT),
+          eq(adminAuditLog.action, "updated"),
+        ),
+      )
+      .orderBy(desc(adminAuditLog.createdAt))
+      .limit(1);
+    expect(auditRow?.actorId).toBe("isolation-test-user");
+    expect(
+      (auditRow?.afterSnapshot as { ratePerMin: number } | null)?.ratePerMin,
+    ).toBe(1200);
   });
 
   it("superadmin can clear the override by passing null", async () => {

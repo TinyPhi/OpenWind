@@ -14,10 +14,12 @@ import {
   requireAuth,
   requireRole,
   requireIntrospection,
+  getTenantRateLimitOverride,
   setTenantRateLimitOverride,
 } from "@platform/auth";
 import { env } from "@platform/config";
 import { db, tenants } from "@platform/db";
+import { writeAuditEntry } from "@platform/audit";
 import {
   ProvisionTenantSchema,
   TenantLifecycleError,
@@ -232,6 +234,7 @@ export const updateTenantRateLimitHandlers = factory.createHandlers(
   async (c) => {
     const { id } = c.req.valid("param");
     const { ratePerMin } = c.req.valid("json");
+    const { userId } = c.get("auth");
     if (env.PLATFORM_ORG_ID && c.get("auth").tenantId !== env.PLATFORM_ORG_ID) {
       return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
     }
@@ -245,7 +248,23 @@ export const updateTenantRateLimitHandlers = factory.createHandlers(
       return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
     }
 
+    // ADR-012 Phase G, final /security-review (T12) finding -- every other
+    // mutating tenant-lifecycle route in this file writes an audit entry;
+    // this one didn't, leaving a silent-repudiation gap on a control that
+    // can widen a tenant's own abuse ceiling.
+    const previousRatePerMin = await getTenantRateLimitOverride(db, id);
     await setTenantRateLimitOverride(db, id, ratePerMin);
+    await writeAuditEntry(db, {
+      tenantId: id,
+      actorId: userId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: id,
+      action: "updated",
+      beforeSnapshot: { ratePerMin: previousRatePerMin },
+      afterSnapshot: { ratePerMin },
+    });
+
     return c.json({ data: { tenantId: id, ratePerMin } });
   },
 );

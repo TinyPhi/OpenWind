@@ -21,7 +21,7 @@
  * Call this inside the same transaction as the entity mutation.
  */
 
-import { eq, desc, and, gte, lte, lt, inArray } from "drizzle-orm";
+import { eq, desc, and, gte, lte, lt, inArray, sql } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import { adminAuditLog } from "@platform/db";
 import { logger } from "@platform/logger";
@@ -281,4 +281,37 @@ export async function queryAuditLog(
       : null;
 
   return { entries, nextCursor };
+}
+
+/** Placeholder written over person-identifying fields on purge (spec R9). */
+const PURGED_PERSON_PLACEHOLDER = "[purged]";
+
+/**
+ * ADR-012 Phase G, spec R9 -- a tenant purge immediately anonymizes (never
+ * deletes) that tenant's admin_audit_log rows: person-identifying fields
+ * are replaced with a fixed placeholder, while action/resourceType/
+ * resourceId/createdAt (and therefore the derived outcome) are preserved
+ * and remain queryable. Only `actorId` on actorType='user' rows is a person
+ * identifier -- on 'api_key' rows actorId is the api_keys row id (an
+ * application identity, not a person) and is left untouched; actingPersonId
+ * is always a real person identifier whenever set (ADR-012 Phase B,
+ * GAP-05), regardless of actorType, so it's always anonymized when present.
+ *
+ * Called from apps/worker/src/tenant-purge.ts via plain `db` (not
+ * withTenantContext) -- admin_audit_log's RLS grants app_user INSERT+SELECT
+ * only (append-only invariant, migration 0011), so this UPDATE must run
+ * under the worker's own privileged connection, the same way every other
+ * admin_audit_log write in that file already does.
+ */
+export async function anonymizeAuditLogForTenant(
+  db: DbOrTx,
+  tenantId: string,
+): Promise<void> {
+  await db
+    .update(adminAuditLog)
+    .set({
+      actorId: sql`CASE WHEN ${adminAuditLog.actorType} = 'user' THEN ${PURGED_PERSON_PLACEHOLDER} ELSE ${adminAuditLog.actorId} END`,
+      actingPersonId: sql`CASE WHEN ${adminAuditLog.actingPersonId} IS NOT NULL THEN ${PURGED_PERSON_PLACEHOLDER} ELSE NULL END`,
+    })
+    .where(eq(adminAuditLog.tenantId, tenantId));
 }

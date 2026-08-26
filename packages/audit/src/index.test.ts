@@ -11,7 +11,12 @@ vi.mock("@platform/logger", () => ({
 }));
 
 vi.mock("@platform/db", () => ({
-  adminAuditLog: "admin_audit_log_mock",
+  adminAuditLog: {
+    tenantId: "admin_audit_log.tenant_id",
+    actorId: "admin_audit_log.actor_id",
+    actorType: "admin_audit_log.actor_type",
+    actingPersonId: "admin_audit_log.acting_person_id",
+  },
 }));
 
 vi.mock("@platform/workflow-engine", () => ({
@@ -47,7 +52,8 @@ mockInsert.mockReturnValue({ values: mockValues });
 
 const mockDb = { insert: mockInsert };
 
-const { writeAuditEntry } = await import("./index.js");
+const { writeAuditEntry, anonymizeAuditLogForTenant } =
+  await import("./index.js");
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -69,7 +75,9 @@ describe("writeAuditEntry", () => {
       afterSnapshot: { subject: "hello" },
     });
 
-    expect(mockInsert).toHaveBeenCalledWith("admin_audit_log_mock");
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: "admin_audit_log.tenant_id" }),
+    );
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "created",
@@ -165,5 +173,34 @@ describe("writeAuditEntry", () => {
         metadata: { transitionName: "close", triggeredBy: "user" },
       }),
     );
+  });
+});
+
+describe("anonymizeAuditLogForTenant", () => {
+  const mockUpdateSet = vi.fn();
+  const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
+  const mockUpdate = vi.fn().mockReturnValue({
+    set: (v: unknown) => {
+      mockUpdateSet(v);
+      return { where: mockUpdateWhere };
+    },
+  });
+  const mockPurgeDb = { update: mockUpdate };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it("issues a single UPDATE scoped to the tenant, replacing both person-identifying fields", async () => {
+    await anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a");
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: "admin_audit_log.tenant_id" }),
+    );
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: expect.anything(),
+        actingPersonId: expect.anything(),
+      }),
+    );
+    expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
   });
 });
