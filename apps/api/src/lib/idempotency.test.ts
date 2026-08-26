@@ -83,7 +83,7 @@ describe("computeContentHash", () => {
 describe("withIdempotency", () => {
   const scope = {
     tenantId: "tenant-a",
-    apiKeyId: "key-1",
+    applicationActorId: "key-1",
     actingPersonId: "person-1",
   };
   const content = { foo: "bar" };

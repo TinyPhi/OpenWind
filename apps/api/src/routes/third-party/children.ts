@@ -131,7 +131,7 @@ export const createThirdPartyChildHandler = factory.createHandlers(
     const response = await withIdempotency(
       {
         tenantId,
-        apiKeyId: applicationActorId,
+        applicationActorId,
         actingPersonId,
         idempotencyKey,
       },

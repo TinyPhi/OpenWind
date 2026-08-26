@@ -9,7 +9,7 @@
  * caches the entire HTTP response, independent of that mechanism.
  *
  * Flow, when the header is present:
- *   1. Look up an existing row for (tenantId, apiKeyId, actingPersonId, key).
+ *   1. Look up an existing row for (tenantId, applicationActorId, actingPersonId, key).
  *      - Found, same content hash -> return the cached response, skip
  *        execution entirely (R3).
  *      - Found, different content hash -> 409 conflict, skip execution (R4).
@@ -20,7 +20,7 @@
  *      the lock, return the response.
  *
  * The lock and the cache lookup are ALWAYS scoped by the identical 3-tuple
- * (tenantId, apiKeyId, actingPersonId) plus the caller-supplied key -- a
+ * (tenantId, applicationActorId, actingPersonId) plus the caller-supplied key -- a
  * mismatch between the two scopes would silently defeat the concurrency
  * guarantee (spec invariant).
  *
@@ -57,7 +57,7 @@ export interface IdempotencyResponse {
 
 export interface IdempotencyScope {
   tenantId: string;
-  apiKeyId: string;
+  applicationActorId: string;
   actingPersonId: string;
   idempotencyKey?: string | undefined;
 }
@@ -77,11 +77,11 @@ export function computeContentHash(content: Record<string, unknown>): string {
 
 function lockKey(
   tenantId: string,
-  apiKeyId: string,
+  applicationActorId: string,
   actingPersonId: string,
   idempotencyKey: string,
 ): string {
-  return `idempotency-lock:${tenantId}:${apiKeyId}:${actingPersonId}:${idempotencyKey}`;
+  return `idempotency-lock:${tenantId}:${applicationActorId}:${actingPersonId}:${idempotencyKey}`;
 }
 
 /**
@@ -95,7 +95,8 @@ export async function withIdempotency(
   content: Record<string, unknown>,
   execute: () => Promise<IdempotencyResponse>,
 ): Promise<IdempotencyResponse> {
-  const { tenantId, apiKeyId, actingPersonId, idempotencyKey } = scope;
+  const { tenantId, applicationActorId, actingPersonId, idempotencyKey } =
+    scope;
   if (!idempotencyKey) {
     return execute();
   }
@@ -126,7 +127,7 @@ export async function withIdempotency(
       .where(
         and(
           eq(idempotencyKeys.tenantId, tenantId),
-          eq(idempotencyKeys.apiKeyId, apiKeyId),
+          eq(idempotencyKeys.apiKeyId, applicationActorId),
           eq(idempotencyKeys.actingPersonId, actingPersonId),
           eq(idempotencyKeys.idempotencyKey, idempotencyKey),
           gt(idempotencyKeys.expiresAt, new Date()),
@@ -166,7 +167,7 @@ export async function withIdempotency(
           .where(
             and(
               eq(idempotencyKeys.tenantId, tenantId),
-              eq(idempotencyKeys.apiKeyId, apiKeyId),
+              eq(idempotencyKeys.apiKeyId, applicationActorId),
               eq(idempotencyKeys.actingPersonId, actingPersonId),
               eq(idempotencyKeys.idempotencyKey, idempotencyKey),
               lte(idempotencyKeys.expiresAt, new Date()),
@@ -178,7 +179,7 @@ export async function withIdempotency(
           .insert(idempotencyKeys)
           .values({
             tenantId,
-            apiKeyId,
+            apiKeyId: applicationActorId,
             actingPersonId,
             idempotencyKey,
             contentHash,
@@ -190,7 +191,7 @@ export async function withIdempotency(
       );
     } catch (cacheErr) {
       logger.warn(
-        { cacheErr, tenantId, apiKeyId },
+        { cacheErr, tenantId, applicationActorId },
         "idempotency: failed to persist result cache — request succeeded, a retry with this key will re-execute",
       );
     }
@@ -198,7 +199,12 @@ export async function withIdempotency(
   };
 
   const redis = getRedis();
-  const key = lockKey(tenantId, apiKeyId, actingPersonId, idempotencyKey);
+  const key = lockKey(
+    tenantId,
+    applicationActorId,
+    actingPersonId,
+    idempotencyKey,
+  );
   let acquired = false;
   try {
     const result = await redis.set(key, "1", "PX", LOCK_TTL_MS, "NX");
@@ -215,7 +221,7 @@ export async function withIdempotency(
     // soon as Redis recovers rather than staying degraded until a fresh
     // key is used.
     logger.warn(
-      { err, tenantId, apiKeyId },
+      { err, tenantId, applicationActorId },
       "idempotency: lock acquisition failed unexpectedly — proceeding without the concurrency guarantee",
     );
     return executeAndCache();

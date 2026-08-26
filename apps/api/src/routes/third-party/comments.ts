@@ -152,7 +152,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     const response = await withIdempotency(
       {
         tenantId,
-        apiKeyId: applicationActorId,
+        applicationActorId,
         actingPersonId,
         idempotencyKey,
       },

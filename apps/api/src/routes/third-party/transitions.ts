@@ -140,7 +140,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
     const response = await withIdempotency(
       {
         tenantId,
-        apiKeyId: applicationActorId,
+        applicationActorId,
         actingPersonId,
         idempotencyKey: idempotencyHeaderKey,
       },
