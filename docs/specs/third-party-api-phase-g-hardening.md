@@ -5,7 +5,9 @@
 
 status: draft
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-08-26 (spec-review pass: quantified R1/R2's rate-limit numbers and cache-staleness
+bound, added R10 for idempotency-cache tenant-purge coverage, renumbered R10-R12 to R11-R13,
+added 2 invariants, added T10 and clarified T2/T3's scope)
 
 ---
 
@@ -24,7 +26,7 @@ isn't wired into any code yet — this phase is what wires it).
 | auth         | No new auth surface — this phase hardens existing third-party API-key auth, doesn't change it                                                                                                                                                                                                                                    |
 | already done | API versioning (`/api/v1/`, Phase B) — no work. Tenant-purge already hard-deletes a purged tenant's `api_keys` rows (`apps/worker/src/tenant-purge.ts:218`) — no work, but §R7's anonymization requirement is a NEW addition to the same function, not a duplicate of this.                                                      |
 | out of scope | Rebuilding `checkRateLimit`'s sliding-window primitive (reused, not replaced); a pricing/plan-tier model for the per-tenant rate ceiling (explicitly a forward seam per ADR-013, not built now); re-litigating Phase F's volume-spike alert design (only documenting its known residual risk here)                               |
-| depends on   | Phases A–E merged into `main` (true as of 2026-08-26). Phase F (access logs + misuse alerts) is still open as PR #489 — this spec's own tasks don't touch Phase F's code, so it doesn't block starting Phase G, but final §R12's cross-phase `/security-review` should re-run once F merges too                                  |
+| depends on   | Phases A–E merged into `main` (true as of 2026-08-26). Phase F (access logs + misuse alerts) is still open as PR #489 — this spec's own tasks don't touch Phase F's code, so it doesn't block starting Phase G, but final §R13's cross-phase `/security-review` should re-run once F merges too                                  |
 
 ## §I Interfaces
 
@@ -62,20 +64,21 @@ tenant-purge.ts: REPLACES its current hard-keep-forever comment with an anonymiz
 ## §R Requirements
 
 R1: A third-party request is rejected once ANY of three independent rate-limit tiers is
-exceeded — per (api_key, acting_person), per api_key aggregate, or per tenant aggregate —
-whichever is hit first.
+exceeded — per (api_key, acting_person) at 20/min, per api_key aggregate at 200/min, or per
+tenant aggregate at the tenant's configured ceiling (default: the platform-wide
+`RATE_LIMIT_TENANT_PER_MIN`, currently 600/min) — whichever is hit first.
 ✓ A key operating as many distinct, individually-valid people (each under the 20/min
 per-key-person limit) is still rejected once the key's own aggregate crosses 200/min.
 ✓ A tenant with multiple keys, each individually under its own limits, is still rejected once
-combined tenant traffic crosses the tenant's configured ceiling.
+combined tenant traffic crosses the tenant's configured ceiling (600/min if no override is set).
 ✓ Below all three thresholds, a request succeeds normally (no false-positive rejection).
 
-R2: The per-tenant rate-limit ceiling is admin-editable and takes effect without a code change
-or restart.
-✓ An admin PATCHes a tenant's rate limit; the very next request against that tenant is
-evaluated against the new value (no cache staleness beyond a bounded, documented TTL).
+R2: The per-tenant rate-limit ceiling is admin-editable and takes effect within 5 seconds of
+the PATCH, without a code change or restart.
+✓ An admin PATCHes a tenant's rate limit; a request against that tenant sent 5s or more after
+the PATCH is evaluated against the new value — no unbounded/undocumented cache staleness window.
 ✓ A tenant with no explicit override falls back to the platform-wide default
-(`RATE_LIMIT_TENANT_PER_MIN`), unchanged from today's behavior.
+(`RATE_LIMIT_TENANT_PER_MIN`, currently 600/min), unchanged from today's behavior.
 
 R3: A repeated request carrying the same `Idempotency-Key` header, scoped to
 `(api_key_id, tenant_id, acting_person_id)`, returns the original cached result instead of
@@ -138,18 +141,30 @@ is replaced with a fixed placeholder.
 ✓ An anonymized row is still queryable/filterable by action type and outcome, just not by the
 original person identifier.
 
-R10: TLS is enforced (or its enforcement point is verified, not assumed) for every third-party
+R10: A tenant purge immediately anonymizes that tenant's cached idempotency responses, the same
+way R9 anonymizes `admin_audit_log` rows — the `idempotency_keys.response_body` column can
+contain full ticket/comment content (PII), not just metadata, so R9's purge trigger must cover
+this table too, not just `admin_audit_log`.
+✓ A tenant purge deletes (not merely expires) that tenant's `idempotency_keys` rows outright —
+unlike `admin_audit_log`, there's no operational-history reason to keep a placeholder row here,
+since the cached response has no value once the tenant is gone.
+✓ A purge run mid-way through an in-flight idempotency lock (the 30s lock, R5) does not leave a
+stale lock blocking a future key reuse after the tenant is recreated/re-provisioned with the
+same id (accepted as practically near-impossible given tenant ids are never reused, but the
+lock's own TTL bounds this regardless).
+
+R11: TLS is enforced (or its enforcement point is verified, not assumed) for every third-party
 API request.
 ✓ Either an app-level check exists (e.g. `x-forwarded-proto` rejection when not `https`), OR a
 documented verification that the actual reverse-proxy/infra layer enforces this — the spec's
 `§B` records which one, not a guess.
 
-R11: Phase F's known residual risk (sustained near-rate-limit-threshold activity evades the
+R12: Phase F's known residual risk (sustained near-rate-limit-threshold activity evades the
 volume-spike alert) is confirmed documented, not silently assumed covered.
 ✓ The admin-ui Phase F caveat text (already shipped) is confirmed still accurate and visible;
 no new code needed unless the confirmation finds it's missing or stale.
 
-R12: A full `/security-review` runs across the entire third-party API feature set (Phases A–G
+R13: A full `/security-review` runs across the entire third-party API feature set (Phases A–G
 combined) before this phase's PR(s) are considered mergeable.
 ✓ The review's findings are triaged (fixed/accepted/deferred) in the same review.json pattern
 used for every other phase this session, with a final "ready for real external key issuance"
@@ -171,22 +186,30 @@ verdict.
 - PII redaction on third-party reads uses the SAME `entityFields`/sensitivity-map mechanism
   already used for `writeAuditEntry`'s snapshot redaction and the connector-outbound-worker's
   payload redaction — never a second, parallel redaction implementation.
+- The idempotency LOCK (R5) and the idempotency CACHE lookup (R3/R4) are always scoped by the
+  identical 3-tuple `(api_key_id, tenant_id, acting_person_id)` — a bug that scopes the lock
+  differently from the cache read would silently defeat R5's concurrency guarantee while R3/R4
+  still pass in isolation (spec-review finding).
+- Any new table storing third-party request/response content (`idempotency_keys`) is covered by
+  tenant-purge's deletion sweep — a new PII-bearing table is never added without also adding it
+  to the purge path in the same change (spec-review finding, mirrors R9/R10's relationship).
 
 ## §T Tasks
 
-| id  | task                                                                                                                                      | phase | status | depends |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
-| T1  | Wire ADR-013's 3-tier rate limiting (per key+person, per key aggregate, per tenant) into third-party routes, reusing `checkRateLimit`     | 1     | todo   | —       |
-| T2  | Per-tenant admin-editable rate-limit ceiling (new column/table + admin PATCH route)                                                       | 1     | todo   | T1      |
-| T3  | JWT `iat` max-age check (config-driven, default 15min, startup sanity warning)                                                            | 1     | todo   | —       |
-| T4  | PII redaction wired into third-party ticket-detail and workflow-list read routes                                                          | 1     | todo   | —       |
-| T5  | TLS/HTTPS enforcement point — verify infra-level enforcement OR add an app-level check; document which                                    | 1     | todo   | —       |
-| T6  | Idempotency: schema (`idempotency_keys` table), RFC 8785 canonicalization + content-hash helper                                           | 2     | todo   | —       |
-| T7  | Idempotency: 30s in-flight lock (409 + Retry-After) + 24h result-cache read/write, wired into create/comment/sub-ticket/transition routes | 2     | todo   | T6      |
-| T8  | Access-log retention: scheduled 90-day sweep job + aggregate rollup table                                                                 | 3     | todo   | —       |
-| T9  | Tenant-purge: replace the current "retain forever" behavior with immediate anonymization of that tenant's `admin_audit_log` rows          | 3     | todo   | T8      |
-| T10 | Confirm Phase F's residual-risk disclosure is still accurate/visible (verification only, code change only if it's found missing)          | 3     | todo   | —       |
-| T11 | Full end-to-end `/security-review` across Phases A–G + isolation tests for every new table/route + PR                                     | 3     | todo   | T1–T10  |
+| id  | task                                                                                                                                                                                                 | phase | status | depends |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
+| T1  | Wire ADR-013's 3-tier rate limiting (per key+person, per key aggregate, per tenant) into third-party routes, reusing `checkRateLimit`                                                                | 1     | todo   | —       |
+| T2  | Per-tenant admin-editable rate-limit ceiling (new column/table + admin PATCH route only — no new admin-ui screen this phase; reuse the existing admin route conventions from `platform-settings.ts`) | 1     | todo   | T1      |
+| T3  | JWT `iat` max-age check (config-driven, default 15min, startup sanity warning); confirm interaction with the existing `clockTolerance: 5` at the 15-min boundary                                     | 1     | todo   | —       |
+| T4  | PII redaction wired into third-party ticket-detail and workflow-list read routes                                                                                                                     | 1     | todo   | —       |
+| T5  | TLS/HTTPS enforcement point — verify infra-level enforcement OR add an app-level check; document which                                                                                               | 1     | todo   | —       |
+| T6  | Idempotency: schema (`idempotency_keys` table), RFC 8785 canonicalization + content-hash helper                                                                                                      | 2     | todo   | —       |
+| T7  | Idempotency: 30s in-flight lock (409 + Retry-After) + 24h result-cache read/write, wired into create/comment/sub-ticket/transition routes                                                            | 2     | todo   | T6      |
+| T8  | Access-log retention: scheduled 90-day sweep job + aggregate rollup table                                                                                                                            | 3     | todo   | —       |
+| T9  | Tenant-purge: replace the current "retain forever" behavior with immediate anonymization of that tenant's `admin_audit_log` rows                                                                     | 3     | todo   | T8      |
+| T10 | Tenant-purge: extend the same purge path to delete that tenant's `idempotency_keys` rows outright (R10)                                                                                              | 3     | todo   | T6, T9  |
+| T11 | Confirm Phase F's residual-risk disclosure is still accurate/visible (verification only, code change only if it's found missing)                                                                     | 3     | todo   | —       |
+| T12 | Full end-to-end `/security-review` across Phases A–G + isolation tests for every new table/route + PR                                                                                                | 3     | todo   | T1–T11  |
 
 phase gate: all unit + isolation tests pass, `/security-review` clean, before each stage's PR opens
 
