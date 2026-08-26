@@ -226,6 +226,36 @@ describe("withIdempotency", () => {
     expect(mockInsertValues).toHaveBeenCalled();
   });
 
+  it("re-checks the cache after acquiring the lock and skips execute() if a concurrent request already cached a result (double-checked locking)", async () => {
+    // Simulates the CI-caught race: the first lookup (before lock
+    // acquisition) misses, but by the time THIS request acquires the lock,
+    // a faster concurrent request has already executed and cached its
+    // result. The re-check after lock acquisition must catch this.
+    mockRedisSet.mockImplementation(() => {
+      mockCachedRow = {
+        contentHash: computeContentHash(content),
+        responseStatus: 201,
+        responseBody: { data: { id: "from-the-other-request" } },
+      };
+      return Promise.resolve("OK");
+    });
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-1" },
+      content,
+      execute,
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 201,
+      body: { data: { id: "from-the-other-request" } },
+    });
+    // Still releases the lock it acquired, even on the cache-hit early return.
+    expect(mockRedisDel).toHaveBeenCalled();
+  });
+
   it("releases the lock even when execute() throws", async () => {
     mockRedisSet.mockResolvedValue("OK");
     const execute = vi.fn().mockRejectedValue(new Error("boom"));
