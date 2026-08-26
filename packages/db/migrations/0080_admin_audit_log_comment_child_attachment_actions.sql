@@ -10,7 +10,14 @@
 -- AuditAction TS union in the same commit -- extended proactively here per
 -- the Phase C B1 incident's self-imposed rule.
 --
--- Rollback:
+-- Renumbered from 0079 to 0080 -- this branch stacked on Phase E's
+-- (feat/third-party-api-phase-e-status-transitions) migration, which was
+-- itself renumbered 0078 -> 0079 during PR #484 review (PrabhuVijit B-01)
+-- after PR #475 merged its own 0078 first.
+--
+-- Rollback (undoes only what THIS migration added -- PR #484 review,
+-- PrabhuVijit B-02, applied proactively here so this migration doesn't ship
+-- the same rollback-drops-sibling-actions bug):
 --   ALTER TABLE admin_audit_log DROP CONSTRAINT audit_log_action_check;
 --   ALTER TABLE admin_audit_log
 --     ADD CONSTRAINT audit_log_action_check
@@ -20,6 +27,7 @@
 --       'tag.resolved_existing_access', 'tag.auto_granted',
 --       'tag.access_request_created', 'tag.fallback',
 --       'tag.resolution_failed', 'tag.misuse_rate_capped',
+--       'attachment.quarantined', 'attachment.scan_failed',
 --       'transition.executed', 'transition.access_denied'
 --     ));
 
@@ -33,6 +41,7 @@ ALTER TABLE admin_audit_log
     'tag.resolved_existing_access', 'tag.auto_granted',
     'tag.access_request_created', 'tag.fallback',
     'tag.resolution_failed', 'tag.misuse_rate_capped',
+    'attachment.quarantined', 'attachment.scan_failed',
     'transition.executed', 'transition.access_denied',
     'comment.created', 'comment.access_denied',
     'child.created', 'child.access_denied',

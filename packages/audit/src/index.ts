@@ -71,7 +71,7 @@ export type AuditAction =
   // ADR-012 Phase F, spec AC4 — retrofits comments.ts/children.ts/
   // attachments-reference.ts (previously unaudited) onto the same
   // atomic-write pattern transitions.ts established. Migration
-  // 0079_admin_audit_log_comment_child_attachment_actions.sql extends the
+  // 0080_admin_audit_log_comment_child_attachment_actions.sql extends the
   // DB CHECK constraint in the same commit.
   | "comment.created"
   | "comment.access_denied"
