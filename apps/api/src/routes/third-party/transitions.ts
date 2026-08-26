@@ -52,6 +52,13 @@ function isExistenceRevealingWorkflowError(err: unknown): boolean {
   );
 }
 
+class TransitionAccessDeniedError extends Error {
+  constructor() {
+    super("ACCESS_DENIED");
+    this.name = "TransitionAccessDeniedError";
+  }
+}
+
 // eslint-disable-next-line no-control-regex -- intentional: this IS the control-character check.
 const FORBIDDEN_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
 
@@ -59,6 +66,7 @@ const ExecuteThirdPartyTransitionSchema = z.object({
   transitionId: z.string().uuid(),
   comment: z
     .string()
+    .min(1)
     .max(4000)
     .refine((v) => !FORBIDDEN_CHAR_PATTERN.test(v), {
       message: "comment contains a null byte or control character",
@@ -127,7 +135,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
           actingPersonId,
         );
         if (!allowed) {
-          throw new Error("ACCESS_DENIED");
+          throw new TransitionAccessDeniedError();
         }
 
         // T3. Execute transition
@@ -161,7 +169,21 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
 
       return c.json({ data: event }, 201);
     } catch (err) {
-      if (err instanceof Error && err.message === "ACCESS_DENIED") {
+      const pgCode =
+        (err as { code?: unknown }).code ??
+        (err as { cause?: { code?: unknown } }).cause?.code;
+      if (pgCode === "55P03") {
+        c.header("Retry-After", "5");
+        return c.json(
+          {
+            error: "TRANSITION_LOCKED",
+            message: "Record is locked by another transition",
+          },
+          409,
+        );
+      }
+
+      if (err instanceof TransitionAccessDeniedError) {
         // Best-effort: nothing has mutated yet on this path, so a failure here
         // must never turn a correct 404 denial into a 500 — logged and
         // swallowed rather than awaited into the response.
