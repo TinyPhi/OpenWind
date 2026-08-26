@@ -77,6 +77,7 @@ async function runCleanup(): Promise<void> {
           .where(
             and(
               eq(attachments.id, slot.id),
+              eq(attachments.tenantId, slot.tenantId),
               inArray(attachments.status, ["pending", "uploading"]),
             ),
           );

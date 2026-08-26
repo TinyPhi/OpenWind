@@ -27,7 +27,7 @@
  */
 
 import { Worker } from "bullmq";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, isNull } from "drizzle-orm";
 import {
   entityInstances,
   workflows,
@@ -126,6 +126,7 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
           and(
             eq(entityInstances.id, ticketId),
             eq(entityInstances.tenantId, tenantId),
+            isNull(entityInstances.deletedAt),
           ),
         )
         .limit(1),
@@ -315,6 +316,7 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
           and(
             eq(entityInstances.id, ticketId),
             eq(entityInstances.tenantId, tenantId),
+            isNull(entityInstances.deletedAt),
           ),
         );
       await writeAuditEntry(tx, {

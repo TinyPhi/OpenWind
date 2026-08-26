@@ -94,7 +94,7 @@ export async function handleAttachmentScanFailure(
     await tx.insert(workflowEvents).values({
       tenantId,
       instanceId: ticketId,
-      workflowId: instance.workflowId as string,
+      workflowId: instance.workflowId as string, // guarded null-checked above; TS can't narrow through drizzle select shape
       fromState: instance.currentState,
       toState: instance.currentState,
       triggeredBy: "system",

@@ -91,6 +91,7 @@ vi.mock("@platform/db", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, op: "eq" })),
   and: vi.fn((...args) => ({ args, op: "and" })),
+  isNull: vi.fn((col) => ({ col, op: "isNull" })),
   sql: vi.fn((strings: TemplateStringsArray, ...vals: unknown[]) => ({
     strings,
     vals,
