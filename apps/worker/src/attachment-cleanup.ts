@@ -77,6 +77,7 @@ async function runCleanup(): Promise<void> {
           .where(
             and(
               eq(attachments.id, slot.id),
+              eq(attachments.tenantId, slot.tenantId),
               inArray(attachments.status, ["pending", "uploading"]),
             ),
           );
@@ -103,6 +104,7 @@ async function runCleanup(): Promise<void> {
   const graceCutoff = new Date(
     now.getTime() - EXPIRED_GRACE_HOURS * 60 * 60 * 1000,
   );
+  // No tenantId filter here — global system sweep delete pass (see top-of-file comment)
   const deleted = await db
     .delete(attachments)
     .where(

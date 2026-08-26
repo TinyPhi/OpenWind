@@ -244,7 +244,7 @@ export const attachments = pgTable(
     ),
     expiryIdx: index("attachments_expiry_idx")
       .on(t.uploadExpiresAt)
-      .where(sql`${t.status} = 'pending'`),
+      .where(sql`${t.status} IN ('pending', 'uploading')`),
   }),
 );
 
