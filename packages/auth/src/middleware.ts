@@ -35,12 +35,12 @@ const API_KEY_RATE_LIMIT_WINDOW_SECONDS = 60;
  */
 async function enforceApiKeyRateLimit(
   c: Context<AuthVariables>,
-  apiKeyId: string,
+  applicationActorId: string,
 ): Promise<Response | null> {
   try {
     const { allowed, remaining, resetAt } = await checkRateLimit(
       getRedis(),
-      `rl:api-key:${apiKeyId}`,
+      `rl:api-key:${applicationActorId}`,
       env.RATE_LIMIT_API_KEY_PER_MIN,
       API_KEY_RATE_LIMIT_WINDOW_SECONDS,
     );
@@ -58,7 +58,7 @@ async function enforceApiKeyRateLimit(
     return null;
   } catch (err) {
     logger.warn(
-      { err, apiKeyId },
+      { err, applicationActorId },
       "auth: api-key rate-limit check failed unexpectedly — failing open",
     );
     return null;
@@ -263,8 +263,11 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         if (tenantRateLimited) return tenantRateLimited;
         // auth.userId is always "apikey:<id>" on this path (set immediately
         // above by resolveApiKey) -- safe to parse without a fallback branch.
-        const apiKeyId = auth.userId.slice("apikey:".length);
-        const apiKeyRateLimited = await enforceApiKeyRateLimit(c, apiKeyId);
+        const applicationActorId = auth.userId.slice("apikey:".length);
+        const apiKeyRateLimited = await enforceApiKeyRateLimit(
+          c,
+          applicationActorId,
+        );
         if (apiKeyRateLimited) return apiKeyRateLimited;
         await next();
         return;

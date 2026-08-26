@@ -79,6 +79,18 @@ export default defineConfig({
       OPENBAO_ADDR: "http://localhost:8200",
       OPENBAO_TOKEN: "dev-root-token",
       APP_URL: "https://platform.example.com",
+      // ADR-012 Phase G, ADR-013 -- fileParallelism is false (below), so every
+      // isolation test file in a CI run shares one Redis instance with no
+      // flush between files. Many third-party isolation test files reuse the
+      // same fixed api-key/acting-person fixture identities (established
+      // convention across this suite) and issue well over the production
+      // defaults' worth of requests per run. Without this override the
+      // per-key and per-(key,person) tiers -- which are correctly strict in
+      // production -- start 429ing unrelated functional tests partway
+      // through a run. Rate-limit-specific tests set their own low
+      // thresholds directly against Redis rather than relying on this value.
+      RATE_LIMIT_API_KEY_PER_MIN: "5000",
+      RATE_LIMIT_API_KEY_PERSON_PER_MIN: "5000",
     },
   },
 });

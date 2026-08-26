@@ -28,6 +28,7 @@ import { inArray } from "drizzle-orm";
 import { db, tenants, workflows, workflowStates } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import { getRedis } from "@platform/redis";
+import { env } from "@platform/config";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
 
@@ -71,7 +72,10 @@ beforeAll(async () => {
 
   const ticket = await createEntity(db, TENANT, {
     entityTypeId: entityType.id,
-    fields: {},
+    // PERSON_B needs comment access too -- this test's second assertion
+    // proves the rate-limit bucket is independent per acting person on the
+    // same key, not that PERSON_B lacks ticket access (a different check).
+    fields: { __accessUsers: { [PERSON_B]: { level: "read_comment" } } },
     createdBy: PERSON_A,
     workflowId: workflow!.id,
     currentState: "open",
@@ -122,15 +126,27 @@ async function postComment(app: Hono<Vars>) {
 }
 
 describe("Phase G, spec R1 — per-(key,person) rate-limit tier", () => {
-  it("rejects once the 20/min per-(key,person) tier is exceeded, independent of other people on the same key", async () => {
+  it("rejects once the per-(key,person) tier is exceeded, independent of other people on the same key", async () => {
     const apiKeyId = "11111111-1111-4111-1111-111111111111";
     const redis = getRedis();
     const key = `rl:key-person:${TENANT}:${apiKeyId}:${PERSON_A}`;
-    // Seed to one-under-threshold (limit 20) so the next real request tips it over.
-    for (let i = 0; i < 20; i++) {
-      await redis.zadd(key, Date.now(), `seed-${i}-${Math.random()}`);
+    // Seed to one-under-threshold so the next real request tips it over.
+    // Reads the actual configured limit rather than hardcoding the
+    // production default (20/min) -- apps/api/vitest.config.ts raises this
+    // value far higher for the whole isolation suite (many other test files
+    // share this same Redis instance and would otherwise get spuriously
+    // rate-limited), so this test must track whatever that override is.
+    const threshold = env.RATE_LIMIT_API_KEY_PERSON_PER_MIN;
+    // Single pipelined round-trip -- threshold can be in the tens of
+    // thousands under this suite's env override, so one zadd call per
+    // member would be far too slow.
+    const pipeline = redis.pipeline();
+    const now = Date.now();
+    for (let i = 0; i < threshold; i++) {
+      pipeline.zadd(key, now, `seed-${i}`);
     }
-    await redis.expire(key, 60);
+    pipeline.expire(key, 60);
+    await pipeline.exec();
 
     const app = makeApp(apiKeyId, PERSON_A);
     const res = await postComment(app);

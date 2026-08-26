@@ -16,7 +16,7 @@ type Variables = {
 // (requireActingPerson, which runs before this middleware in every route's
 // chain, already 401s on any userId that doesn't match this shape), so
 // parsing it here needs no fallback branch.
-function apiKeyIdFromUserId(userId: string): string {
+function applicationActorIdFromUserId(userId: string): string {
   return userId.slice("apikey:".length);
 }
 
@@ -42,11 +42,11 @@ export const requireTicketScope = (verb: TicketActionVerb): MiddlewareHandler =>
     async (c: Context<Variables>, next: Next): Promise<Response | void> => {
       const { tenantId, roles: scopes, userId } = c.get("auth");
       const { userId: actingPersonId } = c.get("actingPerson");
-      const apiKeyId = apiKeyIdFromUserId(userId);
+      const applicationActorId = applicationActorIdFromUserId(userId);
 
       const rateLimit = await enforceKeyPersonRateLimit(
         tenantId,
-        apiKeyId,
+        applicationActorId,
         actingPersonId,
       );
       if (!rateLimit.allowed) {

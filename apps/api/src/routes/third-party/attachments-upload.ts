@@ -46,10 +46,10 @@ export const uploadAttachmentHandler = factory.createHandlers(
     // requireTicketScope (upload is presign-token-gated, not scope-gated),
     // so the per-(key,person) rate-limit tier has to be enforced directly
     // here instead of inheriting it from that middleware.
-    const apiKeyId = authUserId.slice("apikey:".length);
+    const applicationActorId = authUserId.slice("apikey:".length);
     const rateLimit = await enforceKeyPersonRateLimit(
       tenantId,
-      apiKeyId,
+      applicationActorId,
       actingPersonId,
     );
     if (!rateLimit.allowed) {
