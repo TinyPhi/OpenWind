@@ -72,11 +72,16 @@ beforeAll(async () => {
 
   const ticket = await createEntity(db, TENANT, {
     entityTypeId: entityType.id,
+    fields: {},
+    createdBy: PERSON_A,
     // PERSON_B needs comment access too -- this test's second assertion
     // proves the rate-limit bucket is independent per acting person on the
     // same key, not that PERSON_B lacks ticket access (a different check).
-    fields: { __accessUsers: { [PERSON_B]: { level: "read_comment" } } },
-    createdBy: PERSON_A,
+    // Using assignedTo rather than a fields.__accessUsers grant: createEntity
+    // runs input.fields through the entity type's Zod schema, which strips
+    // any key not declared on the entity type (no z.object(...).passthrough()
+    // here) -- __accessUsers would silently disappear before the insert.
+    assignedTo: PERSON_B,
     workflowId: workflow!.id,
     currentState: "open",
   });
