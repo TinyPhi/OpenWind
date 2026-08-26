@@ -119,8 +119,10 @@ describe("tenant-purge: admin_audit_log anonymization + idempotency_keys deletio
       .from(adminAuditLog)
       .where(eq(adminAuditLog.tenantId, TENANT_ID));
 
-    // Both rows still exist -- anonymized, not deleted.
-    expect(rows).toHaveLength(2);
+    // Both seeded rows still exist -- anonymized, not deleted -- plus the
+    // purge job's own "purge.completed" entry it writes for every purge
+    // (tenant-purge.ts, actorType 'system', not a person -- left alone).
+    expect(rows).toHaveLength(3);
 
     const userRow = rows.find((r) => r.id === userAuditRowId);
     expect(userRow?.actorId).toBe("[purged]");
@@ -135,6 +137,10 @@ describe("tenant-purge: admin_audit_log anonymization + idempotency_keys deletio
     expect(apiKeyRow?.actorId).toBe("11111111-1111-4111-1111-111111111111");
     expect(apiKeyRow?.actingPersonId).toBe("[purged]");
     expect(apiKeyRow?.action).toBe("comment.created");
+
+    const purgeCompletedRow = rows.find((r) => r.action === "purge.completed");
+    expect(purgeCompletedRow?.actorType).toBe("system");
+    expect(purgeCompletedRow?.actorId).toBe("system");
   });
 
   it("deletes idempotency_keys rows outright, not anonymizes them", async () => {
