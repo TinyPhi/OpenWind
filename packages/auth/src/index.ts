@@ -14,6 +14,11 @@ export {
   startTenantStatusInvalidationSubscriber,
   stopTenantStatusInvalidationSubscriber,
 } from "./tenant-status-cache.js";
+export {
+  getTenantRateLimitOverride,
+  setTenantRateLimitOverride,
+  _clearTenantRateLimitCacheForTests,
+} from "./tenant-rate-limit.js";
 export type {
   AuthContext,
   ZitadelClaims,

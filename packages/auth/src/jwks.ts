@@ -36,9 +36,17 @@ function getJwks(): JwksGetter {
   return _jwks;
 }
 
+// ADR-012 Phase G, spec R6 — independent of `exp`-based expiry: rejects a
+// token whose `iat` is older than this, even if Zitadel's own exp says it's
+// still valid. Config-driven (not hardcoded) so it stays reviewable/tunable
+// without a code change; startup warns if ever configured above 30 minutes
+// (see packages/config/src/env.ts).
+const MAX_TOKEN_AGE_SECONDS = env.JWT_MAX_TOKEN_AGE_SECONDS;
+
 async function verifyJwtAgainstAudience(
   token: string,
   audience: string | string[],
+  options?: { enforceMaxTokenAge?: boolean },
 ): Promise<(JWTPayload & ZitadelClaims) | null> {
   try {
     const { payload } = await jwtVerify(
@@ -54,6 +62,13 @@ async function verifyJwtAgainstAudience(
         // 30 s was wider than necessary and extended the replay window for
         // stolen tokens by 25 extra seconds past their stated expiry. (#255)
         clockTolerance: 5,
+        // Only the third-party acting-person path (verifyJwtWithAudience)
+        // opts into this -- the regular human-login JWT path (verifyJwt)
+        // deliberately does not, so a long-lived legitimate human session
+        // isn't newly broken by a check aimed at third-party token freshness.
+        ...(options?.enforceMaxTokenAge
+          ? { maxTokenAge: MAX_TOKEN_AGE_SECONDS }
+          : {}),
       },
     );
     return payload as JWTPayload & ZitadelClaims;
@@ -91,7 +106,9 @@ export async function verifyJwtWithAudience(
   token: string,
   audience: string,
 ): Promise<(JWTPayload & ZitadelClaims) | null> {
-  return verifyJwtAgainstAudience(token, audience);
+  return verifyJwtAgainstAudience(token, audience, {
+    enforceMaxTokenAge: true,
+  });
 }
 
 export function extractAuthContext(

@@ -8,6 +8,7 @@ import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { connection } from "../../lib/redis.js";
 import { hashUploadToken } from "./attachments-presign.js";
+import { enforceKeyPersonRateLimit } from "../../lib/rate-limit-tiers.js";
 
 const UploadQuerySchema = z.object({
   token: z.string().min(1),
@@ -37,9 +38,26 @@ export const uploadAttachmentHandler = factory.createHandlers(
   zValidator("query", UploadQuerySchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const { token } = c.req.valid("query");
+
+    // ADR-012 Phase G, ADR-013 -- this route doesn't go through
+    // requireTicketScope (upload is presign-token-gated, not scope-gated),
+    // so the per-(key,person) rate-limit tier has to be enforced directly
+    // here instead of inheriting it from that middleware.
+    const apiKeyId = authUserId.slice("apikey:".length);
+    const rateLimit = await enforceKeyPersonRateLimit(
+      tenantId,
+      apiKeyId,
+      actingPersonId,
+    );
+    if (!rateLimit.allowed) {
+      return c.json(
+        { error: "RATE_LIMITED", message: "Too many requests" },
+        429,
+      );
+    }
 
     const [attachment] = await withTenantContext(tenantId, (tx) =>
       tx

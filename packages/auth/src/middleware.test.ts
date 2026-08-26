@@ -16,6 +16,8 @@ vi.mock("@platform/config", () => ({
     ZITADEL_INTROSPECTION_CLIENT_ID: "client-id",
     ZITADEL_INTROSPECTION_CLIENT_SECRET: "client-secret",
     RATE_LIMIT_TENANT_PER_MIN: 100,
+    RATE_LIMIT_API_KEY_PER_MIN: 200,
+    RATE_LIMIT_API_KEY_PERSON_PER_MIN: 20,
     get NODE_ENV() {
       return mockNodeEnv;
     },
@@ -550,6 +552,88 @@ describe("requireAuth", () => {
       const keys = mockCheckRateLimit.mock.calls.map((c) => c[1] as string);
       expect(keys[0]).toBe(keys[1]);
       expect(keys[0]).toBe(`rl:tenant:${VALID_AUTH.tenantId}`);
+    });
+  });
+
+  describe("post-auth per-api-key aggregate rate limit (ADR-012 Phase G, ADR-013)", () => {
+    it("keys the check on the api_keys row id, in addition to the tenant tier", async () => {
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      await get(app, "sk_validkey");
+
+      expect(mockCheckRateLimit).toHaveBeenCalledWith(
+        expect.anything(),
+        "rl:api-key:key-id-1",
+        200,
+        60,
+      );
+    });
+
+    it("returns 429 when the key's own aggregate quota is exceeded, even though the tenant tier passed", async () => {
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+      // 1st call = tenant tier (allowed), 2nd call = api-key tier (denied)
+      mockCheckRateLimit
+        .mockResolvedValueOnce({ allowed: true, remaining: 50, resetAt: 1 })
+        .mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt: 123 });
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(429);
+    });
+
+    it("does not run for the JWT path (no api_keys row involved)", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+
+      const app = makeApp([requireAuth()]);
+      await get(app, "valid.jwt");
+
+      const keys = mockCheckRateLimit.mock.calls.map((c) => c[1] as string);
+      expect(keys.some((k) => k.startsWith("rl:api-key:"))).toBe(false);
+    });
+
+    it("fails open (200) when the api-key-tier check itself throws", async () => {
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+      mockCheckRateLimit
+        .mockResolvedValueOnce({ allowed: true, remaining: 50, resetAt: 1 })
+        .mockRejectedValueOnce(new Error("redis down"));
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(200);
     });
   });
 });

@@ -5,9 +5,11 @@
 
 status: draft
 created: 2026-08-26
-updated: 2026-08-26 (spec-review pass: quantified R1/R2's rate-limit numbers and cache-staleness
-bound, added R10 for idempotency-cache tenant-purge coverage, renumbered R10-R12 to R11-R13,
-added 2 invariants, added T10 and clarified T2/T3's scope)
+updated: 2026-08-26 (Phase 1 implementation done: T1-T5 all marked done, T2's §I interface
+sketch corrected to reflect the actual implementation — tenants.config JSONB key, not a new
+column; spec-review pass before that: quantified R1/R2's rate-limit numbers and
+cache-staleness bound, added R10 for idempotency-cache tenant-purge coverage, renumbered
+R10-R12 to R11-R13, added 2 invariants, added T10 and clarified T2/T3's scope)
 
 ---
 
@@ -36,10 +38,13 @@ checkRateLimit(redis, "key-person:<apiKeyId>:<personId>", 20, 60)   -- per (key,
 checkRateLimit(redis, "key:<apiKeyId>", 200, 60)                     -- per key, aggregate
 checkRateLimit(redis, "tenant:<tenantId>", <configurable>, 60)       -- per tenant, admin-editable
 
--- Per-tenant rate ceiling (new column, tenants table or a new tenant_config table)
-tenants.rate_limit_per_min: integer, nullable (NULL = platform default, env RATE_LIMIT_TENANT_PER_MIN)
+-- Per-tenant rate ceiling (implemented: tenants.config JSONB key, not a new column —
+-- same storage convention as notifications' per-user preferences; avoids a migration
+-- for a single optional override value)
+tenants.config.rate_limit_per_min: number, optional (absent = platform default, env RATE_LIMIT_TENANT_PER_MIN)
+read path cached in-process, 5s TTL (packages/auth/src/tenant-rate-limit.ts) -- satisfies R2's "within 5s"
 
-PATCH /admin/tenants/:id/rate-limit  { ratePerMin: number | null }   -- admin-editable
+PATCH /admin/tenants/:id/rate-limit  { ratePerMin: number | null }   -- admin-editable, superadmin only
 
 -- Idempotency (new table, e.g. idempotency_keys)
 idempotency_keys: (id, tenant_id, api_key_id, acting_person_id, idempotency_key,
@@ -198,11 +203,11 @@ verdict.
 
 | id  | task                                                                                                                                                                                                 | phase | status | depends |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
-| T1  | Wire ADR-013's 3-tier rate limiting (per key+person, per key aggregate, per tenant) into third-party routes, reusing `checkRateLimit`                                                                | 1     | todo   | —       |
-| T2  | Per-tenant admin-editable rate-limit ceiling (new column/table + admin PATCH route only — no new admin-ui screen this phase; reuse the existing admin route conventions from `platform-settings.ts`) | 1     | todo   | T1      |
-| T3  | JWT `iat` max-age check (config-driven, default 15min, startup sanity warning); confirm interaction with the existing `clockTolerance: 5` at the 15-min boundary                                     | 1     | todo   | —       |
-| T4  | PII redaction wired into third-party ticket-detail and workflow-list read routes                                                                                                                     | 1     | todo   | —       |
-| T5  | TLS/HTTPS enforcement point — verify infra-level enforcement OR add an app-level check; document which                                                                                               | 1     | todo   | —       |
+| T1  | Wire ADR-013's 3-tier rate limiting (per key+person, per key aggregate, per tenant) into third-party routes, reusing `checkRateLimit`                                                                | 1     | done   | —       |
+| T2  | Per-tenant admin-editable rate-limit ceiling (new column/table + admin PATCH route only — no new admin-ui screen this phase; reuse the existing admin route conventions from `platform-settings.ts`) | 1     | done   | T1      |
+| T3  | JWT `iat` max-age check (config-driven, default 15min, startup sanity warning); confirm interaction with the existing `clockTolerance: 5` at the 15-min boundary                                     | 1     | done   | —       |
+| T4  | PII redaction wired into third-party ticket-detail and workflow-list read routes                                                                                                                     | 1     | done   | —       |
+| T5  | TLS/HTTPS enforcement point — verify infra-level enforcement OR add an app-level check; document which                                                                                               | 1     | done   | —       |
 | T6  | Idempotency: schema (`idempotency_keys` table), RFC 8785 canonicalization + content-hash helper                                                                                                      | 2     | todo   | —       |
 | T7  | Idempotency: 30s in-flight lock (409 + Retry-After) + 24h result-cache read/write, wired into create/comment/sub-ticket/transition routes                                                            | 2     | todo   | T6      |
 | T8  | Access-log retention: scheduled 90-day sweep job + aggregate rollup table                                                                                                                            | 3     | todo   | —       |

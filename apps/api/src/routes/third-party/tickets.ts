@@ -15,6 +15,7 @@ import {
   MAX_ATTACHMENTS_PER_TICKET,
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
+import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -64,7 +65,19 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
         return notFound(c);
       }
 
-      return c.json({ data: instance });
+      // ADR-012 Phase G, spec R7 — redact pii/financial field values before
+      // this ever leaves the process; a third party never sees a raw,
+      // unredacted dump of ticket fields.
+      const redactedFields = await withTenantContext(tenantId, (tx) =>
+        redactEntityFieldsForThirdParty(
+          tx,
+          tenantId,
+          instance.entityTypeId,
+          instance.fields,
+        ),
+      );
+
+      return c.json({ data: { ...instance, fields: redactedFields } });
     } catch (err) {
       if (isEntityNotFound(err)) {
         return notFound(c);
