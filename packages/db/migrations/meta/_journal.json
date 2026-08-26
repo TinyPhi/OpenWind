@@ -558,15 +558,22 @@
     {
       "idx": 79,
       "version": "7",
-      "when": 1787648626569,
-      "tag": "0079_admin_audit_log_transition_actions",
+      "when": 1787570226257,
+      "tag": "0079_extend_attachments_expiry_idx",
       "breakpoints": false
     },
     {
       "idx": 80,
       "version": "7",
+      "when": 1787648626569,
+      "tag": "0080_admin_audit_log_transition_actions",
+      "breakpoints": false
+    },
+    {
+      "idx": 81,
+      "version": "7",
       "when": 1787648626571,
-      "tag": "0080_admin_audit_log_comment_child_attachment_actions",
+      "tag": "0081_admin_audit_log_comment_child_attachment_actions",
       "breakpoints": false
     }
   ]

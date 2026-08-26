@@ -14,6 +14,9 @@
 -- (feat/third-party-api-phase-e-status-transitions) migration, which was
 -- itself renumbered 0078 -> 0079 during PR #484 review (PrabhuVijit B-01)
 -- after PR #475 merged its own 0078 first.
+-- Renumbered again from 0080 to 0081 -- PR #488 merged its own
+-- 0079_extend_attachments_expiry_idx.sql, which bumped Phase E's sibling
+-- migration from 0079 to 0080, in turn bumping this one to 0081.
 --
 -- Rollback (undoes only what THIS migration added -- PR #484 review,
 -- PrabhuVijit B-02, applied proactively here so this migration doesn't ship

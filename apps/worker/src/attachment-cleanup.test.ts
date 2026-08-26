@@ -132,6 +132,7 @@ describe("attachment-cleanup worker", () => {
     expect(whereArg).toBeDefined();
     const serialized = JSON.stringify(whereArg);
     expect(serialized).toContain("status");
+    expect(serialized).toContain("tenantId");
   });
 
   it("continues processing remaining slots if one update fails", async () => {

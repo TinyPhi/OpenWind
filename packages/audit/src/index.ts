@@ -64,14 +64,14 @@ export type AuditAction =
   | "attachment.quarantined"
   | "attachment.scan_failed"
   // ADR-012 Phase E, spec R3 — third-party status-transition attempts,
-  // migration 0079_admin_audit_log_transition_actions.sql extends the DB
+  // migration 0080_admin_audit_log_transition_actions.sql extends the DB
   // CHECK constraint in the same commit.
   | "transition.executed"
   | "transition.access_denied"
   // ADR-012 Phase F, spec AC4 — retrofits comments.ts/children.ts/
   // attachments-reference.ts (previously unaudited) onto the same
   // atomic-write pattern transitions.ts established. Migration
-  // 0080_admin_audit_log_comment_child_attachment_actions.sql extends the
+  // 0081_admin_audit_log_comment_child_attachment_actions.sql extends the
   // DB CHECK constraint in the same commit.
   | "comment.created"
   | "comment.access_denied"
