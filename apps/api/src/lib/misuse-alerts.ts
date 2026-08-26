@@ -65,10 +65,10 @@ export async function recordScopeDenialAndMaybeAlert(
     async () => {
       const redis = getRedis();
       const key = `misuse:auth-fail:${tenantId}:${applicationActorId}`;
+      // Initialise with TTL atomically on first use — avoids the INCR/EXPIRE
+      // race where a crash between the two leaves a key with no TTL.
+      await redis.set(key, "0", "EX", AUTH_FAILURE_WINDOW_SECONDS, "NX");
       const count = await redis.incr(key);
-      if (count === 1) {
-        await redis.expire(key, AUTH_FAILURE_WINDOW_SECONDS);
-      }
       return count === AUTH_FAILURE_THRESHOLD;
     },
     false,
