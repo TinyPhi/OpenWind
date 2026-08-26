@@ -7,6 +7,14 @@
  * table never held a quota reservation to release (spec R2 -- quota is
  * enforced at upload-completion time via saveUpload, not at presign) so
  * this job only marks/removes stale rows, no disk or quota bookkeeping.
+ *
+ * Two-phase: mark-then-delete, not delete-on-sight. A newly-expired slot is
+ * first flipped to 'expired' (keeps a short-lived trail in case an
+ * in-flight upload request loses the race against this exact sweep --
+ * attachments-upload.ts checks for that and 410s cleanly). Only once a row
+ * has sat in 'expired' past its own grace period is it actually deleted,
+ * which is what bounds the table's growth from a sustained
+ * presign-and-abandon pattern (full-phase security review finding).
  */
 
 import { Worker, Queue } from "bullmq";
@@ -18,6 +26,8 @@ import { connection } from "./queues.js";
 const QUEUE_NAME = "attachment-cleanup";
 /** Max rows per cleanup run -- prevents unbounded memory usage. */
 const BATCH_LIMIT = 500;
+/** How long an 'expired' row survives before hard deletion. */
+const EXPIRED_GRACE_HOURS = 1;
 
 // No withTenantContext/explicit tenant_id filter here -- same accepted
 // pattern as file-cleanup.ts's own cross-tenant sweep. Every write below
@@ -45,44 +55,68 @@ async function runCleanup(): Promise<void> {
 
   if (staleSlots.length === 0) {
     logger.info({}, "attachment-cleanup: no stale slots found");
-    return;
+  } else {
+    logger.info(
+      { count: staleSlots.length },
+      "attachment-cleanup: processing stale slots",
+    );
+
+    let purged = 0;
+    let errors = 0;
+
+    for (const slot of staleSlots) {
+      try {
+        // Conditional on status still being pending/uploading (matching the
+        // SELECT above) -- without this, a slow-but-successful upload that
+        // completes right at the TTL boundary, after this row was read but
+        // before this UPDATE runs, would get its fresh "uploaded" status
+        // clobbered back to "expired" (PR #472 review finding 3).
+        await db
+          .update(attachments)
+          .set({ status: "expired", updatedAt: new Date() })
+          .where(
+            and(
+              eq(attachments.id, slot.id),
+              inArray(attachments.status, ["pending", "uploading"]),
+            ),
+          );
+        purged++;
+      } catch (err) {
+        errors++;
+        logger.error(
+          { tenantId: slot.tenantId, attachmentId: slot.id, err: String(err) },
+          "attachment-cleanup: failed to expire slot",
+        );
+      }
+    }
+
+    logger.info({ purged, errors }, "attachment-cleanup: expire pass complete");
   }
+
+  // Runs every cycle regardless of whether the expire pass above found
+  // anything -- an earlier version of this function `return`ed early when
+  // staleSlots was empty, which meant a cycle with no NEW stale slots (the
+  // common case once an initial spike settles) skipped this delete pass
+  // forever, defeating the whole point of bounding table growth from a
+  // sustained presign-and-abandon pattern (the bug this two-phase design
+  // exists to fix).
+  const graceCutoff = new Date(
+    now.getTime() - EXPIRED_GRACE_HOURS * 60 * 60 * 1000,
+  );
+  const deleted = await db
+    .delete(attachments)
+    .where(
+      and(
+        eq(attachments.status, "expired"),
+        lt(attachments.updatedAt, graceCutoff),
+      ),
+    )
+    .returning({ id: attachments.id });
 
   logger.info(
-    { count: staleSlots.length },
-    "attachment-cleanup: processing stale slots",
+    { deleted: deleted.length },
+    "attachment-cleanup: delete pass complete",
   );
-
-  let purged = 0;
-  let errors = 0;
-
-  for (const slot of staleSlots) {
-    try {
-      // Conditional on status still being pending/uploading (matching the
-      // SELECT above) -- without this, a slow-but-successful upload that
-      // completes right at the TTL boundary, after this row was read but
-      // before this UPDATE runs, would get its fresh "uploaded" status
-      // clobbered back to "expired" (PR #472 review finding 3).
-      await db
-        .update(attachments)
-        .set({ status: "expired", updatedAt: new Date() })
-        .where(
-          and(
-            eq(attachments.id, slot.id),
-            inArray(attachments.status, ["pending", "uploading"]),
-          ),
-        );
-      purged++;
-    } catch (err) {
-      errors++;
-      logger.error(
-        { tenantId: slot.tenantId, attachmentId: slot.id, err: String(err) },
-        "attachment-cleanup: failed to expire slot",
-      );
-    }
-  }
-
-  logger.info({ purged, errors }, "attachment-cleanup: run complete");
 }
 
 export const attachmentCleanupWorker = new Worker(

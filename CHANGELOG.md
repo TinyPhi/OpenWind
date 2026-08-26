@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — network status awareness (admin-ui)]
+
+### Added
+
+- **Global network status banner** — `apps/admin-ui` now shows a distinct "You're offline" /
+  "Reconnecting…" / "Back online" banner instead of silent per-page failures when connectivity
+  drops. A same-origin `/api/health` probe is the source of truth; `navigator.onLine` and the
+  notifications socket's state are corroborating hints only (#403).
+
+### Fixed
+
+- **Transport failures now surface a banner** — `doFetch()`'s catch previously threw silently on
+  a network error or timeout with no `api:error` dispatch at all; it now signals the new network
+  status store (#403).
+
+---
+
 ## [Unreleased — loopback host port mappings (Postgres, PgBouncer, OpenBao)]
 
 ### Security
