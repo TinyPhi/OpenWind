@@ -15,6 +15,8 @@
 -- Renumbered from 0078 to 0079 (PR #484 review, PrabhuVijit B-01) --
 -- PR #475 merged its own 0078_admin_audit_log_attachment_scan_actions.sql
 -- first, so this migration's number collided with an already-merged one.
+-- Renumbered again from 0079 to 0080 -- PR #488 merged its own
+-- 0079_extend_attachments_expiry_idx.sql before this PR did.
 --
 -- Rollback (PR #484 review, PrabhuVijit B-02 -- the previous version of this
 -- rollback restored the constraint to its pre-#475 state, which would have

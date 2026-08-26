@@ -27,7 +27,7 @@
  */
 
 import { Worker } from "bullmq";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, isNull } from "drizzle-orm";
 import {
   entityInstances,
   workflows,
@@ -126,6 +126,7 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
           and(
             eq(entityInstances.id, ticketId),
             eq(entityInstances.tenantId, tenantId),
+            isNull(entityInstances.deletedAt),
           ),
         )
         .limit(1),
@@ -293,8 +294,8 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
       return;
     }
 
-    await withTenantContext(tenantId, async (tx) => {
-      await tx
+    const grantApplied = await withTenantContext(tenantId, async (tx) => {
+      const updatedRows = await tx
         .update(entityInstances)
         .set({
           fields: sql`jsonb_set(
@@ -315,33 +316,42 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
           and(
             eq(entityInstances.id, ticketId),
             eq(entityInstances.tenantId, tenantId),
+            isNull(entityInstances.deletedAt),
           ),
-        );
-      await writeAuditEntry(tx, {
-        tenantId,
-        actorId: actingPersonId,
-        actorType: "api_key",
-        actingPersonId,
-        resourceType: "ticket",
-        resourceId: ticketId,
-        action: "tag.auto_granted",
-        metadata: { commentId, mentionIdentifier, grantedUserId },
-      });
+        )
+        .returning({ id: entityInstances.id });
+
+      if (updatedRows.length > 0) {
+        await writeAuditEntry(tx, {
+          tenantId,
+          actorId: actingPersonId,
+          actorType: "api_key",
+          actingPersonId,
+          resourceType: "ticket",
+          resourceId: ticketId,
+          action: "tag.auto_granted",
+          metadata: { commentId, mentionIdentifier, grantedUserId },
+        });
+        return true;
+      }
+      return false;
     });
 
-    // PR #470 review fix: the jsonb_set update above only mutates the
-    // __accessUsers field directly -- without this, the auto-granted user
-    // gets no ticket-timeline entry and no access.granted notification,
-    // unlike every other access-grant path in the app (grant-access.ts,
-    // resolve-access-request.ts). emitAccessEvent is itself best-effort
-    // (swallows its own errors), so a failure here never turns an
-    // already-successful grant into a failed job.
-    await emitAccessEvent(tenantId, ticketId, actingPersonId, {
-      type: "access_grant",
-      targetUserId: grantedUserId,
-      level: "read_only",
-      tag: "mention",
-    });
+    if (grantApplied) {
+      // PR #470 review fix: the jsonb_set update above only mutates the
+      // __accessUsers field directly -- without this, the auto-granted user
+      // gets no ticket-timeline entry and no access.granted notification,
+      // unlike every other access-grant path in the app (grant-access.ts,
+      // resolve-access-request.ts). emitAccessEvent is itself best-effort
+      // (swallows its own errors), so a failure here never turns an
+      // already-successful grant into a failed job.
+      await emitAccessEvent(tenantId, ticketId, actingPersonId, {
+        type: "access_grant",
+        targetUserId: grantedUserId,
+        level: "read_only",
+        tag: "mention",
+      });
+    }
   },
   { connection, concurrency: 4 },
 );

@@ -57,7 +57,7 @@ export type AuditAction =
   | "attachment.quarantined"
   | "attachment.scan_failed"
   // ADR-012 Phase E, spec R3 — third-party status-transition attempts,
-  // migration 0079_admin_audit_log_transition_actions.sql extends the DB
+  // migration 0080_admin_audit_log_transition_actions.sql extends the DB
   // CHECK constraint in the same commit.
   | "transition.executed"
   | "transition.access_denied";
