@@ -1,8 +1,8 @@
 # ADR-015: Observability + Compliance (3D)
 
-**Status:** Proposed.  
+**Status:** Accepted.  
 **Date:** 2026-08-26.  
-**Deciders:** Engineering Lead.  
+**Deciders:** Abhinav Mishra.  
 **Related to:** ADR-008 (API-key lifecycle — `api_keys.scopes_format` reused as the precedent for
 config-driven tier/behavior discrimination), ADR-012 (third-party API rate-limit tiers — the
 peer-middleware precedent for the billing gate below), ADR-013 (unified rate-limiting — already
@@ -52,7 +52,7 @@ below:
 
 ---
 
-## Decision (proposed)
+## Decision
 
 1. **Metrics and tracing: self-hosted, added behind a new `docker-compose.yml`
    `--profile observability`** (same opt-in pattern as `--profile notifications` for Novu) —
@@ -255,11 +255,8 @@ None
 
 ## Implementation next steps
 
-1. @ab finalizes this draft, then moves it into `docs/decisions/ADR-015-observability-compliance.md`
-   with `Status: Accepted` — per this repo's rule that ADR files are human-authored/committed, this
-   step is explicitly not something Claude Code does.
-2. Once accepted, update issue #19's Constraints section to drop the stale SRI cross-reference
+1. Once accepted, update issue #19's Constraints section to drop the stale SRI cross-reference
    (Decision #4) and link this ADR.
-3. Follow the Stage 0–4 sequence in Decision #6, each stage through the normal
+2. Follow the Stage 0–4 sequence in Decision #6, each stage through the normal
    Plan → Code → Review → Docs → Ship guardrail flow (`agent-behaviour.md`), starting with a
    `/spec` for Stage 0.
