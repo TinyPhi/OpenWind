@@ -91,6 +91,12 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelayMs = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const listeners = new Set<PushHandler>();
+type ConnectionState = "open" | "closed";
+const connectionStateListeners = new Set<(state: ConnectionState) => void>();
+
+function notifyConnectionState(state: ConnectionState): void {
+  for (const listener of connectionStateListeners) listener(state);
+}
 // Ticket rooms the app currently wants subscribed — resent on every
 // (re)connect (R8: a dropped/reconnected socket must not silently leave a
 // still-open ticket page without live updates).
@@ -127,6 +133,7 @@ async function connect(): Promise<void> {
 
   ws.onopen = () => {
     reconnectDelayMs = 1_000;
+    notifyConnectionState("open");
     for (const instanceId of activeTicketRooms) {
       sendRoomMessage("subscribe_ticket", instanceId);
     }
@@ -145,6 +152,7 @@ async function connect(): Promise<void> {
   };
 
   ws.onclose = () => {
+    notifyConnectionState("closed");
     if (stopped) return;
     reconnectTimer = setTimeout(() => void connect(), reconnectDelayMs);
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
@@ -201,5 +209,21 @@ export function subscribeToTicketRoom(
     activeTicketRooms.delete(instanceId);
     sendRoomMessage("unsubscribe_ticket", instanceId);
     disconnectIfIdle();
+  };
+}
+
+/**
+ * Subscribes to this socket's open/closed state as a corroborating hint for
+ * network-status.ts — NEVER a source of truth (see that file): the socket
+ * also closes on auth/token-expiry, which is not a network condition. Does
+ * not itself connect or keep the socket alive; purely observes whatever
+ * state subscribeToNotifications/subscribeToTicketRoom already produce.
+ */
+export function subscribeToConnectionState(
+  cb: (state: "open" | "closed") => void,
+): () => void {
+  connectionStateListeners.add(cb);
+  return () => {
+    connectionStateListeners.delete(cb);
   };
 }

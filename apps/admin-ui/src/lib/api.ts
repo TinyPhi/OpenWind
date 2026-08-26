@@ -8,6 +8,18 @@ function dispatchApiError(type: "auth" | "server", message: string): void {
   );
 }
 
+/**
+ * Fired on every transport-level failure (network error, timeout) — network-status.ts
+ * listens for this as one of its probe triggers (it, not this dispatch site, decides
+ * whether that manifests as "You're offline" or "Reconnecting…"). Previously nothing
+ * was dispatched here at all: only >=500 responses reached dispatchApiError, so a dead
+ * network produced silent per-call rejections with no banner. See
+ * docs/specs/network-status-awareness.md R4.
+ */
+function dispatchTransportFailure(): void {
+  window.dispatchEvent(new CustomEvent("network:transport-failure"));
+}
+
 async function doFetch(
   url: string,
   options: RequestInit,
@@ -46,6 +58,7 @@ async function doFetch(
     });
   } catch (err) {
     clearTimeout(timer);
+    dispatchTransportFailure();
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
     throw new Error(isTimeout ? "Request timed out after 8s" : "Network error");
   } finally {
