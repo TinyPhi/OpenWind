@@ -1,6 +1,8 @@
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
-import { attachments } from "@platform/db";
+import { attachments, withTenantContext } from "@platform/db";
+import { writeAuditEntry } from "@platform/audit";
+import { logger } from "@platform/logger";
 
 export const MAX_ATTACHMENTS_PER_TICKET = 10;
 
@@ -47,6 +49,57 @@ export async function referenceAttachments(
   ticketId: string,
   attachmentIds: string[],
   actingPersonId: string,
+  apiKeyId: string,
+): Promise<void> {
+  try {
+    await doReferenceAttachments(
+      tx,
+      tenantId,
+      ticketId,
+      attachmentIds,
+      actingPersonId,
+      apiKeyId,
+    );
+  } catch (err) {
+    // Only the 404 (existence-oracle) throws represent an actual access
+    // denial (spec AC4) -- the 422 throws are business-validation rejections
+    // of an already-authorized reference, same distinction transitions.ts
+    // draws between its access-denied branch and downstream 409/422s. `tx`
+    // is mid-rollback by the time we're here (the caller's withTenantContext
+    // will discard it), so this needs its OWN transaction, same as
+    // transitions.ts's denied-branch audit write.
+    if (err instanceof AttachmentReferenceError && err.status === 404) {
+      try {
+        await withTenantContext(tenantId, (auditTx) =>
+          writeAuditEntry(auditTx, {
+            tenantId,
+            actorId: apiKeyId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "ticket",
+            resourceId: ticketId,
+            action: "attachment.reference_denied",
+            metadata: { attachmentIds },
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, ticketId },
+          "third-party attachment-reference: denied-attempt audit write failed",
+        );
+      }
+    }
+    throw err;
+  }
+}
+
+async function doReferenceAttachments(
+  tx: DbOrTx,
+  tenantId: string,
+  ticketId: string,
+  attachmentIds: string[],
+  actingPersonId: string,
+  apiKeyId: string,
 ): Promise<void> {
   if (attachmentIds.length === 0) return;
   // Dedup before the length/bind checks -- a client-side duplicate ID must
@@ -141,4 +194,20 @@ export async function referenceAttachments(
       });
     }
   }
+
+  // Same transaction as the binds above -- atomic with the mutation it
+  // describes, per @platform/audit's own contract. Written once per call
+  // (not per attachment) for both a fresh bind and an idempotent re-reference
+  // of an already-bound attachment, since both are a successful "reference"
+  // outcome from the caller's perspective.
+  await writeAuditEntry(tx, {
+    tenantId,
+    actorId: apiKeyId,
+    actorType: "api_key",
+    actingPersonId,
+    resourceType: "ticket",
+    resourceId: ticketId,
+    action: "attachment.referenced",
+    metadata: { attachmentIds: uniqueIds },
+  });
 }
