@@ -143,6 +143,13 @@ export async function writeAuditEntry(
     metadata: input.metadata ?? null,
   });
 
+  // codeql[js/clear-text-logging] -- actorId here is the API key's own row
+  // id (a UUID primary key, see ADR-012 Phase F's apiKeyIdFromUserId), used
+  // to identify WHICH application acted -- the whole point of this audit
+  // log. It is never the key's secret/hash (api_keys.keyHash), which is
+  // never logged anywhere in this codebase. CodeQL's clear-text-logging
+  // query flags this on the "apiKeyId" name at the call sites' source
+  // variable, not on any actual credential material reaching this sink.
   logger.info(
     {
       tenantId: input.tenantId,
