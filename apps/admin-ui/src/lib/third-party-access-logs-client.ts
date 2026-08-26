@@ -38,6 +38,13 @@ export async function listThirdPartyAccessLogs(
   }
   const res = (await fetchWithAuth(
     `${API_URL}/admin/third-party-access-logs?${params.toString()}`,
-  )) as ListResponse;
-  return { data: res.data, nextCursor: res.nextCursor };
+  )) as Partial<ListResponse> | undefined;
+  // PR #489 review, F-05 -- fetchWithAuth throws on a non-2xx response, but
+  // a malformed/unexpected 2xx body (e.g. an envelope mismatch) would
+  // otherwise silently produce `data: undefined`, rendering a misleadingly
+  // empty table instead of surfacing an error to the admin.
+  if (!Array.isArray(res?.data)) {
+    throw new Error("Unexpected response shape from access-logs endpoint");
+  }
+  return { data: res.data, nextCursor: res.nextCursor ?? null };
 }

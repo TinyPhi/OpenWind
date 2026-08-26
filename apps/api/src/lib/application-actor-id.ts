@@ -28,8 +28,14 @@ const APPLICATION_ACTOR_USER_ID_PATTERN = /^apikey:(.+)$/;
 export function applicationActorIdFromUserId(userId: string): string {
   const match = APPLICATION_ACTOR_USER_ID_PATTERN.exec(userId);
   if (!match) {
+    // PR #489 review, S-02 -- every current call site is on the third-party
+    // apikey:<id> path, so userId never carries PII today, but masking it
+    // here means a future misuse of this helper on a different auth path
+    // (a Zitadel subject/email) can't leak an identifier into server logs.
+    const masked =
+      userId.length > 8 ? `${userId.slice(0, 8)}…` : "(too short to mask)";
     throw new Error(
-      `applicationActorIdFromUserId: userId "${userId}" does not match the apikey:<id> pattern`,
+      `applicationActorIdFromUserId: userId "${masked}" does not match the apikey:<id> pattern`,
     );
   }
   return match[1] as string;

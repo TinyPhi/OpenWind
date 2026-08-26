@@ -16,7 +16,10 @@ import { factory } from "./factory.js";
 
 const AccessLogsQuerySchema = z.object({
   application: z.string().uuid().optional(),
-  personId: z.string().optional(),
+  // PR #489 review, F-02 -- a cleared form field submits "" not undefined;
+  // .min(1) rejects it at the boundary instead of silently generating
+  // WHERE acting_person_id = '' (zero rows, no explanation to the admin).
+  personId: z.string().min(1).optional(),
   ticketId: z.string().uuid().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),

@@ -19,7 +19,15 @@ import { relativeTime } from "../lib/format.js";
 const EMPTY_FILTERS: AccessLogFilters = {};
 
 export function ThirdPartyAccessLogsPage(): React.ReactElement {
+  // `filters` is the live, in-progress editing state (updated on every
+  // keystroke). `appliedFilters` is what the last successful load actually
+  // used — loadMore() must page through THAT result set, not whatever the
+  // admin has since typed into the form but not yet applied (PR #489
+  // review, F-03: mixing the two silently returned data belonging to
+  // neither the old nor the new filter combination).
   const [filters, setFilters] = useState<AccessLogFilters>(EMPTY_FILTERS);
+  const [appliedFilters, setAppliedFilters] =
+    useState<AccessLogFilters>(EMPTY_FILTERS);
   const [logs, setLogs] = useState<AccessLogRow[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +37,7 @@ export function ThirdPartyAccessLogsPage(): React.ReactElement {
   function load(nextFilters: AccessLogFilters): void {
     setLoading(true);
     setError(null);
+    setAppliedFilters(nextFilters);
     listThirdPartyAccessLogs(nextFilters)
       .then((res) => {
         setLogs(res.data);
@@ -51,7 +60,7 @@ export function ThirdPartyAccessLogsPage(): React.ReactElement {
   function loadMore(): void {
     if (!cursor) return;
     setLoadingMore(true);
-    listThirdPartyAccessLogs({ ...filters, cursor })
+    listThirdPartyAccessLogs({ ...appliedFilters, cursor })
       .then((res) => {
         setLogs((prev) => [...prev, ...res.data]);
         setCursor(res.nextCursor);
