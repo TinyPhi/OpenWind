@@ -53,3 +53,23 @@ started" (5%) — no code has been written yet, only the design record.
 started — no ADR yet for either" — deliberately left alone per the tracker's own rule 4
 (parallel-track branches edit only their own row, not the scorecard); needs reconciliation in a
 dedicated sync pass now that 3D has a design record.
+
+## PR #501 review follow-up
+
+PrabhuVijit's review of PR #501 (approved with comments) raised 5 findings. F-05 (re-verify the
+10 removed issues' `stateReason`, not just `state`) was addressed by re-checking each via
+`gh issue view <N> --json stateReason` — all 10 confirmed `COMPLETED`, none `NOT_PLANNED`, so no
+tracker change was needed. F-04 (issue #6 partially absorbed by ADR-015 but not annotated) was
+addressed: the 3-OPS row and #6's Open Tickets row now note that GDPR-per-user-erasure and
+IP-allowlisting moved to ADR-015, leaving DR/backup, Redis SPOF, data residency, and
+plugin-marketplace security under #6.
+
+F-01 (ADR-015's `Status: Proposed` should read `Accepted` to match the PR title) and F-03
+(`Deciders: Engineering Lead` should name a real person) both require editing
+`docs/decisions/ADR-015-observability-compliance.md`, which is protected — Claude Code cannot
+write to `docs/decisions/` directly. @ab dictated the exact values (`Status: Accepted`,
+`Deciders: Abhinav Mishra`); a corrected full copy was written to
+`docs/reviews/adr-drafts/ADR-015-observability-compliance-review-update.md` for @ab to apply
+manually. F-02 (explicit confirmation that @ab reviewed and stands behind every ADR-015 decision
+as their own judgment, not just an approved plan-lock) is a standing item for @ab to answer
+directly on the PR thread — not something this session can state on their behalf.
