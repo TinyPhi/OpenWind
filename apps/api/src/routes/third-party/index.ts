@@ -5,6 +5,7 @@ import {
   getThirdPartyTicketHandler,
   createThirdPartyTicketHandler,
 } from "./tickets.js";
+import { executeThirdPartyTransitionHandler } from "./transitions.js";
 import { createThirdPartyChildHandler } from "./children.js";
 import { createThirdPartyCommentHandler } from "./comments.js";
 import { presignAttachmentHandler } from "./attachments-presign.js";
@@ -18,6 +19,7 @@ const router = new Hono<{
 router.get("/workflows", ...listThirdPartyWorkflowsHandler);
 router.post("/tickets", ...createThirdPartyTicketHandler);
 router.get("/tickets/:id", ...getThirdPartyTicketHandler);
+router.post("/tickets/:id/transitions", ...executeThirdPartyTransitionHandler);
 router.post("/tickets/:id/comments", ...createThirdPartyCommentHandler);
 router.post("/tickets/:id/children", ...createThirdPartyChildHandler);
 router.post("/attachments/presign", ...presignAttachmentHandler);

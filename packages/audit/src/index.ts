@@ -55,7 +55,12 @@ export type AuditAction =
   // the SAME migration that adds these (0077) -- see that file's comment for
   // why this is a hard rule now, not a suggestion (Phase C's B1 incident).
   | "attachment.quarantined"
-  | "attachment.scan_failed";
+  | "attachment.scan_failed"
+  // ADR-012 Phase E, spec R3 — third-party status-transition attempts,
+  // migration 0080_admin_audit_log_transition_actions.sql extends the DB
+  // CHECK constraint in the same commit.
+  | "transition.executed"
+  | "transition.access_denied";
 
 export type AuditEntryInput = {
   tenantId: string;
