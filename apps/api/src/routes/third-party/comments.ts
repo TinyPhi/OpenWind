@@ -9,6 +9,8 @@ import {
   outboxEvents,
 } from "@platform/db";
 import { logger } from "@platform/logger";
+import { writeAuditEntry } from "@platform/audit";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
@@ -70,10 +72,10 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
   zValidator("json", CreateThirdPartyCommentSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId, orgId, userId } = c.get("auth");
+    const { tenantId, orgId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const { text, mentions, attachmentIds } = c.req.valid("json");
-    const apiKeyId = userId.slice("apikey:".length);
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
     const idempotencyKey = c.req.header("Idempotency-Key");
 
     const [instance] = await withTenantContext(tenantId, (tx) =>
@@ -117,16 +119,43 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
       return notFound(c);
     }
     if (!allowed) {
+      // Best-effort: nothing has mutated yet on this path, so a failure here
+      // must never turn a correct 404 denial into a 500 -- same pattern as
+      // transitions.ts's denied-branch audit write.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "ticket",
+            resourceId: id,
+            action: "comment.access_denied",
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, instanceId: id },
+          "third-party comment: denied-attempt audit write failed",
+        );
+      }
       return notFound(c);
     }
 
     // ADR-012 Phase G, spec R3/R4/R5 -- everything from here down (attachment
-    // binding, the comment insert, its outbox write, mention enqueue) is the
-    // actual mutating action idempotency protects. A cache-hit replay skips
-    // all of it, including the fire-and-forget side effects, since they
-    // already ran on the original request.
+    // binding, the comment insert + its audit entry, the outbox write,
+    // mention enqueue) is the actual mutating action idempotency protects. A
+    // cache-hit replay skips all of it, including the fire-and-forget side
+    // effects and the audit write, since they already ran on the original
+    // request.
     const response = await withIdempotency(
-      { tenantId, apiKeyId, actingPersonId, idempotencyKey },
+      {
+        tenantId,
+        apiKeyId: applicationActorId,
+        actingPersonId,
+        idempotencyKey,
+      },
       { ticketId: id, text, mentions, attachmentIds },
       async () => {
         // Validate + bind attachment references BEFORE creating the comment
@@ -147,6 +176,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
               id,
               attachmentIds,
               actingPersonId,
+              applicationActorId,
             ),
           );
         } catch (err) {
@@ -161,8 +191,8 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
         // admin_audit_log's Phase B additions) is what makes this comment
         // attributable to app+person for the ticket timeline (spec R10); the
         // timeline UI's own app-tag/person-name rendering is T7a, not this task.
-        const [event] = await withTenantContext(tenantId, (tx) =>
-          tx
+        const [event] = await withTenantContext(tenantId, async (tx) => {
+          const [inserted] = await tx
             .insert(workflowEvents)
             .values({
               tenantId,
@@ -180,8 +210,21 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
                 actingPersonId,
               },
             })
-            .returning(),
-        );
+            .returning();
+          if (inserted) {
+            await writeAuditEntry(tx, {
+              tenantId,
+              actorId: applicationActorId,
+              actorType: "api_key",
+              actingPersonId,
+              resourceType: "ticket",
+              resourceId: id,
+              action: "comment.created",
+              metadata: { eventId: inserted.id },
+            });
+          }
+          return [inserted];
+        });
 
         if (!event) {
           return {

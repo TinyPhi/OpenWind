@@ -173,6 +173,18 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// ── Notifications mock ───────────────────────────────────────────────────────
+
+const misuseAlertCalls: Array<{ reason: string; context: unknown }> = [];
+vi.mock("@platform/notifications", () => ({
+  fireMisuseAlert: vi.fn(
+    (_tx: unknown, _tenantId: string, reason: string, context: unknown) => {
+      misuseAlertCalls.push({ reason, context });
+      return Promise.resolve();
+    },
+  ),
+}));
+
 vi.mock("./queues.js", () => ({ connection: {} }));
 
 const { stopMentionResolutionWorker } =
@@ -223,6 +235,7 @@ beforeEach(() => {
   updateCalls.length = 0;
   auditEntries.length = 0;
   emitAccessEventCalls.length = 0;
+  misuseAlertCalls.length = 0;
   onConflictReturning = [{ id: "req-1" }];
   mockOrgUsers = [
     {
@@ -399,6 +412,12 @@ describe("mention-resolution-worker", () => {
     expect(auditEntries).toEqual([
       expect.objectContaining({ action: "tag.misuse_rate_capped" }),
     ]);
+    // ADR-012 Phase F, spec R4 trigger 3 -- fires through the same
+    // fireMisuseAlert channel as triggers 1/2.
+    expect(misuseAlertCalls).toHaveLength(1);
+    expect(misuseAlertCalls[0]?.context).toEqual(
+      expect.objectContaining({ trigger: "tagging_grant_cap" }),
+    );
   });
 
   it("ticket not found: returns early, no audit entry written", async () => {

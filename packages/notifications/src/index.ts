@@ -24,6 +24,7 @@ import type { NotificationPreferences } from "./preferences.js";
 
 export { NotificationError } from "./errors.js";
 export type { NotificationPreferences } from "./preferences.js";
+export { fireMisuseAlert } from "./misuse-alert.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

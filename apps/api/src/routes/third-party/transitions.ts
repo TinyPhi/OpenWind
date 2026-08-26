@@ -12,6 +12,7 @@ import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { withIdempotency } from "../../lib/idempotency.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -83,7 +84,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
   zValidator("json", ExecuteThirdPartyTransitionSchema),
   async (c) => {
     const instanceId = c.req.param("id") ?? "";
-    const { tenantId, userId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     // `idempotencyKey` here is the pre-existing, narrower body field that
     // feeds workflow-engine's own event-dedup column
@@ -92,7 +93,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
     // idempotency.ts), which caches the whole HTTP response.
     const { transitionId, comment, idempotencyKey, metadata } =
       c.req.valid("json");
-    const apiKeyId = userId.slice("apikey:".length);
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
     const idempotencyHeaderKey = c.req.header("Idempotency-Key");
 
     let instance;
@@ -118,7 +119,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
         await withTenantContext(tenantId, (tx) =>
           writeAuditEntry(tx, {
             tenantId,
-            actorId: actingPersonId,
+            actorId: applicationActorId,
             actorType: "api_key",
             actingPersonId,
             resourceType: "ticket",
@@ -139,7 +140,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
     const response = await withIdempotency(
       {
         tenantId,
-        apiKeyId,
+        apiKeyId: applicationActorId,
         actingPersonId,
         idempotencyKey: idempotencyHeaderKey,
       },
@@ -174,7 +175,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
             const result = await executeTransition(tx, tenantId, request);
             await writeAuditEntry(tx, {
               tenantId,
-              actorId: actingPersonId,
+              actorId: applicationActorId,
               actorType: "api_key",
               actingPersonId,
               resourceType: "ticket",

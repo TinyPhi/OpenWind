@@ -7,7 +7,7 @@ Branch: `feat/third-party-api-phase-g-idempotency` (based on
 
 ## Done
 
-- **T6** — `idempotency_keys` table (migration `0081_idempotency_keys.sql`,
+- **T6** — `idempotency_keys` table (migration `0082_idempotency_keys.sql`,
   unique on `tenant_id, api_key_id, acting_person_id, idempotency_key`, RLS
   - explicit tenant filters, `SELECT/INSERT/DELETE` grants only — rows are
     never updated). RFC 8785 JSON Canonicalization Scheme content-hash helper

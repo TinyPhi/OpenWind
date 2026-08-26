@@ -49,7 +49,7 @@ read path cached in-process, 5s TTL (packages/auth/src/tenant-rate-limit.ts) -- 
 
 PATCH /admin/tenants/:id/rate-limit  { ratePerMin: number | null }   -- admin-editable, superadmin only
 
--- Idempotency (implemented: packages/db/migrations/0081_idempotency_keys.sql)
+-- Idempotency (implemented: packages/db/migrations/0082_idempotency_keys.sql)
 idempotency_keys: (id, tenant_id, api_key_id, acting_person_id, idempotency_key,
                     content_hash, response_status, response_body, created_at, expires_at)
   unique (tenant_id, api_key_id, acting_person_id, idempotency_key)

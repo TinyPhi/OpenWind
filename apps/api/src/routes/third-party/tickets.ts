@@ -17,6 +17,7 @@ import {
 import { notFound } from "./not-found.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
 import { withIdempotency } from "../../lib/idempotency.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -127,10 +128,10 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
   requireTicketScope("create"),
   zValidator("json", CreateThirdPartyTicketSchema),
   async (c) => {
-    const { tenantId, userId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const input = c.req.valid("json");
-    const apiKeyId = userId.slice("apikey:".length);
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
     const idempotencyKey = c.req.header("Idempotency-Key");
 
     const fieldsCheck = validateFieldsPayload(input.fields);
@@ -150,7 +151,12 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
     // request that already 422'd above re-validates fresh rather than
     // replaying a cached failure forever under the same key.
     const response = await withIdempotency(
-      { tenantId, apiKeyId, actingPersonId, idempotencyKey },
+      {
+        tenantId,
+        apiKeyId: applicationActorId,
+        actingPersonId,
+        idempotencyKey,
+      },
       {
         workflowId: input.workflowId,
         fields: input.fields,
@@ -183,6 +189,7 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               created.id,
               input.attachmentIds,
               actingPersonId,
+              applicationActorId,
             );
             return created;
           });

@@ -42,6 +42,7 @@ import {
 } from "@platform/auth";
 import { hasEntityAccess, emitAccessEvent } from "@platform/workflow-engine";
 import { writeAuditEntry } from "@platform/audit";
+import { fireMisuseAlert } from "@platform/notifications";
 import { checkRateLimit, getRedis } from "@platform/redis";
 import { logger } from "@platform/logger";
 import { connection } from "./queues.js";
@@ -279,8 +280,14 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
     );
 
     if (!rateLimit.allowed) {
-      await withTenantContext(tenantId, (tx) =>
-        writeAuditEntry(tx, {
+      // ADR-012 Phase F, spec R4 trigger 3 -- fires through the same
+      // fireMisuseAlert channel as triggers 1/2 (apps/api/src/lib/
+      // misuse-alerts.ts), not a separate mechanism. Naturally one-shot: this
+      // branch itself already only runs once per cap-hit per
+      // AUTO_GRANT_RATE_WINDOW_SECONDS (checkRateLimit's own window), so no
+      // extra dedup bookkeeping is needed here.
+      await withTenantContext(tenantId, async (tx) => {
+        await writeAuditEntry(tx, {
           tenantId,
           actorId: actingPersonId,
           actorType: "api_key",
@@ -289,8 +296,19 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
           resourceId: ticketId,
           action: "tag.misuse_rate_capped",
           metadata: { commentId, mentionIdentifier, grantedUserId },
-        }),
-      );
+        });
+        await fireMisuseAlert(
+          tx,
+          tenantId,
+          `Ticket ${ticketId} hit its tagging-driven auto-grant rate cap (${AUTO_GRANT_RATE_LIMIT} per ${AUTO_GRANT_RATE_WINDOW_SECONDS}s)`,
+          {
+            source: "third-party-api-misuse",
+            trigger: "tagging_grant_cap",
+            ticketId,
+            actingPersonId,
+          },
+        );
+      });
       return;
     }
 
