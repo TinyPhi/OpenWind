@@ -10,6 +10,9 @@ import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
 import { notFound } from "./not-found.js";
+import { writeAuditEntry } from "@platform/audit";
+import { logger } from "@platform/logger";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 const CreateThirdPartyChildSchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -47,9 +50,10 @@ export const createThirdPartyChildHandler = factory.createHandlers(
   zValidator("json", CreateThirdPartyChildSchema),
   async (c) => {
     const parentId = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const input = c.req.valid("json");
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     const fieldsCheck = validateFieldsPayload(input.fields);
     if (!fieldsCheck.ok) {
@@ -98,12 +102,33 @@ export const createThirdPartyChildHandler = factory.createHandlers(
       hasEntityAccess(tx, tenantId, parent, actingPersonId, []),
     );
     if (!allowed) {
+      // Best-effort: nothing has mutated yet on this path, so a failure here
+      // must never turn a correct 404 denial into a 500 -- same pattern as
+      // transitions.ts's denied-branch audit write.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "ticket",
+            resourceId: parentId,
+            action: "child.access_denied",
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, parentId },
+          "third-party sub-ticket create: denied-attempt audit write failed",
+        );
+      }
       return notFound(c);
     }
 
     try {
-      const result = await withTenantContext(tenantId, (tx) =>
-        createChildRelation(tx, tenantId, {
+      const result = await withTenantContext(tenantId, async (tx) => {
+        const created = await createChildRelation(tx, tenantId, {
           parentId,
           entityTypeId: input.entityTypeId,
           childFields: input.fields,
@@ -112,8 +137,19 @@ export const createThirdPartyChildHandler = factory.createHandlers(
           actorType: "api_key",
           actingPersonId,
           maxAncestorDepth: 1,
-        }),
-      );
+        });
+        await writeAuditEntry(tx, {
+          tenantId,
+          actorId: applicationActorId,
+          actorType: "api_key",
+          actingPersonId,
+          resourceType: "ticket",
+          resourceId: created.instance.id,
+          action: "child.created",
+          metadata: { parentId },
+        });
+        return created;
+      });
       return c.json({ data: result.instance }, 201);
     } catch (err) {
       if (

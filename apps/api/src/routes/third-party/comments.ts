@@ -9,6 +9,8 @@ import {
   outboxEvents,
 } from "@platform/db";
 import { logger } from "@platform/logger";
+import { writeAuditEntry } from "@platform/audit";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
@@ -69,9 +71,10 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
   zValidator("json", CreateThirdPartyCommentSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId, orgId } = c.get("auth");
+    const { tenantId, orgId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const { text, mentions, attachmentIds } = c.req.valid("json");
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     const [instance] = await withTenantContext(tenantId, (tx) =>
       tx
@@ -113,6 +116,27 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
       return notFound(c);
     }
     if (!allowed) {
+      // Best-effort: nothing has mutated yet on this path, so a failure here
+      // must never turn a correct 404 denial into a 500 -- same pattern as
+      // transitions.ts's denied-branch audit write.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "ticket",
+            resourceId: id,
+            action: "comment.access_denied",
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, instanceId: id },
+          "third-party comment: denied-attempt audit write failed",
+        );
+      }
       return notFound(c);
     }
 
@@ -128,7 +152,14 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     // retried request safely re-bind to the same ticket.
     try {
       await withTenantContext(tenantId, (tx) =>
-        referenceAttachments(tx, tenantId, id, attachmentIds, actingPersonId),
+        referenceAttachments(
+          tx,
+          tenantId,
+          id,
+          attachmentIds,
+          actingPersonId,
+          applicationActorId,
+        ),
       );
     } catch (err) {
       if (err instanceof AttachmentReferenceError) {
@@ -142,8 +173,8 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     // admin_audit_log's Phase B additions) is what makes this comment
     // attributable to app+person for the ticket timeline (spec R10); the
     // timeline UI's own app-tag/person-name rendering is T7a, not this task.
-    const [event] = await withTenantContext(tenantId, (tx) =>
-      tx
+    const [event] = await withTenantContext(tenantId, async (tx) => {
+      const [inserted] = await tx
         .insert(workflowEvents)
         .values({
           tenantId,
@@ -161,8 +192,21 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
             actingPersonId,
           },
         })
-        .returning(),
-    );
+        .returning();
+      if (inserted) {
+        await writeAuditEntry(tx, {
+          tenantId,
+          actorId: applicationActorId,
+          actorType: "api_key",
+          actingPersonId,
+          resourceType: "ticket",
+          resourceId: id,
+          action: "comment.created",
+          metadata: { eventId: inserted.id },
+        });
+      }
+      return [inserted];
+    });
 
     if (!event) {
       return c.json(

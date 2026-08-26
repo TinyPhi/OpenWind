@@ -15,6 +15,7 @@ import {
   MAX_ATTACHMENTS_PER_TICKET,
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -113,9 +114,10 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
   requireTicketScope("create"),
   zValidator("json", CreateThirdPartyTicketSchema),
   async (c) => {
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const input = c.req.valid("json");
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     const fieldsCheck = validateFieldsPayload(input.fields);
     if (!fieldsCheck.ok) {
@@ -154,6 +156,7 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           created.id,
           input.attachmentIds,
           actingPersonId,
+          applicationActorId,
         );
         return created;
       });

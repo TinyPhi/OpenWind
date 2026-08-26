@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AuthContext } from "@platform/auth";
 import { getAuditLogHandler } from "./audit.js";
+import { getThirdPartyAccessLogsHandler } from "./third-party-access-logs.js";
 import { getSystemLogsHandler } from "./system-logs.js";
 import {
   getViewConfigHandler,
@@ -22,6 +23,7 @@ import {
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
 router.get("/audit", ...getAuditLogHandler);
+router.get("/third-party-access-logs", ...getThirdPartyAccessLogsHandler);
 router.get("/system-logs", ...getSystemLogsHandler);
 router.get("/view-configs/:entityType", ...getViewConfigHandler);
 router.patch("/view-configs/:entityType", ...updateViewConfigHandler);
