@@ -10,10 +10,7 @@ import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
 import { notFound } from "./not-found.js";
-import {
-  withIdempotency,
-  type IdempotencyStatus,
-} from "../../lib/idempotency.js";
+import { withIdempotency, isIdempotencyStatus } from "../../lib/idempotency.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
@@ -187,7 +184,9 @@ export const createThirdPartyChildHandler = factory.createHandlers(
           }
           const errResponse = handleEntityError(c, err);
           return {
-            status: errResponse.status as IdempotencyStatus,
+            status: isIdempotencyStatus(errResponse.status)
+              ? errResponse.status
+              : 500,
             body: (await errResponse.json()) as unknown,
           };
         }

@@ -21,6 +21,8 @@ import {
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
+import { getRedis } from "@platform/redis";
+import { RELEASE_LOCK_LUA_SCRIPT } from "../../src/lib/idempotency.js";
 
 const TENANT = "eeff0011-1111-4000-e000-000000000f02";
 const CREATOR = "idempotency-test-creator";
@@ -262,5 +264,29 @@ describe("Phase G, spec R5 — concurrent in-flight lock", () => {
       const bodyB = (await b.json()) as { data: { id: string } };
       expect(bodyA.data.id).toBe(bodyB.data.id);
     }
+  });
+});
+
+describe("Phase G, spec R5 — stale-lock deletion prevention (Lua script CAS)", () => {
+  it("only deletes the lock if the value matches the owner's token", async () => {
+    const redis = getRedis();
+    const key = `test:lock:${Date.now()}`;
+    const tokenA = "token-owner-a";
+    const tokenB = "token-owner-b";
+
+    // 1. Manually set a lock key with token A via redis.set
+    await redis.set(key, tokenA, "PX", 30000);
+
+    // 2. Call the release script with token B — asserts key still exists (eval returns 0)
+    const resultB = await redis.eval(RELEASE_LOCK_LUA_SCRIPT, 1, key, tokenB);
+    expect(Number(resultB)).toBe(0);
+    const valueAfterB = await redis.get(key);
+    expect(valueAfterB).toBe(tokenA);
+
+    // 3. Call the release script with token A — asserts key is gone (eval returns 1)
+    const resultA = await redis.eval(RELEASE_LOCK_LUA_SCRIPT, 1, key, tokenA);
+    expect(Number(resultA)).toBe(1);
+    const valueAfterA = await redis.get(key);
+    expect(valueAfterA).toBeNull();
   });
 });

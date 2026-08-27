@@ -22,10 +22,7 @@ import {
   MAX_ATTACHMENTS_PER_TICKET,
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
-import {
-  withIdempotency,
-  type IdempotencyStatus,
-} from "../../lib/idempotency.js";
+import { withIdempotency, isIdempotencyStatus } from "../../lib/idempotency.js";
 
 // Same forbidden-char set as validate-fields-payload.ts (ADR-012 Phase B,
 // R11) — null byte/control-character rejection at ingress, ahead of any
@@ -184,7 +181,10 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
           );
         } catch (err) {
           if (err instanceof AttachmentReferenceError) {
-            return { status: err.status as IdempotencyStatus, body: err.body };
+            return {
+              status: isIdempotencyStatus(err.status) ? err.status : 500,
+              body: err.body,
+            };
           }
           throw err;
         }

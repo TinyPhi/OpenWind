@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { logger } from "@platform/logger";
 
 vi.mock("@platform/logger", () => ({
-  logger: { warn: vi.fn() },
+  logger: { warn: vi.fn(), error: vi.fn() },
 }));
 
 const mockRedisSet = vi.fn();
@@ -65,7 +66,7 @@ vi.mock("drizzle-orm", () => ({
   lte: vi.fn((col, val) => ({ col, val, op: "lte" })),
 }));
 
-const { computeContentHash, withIdempotency } =
+const { computeContentHash, withIdempotency, RELEASE_LOCK_LUA_SCRIPT } =
   await import("./idempotency.js");
 
 describe("computeContentHash", () => {
@@ -97,6 +98,7 @@ describe("withIdempotency", () => {
     mockRedisEval.mockReset();
     mockInsertValues.mockReset();
     mockDelete.mockClear();
+    vi.mocked(logger.warn).mockClear();
   });
 
   it("runs execute() directly with no db/redis calls when no idempotency key is given", async () => {
@@ -264,11 +266,24 @@ describe("withIdempotency", () => {
     const evalKey = evalArgs?.[2];
     const evalToken = evalArgs?.[3];
 
-    expect(script).toContain('redis.call("get", KEYS[1]) == ARGV[1]');
+    expect(script).toBe(RELEASE_LOCK_LUA_SCRIPT);
     expect(numKeys).toBe(1);
     expect(evalKey).toBe(lockKey);
     expect(evalToken).toBe(lockToken);
     expect(typeof lockToken).toBe("string");
     expect(lockToken).toHaveLength(36); // UUID length
+  });
+
+  it("resolves normally and logs no warnings when redis.eval returns 0 (lock already expired/stale)", async () => {
+    mockRedisSet.mockResolvedValue("OK");
+    mockRedisEval.mockResolvedValue(0);
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    await expect(
+      withIdempotency({ ...scope, idempotencyKey: "key-1" }, content, execute),
+    ).resolves.not.toThrow();
+
+    expect(mockRedisEval).toHaveBeenCalledTimes(1);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });

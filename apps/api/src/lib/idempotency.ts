@@ -50,6 +50,14 @@ const LOCK_RETRY_AFTER_SECONDS = 1;
 // growth vector against a table with no separate size cap of its own.
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 
+export const RELEASE_LOCK_LUA_SCRIPT = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+  else
+    return 0
+  end
+`;
+
 export type IdempotencyStatus =
   | 200
   | 201
@@ -62,11 +70,30 @@ export type IdempotencyStatus =
   | 429
   | 500;
 
+export function isIdempotencyStatus(
+  status: number,
+): status is IdempotencyStatus {
+  return [200, 201, 400, 401, 403, 404, 409, 422, 429, 500].includes(status);
+}
+
 export interface IdempotencyResponse {
   status: IdempotencyStatus;
   body: unknown;
   headers?: Record<string, string>;
-  skipCache?: boolean;
+  /**
+   * Set to `true` to prevent this response from being written to the 24-hour
+   * result cache (stored in the `idempotency_keys` database table).
+   *
+   * **CRITICAL**: Use this only for transient/temporary errors (such as
+   * concurrent database lock timeouts or temporary rate limits). If a transient
+   * error response is cached without setting `doNotCache: true`, every subsequent
+   * retry with the same idempotency key will replay the error response for 24h,
+   * blocking successful execution.
+   *
+   * See `apps/api/src/routes/third-party/transitions.ts` (the 55P03 lock conflict
+   * block) for the canonical example.
+   */
+  doNotCache?: boolean;
 }
 
 export interface IdempotencyScope {
@@ -155,8 +182,22 @@ export async function withIdempotency(
     const [row] = rows;
     if (!row) return null;
     if (row.contentHash === contentHash) {
+      const status = row.responseStatus;
+      if (!isIdempotencyStatus(status)) {
+        logger.error(
+          { status, tenantId, applicationActorId },
+          "idempotency: cached status code in database is not a valid IdempotencyStatus",
+        );
+        return {
+          status: 500,
+          body: {
+            error: "INTERNAL_ERROR",
+            message: "Cached response has invalid status code",
+          },
+        };
+      }
       return {
-        status: row.responseStatus as IdempotencyStatus,
+        status,
         body: row.responseBody,
       };
     }
@@ -177,7 +218,7 @@ export async function withIdempotency(
 
   const executeAndCache = async (): Promise<IdempotencyResponse> => {
     const response = await execute();
-    if (response.skipCache) {
+    if (response.doNotCache) {
       return response;
     }
     try {
@@ -278,14 +319,7 @@ export async function withIdempotency(
     return await executeAndCache();
   } finally {
     try {
-      const releaseScript = `
-        if redis.call("get", KEYS[1]) == ARGV[1] then
-          return redis.call("del", KEYS[1])
-        else
-          return 0
-        end
-      `;
-      await redis.eval(releaseScript, 1, key, lockToken);
+      await redis.eval(RELEASE_LOCK_LUA_SCRIPT, 1, key, lockToken);
     } catch (releaseErr) {
       logger.warn(
         { releaseErr, tenantId },
