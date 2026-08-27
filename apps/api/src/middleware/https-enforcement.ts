@@ -26,10 +26,9 @@ export const httpsEnforcement = (): ReturnType<typeof createMiddleware> =>
     if (env.NODE_ENV === "production") {
       const proto = c.req.header("x-forwarded-proto");
       if (proto && proto !== "https") {
-        return c.json(
-          { error: "HTTPS_REQUIRED", message: "HTTPS is required" },
-          400,
-        );
+        const url = new URL(c.req.url);
+        url.protocol = "https:";
+        return c.redirect(url.toString(), 301);
       }
     }
     await next();

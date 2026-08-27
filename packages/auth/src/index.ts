@@ -50,3 +50,4 @@ export {
   TICKET_ACTION_VERBS,
 } from "./scopes.js";
 export type { ScopesFormat, TicketActionVerb } from "./scopes.js";
+export { applicationActorIdFromUserId } from "./application-actor-id.js";

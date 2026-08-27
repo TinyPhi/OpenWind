@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { eq, and, isNull } from "drizzle-orm";
 import { requireAuth, requireActingPerson } from "@platform/auth";
-import { withTenantContext, db } from "@platform/db";
-import { getEntity } from "@platform/entity-engine";
+import { withTenantContext, db, entityInstances } from "@platform/db";
+import { getEntity, EntityError } from "@platform/entity-engine";
 import { executeTransition, WorkflowError } from "@platform/workflow-engine";
 import type { TransitionRequest } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
@@ -52,9 +53,19 @@ function isExistenceRevealingWorkflowError(err: unknown): boolean {
   );
 }
 
+// eslint-disable-next-line no-control-regex -- intentional: this IS the control-character check.
+const FORBIDDEN_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+
 const ExecuteThirdPartyTransitionSchema = z.object({
   transitionId: z.string().uuid(),
-  comment: z.string().optional(),
+  comment: z
+    .string()
+    .min(1)
+    .max(4000)
+    .refine((v) => !FORBIDDEN_CHAR_PATTERN.test(v), {
+      message: "comment contains a null byte or control character",
+    })
+    .optional(),
   idempotencyKey: z.string().min(1).max(255).optional(),
   metadata: z.record(z.unknown()).optional(),
 });
@@ -163,15 +174,25 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
             ...(metadata !== undefined && { metadata }),
           };
 
-          // executeTransition and its audit entry share the SAME transaction
-          // (security-reviewer finding) -- writeAuditEntry's own module doc
-          // requires this ("call inside the same transaction as the entity
-          // mutation"). Splitting them into separate withTenantContext calls
-          // would let the transition commit and then the audit write fail
-          // independently, producing a repudiation gap (a real state change
-          // with zero audit trail) and a misleading 500 for a request that
-          // actually succeeded.
           const event = await withTenantContext(tenantId, async (tx) => {
+            // T0. Lock the row immediately to prevent concurrent modification/TOCTOU
+            const [lockedInstance] = await tx
+              .select()
+              .from(entityInstances)
+              .where(
+                and(
+                  eq(entityInstances.id, instanceId),
+                  eq(entityInstances.tenantId, tenantId),
+                  isNull(entityInstances.deletedAt),
+                ),
+              )
+              .for("update", { noWait: true })
+              .limit(1);
+
+            if (!lockedInstance) {
+              throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
+            }
+
             const result = await executeTransition(tx, tenantId, request);
             await writeAuditEntry(tx, {
               tenantId,
@@ -188,7 +209,26 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
 
           return { status: 201, body: { data: event } };
         } catch (err) {
-          if (isExistenceRevealingWorkflowError(err)) {
+          const pgCode =
+            (err as { code?: unknown }).code ??
+            (err as { cause?: { code?: unknown } }).cause?.code;
+          if (pgCode === "55P03") {
+            const lockErr = new WorkflowError("TRANSITION_LOCKED", {
+              instanceId,
+            });
+            const errResponse = handleWorkflowError(c, lockErr);
+            const headers: Record<string, string> = {};
+            errResponse.headers.forEach((value, key) => {
+              headers[key] = value;
+            });
+            return {
+              status: errResponse.status,
+              body: (await errResponse.json()) as unknown,
+              headers,
+            };
+          }
+
+          if (isEntityNotFound(err) || isExistenceRevealingWorkflowError(err)) {
             return {
               status: 404,
               body: { error: "NOT_FOUND", message: "Record not found" },
@@ -202,6 +242,12 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
         }
       },
     );
+
+    if (response.headers) {
+      for (const [key, value] of Object.entries(response.headers)) {
+        c.header(key, value);
+      }
+    }
 
     return c.json(response.body as object, response.status as never);
   },

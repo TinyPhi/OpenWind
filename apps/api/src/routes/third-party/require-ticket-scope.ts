@@ -1,5 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import type { Context, Next, MiddlewareHandler } from "hono";
+import { env } from "@platform/config";
 import type {
   AuthContext,
   ActingPersonContext,
@@ -40,6 +41,9 @@ export const requireTicketScope = (verb: TicketActionVerb): MiddlewareHandler =>
   createMiddleware<Variables>(
     async (c: Context<Variables>, next: Next): Promise<Response | void> => {
       const { tenantId, roles: scopes, userId } = c.get("auth");
+      if (!userId.startsWith("apikey:")) {
+        return c.json({ error: "UNAUTHORIZED", message: "Invalid token" }, 401);
+      }
       const { userId: actingPersonId } = c.get("actingPerson");
       const applicationActorId = applicationActorIdFromUserId(userId);
 
@@ -48,6 +52,14 @@ export const requireTicketScope = (verb: TicketActionVerb): MiddlewareHandler =>
         applicationActorId,
         actingPersonId,
       );
+
+      c.header(
+        "x-ratelimit-key-person-limit",
+        String(env.RATE_LIMIT_API_KEY_PERSON_PER_MIN),
+      );
+      c.header("x-ratelimit-key-person-remaining", String(rateLimit.remaining));
+      c.header("x-ratelimit-key-person-reset", String(rateLimit.resetAt));
+
       if (!rateLimit.allowed) {
         return c.json(
           { error: "RATE_LIMITED", message: "Too many requests" },
