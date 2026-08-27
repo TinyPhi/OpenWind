@@ -261,9 +261,7 @@ export const idempotencyKeys = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id").notNull(),
-    apiKeyId: uuid("api_key_id")
-      .references((): AnyPgColumn => apiKeys.id, { onDelete: "cascade" })
-      .notNull(),
+    apiKeyId: uuid("api_key_id").notNull(),
     actingPersonId: text("acting_person_id").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     contentHash: text("content_hash").notNull(),
