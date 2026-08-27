@@ -325,6 +325,7 @@ export const adminAuditLog = pgTable(
       t.tenantId,
       t.createdAt,
     ),
+    createdAtIdx: index("admin_audit_log_created_at_idx").on(t.createdAt),
   }),
 );
 
