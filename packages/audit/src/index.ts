@@ -324,7 +324,7 @@ export async function anonymizeAuditLogForTenant(
   // Runtime assertion: ensure we are not running inside a tenant RLS transaction context
   try {
     const rlsContext = await db.execute<{ current_setting: string | null }>(
-      sql`SELECT current_setting('app.current_tenant_id', true) as current_setting`,
+      sql`SELECT current_setting('app.tenant_id', true) as current_setting`,
     );
     const tenantSetting = rlsContext[0]?.current_setting;
     if (tenantSetting) {
