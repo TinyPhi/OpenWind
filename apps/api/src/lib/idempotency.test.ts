@@ -6,10 +6,12 @@ vi.mock("@platform/logger", () => ({
 
 const mockRedisSet = vi.fn();
 const mockRedisDel = vi.fn();
+const mockRedisEval = vi.fn();
 vi.mock("@platform/redis", () => ({
   getRedis: vi.fn(() => ({
     set: (...args: unknown[]) => mockRedisSet(...args),
     del: (...args: unknown[]) => mockRedisDel(...args),
+    eval: (...args: unknown[]) => mockRedisEval(...args),
   })),
 }));
 
@@ -92,6 +94,7 @@ describe("withIdempotency", () => {
     mockCachedRow = undefined;
     mockRedisSet.mockReset();
     mockRedisDel.mockReset();
+    mockRedisEval.mockReset();
     mockInsertValues.mockReset();
     mockDelete.mockClear();
   });
@@ -184,7 +187,7 @@ describe("withIdempotency", () => {
         responseStatus: 201,
       }),
     );
-    expect(mockRedisDel).toHaveBeenCalled();
+    expect(mockRedisEval).toHaveBeenCalled();
     // Clears any stale-but-not-yet-swept expired row for this exact scope
     // before inserting, so an expired row can never make the fresh insert
     // silently no-op (onConflictDoNothing would otherwise keep serving it).
@@ -234,7 +237,38 @@ describe("withIdempotency", () => {
       withIdempotency({ ...scope, idempotencyKey: "key-1" }, content, execute),
     ).rejects.toThrow("boom");
 
-    expect(mockRedisDel).toHaveBeenCalled();
+    expect(mockRedisEval).toHaveBeenCalled();
     expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("releases the lock with the exact token generated at acquisition time", async () => {
+    mockRedisSet.mockResolvedValue("OK");
+    mockRedisEval.mockResolvedValue(1);
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    await withIdempotency(
+      { ...scope, idempotencyKey: "key-1" },
+      content,
+      execute,
+    );
+
+    expect(mockRedisSet).toHaveBeenCalledTimes(1);
+    const setArgs = mockRedisSet.mock.calls[0];
+    const lockKey = setArgs?.[0];
+    const lockToken = setArgs?.[1];
+
+    expect(mockRedisEval).toHaveBeenCalledTimes(1);
+    const evalArgs = mockRedisEval.mock.calls[0];
+    const script = evalArgs?.[0];
+    const numKeys = evalArgs?.[1];
+    const evalKey = evalArgs?.[2];
+    const evalToken = evalArgs?.[3];
+
+    expect(script).toContain('redis.call("get", KEYS[1]) == ARGV[1]');
+    expect(numKeys).toBe(1);
+    expect(evalKey).toBe(lockKey);
+    expect(evalToken).toBe(lockToken);
+    expect(typeof lockToken).toBe("string");
+    expect(lockToken).toHaveLength(36); // UUID length
   });
 });

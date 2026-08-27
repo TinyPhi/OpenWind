@@ -36,7 +36,7 @@
  * mention resolution, specifically).
  */
 import canonicalize from "canonicalize";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { eq, and, gt, lte } from "drizzle-orm";
 import { idempotencyKeys, withTenantContext } from "@platform/db";
 import { getRedis } from "@platform/redis";
@@ -220,9 +220,10 @@ export async function withIdempotency(
     actingPersonId,
     idempotencyKey,
   );
+  const lockToken = randomUUID();
   let acquired = false;
   try {
-    const result = await redis.set(key, "1", "PX", LOCK_TTL_MS, "NX");
+    const result = await redis.set(key, lockToken, "PX", LOCK_TTL_MS, "NX");
     acquired = result === "OK";
   } catch (err) {
     // Fails open, same philosophy as every other rate-limit/lock primitive
@@ -264,7 +265,14 @@ export async function withIdempotency(
     return await executeAndCache();
   } finally {
     try {
-      await redis.del(key);
+      const releaseScript = `
+        if redis.call("get", KEYS[1]) == ARGV[1] then
+          return redis.call("del", KEYS[1])
+        else
+          return 0
+        end
+      `;
+      await redis.eval(releaseScript, 1, key, lockToken);
     } catch (releaseErr) {
       logger.warn(
         { releaseErr, tenantId },
