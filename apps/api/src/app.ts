@@ -94,10 +94,10 @@ export function createApp(): Hono<AppVars> {
     }),
   );
 
-  app.use("*", httpsEnforcement());
-
   // 3. Correlation ID — must be early so all downstream logs carry the request ID
   app.use("*", correlationId());
+
+  app.use("*", httpsEnforcement());
   // 4. Hono request logger
   app.use("*", honoLogger());
   // 5. Rate limiter — before auth so unauthenticated flood is blocked cheaply
