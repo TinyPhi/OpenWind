@@ -41,7 +41,6 @@ function getJwks(): JwksGetter {
 // still valid. Config-driven (not hardcoded) so it stays reviewable/tunable
 // without a code change; startup warns if ever configured above 30 minutes
 // (see packages/config/src/env.ts).
-const MAX_TOKEN_AGE_SECONDS = env.JWT_MAX_TOKEN_AGE_SECONDS;
 
 async function verifyJwtAgainstAudience(
   token: string,
@@ -67,7 +66,7 @@ async function verifyJwtAgainstAudience(
         // deliberately does not, so a long-lived legitimate human session
         // isn't newly broken by a check aimed at third-party token freshness.
         ...(options?.enforceMaxTokenAge
-          ? { maxTokenAge: MAX_TOKEN_AGE_SECONDS }
+          ? { maxTokenAge: env.JWT_MAX_TOKEN_AGE_SECONDS }
           : {}),
       },
     );

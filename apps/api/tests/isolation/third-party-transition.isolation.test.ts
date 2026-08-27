@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray, eq, sql } from "drizzle-orm";
+import { inArray, eq, sql, and } from "drizzle-orm";
 import {
   db,
   tenants,
@@ -47,6 +47,7 @@ let adminOnlyTicketId: string;
 let grantedTicketId: string;
 let slaTestTicketId: string;
 let otherTenantTicketId: string;
+let invalidTransitionTicketId: string;
 
 const CREATOR = "third-party-transition-creator";
 const ASSIGNEE = "third-party-transition-assignee";
@@ -76,7 +77,12 @@ async function grantAccess(
         jsonb_build_object('level', to_jsonb(${level}::text), 'tag', 'mention')
       )`,
     })
-    .where(eq(entityInstances.id, ticketId));
+    .where(
+      and(
+        eq(entityInstances.id, ticketId),
+        eq(entityInstances.tenantId, TENANT),
+      ),
+    );
 }
 
 beforeAll(async () => {
@@ -201,6 +207,16 @@ beforeAll(async () => {
   });
   slaTestTicketId = slaTestTicket.id;
 
+  const invalidTransitionTicket = await createEntity(db, TENANT, {
+    entityTypeId: entityType.id,
+    fields: {},
+    createdBy: "someone-else",
+    assignedTo: ASSIGNEE,
+    workflowId,
+    currentState: "processing",
+  });
+  invalidTransitionTicketId = invalidTransitionTicket.id;
+
   const otherEntityType = await createEntityType(db, null, {
     name: `third_party_transition_other_test_${Date.now()}`,
     plural: "third_party_transition_other_tests",
@@ -263,11 +279,15 @@ async function postTransition(
   app: Hono<Vars>,
   ticketId: string,
   transitionId: string = openToProcessingId,
+  comment?: string,
 ) {
   return app.request(`/tickets/${ticketId}/transitions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ transitionId }),
+    body: JSON.stringify({
+      transitionId,
+      ...(comment !== undefined && { comment }),
+    }),
   });
 }
 
@@ -351,12 +371,14 @@ describe("POST /api/v1/tickets/:id/transitions", () => {
 
   it("rejects a transition not valid from the ticket's current state with the identical error a human caller would get (spec R1)", async () => {
     // processingToDoneId doesn't exist -- reuse openToProcessingId against a
-    // ticket already in "processing" (assigneeTicketId, transitioned by an
-    // earlier test): fromState mismatch triggers the engine's own
-    // TRANSITION_NOT_AVAILABLE, completely unmodified from what
-    // execute-transition.ts (the human-UI route) would also return.
+    // ticket already in "processing" (invalidTransitionTicketId, seeded in beforeAll):
+    // fromState mismatch triggers the engine's own TRANSITION_NOT_AVAILABLE.
     const app = makeApp(ASSIGNEE);
-    const res = await postTransition(app, assigneeTicketId, openToProcessingId);
+    const res = await postTransition(
+      app,
+      invalidTransitionTicketId,
+      openToProcessingId,
+    );
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("TRANSITION_NOT_AVAILABLE");
@@ -385,13 +407,43 @@ describe("POST /api/v1/tickets/:id/transitions", () => {
   });
 
   it("logs both allowed and denied attempts to admin_audit_log with app+person attribution (spec R3)", async () => {
+    // 1. Create dedicated tickets specifically for this audit log test to avoid cross-test dependencies
+    const auditAllowedTicket = await createEntity(db, TENANT, {
+      entityTypeId: entityType.id,
+      fields: {},
+      createdBy: CREATOR,
+      workflowId,
+      currentState: "open",
+    });
+
+    const auditDeniedTicket = await createEntity(db, TENANT, {
+      entityTypeId: entityType.id,
+      fields: {},
+      createdBy: "someone-else",
+      workflowId,
+      currentState: "open",
+    });
+    await grantAccess(
+      auditDeniedTicket.id,
+      GRANTED_READ_WRITE_PERSON,
+      "read_write",
+    );
+
+    // 2. Trigger transitions to generate the audit log rows
+    const allowedApp = makeApp(CREATOR);
+    await postTransition(allowedApp, auditAllowedTicket.id, openToProcessingId);
+
+    const deniedApp = makeApp(GRANTED_READ_WRITE_PERSON);
+    await postTransition(deniedApp, auditDeniedTicket.id, openToProcessingId);
+
+    // 3. Assert the audit log rows
     const allowedRows = await db
       .select()
       .from(adminAuditLog)
       .where(
-        sql`${adminAuditLog.tenantId} = ${TENANT} AND ${adminAuditLog.action} = 'transition.executed' AND ${adminAuditLog.resourceId} = ${creatorTicketId}`,
+        sql`${adminAuditLog.tenantId} = ${TENANT} AND ${adminAuditLog.action} = 'transition.executed' AND ${adminAuditLog.resourceId} = ${auditAllowedTicket.id}`,
       );
-    expect(allowedRows.length).toBeGreaterThanOrEqual(1);
+    expect(allowedRows.length).toBe(1);
     expect(allowedRows[0]?.actorType).toBe("api_key");
     expect(allowedRows[0]?.actingPersonId).toBe(CREATOR);
     // spec AC6 -- actorId is the API key's own id (parsed from auth.userId's
@@ -405,9 +457,9 @@ describe("POST /api/v1/tickets/:id/transitions", () => {
       .select()
       .from(adminAuditLog)
       .where(
-        sql`${adminAuditLog.tenantId} = ${TENANT} AND ${adminAuditLog.action} = 'transition.access_denied' AND ${adminAuditLog.resourceId} = ${grantedTicketId}`,
+        sql`${adminAuditLog.tenantId} = ${TENANT} AND ${adminAuditLog.action} = 'transition.access_denied' AND ${adminAuditLog.resourceId} = ${auditDeniedTicket.id}`,
       );
-    expect(deniedRows.length).toBeGreaterThanOrEqual(1);
+    expect(deniedRows.length).toBe(1);
     expect(deniedRows[0]?.actingPersonId).toBe(GRANTED_READ_WRITE_PERSON);
   });
 
@@ -459,5 +511,99 @@ describe("POST /api/v1/tickets/:id/transitions", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: string; message: string };
     expect(body).toEqual({ error: "NOT_FOUND", message: "Record not found" });
+  });
+
+  it("returns 409 with Retry-After when the ticket is locked by another transaction (F-02)", async () => {
+    const app = makeApp(CREATOR);
+    try {
+      await db.transaction(async (tx) => {
+        await tx
+          .select()
+          .from(entityInstances)
+          .where(eq(entityInstances.id, creatorTicketId))
+          .for("update", { noWait: true });
+
+        const res = await postTransition(app, creatorTicketId);
+        expect(res.status).toBe(409);
+        expect(res.headers.get("retry-after")).toBe("5");
+        const body = (await res.json()) as { error: string; message: string };
+        expect(body.error).toBe("TRANSITION_LOCKED");
+        expect(body.message).toContain("Another transition is in progress");
+
+        throw new Error("ROLLBACK");
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === "ROLLBACK") {
+        // expected rollback
+      } else {
+        throw err;
+      }
+    }
+  });
+
+  it("rejects invalid comments containing control chars or being empty (F-04)", async () => {
+    const app = makeApp(CREATOR);
+    const commentTicket = await createEntity(db, TENANT, {
+      entityTypeId: entityType.id,
+      fields: {},
+      createdBy: CREATOR,
+      workflowId,
+      currentState: "open",
+    });
+
+    // 1. Reject empty-string comment
+    const resEmpty = await postTransition(
+      app,
+      commentTicket.id,
+      openToProcessingId,
+      "",
+    );
+    expect(resEmpty.status).toBe(400);
+
+    // 2. Reject comment with null byte / control character
+    const resCtrl = await postTransition(
+      app,
+      commentTicket.id,
+      openToProcessingId,
+      "invalid comment\x00",
+    );
+    expect(resCtrl.status).toBe(400);
+
+    // 3. Accept valid comment
+    const resValid = await postTransition(
+      app,
+      commentTicket.id,
+      openToProcessingId,
+      "Valid comment",
+    );
+    expect(resValid.status).toBe(201);
+  });
+
+  it("rejects request if userId does not start with apikey: prefix (#496)", async () => {
+    const app = new Hono<Vars>();
+    app.use("*", async (c, next) => {
+      c.set("auth", {
+        userId: "user-jwt-token-id-12345",
+        tenantId: TENANT,
+        roles: ["entity:ticket:transition"],
+        email: "",
+        displayName: "User",
+        orgId: "org-hhh",
+      });
+      c.set("actingPerson", {
+        userId: CREATOR,
+        email: `${CREATOR}@example.com`,
+        displayName: CREATOR,
+        orgId: "org-hhh",
+      });
+      await next();
+    });
+    app.post("/tickets/:id/transitions", ...executeThirdPartyTransitionHandler);
+
+    const res = await postTransition(app, creatorTicketId);
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("UNAUTHORIZED");
+    expect(body.message).toBe("Invalid token");
   });
 });

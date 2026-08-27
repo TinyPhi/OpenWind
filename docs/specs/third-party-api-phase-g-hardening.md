@@ -6,13 +6,18 @@
 status: draft
 created: 2026-08-26
 updated: 2026-08-26 (Phase 2 implementation done: T6-T7 marked done — idempotency_keys table,
-RFC 8785 content-hash via the `canonicalize` package, 30s Redis in-flight lock + 24h result
-cache, wired into create/comment/sub-ticket/transition third-party routes; Phase 1
-implementation done before that: T1-T5 all marked done, T2's §I interface sketch corrected to
-reflect the actual implementation — tenants.config JSONB key, not a new column; spec-review
-pass before that: quantified R1/R2's rate-limit numbers and cache-staleness bound, added R10
-for idempotency-cache tenant-purge coverage, renumbered R10-R12 to R11-R13, added 2
-invariants, added T10 and clarified T2/T3's scope)
+optional override value)
+tenants.config.rate_limit_per_min: number, optional (absent = platform default, env RATE_LIMIT_TENANT_PER_MIN)
+read path cached in-process, 5s TTL (packages/auth/src/tenant-rate-limit.ts) -- satisfies R2's "within 5s"
+
+PATCH /admin/tenants/:id/rate-limit { ratePerMin: number | null } -- admin-editable, superadmin only
+
+-- Idempotency (implemented: packages/db/migrations/0082_idempotency_keys.sql)
+idempotency_keys: (id, tenant_id, api_key_id, acting_person_id, idempotency_key,
+content_hash, response_status, response_body, created_at, expires_at)
+unique (tenant_id, api_key_id, acting_person_id, idempotency_key)
+-- content_hash: RFC 8785 JCS via the `canonicalize` npm package (reference
+-- implementation), sha256 hex -- apps/api/src/lib/idempotency.ts
 
 ---
 

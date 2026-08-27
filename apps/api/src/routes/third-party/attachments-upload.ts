@@ -9,6 +9,8 @@ import { factory } from "./factory.js";
 import { connection } from "../../lib/redis.js";
 import { hashUploadToken } from "./attachments-presign.js";
 import { enforceKeyPersonRateLimit } from "../../lib/rate-limit-tiers.js";
+import { env } from "@platform/config";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 const UploadQuerySchema = z.object({
   token: z.string().min(1),
@@ -46,12 +48,20 @@ export const uploadAttachmentHandler = factory.createHandlers(
     // requireTicketScope (upload is presign-token-gated, not scope-gated),
     // so the per-(key,person) rate-limit tier has to be enforced directly
     // here instead of inheriting it from that middleware.
-    const applicationActorId = authUserId.slice("apikey:".length);
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
     const rateLimit = await enforceKeyPersonRateLimit(
       tenantId,
       applicationActorId,
       actingPersonId,
     );
+
+    c.header(
+      "x-ratelimit-key-person-limit",
+      String(env.RATE_LIMIT_API_KEY_PERSON_PER_MIN),
+    );
+    c.header("x-ratelimit-key-person-remaining", String(rateLimit.remaining));
+    c.header("x-ratelimit-key-person-reset", String(rateLimit.resetAt));
+
     if (!rateLimit.allowed) {
       return c.json(
         { error: "RATE_LIMITED", message: "Too many requests" },

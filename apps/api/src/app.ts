@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger as honoLogger } from "hono/logger";
 import { env } from "@platform/config";
+import { logger } from "@platform/logger";
 import { requireAuth, requireRole } from "@platform/auth";
 import type { AuthContext } from "@platform/auth";
 import { correlationId } from "./middleware/correlation-id.js";
@@ -56,11 +57,16 @@ type AppVars = { Variables: { auth: AuthContext; requestId: string } };
 export function createApp(): Hono<AppVars> {
   const app = new Hono<AppVars>();
 
-  // Middleware order matters:
-  // 1. HTTPS enforcement — earliest possible check, production-only
-  app.use("*", httpsEnforcement());
+  // ADR-012 Phase G, spec R6 — a startup sanity warning, not a hard failure:
+  if (env.JWT_MAX_TOKEN_AGE_SECONDS > 30 * 60) {
+    logger.warn(
+      { jwtMaxTokenAgeSeconds: env.JWT_MAX_TOKEN_AGE_SECONDS },
+      "JWT_MAX_TOKEN_AGE_SECONDS is set to a value (>30min) that weakens the third-party acting-person token-freshness check",
+    );
+  }
 
-  // 2. CORS — before everything else so preflight OPTIONS requests are handled immediately
+  // Middleware order matters:
+  // 1. CORS — before everything else so preflight OPTIONS requests are handled immediately
   const ALLOWED_ORIGINS =
     env.NODE_ENV === "production"
       ? [env.CORS_ORIGIN ?? ""].filter(Boolean)
@@ -87,8 +93,11 @@ export function createApp(): Hono<AppVars> {
       credentials: true,
     }),
   );
+
   // 3. Correlation ID — must be early so all downstream logs carry the request ID
   app.use("*", correlationId());
+
+  app.use("*", httpsEnforcement());
   // 4. Hono request logger
   app.use("*", honoLogger());
   // 5. Rate limiter — before auth so unauthenticated flood is blocked cheaply

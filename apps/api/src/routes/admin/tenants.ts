@@ -232,8 +232,15 @@ export const updateTenantRateLimitHandlers = factory.createHandlers(
   async (c) => {
     const { id } = c.req.valid("param");
     const { ratePerMin } = c.req.valid("json");
-    if (env.PLATFORM_ORG_ID && c.get("auth").tenantId !== env.PLATFORM_ORG_ID) {
-      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+    const authTenantId = c.get("auth").tenantId;
+    if (env.PLATFORM_ORG_ID) {
+      if (authTenantId !== env.PLATFORM_ORG_ID) {
+        return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+      }
+    } else {
+      if (authTenantId !== id) {
+        return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+      }
     }
 
     const [row] = await db

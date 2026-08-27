@@ -29,15 +29,14 @@ describe("httpsEnforcement", () => {
     expect(res.status).toBe(200);
   });
 
-  it("rejects an explicit http x-forwarded-proto in production", async () => {
+  it("redirects an explicit http x-forwarded-proto in production (F-04)", async () => {
     mockNodeEnv = "production";
     const app = makeApp();
-    const res = await app.request("/health", {
+    const res = await app.request("http://localhost/health", {
       headers: { "x-forwarded-proto": "http" },
     });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("HTTPS_REQUIRED");
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("https://localhost/health");
   });
 
   it("allows an explicit https x-forwarded-proto in production", async () => {
