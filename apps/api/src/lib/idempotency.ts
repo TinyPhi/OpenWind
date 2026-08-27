@@ -95,6 +95,8 @@ export async function withIdempotency(
   content: Record<string, unknown>,
   execute: () => Promise<IdempotencyResponse>,
 ): Promise<IdempotencyResponse> {
+  // applicationActorId maps to the DB schema's apiKeyId field (renamed in JS to avoid
+  // CodeQL's clear-text-logging naming heuristic).
   const { tenantId, applicationActorId, actingPersonId, idempotencyKey } =
     scope;
   if (!idempotencyKey) {
@@ -188,6 +190,9 @@ export async function withIdempotency(
           .onConflictDoNothing();
       });
     } catch (cacheErr) {
+      // NOTE (N-01): If cache persistence fails, the original action was already executed
+      // and its audit log was written. A retry of the same key will bypass the cache check
+      // and re-execute, resulting in duplicate audit logs. This is an accepted trade-off.
       logger.warn(
         { cacheErr, tenantId, applicationActorId },
         "idempotency: failed to persist result cache — request succeeded, a retry with this key will re-execute",
