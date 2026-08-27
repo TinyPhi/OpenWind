@@ -185,13 +185,29 @@ describe("anonymizeAuditLogForTenant", () => {
       return { where: mockUpdateWhere };
     },
   });
-  const mockPurgeDb = { update: mockUpdate };
 
-  beforeEach(() => vi.clearAllMocks());
+  // The implementation now does batched SELECT → UPDATE. Return one batch
+  // on the first call, empty on the second to terminate the loop.
+  let selectCallCount = 0;
+  const mockSelectLimit = vi.fn().mockImplementation(async () => {
+    selectCallCount++;
+    return selectCallCount === 1 ? [{ id: "row-1" }] : [];
+  });
+  const mockSelect = vi.fn().mockReturnValue({
+    from: () => ({ where: () => ({ limit: mockSelectLimit }) }),
+  });
 
-  it("issues a single UPDATE scoped to the tenant, replacing both person-identifying fields", async () => {
+  const mockPurgeDb = { update: mockUpdate, select: mockSelect };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    selectCallCount = 0;
+  });
+
+  it("issues batched UPDATEs scoped to the tenant, replacing both person-identifying fields", async () => {
     await anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a");
 
+    expect(mockSelect).toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: "admin_audit_log.tenant_id" }),
     );

@@ -140,7 +140,7 @@ describe("tenant-purge: admin_audit_log anonymization + idempotency_keys deletio
     expect(rows).toHaveLength(3);
 
     const userRow = rows.find((r) => r.id === userAuditRowId);
-    expect(userRow?.actorId).toBe("[purged]");
+    expect(userRow?.actorId).toBe("[REDACTED]");
     expect(userRow?.actorType).toBe("user");
     expect(userRow?.resourceType).toBe("ticket");
     expect(userRow?.resourceId).toBe(RESOURCE_ID);
@@ -150,7 +150,7 @@ describe("tenant-purge: admin_audit_log anonymization + idempotency_keys deletio
     // actorId on an api_key row is an application identity, not a person --
     // left untouched.
     expect(apiKeyRow?.actorId).toBe("11111111-1111-4111-1111-111111111111");
-    expect(apiKeyRow?.actingPersonId).toBe("[purged]");
+    expect(apiKeyRow?.actingPersonId).toBe("[REDACTED]");
     expect(apiKeyRow?.action).toBe("comment.created");
 
     const purgeCompletedRow = rows.find((r) => r.action === "purge.completed");
