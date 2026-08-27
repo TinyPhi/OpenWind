@@ -50,10 +50,23 @@ const LOCK_RETRY_AFTER_SECONDS = 1;
 // growth vector against a table with no separate size cap of its own.
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 
+export type IdempotencyStatus =
+  | 200
+  | 201
+  | 400
+  | 401
+  | 403
+  | 404
+  | 409
+  | 422
+  | 429
+  | 500;
+
 export interface IdempotencyResponse {
-  status: number;
+  status: IdempotencyStatus;
   body: unknown;
   headers?: Record<string, string>;
+  skipCache?: boolean;
 }
 
 export interface IdempotencyScope {
@@ -142,7 +155,10 @@ export async function withIdempotency(
     const [row] = rows;
     if (!row) return null;
     if (row.contentHash === contentHash) {
-      return { status: row.responseStatus, body: row.responseBody };
+      return {
+        status: row.responseStatus as IdempotencyStatus,
+        body: row.responseBody,
+      };
     }
     return {
       status: 409,
@@ -161,10 +177,7 @@ export async function withIdempotency(
 
   const executeAndCache = async (): Promise<IdempotencyResponse> => {
     const response = await execute();
-    if (
-      response.status === 409 &&
-      (response.body as { error?: string }).error === "TRANSITION_LOCKED"
-    ) {
+    if (response.skipCache) {
       return response;
     }
     try {

@@ -16,7 +16,10 @@ import {
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
-import { withIdempotency } from "../../lib/idempotency.js";
+import {
+  withIdempotency,
+  type IdempotencyStatus,
+} from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
@@ -197,17 +200,17 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           return { status: 201, body: { data: instance } };
         } catch (err) {
           if (err instanceof AttachmentReferenceError) {
-            return { status: err.status, body: err.body };
+            return { status: err.status as IdempotencyStatus, body: err.body };
           }
           const errResponse = handleEntityError(c, err);
           return {
-            status: errResponse.status,
+            status: errResponse.status as IdempotencyStatus,
             body: (await errResponse.json()) as unknown,
           };
         }
       },
     );
 
-    return c.json(response.body as object, response.status as never);
+    return c.json(response.body as object, response.status);
   },
 );
