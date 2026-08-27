@@ -1,13 +1,6 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-08-26 — regenerated the **Open Tickets by Creator** table against live
-`gh issue list`. Added #490–#498 (nine review follow-ups filed 2026-08-26 against PR #489,
-ADR-012 Phase F, merged same day). Also: ADR-015 (observability + compliance, 3D) drafted and
-accepted as `docs/decisions/ADR-015-observability-compliance.md` — 3D now has a design record for
-the first time (row below still 0% — no implementation yet, just the ADR). Prior entry (2026-08-25,
-ADR-012 Phase E PR #484 opened) and the 2026-08-24 historical-archive rework are preserved above
-this line's history in git; this doc tracks **current/open state only**, per its own "How to
-update this doc" rule below.
+**Last updated:** 2026-08-26 — ADR-012 Phase G ("hardening" closing gate) Phase 1 (T1-T5: 3-tier rate limiting, per-tenant admin-editable ceiling, JWT iat max-age, PII redaction on third-party reads, TLS enforcement) implemented on `feat/third-party-api-phase-g-hardening`, spec at `docs/specs/third-party-api-phase-g-hardening.md`. Also: ADR-015 (observability + compliance, 3D) drafted and accepted as `docs/decisions/ADR-015-observability-compliance.md`. This doc tracks **current/open state only**, per its own "How to update this doc" rule.
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session.
 

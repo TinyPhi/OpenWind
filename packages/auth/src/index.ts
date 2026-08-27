@@ -14,6 +14,11 @@ export {
   startTenantStatusInvalidationSubscriber,
   stopTenantStatusInvalidationSubscriber,
 } from "./tenant-status-cache.js";
+export {
+  getTenantRateLimitOverride,
+  setTenantRateLimitOverride,
+  _clearTenantRateLimitCacheForTests,
+} from "./tenant-rate-limit.js";
 export type {
   AuthContext,
   ZitadelClaims,
@@ -45,3 +50,4 @@ export {
   TICKET_ACTION_VERBS,
 } from "./scopes.js";
 export type { ScopesFormat, TicketActionVerb } from "./scopes.js";
+export { applicationActorIdFromUserId } from "./application-actor-id.js";

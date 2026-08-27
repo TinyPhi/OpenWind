@@ -21,8 +21,50 @@ import {
   getCachedTenantStatus,
   setCachedTenantStatus,
 } from "./tenant-status-cache.js";
+import { getTenantRateLimitOverride } from "./tenant-rate-limit.js";
+import { applicationActorIdFromUserId } from "./application-actor-id.js";
 
 const TENANT_RATE_LIMIT_WINDOW_SECONDS = 60;
+const API_KEY_RATE_LIMIT_WINDOW_SECONDS = 60;
+
+/**
+ * ADR-012 Phase G, ADR-013 — per-key aggregate tier, on top of the tenant
+ * tier above. Keyed on the api_keys row id (parsed from auth.userId's
+ * "apikey:<id>" prefix), not the raw secret. Same fail-open contract as
+ * enforceTenantRateLimit -- checkRateLimit's own bounded timeout plus a
+ * second try/catch layer here.
+ */
+async function enforceApiKeyRateLimit(
+  c: Context<AuthVariables>,
+  applicationActorId: string,
+): Promise<Response | null> {
+  try {
+    const { allowed, remaining, resetAt } = await checkRateLimit(
+      getRedis(),
+      `rl:api-key:${applicationActorId}`,
+      env.RATE_LIMIT_API_KEY_PER_MIN,
+      API_KEY_RATE_LIMIT_WINDOW_SECONDS,
+    );
+
+    c.header("x-ratelimit-key-limit", String(env.RATE_LIMIT_API_KEY_PER_MIN));
+    c.header("x-ratelimit-key-remaining", String(remaining));
+    c.header("x-ratelimit-key-reset", String(resetAt));
+
+    if (!allowed) {
+      return c.json(
+        { error: "RATE_LIMITED", message: "Too many requests" },
+        429,
+      );
+    }
+    return null;
+  } catch (err) {
+    logger.warn(
+      { err, applicationActorId },
+      "auth: api-key rate-limit check failed unexpectedly — failing open",
+    );
+    return null;
+  }
+}
 
 /**
  * Post-auth, tenant-scoped rate limit (#195). Runs only after the JWT/API-key
@@ -42,14 +84,21 @@ async function enforceTenantRateLimit(
   tenantId: string,
 ): Promise<Response | null> {
   try {
+    // ADR-012 Phase G, spec R2 -- an admin-editable per-tenant override
+    // (tenants.config.rate_limit_per_min) takes precedence over the flat
+    // env default when set. Cached 5s in-process (tenant-rate-limit.ts) so
+    // this doesn't add a DB round-trip to every authenticated request.
+    const override = await getTenantRateLimitOverride(db, tenantId);
+    const limit = override ?? env.RATE_LIMIT_TENANT_PER_MIN;
+
     const { allowed, remaining, resetAt } = await checkRateLimit(
       getRedis(),
       `rl:tenant:${tenantId}`,
-      env.RATE_LIMIT_TENANT_PER_MIN,
+      limit,
       TENANT_RATE_LIMIT_WINDOW_SECONDS,
     );
 
-    c.header("x-ratelimit-limit", String(env.RATE_LIMIT_TENANT_PER_MIN));
+    c.header("x-ratelimit-limit", String(limit));
     c.header("x-ratelimit-remaining", String(remaining));
     c.header("x-ratelimit-reset", String(resetAt));
 
@@ -208,8 +257,19 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           );
         }
         c.set("auth", auth);
-        const rateLimited = await enforceTenantRateLimit(c, auth.tenantId);
-        if (rateLimited) return rateLimited;
+        const tenantRateLimited = await enforceTenantRateLimit(
+          c,
+          auth.tenantId,
+        );
+        if (tenantRateLimited) return tenantRateLimited;
+        // auth.userId is always "apikey:<id>" on this path (set immediately
+        // above by resolveApiKey) -- safe to parse without a fallback branch.
+        const applicationActorId = applicationActorIdFromUserId(auth.userId);
+        const apiKeyRateLimited = await enforceApiKeyRateLimit(
+          c,
+          applicationActorId,
+        );
+        if (apiKeyRateLimited) return apiKeyRateLimited;
         await next();
         return;
       }

@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger as honoLogger } from "hono/logger";
 import { env } from "@platform/config";
+import { logger } from "@platform/logger";
 import { requireAuth, requireRole } from "@platform/auth";
 import type { AuthContext } from "@platform/auth";
 import { correlationId } from "./middleware/correlation-id.js";
 import { handleError } from "./middleware/error-handler.js";
 import { rateLimit } from "./middleware/rate-limit.js";
+import { httpsEnforcement } from "./middleware/https-enforcement.js";
 import { entityTypesRouter } from "./routes/entity-types/index.js";
 import { entitiesRouter } from "./routes/entities/index.js";
 import { workflowsRouter } from "./routes/workflows/index.js";
@@ -55,8 +57,16 @@ type AppVars = { Variables: { auth: AuthContext; requestId: string } };
 export function createApp(): Hono<AppVars> {
   const app = new Hono<AppVars>();
 
+  // ADR-012 Phase G, spec R6 — a startup sanity warning, not a hard failure:
+  if (env.JWT_MAX_TOKEN_AGE_SECONDS > 30 * 60) {
+    logger.warn(
+      { jwtMaxTokenAgeSeconds: env.JWT_MAX_TOKEN_AGE_SECONDS },
+      "JWT_MAX_TOKEN_AGE_SECONDS is set to a value (>30min) that weakens the third-party acting-person token-freshness check",
+    );
+  }
+
   // Middleware order matters:
-  // 1. CORS — before everything so preflight OPTIONS requests are handled immediately
+  // 1. CORS — before everything else so preflight OPTIONS requests are handled immediately
   const ALLOWED_ORIGINS =
     env.NODE_ENV === "production"
       ? [env.CORS_ORIGIN ?? ""].filter(Boolean)
@@ -83,13 +93,16 @@ export function createApp(): Hono<AppVars> {
       credentials: true,
     }),
   );
-  // 2. Correlation ID — must be early so all downstream logs carry the request ID
+
+  // 3. Correlation ID — must be early so all downstream logs carry the request ID
   app.use("*", correlationId());
-  // 3. Hono request logger
+
+  app.use("*", httpsEnforcement());
+  // 4. Hono request logger
   app.use("*", honoLogger());
-  // 4. Rate limiter — before auth so unauthenticated flood is blocked cheaply
+  // 5. Rate limiter — before auth so unauthenticated flood is blocked cheaply
   app.use("*", rateLimit());
-  // 5. Error handler — app.onError is the correct Hono v4 API for route errors
+  // 6. Error handler — app.onError is the correct Hono v4 API for route errors
   app.onError(handleError);
 
   app.get("/health", (c) => c.json({ status: "ok" }));
