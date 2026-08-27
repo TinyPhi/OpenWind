@@ -14,7 +14,13 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { db, tenants, adminAuditLog, idempotencyKeys } from "@platform/db";
+import {
+  db,
+  tenants,
+  adminAuditLog,
+  idempotencyKeys,
+  apiKeys,
+} from "@platform/db";
 
 let capturedProcessor: ((job: unknown) => Promise<void>) | null = null;
 
@@ -81,6 +87,14 @@ beforeAll(async () => {
   if (!apiKeyRow) throw new Error("admin_audit_log insert (api_key) failed");
   apiKeyAuditRowId = apiKeyRow.id;
 
+  await db.insert(apiKeys).values({
+    id: "11111111-1111-4111-1111-111111111111",
+    tenantId: TENANT_ID,
+    name: "Phase G purge test key",
+    keyHash: `hash-${Date.now()}`,
+    scopes: [],
+  });
+
   await db.insert(idempotencyKeys).values({
     tenantId: TENANT_ID,
     apiKeyId: "11111111-1111-4111-1111-111111111111",
@@ -96,6 +110,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(apiKeys).where(eq(apiKeys.tenantId, TENANT_ID));
   await db.delete(adminAuditLog).where(eq(adminAuditLog.tenantId, TENANT_ID));
   await db
     .delete(idempotencyKeys)

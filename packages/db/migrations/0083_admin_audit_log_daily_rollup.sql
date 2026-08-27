@@ -24,7 +24,7 @@ CREATE TABLE "admin_audit_log_daily_rollup" (
   "day"            date        NOT NULL,
   "resource_type"  text        NOT NULL,
   "action"         text        NOT NULL,
-  "count"          integer     NOT NULL DEFAULT 0 CHECK ("count" >= 0),
+  "count"          bigint      NOT NULL DEFAULT 0 CHECK ("count" >= 0),
   CONSTRAINT "admin_audit_log_daily_rollup_scope_unique"
     UNIQUE ("tenant_id", "day", "resource_type", "action")
 );

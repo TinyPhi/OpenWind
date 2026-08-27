@@ -21,7 +21,7 @@
 CREATE TABLE "idempotency_keys" (
   "id"                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   "tenant_id"         uuid        NOT NULL,
-  "api_key_id"        uuid        NOT NULL,
+  "api_key_id"        uuid        NOT NULL REFERENCES "api_keys"("id") ON DELETE CASCADE,
   "acting_person_id"  text        NOT NULL,
   "idempotency_key"   text        NOT NULL,
   -- RFC 8785 JSON Canonicalization Scheme hash of the request body -- lets a
