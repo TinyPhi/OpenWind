@@ -53,6 +53,7 @@ const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 export interface IdempotencyResponse {
   status: number;
   body: unknown;
+  headers?: Record<string, string>;
 }
 
 export interface IdempotencyScope {
@@ -155,6 +156,12 @@ export async function withIdempotency(
 
   const executeAndCache = async (): Promise<IdempotencyResponse> => {
     const response = await execute();
+    if (
+      response.status === 409 &&
+      (response.body as { error?: string }).error === "TRANSITION_LOCKED"
+    ) {
+      return response;
+    }
     try {
       // The unique constraint can already be satisfied by a row that's
       // expired-but-not-yet-swept (the lookup above filters on expiresAt,

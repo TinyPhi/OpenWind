@@ -217,9 +217,14 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
               instanceId,
             });
             const errResponse = handleWorkflowError(c, lockErr);
+            const headers: Record<string, string> = {};
+            errResponse.headers.forEach((value, key) => {
+              headers[key] = value;
+            });
             return {
               status: errResponse.status,
               body: (await errResponse.json()) as unknown,
+              headers,
             };
           }
 
@@ -237,6 +242,12 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
         }
       },
     );
+
+    if (response.headers) {
+      for (const [key, value] of Object.entries(response.headers)) {
+        c.header(key, value);
+      }
+    }
 
     return c.json(response.body as object, response.status as never);
   },
