@@ -21,8 +21,20 @@
  * Call this inside the same transaction as the entity mutation.
  */
 
-import { eq, desc, and, gte, lte, lt, inArray, sql } from "drizzle-orm";
-import type { DbOrTx } from "@platform/db";
+import {
+  eq,
+  desc,
+  and,
+  ne,
+  or,
+  isNotNull,
+  gte,
+  lte,
+  lt,
+  inArray,
+  sql,
+} from "drizzle-orm";
+import type { Db, DbOrTx } from "@platform/db";
 import { adminAuditLog } from "@platform/db";
 import { logger } from "@platform/logger";
 import {
@@ -304,14 +316,65 @@ const PURGED_PERSON_PLACEHOLDER = "[purged]";
  * admin_audit_log write in that file already does.
  */
 export async function anonymizeAuditLogForTenant(
-  db: DbOrTx,
+  db: Db,
   tenantId: string,
 ): Promise<void> {
-  await db
-    .update(adminAuditLog)
-    .set({
-      actorId: sql`CASE WHEN ${adminAuditLog.actorType} = 'user' THEN ${PURGED_PERSON_PLACEHOLDER} ELSE ${adminAuditLog.actorId} END`,
-      actingPersonId: sql`CASE WHEN ${adminAuditLog.actingPersonId} IS NOT NULL THEN ${PURGED_PERSON_PLACEHOLDER} ELSE NULL END`,
-    })
-    .where(eq(adminAuditLog.tenantId, tenantId));
+  // Runtime assertion: ensure we are not running inside a tenant RLS transaction context
+  try {
+    const rlsContext = await db.execute<{ current_setting: string | null }>(
+      sql`SELECT current_setting('app.current_tenant_id', true) as current_setting`,
+    );
+    const tenantSetting = rlsContext[0]?.current_setting;
+    if (tenantSetting) {
+      throw new Error(
+        `anonymizeAuditLogForTenant: cannot execute UPDATE under active tenant RLS context (tenant: ${tenantSetting})`,
+      );
+    }
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      err.message.includes("active tenant RLS context")
+    ) {
+      throw err;
+    }
+  }
+
+  const BATCH_SIZE = 1000;
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  while (true) {
+    // Select the next batch of un-anonymized row IDs.
+    const batch = await db
+      .select({ id: adminAuditLog.id })
+      .from(adminAuditLog)
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, tenantId),
+          or(
+            and(
+              eq(adminAuditLog.actorType, "user"),
+              ne(adminAuditLog.actorId, PURGED_PERSON_PLACEHOLDER),
+            ),
+            and(
+              isNotNull(adminAuditLog.actingPersonId),
+              ne(adminAuditLog.actingPersonId, PURGED_PERSON_PLACEHOLDER),
+            ),
+          ),
+        ),
+      )
+      .limit(BATCH_SIZE);
+
+    if (batch.length === 0) {
+      break;
+    }
+
+    const ids = batch.map((row) => row.id);
+
+    await db
+      .update(adminAuditLog)
+      .set({
+        actorId: sql`CASE WHEN ${adminAuditLog.actorType} = 'user' THEN ${PURGED_PERSON_PLACEHOLDER} ELSE ${adminAuditLog.actorId} END`,
+        actingPersonId: sql`CASE WHEN ${adminAuditLog.actingPersonId} IS NOT NULL THEN ${PURGED_PERSON_PLACEHOLDER} ELSE NULL END`,
+      })
+      .where(inArray(adminAuditLog.id, ids));
+  }
 }

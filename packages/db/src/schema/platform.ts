@@ -261,7 +261,9 @@ export const idempotencyKeys = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id").notNull(),
-    apiKeyId: uuid("api_key_id").notNull(),
+    apiKeyId: uuid("api_key_id")
+      .references((): AnyPgColumn => apiKeys.id, { onDelete: "cascade" })
+      .notNull(),
     actingPersonId: text("acting_person_id").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     contentHash: text("content_hash").notNull(),
@@ -345,7 +347,7 @@ export const adminAuditLogDailyRollup = pgTable(
     day: date("day", { mode: "string" }).notNull(),
     resourceType: text("resource_type").notNull(),
     action: text("action").notNull(),
-    count: integer("count").default(0).notNull(),
+    count: bigint("count", { mode: "number" }).default(0).notNull(),
   },
   (t) => ({
     scopeUnique: unique("admin_audit_log_daily_rollup_scope_unique").on(
