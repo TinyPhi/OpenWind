@@ -21,11 +21,17 @@ export async function withRedisTimeout<T>(
   context: Record<string, unknown>,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined = undefined;
   try {
     return await Promise.race([
-      fn(),
+      fn().finally(() => {
+        if (timer !== undefined) clearTimeout(timer);
+      }),
       new Promise<never>((_resolve, reject) => {
-        setTimeout(() => reject(new Error("redis call timed out")), timeoutMs);
+        timer = setTimeout(
+          () => reject(new Error("redis call timed out")),
+          timeoutMs,
+        );
       }),
     ]);
   } catch (err) {

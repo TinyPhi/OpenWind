@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { eq, and, isNull } from "drizzle-orm";
 import { requireAuth, requireActingPerson } from "@platform/auth";
-import { withTenantContext, db } from "@platform/db";
-import { getEntity } from "@platform/entity-engine";
+import { withTenantContext, db, entityInstances } from "@platform/db";
+import { EntityError } from "@platform/entity-engine";
 import { executeTransition, WorkflowError } from "@platform/workflow-engine";
 import type { TransitionRequest } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
@@ -51,9 +52,26 @@ function isExistenceRevealingWorkflowError(err: unknown): boolean {
   );
 }
 
+class TransitionAccessDeniedError extends Error {
+  constructor() {
+    super("ACCESS_DENIED");
+    this.name = "TransitionAccessDeniedError";
+  }
+}
+
+// eslint-disable-next-line no-control-regex -- intentional: this IS the control-character check.
+const FORBIDDEN_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+
 const ExecuteThirdPartyTransitionSchema = z.object({
   transitionId: z.string().uuid(),
-  comment: z.string().optional(),
+  comment: z
+    .string()
+    .min(1)
+    .max(4000)
+    .refine((v) => !FORBIDDEN_CHAR_PATTERN.test(v), {
+      message: "comment contains a null byte or control character",
+    })
+    .optional(),
   idempotencyKey: z.string().min(1).max(255).optional(),
   metadata: z.record(z.unknown()).optional(),
 });
@@ -89,69 +107,52 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
       c.req.valid("json");
     const applicationActorId = applicationActorIdFromUserId(authUserId);
 
-    let instance;
     try {
-      instance = await withTenantContext(tenantId, (tx) =>
-        getEntity(tx, tenantId, instanceId),
-      );
-    } catch (err) {
-      if (isEntityNotFound(err)) {
-        return notFound(c);
-      }
-      throw err;
-    }
-
-    const allowed = await withTenantContext(tenantId, (tx) =>
-      hasTransitionAccess(tx, tenantId, instance, actingPersonId),
-    );
-    if (!allowed) {
-      // Best-effort: nothing has mutated yet on this path, so a failure here
-      // must never turn a correct 404 denial into a 500 — logged and
-      // swallowed rather than awaited into the response.
-      try {
-        await withTenantContext(tenantId, (tx) =>
-          writeAuditEntry(tx, {
-            tenantId,
-            actorId: applicationActorId,
-            actorType: "api_key",
-            actingPersonId,
-            resourceType: "ticket",
-            resourceId: instanceId,
-            action: "transition.access_denied",
-            metadata: { transitionId },
-          }),
-        );
-      } catch (auditErr) {
-        logger.warn(
-          { auditErr, tenantId, instanceId, transitionId },
-          "third-party transition: denied-attempt audit write failed",
-        );
-      }
-      return notFound(c);
-    }
-
-    try {
-      const request: TransitionRequest = {
-        instanceId,
-        transitionId,
-        actorId: actingPersonId,
-        actorRoles: [],
-        triggeredBy: "api",
-        ...(comment !== undefined && { comment }),
-        ...(idempotencyKey !== undefined && { idempotencyKey }),
-        ...(metadata !== undefined && { metadata }),
-      };
-
-      // executeTransition and its audit entry share the SAME transaction
-      // (security-reviewer finding) -- writeAuditEntry's own module doc
-      // requires this ("call inside the same transaction as the entity
-      // mutation"). Splitting them into separate withTenantContext calls
-      // would let the transition commit and then the audit write fail
-      // independently, producing a repudiation gap (a real state change
-      // with zero audit trail) and a misleading 500 for a request that
-      // actually succeeded.
       const event = await withTenantContext(tenantId, async (tx) => {
+        // T0. Lock the row immediately to prevent concurrent modification/TOCTOU
+        const [instance] = await tx
+          .select()
+          .from(entityInstances)
+          .where(
+            and(
+              eq(entityInstances.id, instanceId),
+              eq(entityInstances.tenantId, tenantId),
+              isNull(entityInstances.deletedAt),
+            ),
+          )
+          .for("update", { noWait: true })
+          .limit(1);
+
+        if (!instance) {
+          throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
+        }
+
+        // T2. Access check
+        const allowed = await hasTransitionAccess(
+          tx,
+          tenantId,
+          instance,
+          actingPersonId,
+        );
+        if (!allowed) {
+          throw new TransitionAccessDeniedError();
+        }
+
+        // T3. Execute transition
+        const request: TransitionRequest = {
+          instanceId,
+          transitionId,
+          actorId: actingPersonId,
+          actorRoles: [],
+          triggeredBy: "api",
+          ...(comment !== undefined && { comment }),
+          ...(idempotencyKey !== undefined && { idempotencyKey }),
+          ...(metadata !== undefined && { metadata }),
+        };
+
         const result = await executeTransition(tx, tenantId, request);
+
+        // T4. Audit write
         await writeAuditEntry(tx, {
           tenantId,
           actorId: applicationActorId,
@@ -162,12 +163,49 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
           action: "transition.executed",
           metadata: { transitionId, eventId: result.id },
         });
+
         return result;
       });
 
       return c.json({ data: event }, 201);
     } catch (err) {
-      if (isExistenceRevealingWorkflowError(err)) {
+      const pgCode =
+        (err as { code?: unknown }).code ??
+        (err as { cause?: { code?: unknown } }).cause?.code;
+      if (pgCode === "55P03") {
+        return handleWorkflowError(
+          c,
+          new WorkflowError("TRANSITION_LOCKED", { instanceId }),
+        );
+      }
+
+      if (err instanceof TransitionAccessDeniedError) {
+        // Best-effort: nothing has mutated yet on this path, so a failure here
+        // must never turn a correct 404 denial into a 500 — logged and
+        // swallowed rather than awaited into the response.
+        try {
+          await withTenantContext(tenantId, (tx) =>
+            writeAuditEntry(tx, {
+              tenantId,
+              actorId: applicationActorId,
+              actorType: "api_key",
+              actingPersonId,
+              resourceType: "ticket",
+              resourceId: instanceId,
+              action: "transition.access_denied",
+              metadata: { transitionId },
+            }),
+          );
+        } catch (auditErr) {
+          logger.warn(
+            { auditErr, tenantId, instanceId, transitionId },
+            "third-party transition: denied-attempt audit write failed",
+          );
+        }
+        return notFound(c);
+      }
+
+      if (isEntityNotFound(err) || isExistenceRevealingWorkflowError(err)) {
         return notFound(c);
       }
       return handleWorkflowError(c, err);

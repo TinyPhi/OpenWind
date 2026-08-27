@@ -225,15 +225,6 @@ const EnvSchema = z
 
 export const env = EnvSchema.parse(process.env);
 
-// ADR-012 Phase G, spec R6 — a startup sanity warning, not a hard failure:
-// a value this wide defeats the point of a "freshness" check without being
-// invalid config outright.
-if (env.JWT_MAX_TOKEN_AGE_SECONDS > 30 * 60) {
-  console.warn(
-    `[config] JWT_MAX_TOKEN_AGE_SECONDS is set to ${env.JWT_MAX_TOKEN_AGE_SECONDS}s (>30min) — this weakens the third-party acting-person token-freshness check well past its intended bound.`,
-  );
-}
-
 export type Env = z.infer<typeof EnvSchema>;
 // Exported for env.test.ts — lets a default-value test
 // parse a minimal env object directly instead of mutating process.env before

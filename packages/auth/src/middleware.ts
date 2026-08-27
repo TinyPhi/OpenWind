@@ -22,6 +22,7 @@ import {
   setCachedTenantStatus,
 } from "./tenant-status-cache.js";
 import { getTenantRateLimitOverride } from "./tenant-rate-limit.js";
+import { applicationActorIdFromUserId } from "./application-actor-id.js";
 
 const TENANT_RATE_LIMIT_WINDOW_SECONDS = 60;
 const API_KEY_RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -263,7 +264,7 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         if (tenantRateLimited) return tenantRateLimited;
         // auth.userId is always "apikey:<id>" on this path (set immediately
         // above by resolveApiKey) -- safe to parse without a fallback branch.
-        const applicationActorId = auth.userId.slice("apikey:".length);
+        const applicationActorId = applicationActorIdFromUserId(auth.userId);
         const apiKeyRateLimited = await enforceApiKeyRateLimit(
           c,
           applicationActorId,
