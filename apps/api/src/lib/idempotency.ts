@@ -161,8 +161,8 @@ export async function withIdempotency(
       // stale row. Scoped to the exact 4-tuple AND already-expired, so this
       // never touches a live row from a genuine concurrent-different-
       // content race (onConflictDoNothing still protects that case).
-      await withTenantContext(tenantId, (tx) =>
-        tx
+      await withTenantContext(tenantId, async (tx) => {
+        await tx
           .delete(idempotencyKeys)
           .where(
             and(
@@ -172,10 +172,8 @@ export async function withIdempotency(
               eq(idempotencyKeys.idempotencyKey, idempotencyKey),
               lte(idempotencyKeys.expiresAt, new Date()),
             ),
-          ),
-      );
-      await withTenantContext(tenantId, (tx) =>
-        tx
+          );
+        await tx
           .insert(idempotencyKeys)
           .values({
             tenantId,
@@ -187,8 +185,8 @@ export async function withIdempotency(
             responseBody: response.body as object,
             expiresAt: new Date(Date.now() + CACHE_TTL_MS),
           })
-          .onConflictDoNothing(),
-      );
+          .onConflictDoNothing();
+      });
     } catch (cacheErr) {
       logger.warn(
         { cacheErr, tenantId, applicationActorId },
