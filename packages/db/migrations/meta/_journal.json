@@ -582,6 +582,20 @@
       "when": 1787648626572,
       "tag": "0082_idempotency_keys",
       "breakpoints": false
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1787648626573,
+      "tag": "0083_admin_audit_log_daily_rollup",
+      "breakpoints": false
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1787834069961,
+      "tag": "0084_admin_audit_log_created_at_idx",
+      "breakpoints": false
     }
   ]
 }

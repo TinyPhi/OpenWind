@@ -5,6 +5,7 @@ import {
   jsonb,
   bigint,
   timestamp,
+  date,
   index,
   unique,
   uniqueIndex,
@@ -323,6 +324,40 @@ export const adminAuditLog = pgTable(
     tenantCreatedIdx: index("audit_log_tenant_created_idx").on(
       t.tenantId,
       t.createdAt,
+    ),
+    createdAtIdx: index("admin_audit_log_created_at_idx").on(t.createdAt),
+  }),
+);
+
+/**
+ * adminAuditLogDailyRollup — ADR-012 Phase G, spec R8. Aggregate counts
+ * (per tenant/day/resourceType/action) that survive the 90-day
+ * admin_audit_log detail-row sweep (apps/worker/src/access-log-retention.ts).
+ * "outcome" is deliberately not stored -- derived from `action` at query
+ * time via @platform/audit's classifyOutcome. RLS: enforced via
+ * app.tenant_id GUC (migration 0083) -- the worker's own writes use the
+ * privileged connection and bypass it, same as adminAuditLog's writes.
+ */
+export const adminAuditLogDailyRollup = pgTable(
+  "admin_audit_log_daily_rollup",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    resourceType: text("resource_type").notNull(),
+    action: text("action").notNull(),
+    count: bigint("count", { mode: "number" }).default(0).notNull(),
+  },
+  (t) => ({
+    scopeUnique: unique("admin_audit_log_daily_rollup_scope_unique").on(
+      t.tenantId,
+      t.day,
+      t.resourceType,
+      t.action,
+    ),
+    tenantDayIdx: index("admin_audit_log_daily_rollup_tenant_day_idx").on(
+      t.tenantId,
+      t.day,
     ),
   }),
 );

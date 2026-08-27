@@ -11,7 +11,12 @@ vi.mock("@platform/logger", () => ({
 }));
 
 vi.mock("@platform/db", () => ({
-  adminAuditLog: "admin_audit_log_mock",
+  adminAuditLog: {
+    tenantId: "admin_audit_log.tenant_id",
+    actorId: "admin_audit_log.actor_id",
+    actorType: "admin_audit_log.actor_type",
+    actingPersonId: "admin_audit_log.acting_person_id",
+  },
 }));
 
 vi.mock("@platform/workflow-engine", () => ({
@@ -47,7 +52,8 @@ mockInsert.mockReturnValue({ values: mockValues });
 
 const mockDb = { insert: mockInsert };
 
-const { writeAuditEntry } = await import("./index.js");
+const { writeAuditEntry, anonymizeAuditLogForTenant } =
+  await import("./index.js");
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -69,7 +75,9 @@ describe("writeAuditEntry", () => {
       afterSnapshot: { subject: "hello" },
     });
 
-    expect(mockInsert).toHaveBeenCalledWith("admin_audit_log_mock");
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: "admin_audit_log.tenant_id" }),
+    );
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "created",
@@ -165,5 +173,50 @@ describe("writeAuditEntry", () => {
         metadata: { transitionName: "close", triggeredBy: "user" },
       }),
     );
+  });
+});
+
+describe("anonymizeAuditLogForTenant", () => {
+  const mockUpdateSet = vi.fn();
+  const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
+  const mockUpdate = vi.fn().mockReturnValue({
+    set: (v: unknown) => {
+      mockUpdateSet(v);
+      return { where: mockUpdateWhere };
+    },
+  });
+
+  // The implementation now does batched SELECT → UPDATE. Return one batch
+  // on the first call, empty on the second to terminate the loop.
+  let selectCallCount = 0;
+  const mockSelectLimit = vi.fn().mockImplementation(async () => {
+    selectCallCount++;
+    return selectCallCount === 1 ? [{ id: "row-1" }] : [];
+  });
+  const mockSelect = vi.fn().mockReturnValue({
+    from: () => ({ where: () => ({ limit: mockSelectLimit }) }),
+  });
+
+  const mockPurgeDb = { update: mockUpdate, select: mockSelect };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    selectCallCount = 0;
+  });
+
+  it("issues batched UPDATEs scoped to the tenant, replacing both person-identifying fields", async () => {
+    await anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a");
+
+    expect(mockSelect).toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: "admin_audit_log.tenant_id" }),
+    );
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: expect.anything(),
+        actingPersonId: expect.anything(),
+      }),
+    );
+    expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
   });
 });

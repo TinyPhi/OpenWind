@@ -6,6 +6,7 @@ export {
   purgeTenantDataFromPluginSchema,
   InvalidPluginSlugError,
 } from "./client.js";
+export type { Db } from "./client.js";
 export {
   withTenantContext,
   withTenantAndUserContext,
