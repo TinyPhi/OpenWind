@@ -32,6 +32,20 @@ class FakeRedis {
     return "OK";
   }
 
+  async eval(
+    _script: string,
+    _numKeys: number,
+    key: string,
+    _seconds: string,
+  ): Promise<number> {
+    if (!this.store.has(key)) {
+      this.store.set(key, "0");
+    }
+    const next = (Number(this.store.get(key)) || 0) + 1;
+    this.store.set(key, String(next));
+    return next;
+  }
+
   seed(key: string, value: number): void {
     this.store.set(key, String(value));
   }

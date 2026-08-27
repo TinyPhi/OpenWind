@@ -35,6 +35,9 @@ export const requireTicketScope = (verb: TicketActionVerb): MiddlewareHandler =>
   createMiddleware<Variables>(
     async (c: Context<Variables>, next: Next): Promise<Response | void> => {
       const { tenantId, roles: scopes, userId } = c.get("auth");
+      if (!userId.startsWith("apikey:")) {
+        return c.json({ error: "UNAUTHORIZED", message: "Invalid token" }, 401);
+      }
       const applicationActorId = applicationActorIdFromUserId(userId);
       if (!scopes.includes(`entity:ticket:${verb}`)) {
         await recordScopeDenialAndMaybeAlert(tenantId, applicationActorId);

@@ -65,10 +65,15 @@ export async function recordScopeDenialAndMaybeAlert(
     async () => {
       const redis = getRedis();
       const key = `misuse:auth-fail:${tenantId}:${applicationActorId}`;
-      const count = await redis.incr(key);
-      if (count === 1) {
-        await redis.expire(key, AUTH_FAILURE_WINDOW_SECONDS);
-      }
+      // Initialise with TTL and increment atomically in a single round-trip via Lua script
+      // to avoid any race condition where a key expires between SET and INCR, leaving it TTL-less.
+      const script = `
+        redis.call("SET", KEYS[1], "0", "EX", ARGV[1], "NX")
+        return redis.call("INCR", KEYS[1])
+      `;
+      const count = Number(
+        await redis.eval(script, 1, key, String(AUTH_FAILURE_WINDOW_SECONDS)),
+      );
       return count === AUTH_FAILURE_THRESHOLD;
     },
     false,
