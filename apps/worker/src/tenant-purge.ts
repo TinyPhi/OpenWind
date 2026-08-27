@@ -26,7 +26,11 @@
  * what list which plugin schemas to purge in the first place.
  *
  * Each DB step uses `withTenantContext` so RLS policies pass for the target tenant.
- * Tables without RLS (tenants, admin_audit_log) use plain `db` or the passed transaction.
+ * `tenants` has no RLS and uses plain `db`. `admin_audit_log` has RLS (migration 0011)
+ * granting app_user INSERT+SELECT only (append-only invariant) -- anonymization uses
+ * plain `db` (the worker's privileged connection) because an UPDATE cannot go through
+ * app_user; the RLS policy itself never needs to block this write since only the
+ * privileged worker role ever updates these rows.
  * `workflow_states`/`workflow_transitions` gained RLS and a `tenant_id` column in
  * ADR-007 (migration 0037) — their deletes below now filter by `tenant_id` directly
  * (in addition to the pre-existing `inArray(workflowId, wfIds)` filter), matching every

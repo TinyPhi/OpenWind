@@ -36,6 +36,12 @@ const BATCH_LIMIT = 5000;
  */
 const MAX_BATCHES_PER_RUN = 20;
 
+// No withTenantContext/explicit tenant_id filter here -- same accepted
+// pattern as attachment-cleanup.ts's own cross-tenant sweep. This worker
+// runs under the privileged DB connection (not the app_user RLS role), so
+// admin_audit_log's RLS policies do not restrict these reads or deletes;
+// every write targets only rows older than the retention window, not
+// per-tenant row contents, so there is no cross-tenant data exposure.
 async function runOneBatch(): Promise<number> {
   // MATERIALIZED forces Postgres to compute `batch` once and reuse that
   // exact row set for both the aggregate and the delete -- without it, a
