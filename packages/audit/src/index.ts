@@ -295,8 +295,10 @@ export async function queryAuditLog(
   return { entries, nextCursor };
 }
 
-/** Placeholder written over person-identifying fields on purge (spec R9). */
-const PURGED_PERSON_PLACEHOLDER = "[purged]";
+/** Placeholder written over person-identifying fields on purge (spec R9).
+ *  Uses the same "[REDACTED]" sentinel as PII field redaction (migration 0009)
+ *  so dashboards and analytics queries need only one exclusion pattern. */
+const PURGED_PERSON_PLACEHOLDER = "[REDACTED]";
 
 /**
  * ADR-012 Phase G, spec R9 -- a tenant purge immediately anonymizes (never
