@@ -16,6 +16,7 @@ import {
   workflowStates,
   idempotencyKeys,
   entityInstances,
+  apiKeys,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
@@ -76,9 +77,27 @@ async function seedTenant(tenantId: string, creator: string): Promise<string> {
 beforeAll(async () => {
   ticketId = await seedTenant(TENANT, CREATOR);
   ticketId2 = await seedTenant(TENANT_2, CREATOR_2);
+
+  await db.insert(apiKeys).values([
+    {
+      id: API_KEY_ID,
+      tenantId: TENANT,
+      name: "Idempotency API Key 1",
+      keyHash: "idempotency-test-hash-1",
+      scopes: [],
+    },
+    {
+      id: API_KEY_ID_2,
+      tenantId: TENANT_2,
+      name: "Idempotency API Key 2",
+      keyHash: "idempotency-test-hash-2",
+      scopes: [],
+    },
+  ]);
 });
 
 afterAll(async () => {
+  await db.delete(apiKeys).where(inArray(apiKeys.tenantId, [TENANT, TENANT_2]));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT, TENANT_2]));
   await db
     .delete(idempotencyKeys)
