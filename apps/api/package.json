@@ -34,6 +34,7 @@
     "@platform/workflow-engine": "workspace:*",
     "@types/pdfkit": "^0.17.6",
     "bullmq": "^5.0.0",
+    "canonicalize": "^4.0.0",
     "csv-stringify": "^6.8.0",
     "exceljs": "^4.4.0",
     "hono": "^4.5.0",

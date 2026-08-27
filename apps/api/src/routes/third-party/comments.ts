@@ -22,6 +22,7 @@ import {
   MAX_ATTACHMENTS_PER_TICKET,
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
+import { withIdempotency } from "../../lib/idempotency.js";
 
 // Same forbidden-char set as validate-fields-payload.ts (ADR-012 Phase B,
 // R11) — null byte/control-character rejection at ingress, ahead of any
@@ -75,6 +76,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     const { userId: actingPersonId } = c.get("actingPerson");
     const { text, mentions, attachmentIds } = c.req.valid("json");
     const applicationActorId = applicationActorIdFromUserId(authUserId);
+    const idempotencyKey = c.req.header("Idempotency-Key");
 
     const [instance] = await withTenantContext(tenantId, (tx) =>
       tx
@@ -99,6 +101,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     if (!instance?.workflowId) {
       return notFound(c);
     }
+    const workflowId = instance.workflowId;
 
     // hasEntityCommentAccessFull does an internal getWorkflow lookup, which
     // can throw WORKFLOW_NOT_FOUND if the workflow is deleted between the
@@ -140,130 +143,157 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
       return notFound(c);
     }
 
-    // Validate + bind attachment references BEFORE creating the comment
-    // (spec R3) -- a rejected reference must never leave an orphaned
-    // comment behind. This runs in its own transaction, separate from the
-    // comment insert below (unlike tickets.ts, which shares one transaction
-    // with createEntity) -- if the bind succeeds here but the insert below
-    // fails for an unrelated reason, the attachment stays bound with no
-    // comment referencing it. Accepted: the attachment is still
-    // tenant/ticket-scoped and access-gated identically either way, and the
-    // idempotent-re-reference path (see attachments-reference.ts) lets a
-    // retried request safely re-bind to the same ticket.
-    try {
-      await withTenantContext(tenantId, (tx) =>
-        referenceAttachments(
-          tx,
-          tenantId,
-          id,
-          attachmentIds,
-          actingPersonId,
-          applicationActorId,
-        ),
-      );
-    } catch (err) {
-      if (err instanceof AttachmentReferenceError) {
-        return c.json(err.body, err.status);
-      }
-      throw err;
-    }
-
-    // actorType/actingPersonId in metadata (not a dedicated column —
-    // workflow_events has no actor-type/acting-person columns, unlike
-    // admin_audit_log's Phase B additions) is what makes this comment
-    // attributable to app+person for the ticket timeline (spec R10); the
-    // timeline UI's own app-tag/person-name rendering is T7a, not this task.
-    const [event] = await withTenantContext(tenantId, async (tx) => {
-      const [inserted] = await tx
-        .insert(workflowEvents)
-        .values({
-          tenantId,
-          instanceId: id,
-          workflowId: instance.workflowId as string,
-          fromState: instance.currentState,
-          toState: instance.currentState,
-          triggeredBy: "api_key",
-          actorId: actingPersonId,
-          comment: null,
-          metadata: {
-            type: "comment",
-            text,
-            actorType: "api_key",
-            actingPersonId,
-          },
-        })
-        .returning();
-      if (inserted) {
-        await writeAuditEntry(tx, {
-          tenantId,
-          actorId: applicationActorId,
-          actorType: "api_key",
-          actingPersonId,
-          resourceType: "ticket",
-          resourceId: id,
-          action: "comment.created",
-          metadata: { eventId: inserted.id },
-        });
-      }
-      return [inserted];
-    });
-
-    if (!event) {
-      return c.json(
-        { error: "INTERNAL_ERROR", message: "Failed to record comment" },
-        500,
-      );
-    }
-
-    // Fires for every comment, same as add-comment.ts's own comment.created
-    // write -- feeds the ticket-room WS live-push path and comment-triggered
-    // automations. Without this, a third-party-posted comment silently never
-    // reaches either. Fire-and-forget: an outbox write failure must never
-    // turn an already-successful comment creation into an error response.
-    try {
-      await withTenantContext(tenantId, (tx) =>
-        tx.insert(outboxEvents).values({
-          tenantId,
-          eventType: "comment.created",
-          version: 1,
-          payload: {
-            eventType: "comment.created",
-            version: 1,
-            tenantId,
-            instanceId: id,
-            actorId: actingPersonId,
-            commentId: event.id,
-          },
-        }),
-      );
-    } catch (outboxErr) {
-      logger.warn(
-        { outboxErr, tenantId, instanceId: id, eventType: "comment.created" },
-        "third-party comment: outbox write failed — live push/automations missed, primary operation succeeded",
-      );
-    }
-
-    // Enqueue-only, never awaited past the add — resolution must never add
-    // latency to this response (spec R5/R6: the response has to be identical
-    // and equally fast regardless of what any mention will resolve to, which
-    // is only true if resolution happens strictly after this point). A queue
-    // failure here is logged by BullMQ's own Redis-connection error handling
-    // and does not fail the comment itself — the comment succeeded; only its
-    // mentions would silently not resolve, which is an accepted trade-off of
-    // the fire-and-forget enqueue (no synchronous confirmation is possible
-    // without reintroducing the very latency this design avoids).
-    for (const mentionIdentifier of mentions) {
-      void mentionResolutionQueue.add("resolve", {
+    // ADR-012 Phase G, spec R3/R4/R5 -- everything from here down (attachment
+    // binding, the comment insert + its audit entry, the outbox write,
+    // mention enqueue) is the actual mutating action idempotency protects. A
+    // cache-hit replay skips all of it, including the fire-and-forget side
+    // effects and the audit write, since they already ran on the original
+    // request.
+    const response = await withIdempotency(
+      {
         tenantId,
-        orgId: orgId ?? "",
-        ticketId: id,
-        workflowId: instance.workflowId,
-        mentionIdentifier,
+        applicationActorId,
         actingPersonId,
-        commentId: event.id,
-      });
-    }
+        idempotencyKey,
+      },
+      { ticketId: id, text, mentions, attachmentIds },
+      async () => {
+        // Validate + bind attachment references BEFORE creating the comment
+        // (spec R3) -- a rejected reference must never leave an orphaned
+        // comment behind. This runs in its own transaction, separate from the
+        // comment insert below (unlike tickets.ts, which shares one transaction
+        // with createEntity) -- if the bind succeeds here but the insert below
+        // fails for an unrelated reason, the attachment stays bound with no
+        // comment referencing it. Accepted: the attachment is still
+        // tenant/ticket-scoped and access-gated identically either way, and the
+        // idempotent-re-reference path (see attachments-reference.ts) lets a
+        // retried request safely re-bind to the same ticket.
+        try {
+          await withTenantContext(tenantId, (tx) =>
+            referenceAttachments(
+              tx,
+              tenantId,
+              id,
+              attachmentIds,
+              actingPersonId,
+              applicationActorId,
+            ),
+          );
+        } catch (err) {
+          if (err instanceof AttachmentReferenceError) {
+            return { status: err.status, body: err.body };
+          }
+          throw err;
+        }
 
-    return c.json({ data: { id: event.id } }, 201);
+        // actorType/actingPersonId in metadata (not a dedicated column —
+        // workflow_events has no actor-type/acting-person columns, unlike
+        // admin_audit_log's Phase B additions) is what makes this comment
+        // attributable to app+person for the ticket timeline (spec R10); the
+        // timeline UI's own app-tag/person-name rendering is T7a, not this task.
+        const [event] = await withTenantContext(tenantId, async (tx) => {
+          const [inserted] = await tx
+            .insert(workflowEvents)
+            .values({
+              tenantId,
+              instanceId: id,
+              workflowId,
+              fromState: instance.currentState,
+              toState: instance.currentState,
+              triggeredBy: "api_key",
+              actorId: actingPersonId,
+              comment: null,
+              metadata: {
+                type: "comment",
+                text,
+                actorType: "api_key",
+                actingPersonId,
+              },
+            })
+            .returning();
+          if (inserted) {
+            await writeAuditEntry(tx, {
+              tenantId,
+              actorId: applicationActorId,
+              actorType: "api_key",
+              actingPersonId,
+              resourceType: "ticket",
+              resourceId: id,
+              action: "comment.created",
+              metadata: { eventId: inserted.id },
+            });
+          }
+          return [inserted];
+        });
+
+        if (!event) {
+          return {
+            status: 500,
+            body: {
+              error: "INTERNAL_ERROR",
+              message: "Failed to record comment",
+            },
+          };
+        }
+
+        // Fires for every comment, same as add-comment.ts's own comment.created
+        // write -- feeds the ticket-room WS live-push path and comment-triggered
+        // automations. Without this, a third-party-posted comment silently never
+        // reaches either. Fire-and-forget: an outbox write failure must never
+        // turn an already-successful comment creation into an error response.
+        try {
+          await withTenantContext(tenantId, (tx) =>
+            tx.insert(outboxEvents).values({
+              tenantId,
+              eventType: "comment.created",
+              version: 1,
+              payload: {
+                eventType: "comment.created",
+                version: 1,
+                tenantId,
+                instanceId: id,
+                actorId: actingPersonId,
+                commentId: event.id,
+              },
+            }),
+          );
+        } catch (outboxErr) {
+          logger.warn(
+            {
+              outboxErr,
+              tenantId,
+              instanceId: id,
+              eventType: "comment.created",
+            },
+            "third-party comment: outbox write failed — live push/automations missed, primary operation succeeded",
+          );
+        }
+
+        // Enqueue-only, never awaited past the add — resolution must never add
+        // latency to this response (spec R5/R6: the response has to be identical
+        // and equally fast regardless of what any mention will resolve to, which
+        // is only true if resolution happens strictly after this point). A queue
+        // failure here is logged by BullMQ's own Redis-connection error handling
+        // and does not fail the comment itself — the comment succeeded; only its
+        // mentions would silently not resolve, which is an accepted trade-off of
+        // the fire-and-forget enqueue (no synchronous confirmation is possible
+        // without reintroducing the very latency this design avoids).
+        for (const mentionIdentifier of mentions) {
+          void mentionResolutionQueue.add("resolve", {
+            tenantId,
+            orgId: orgId ?? "",
+            ticketId: id,
+            workflowId,
+            mentionIdentifier,
+            actingPersonId,
+            commentId: event.id,
+          });
+        }
+
+        return { status: 201, body: { data: { id: event.id } } };
+      },
+    );
+
+    return c.json(response.body as object, response.status as never);
   },
 );

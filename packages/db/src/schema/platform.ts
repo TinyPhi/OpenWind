@@ -249,6 +249,40 @@ export const attachments = pgTable(
 );
 
 /**
+ * idempotencyKeys — ADR-012 Phase G, spec R3/R4/R5/R10. Caches a third-party
+ * request's result for 24h, scoped to the (tenantId, apiKeyId,
+ * actingPersonId, idempotencyKey) 4-way key. Never updated after insert —
+ * a same-key-different-content retry is rejected at the application layer
+ * (R4) rather than overwriting this row. RLS: enforced via app.tenant_id GUC.
+ */
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    apiKeyId: uuid("api_key_id").notNull(),
+    actingPersonId: text("acting_person_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    contentHash: text("content_hash").notNull(),
+    responseStatus: integer("response_status").notNull(),
+    responseBody: jsonb("response_body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    scopeUnique: unique("idempotency_keys_scope_unique").on(
+      t.tenantId,
+      t.apiKeyId,
+      t.actingPersonId,
+      t.idempotencyKey,
+    ),
+    expiresIdx: index("idempotency_keys_expires_idx").on(t.expiresAt),
+  }),
+);
+
+/**
  * adminAuditLog — append-only audit log for all entity mutations.
  * GRANT: INSERT + SELECT only for app_user; no UPDATE or DELETE.
  * RLS: USING only policy (app_user cannot read rows outside their tenant).

@@ -1,6 +1,6 @@
 # Platform Roadmap Tracker
 
-**Last updated:** 2026-08-26 — ADR-012 Phase G ("hardening" closing gate) Phase 1 (T1-T5: 3-tier rate limiting, per-tenant admin-editable ceiling, JWT iat max-age, PII redaction on third-party reads, TLS enforcement) implemented on `feat/third-party-api-phase-g-hardening`, spec at `docs/specs/third-party-api-phase-g-hardening.md`. Also: ADR-015 (observability + compliance, 3D) drafted and accepted as `docs/decisions/ADR-015-observability-compliance.md`. This doc tracks **current/open state only**, per its own "How to update this doc" rule.
+**Last updated:** 2026-08-26 — ADR-012 Phase G ("hardening" closing gate) Phase 2 (T6-T7: idempotency-key support — `idempotency_keys` table, RFC 8785 canonicalization, 30s in-flight lock, 24h result cache — wired into create/comment/sub-ticket/transition routes) implemented on `feat/third-party-api-phase-g-idempotency` (stacked on Phase 1's `feat/third-party-api-phase-g-hardening`, PR #495, CI-green); spec at `docs/specs/third-party-api-phase-g-hardening.md`. Phase 1 (T1-T5: 3-tier rate limiting, per-tenant admin-editable ceiling, JWT iat max-age, PII redaction on third-party reads, TLS enforcement) code-complete and CI-green as PR #495. Also: ADR-015 (observability + compliance, 3D) drafted and accepted as `docs/decisions/ADR-015-observability-compliance.md`. This doc tracks **current/open state only**, per its own "How to update this doc" rule.
 **Team model:** AI-first (Claude Code as primary engineering partner)
 **Tracking:** Update `% done` and `Status` each session.
 

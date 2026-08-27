@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, isNull } from "drizzle-orm";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db, entityInstances } from "@platform/db";
-import { EntityError } from "@platform/entity-engine";
+import { getEntity, EntityError } from "@platform/entity-engine";
 import { executeTransition, WorkflowError } from "@platform/workflow-engine";
 import type { TransitionRequest } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
@@ -12,6 +12,7 @@ import { hasTransitionAccess } from "../../lib/transition-access.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
+import { withIdempotency } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
@@ -50,13 +51,6 @@ function isExistenceRevealingWorkflowError(err: unknown): boolean {
   return (
     err instanceof WorkflowError && EXISTENCE_REVEALING_CODES.has(err.code)
   );
-}
-
-class TransitionAccessDeniedError extends Error {
-  constructor() {
-    super("ACCESS_DENIED");
-    this.name = "TransitionAccessDeniedError";
-  }
 }
 
 // eslint-disable-next-line no-control-regex -- intentional: this IS the control-character check.
@@ -103,112 +97,158 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
     const instanceId = c.req.param("id") ?? "";
     const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
+    // `idempotencyKey` here is the pre-existing, narrower body field that
+    // feeds workflow-engine's own event-dedup column
+    // (workflow_events.idempotency_key) -- distinct from ADR-012 Phase G's
+    // `Idempotency-Key` HTTP header handled below (apps/api/src/lib/
+    // idempotency.ts), which caches the whole HTTP response.
     const { transitionId, comment, idempotencyKey, metadata } =
       c.req.valid("json");
     const applicationActorId = applicationActorIdFromUserId(authUserId);
+    const idempotencyHeaderKey = c.req.header("Idempotency-Key");
 
+    let instance;
     try {
-      const event = await withTenantContext(tenantId, async (tx) => {
-        // T0. Lock the row immediately to prevent concurrent modification/TOCTOU
-        const [instance] = await tx
-          .select()
-          .from(entityInstances)
-          .where(
-            and(
-              eq(entityInstances.id, instanceId),
-              eq(entityInstances.tenantId, tenantId),
-              isNull(entityInstances.deletedAt),
-            ),
-          )
-          .for("update", { noWait: true })
-          .limit(1);
-
-        if (!instance) {
-          throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
-        }
-
-        // T2. Access check
-        const allowed = await hasTransitionAccess(
-          tx,
-          tenantId,
-          instance,
-          actingPersonId,
-        );
-        if (!allowed) {
-          throw new TransitionAccessDeniedError();
-        }
-
-        // T3. Execute transition
-        const request: TransitionRequest = {
-          instanceId,
-          transitionId,
-          actorId: actingPersonId,
-          actorRoles: [],
-          triggeredBy: "api",
-          ...(comment !== undefined && { comment }),
-          ...(idempotencyKey !== undefined && { idempotencyKey }),
-          ...(metadata !== undefined && { metadata }),
-        };
-
-        const result = await executeTransition(tx, tenantId, request);
-
-        // T4. Audit write
-        await writeAuditEntry(tx, {
-          tenantId,
-          actorId: applicationActorId,
-          actorType: "api_key",
-          actingPersonId,
-          resourceType: "ticket",
-          resourceId: instanceId,
-          action: "transition.executed",
-          metadata: { transitionId, eventId: result.id },
-        });
-
-        return result;
-      });
-
-      return c.json({ data: event }, 201);
+      instance = await withTenantContext(tenantId, (tx) =>
+        getEntity(tx, tenantId, instanceId),
+      );
     } catch (err) {
-      const pgCode =
-        (err as { code?: unknown }).code ??
-        (err as { cause?: { code?: unknown } }).cause?.code;
-      if (pgCode === "55P03") {
-        return handleWorkflowError(
-          c,
-          new WorkflowError("TRANSITION_LOCKED", { instanceId }),
+      if (isEntityNotFound(err)) {
+        return notFound(c);
+      }
+      throw err;
+    }
+
+    const allowed = await withTenantContext(tenantId, (tx) =>
+      hasTransitionAccess(tx, tenantId, instance, actingPersonId),
+    );
+    if (!allowed) {
+      // Best-effort: nothing has mutated yet on this path, so a failure here
+      // must never turn a correct 404 denial into a 500 — logged and
+      // swallowed rather than awaited into the response.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "ticket",
+            resourceId: instanceId,
+            action: "transition.access_denied",
+            metadata: { transitionId },
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, instanceId, transitionId },
+          "third-party transition: denied-attempt audit write failed",
         );
       }
+      return notFound(c);
+    }
 
-      if (err instanceof TransitionAccessDeniedError) {
-        // Best-effort: nothing has mutated yet on this path, so a failure here
-        // must never turn a correct 404 denial into a 500 — logged and
-        // swallowed rather than awaited into the response.
+    const response = await withIdempotency(
+      {
+        tenantId,
+        applicationActorId,
+        actingPersonId,
+        idempotencyKey: idempotencyHeaderKey,
+      },
+      {
+        instanceId,
+        transitionId,
+        comment: comment ?? null,
+        metadata: metadata ?? null,
+      },
+      async () => {
         try {
-          await withTenantContext(tenantId, (tx) =>
-            writeAuditEntry(tx, {
+          const request: TransitionRequest = {
+            instanceId,
+            transitionId,
+            actorId: actingPersonId,
+            actorRoles: [],
+            triggeredBy: "api",
+            ...(comment !== undefined && { comment }),
+            ...(idempotencyKey !== undefined && { idempotencyKey }),
+            ...(metadata !== undefined && { metadata }),
+          };
+
+          const event = await withTenantContext(tenantId, async (tx) => {
+            // T0. Lock the row immediately to prevent concurrent modification/TOCTOU
+            const [lockedInstance] = await tx
+              .select()
+              .from(entityInstances)
+              .where(
+                and(
+                  eq(entityInstances.id, instanceId),
+                  eq(entityInstances.tenantId, tenantId),
+                  isNull(entityInstances.deletedAt),
+                ),
+              )
+              .for("update", { noWait: true })
+              .limit(1);
+
+            if (!lockedInstance) {
+              throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
+            }
+
+            const result = await executeTransition(tx, tenantId, request);
+            await writeAuditEntry(tx, {
               tenantId,
               actorId: applicationActorId,
               actorType: "api_key",
               actingPersonId,
               resourceType: "ticket",
               resourceId: instanceId,
-              action: "transition.access_denied",
-              metadata: { transitionId },
-            }),
-          );
-        } catch (auditErr) {
-          logger.warn(
-            { auditErr, tenantId, instanceId, transitionId },
-            "third-party transition: denied-attempt audit write failed",
-          );
-        }
-        return notFound(c);
-      }
+              action: "transition.executed",
+              metadata: { transitionId, eventId: result.id },
+            });
+            return result;
+          });
 
-      if (isEntityNotFound(err) || isExistenceRevealingWorkflowError(err)) {
-        return notFound(c);
+          return { status: 201, body: { data: event } };
+        } catch (err) {
+          const pgCode =
+            (err as { code?: unknown }).code ??
+            (err as { cause?: { code?: unknown } }).cause?.code;
+          if (pgCode === "55P03") {
+            const lockErr = new WorkflowError("TRANSITION_LOCKED", {
+              instanceId,
+            });
+            const errResponse = handleWorkflowError(c, lockErr);
+            const headers: Record<string, string> = {};
+            errResponse.headers.forEach((value, key) => {
+              headers[key] = value;
+            });
+            return {
+              status: errResponse.status,
+              body: (await errResponse.json()) as unknown,
+              headers,
+            };
+          }
+
+          if (isEntityNotFound(err) || isExistenceRevealingWorkflowError(err)) {
+            return {
+              status: 404,
+              body: { error: "NOT_FOUND", message: "Record not found" },
+            };
+          }
+          const errResponse = handleWorkflowError(c, err);
+          return {
+            status: errResponse.status,
+            body: (await errResponse.json()) as unknown,
+          };
+        }
+      },
+    );
+
+    if (response.headers) {
+      for (const [key, value] of Object.entries(response.headers)) {
+        c.header(key, value);
       }
-      return handleWorkflowError(c, err);
     }
+
+    return c.json(response.body as object, response.status as never);
   },
 );
