@@ -17,6 +17,7 @@ import { listOrgUsers } from "../../lib/zitadel-management.js";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { hasEntityCommentAccessFull } from "../../lib/entity-access.js";
 
 const MentionSchema = z.object({
   userId: z.string().min(1),
@@ -71,29 +72,13 @@ export const addCommentHandler = factory.createHandlers(
     }
 
     if (!isPrivileged) {
-      const accessUsers =
-        (instance.fields as Record<string, unknown>).__accessUsers ?? {};
-      const userAccess = (accessUsers as Record<string, { level: string }>)[
-        userId
-      ];
-      let canComment =
-        instance.createdBy === userId ||
-        instance.assignedTo === userId ||
-        userAccess?.level === "read_comment" ||
-        userAccess?.level === "read_write";
-
-      if (!canComment && instance.workflowId) {
-        try {
-          const workflow = await withTenantContext(tenantId, (tx) =>
-            getWorkflow(tx, tenantId, instance.workflowId as string, {
-              userId,
-              isGlobalAdmin: false,
-            }),
-          );
-          canComment = isWorkflowAdmin(userId, workflow);
-        } catch (err) {
-          return handleEntityError(c, err);
-        }
+      let canComment: boolean;
+      try {
+        canComment = await withTenantContext(tenantId, (tx) =>
+          hasEntityCommentAccessFull(tx, tenantId, instance, userId, roles),
+        );
+      } catch (err) {
+        return handleEntityError(c, err);
       }
 
       if (!canComment) {

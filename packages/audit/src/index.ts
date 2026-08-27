@@ -21,8 +21,20 @@
  * Call this inside the same transaction as the entity mutation.
  */
 
-import { eq, desc, and, gte, lte, lt } from "drizzle-orm";
-import type { DbOrTx } from "@platform/db";
+import {
+  eq,
+  desc,
+  and,
+  ne,
+  or,
+  isNotNull,
+  gte,
+  lte,
+  lt,
+  inArray,
+  sql,
+} from "drizzle-orm";
+import type { Db, DbOrTx } from "@platform/db";
 import { adminAuditLog } from "@platform/db";
 import { logger } from "@platform/logger";
 import {
@@ -30,6 +42,13 @@ import {
   buildSensitivityMap,
   type FieldSensitivity,
 } from "@platform/workflow-engine";
+
+export {
+  classifyOutcome,
+  actionsForOutcome,
+  type AuditOutcome,
+} from "./outcome.js";
+import { actionsForOutcome, type AuditOutcome } from "./outcome.js";
 
 export type AuditActorType = "user" | "api_key" | "system";
 export type AuditAction =
@@ -39,7 +58,39 @@ export type AuditAction =
   | "transitioned"
   | "restored"
   | "purge.completed"
-  | "purge.failed";
+  | "purge.failed"
+  // ADR-012 Phase C, spec R6/R7 — third-party API tag-resolution outcomes and
+  // the tagging-driven auto-grant rate cap. Interim sink until Phase F's
+  // Access Logs screen exists to read these (see the Phase C spec's §C
+  // "new schema" row) — no new table, just new action strings.
+  | "tag.resolved_existing_access"
+  | "tag.auto_granted"
+  | "tag.access_request_created"
+  | "tag.fallback"
+  | "tag.resolution_failed"
+  | "tag.misuse_rate_capped"
+  // ADR-012 Phase D, spec R5 — an AV scan quarantining or failing a file
+  // backing a bound third-party attachment. DB CHECK constraint extended in
+  // the SAME migration that adds these (0077) -- see that file's comment for
+  // why this is a hard rule now, not a suggestion (Phase C's B1 incident).
+  | "attachment.quarantined"
+  | "attachment.scan_failed"
+  // ADR-012 Phase E, spec R3 — third-party status-transition attempts,
+  // migration 0080_admin_audit_log_transition_actions.sql extends the DB
+  // CHECK constraint in the same commit.
+  | "transition.executed"
+  | "transition.access_denied"
+  // ADR-012 Phase F, spec AC4 — retrofits comments.ts/children.ts/
+  // attachments-reference.ts (previously unaudited) onto the same
+  // atomic-write pattern transitions.ts established. Migration
+  // 0081_admin_audit_log_comment_child_attachment_actions.sql extends the
+  // DB CHECK constraint in the same commit.
+  | "comment.created"
+  | "comment.access_denied"
+  | "child.created"
+  | "child.access_denied"
+  | "attachment.referenced"
+  | "attachment.reference_denied";
 
 export type AuditEntryInput = {
   tenantId: string;
@@ -123,6 +174,7 @@ export type AuditLogEntry = {
   tenantId: string;
   actorId: string;
   actorType: AuditActorType;
+  actingPersonId: string | null;
   resourceType: string;
   resourceId: string;
   action: AuditAction;
@@ -138,6 +190,10 @@ export type QueryAuditLogInput = {
   resourceId?: string | undefined;
   actorId?: string | undefined;
   actorType?: AuditActorType | undefined;
+  /** ADR-012 Phase F — the real person acting through a third-party API key, distinct from actorId (the key itself). */
+  actingPersonId?: string | undefined;
+  /** ADR-012 Phase F — outcome is derived (see classifyOutcome), not stored; this filters by the set of AuditAction values that classify to the given outcome. */
+  outcome?: AuditOutcome | undefined;
   /** Filter entries created at or after this timestamp */
   from?: Date | undefined;
   /** Filter entries created at or before this timestamp */
@@ -182,6 +238,12 @@ export async function queryAuditLog(
     conditions.push(eq(adminAuditLog.resourceType, input.resourceType));
   if (input.resourceId !== undefined)
     conditions.push(eq(adminAuditLog.resourceId, input.resourceId));
+  if (input.actingPersonId !== undefined)
+    conditions.push(eq(adminAuditLog.actingPersonId, input.actingPersonId));
+  if (input.outcome !== undefined)
+    conditions.push(
+      inArray(adminAuditLog.action, actionsForOutcome(input.outcome)),
+    );
   if (input.from !== undefined)
     conditions.push(gte(adminAuditLog.createdAt, input.from));
   if (input.to !== undefined)
@@ -215,6 +277,7 @@ export async function queryAuditLog(
     tenantId: r.tenantId,
     actorId: r.actorId,
     actorType: r.actorType as AuditActorType,
+    actingPersonId: r.actingPersonId,
     resourceType: r.resourceType,
     resourceId: r.resourceId,
     action: r.action as AuditAction,
@@ -230,4 +293,90 @@ export async function queryAuditLog(
       : null;
 
   return { entries, nextCursor };
+}
+
+/** Placeholder written over person-identifying fields on purge (spec R9).
+ *  Uses the same "[REDACTED]" sentinel as PII field redaction (migration 0009)
+ *  so dashboards and analytics queries need only one exclusion pattern. */
+const PURGED_PERSON_PLACEHOLDER = "[REDACTED]";
+
+/**
+ * ADR-012 Phase G, spec R9 -- a tenant purge immediately anonymizes (never
+ * deletes) that tenant's admin_audit_log rows: person-identifying fields
+ * are replaced with a fixed placeholder, while action/resourceType/
+ * resourceId/createdAt (and therefore the derived outcome) are preserved
+ * and remain queryable. Only `actorId` on actorType='user' rows is a person
+ * identifier -- on 'api_key' rows actorId is the api_keys row id (an
+ * application identity, not a person) and is left untouched; actingPersonId
+ * is always a real person identifier whenever set (ADR-012 Phase B,
+ * GAP-05), regardless of actorType, so it's always anonymized when present.
+ *
+ * Called from apps/worker/src/tenant-purge.ts via plain `db` (not
+ * withTenantContext) -- admin_audit_log's RLS grants app_user INSERT+SELECT
+ * only (append-only invariant, migration 0011), so this UPDATE must run
+ * under the worker's own privileged connection, the same way every other
+ * admin_audit_log write in that file already does.
+ */
+export async function anonymizeAuditLogForTenant(
+  db: Db,
+  tenantId: string,
+): Promise<void> {
+  // Runtime assertion: ensure we are not running inside a tenant RLS transaction context
+  try {
+    const rlsContext = await db.execute<{ current_setting: string | null }>(
+      sql`SELECT current_setting('app.tenant_id', true) as current_setting`,
+    );
+    const tenantSetting = rlsContext[0]?.current_setting;
+    if (tenantSetting) {
+      throw new Error(
+        `anonymizeAuditLogForTenant: cannot execute UPDATE under active tenant RLS context (tenant: ${tenantSetting})`,
+      );
+    }
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      err.message.includes("active tenant RLS context")
+    ) {
+      throw err;
+    }
+  }
+
+  const BATCH_SIZE = 1000;
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  while (true) {
+    // Select the next batch of un-anonymized row IDs.
+    const batch = await db
+      .select({ id: adminAuditLog.id })
+      .from(adminAuditLog)
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, tenantId),
+          or(
+            and(
+              eq(adminAuditLog.actorType, "user"),
+              ne(adminAuditLog.actorId, PURGED_PERSON_PLACEHOLDER),
+            ),
+            and(
+              isNotNull(adminAuditLog.actingPersonId),
+              ne(adminAuditLog.actingPersonId, PURGED_PERSON_PLACEHOLDER),
+            ),
+          ),
+        ),
+      )
+      .limit(BATCH_SIZE);
+
+    if (batch.length === 0) {
+      break;
+    }
+
+    const ids = batch.map((row) => row.id);
+
+    await db
+      .update(adminAuditLog)
+      .set({
+        actorId: sql`CASE WHEN ${adminAuditLog.actorType} = 'user' THEN ${PURGED_PERSON_PLACEHOLDER} ELSE ${adminAuditLog.actorId} END`,
+        actingPersonId: sql`CASE WHEN ${adminAuditLog.actingPersonId} IS NOT NULL THEN ${PURGED_PERSON_PLACEHOLDER} ELSE NULL END`,
+      })
+      .where(inArray(adminAuditLog.id, ids));
+  }
 }

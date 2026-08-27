@@ -1,13 +1,13 @@
 # ADR-012: Third-Party API Access to OpenWind Tickets
 
-**Status:** Accepted.
-**Date:** 2026-08-20.
-**Deciders:** Feature author + external design reviewer (7 rounds, see Context).
+**Status:** Accepted.  
+**Date:** 2026-08-20.  
+**Deciders:** Feature author + external design reviewer (7 rounds, see Context).  
 **Related to:** ADR-008 (API Key Credential Lifecycle Hardening — this ADR adopts its
 `api_keys` mechanism and extends it with action-scopes and a Zitadel Client ID field), ADR-010
 (Inbound Partner API — this is the concrete Tier-1 implementation ADR-010 anticipated),
-ADR-001 (Multitenancy/RLS — tenant-match enforcement here reuses that model).
-**Supersedes:** —
+ADR-001 (Multitenancy/RLS — tenant-match enforcement here reuses that model).  
+**Supersedes:** —  
 **Superseded by:** —
 
 **Full behavioral detail lives in `docs/third-party-api-design.md` (canonical) and
@@ -230,24 +230,18 @@ annotations and change log — not reproduced here.
 
 ## Open Questions
 
-| ID   | Question                                                                                                                                                                 | Notes                                                                                                                                                                                                            |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OQ-1 | How/when to notify an application owner their key is nearing 3-month expiry (email or similar).                                                                          | Not needed for v1 — the Key Management UI badge and the `X-API-Key-Expires-At` response header both ship regardless. Fast-follow, not blocking.                                                                  |
-| OQ-2 | Exact tunable defaults still open: access-grants-via-tagging cap per ticket per hour; the per-tenant rate-limit ceiling's default value.                                 | Stated as examples in the design doc, not committed numbers — confirm per-phase in that phase's `/spec`. (Idempotency lock TTL and upload-slot expiry are no longer open — pinned to 30s and 5min respectively.) |
-| OQ-3 | Whether Access Log retention (90-day rolling + purge-anonymization) needs a _formal_ documented policy beyond this ADR/design doc, if a partner's DPA later demands one. | Current policy is believed DPDP/GDPR-consistent; revisit if a concrete external requirement says otherwise.                                                                                                      |
+| ID   | Question                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Notes                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-1 | How/when to notify an application owner their key is nearing 3-month expiry (email or similar).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | **Correction (2026-08-24):** only the Key Management UI badge actually shipped (`apps/admin-ui/src/pages/api-keys/index.tsx`) — the `X-API-Key-Expires-At` response header claimed above does not exist in `apps/api/src`. Track the header as an actual follow-up task, not evidence this OQ is closed; the email-notification piece remains genuinely deferred as originally stated. |
+| OQ-2 | **Partially resolved (2026-08-24):** the access-grants-via-tagging cap is now pinned at 5 grants/ticket/hour (`AUTO_GRANT_RATE_LIMIT`/`AUTO_GRANT_RATE_WINDOW_SECONDS`, PR #470). **Still open:** the per-tenant rate-limit ceiling specific to third-party partner-API traffic — `RATE_LIMIT_TENANT_PER_MIN` (600/min default) is the pre-existing general tenant limit (issue #195), not partner-API-specific; no dedicated ceiling was found. This is exactly the gap ADR-013 (`docs/decisions/ADR-013-unified-rate-limiting-strategy.md`, accepted 2026-08-24) already designs a mechanism for — Decision #4's tier-assignment work resolves this remainder once implemented. | Tagging cap confirmed via PR #470 diff.                                                                                                                                                                                                                                                                                                                                                |
+| OQ-3 | Whether Access Log retention (90-day rolling + purge-anonymization) needs a _formal_ documented policy beyond this ADR/design doc, if a partner's DPA later demands one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Current policy is believed DPDP/GDPR-consistent; revisit if a concrete external requirement says otherwise.                                                                                                                                                                                                                                                                            |
 
 ---
 
 ## Implementation next steps
 
-1. This ADR should be reviewed and formally accepted (moved into `docs/decisions/ADR-011-...md`
-   with status flipped to Accepted) by a human, per this repo's own rule that ADR files are
-   human-authored/committed, not agent-committed.
-2. Phase A (`docs/specs/third-party-api-phase-a-key-management.md`) already reflects Decisions
-   #3 and #10, including round 7's partial-unique-index carve-out for `zitadel_client_id`
-   (active keys only) — its plan-lock is drafted and awaiting `approve-plan`.
-3. Phases B–G (per `docs/third-party-api-enablement-phases.md`) implement the remaining
-   decisions in dependency order; each phase's `/spec` should cite this ADR alongside the
-   design doc.
-4. Once accepted, add this ADR to `CLAUDE.md`'s reference list and `.claude/context/`, matching
-   how ADR-008/009/010 are already referenced there.
+1. ~~This ADR should be reviewed and formally accepted...~~ **Resolved (2026-08-24):** this item was stale leftover text from when this document was drafted under a filename that collided with the separately-accepted plugin-system ADR-011 and had to be renumbered to ADR-012 (see issue #471 for the governance note on how acceptance happened — that issue also covers this exact stale-text finding). It's already filed under `ADR-012`, already `Status: Accepted`. Nothing further to do here.
+2. Phase A (`docs/specs/third-party-api-phase-a-key-management.md`) already reflects Decisions #3 and #10, including round 7's partial-unique-index carve-out for `zitadel_client_id` (active keys only) — its plan-lock is drafted and awaiting `approve-plan`.
+3. Phases B–G (per `docs/third-party-api-enablement-phases.md`) implement the remaining decisions in dependency order; each phase's `/spec` should cite this ADR alongside the design doc.
+4. **Resolved (2026-08-24):** added to `CLAUDE.md`'s reference list, alongside ADR-011 (which had the same gap, unflagged). Not yet added to `.claude/context/` — no phase-3-primer-style content
+   specific to this ADR exists yet; add if/when that's written.

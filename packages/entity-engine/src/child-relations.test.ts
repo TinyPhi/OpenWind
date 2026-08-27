@@ -190,6 +190,162 @@ describe("createChildRelation", () => {
     expect(result.relations[1]?.relationType).toBe("child_of");
   });
 
+  it("inherits the parent's __accessUsers grants onto the child (ADR-012 Phase C, R9 bug fix)", async () => {
+    // Prior to this fix, __accessUsers was seeded from assignedTo alone —
+    // a person with mention-grant access on the parent (not the creator or
+    // assignee) lost visibility into any child created under it.
+    const parentWithGrants = {
+      ...fakeParent,
+      fields: {
+        __accessUsers: {
+          "mentioned-user": { level: "read_comment", tag: "mention" },
+        },
+      },
+    };
+    mockSelectSeq.push(() => [parentWithGrants]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []); // ancestorDepth = 0
+    mockSelectSeq.push(() => [{ n: 0 }]); // countActiveChildren
+    mockSelectSeq.push(() => []); // loadEntityFields
+    mockInsertReturning
+      .mockResolvedValueOnce([fakeChild])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+      assignedTo: "user-ccc",
+    });
+
+    const insertCall = mockInsertValues.mock.calls.find(
+      (call) => (call[0] as { fields?: unknown })?.fields !== undefined,
+    );
+    const fields = (insertCall?.[0] as { fields?: Record<string, unknown> })
+      ?.fields;
+    expect(fields?.__accessUsers).toEqual({
+      "mentioned-user": { level: "read_comment", tag: "mention" },
+      "user-ccc": { level: "read_write", tag: "assigned" },
+    });
+  });
+
+  it("converts a legacy string[] __accessUsers into per-user grants, not {0: uid, 1: uid}", async () => {
+    // typeof [] === "object" too -- naively spreading a legacy array would
+    // produce {"0": "legacy-user-a", "1": "legacy-user-b"} instead of real
+    // per-userId grants, silently dropping every legacy grantee's inherited
+    // access (the opposite of the R9 bug fix this whole block exists for).
+    const parentWithLegacyGrants = {
+      ...fakeParent,
+      fields: {
+        __accessUsers: ["legacy-user-a", "legacy-user-b"],
+      },
+    };
+    mockSelectSeq.push(() => [parentWithLegacyGrants]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []); // ancestorDepth = 0
+    mockSelectSeq.push(() => [{ n: 0 }]); // countActiveChildren
+    mockSelectSeq.push(() => []); // loadEntityFields
+    mockInsertReturning
+      .mockResolvedValueOnce([fakeChild])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+    });
+
+    const insertCall = mockInsertValues.mock.calls.find(
+      (call) => (call[0] as { fields?: unknown })?.fields !== undefined,
+    );
+    const fields = (insertCall?.[0] as { fields?: Record<string, unknown> })
+      ?.fields;
+    expect(fields?.__accessUsers).toEqual({
+      "legacy-user-a": { level: "read_comment", tag: "mention" },
+      "legacy-user-b": { level: "read_comment", tag: "mention" },
+    });
+  });
+
+  it("maps actorType api_key to the canonical triggeredBy value 'api', not 'api_key'", async () => {
+    mockSelectSeq.push(() => [fakeParent]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []);
+    mockSelectSeq.push(() => [{ n: 0 }]);
+    mockSelectSeq.push(() => []);
+    mockInsertReturning
+      .mockResolvedValueOnce([fakeChild])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+      actorType: "api_key",
+      actingPersonId: "person-1",
+    });
+
+    const eventInsertCall = mockInsertValues.mock.calls.find(
+      (call) =>
+        (call[0] as { triggeredBy?: unknown })?.triggeredBy !== undefined,
+    );
+    expect(
+      (eventInsertCall?.[0] as { triggeredBy?: string })?.triggeredBy,
+    ).toBe("api");
+  });
+
+  it("rejects a create when the caller-supplied maxAncestorDepth is met, under the same lock as the general depth check", async () => {
+    mockSelectSeq.push(() => [fakeParent]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => [{ toInstanceId: "grandparent-1" }]); // ancestorDepth = 1
+
+    await expect(
+      createChildRelation(dbMock as never, TENANT, {
+        parentId: PARENT_ID,
+        childFields: { title: "Sub-task" },
+        entityTypeId: "et-aaa",
+        maxAncestorDepth: 1,
+      }),
+    ).rejects.toMatchObject({
+      code: "CHILD_DEPTH_EXCEEDED",
+      meta: expect.objectContaining({ reason: "caller_max_ancestor_depth" }),
+    });
+  });
+
+  it("the new assignee's grant wins over a stale inherited entry for the same user", async () => {
+    const parentWithGrants = {
+      ...fakeParent,
+      fields: {
+        __accessUsers: {
+          "user-ccc": { level: "read_only", tag: "mention" },
+        },
+      },
+    };
+    mockSelectSeq.push(() => [parentWithGrants]);
+    mockSelectSeq.push(() => [fakeLimits]);
+    mockSelectSeq.push(() => []);
+    mockSelectSeq.push(() => [{ n: 0 }]);
+    mockSelectSeq.push(() => []);
+    mockInsertReturning
+      .mockResolvedValueOnce([fakeChild])
+      .mockResolvedValueOnce(fakeRelPair);
+
+    await createChildRelation(dbMock as never, TENANT, {
+      parentId: PARENT_ID,
+      childFields: { title: "Sub-task" },
+      entityTypeId: "et-aaa",
+      assignedTo: "user-ccc",
+    });
+
+    const insertCall = mockInsertValues.mock.calls.find(
+      (call) => (call[0] as { fields?: unknown })?.fields !== undefined,
+    );
+    const fields = (insertCall?.[0] as { fields?: Record<string, unknown> })
+      ?.fields;
+    expect(fields?.__accessUsers).toEqual({
+      "user-ccc": { level: "read_write", tag: "assigned" },
+    });
+  });
+
   it("stores the provided dueDate on the child instance", async () => {
     mockSelectSeq.push(() => [fakeParent]);
     mockSelectSeq.push(() => [fakeLimits]);

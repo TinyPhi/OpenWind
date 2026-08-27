@@ -5,6 +5,7 @@ import {
   jsonb,
   bigint,
   timestamp,
+  date,
   index,
   unique,
   uniqueIndex,
@@ -98,7 +99,7 @@ export const apiKeys = pgTable(
     applicationDescription: text("application_description"),
     /** Unblocks a deferred expiry-notification fast-follow (ADR-012 Decision #10). */
     applicationContactEmail: text("application_contact_email"),
-    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND oidc_client_id_active) keys — see migration 0068/0069/0072's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. */
+    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND oidc_client_id_active) keys — see migration 0068/0069/0072's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. CHECK constraint (migration 0075): char_length ≤ 200; Drizzle's text() type doesn't model this, so keep this comment in sync with that CHECK if it ever changes. */
     oidcClientId: text("oidc_client_id"),
     /** Migration 0069/0072 — separates "still authenticating" (revoked_at) from "currently holds this Client ID for uniqueness purposes." Rotation needs both the dying predecessor and the new successor to authenticate/carry the same oidc_client_id value during the 24h grace window, but only one of them should count toward uniqueness — rotate.ts flips this false on the predecessor in the same transaction that inserts the successor (which keeps the column default, true). Every other code path leaves this untouched. */
     oidcClientIdActive: boolean("oidc_client_id_active")
@@ -197,6 +198,92 @@ export const files = pgTable(
 );
 
 /**
+ * attachments — ADR-012 Phase D, third-party API file attachment lifecycle
+ * (presign -> upload -> ticket binding), ahead of the actual bytes landing
+ * in `files` (filesId nullable until upload completes).
+ * RLS: enforced via app.tenant_id GUC.
+ */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    ticketId: uuid("ticket_id"),
+    boundAt: timestamp("bound_at", { withTimezone: true }),
+    uploadedBy: text("uploaded_by").notNull(),
+    actingPersonId: text("acting_person_id").notNull(),
+    declaredFilename: text("declared_filename").notNull(),
+    declaredSizeBytes: bigint("declared_size_bytes", {
+      mode: "number",
+    }).notNull(),
+    declaredMimeType: text("declared_mime_type").notNull(),
+    uploadTokenHash: text("upload_token_hash").notNull(),
+    uploadExpiresAt: timestamp("upload_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    filesId: uuid("files_id"),
+    /** pending | uploaded | expired */
+    status: text("status").default("pending").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    // Partial predicates below must match migration 0077_attachments.sql's
+    // actual CREATE INDEX statements exactly -- Drizzle doesn't introspect
+    // partial indexes from SQL migrations, so a mismatch here would make the
+    // next `drizzle-kit generate` emit a spurious drop/recreate migration.
+    tenantTicketIdx: index("attachments_tenant_ticket_idx")
+      .on(t.tenantId, t.ticketId)
+      .where(sql`${t.ticketId} IS NOT NULL`),
+    tenantStatusIdx: index("attachments_tenant_status_idx").on(
+      t.tenantId,
+      t.status,
+    ),
+    expiryIdx: index("attachments_expiry_idx")
+      .on(t.uploadExpiresAt)
+      .where(sql`${t.status} IN ('pending', 'uploading')`),
+  }),
+);
+
+/**
+ * idempotencyKeys — ADR-012 Phase G, spec R3/R4/R5/R10. Caches a third-party
+ * request's result for 24h, scoped to the (tenantId, apiKeyId,
+ * actingPersonId, idempotencyKey) 4-way key. Never updated after insert —
+ * a same-key-different-content retry is rejected at the application layer
+ * (R4) rather than overwriting this row. RLS: enforced via app.tenant_id GUC.
+ */
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    apiKeyId: uuid("api_key_id").notNull(),
+    actingPersonId: text("acting_person_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    contentHash: text("content_hash").notNull(),
+    responseStatus: integer("response_status").notNull(),
+    responseBody: jsonb("response_body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    scopeUnique: unique("idempotency_keys_scope_unique").on(
+      t.tenantId,
+      t.apiKeyId,
+      t.actingPersonId,
+      t.idempotencyKey,
+    ),
+    expiresIdx: index("idempotency_keys_expires_idx").on(t.expiresAt),
+  }),
+);
+
+/**
  * adminAuditLog — append-only audit log for all entity mutations.
  * GRANT: INSERT + SELECT only for app_user; no UPDATE or DELETE.
  * RLS: USING only policy (app_user cannot read rows outside their tenant).
@@ -237,6 +324,40 @@ export const adminAuditLog = pgTable(
     tenantCreatedIdx: index("audit_log_tenant_created_idx").on(
       t.tenantId,
       t.createdAt,
+    ),
+    createdAtIdx: index("admin_audit_log_created_at_idx").on(t.createdAt),
+  }),
+);
+
+/**
+ * adminAuditLogDailyRollup — ADR-012 Phase G, spec R8. Aggregate counts
+ * (per tenant/day/resourceType/action) that survive the 90-day
+ * admin_audit_log detail-row sweep (apps/worker/src/access-log-retention.ts).
+ * "outcome" is deliberately not stored -- derived from `action` at query
+ * time via @platform/audit's classifyOutcome. RLS: enforced via
+ * app.tenant_id GUC (migration 0083) -- the worker's own writes use the
+ * privileged connection and bypass it, same as adminAuditLog's writes.
+ */
+export const adminAuditLogDailyRollup = pgTable(
+  "admin_audit_log_daily_rollup",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    resourceType: text("resource_type").notNull(),
+    action: text("action").notNull(),
+    count: bigint("count", { mode: "number" }).default(0).notNull(),
+  },
+  (t) => ({
+    scopeUnique: unique("admin_audit_log_daily_rollup_scope_unique").on(
+      t.tenantId,
+      t.day,
+      t.resourceType,
+      t.action,
+    ),
+    tenantDayIdx: index("admin_audit_log_daily_rollup_tenant_day_idx").on(
+      t.tenantId,
+      t.day,
     ),
   }),
 );

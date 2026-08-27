@@ -9,6 +9,15 @@ import { requireTicketScope } from "./require-ticket-scope.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
+import {
+  referenceAttachments,
+  AttachmentReferenceError,
+  MAX_ATTACHMENTS_PER_TICKET,
+} from "./attachments-reference.js";
+import { notFound } from "./not-found.js";
+import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
+import { withIdempotency } from "../../lib/idempotency.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -16,20 +25,6 @@ function isEntityNotFound(err: unknown): boolean {
     err.name === "EntityError" &&
     (err as Error & { code?: string }).code === "ENTITY_NOT_FOUND"
   );
-}
-
-// Deliberately the exact same body as the access-denied branch below — this
-// is the specific ticket-existence-oracle the design doc's Round 2 CRITICAL
-// finding requires closed: a genuinely nonexistent ticket and an
-// inaccessible one must be indistinguishable to the caller, not just share
-// a 404 status with different error codes/messages (the human-UI route,
-// entities/get.ts, doesn't hold to this bar via handleEntityError's generic
-// ENTITY_NOT_FOUND mapping — that's fine for a session that already knows
-// which IDs plausibly exist, but not for this API).
-function notFound(c: {
-  json: (body: unknown, status: 404) => Response;
-}): Response {
-  return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
 }
 
 /**
@@ -72,7 +67,19 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
         return notFound(c);
       }
 
-      return c.json({ data: instance });
+      // ADR-012 Phase G, spec R7 — redact pii/financial field values before
+      // this ever leaves the process; a third party never sees a raw,
+      // unredacted dump of ticket fields.
+      const redactedFields = await withTenantContext(tenantId, (tx) =>
+        redactEntityFieldsForThirdParty(
+          tx,
+          tenantId,
+          instance.entityTypeId,
+          instance.fields,
+        ),
+      );
+
+      return c.json({ data: { ...instance, fields: redactedFields } });
     } catch (err) {
       if (isEntityNotFound(err)) {
         return notFound(c);
@@ -90,6 +97,12 @@ const CreateThirdPartyTicketSchema = z.object({
   // part of this schema — Zod's default "strip unknown keys" behavior drops
   // it silently, with no rejection (spec R6: force-to-initial-state
   // unconditionally, confirmed decision, no error path for this case).
+  // ADR-012 Phase D, spec R3 -- references completed attachment uploads
+  // presigned without a ticketId (the create-time-attach case).
+  attachmentIds: z
+    .array(z.string().uuid())
+    .max(MAX_ATTACHMENTS_PER_TICKET)
+    .default([]),
 });
 
 /**
@@ -115,9 +128,11 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
   requireTicketScope("create"),
   zValidator("json", CreateThirdPartyTicketSchema),
   async (c) => {
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const input = c.req.valid("json");
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
+    const idempotencyKey = c.req.header("Idempotency-Key");
 
     const fieldsCheck = validateFieldsPayload(input.fields);
     if (!fieldsCheck.ok) {
@@ -131,27 +146,68 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
       );
     }
 
-    try {
-      const instance = await withTenantContext(tenantId, async (tx) => {
-        const workflow = await getWorkflow(tx, tenantId, input.workflowId, {
-          userId: actingPersonId,
-          isGlobalAdmin: false,
-        });
-        return createEntity(tx, tenantId, {
-          entityTypeId: workflow.entityTypeId,
-          workflowId: workflow.id,
-          fields: input.fields,
-          assignedTo: input.assignedTo,
-          createdBy: actingPersonId,
-          actorId: actingPersonId,
-          actorType: "api_key",
-          actingPersonId,
-        });
-      });
+    // ADR-012 Phase G, spec R3/R4/R5 -- idempotency wraps only the actual
+    // mutating operation, not upstream validation, so a caller retrying a
+    // request that already 422'd above re-validates fresh rather than
+    // replaying a cached failure forever under the same key.
+    const response = await withIdempotency(
+      {
+        tenantId,
+        applicationActorId,
+        actingPersonId,
+        idempotencyKey,
+      },
+      {
+        workflowId: input.workflowId,
+        fields: input.fields,
+        assignedTo: input.assignedTo ?? null,
+        attachmentIds: input.attachmentIds,
+      },
+      async () => {
+        try {
+          const instance = await withTenantContext(tenantId, async (tx) => {
+            const workflow = await getWorkflow(tx, tenantId, input.workflowId, {
+              userId: actingPersonId,
+              isGlobalAdmin: false,
+            });
+            const created = await createEntity(tx, tenantId, {
+              entityTypeId: workflow.entityTypeId,
+              workflowId: workflow.id,
+              fields: input.fields,
+              assignedTo: input.assignedTo,
+              createdBy: actingPersonId,
+              actorId: actingPersonId,
+              actorType: "api_key",
+              actingPersonId,
+            });
+            // Same transaction as the create above -- a rejected attachment
+            // reference rolls back the whole ticket creation, never leaving a
+            // ticket with a dangling bad attachmentId (spec R3).
+            await referenceAttachments(
+              tx,
+              tenantId,
+              created.id,
+              input.attachmentIds,
+              actingPersonId,
+              applicationActorId,
+            );
+            return created;
+          });
 
-      return c.json({ data: instance }, 201);
-    } catch (err) {
-      return handleEntityError(c, err);
-    }
+          return { status: 201, body: { data: instance } };
+        } catch (err) {
+          if (err instanceof AttachmentReferenceError) {
+            return { status: err.status, body: err.body };
+          }
+          const errResponse = handleEntityError(c, err);
+          return {
+            status: errResponse.status,
+            body: (await errResponse.json()) as unknown,
+          };
+        }
+      },
+    );
+
+    return c.json(response.body as object, response.status as never);
   },
 );
