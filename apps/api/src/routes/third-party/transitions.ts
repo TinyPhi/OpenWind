@@ -173,13 +173,9 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
         (err as { code?: unknown }).code ??
         (err as { cause?: { code?: unknown } }).cause?.code;
       if (pgCode === "55P03") {
-        c.header("Retry-After", "5");
-        return c.json(
-          {
-            error: "TRANSITION_LOCKED",
-            message: "Record is locked by another transition",
-          },
-          409,
+        return handleWorkflowError(
+          c,
+          new WorkflowError("TRANSITION_LOCKED", { instanceId }),
         );
       }
 
