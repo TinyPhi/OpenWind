@@ -149,7 +149,7 @@ export async function withIdempotency(
   // job, not yet built) -- this only affects which rows this lookup
   // considers live.
   const lookupCached = async (): Promise<IdempotencyResponse | null> => {
-    const rows = await withTenantContext(tenantId, (tx) =>
+    const [row] = await withTenantContext(tenantId, (tx) =>
       tx
         .select({
           contentHash: idempotencyKeys.contentHash,
@@ -168,7 +168,6 @@ export async function withIdempotency(
         )
         .limit(1),
     );
-    const [row] = rows;
     if (!row) return null;
     if (row.contentHash === contentHash) {
       return { status: row.responseStatus, body: row.responseBody };
