@@ -1,3 +1,4 @@
+import "@platform/telemetry/instrumentation.js";
 import { logger } from "@platform/logger";
 import { closeRedis } from "@platform/redis";
 import { startOutboxPoller, stopOutboxPoller } from "./outbox-poller.js";

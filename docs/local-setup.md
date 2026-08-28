@@ -323,10 +323,11 @@ this repo's `docker compose up -d`.
 
 Start with `docker compose --profile <name> up -d`:
 
-| Profile         | Services                                                              |
-| --------------- | --------------------------------------------------------------------- |
-| `notifications` | Novu API, worker, web UI, MongoDB                                     |
-| `tools`         | MailHog (email trap port 8025), BullBoard (queue dashboard port 3099) |
+| Profile         | Services                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------- |
+| `notifications` | Novu API, worker, web UI, MongoDB                                                                       |
+| `tools`         | MailHog (email trap port 8025), BullBoard (queue dashboard port 3099)                                   |
+| `observability` | Prometheus (port 9090), Grafana (port 3005), Alertmanager (port 9093), OTel Collector (ports 4317/4318) |
 
 ### Image version pinning policy
 
@@ -371,6 +372,9 @@ refuses to start if any required variable is missing or malformed.
 | `VITE_ZITADEL_ISSUER`                 | bootstrap         | Same issuer, prefixed for Vite (browser-accessible)                             |
 | `VITE_ZITADEL_OIDC_CLIENT_ID`         | bootstrap         | Same client ID for Vite                                                         |
 | `ANTHROPIC_API_KEY`                   | manual            | AI features only — rest of platform works without it                            |
+| `TELEMETRY_ENABLED`                   | `.env.example`    | Flag to enable/disable OpenTelemetry and Prometheus collection                  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`         | `.env.example`    | HTTP endpoint for trace export (e.g., http://localhost:4318/v1/traces)          |
+| `OTEL_SERVICE_NAME`                   | `.env.example`    | Service name for distributed trace grouping                                     |
 
 **Why two database URLs?**
 `app_user` connects via PgBouncer in transaction mode, which is required for

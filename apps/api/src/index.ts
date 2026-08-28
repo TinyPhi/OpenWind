@@ -1,3 +1,4 @@
+import "@platform/telemetry/instrumentation.js";
 import { serve } from "@hono/node-server";
 import { logger } from "@platform/logger";
 import { closeRedis } from "@platform/redis";

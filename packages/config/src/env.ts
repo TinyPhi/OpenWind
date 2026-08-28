@@ -190,6 +190,13 @@ const EnvSchema = z
     // AppRole auth (production) — both required together when OPENBAO_TOKEN is absent
     OPENBAO_ROLE_ID: z.string().optional(),
     OPENBAO_SECRET_ID: z.string().optional(),
+    // Telemetry and Tracing (Stage 0)
+    TELEMETRY_ENABLED: z
+      .string()
+      .transform((v) => v === "true")
+      .default("false"),
+    OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
+    OTEL_SERVICE_NAME: z.string().optional(),
   })
   .refine(
     (v) => v.SECRETS_PROVIDER !== "openbao" || v.OPENBAO_ADDR !== undefined,

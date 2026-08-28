@@ -6,6 +6,7 @@ packages:
 allowBuilds:
   esbuild: true
   msgpackr-extract: true
+  protobufjs: true
 
 # Moved from package.json's "pnpm.overrides" field for pnpm 11 (that field is no longer
 # read; see CLAUDE.md's Maintenance notes for why the esbuild pin must not be removed).

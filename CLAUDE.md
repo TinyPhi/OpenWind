@@ -165,7 +165,7 @@ via `pnpm dep:check` — see `.claude/context/dependency-graph.md`.
 default stack (Postgres, PgBouncer, Redis, OpenBao, Zitadel, ClamAV, `ow-backend`,
 `ow-frontend`, and `ow-worker`) — this is the standard way to run the app, in dev and on
 servers alike. Novu is opt-in via `--profile notifications` (`novu-api`/`novu-worker`/
-`novu-web`/`novu-mongo`) — a plain `up -d` does not start it. MinIO is fully commented out —
+`novu-web`/`novu-mongo`), and observability features are opt-in via `--profile observability` (`prometheus`/`grafana`/`alertmanager`/`otel-collector`) — a plain `up -d` does not start them. MinIO is fully commented out —
 `packages/files` moved to local-disk storage + real ClamAV scanning (PR #340); MinIO is kept in
 `docker-compose.yml` only as reference for a possible future return to object storage, nothing
 reads from it today. `ow-worker` runs `apps/worker` (outbox poller, automation execution, SLA
@@ -183,6 +183,7 @@ tight edit-test loop.
 docker compose up -d                          # default stack — Postgres, PgBouncer, Redis,
                                                # OpenBao, Zitadel, ClamAV, ow-backend/frontend/worker
 docker compose --profile notifications up -d  # + Novu (novu-api/worker/web/mongo)
+docker compose --profile observability up -d  # + Observability (prometheus/grafana/alertmanager/otel-collector)
 pnpm dev              # host-mode hot reload (fast iteration only — see note above)
 pnpm test             # unit + integration tests
 pnpm test:isolation   # RLS isolation tests  (requires Docker/OrbStack stack)

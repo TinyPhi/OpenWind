@@ -60,3 +60,18 @@ describe("SECRETS_PROVIDER", () => {
     expect(parsed.SECRETS_PROVIDER).toBe("local");
   });
 });
+
+describe("TELEMETRY", () => {
+  it("defaults TELEMETRY_ENABLED to false when absent", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.TELEMETRY_ENABLED).toBe(false);
+  });
+
+  it("coerces TELEMETRY_ENABLED string 'true' to boolean true", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      TELEMETRY_ENABLED: "true",
+    });
+    expect(parsed.TELEMETRY_ENABLED).toBe(true);
+  });
+});
