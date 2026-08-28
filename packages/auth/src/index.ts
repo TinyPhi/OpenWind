@@ -10,11 +10,14 @@ export {
   API_KEY_ROTATION_OVERLAP_HOURS,
   billingGate,
   resolveTenantPlan,
+  resolveTenantIpAllowlist,
 } from "./middleware.js";
 export {
   invalidateTenantStatusCache,
   getCachedTenantPlan,
   setCachedTenantPlan,
+  getCachedTenantIpAllowlist,
+  setCachedTenantIpAllowlist,
   startTenantStatusInvalidationSubscriber,
   stopTenantStatusInvalidationSubscriber,
 } from "./tenant-status-cache.js";

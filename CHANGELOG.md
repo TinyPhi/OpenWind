@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — compliance and data retention (Stage 3)]
+
+### Added
+
+- **GDPR per-user erasure endpoint** — Added `DELETE /users/:userId` route restricted to tenant admins, transactionally deleting user views, alerts, notifications, and api keys, and anonymizing user references across tickets, workflows, and events (#506).
+- **IP allowlisting auth check** — Added client IP validation middleware (`enforceTenantIpAllowlist`) in Hono auth middleware resolving matching single IPs/CIDR subnets from `tenants.config.ip_allowlist` (#506).
+- **Retention archival daily sweep** — Implemented repeatable BullMQ worker `retentionArchivalWorker` running daily at 04:00 to purge tenant workflow events, outbox events, and usage metrics older than `tenants.config.retention_days` (#506).
+
+---
+
 ## [Unreleased — usage metering and plan enforcement (Stage 2)]
 
 ### Added

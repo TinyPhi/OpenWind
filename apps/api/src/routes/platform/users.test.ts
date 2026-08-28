@@ -8,9 +8,17 @@ import type { AuthContext } from "@platform/auth";
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn(() => "sql"),
+  and: vi.fn(() => "sql"),
+  or: vi.fn(() => "sql"),
+  sql: vi.fn(() => "sql"),
 }));
 
 const mockWithTenantContext = vi.fn();
+const mockWriteAuditEntry = vi.fn();
+
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
+}));
 
 vi.mock("@platform/db", () => ({
   db: {},
@@ -20,6 +28,34 @@ vi.mock("@platform/db", () => ({
     userId: "userId",
     email: "email",
     displayName: "displayName",
+  },
+  savedViews: { tenantId: "tenantId", userId: "userId" },
+  notificationRecipients: { tenantId: "tenantId", userId: "userId" },
+  ticketAlerts: { tenantId: "tenantId", createdBy: "createdBy" },
+  accessRequests: {
+    tenantId: "tenantId",
+    requesterId: "requesterId",
+    resolvedBy: "resolvedBy",
+  },
+  apiKeys: {
+    tenantId: "tenantId",
+    createdBy: "createdBy",
+    revokedBy: "revokedBy",
+  },
+  entityInstances: {
+    tenantId: "tenantId",
+    createdBy: "createdBy",
+    assignedTo: "assignedTo",
+  },
+  workflows: {
+    tenantId: "tenantId",
+    createdBy: "createdBy",
+    assignedTo: "assignedTo",
+  },
+  workflowEvents: {
+    tenantId: "tenantId",
+    triggeredBy: "triggeredBy",
+    actorId: "actorId",
   },
 }));
 
@@ -132,5 +168,39 @@ describe("GET /users", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toEqual([]);
+  });
+
+  describe("DELETE /users/:userId", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("purges user data and metadata across all tables, invalidates cache, and logs deletion", async () => {
+      const mockTx = {
+        delete: vi.fn().mockReturnThis(),
+        update: vi.fn().mockReturnThis(),
+        set: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue(undefined),
+      };
+
+      // withTenantContext runs the callback on mockTx
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) =>
+        cb(mockTx),
+      );
+
+      const res = await makeApp().request("/users/target-user-123", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.success).toBe(true);
+
+      // Verify that all steps ran inside the transaction
+      expect(mockTx.delete).toHaveBeenCalledTimes(6);
+      expect(mockTx.update).toHaveBeenCalledTimes(7);
+      expect(mockWriteAuditEntry).toHaveBeenCalled();
+      expect(mockInvalidateUserCache).toHaveBeenCalled();
+    });
   });
 });

@@ -1,13 +1,26 @@
 import { Hono } from "hono";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db, tenantUsers, withTenantContext } from "@platform/db";
-import { eq } from "drizzle-orm";
+import {
+  db,
+  tenantUsers,
+  withTenantContext,
+  savedViews,
+  notificationRecipients,
+  ticketAlerts,
+  accessRequests,
+  apiKeys,
+  entityInstances,
+  workflows,
+  workflowEvents,
+} from "@platform/db";
+import { eq, and, or, sql } from "drizzle-orm";
 import {
   listOrgUsers,
   listUserRolesByUserId,
   invalidateUserCache,
 } from "../../lib/zitadel-management.js";
 import type { AuthContext } from "@platform/auth";
+import { writeAuditEntry } from "@platform/audit";
 
 type AppVars = { Variables: { auth: AuthContext } };
 
@@ -93,5 +106,172 @@ usersRouter.get(
     merged.sort((a, b) => a.displayName.localeCompare(b.displayName));
 
     return c.json({ data: merged });
+  },
+);
+
+// DELETE /users/:userId — GDPR per-user erasure endpoint, admin-only
+usersRouter.delete(
+  "/:userId",
+  requireAuth(db),
+  requireRole("admin"),
+  async (c) => {
+    const { tenantId, userId: adminUserId } = c.get("auth");
+    const targetUserId = c.req.param("userId");
+
+    await withTenantContext(tenantId, async (tx) => {
+      // 1. Delete saved_views
+      await tx
+        .delete(savedViews)
+        .where(
+          and(
+            eq(savedViews.tenantId, tenantId),
+            eq(savedViews.userId, targetUserId),
+          ),
+        );
+
+      // 2. Delete notification_recipients
+      await tx
+        .delete(notificationRecipients)
+        .where(
+          and(
+            eq(notificationRecipients.tenantId, tenantId),
+            eq(notificationRecipients.userId, targetUserId),
+          ),
+        );
+
+      // 3. Delete ticket_alerts created by target user
+      await tx
+        .delete(ticketAlerts)
+        .where(
+          and(
+            eq(ticketAlerts.tenantId, tenantId),
+            eq(ticketAlerts.createdBy, targetUserId),
+          ),
+        );
+
+      // 4. Handle access_requests
+      await tx
+        .delete(accessRequests)
+        .where(
+          and(
+            eq(accessRequests.tenantId, tenantId),
+            eq(accessRequests.requesterId, targetUserId),
+          ),
+        );
+
+      await tx
+        .update(accessRequests)
+        .set({ resolvedBy: "[REDACTED]" })
+        .where(
+          and(
+            eq(accessRequests.tenantId, tenantId),
+            eq(accessRequests.resolvedBy, targetUserId),
+          ),
+        );
+
+      // 5. Delete api_keys created or revoked by target user
+      await tx
+        .delete(apiKeys)
+        .where(
+          and(
+            eq(apiKeys.tenantId, tenantId),
+            or(
+              eq(apiKeys.createdBy, targetUserId),
+              eq(apiKeys.revokedBy, targetUserId),
+            ),
+          ),
+        );
+
+      // 6. Nullify entity_instances references
+      await tx
+        .update(entityInstances)
+        .set({ createdBy: null })
+        .where(
+          and(
+            eq(entityInstances.tenantId, tenantId),
+            eq(entityInstances.createdBy, targetUserId),
+          ),
+        );
+
+      await tx
+        .update(entityInstances)
+        .set({ assignedTo: null })
+        .where(
+          and(
+            eq(entityInstances.tenantId, tenantId),
+            eq(entityInstances.assignedTo, targetUserId),
+          ),
+        );
+
+      // 7. Handle workflows references
+      await tx
+        .update(workflows)
+        .set({ createdBy: null })
+        .where(
+          and(
+            eq(workflows.tenantId, tenantId),
+            eq(workflows.createdBy, targetUserId),
+          ),
+        );
+
+      await tx
+        .update(workflows)
+        .set({
+          assignedTo: sql`array_remove(${workflows.assignedTo}, ${targetUserId})`,
+        })
+        .where(
+          and(
+            eq(workflows.tenantId, tenantId),
+            sql`${targetUserId} = ANY(${workflows.assignedTo})`,
+          ),
+        );
+
+      // 8. Anonymize workflow_events references
+      await tx
+        .update(workflowEvents)
+        .set({ triggeredBy: "[REDACTED]" })
+        .where(
+          and(
+            eq(workflowEvents.tenantId, tenantId),
+            eq(workflowEvents.triggeredBy, targetUserId),
+          ),
+        );
+
+      await tx
+        .update(workflowEvents)
+        .set({
+          actorId: sql`CASE WHEN ${workflowEvents.actorId} = ${targetUserId} THEN '[REDACTED]' ELSE ${workflowEvents.actorId} END`,
+        })
+        .where(
+          and(
+            eq(workflowEvents.tenantId, tenantId),
+            eq(workflowEvents.actorId, targetUserId),
+          ),
+        );
+
+      // 9. Delete tenant_users association
+      await tx
+        .delete(tenantUsers)
+        .where(
+          and(
+            eq(tenantUsers.tenantId, tenantId),
+            eq(tenantUsers.userId, targetUserId),
+          ),
+        );
+
+      // 10. Audit log entry for erasure
+      await writeAuditEntry(tx, {
+        tenantId,
+        actorId: adminUserId,
+        actorType: "user",
+        resourceType: "user",
+        resourceId: targetUserId,
+        action: "deleted",
+      });
+    });
+
+    invalidateUserCache();
+
+    return c.json({ success: true });
   },
 );

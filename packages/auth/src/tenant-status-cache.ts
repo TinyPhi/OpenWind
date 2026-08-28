@@ -19,7 +19,12 @@ const INVALIDATION_CHANNEL = "tenant-status:invalidate";
 
 const _cache = new Map<
   string,
-  { status: string; plan?: string | undefined; exp: number }
+  {
+    status: string;
+    plan?: string | undefined;
+    ipAllowlist?: string[] | undefined;
+    exp: number;
+  }
 >();
 
 export function getCachedTenantStatus(tenantId: string): string | undefined {
@@ -37,6 +42,7 @@ export function setCachedTenantStatus(tenantId: string, status: string): void {
   _cache.set(tenantId, {
     status,
     plan: existing?.plan,
+    ipAllowlist: existing?.ipAllowlist,
     exp: Date.now() + TTL_MS,
   });
 }
@@ -56,6 +62,32 @@ export function setCachedTenantPlan(tenantId: string, plan: string): void {
   _cache.set(tenantId, {
     status: existing?.status ?? "active",
     plan,
+    ipAllowlist: existing?.ipAllowlist,
+    exp: Date.now() + TTL_MS,
+  });
+}
+
+export function getCachedTenantIpAllowlist(
+  tenantId: string,
+): string[] | undefined {
+  const entry = _cache.get(tenantId);
+  if (!entry) return undefined;
+  if (Date.now() > entry.exp) {
+    _cache.delete(tenantId);
+    return undefined;
+  }
+  return entry.ipAllowlist;
+}
+
+export function setCachedTenantIpAllowlist(
+  tenantId: string,
+  ipAllowlist: string[],
+): void {
+  const existing = _cache.get(tenantId);
+  _cache.set(tenantId, {
+    status: existing?.status ?? "active",
+    plan: existing?.plan,
+    ipAllowlist,
     exp: Date.now() + TTL_MS,
   });
 }
