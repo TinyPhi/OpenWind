@@ -254,3 +254,27 @@ export type Env = z.infer<typeof EnvSchema>;
 // parse a minimal env object directly instead of mutating process.env before
 // this module's top-level `env.parse(process.env)` side effect has already run.
 export { EnvSchema };
+
+export interface PlanLimits {
+  apiCallsPerDay: number;
+  storageBytes: number;
+  aiTokensPerDay: number;
+}
+
+export const PLAN_LIMITS: Record<string, PlanLimits> = {
+  standard: {
+    apiCallsPerDay: 10_000,
+    storageBytes: 10 * 1024 * 1024 * 1024, // 10 GB
+    aiTokensPerDay: 50_000,
+  },
+  premium: {
+    apiCallsPerDay: 100_000,
+    storageBytes: 100 * 1024 * 1024 * 1024, // 100 GB
+    aiTokensPerDay: 500_000,
+  },
+  enterprise: {
+    apiCallsPerDay: 1_000_000,
+    storageBytes: 1000 * 1024 * 1024 * 1024, // 1 TB
+    aiTokensPerDay: 5_000_000,
+  },
+};

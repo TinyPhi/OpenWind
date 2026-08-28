@@ -111,7 +111,7 @@ async function writeFileAtomic(absPath: string, data: Buffer): Promise<void> {
 
 // ── Quota helpers ─────────────────────────────────────────────────────────────
 
-async function getTenantUsedBytes(
+export async function getTenantUsedBytes(
   db: DbOrTx,
   tenantId: string,
 ): Promise<number> {

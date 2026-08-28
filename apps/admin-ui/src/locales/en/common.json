@@ -31,6 +31,8 @@
     "dismiss": "Dismiss",
     "offline": "You're offline",
     "reconnecting": "Reconnecting…",
-    "backOnline": "Back online"
+    "backOnline": "Back online",
+    "planDegraded": "Plan degraded: {{metrics}} limit exceeded. Please check usage.",
+    "viewUsage": "View usage"
   }
 }

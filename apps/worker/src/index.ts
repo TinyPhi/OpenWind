@@ -41,6 +41,10 @@ import {
   scheduleAccessLogRetention,
   stopAccessLogRetentionWorker,
 } from "./access-log-retention.js";
+import {
+  scheduleUsageMetering,
+  stopUsageMeteringWorker,
+} from "./usage-metering.js";
 
 logger.info({}, "Worker process starting");
 
@@ -57,6 +61,7 @@ startConnectorPollScheduler();
 void scheduleFileCleanup();
 void scheduleAttachmentCleanup();
 void scheduleAccessLogRetention();
+void scheduleUsageMetering();
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
 // notificationWorker, notificationOutboundWorker, connectorOutboundWorker,
@@ -88,6 +93,7 @@ async function shutdown(): Promise<void> {
     stopMentionResolutionWorker(),
     stopAttachmentCleanupWorker(),
     stopAccessLogRetentionWorker(),
+    stopUsageMeteringWorker(),
     closeRedis(),
   ]);
   process.exit(0);
