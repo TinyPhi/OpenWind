@@ -67,15 +67,15 @@ const { computeContentHash, withIdempotency } =
   await import("./idempotency.js");
 
 describe("computeContentHash", () => {
-  it("is stable regardless of key insertion order (RFC 8785)", () => {
-    const a = computeContentHash({ b: 2, a: 1 });
-    const b = computeContentHash({ a: 1, b: 2 });
+  it("is stable regardless of key insertion order (RFC 8785)", async () => {
+    const a = await computeContentHash({ b: 2, a: 1 });
+    const b = await computeContentHash({ a: 1, b: 2 });
     expect(a).toBe(b);
   });
 
-  it("differs when content differs", () => {
-    const a = computeContentHash({ a: 1 });
-    const b = computeContentHash({ a: 2 });
+  it("differs when content differs", async () => {
+    const a = await computeContentHash({ a: 1 });
+    const b = await computeContentHash({ a: 2 });
     expect(a).not.toBe(b);
   });
 });
@@ -121,7 +121,7 @@ describe("withIdempotency", () => {
 
   it("returns the cached result without calling execute() on a same-content replay", async () => {
     mockCachedRow = {
-      contentHash: computeContentHash(content),
+      contentHash: await computeContentHash(content),
       responseStatus: 201,
       responseBody: { data: { id: "abc" } },
     };
@@ -142,7 +142,7 @@ describe("withIdempotency", () => {
 
   it("returns 409 conflict without calling execute() when content differs from the cached hash", async () => {
     mockCachedRow = {
-      contentHash: computeContentHash({ different: true }),
+      contentHash: await computeContentHash({ different: true }),
       responseStatus: 201,
       responseBody: {},
     };
@@ -226,6 +226,37 @@ describe("withIdempotency", () => {
     expect(mockInsertValues).toHaveBeenCalled();
   });
 
+  it("re-checks the cache after acquiring the lock and skips execute() if a concurrent request already cached a result (double-checked locking)", async () => {
+    // Simulates the exact race PR #500 fixed and PR #502 regressed: the
+    // first lookup (before lock acquisition) misses, but by the time this
+    // request acquires the lock, a faster concurrent request has already
+    // executed and cached its result. The re-check after lock acquisition
+    // must catch this, not just the pre-lock lookup.
+    mockRedisSet.mockImplementation(async () => {
+      mockCachedRow = {
+        contentHash: await computeContentHash(content),
+        responseStatus: 201,
+        responseBody: { data: { id: "from-the-other-request" } },
+      };
+      return "OK";
+    });
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-1" },
+      content,
+      execute,
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 201,
+      body: { data: { id: "from-the-other-request" } },
+    });
+    // Still releases the lock it acquired, even on the cache-hit early return.
+    expect(mockRedisDel).toHaveBeenCalled();
+  });
+
   it("releases the lock even when execute() throws", async () => {
     mockRedisSet.mockResolvedValue("OK");
     const execute = vi.fn().mockRejectedValue(new Error("boom"));
@@ -245,7 +276,7 @@ describe("withIdempotency", () => {
     // re-execute. With the fix, A's under-lock re-check finds the cached result
     // and returns it without calling execute().
     const cachedRow = {
-      contentHash: computeContentHash(content),
+      contentHash: await computeContentHash(content),
       responseStatus: 201,
       responseBody: { data: { id: "from-concurrent-request" } },
     };
