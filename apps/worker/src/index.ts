@@ -24,6 +24,20 @@ import {
 import { stopNotificationWorker } from "./notification-worker.js";
 import { stopNotificationOutboundWorker } from "./notification-outbound-worker.js";
 import { stopConnectorOutboundWorker } from "./connector-outbound-worker.js";
+import {
+  startConnectorPollScheduler,
+  stopConnectorPollScheduler,
+} from "./connector-poll-scheduler.js";
+import { stopConnectorPollWorker } from "./connector-poll-worker.js";
+import { stopMentionResolutionWorker } from "./mention-resolution-worker.js";
+import {
+  scheduleAttachmentCleanup,
+  stopAttachmentCleanupWorker,
+} from "./attachment-cleanup.js";
+import {
+  scheduleAccessLogRetention,
+  stopAccessLogRetentionWorker,
+} from "./access-log-retention.js";
 
 logger.info({}, "Worker process starting");
 
@@ -34,13 +48,16 @@ startAlertScheduler();
 startHealthServer();
 startDueDateScheduler();
 startNotificationPoller();
+startConnectorPollScheduler();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
 void scheduleFileCleanup();
+void scheduleAttachmentCleanup();
+void scheduleAccessLogRetention();
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
-// notificationWorker, notificationOutboundWorker, connectorOutboundWorker all
-// start processing on import above.
+// notificationWorker, notificationOutboundWorker, connectorOutboundWorker,
+// connectorPollWorker all start processing on import above.
 
 async function shutdown(): Promise<void> {
   logger.info({}, "Worker shutting down");
@@ -63,6 +80,11 @@ async function shutdown(): Promise<void> {
     stopNotificationWorker(),
     stopNotificationOutboundWorker(),
     stopConnectorOutboundWorker(),
+    stopConnectorPollScheduler(),
+    stopConnectorPollWorker(),
+    stopMentionResolutionWorker(),
+    stopAttachmentCleanupWorker(),
+    stopAccessLogRetentionWorker(),
     closeRedis(),
   ]);
   process.exit(0);

@@ -66,6 +66,24 @@ export type CreateChildRelationInput = {
   createdBy?: string | undefined;
   /** ISO datetime string, or null. Independent of workflow state/SLA. */
   dueDate?: string | null | undefined;
+  /**
+   * ADR-012 Phase C, spec R10 — dual-identity attribution for a third-party
+   * sub-ticket creation, mirroring createEntity's actorType/actingPersonId
+   * (packages/entity-engine/src/engine.ts). Undefined preserves the
+   * pre-existing human-UI behavior (triggeredBy "user").
+   */
+  actorType?: "user" | "api_key" | "system" | undefined;
+  actingPersonId?: string | undefined;
+  /**
+   * ADR-012 Phase C, spec R9 — an optional caller-supplied cap on the
+   * parent's ancestor depth, stricter than the workflow's own general
+   * maxChildDepth. Checked under the same row lock createChildRelation
+   * already takes on the parent (and reuses the same ancestorDepth
+   * computation it already does for its own general depth check) — a
+   * separate, unlocked pre-check in the caller would race against a
+   * concurrent moveChildRelation call and could be bypassed.
+   */
+  maxAncestorDepth?: number | undefined;
 };
 
 export type MoveChildRelationInput = {
@@ -82,6 +100,9 @@ export type CreateEntityInput = {
   fields: Record<string, unknown>;
   createdBy?: string | undefined;
   actorId?: string | undefined;
+  actorType?: "user" | "api_key" | "system" | undefined;
+  /** ADR-012 Phase B, spec R9/GAP-05 — the real person acting through a third-party API key (actorId/actorType above), distinct so the audit trail can search by person or by key independently. */
+  actingPersonId?: string | undefined;
   /** Display name snapshot stored in event metadata for immutable history. */
   actorName?: string | undefined;
   assignedTo?: string | undefined;

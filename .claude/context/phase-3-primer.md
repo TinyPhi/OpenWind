@@ -111,8 +111,18 @@ Runtime track — full detail for all done items: `docs/sup-docs/week-log.md`'s 
       `connector_credentials` turned out to already exist since Phase 1 as an incompatible
       placeholder (zero real rows anywhere) — reshaped in place via `ALTER` rather than adding a
       second table; see week-log for why that was safe. [#363](../../issues/363)
-- [ ] Polling scheduler (BullMQ repeatable job per connector per tenant). [#366](../../issues/366)
-- [ ] Kill switch (non-destructive disable, not just install/uninstall). [#367](../../issues/367)
+- [x] Polling scheduler (BullMQ repeatable job per connector per tenant) — done 2026-08-18,
+      reconcile-tick design (no install API yet, so this is the only place a `connector-poll`
+      repeatable job is created/removed). See week-log 2026-08-18 entry for the two correctness
+      bugs `/review` caught and fixed pre-merge (BullMQ `job.id` never populated by
+      `getRepeatableJobs()`; cursor-keyed dedup id colliding across cycles when a connector never
+      advances its cursor). [#366](../../issues/366)
+- [x] Kill switch (non-destructive disable, not just install/uninstall) — done 2026-08-18.
+      `disabled_at`/`disabled_by` on `connector_credentials` (mirrors `api_keys.revoked_at`'s
+      shape), checked by the webhook gateway, outbound delivery worker, and polling
+      scheduler/worker. See week-log 2026-08-18 entry for review findings fixed pre-merge
+      (unredacted-dead-letter ordering bug, fail-open on missing installation, a TOCTOU race in
+      the route's audit trail). [#367](../../issues/367)
 - [ ] Build email (SMTP/IMAP) + WhatsApp Business connectors _together with_ the runtime — the
       runtime's shape is sized for exactly these two, not for a five-connector launch.
       [#368](../../issues/368)

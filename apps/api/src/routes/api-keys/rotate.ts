@@ -10,7 +10,7 @@ import {
 } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, ne, or } from "drizzle-orm";
 import { factory } from "./factory.js";
 import { scopeCeilingError } from "./scope-ceiling.js";
 
@@ -34,6 +34,11 @@ export const rotateApiKeyHandler = factory.createHandlers(
           scopes: apiKeys.scopes,
           scopesFormat: apiKeys.scopesFormat,
           expiresAt: apiKeys.expiresAt,
+          rotatedFrom: apiKeys.rotatedFrom,
+          applicationName: apiKeys.applicationName,
+          applicationDescription: apiKeys.applicationDescription,
+          applicationContactEmail: apiKeys.applicationContactEmail,
+          oidcClientId: apiKeys.oidcClientId,
         })
         .from(apiKeys)
         .where(
@@ -51,15 +56,20 @@ export const rotateApiKeyHandler = factory.createHandlers(
       // Re-checked here, not just at original creation time (#223) — a caller
       // whose roles have since been downgraded should not be able to use
       // rotation to keep reissuing scopes they no longer hold themselves.
-      //
-      // TODO(ADR-008 Decision #6 ceiling-reopen): scopeCeilingError rejects
-      // any scope string not in ROLE_LEVEL (level -1), which includes every
-      // action-format string. Once action-format keys can be minted, this
-      // check will permanently 403 rotation of every one of them — the
-      // ceiling-reopen PR must update this call site too, not just
-      // create.ts's (review finding M2, PR #373).
-      const scopeError = scopeCeilingError(roles, original.scopes);
-      if (scopeError) return { error: "forbidden" as const, scopeError };
+      // ADR-012 Phase A (PR A3): only applies to role-format (internal) keys
+      // — action-format (third-party) keys are never gated by the creator's
+      // own role ceiling, same as at mint time (create.ts), since action
+      // scopes aren't role levels the ceiling can meaningfully compare
+      // against. Previously this unconditionally rejected every action-format
+      // scope string (ROLE_LEVEL has no entry for them, so scopeCeilingError
+      // always failed closed), permanently 403ing rotation of every
+      // third-party key — tracked as a TODO here since Round 5 (review
+      // finding M2, PR #373); closed now that action-format keys actually
+      // exist to rotate.
+      if (original.scopesFormat === "role") {
+        const scopeError = scopeCeilingError(roles, original.scopes);
+        if (scopeError) return { error: "forbidden" as const, scopeError };
+      }
 
       // Generated only once eligibility + scope checks pass — hashApiKeyArgon2
       // is intentionally slow (~100-250ms); doing this before the checks above
@@ -68,12 +78,57 @@ export const rotateApiKeyHandler = factory.createHandlers(
       const rawKey = `sk_live_${randomBytes(32).toString("base64url")}`;
       const keyHash = hashApiKey(rawKey);
       const keyHashArgon2 = await hashApiKeyArgon2(rawKey);
-      const expiresAt = new Date(
-        Date.now() + API_KEY_DEFAULT_TTL_DAYS * 24 * 60 * 60 * 1000,
-      );
+      // ADR-012 Phase A spec R6: third-party (action-format) keys get the
+      // same fixed 3-month expiry on rotation as at mint time — not the
+      // internal-key default TTL, which previously applied unconditionally
+      // here regardless of format.
+      const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
+      const expiresAt =
+        original.scopesFormat === "action"
+          ? new Date(Date.now() + THREE_MONTHS_MS)
+          : new Date(
+              Date.now() + API_KEY_DEFAULT_TTL_DAYS * 24 * 60 * 60 * 1000,
+            );
       const overlapExpiresAt = new Date(
         Date.now() + API_KEY_ROTATION_OVERLAP_HOURS * 60 * 60 * 1000,
       );
+
+      // Dual-valid overlap window (ADR-008 Decision #3): the original stays
+      // usable until overlapExpiresAt instead of being killed immediately, so
+      // in-flight callers get a chance to pick up the replacement. It then
+      // stops resolving on its own via the same expiry check every key goes
+      // through (migration 0053) — no separate revoke step or scheduled job.
+      // Only ever SHORTENS the original's expiresAt, never extends it — a key
+      // already due to expire sooner than the overlap window keeps its
+      // existing (sooner) expiry, so rotation can't accidentally resurrect a
+      // credential for longer than it was already going to live.
+      //
+      // Run BEFORE the insert below, not after — Postgres checks unique
+      // constraints immediately (not deferred), so if the successor's insert
+      // ran first, both rows would briefly hold oidc_client_id_active =
+      // true at once and the insert itself would fail the very index this
+      // handoff exists to satisfy.
+      const newExpiresAt =
+        original.expiresAt !== null && original.expiresAt < overlapExpiresAt
+          ? original.expiresAt
+          : overlapExpiresAt;
+      await tx
+        .update(apiKeys)
+        .set({
+          expiresAt: newExpiresAt,
+          // Migration 0069/0072: the dying predecessor keeps authenticating
+          // (revoked_at untouched) and keeps its oidc_client_id *value*
+          // (so it still identifies the right application if anything reads
+          // it during the grace window), but hands off the Client ID's
+          // uniqueness claim to the successor immediately — the successor
+          // keeps the column's own default (true), so exactly one row is
+          // ever the "holder" at a time. A no-op for role-format keys
+          // (column stays at its default there regardless).
+          oidcClientIdActive: false,
+        })
+        .where(
+          and(eq(apiKeys.id, original.id), eq(apiKeys.tenantId, tenantId)),
+        );
 
       const [created] = await tx
         .insert(apiKeys)
@@ -90,6 +145,18 @@ export const rotateApiKeyHandler = factory.createHandlers(
           createdBy: userId,
           expiresAt,
           rotatedFrom: original.id,
+          // The application record identifies WHICH external application
+          // this key belongs to — that identity doesn't change on rotation,
+          // only the credential itself does. Undefined (not carried) for
+          // role-format keys, same as at mint time.
+          ...(original.scopesFormat === "action"
+            ? {
+                applicationName: original.applicationName,
+                applicationDescription: original.applicationDescription,
+                applicationContactEmail: original.applicationContactEmail,
+                oidcClientId: original.oidcClientId,
+              }
+            : {}),
         })
         .returning({
           id: apiKeys.id,
@@ -98,29 +165,64 @@ export const rotateApiKeyHandler = factory.createHandlers(
           scopesFormat: apiKeys.scopesFormat,
           createdAt: apiKeys.createdAt,
           expiresAt: apiKeys.expiresAt,
+          applicationName: apiKeys.applicationName,
+          oidcClientId: apiKeys.oidcClientId,
         });
       if (!created) {
         throw new Error("api_keys insert returned no row");
       }
 
-      // Dual-valid overlap window (ADR-008 Decision #3): the original stays
-      // usable until overlapExpiresAt instead of being killed immediately, so
-      // in-flight callers get a chance to pick up the replacement. It then
-      // stops resolving on its own via the same expiry check every key goes
-      // through (migration 0053) — no separate revoke step or scheduled job.
-      // Only ever SHORTENS the original's expiresAt, never extends it — a key
-      // already due to expire sooner than the overlap window keeps its
-      // existing (sooner) expiry, so rotation can't accidentally resurrect a
-      // credential for longer than it was already going to live.
-      const newExpiresAt =
-        original.expiresAt !== null && original.expiresAt < overlapExpiresAt
-          ? original.expiresAt
-          : overlapExpiresAt;
+      // ADR-012 Phase A spec R4: rotation lineage never exceeds 2 live nodes
+      // (one dying, one active). Two ways an already-2-node lineage could
+      // otherwise grow a 3rd live member when `original` is rotated again:
+      //   (a) `original` itself has a live predecessor (original.rotatedFrom
+      //       points at a row that's still dying, not yet revoked/expired) —
+      //       rotating `original` again while that predecessor lingers would
+      //       leave 3 live nodes: the old predecessor, `original` (now
+      //       dying), and the new key (active).
+      //   (b) `original` already has a live successor from an earlier
+      //       rotation (some other row's rotatedFrom = original.id, still
+      //       live) — calling rotate on `original` a second time before that
+      //       successor's own grace naturally elapses would create a second,
+      //       branching active key instead of the lineage's one true active
+      //       member.
+      // Both are closed the same way, in one query: instantly kill whichever
+      // of the two exists (there can be at most one of each at a time, per
+      // this same invariant already having been enforced on every prior
+      // rotation) — "killed instantly, new key becomes sole active member of
+      // the lineage" (spec R4), not left to finish its own grace/expiry.
       await tx
         .update(apiKeys)
-        .set({ expiresAt: newExpiresAt })
+        .set({
+          revokedAt: new Date(),
+          revokedBy: "system:rotation-lineage-cap",
+        })
         .where(
-          and(eq(apiKeys.id, original.id), eq(apiKeys.tenantId, tenantId)),
+          and(
+            eq(apiKeys.tenantId, tenantId),
+            isNull(apiKeys.revokedAt),
+            ne(apiKeys.id, original.id),
+            // The row just inserted above also has rotatedFrom = original.id
+            // (that's how every successor is linked to its predecessor) —
+            // without this exclusion this query catches and instantly
+            // revokes the key it just created, on every single rotation,
+            // not just the genuine multi-generation lineage-cap scenarios
+            // this is meant for (found via manual testing: two consecutive
+            // rotates both self-revoked their own new key within
+            // milliseconds).
+            ne(apiKeys.id, created.id),
+            or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+            or(
+              ...[
+                original.rotatedFrom
+                  ? eq(apiKeys.id, original.rotatedFrom)
+                  : undefined,
+                eq(apiKeys.rotatedFrom, original.id),
+              ].filter(
+                (cond): cond is NonNullable<typeof cond> => cond !== undefined,
+              ),
+            ),
+          ),
         );
 
       await writeAuditEntry(tx, {

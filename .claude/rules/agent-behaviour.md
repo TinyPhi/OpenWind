@@ -63,14 +63,31 @@ reference: `.claude/README.md`; completion contract: `.claude/references/definit
 | **Docs**   | update `docs/**`/`CLAUDE.md`/`README.md`/`.claude/**/*.md` → `write-docs-marker.sh --touched`, or `--skip "<reason>"` if genuinely none apply | `commit-gate` needs a docs marker matching the diff (touched or explicitly skipped)               |
 | **Ship**   | the loop's **commit procedure** (exit condition → marker → commit → PR)                                                                       | `commit-gate` blocks `git commit` without a fresh marker + matching review + matching docs marker |
 
+**Scale review effort to diff size and risk — this is a cost control, not optional polish.**
+`/review` can fan out into many parallel sub-agents; that fan-out is appropriate for large or
+security-sensitive diffs (new tables/routes/auth paths, multi-file features) but wasteful for a
+small, mechanical, or config/docs-only change (a single migration, a comment fix, a one-file
+docker-compose tweak). For the latter, ask for a low/quick-effort pass explicitly (pass an
+effort hint in the skill's `args`, e.g. "low effort, small config-only diff") rather than
+defaulting to full fan-out every time. Don't re-invoke `/review` repeatedly on the same diff
+once it returns clean — one pass per meaningfully-changed diff is enough. This was a real
+incident: an unscaled multi-round review of a handful of docker-compose/docs edits alone spent
+a large fraction of a session's token budget and contributed to hitting the org's spend limit.
+
 The human approves twice: type `approve-plan` (start) and `approve-ship` (end) in chat. The
 `approval-gate` hook fires on your prompt rather than agent output, which makes _accidental_
 self-approval unlikely — but it is not a hard guarantee (the approval state is a plain file). The
-real, un-fakeable human approval is the **PR review**. `OPENWIND_AUTOPASS=1` graduates the pass to
-auto. The agent does everything in between; use the commit procedure rather than a bare `git commit`
-(the marker is what the gate looks for). `PROGRESS.md` and
-`BLOCKERS.md` are written during this flow (and are gitignored). Bypass envs exist for genuine cases
-and are logged to `.claude/state/bypass.log`.
+real, un-fakeable human approval is the **PR review**. Both typed approvals can be graduated to
+standing trust once you've built confidence in the loop: `OPENWIND_PLAN_AUTOPASS=1` skips typing
+`approve-plan` (a plan-lock still has to exist — `/spec-tasks` still has to run — it just doesn't
+need the human blessing each time); `OPENWIND_AUTOPASS=1` does the same for `approve-ship` (marker
+
+- review + docs still all have to match the diff). Neither is logged as a bypass — unlike
+  `OPENWIND_GATE=off`/`SHIP_BYPASS=1`, they don't skip the underlying artifact, only the human keypress.
+  The agent does everything in between; use the commit procedure rather than a bare `git commit`
+  (the marker is what the gate looks for). `PROGRESS.md` and
+  `BLOCKERS.md` are written during this flow (and are gitignored). Bypass envs exist for genuine cases
+  and are logged to `.claude/state/bypass.log`.
 
 ---
 
@@ -120,21 +137,23 @@ See the **Delivery flow** section above and `.claude/README.md` for the guardrai
 
 ## Available skills
 
-| Skill                          | When to use                                                               |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `/spec`                        | Before any new feature                                                    |
-| `/spec-tasks`                  | Turn a spec into an ordered task list                                     |
-| `/spec-review`                 | Stress-test a spec before implementation                                  |
-| `/security-review`             | Any PR touching auth, new tables, routes, file access, secrets            |
-| `/review`                      | Standard PR review                                                        |
-| `/verify`                      | After implementation — confirm the feature works end-to-end               |
-| `/simplify`                    | Post-implementation code quality pass                                     |
-| `/openwind-loop`               | Project-specific loop: exact commands, config-first test, exit condition  |
-| `doubt-driven-development`     | Adversarial review of a non-trivial decision before it stands             |
-| `debugging-and-error-recovery` | Systematic root-cause debugging when a failure isn't obvious              |
-| `source-driven-development`    | Implementation grounded in official versioned docs (Phase 3 integrations) |
-| `interview-me`                 | Extract what the user actually wants before speccing or building          |
-| `idea-refine`                  | Transform a vague idea into a sharp direction with explicit trade-offs    |
+| Skill                          | When to use                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------- |
+| `/spec`                        | Before any new feature                                                                  |
+| `/spec-tasks`                  | Turn a spec into an ordered task list                                                   |
+| `/spec-review`                 | Stress-test a spec before implementation                                                |
+| `/security-review`             | Any PR touching auth, new tables, routes, file access, secrets                          |
+| `/review`                      | Standard PR review                                                                      |
+| `/verify`                      | After implementation — confirm the feature works end-to-end                             |
+| `/simplify`                    | Post-implementation code quality pass                                                   |
+| `/openwind-loop`               | Project-specific loop: exact commands, config-first test, exit condition                |
+| `doubt-driven-development`     | Adversarial review of a non-trivial decision before it stands                           |
+| `debugging-and-error-recovery` | Systematic root-cause debugging when a failure isn't obvious                            |
+| `source-driven-development`    | Implementation grounded in official versioned docs (Phase 3 integrations)               |
+| `interview-me`                 | Extract what the user actually wants before speccing or building                        |
+| `idea-refine`                  | Transform a vague idea into a sharp direction with explicit trade-offs                  |
+| `api-and-interface-design`     | New/changed route, tRPC procedure, or module contract; ADR-010 API shape                |
+| `deprecation-and-migration`    | api_keys rotation/scopes-format migration (OQ-2/OQ-3), breaking schema/contract changes |
 
 `/ultrareview` is a built-in Claude Code workflow (not a skill) — type it in any session.
 It launches a parallel multi-agent review across correctness, security, and performance dimensions.

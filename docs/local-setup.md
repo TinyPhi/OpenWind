@@ -274,9 +274,9 @@ new ones.
 
 | Container       | Internal port | Host port  | URL                                                              |
 | --------------- | ------------- | ---------- | ---------------------------------------------------------------- |
-| ow-database     | 5432          | —          | Internal only                                                    |
+| ow-database     | 5432          | 5432       | `localhost:5432` (host-mode `pnpm db:migrate` only)              |
 | ow-pgbouncer    | 5432          | 6432       | `localhost:6432`                                                 |
-| ow-cache        | 6379          | —          | Internal only                                                    |
+| ow-cache        | 6379          | 6379       | `redis://localhost:6379` (host-mode `pnpm test`/`pnpm dev` only) |
 | ow-backend      | 3000          | —          | Internal only (proxied)                                          |
 | ow-frontend     | 3001          | 3001       | `http://localhost:3001`                                          |
 | ow-bootstrap    | —             | —          | One-shot, `profile: bootstrap`                                   |
@@ -431,19 +431,29 @@ Zitadel's own database lives in the separate `zitadel-db` container (in
 
 ## Backup & Disaster Recovery
 
-**Status: mechanical building block only — RPO/RTO targets and a production cron
-schedule are not yet decided (tracked in [#192](../../issues/192)).** This is a
-deliberate scope boundary, not an oversight: those are policy decisions for a
-maintainer to make, not something to infer from the code.
+**Policy (decided, [#192](../../issues/192)):**
+
+- **RPO: 24 hours.** A nightly backup is sufficient at current scale — not an
+  intra-day/PITR requirement. Revisit if a pilot contract ever requires tighter.
+- **RTO: measured, not pre-committed.** The number below is the current
+  baseline from the last supervised test restore, not a guaranteed SLA — see
+  the caveat under "Verified" below before treating it as a production number.
+- **Out of scope, deliberately** (not silently missing): point-in-time
+  recovery / continuous WAL archiving (`wal-g`/`barman`), offsite/off-host
+  backup storage (backups currently live on the same host as the primary —
+  a host-level disk failure takes out both together), and per-tenant
+  selective restore (this platform's shared-DB-with-RLS model, chosen in
+  [ADR-001](decisions/ADR-001-multitenancy.md) partly _for_ backup
+  simplicity, means a restore is whole-database, not single-tenant).
 
 ### What gets backed up
 
-| Service                         | Backed up? | Why                                                                                                                                                  |
-| ------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Postgres (`postgres` service)   | ✅ Yes     | Primary store — tenant data, entities, workflows, automations. Critical.                                                                             |
-| MinIO (`platform-files` bucket) | ✅ Yes     | Uploaded file attachments. Critical, and not reconstructable from Postgres.                                                                          |
-| Redis                           | ❌ No      | Queues (BullMQ), rate-limit counters, caches — all rebuildable/ephemeral.                                                                            |
-| Novu's Mongo                    | ❌ No      | Notification delivery state — rebuildable; in-flight notifications may be lost on restore, which is an acceptable tradeoff for a non-critical store. |
+| Service                                             | Backed up? | Why                                                                                                                                                  |
+| --------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Postgres (`postgres` service)                       | Yes        | Primary store — tenant data, entities, workflows, automations. Critical.                                                                             |
+| Local-disk file storage (`FILES_STORAGE_PATH_HOST`) | Yes        | Uploaded file attachments (`packages/files`; MinIO was decommissioned in PR #340). Critical, and not reconstructable from Postgres.                  |
+| Redis                                               | No         | Queues (BullMQ), rate-limit counters, caches — all rebuildable/ephemeral.                                                                            |
+| Novu's Mongo                                        | No         | Notification delivery state — rebuildable; in-flight notifications may be lost on restore, which is an acceptable tradeoff for a non-critical store. |
 
 ### Running a backup
 
@@ -452,22 +462,85 @@ maintainer to make, not something to infer from the code.
 ./scripts/backup.sh
 
 # Output: ./backups/<UTC timestamp>/postgres-platform.dump
-#         ./backups/<UTC timestamp>/minio/platform-files/...
+#         ./backups/<UTC timestamp>/files/...
 
 # Cron-able — override the output directory, everything else has dev defaults:
 BACKUP_DIR=/var/backups/openwind ./scripts/backup.sh
 ```
 
 The script uses `pg_dump --format=custom` (compressed, restorable with
-`pg_restore`) and `mc mirror` for MinIO. See the script's own header comment
-for the full list of overridable env vars (Postgres user/db, MinIO
-service/bucket/credentials).
+`pg_restore`) and a plain recursive copy of the host's
+`FILES_STORAGE_PATH_HOST` directory (default `../openwind-files`, same
+variable `docker-compose.yml` bind-mounts into `ow-backend`/`ow-worker`). See
+the script's own header comment for the full list of overridable env vars.
 
-**Version-bump policy applies here too**: this script assumes the
-`pg_dump`/`mc` client versions bundled in this repo's pinned `postgres` and
-`minio-init` images (see the image-pinning policy above) — a version bump to
-either image is a deliberate, separate change, never silently bundled with
-an unrelated diff.
+**Version-bump policy applies here too**: this script assumes the `pg_dump`
+client version bundled in this repo's pinned `postgres` image (see the
+image-pinning policy above) — a version bump to that image is a deliberate,
+separate change, never silently bundled with an unrelated diff.
+
+### Scheduling (24h RPO)
+
+Not yet wired to a production host — install one of the following on
+whatever host runs the `docker compose` stack:
+
+**cron** (simplest — add via `crontab -e` as the deploy user):
+
+```cron
+# Nightly at 02:00 server time — meets 24h RPO
+0 2 * * * cd /path/to/OpenWind && BACKUP_DIR=/var/backups/openwind ./scripts/backup.sh >> /var/log/openwind-backup.log 2>&1
+```
+
+The log file above has no rotation configured and will grow unbounded — add a
+`logrotate` entry for `/var/log/openwind-backup.log` if using cron, or prefer
+the systemd timer below (logs to `journalctl`, rotated automatically).
+
+**systemd timer** (preferred on a systemd host — survives reboots without
+re-adding a crontab entry, and logs go to `journalctl` instead of a
+hand-rolled log file):
+
+```ini
+# /etc/systemd/system/openwind-backup.service
+[Unit]
+Description=OpenWind nightly backup
+
+[Service]
+Type=oneshot
+# Whoever runs `docker compose up -d` on this host — running as root
+# unnecessarily widens blast radius if this script ever has a bug.
+User=<deploy-user>
+Group=<deploy-group>
+WorkingDirectory=/path/to/OpenWind
+Environment=BACKUP_DIR=/var/backups/openwind
+ExecStart=/path/to/OpenWind/scripts/backup.sh
+```
+
+```ini
+# /etc/systemd/system/openwind-backup.timer
+[Unit]
+Description=Run openwind-backup.service nightly (24h RPO)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl enable --now openwind-backup.timer
+systemctl list-timers openwind-backup.timer   # confirm next run is scheduled
+```
+
+Either mechanism satisfies the 24h RPO — pick whichever fits the deploy
+host's existing conventions. Neither is installed by this repo automatically;
+a maintainer installs one on the actual production host.
+
+**Retention** is not yet automated — `BACKUP_DIR` grows unbounded run over
+run. A cron/timer wrapper that prunes runs older than N days is a reasonable
+follow-up once there's a real disk-usage number to size N against; tracked as
+a known gap here rather than guessed at.
 
 ### Restoring
 
@@ -480,22 +553,43 @@ docker compose exec -T postgres pg_restore -U platform -d platform_restore_check
   --no-owner --no-privileges < ./backups/<timestamp>/postgres-platform.dump
 ```
 
-**MinIO** — mirror is bidirectional; reverse the source/dest of the same
-`mc mirror` command the backup script uses:
+**Files** — stop the application first, then copy back to the storage path.
+Unlike the Postgres restore above (which goes into a scratch database and is
+safe to run live), this writes directly to the path `ow-backend`/`ow-worker`
+actively read and write — restoring over a live directory can overwrite newer
+legitimate uploads with older versions, or leave a dangling reference if a
+file mid-ClamAV-scan gets clobbered:
 
 ```bash
-docker compose run --rm --no-deps \
-  -v "$(pwd)/backups/<timestamp>/minio:/backup" \
-  --entrypoint /bin/sh minio-init -c "
-    mc alias set local http://minio:9000 'platform_access_key' 'platform_secret_key_dev_only' >/dev/null &&
-    mc mirror --overwrite /backup/platform-files local/platform-files
-  "
+# Stop the application before restoring files to avoid write conflicts
+docker compose stop ow-backend ow-worker
+
+cp -a ./backups/<timestamp>/files/. "${FILES_STORAGE_PATH_HOST:-../openwind-files}/"
+
+# Restart after restore is verified
+docker compose start ow-backend ow-worker
 ```
 
-**Verified 2026-07-31**: both directions tested against this repo's dev
-stack — a real file round-tripped through MinIO with a matching checksum,
-and a Postgres dump was restored into a scratch database with table and row
-counts (`outbox_events`, `entity_types`, etc.) matching the source exactly.
+**Consistency note**: `pg_dump` takes a transactionally consistent snapshot;
+the files copy does not — it's a point-in-time filesystem copy taken
+separately, while the application may be mid-write. A file in
+`packages/files`' atomic write pipeline (ClamAV-scanning a temp path, not yet
+renamed to its final location) at backup time may be absent from the files
+backup even though its Postgres row already exists, or vice versa. This is
+acceptable at the current 24h RPO — the number of in-flight uploads at any
+given moment is small — but is a real gap, not a hidden one.
+
+**Verified 2026-08-25** (supervised test restore, dev stack,
+`docker compose up -d postgres` only, no application traffic): a `pg_dump` of
+a freshly-migrated (schema-only, no tenant data) `platform` database restored
+into a scratch database via `pg_restore` in **~2 seconds**, with all tables
+present; a files-directory backup/restore round-tripped a test file with
+matching content. **Caveat: this RTO baseline was measured against an
+empty/dev-scale database, not a production data volume** — restore time
+scales with data size, so this number should be re-measured against a
+realistic tenant data volume (or the actual production DB, during a
+maintenance window) before being treated as a real SLA. Re-run and update
+this timestamp+duration whenever that happens.
 
 ---
 
@@ -596,9 +690,9 @@ lsof -i :3001
 netstat -ano | findstr :3001
 ```
 
-Change the conflicting host port: `ADMIN_UI_HOST_PORT` / `ZITADEL_HOST_PORT`
-env vars for the frontend/Zitadel ports (see the production section), or edit
-`docker-compose.yml` directly for the others.
+Change the conflicting host port: `ADMIN_UI_HOST_PORT` / `ZITADEL_HOST_PORT` env vars for the
+frontend/Zitadel ports (see the production section), `POSTGRES_HOST_PORT` / `PGBOUNCER_HOST_PORT` / `REDIS_HOST_PORT` / `OPENBAO_HOST_PORT`
+for direct host-mode access, or edit `docker-compose.yml` directly for the others.
 
 ### Platform-specific notes
 

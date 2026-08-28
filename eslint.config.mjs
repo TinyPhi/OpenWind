@@ -1,8 +1,71 @@
+import fs from "node:fs";
+import path from "node:path";
 import js from "@eslint/js";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 import globals from "globals";
+
+// App package names (e.g. "@platform/api") don't follow a predictable prefix
+// the way packages/modules do, so read each from its own package.json rather
+// than guessing — same approach .dependency-cruiser.cjs uses for the same
+// reason.
+function appPackageName(dirName) {
+  try {
+    return JSON.parse(
+      fs.readFileSync(
+        path.join(import.meta.dirname, "apps", dirName, "package.json"),
+        "utf8",
+      ),
+    ).name;
+  } catch {
+    return null;
+  }
+}
+
+const appDirs = fs
+  .readdirSync(path.join(import.meta.dirname, "apps"), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name);
+
+// One block per app, generated instead of hand-duplicated so a fourth app
+// doesn't require editing N near-identical blocks in sync.
+//
+// Only the exact bare package name (e.g. "@platform/worker") is matched here
+// — no-restricted-imports matches the literal import specifier text, not the
+// resolved path, so any glob attempting to also catch relative cross-app
+// imports (e.g. "**/worker/**") is either too narrow (a fixed relative-path
+// depth like "../../worker/*" only matches that exact depth) or too broad
+// (a same-named LOCAL subfolder, e.g. apps/api/src/worker/helper.ts, false-
+// positives as a "cross-app" import even though it never leaves apps/api —
+// verified empirically). Catching the relative-path form correctly requires
+// resolving the actual file path, which only .dependency-cruiser.cjs's
+// mirrored no-cross-app-* rules can do (see that file's own comment) — this
+// block covers the realistic bare-specifier case eslint can check safely.
+const appBoundaryBlocks = appDirs.map((dirName) => {
+  const group = appDirs
+    .filter((other) => other !== dirName)
+    .map((other) => appPackageName(other))
+    .filter((pkgName) => typeof pkgName === "string");
+  if (group.length === 0) return null;
+  return {
+    files: [`apps/${dirName}/**/*.ts`, `apps/${dirName}/**/*.tsx`],
+    plugins: { import: importPlugin },
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group,
+              message: `apps/${dirName} cannot import from other apps.`,
+            },
+          ],
+        },
+      ],
+    },
+  };
+}).filter((block) => block !== null);
 
 /**
  * ESLint flat config.
@@ -165,6 +228,9 @@ export default [
       }],
     },
   },
+
+  // ─── Boundary rules: apps/* (no cross-app imports) ───────────────────────
+  ...appBoundaryBlocks,
 
   // ─── Security: no direct process.env ─────────────────────────────────────
   {

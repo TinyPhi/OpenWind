@@ -33,12 +33,15 @@ that's the difference between the two halves of this list.
 
 ## Already has a tracked issue — just needs a person
 
-| Finding                                                                                                                                                                                                                               | Issue                    | Owner          |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | -------------- |
-| Automation-triggered transitions absent from outbox (Phase 3A connector gap)                                                                                                                                                          | [#143](../../issues/143) | Bikash Barnwal |
-| No backup / disaster-recovery runbook — mechanical building block shipped (PR #286), RPO/RTO policy still an open maintainer decision                                                                                                 | [#192](../../issues/192) | Unassigned     |
-| No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay); closing vs. leaving open for those 2 is an open maintainer decision | [#198](../../issues/198) | Unassigned     |
-| Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                    | [#200](../../issues/200) | Unassigned     |
+**Reconciled 2026-08-19:** #143 (automation-triggered transitions absent from outbox) closed —
+both phases done per `docs/sup-docs/week-log.md`'s 2026-08-12 entries (PR #372, #380); row
+removed per this doc's own rule below.
+
+| Finding                                                                                                                                                                                                                               | Issue                    | Owner      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------- |
+| No backup / disaster-recovery runbook — mechanical building block shipped (PR #286), RPO/RTO policy still an open maintainer decision                                                                                                 | [#192](../../issues/192) | Unassigned |
+| No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay); closing vs. leaving open for those 2 is an open maintainer decision | [#198](../../issues/198) | Unassigned |
+| Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                    | [#200](../../issues/200) | Unassigned |
 
 ---
 
@@ -52,8 +55,7 @@ filed as GitHub issues; they're tracked here and via `CLAUDE.md`'s Phase 3 table
 - ADR-002 addendum for a design gap surfaced during the consulting review (see the review itself
   in git history for detail if picked up — not re-summarized here)
 - MT-02/WE-05 triage items (see git history for the original review for detail)
-- ADRs still needed for: plugin system (3B), AI layer (3C), observability (3D), **rate-limiting
-  strategy**, notification SLA policy
+- ADRs still needed for: AI layer (3C), observability (3D)
 
 ---
 

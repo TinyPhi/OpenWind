@@ -106,6 +106,7 @@ vi.mock("@platform/audit", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ op: "eq", args })),
+  ne: vi.fn((...args: unknown[]) => ({ op: "ne", args })),
   and: vi.fn((...args: unknown[]) => ({ op: "and", args })),
   or: vi.fn((...args: unknown[]) => ({ op: "or", args })),
   isNull: vi.fn((...args: unknown[]) => ({ op: "isNull", args })),
@@ -156,7 +157,13 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
   it("returns 403 when the caller's roles no longer cover the original key's scopes", async () => {
     mockAuth.roles = ["user"];
     mockOriginalRows = [
-      { id: "orig-1", name: "ci-key", scopes: ["admin"], expiresAt: null },
+      {
+        id: "orig-1",
+        name: "ci-key",
+        scopes: ["admin"],
+        scopesFormat: "role",
+        expiresAt: null,
+      },
     ];
     const res = await makeApp().request("/orig-1/rotate", { method: "POST" });
     expect(res.status).toBe(403);
@@ -174,7 +181,13 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
   it("does not run argon2id hashing when the scope ceiling check fails", async () => {
     mockAuth.roles = ["user"];
     mockOriginalRows = [
-      { id: "orig-1", name: "ci-key", scopes: ["admin"], expiresAt: null },
+      {
+        id: "orig-1",
+        name: "ci-key",
+        scopes: ["admin"],
+        scopesFormat: "role",
+        expiresAt: null,
+      },
     ];
     await makeApp().request("/orig-1/rotate", { method: "POST" });
     expect(mockHashApiKeyArgon2).not.toHaveBeenCalled();
@@ -247,6 +260,21 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
     expect(hoursFromNow).toBeGreaterThan(0);
   });
 
+  // ADR-012 Phase A spec R3: "old key continues authenticating for exactly
+  // 24h from rotation timestamp" — the test above only bounds the window to
+  // (0, 25) hours, loose enough that a bug setting the overlap to e.g. 1h or
+  // 20h would slip through undetected. Pin it tightly (±5s, matching the
+  // tolerance already used for the 3-month expiry stamp below) so a wrong
+  // constant or unit-conversion error (minutes vs hours) fails this test.
+  it("sets the overlap window to exactly 24h from now, not merely 'less than 25h'", async () => {
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    const setArg = mockUpdateSet.mock.calls[0][0];
+    const msFromNow = setArg.expiresAt.getTime() - Date.now();
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    expect(msFromNow).toBeGreaterThan(twentyFourHoursMs - 5000);
+    expect(msFromNow).toBeLessThan(twentyFourHoursMs + 5000);
+  });
+
   it("keeps the original's already-sooner expiresAt instead of extending it to the overlap window (security review finding)", async () => {
     // Original expires in 2 hours — shorter than the 24h overlap window.
     // Rotation must NOT push this out to 24h; that would resurrect a
@@ -295,5 +323,143 @@ describe("POST /api-keys/:id/rotate (ADR-008 Decision #3)", () => {
     const res = await makeApp().request("/orig-1/rotate", { method: "POST" });
     const json = await res.json();
     expect(json.data.key).toMatch(/^sk_live_/);
+  });
+});
+
+describe("POST /api-keys/:id/rotate — third-party (action-scoped) keys (ADR-012 Phase A, PR A3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.roles = ["agent"]; // deliberately NOT admin — must not matter for action-format
+    mockOriginalRows = [
+      {
+        id: "orig-1",
+        name: "third-party-key",
+        scopes: ["entity:ticket:read"],
+        scopesFormat: "action",
+        expiresAt: null,
+        rotatedFrom: null,
+        applicationName: "Acme Helpdesk Sync",
+        applicationDescription: null,
+        applicationContactEmail: "ops@acme.example",
+        oidcClientId: "acme-helpdesk-sync-client",
+      },
+    ];
+    mockInsertReturns = [
+      {
+        id: "key-2",
+        name: "third-party-key",
+        scopes: ["entity:ticket:read"],
+        scopesFormat: "action",
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        applicationName: "Acme Helpdesk Sync",
+        oidcClientId: "acme-helpdesk-sync-client",
+      },
+    ];
+  });
+
+  it("rotates successfully regardless of the caller's roles — the ceiling check does not apply to action-format keys", async () => {
+    const res = await makeApp().request("/orig-1/rotate", { method: "POST" });
+    expect(res.status).toBe(201);
+  });
+
+  it("carries the application record and Client ID forward onto the successor", async () => {
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.applicationName).toBe("Acme Helpdesk Sync");
+    expect(insertArg.oidcClientId).toBe("acme-helpdesk-sync-client");
+  });
+
+  it("stamps a 3-month expiry on the successor, not the internal-key default TTL", async () => {
+    const before = Date.now();
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+    const expiresAt = (insertArg.expiresAt as Date).getTime();
+    expect(expiresAt).toBeGreaterThan(before + ninetyDaysMs - 5000);
+    expect(expiresAt).toBeLessThan(before + ninetyDaysMs + 5000);
+  });
+
+  it("hands off the Client ID's uniqueness claim by setting the predecessor's oidcClientIdActive to false", async () => {
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    // calls[0] is the pre-existing expiresAt-shortening update (position
+    // preserved for the existing role-format test suite above).
+    const setArg = mockUpdateSet.mock.calls[0][0];
+    expect(setArg.oidcClientIdActive).toBe(false);
+  });
+});
+
+describe("POST /api-keys/:id/rotate — lineage cap (ADR-012 Phase A spec R4, PR A3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.roles = ["admin"];
+  });
+
+  it("instantly kills a still-live predecessor when rotating a key that itself has one", async () => {
+    mockOriginalRows = [
+      {
+        id: "middle-key",
+        name: "ci-key",
+        scopes: ["agent"],
+        scopesFormat: "role",
+        expiresAt: null,
+        rotatedFrom: "old-predecessor",
+      },
+    ];
+    await makeApp().request("/middle-key/rotate", { method: "POST" });
+    // calls[1] is the new lineage-cleanup update (position 1, after the
+    // pre-existing expiresAt-shortening update at position 0).
+    const setArg = mockUpdateSet.mock.calls[1][0];
+    expect(setArg.revokedAt).toBeInstanceOf(Date);
+    expect(setArg.revokedBy).toBe("system:rotation-lineage-cap");
+  });
+
+  it("still issues the lineage-cleanup update even when there is no stale predecessor/successor to clean up", async () => {
+    mockOriginalRows = [
+      {
+        id: "orig-1",
+        name: "ci-key",
+        scopes: ["agent"],
+        scopesFormat: "role",
+        expiresAt: null,
+        rotatedFrom: null,
+      },
+    ];
+    await makeApp().request("/orig-1/rotate", { method: "POST" });
+    expect(mockUpdateSet).toHaveBeenCalledTimes(2);
+  });
+
+  // Regression test: the lineage-cleanup query's WHERE clause excluded
+  // original.id but not the just-inserted successor's own id — and since
+  // every successor's rotatedFrom always equals original.id by construction,
+  // the query caught and instantly revoked the key it had just created, on
+  // every single rotation (found via manual testing against real Postgres:
+  // two consecutive rotates both self-revoked their own new key within
+  // milliseconds). This asserts the WHERE clause excludes BOTH ids, not just
+  // original's — the mocked drizzle-orm ne() calls are inspectable by their
+  // recorded args since the real query builder isn't actually evaluated here.
+  it("excludes both original.id AND the newly-created successor's own id from the lineage-cleanup query — a fresh rotate must never self-revoke its own result", async () => {
+    mockOriginalRows = [
+      {
+        id: "orig-1",
+        name: "ci-key",
+        scopes: ["agent"],
+        scopesFormat: "role",
+        expiresAt: null,
+        rotatedFrom: null,
+      },
+    ];
+    const res = await makeApp().request("/orig-1/rotate", { method: "POST" });
+    const json = (await res.json()) as { data: { id: string } };
+    const createdId = json.data.id;
+
+    const [andCall] = mockUpdateWhere.mock.calls[1] as [
+      { op: string; args: Array<{ op: string; args: unknown[] }> },
+    ];
+    expect(andCall.op).toBe("and");
+    const neCalls = andCall.args.filter((a) => a.op === "ne");
+    const excludedIds = neCalls.map((c) => c.args[1]);
+    expect(excludedIds).toContain("orig-1");
+    expect(excludedIds).toContain(createdId);
   });
 });

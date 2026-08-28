@@ -447,21 +447,154 @@
       "idx": 63,
       "version": "7",
       "when": 1785542415000,
-      "tag": "0063_outbox_sweeper_role",
+      "tag": "0063_connector_credentials_kill_switch",
       "breakpoints": false
     },
     {
       "idx": 64,
       "version": "7",
       "when": 1785542416000,
-      "tag": "0064_notifications_type_check_missing_types",
+      "tag": "0064_outbox_sweeper_role",
       "breakpoints": false
     },
     {
       "idx": 65,
       "version": "7",
       "when": 1785542417000,
-      "tag": "0065_notifications_entity_unassigned_type",
+      "tag": "0065_notifications_type_check_missing_types",
+      "breakpoints": false
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1785542418000,
+      "tag": "0066_notifications_entity_unassigned_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785542419000,
+      "tag": "0067_replay_uuid_validation_dead_letter_events",
+      "breakpoints": false
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1785542420000,
+      "tag": "0068_api_keys_third_party_application_metadata",
+      "breakpoints": false
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1785542421000,
+      "tag": "0069_api_keys_client_id_rotation_handoff",
+      "breakpoints": false
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1785542422000,
+      "tag": "0070_api_keys_application_metadata_length_limits",
+      "breakpoints": false
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1785542423000,
+      "tag": "0071_api_keys_zitadel_client_id_length_limit",
+      "breakpoints": false
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1787414412147,
+      "tag": "0072_api_keys_decouple_client_id_naming",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1787414413147,
+      "tag": "0073_admin_audit_log_acting_person",
+      "breakpoints": false
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1787552478620,
+      "tag": "0074_workflows_allow_auto_grant_on_mention",
+      "breakpoints": false
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1787552479620,
+      "tag": "0075_api_keys_oidc_client_id_length_limit",
+      "breakpoints": false
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1787560915780,
+      "tag": "0076_admin_audit_log_tag_actions",
+      "breakpoints": false
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1787565066774,
+      "tag": "0077_attachments",
+      "breakpoints": false
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1787570226256,
+      "tag": "0078_admin_audit_log_attachment_scan_actions",
+      "breakpoints": false
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1787570226257,
+      "tag": "0079_extend_attachments_expiry_idx",
+      "breakpoints": false
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1787648626569,
+      "tag": "0080_admin_audit_log_transition_actions",
+      "breakpoints": false
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1787648626571,
+      "tag": "0081_admin_audit_log_comment_child_attachment_actions",
+      "breakpoints": false
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1787648626572,
+      "tag": "0082_idempotency_keys",
+      "breakpoints": false
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1787648626573,
+      "tag": "0083_admin_audit_log_daily_rollup",
+      "breakpoints": false
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1787834069961,
+      "tag": "0084_admin_audit_log_created_at_idx",
       "breakpoints": false
     }
   ]

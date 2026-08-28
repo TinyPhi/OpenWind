@@ -76,7 +76,7 @@ describe("outbox poller tick", () => {
     expect(mockUpdate).toHaveBeenCalled();
     // This sweep is cross-tenant — it must switch to the BYPASSRLS
     // outbox_sweeper role or every row is silently dropped under RLS (#125
-    // hotfix, 0063_outbox_sweeper_role.sql).
+    // hotfix, 0064_outbox_sweeper_role.sql).
     expect(mockSetOutboxSweeperRole).toHaveBeenCalled();
   });
 

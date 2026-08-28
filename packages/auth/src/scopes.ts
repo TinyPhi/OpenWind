@@ -34,3 +34,34 @@ export function detectScopesFormat(scopes: readonly string[]): ScopesFormat {
     `Cannot determine scopes_format: scopes mix action-shaped and role-shaped strings (${scopes.join(", ")})`,
   );
 }
+
+// ADR-012 Phase A (Third-Party API), spec R8: the concrete entity:ticket:<verb>
+// vocabulary a third-party API key's scopes are validated against at mint
+// time. This is the first real consumer of the "action" format the shape
+// above only recognises structurally — OQ-5's verb list is now pinned to
+// exactly these six, matching the Key Management screen's Read-only/
+// Read-write presets ([entity:ticket:read] / all six).
+export const TICKET_ACTION_VERBS = [
+  "create",
+  "read",
+  "comment",
+  "transition",
+  "subticket",
+  "attach",
+] as const;
+
+export type TicketActionVerb = (typeof TICKET_ACTION_VERBS)[number];
+
+const KNOWN_TICKET_ACTION_SCOPES = new Set<string>(
+  TICKET_ACTION_VERBS.map((verb) => `entity:ticket:${verb}`),
+);
+
+/**
+ * Returns every scope string that is action-shaped but not in the known
+ * entity:ticket:<verb> vocabulary — empty means every scope is recognised.
+ * Only meaningful for an "action"-format scopes array; role-format scopes
+ * are validated by the existing role hierarchy (scope-ceiling.ts), not this.
+ */
+export function unknownTicketActionScopes(scopes: readonly string[]): string[] {
+  return scopes.filter((s) => !KNOWN_TICKET_ACTION_SCOPES.has(s));
+}

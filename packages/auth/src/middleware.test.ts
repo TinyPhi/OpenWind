@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
+import type { AuthContext } from "./types.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,8 @@ vi.mock("@platform/config", () => ({
     ZITADEL_INTROSPECTION_CLIENT_ID: "client-id",
     ZITADEL_INTROSPECTION_CLIENT_SECRET: "client-secret",
     RATE_LIMIT_TENANT_PER_MIN: 100,
+    RATE_LIMIT_API_KEY_PER_MIN: 200,
+    RATE_LIMIT_API_KEY_PERSON_PER_MIN: 20,
     get NODE_ENV() {
       return mockNodeEnv;
     },
@@ -56,12 +59,16 @@ vi.mock("./introspection.js", () => ({
   introspectToken: (...args: unknown[]) => mockIntrospectToken(...args),
 }));
 
-// Module-level db fallback for both resolveTenantStatus (status) and the new
-// lookupTenantIdByOrgId (id) — both go through db.select(...).from(tenants)
-// .where(...).limit(1), so one shared row shape covers either caller.
-// undefined = "no row" (org has no mapped tenant / tenant not found).
-let mockTenantRow: { id?: string; status?: string } | undefined = {
+// Module-level db fallback for resolveTenantStatus (status), the new
+// lookupTenantIdByOrgId (id), and lookupOrgIdByTenantId (zitadelOrgId) —
+// all three go through db.select(...).from(tenants).where(...).limit(1),
+// so one shared row shape covers all three callers.
+// undefined = "no row" (org/tenant has no mapping).
+let mockTenantRow:
+  | { id?: string; status?: string; zitadelOrgId?: string | null }
+  | undefined = {
   status: "active",
+  zitadelOrgId: "org-ccc",
 };
 const mockModuleDbSelect = vi.fn(() => ({
   from: vi.fn(() => ({
@@ -166,7 +173,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockExistingTenantUser = undefined;
   mockNodeEnv = undefined;
-  mockTenantRow = { status: "active" };
+  mockTenantRow = { status: "active", zitadelOrgId: "org-ccc" };
   mockCheckRateLimit.mockResolvedValue({
     allowed: true,
     remaining: 99,
@@ -266,6 +273,7 @@ describe("requireAuth", () => {
   it("returns 401 when API key is not found in db", async () => {
     const mockDb = {
       execute: vi.fn().mockResolvedValue([]),
+      select: mockModuleDbSelect,
     };
 
     const app = makeApp([
@@ -280,7 +288,7 @@ describe("requireAuth", () => {
     // resolve_api_key_by_hash SECURITY DEFINER function (execute), not a
     // plain select, since api_keys' RLS policy can't be satisfied before the
     // tenant is known. resolveTenantStatus's select still goes through the
-    // module-level db (mockModuleDbSelect), already wired for "active".
+    // module-level db (mockModuleDbSelect), already wired for "active" and "org-ccc".
     const fakeRow = {
       id: "key-id-1",
       tenant_id: "tenant-abc",
@@ -288,13 +296,26 @@ describe("requireAuth", () => {
     };
     const mockDb = {
       execute: vi.fn().mockResolvedValue([fakeRow]),
+      select: mockModuleDbSelect,
     };
 
-    const app = makeApp([
+    const app = new Hono<{ Variables: { auth: AuthContext } }>();
+    let authContext: AuthContext | undefined;
+    app.get(
+      "/test",
       requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
-    ]);
-    const res = await get(app, "sk_validkey");
+      (c) => {
+        authContext = c.get("auth");
+        return c.json({ ok: true });
+      },
+    );
+
+    const res = await app.request("/test", {
+      headers: { Authorization: "Bearer sk_validkey" },
+    });
     expect(res.status).toBe(200);
+    expect(authContext).toBeDefined();
+    expect(authContext?.orgId).toBe("org-ccc");
   });
 
   describe("argon2id verification (#237)", () => {
@@ -308,6 +329,7 @@ describe("requireAuth", () => {
       mockArgon2Verify.mockResolvedValueOnce(false);
       const mockDb = {
         execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
       };
 
       const app = makeApp([
@@ -326,6 +348,7 @@ describe("requireAuth", () => {
       };
       const mockDb = {
         execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
       };
 
       const app = makeApp([
@@ -345,6 +368,7 @@ describe("requireAuth", () => {
       };
       const mockDb = {
         execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
       };
 
       const app = makeApp([
@@ -461,7 +485,10 @@ describe("requireAuth", () => {
         tenant_id: "tenant-abc",
         scopes: ["read"],
       };
-      const mockDb = { execute: vi.fn().mockResolvedValue([fakeRow]) };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
 
       const app = makeApp([
         requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
@@ -482,7 +509,10 @@ describe("requireAuth", () => {
         tenant_id: "tenant-abc",
         scopes: ["read"],
       };
-      const mockDb = { execute: vi.fn().mockResolvedValue([fakeRow]) };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
       mockCheckRateLimit.mockResolvedValueOnce({
         allowed: false,
         remaining: 0,
@@ -522,6 +552,88 @@ describe("requireAuth", () => {
       const keys = mockCheckRateLimit.mock.calls.map((c) => c[1] as string);
       expect(keys[0]).toBe(keys[1]);
       expect(keys[0]).toBe(`rl:tenant:${VALID_AUTH.tenantId}`);
+    });
+  });
+
+  describe("post-auth per-api-key aggregate rate limit (ADR-012 Phase G, ADR-013)", () => {
+    it("keys the check on the api_keys row id, in addition to the tenant tier", async () => {
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      await get(app, "sk_validkey");
+
+      expect(mockCheckRateLimit).toHaveBeenCalledWith(
+        expect.anything(),
+        "rl:api-key:key-id-1",
+        200,
+        60,
+      );
+    });
+
+    it("returns 429 when the key's own aggregate quota is exceeded, even though the tenant tier passed", async () => {
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+      // 1st call = tenant tier (allowed), 2nd call = api-key tier (denied)
+      mockCheckRateLimit
+        .mockResolvedValueOnce({ allowed: true, remaining: 50, resetAt: 1 })
+        .mockResolvedValueOnce({ allowed: false, remaining: 0, resetAt: 123 });
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(429);
+    });
+
+    it("does not run for the JWT path (no api_keys row involved)", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);
+
+      const app = makeApp([requireAuth()]);
+      await get(app, "valid.jwt");
+
+      const keys = mockCheckRateLimit.mock.calls.map((c) => c[1] as string);
+      expect(keys.some((k) => k.startsWith("rl:api-key:"))).toBe(false);
+    });
+
+    it("fails open (200) when the api-key-tier check itself throws", async () => {
+      const fakeRow = {
+        id: "key-id-1",
+        tenant_id: "tenant-abc",
+        scopes: ["read"],
+      };
+      const mockDb = {
+        execute: vi.fn().mockResolvedValue([fakeRow]),
+        select: mockModuleDbSelect,
+      };
+      mockCheckRateLimit
+        .mockResolvedValueOnce({ allowed: true, remaining: 50, resetAt: 1 })
+        .mockRejectedValueOnce(new Error("redis down"));
+
+      const app = makeApp([
+        requireAuth(mockDb as unknown as Parameters<typeof requireAuth>[0]),
+      ]);
+      const res = await get(app, "sk_validkey");
+
+      expect(res.status).toBe(200);
     });
   });
 });
@@ -601,6 +713,7 @@ describe("requireIntrospection", () => {
     };
     const mockDb = {
       execute: vi.fn().mockResolvedValue([fakeRow]),
+      select: mockModuleDbSelect,
     };
 
     const app = new Hono();

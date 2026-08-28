@@ -46,6 +46,8 @@ export type EntityAuditHookParams = {
   tenantId: string;
   actorId: string;
   actorType: EntityAuditActorType;
+  /** ADR-012 Phase B, spec R9/GAP-05 — the real person acting through a third-party API key (actorId/actorType above), distinct so search-by-person and search-by-key both work independently. Undefined for every non-third-party actor. */
+  actingPersonId?: string | undefined;
   /** Human-readable entity type name, e.g. "ticket" */
   resourceType: string;
   resourceId: string;

@@ -30,8 +30,11 @@
  */
 import { z } from "zod";
 import { zValidator } from "../../lib/validator.js";
-import { connectorCredentials, withTenantContext } from "@platform/db";
-import { and, eq } from "drizzle-orm";
+import {
+  connectorCredentials,
+  connectorInstallationFilter,
+  withTenantContext,
+} from "@platform/db";
 import { decryptCredential } from "@platform/secrets";
 import {
   getConnectorDefinition,
@@ -103,14 +106,12 @@ export const webhookGatewayHandler = factory.createHandlers(
 
     const [installation] = await withTenantContext(tenantId, (tx) =>
       tx
-        .select({ secrets: connectorCredentials.secrets })
+        .select({
+          secrets: connectorCredentials.secrets,
+          disabledAt: connectorCredentials.disabledAt,
+        })
         .from(connectorCredentials)
-        .where(
-          and(
-            eq(connectorCredentials.tenantId, tenantId),
-            eq(connectorCredentials.connectorId, connectorId),
-          ),
-        )
+        .where(connectorInstallationFilter(tenantId, connectorId))
         .limit(1),
     );
 
@@ -118,7 +119,7 @@ export const webhookGatewayHandler = factory.createHandlers(
       installation?.secrets as Record<string, string> | undefined
     )?.[WEBHOOK_SIGNING_SECRET_KEY];
 
-    if (!installation || !secretCiphertext) {
+    if (!installation || !secretCiphertext || installation.disabledAt) {
       // AC4 timing equalization (security review): the "installation found"
       // branch below always performs a real OpenBao decrypt round-trip
       // before it can return 401 on a bad signature. Returning immediately
@@ -128,7 +129,10 @@ export const webhookGatewayHandler = factory.createHandlers(
       // this route is otherwise built around. Pay an equivalent-shaped
       // dummy decrypt against a placeholder ciphertext (result discarded,
       // error ignored — it's not expected to succeed) so both branches cost
-      // the same before responding.
+      // the same before responding. A disabled installation (issue #367's
+      // kill switch) folds into this SAME branch deliberately — an attacker
+      // must not be able to learn "this connector exists but is disabled"
+      // any more than "this connector doesn't exist" or "wrong signature".
       await decryptCredential(tenantId, DUMMY_CIPHERTEXT_FOR_TIMING).catch(
         () => undefined,
       );

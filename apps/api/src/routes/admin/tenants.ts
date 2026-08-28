@@ -10,7 +10,12 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
-import { requireAuth, requireRole, requireIntrospection } from "@platform/auth";
+import {
+  requireAuth,
+  requireRole,
+  requireIntrospection,
+  setTenantRateLimitOverride,
+} from "@platform/auth";
 import { env } from "@platform/config";
 import { db, tenants } from "@platform/db";
 import {
@@ -206,6 +211,49 @@ export const reactivateTenantHandlers = factory.createHandlers(
       }
       throw err;
     }
+  },
+);
+
+// ── PATCH /admin/tenants/:id/rate-limit ──────────────────────────────────────
+// ADR-012 Phase G, spec R2 -- per-tenant rate-limit ceiling override,
+// stored in tenants.config (see @platform/auth's tenant-rate-limit.ts).
+// No live introspection here (unlike suspend/reactivate/delete): this is a
+// tunable, not a destructive lifecycle transition.
+
+const RateLimitPatchSchema = z.object({
+  ratePerMin: z.number().int().positive().nullable(),
+});
+
+export const updateTenantRateLimitHandlers = factory.createHandlers(
+  requireAuth(db),
+  requireRole("superadmin"),
+  zValidator("param", TenantIdParamSchema),
+  zValidator("json", RateLimitPatchSchema),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const { ratePerMin } = c.req.valid("json");
+    const authTenantId = c.get("auth").tenantId;
+    if (env.PLATFORM_ORG_ID) {
+      if (authTenantId !== env.PLATFORM_ORG_ID) {
+        return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+      }
+    } else {
+      if (authTenantId !== id) {
+        return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+      }
+    }
+
+    const [row] = await db
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .limit(1);
+    if (!row) {
+      return c.json({ error: "NOT_FOUND", message: "Tenant not found" }, 404);
+    }
+
+    await setTenantRateLimitOverride(db, id, ratePerMin);
+    return c.json({ data: { tenantId: id, ratePerMin } });
   },
 );
 

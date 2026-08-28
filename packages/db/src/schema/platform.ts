@@ -5,8 +5,10 @@ import {
   jsonb,
   bigint,
   timestamp,
+  date,
   index,
   unique,
+  uniqueIndex,
   boolean,
   integer,
   type AnyPgColumn,
@@ -92,9 +94,32 @@ export const apiKeys = pgTable(
     revokedBy: text("revoked_by"),
     /** Set on the replacement key minted by POST /api-keys/:id/rotate; points at the key it replaced. */
     rotatedFrom: uuid("rotated_from").references((): AnyPgColumn => apiKeys.id),
+    /** Third-party application record (ADR-012 Phase A). NULL for keys not minted through the third-party key-management flow. */
+    applicationName: text("application_name"),
+    applicationDescription: text("application_description"),
+    /** Unblocks a deferred expiry-notification fast-follow (ADR-012 Decision #10). */
+    applicationContactEmail: text("application_contact_email"),
+    /** Makes Phase B's `aud` audience check correct (ADR-012 Decision #1). Unique across (revoked_at IS NULL AND oidc_client_id_active) keys — see migration 0068/0069/0072's partial index; expired-but-not-revoked reuse is an application-layer check, not a DB constraint. CHECK constraint (migration 0075): char_length ≤ 200; Drizzle's text() type doesn't model this, so keep this comment in sync with that CHECK if it ever changes. */
+    oidcClientId: text("oidc_client_id"),
+    /** Migration 0069/0072 — separates "still authenticating" (revoked_at) from "currently holds this Client ID for uniqueness purposes." Rotation needs both the dying predecessor and the new successor to authenticate/carry the same oidc_client_id value during the 24h grace window, but only one of them should count toward uniqueness — rotate.ts flips this false on the predecessor in the same transaction that inserts the successor (which keeps the column default, true). Every other code path leaves this untouched. */
+    oidcClientIdActive: boolean("oidc_client_id_active")
+      .default(true)
+      .notNull(),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
+    // Migration 0068/0069/0072 — active (non-revoked, oidc_client_id_active)
+    // keys only; see those migrations' comments for why expired-but-not-
+    // revoked reuse can't also live in this predicate (partial-index
+    // predicates must be immutable, `now()` isn't), and why the separate
+    // oidc_client_id_active flag exists (rotation's grace-window handoff).
+    oidcClientIdActiveUnique: uniqueIndex(
+      "api_keys_oidc_client_id_active_unique",
+    )
+      .on(t.oidcClientId)
+      .where(
+        sql`${t.revokedAt} IS NULL AND ${t.oidcClientIdActive} = true AND ${t.oidcClientId} IS NOT NULL`,
+      ),
   }),
 );
 
@@ -173,6 +198,92 @@ export const files = pgTable(
 );
 
 /**
+ * attachments — ADR-012 Phase D, third-party API file attachment lifecycle
+ * (presign -> upload -> ticket binding), ahead of the actual bytes landing
+ * in `files` (filesId nullable until upload completes).
+ * RLS: enforced via app.tenant_id GUC.
+ */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    ticketId: uuid("ticket_id"),
+    boundAt: timestamp("bound_at", { withTimezone: true }),
+    uploadedBy: text("uploaded_by").notNull(),
+    actingPersonId: text("acting_person_id").notNull(),
+    declaredFilename: text("declared_filename").notNull(),
+    declaredSizeBytes: bigint("declared_size_bytes", {
+      mode: "number",
+    }).notNull(),
+    declaredMimeType: text("declared_mime_type").notNull(),
+    uploadTokenHash: text("upload_token_hash").notNull(),
+    uploadExpiresAt: timestamp("upload_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    filesId: uuid("files_id"),
+    /** pending | uploaded | expired */
+    status: text("status").default("pending").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    // Partial predicates below must match migration 0077_attachments.sql's
+    // actual CREATE INDEX statements exactly -- Drizzle doesn't introspect
+    // partial indexes from SQL migrations, so a mismatch here would make the
+    // next `drizzle-kit generate` emit a spurious drop/recreate migration.
+    tenantTicketIdx: index("attachments_tenant_ticket_idx")
+      .on(t.tenantId, t.ticketId)
+      .where(sql`${t.ticketId} IS NOT NULL`),
+    tenantStatusIdx: index("attachments_tenant_status_idx").on(
+      t.tenantId,
+      t.status,
+    ),
+    expiryIdx: index("attachments_expiry_idx")
+      .on(t.uploadExpiresAt)
+      .where(sql`${t.status} IN ('pending', 'uploading')`),
+  }),
+);
+
+/**
+ * idempotencyKeys — ADR-012 Phase G, spec R3/R4/R5/R10. Caches a third-party
+ * request's result for 24h, scoped to the (tenantId, apiKeyId,
+ * actingPersonId, idempotencyKey) 4-way key. Never updated after insert —
+ * a same-key-different-content retry is rejected at the application layer
+ * (R4) rather than overwriting this row. RLS: enforced via app.tenant_id GUC.
+ */
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    apiKeyId: uuid("api_key_id").notNull(),
+    actingPersonId: text("acting_person_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    contentHash: text("content_hash").notNull(),
+    responseStatus: integer("response_status").notNull(),
+    responseBody: jsonb("response_body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    scopeUnique: unique("idempotency_keys_scope_unique").on(
+      t.tenantId,
+      t.apiKeyId,
+      t.actingPersonId,
+      t.idempotencyKey,
+    ),
+    expiresIdx: index("idempotency_keys_expires_idx").on(t.expiresAt),
+  }),
+);
+
+/**
  * adminAuditLog — append-only audit log for all entity mutations.
  * GRANT: INSERT + SELECT only for app_user; no UPDATE or DELETE.
  * RLS: USING only policy (app_user cannot read rows outside their tenant).
@@ -185,6 +296,8 @@ export const adminAuditLog = pgTable(
     actorId: text("actor_id").notNull(),
     /** user | api_key | system */
     actorType: text("actor_type").notNull(),
+    /** ADR-012 Phase B, spec R9/GAP-05 — the real person acting through a third-party API key, distinct from actorId (the key itself). NULL for every non-third-party actor. */
+    actingPersonId: text("acting_person_id"),
     resourceType: text("resource_type").notNull(),
     resourceId: uuid("resource_id").notNull(),
     /** created | updated | deleted | transitioned | restored */
@@ -211,6 +324,40 @@ export const adminAuditLog = pgTable(
     tenantCreatedIdx: index("audit_log_tenant_created_idx").on(
       t.tenantId,
       t.createdAt,
+    ),
+    createdAtIdx: index("admin_audit_log_created_at_idx").on(t.createdAt),
+  }),
+);
+
+/**
+ * adminAuditLogDailyRollup — ADR-012 Phase G, spec R8. Aggregate counts
+ * (per tenant/day/resourceType/action) that survive the 90-day
+ * admin_audit_log detail-row sweep (apps/worker/src/access-log-retention.ts).
+ * "outcome" is deliberately not stored -- derived from `action` at query
+ * time via @platform/audit's classifyOutcome. RLS: enforced via
+ * app.tenant_id GUC (migration 0083) -- the worker's own writes use the
+ * privileged connection and bypass it, same as adminAuditLog's writes.
+ */
+export const adminAuditLogDailyRollup = pgTable(
+  "admin_audit_log_daily_rollup",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    resourceType: text("resource_type").notNull(),
+    action: text("action").notNull(),
+    count: bigint("count", { mode: "number" }).default(0).notNull(),
+  },
+  (t) => ({
+    scopeUnique: unique("admin_audit_log_daily_rollup_scope_unique").on(
+      t.tenantId,
+      t.day,
+      t.resourceType,
+      t.action,
+    ),
+    tenantDayIdx: index("admin_audit_log_daily_rollup_tenant_day_idx").on(
+      t.tenantId,
+      t.day,
     ),
   }),
 );
@@ -279,11 +426,14 @@ export const connectorDefinitions = pgTable("connector_definitions", {
  * (packages/connector-sdk/src/types.ts) rather than creating a second,
  * differently-named table.
  *
- * `secrets` is a JSONB map of credentialKey -> OpenBao ciphertext, matching
+ * `secrets` is a JSONB map of credentialKey -> vault/encryption provider ciphertext, matching
  * runtime.ts's `encryptedCredentials: Record<string, string>` parameter
  * exactly — actual plaintext credentials are never stored here.
  * `cursor_state` is 1:1 polling-cursor state for polling connectors
  * (ADR-009 Decision #7), nullable.
+ * `disabled_at`/`disabled_by` (migration 0063, issue #367) are the kill
+ * switch — non-destructive, NULL means enabled. Every column above is
+ * untouched by a disable/enable toggle.
  *
  * RLS (tenant_read/tenant_write, migration 0001) and the app_user grant
  * (SELECT/INSERT/UPDATE/DELETE, migration 0019) are unchanged by migration
@@ -298,10 +448,14 @@ export const connectorCredentials = pgTable(
     connectorId: uuid("connector_id")
       .notNull()
       .references(() => connectorDefinitions.id),
-    /** credentialKey -> OpenBao ciphertext (see ConnectorAuthConfig). Never plaintext. */
+    /** credentialKey -> vault/encryption provider ciphertext (see ConnectorAuthConfig). Never plaintext. */
     secrets: jsonb("secrets").default({}).notNull(),
     /** Polling-connector cursor (e.g. last-seen IMAP UID) — 1:1 with this installation row. */
     cursorState: jsonb("cursor_state"),
+    /** Kill switch (issue #367) — soft, non-destructive disable, NULL means enabled. Mirrors api_keys.revoked_at's shape. Checked by the inbound webhook gateway, outbound delivery worker, and polling scheduler/worker before processing. */
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    /** Actor (Zitadel user id) who last flipped disabledAt, if any. */
+    disabledBy: text("disabled_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

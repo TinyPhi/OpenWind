@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — network status awareness (admin-ui)]
+
+### Added
+
+- **Global network status banner** — `apps/admin-ui` now shows a distinct "You're offline" /
+  "Reconnecting…" / "Back online" banner instead of silent per-page failures when connectivity
+  drops. A same-origin `/api/health` probe is the source of truth; `navigator.onLine` and the
+  notifications socket's state are corroborating hints only (#403).
+
+### Fixed
+
+- **Transport failures now surface a banner** — `doFetch()`'s catch previously threw silently on
+  a network error or timeout with no `api:error` dispatch at all; it now signals the new network
+  status store (#403).
+
+---
+
+## [Unreleased — loopback host port mappings (Postgres, PgBouncer, OpenBao)]
+
+### Security
+
+- **Loopback-only host ports** — `postgres`, `pgbouncer`, and `openbao` host port mappings in
+  `docker-compose.yml` are now restricted to `127.0.0.1` (loopback only) instead of `0.0.0.0`,
+  preventing direct external network access to the database (dev credentials) and OpenBao
+  secrets manager (`-dev` mode static root token) on server deployments (#454, #455).
+
+### Added
+
+- **`OPENBAO_HOST_PORT`** & **`PGBOUNCER_HOST_PORT`** env vars — allow remapping OpenBao and
+  PgBouncer host ports without editing `docker-compose.yml` directly (#454, #455).
+
+---
+
+## [Unreleased — redis host port mapping]
+
+### Added
+
+- **`REDIS_HOST_PORT`** env var — remaps Redis's host port the same way `POSTGRES_HOST_PORT`/
+  `ADMIN_UI_HOST_PORT` already do, fixing host-mode `pnpm test`/`pnpm dev` previously being
+  unable to reach Redis at all (it had no host port mapping). Binds loopback-only
+  (`127.0.0.1`), since Redis has no authentication configured.
+
+---
+
 ## [Unreleased — ticket due date]
 
 ### Added

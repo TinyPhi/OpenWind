@@ -33,6 +33,7 @@ import { Automations } from "./pages/automations/index.js";
 import { AutomationWizard } from "./pages/automations/wizard/wizard.js";
 import { RequireAdmin } from "./components/require-admin.js";
 import { SystemLogsPage } from "./pages/system-logs.js";
+import { ThirdPartyAccessLogsPage } from "./pages/third-party-access-logs.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
@@ -173,6 +174,10 @@ export function App(): React.ReactElement {
                 element={<EntityInstanceCreate />}
               />
               <Route path="/admin/system-logs" element={<SystemLogsPage />} />
+              <Route
+                path="/admin/third-party-access-logs"
+                element={<ThirdPartyAccessLogsPage />}
+              />
             </Route>
 
             <Route path="/home" element={<Navigate to="/records" replace />} />

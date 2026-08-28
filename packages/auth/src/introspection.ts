@@ -1,4 +1,5 @@
 import { request as nodeHttpRequest } from "node:http";
+import { request as nodeHttpsRequest } from "node:https";
 import { createHash } from "node:crypto";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
@@ -49,10 +50,18 @@ function httpPostForm(
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const bodyBuf = Buffer.from(body);
-    const req = nodeHttpRequest(
+    // ZITADEL_INTROSPECTION_URL is https:// for a real hosted Zitadel and
+    // http:// for the local Docker service (zitadel:8080) — using node:http
+    // unconditionally (as this previously did) sends a plain HTTP request to
+    // an HTTPS-only host's default port 80, which gets redirected (301) by
+    // the server instead of ever reaching /oauth/v2/introspect. Branch on
+    // the actual scheme instead of assuming one.
+    const isHttps = parsed.protocol === "https:";
+    const request = isHttps ? nodeHttpsRequest : nodeHttpRequest;
+    const req = request(
       {
         hostname: parsed.hostname,
-        port: parsed.port ? parseInt(parsed.port) : 80,
+        port: parsed.port ? parseInt(parsed.port) : isHttps ? 443 : 80,
         path: parsed.pathname + parsed.search,
         method: "POST",
         headers: {

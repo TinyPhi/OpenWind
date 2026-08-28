@@ -2,8 +2,10 @@ import type { IncomingMessage, ClientRequest } from "node:http";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
 
-vi.mock("@platform/config", () => ({
-  env: {
+// Mutable so the scheme-selection tests below can point ZITADEL_INTROSPECTION_URL
+// at an http:// (local Docker zitadel:8080) URL for one test, then restore it.
+const { mockEnv } = vi.hoisted(() => ({
+  mockEnv: {
     ZITADEL_ISSUER: "https://zitadel.example.com",
     ZITADEL_INTROSPECTION_URL:
       "https://zitadel.example.com/oauth/v2/introspect",
@@ -11,16 +13,19 @@ vi.mock("@platform/config", () => ({
     ZITADEL_INTROSPECTION_CLIENT_SECRET: "client-secret",
   },
 }));
+vi.mock("@platform/config", () => ({ env: mockEnv }));
 
 vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// Mock node:http so tests don't make real network calls.
-// The implementation uses node:http.request (not fetch) to set a custom Host
-// header for Zitadel's internal-Docker routing.
+// Mock node:http/node:https so tests don't make real network calls.
+// The implementation uses node:http/https.request (not fetch) to set a
+// custom Host header for Zitadel's internal-Docker routing.
 const mockRequest = vi.fn();
+const mockHttpsRequest = vi.fn();
 vi.mock("node:http", () => ({ request: mockRequest }));
+vi.mock("node:https", () => ({ request: mockHttpsRequest }));
 
 // Must import AFTER mocks are registered
 const { introspectToken } = await import("./introspection.js");
@@ -33,7 +38,14 @@ function makeHttpResponse(
   return res;
 }
 
-function makeHttpRequest(res: EventEmitter): Partial<ClientRequest> {
+// The mocked @platform/config env above uses an https:// introspection URL —
+// the real, common case (a hosted Zitadel) — so by default requests go
+// through node:https, not node:http. Tests targeting the http:// (local
+// Docker zitadel:8080) case mock `mockRequest` directly instead.
+function makeHttpRequest(
+  res: EventEmitter,
+  mock: ReturnType<typeof vi.fn> = mockHttpsRequest,
+): Partial<ClientRequest> {
   const req: Partial<ClientRequest> = {
     setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
     on: vi.fn() as unknown as ClientRequest["on"],
@@ -41,7 +53,7 @@ function makeHttpRequest(res: EventEmitter): Partial<ClientRequest> {
     end: vi.fn() as unknown as ClientRequest["end"],
   };
   // Trigger callback on next tick to simulate async
-  mockRequest.mockImplementationOnce(
+  mock.mockImplementationOnce(
     (_opts: unknown, callback: (res: IncomingMessage) => void) => {
       setTimeout(() => callback(res as unknown as IncomingMessage), 0);
       return req;
@@ -97,7 +109,7 @@ describe("introspectToken", () => {
       write: vi.fn() as unknown as ClientRequest["write"],
       end: vi.fn() as unknown as ClientRequest["end"],
     };
-    mockRequest.mockImplementationOnce(() => req);
+    mockHttpsRequest.mockImplementationOnce(() => req);
 
     const result = await introspectToken("errored-token-3a");
     expect(result.active).toBe(false);
@@ -148,7 +160,7 @@ describe("introspectToken", () => {
     expect(r1.active).toBe(true);
     expect(r2.active).toBe(true);
     // node:http.request should only be called once — second call hits cache
-    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockHttpsRequest).toHaveBeenCalledTimes(1);
   });
 
   // #8: cache key switched from a 32-bit djb2 hash to SHA-256, so two
@@ -180,6 +192,56 @@ describe("introspectToken", () => {
     expect(resultB.active).toBe(false);
     expect(resultB.sub).toBe("user-b");
     // Two distinct tokens -> two real network calls, no cache-key collision.
-    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockHttpsRequest).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Regression coverage for the bug where httpPostForm always used node:http
+// and defaulted to port 80, silently redirecting (301) instead of reaching
+// a real HTTPS Zitadel host's introspection endpoint.
+describe("introspectToken — scheme selection (https vs http)", () => {
+  it("uses node:https with port 443 when ZITADEL_INTROSPECTION_URL is https:// with no explicit port", async () => {
+    const body = JSON.stringify({ active: true, sub: "https-user" });
+    const res = makeHttpResponse();
+    makeHttpRequest(res, mockHttpsRequest);
+
+    const promise = introspectToken("https-scheme-token");
+    setTimeout(() => {
+      res.emit("data", Buffer.from(body));
+      res.emit("end");
+    }, 1);
+
+    const result = await promise;
+    expect(result.active).toBe(true);
+    expect(mockHttpsRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).not.toHaveBeenCalled();
+    const [opts] = mockHttpsRequest.mock.calls[0] as [{ port: number }];
+    expect(opts.port).toBe(443);
+  });
+
+  it("still uses node:http with port 80 for a plain http:// URL (local Docker zitadel:8080 case)", async () => {
+    mockEnv.ZITADEL_INTROSPECTION_URL =
+      "http://zitadel:8080/oauth/v2/introspect";
+    try {
+      const body = JSON.stringify({ active: true, sub: "http-user" });
+      const res = makeHttpResponse();
+      makeHttpRequest(res, mockRequest);
+
+      const promise = introspectToken("http-scheme-token");
+      setTimeout(() => {
+        res.emit("data", Buffer.from(body));
+        res.emit("end");
+      }, 1);
+
+      const result = await promise;
+      expect(result.active).toBe(true);
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+      expect(mockHttpsRequest).not.toHaveBeenCalled();
+      const [opts] = mockRequest.mock.calls[0] as [{ port: number }];
+      expect(opts.port).toBe(8080);
+    } finally {
+      mockEnv.ZITADEL_INTROSPECTION_URL =
+        "https://zitadel.example.com/oauth/v2/introspect";
+    }
   });
 });

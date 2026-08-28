@@ -62,6 +62,27 @@ const EnvSchema = z
     // per-user; 100/min collapsed under completely normal 2-user concurrent
     // browsing, not abuse. See security.md for the current documented value.
     RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600),
+    // ADR-012 Phase G, ADR-013 — two more tiers on top of the tenant one
+    // above, specific to third-party API-key traffic: aggregate per-key
+    // (this key's total request volume, regardless of which acting person)
+    // and per-(key,person) (a single acting person's own share of that
+    // key's traffic). Whichever of the three tiers is hit first applies.
+    RATE_LIMIT_API_KEY_PER_MIN: z.coerce.number().int().positive().default(200),
+    RATE_LIMIT_API_KEY_PERSON_PER_MIN: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(20),
+    // ADR-012 Phase G, spec R6 — the third-party acting-person JWT path
+    // (verifyJwtWithAudience) rejects a token whose iat is older than this,
+    // independent of Zitadel's own exp-based expiry. A startup warning (not
+    // a hard failure — a wide value isn't invalid config, just worth a
+    // human's attention) fires below if this is ever set above 30 minutes.
+    JWT_MAX_TOKEN_AGE_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(15 * 60),
     ZITADEL_ISSUER: z.string().url(),
     // Override the JWKS fetch URL when running inside Docker (issuer claim still
     // matches localhost:8080 in the JWT, but we fetch keys via container hostname).
@@ -159,8 +180,10 @@ const EnvSchema = z
       .string()
       .transform((v) => v === "true")
       .default("false"),
+    // Secrets Provider: "openbao" for external vault, "local" for local AES-256-GCM encryption
+    SECRETS_PROVIDER: z.enum(["openbao", "local"]).default("openbao"),
     // OpenBao — Transit envelope encryption for connector credentials
-    OPENBAO_ADDR: z.string().url(),
+    OPENBAO_ADDR: z.string().url().optional(),
     OPENBAO_TRANSIT_KEY: z.string().default("platform-credentials"),
     // Dev: static root token. Prod: leave unset and use AppRole instead.
     OPENBAO_TOKEN: z.string().optional(),
@@ -169,12 +192,19 @@ const EnvSchema = z
     OPENBAO_SECRET_ID: z.string().optional(),
   })
   .refine(
+    (v) => v.SECRETS_PROVIDER !== "openbao" || v.OPENBAO_ADDR !== undefined,
+    {
+      message: "OPENBAO_ADDR is required when SECRETS_PROVIDER is 'openbao'",
+    },
+  )
+  .refine(
     (v) =>
+      v.SECRETS_PROVIDER !== "openbao" ||
       v.OPENBAO_TOKEN !== undefined ||
       (v.OPENBAO_ROLE_ID !== undefined && v.OPENBAO_SECRET_ID !== undefined),
     {
       message:
-        "Either OPENBAO_TOKEN (dev) or both OPENBAO_ROLE_ID and OPENBAO_SECRET_ID (prod) must be set",
+        "Either OPENBAO_TOKEN (dev) or both OPENBAO_ROLE_ID and OPENBAO_SECRET_ID (prod) must be set for 'openbao' provider",
     },
   )
   .refine(
@@ -194,6 +224,7 @@ const EnvSchema = z
   });
 
 export const env = EnvSchema.parse(process.env);
+
 export type Env = z.infer<typeof EnvSchema>;
 // Exported for env.test.ts — lets a default-value test
 // parse a minimal env object directly instead of mutating process.env before
