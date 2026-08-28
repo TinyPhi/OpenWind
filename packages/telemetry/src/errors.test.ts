@@ -32,11 +32,18 @@ vi.mock("@sentry/node", () => ({
   captureException: mockSentryCaptureException,
 }));
 
-const { startErrorTracking, scrubPIIInPlace, captureException } =
-  await import("./errors.js");
+let startErrorTracking: any;
+let scrubPIIInPlace: any;
+let captureException: any;
 
 describe("Error Tracking Initialization", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
+    const errorsModule = await import("./errors.js");
+    startErrorTracking = errorsModule.startErrorTracking;
+    scrubPIIInPlace = errorsModule.scrubPIIInPlace;
+    captureException = errorsModule.captureException;
+
     mockSentryInit.mockClear();
     mockSentryCaptureException.mockClear();
     mockWarn.mockClear();
@@ -81,24 +88,74 @@ describe("Error Tracking Initialization", () => {
       }),
     );
   });
+
+  it("drops the event by returning null when scrubbing throws", () => {
+    mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
+    mockEnv.SENTRY_DSN = "https://public@sentry.io/1";
+    startErrorTracking();
+
+    const beforeSendFn = mockSentryInit.mock.calls[0][0].beforeSend;
+    const offendingEvent = {};
+    Object.defineProperty(offendingEvent, "password", {
+      enumerable: true,
+      get() {
+        throw new Error("scrub failure");
+      },
+    });
+
+    const result = beforeSendFn(offendingEvent);
+    expect(result).toBeNull();
+    expect(mockError).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.stringContaining("dropping event to prevent data leak"),
+    );
+  });
 });
 
 describe("Manual Exception Capture", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    const errorsModule = await import("./errors.js");
+    startErrorTracking = errorsModule.startErrorTracking;
+    captureException = errorsModule.captureException;
+
+    mockSentryInit.mockClear();
+    mockSentryCaptureException.mockClear();
+  });
+
   it("does not report error when provider is 'none'", () => {
     mockEnv.ERROR_TRACKING_PROVIDER = "none";
     captureException(new Error("test error"));
     expect(mockSentryCaptureException).not.toHaveBeenCalled();
   });
 
-  it("reports error when provider is active", () => {
+  it("reports error when provider is active and initialized successfully", () => {
     mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
+    mockEnv.SENTRY_DSN = "https://public@sentry.io/1";
+    startErrorTracking();
     captureException(new Error("test error"));
     expect(mockSentryCaptureException).toHaveBeenCalledTimes(1);
     expect(mockSentryCaptureException).toHaveBeenCalledWith(expect.any(Error));
   });
+
+  it("does not report error when provider is active but init failed", () => {
+    mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
+    mockEnv.SENTRY_DSN = "https://public@sentry.io/1";
+    mockSentryInit.mockImplementationOnce(() => {
+      throw new Error("init failed");
+    });
+    startErrorTracking();
+    captureException(new Error("test error"));
+    expect(mockSentryCaptureException).not.toHaveBeenCalled();
+  });
 });
 
 describe("PII Scrubbing", () => {
+  beforeEach(async () => {
+    const errorsModule = await import("./errors.js");
+    scrubPIIInPlace = errorsModule.scrubPIIInPlace;
+  });
+
   it("redacts sensitive keys in-place and leaves others untouched", () => {
     const payload = {
       user: {
@@ -128,9 +185,9 @@ describe("PII Scrubbing", () => {
     expect(payload.request.headers.cookie).toBe("[REDACTED]");
     expect(payload.extra.secret).toBe("[REDACTED]");
     expect(payload.extra.token).toBe("[REDACTED]");
+    expect(payload.user.email).toBe("[REDACTED]");
 
     expect(payload.user.id).toBe("123");
-    expect(payload.user.email).toBe("user@example.com");
     expect(payload.request.url).toBe("/api/login");
     expect(payload.request.headers["content-type"]).toBe("application/json");
     expect(payload.extra.safeValue).toBe("ok");

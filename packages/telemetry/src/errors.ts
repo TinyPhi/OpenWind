@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
 import * as Sentry from "@sentry/node";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
@@ -8,7 +9,18 @@ const REDACT_KEYS = new Set([
   "secret",
   "authorization",
   "cookie",
+  "email",
+  "api_key",
+  "apikey",
+  "access_token",
+  "refresh_token",
+  "phone",
+  "phone_number",
+  "x-api-key",
+  "private_key",
 ]);
+
+let initialized = false;
 
 /**
  * Recursively scrubs PII from a Sentry event payload in-place.
@@ -55,6 +67,11 @@ export function scrubPIIInPlace(val: unknown, seen = new WeakSet()): void {
  * Initializes Sentry-compatible error tracking if enabled.
  */
 export function startErrorTracking(): void {
+  if (initialized) {
+    logger.warn("Error tracking is already initialized.");
+    return;
+  }
+
   const provider = env.ERROR_TRACKING_PROVIDER;
   if (provider === "none") {
     logger.info("Error tracking is disabled (ERROR_TRACKING_PROVIDER=none)");
@@ -68,8 +85,15 @@ export function startErrorTracking(): void {
     return;
   }
 
+  let host: string | undefined;
+  try {
+    host = new URL(env.SENTRY_DSN).hostname;
+  } catch {
+    // Ignore invalid DSN parsing
+  }
+
   logger.info(
-    { provider, dsn: env.SENTRY_DSN },
+    { provider, host },
     "Initializing pluggable error tracking via Sentry SDK",
   );
 
@@ -84,12 +108,13 @@ export function startErrorTracking(): void {
         } catch (error) {
           logger.error(
             { err: error },
-            "Sentry beforeSend PII scrubbing failed",
+            "Sentry beforeSend PII scrubbing failed - dropping event to prevent data leak",
           );
-          return event;
+          return null;
         }
       },
     });
+    initialized = true;
   } catch (error) {
     logger.error({ err: error }, "Failed to initialize error tracking SDK");
   }
@@ -99,7 +124,7 @@ export function startErrorTracking(): void {
  * Manually captures an exception to Sentry if initialized.
  */
 export function captureException(error: unknown): void {
-  if (env.ERROR_TRACKING_PROVIDER !== "none") {
+  if (env.ERROR_TRACKING_PROVIDER !== "none" && initialized) {
     Sentry.captureException(error);
   }
 }
