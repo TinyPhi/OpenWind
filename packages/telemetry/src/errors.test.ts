@@ -1,0 +1,149 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mutable mock config
+const mockEnv = {
+  ERROR_TRACKING_PROVIDER: "none",
+  SENTRY_DSN: undefined as string | undefined,
+  NODE_ENV: "test",
+};
+
+vi.mock("@platform/config", () => ({
+  env: mockEnv,
+}));
+
+// Mock logger
+const mockWarn = vi.fn();
+const mockInfo = vi.fn();
+const mockError = vi.fn();
+vi.mock("@platform/logger", () => ({
+  logger: {
+    warn: mockWarn,
+    info: mockInfo,
+    error: mockError,
+  },
+}));
+
+// Mock Sentry SDK
+const mockSentryInit = vi.fn();
+vi.mock("@sentry/node", () => ({
+  init: mockSentryInit,
+}));
+
+const { startErrorTracking, scrubPIIInPlace } = await import("./errors.js");
+
+describe("Error Tracking Initialization", () => {
+  beforeEach(() => {
+    mockSentryInit.mockClear();
+    mockWarn.mockClear();
+    mockInfo.mockClear();
+    mockError.mockClear();
+  });
+
+  it("does not initialize error tracking when provider is 'none'", () => {
+    mockEnv.ERROR_TRACKING_PROVIDER = "none";
+    mockEnv.SENTRY_DSN = undefined;
+
+    startErrorTracking();
+
+    expect(mockSentryInit).not.toHaveBeenCalled();
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining("disabled"));
+  });
+
+  it("logs warning and skips when DSN is missing for a provider", () => {
+    mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
+    mockEnv.SENTRY_DSN = undefined;
+
+    startErrorTracking();
+
+    expect(mockSentryInit).not.toHaveBeenCalled();
+    expect(mockWarn).toHaveBeenCalledWith(
+      expect.stringContaining("SENTRY_DSN is missing"),
+    );
+  });
+
+  it("initializes Sentry when provider and DSN are set", () => {
+    mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
+    mockEnv.SENTRY_DSN = "https://public@sentry.io/1";
+
+    startErrorTracking();
+
+    expect(mockSentryInit).toHaveBeenCalledTimes(1);
+    expect(mockSentryInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dsn: "https://public@sentry.io/1",
+        environment: "test",
+        beforeSend: expect.any(Function),
+      }),
+    );
+  });
+});
+
+describe("PII Scrubbing", () => {
+  it("redacts sensitive keys in-place and leaves others untouched", () => {
+    const payload = {
+      user: {
+        id: "123",
+        email: "user@example.com",
+        password: "mySuperSecretPassword",
+      },
+      request: {
+        url: "/api/login",
+        headers: {
+          authorization: "Bearer my-secret-token",
+          cookie: "session=12345",
+          "content-type": "application/json",
+        },
+      },
+      extra: {
+        secret: "confidential",
+        token: "oauth-tok",
+        safeValue: "ok",
+      },
+    };
+
+    scrubPIIInPlace(payload);
+
+    expect(payload.user.password).toBe("[REDACTED]");
+    expect(payload.request.headers.authorization).toBe("[REDACTED]");
+    expect(payload.request.headers.cookie).toBe("[REDACTED]");
+    expect(payload.extra.secret).toBe("[REDACTED]");
+    expect(payload.extra.token).toBe("[REDACTED]");
+
+    expect(payload.user.id).toBe("123");
+    expect(payload.user.email).toBe("user@example.com");
+    expect(payload.request.url).toBe("/api/login");
+    expect(payload.request.headers["content-type"]).toBe("application/json");
+    expect(payload.extra.safeValue).toBe("ok");
+  });
+
+  it("handles circular references gracefully without throwing or loops", () => {
+    const payload: any = {
+      name: "test",
+      safe: "yes",
+      password: "secretpassword",
+    };
+    payload.self = payload; // circular reference
+
+    expect(() => scrubPIIInPlace(payload)).not.toThrow();
+    expect(payload.password).toBe("[REDACTED]");
+    expect(payload.name).toBe("test");
+    expect(payload.self).toBe(payload);
+  });
+
+  it("recursively scrubs nested arrays", () => {
+    const payload: any = {
+      items: [
+        { name: "normal", token: "tok1" },
+        { name: "normal2", cookie: "cook1" },
+      ],
+    };
+
+    scrubPIIInPlace(payload);
+
+    expect(payload.items[0].token).toBe("[REDACTED]");
+    expect(payload.items[1].cookie).toBe("[REDACTED]");
+    expect(payload.items[0].name).toBe("normal");
+    expect(payload.items[1].name).toBe("normal2");
+  });
+});

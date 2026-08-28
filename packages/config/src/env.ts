@@ -202,7 +202,19 @@ const EnvSchema = z
       .string()
       .transform((v) => parseFloat(v))
       .default("0.01"),
+    // Error Tracking (Stage 1)
+    ERROR_TRACKING_PROVIDER: z
+      .enum(["sentry", "glitchtip", "bugsink", "none"])
+      .default("none"),
+    SENTRY_DSN: z.string().url().optional(),
   })
+  .refine(
+    (v) => v.ERROR_TRACKING_PROVIDER === "none" || v.SENTRY_DSN !== undefined,
+    {
+      message:
+        "SENTRY_DSN is required when ERROR_TRACKING_PROVIDER is set to a provider",
+    },
+  )
   .refine(
     (v) => v.SECRETS_PROVIDER !== "openbao" || v.OPENBAO_ADDR !== undefined,
     {

@@ -75,3 +75,32 @@ describe("TELEMETRY", () => {
     expect(parsed.TELEMETRY_ENABLED).toBe(true);
   });
 });
+
+describe("ERROR_TRACKING", () => {
+  it("defaults ERROR_TRACKING_PROVIDER to 'none' when absent", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.ERROR_TRACKING_PROVIDER).toBe("none");
+    expect(parsed.SENTRY_DSN).toBeUndefined();
+  });
+
+  it("fails validation when provider is sentry but SENTRY_DSN is absent", () => {
+    const invalidEnv = {
+      ...MINIMAL_VALID_ENV,
+      ERROR_TRACKING_PROVIDER: "sentry",
+    };
+    expect(() => EnvSchema.parse(invalidEnv)).toThrow();
+  });
+
+  it("succeeds validation when provider is sentry and SENTRY_DSN is present", () => {
+    const validEnv = {
+      ...MINIMAL_VALID_ENV,
+      ERROR_TRACKING_PROVIDER: "sentry",
+      SENTRY_DSN: "https://examplePublicKey@o0.ingest.sentry.io/0",
+    };
+    const parsed = EnvSchema.parse(validEnv);
+    expect(parsed.ERROR_TRACKING_PROVIDER).toBe("sentry");
+    expect(parsed.SENTRY_DSN).toBe(
+      "https://examplePublicKey@o0.ingest.sentry.io/0",
+    );
+  });
+});
