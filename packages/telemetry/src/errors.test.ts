@@ -94,7 +94,10 @@ describe("Error Tracking Initialization", () => {
     mockEnv.SENTRY_DSN = "https://public@sentry.io/1";
     startErrorTracking();
 
-    const beforeSendFn = mockSentryInit.mock.calls[0][0].beforeSend;
+    const beforeSendFn = mockSentryInit.mock.calls[0]?.[0]?.beforeSend;
+    if (!beforeSendFn) {
+      throw new Error("beforeSendFn is not defined");
+    }
     const offendingEvent = {};
     Object.defineProperty(offendingEvent, "password", {
       enumerable: true,
