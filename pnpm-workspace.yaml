@@ -51,3 +51,5 @@ overrides:
   # >=3.3.17 silently forces it onto an untested major (resolves to 6.0.1); staying
   # on the v3 line gets the fix without the major jump (PR #356 review).
   nanoid: ">=3.3.17 <4"
+  # GHSA-wcpc-wj8m-hjx6 + GHSA-685m-2w69-288q: protobufjs DoS vulnerabilities in OTel transformer
+  "@opentelemetry/otlp-transformer>protobufjs": "^8.8.0"
