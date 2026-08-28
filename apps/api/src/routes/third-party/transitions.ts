@@ -83,10 +83,14 @@ const ExecuteThirdPartyTransitionSchema = z.object({
  * executeTransition itself is called completely unmodified — no parallel or
  * shortcut validation path — so an invalid/skip-ahead transition gets
  * exactly the same rejection a human caller would (spec R1). actorRoles is
- * passed as [] (the acting person has no internal RBAC role in this system,
- * same convention every other third-party route already uses), so a
- * transition with its own role-restricted guard is enforced identically for
- * API and human-roleless callers.
+ * passed as ["user"] once hasTransitionAccess has already confirmed the
+ * caller is a creator/assignee/workflow-admin -- every seeded workflow's
+ * transitions require at least the baseline "user" role, so passing []
+ * here made every role-restricted transition unreachable via the API even
+ * for callers with genuine ticket-level access (found during Phase 4 E2E
+ * testing). This never grants "admin"/"agent" -- a transition restricted to
+ * those still 403s for a third-party caller, same as it would for any
+ * internal user without that elevated role.
  */
 export const executeThirdPartyTransitionHandler = factory.createHandlers(
   requireAuth(db),
@@ -167,7 +171,10 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
             instanceId,
             transitionId,
             actorId: actingPersonId,
-            actorRoles: [],
+            // Baseline "user" role only, granted here because
+            // hasTransitionAccess (above) already confirmed creator/
+            // assignee/workflow-admin access -- see module doc comment.
+            actorRoles: ["user"],
             triggeredBy: "api",
             ...(comment !== undefined && { comment }),
             ...(idempotencyKey !== undefined && { idempotencyKey }),
