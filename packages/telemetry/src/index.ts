@@ -4,3 +4,4 @@ export {
   httpRequestsTotal,
   getSerializedMetrics,
 } from "./metrics.js";
+export { Queue, Worker } from "./bullmq.js";

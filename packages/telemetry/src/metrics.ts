@@ -1,5 +1,5 @@
 import { metrics } from "@opentelemetry/api";
-import { Queue } from "bullmq";
+import { Queue } from "./bullmq.js";
 import { getRedis } from "@platform/redis";
 import { env } from "@platform/config";
 import { prometheusExporter } from "./instrumentation.js";
@@ -87,7 +87,7 @@ const serializer = new PrometheusSerializer();
 
 /** Retrieves current metrics in Prometheus exposition format. */
 export async function getSerializedMetrics(): Promise<string> {
-  if (!env.TELEMETRY_ENABLED) {
+  if (!env.TELEMETRY_ENABLED || !prometheusExporter) {
     return "# Telemetry is disabled\n";
   }
   try {

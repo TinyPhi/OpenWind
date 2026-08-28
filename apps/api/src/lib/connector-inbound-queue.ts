@@ -7,7 +7,7 @@
  * side only) — jobs published here queue up in Redis until #368's connectors
  * give a future consumer something to do.
  */
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import { connection } from "./redis.js";
 
 export const connectorInboundQueue = new Queue("connector-inbound", {

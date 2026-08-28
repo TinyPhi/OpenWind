@@ -5,6 +5,7 @@ import { logger } from "@platform/logger";
 import { connection as queuesConnection } from "./queues.js";
 import { connection as automationConnection } from "./automation-worker.js";
 import { getSerializedMetrics } from "@platform/telemetry";
+import { env } from "@platform/config";
 
 const PORT = 3002;
 
@@ -38,6 +39,10 @@ app.get("/healthz", (c) => {
 });
 
 app.get("/metrics", async (c) => {
+  const authHeader = c.req.header("Authorization");
+  if (!env.METRICS_TOKEN || authHeader !== `Bearer ${env.METRICS_TOKEN}`) {
+    return c.text("Unauthorized", 401);
+  }
   try {
     const data = await getSerializedMetrics();
     c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");

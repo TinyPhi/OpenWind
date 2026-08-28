@@ -1,4 +1,4 @@
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import Redis from "ioredis";
 import { env } from "@platform/config";
 

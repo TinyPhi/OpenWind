@@ -5,5 +5,10 @@ export default defineConfig({
     environment: "node",
     passWithNoTests: true,
     exclude: ["**/node_modules/**", "**/dist/**"],
+    server: {
+      deps: {
+        inline: ["@platform/*"],
+      },
+    },
   },
 });

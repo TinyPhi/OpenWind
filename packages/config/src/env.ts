@@ -197,6 +197,11 @@ const EnvSchema = z
       .default("false"),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
     OTEL_SERVICE_NAME: z.string().optional(),
+    METRICS_TOKEN: z.string().default("dev-metrics-token-12345"),
+    OTEL_TRACE_SAMPLE_RATIO: z
+      .string()
+      .transform((v) => parseFloat(v))
+      .default("0.01"),
   })
   .refine(
     (v) => v.SECRETS_PROVIDER !== "openbao" || v.OPENBAO_ADDR !== undefined,

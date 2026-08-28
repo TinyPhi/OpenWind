@@ -678,6 +678,9 @@ importers:
       '@platform/logger':
         specifier: workspace:*
         version: link:../logger
+      '@platform/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
       '@platform/workflow-engine':
         specifier: workspace:*
         version: link:../workflow-engine
@@ -863,6 +866,9 @@ importers:
       '@platform/logger':
         specifier: workspace:*
         version: link:../logger
+      '@platform/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
       bullmq:
         specifier: ^5.0.0
         version: 5.76.8
@@ -922,6 +928,9 @@ importers:
       '@platform/logger':
         specifier: workspace:*
         version: link:../logger
+      '@platform/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
       bullmq:
         specifier: ^5.0.0
         version: 5.76.8

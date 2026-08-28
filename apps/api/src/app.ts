@@ -112,6 +112,10 @@ export function createApp(): Hono<AppVars> {
   app.get("/health", (c) => c.json({ status: "ok" }));
 
   app.get("/metrics", async (c) => {
+    const authHeader = c.req.header("Authorization");
+    if (!env.METRICS_TOKEN || authHeader !== `Bearer ${env.METRICS_TOKEN}`) {
+      return c.text("Unauthorized", 401);
+    }
     try {
       const data = await getSerializedMetrics();
       c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");

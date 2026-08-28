@@ -21,8 +21,6 @@ export function telemetry(): MiddlewareHandler<TelemetryEnv> {
     await next();
     const duration = (performance.now() - start) / 1000;
 
-    const auth = c.get("auth");
-    const tenantId = auth?.tenantId ?? "anonymous";
     const route = c.req.routePath;
     const method = c.req.method;
     const status = String(c.res.status);
@@ -31,7 +29,6 @@ export function telemetry(): MiddlewareHandler<TelemetryEnv> {
       method,
       route,
       status,
-      tenant_id: tenantId,
     };
 
     httpRequestsTotal.add(1, labels);

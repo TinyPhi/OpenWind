@@ -11,6 +11,7 @@ vi.mock("bullmq", () => ({
   Queue: vi.fn().mockImplementation(function () {
     return { add: vi.fn().mockResolvedValue({ id: "job-1" }) };
   }),
+  Worker: vi.fn(),
 }));
 
 vi.mock("@platform/logger", () => ({

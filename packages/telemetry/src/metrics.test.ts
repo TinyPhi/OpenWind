@@ -62,13 +62,11 @@ describe("Metrics serialization", () => {
       method: "GET",
       route: "/test",
       status: "200",
-      tenant_id: "test",
     });
     httpRequestDuration.record(0.1, {
       method: "GET",
       route: "/test",
       status: "200",
-      tenant_id: "test",
     });
 
     const metrics = await getSerializedMetrics();
@@ -78,6 +76,7 @@ describe("Metrics serialization", () => {
     expect(metrics).toContain("# TYPE http_request_duration_seconds");
     expect(metrics).toContain("# HELP bullmq_queue_depth");
     expect(metrics).toContain("# TYPE bullmq_queue_depth");
+    expect(metrics).not.toContain("tenant_id");
   });
 
   it("handles disabled telemetry gracefully", async () => {
@@ -89,16 +88,16 @@ describe("Metrics serialization", () => {
   });
 });
 
-describe("BullMQ dynamic monkeypatching", () => {
-  it("patches bullmq.Queue constructor to automatically inject telemetry option", async () => {
-    const bullmq = await import("bullmq");
-    const q = new bullmq.Queue("test-patched-queue", { connection: {} } as any);
+describe("BullMQ telemetry wrapping", () => {
+  it("wraps Queue constructor to automatically inject telemetry option", async () => {
+    const { Queue } = await import("./bullmq.js");
+    const q = new Queue("test-patched-queue", { connection: {} } as any);
     expect(q.opts.telemetry).toBeDefined();
   });
 
-  it("patches bullmq.Worker constructor to automatically inject telemetry option", async () => {
-    const bullmq = await import("bullmq");
-    const w = new bullmq.Worker("test-patched-worker", async () => {}, {
+  it("wraps Worker constructor to automatically inject telemetry option", async () => {
+    const { Worker } = await import("./bullmq.js");
+    const w = new Worker("test-patched-worker", async () => {}, {
       connection: {},
     } as any);
     expect(w.opts.telemetry).toBeDefined();

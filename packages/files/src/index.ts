@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import type { Redis } from "ioredis";
 import { eq, and, sql, ne } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";

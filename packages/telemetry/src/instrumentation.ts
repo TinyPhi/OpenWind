@@ -1,4 +1,4 @@
-import { NodeSDK } from "@opentelemetry/sdk-node";
+import { NodeSDK, tracing } from "@opentelemetry/sdk-node";
 import type { NodeSDKConfiguration } from "@opentelemetry/sdk-node";
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
@@ -6,68 +6,42 @@ import { PrometheusExporter } from "@opentelemetry/exporter-prometheus";
 import { PostgresInstrumentation } from "otel-instrumentation-postgres";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
-import * as bullmq from "bullmq";
-import { BullMQOtel } from "bullmq-otel";
 
-export const prometheusExporter = new PrometheusExporter({
-  preventServerStart: true,
-});
+const { ParentBasedSampler, TraceIdRatioBasedSampler } = tracing;
+
+export let prometheusExporter: PrometheusExporter | undefined;
 
 if (env.TELEMETRY_ENABLED) {
   logger.info(
     {
       endpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
       serviceName: env.OTEL_SERVICE_NAME,
+      sampleRatio: env.OTEL_TRACE_SAMPLE_RATIO,
     },
     "Initializing OpenTelemetry SDK",
   );
 
-  const telemetry = new BullMQOtel(env.OTEL_SERVICE_NAME ?? "openwind");
+  prometheusExporter = new PrometheusExporter({
+    preventServerStart: true,
+  });
 
-  /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unnecessary-condition */
-  // Patch bullmq.Queue
-  const OriginalQueue = bullmq.Queue;
-  const PatchedQueue = function (this: any, name: string, opts?: any): any {
-    const options = { ...opts, telemetry };
-    return Reflect.construct(
-      OriginalQueue,
-      [name, options],
-      new.target ?? PatchedQueue,
-    );
-  };
-  PatchedQueue.prototype = OriginalQueue.prototype;
-  Object.setPrototypeOf(PatchedQueue, OriginalQueue);
-  (bullmq as any).Queue = PatchedQueue;
-
-  // Patch bullmq.Worker
-  const OriginalWorker = bullmq.Worker;
-  const PatchedWorker = function (
-    this: any,
-    name: string,
-    processor?: any,
-    opts?: any,
-  ): any {
-    const options = { ...opts, telemetry };
-    return Reflect.construct(
-      OriginalWorker,
-      [name, processor, options],
-      new.target ?? PatchedWorker,
-    );
-  };
-  PatchedWorker.prototype = OriginalWorker.prototype;
-  Object.setPrototypeOf(PatchedWorker, OriginalWorker);
-  (bullmq as any).Worker = PatchedWorker;
-  /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+  const sampler = new ParentBasedSampler({
+    root: new TraceIdRatioBasedSampler(env.OTEL_TRACE_SAMPLE_RATIO),
+  });
 
   const sdkOptions: Partial<NodeSDKConfiguration> = {
     serviceName: env.OTEL_SERVICE_NAME ?? "openwind",
     metricReader: prometheusExporter,
+    sampler,
     instrumentations: [
       getNodeAutoInstrumentations({
         "@opentelemetry/instrumentation-fs": { enabled: false },
       }),
       new PostgresInstrumentation({
-        collectQueryParameters: true,
+        // collectQueryParameters is disabled by default to prevent leaking PII
+        // (email addresses, token hashes, personal info) into trace databases.
+        // If ever enabled, trace backend filtering/redaction processors must be in place.
+        collectQueryParameters: false,
       }),
     ],
   };
