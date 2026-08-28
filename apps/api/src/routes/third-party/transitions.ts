@@ -56,6 +56,16 @@ function isExistenceRevealingWorkflowError(err: unknown): boolean {
 // eslint-disable-next-line no-control-regex -- intentional: this IS the control-character check.
 const FORBIDDEN_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
 
+// The ONLY role a third-party caller may ever be granted for a transition
+// (docs/specs/third-party-transition-role-mapping.md R1/§V). Typed `as const`
+// so accidentally widening this to include "admin"/"agent" -- e.g. someone
+// "being more permissive" for a special case -- is a visible, reviewable
+// diff on this one line rather than a silent behavioral change buried in the
+// request-building code below. workflow-engine does not export a named
+// constant for its own role strings (they're opaque caller-supplied
+// strings, not an enum), so this is defined locally rather than imported.
+const THIRD_PARTY_BASELINE_ACTOR_ROLES = ["user"] as const;
+
 const ExecuteThirdPartyTransitionSchema = z.object({
   transitionId: z.string().uuid(),
   comment: z
@@ -174,7 +184,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
             // Baseline "user" role only, granted here because
             // hasTransitionAccess (above) already confirmed creator/
             // assignee/workflow-admin access -- see module doc comment.
-            actorRoles: ["user"],
+            actorRoles: [...THIRD_PARTY_BASELINE_ACTOR_ROLES],
             triggeredBy: "api",
             ...(comment !== undefined && { comment }),
             ...(idempotencyKey !== undefined && { idempotencyKey }),
