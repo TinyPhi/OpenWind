@@ -99,6 +99,7 @@ describe("withIdempotency", () => {
     mockInsertValues.mockReset();
     mockDelete.mockClear();
     vi.mocked(logger.warn).mockClear();
+    vi.mocked(logger.error).mockClear();
   });
 
   it("runs execute() directly with no db/redis calls when no idempotency key is given", async () => {
@@ -305,7 +306,7 @@ describe("withIdempotency", () => {
     expect(lockToken).toHaveLength(36); // UUID length
   });
 
-  it("resolves normally and logs no warnings when redis.eval returns 0 (lock already expired/stale)", async () => {
+  it("resolves normally and logs a warning when redis.eval returns 0 (lock already expired/stale)", async () => {
     mockRedisSet.mockResolvedValue("OK");
     mockRedisEval.mockResolvedValue(0);
     const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
@@ -315,7 +316,10 @@ describe("withIdempotency", () => {
     ).resolves.not.toThrow();
 
     expect(mockRedisEval).toHaveBeenCalledTimes(1);
-    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: "key-1" }),
+      expect.stringContaining("lock release returned 0"),
+    );
   });
 
   it("does not call execute() when a concurrent request populates the cache between the fast-path lookup and lock acquisition (TOCTOU fix)", async () => {
@@ -383,5 +387,52 @@ describe("withIdempotency", () => {
       body: { data: { id: "from-concurrent-request" } },
     });
     expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("does not cache the response when doNotCache is true", async () => {
+    mockRedisSet.mockResolvedValue("OK");
+    mockRedisEval.mockResolvedValue(1);
+    const execute = vi.fn().mockResolvedValue({
+      status: 409,
+      body: { error: "TRANSITION_LOCKED" },
+      doNotCache: true,
+    });
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-1" },
+      content,
+      execute,
+    );
+    expect(mockInsertValues).not.toHaveBeenCalled();
+    expect(result.status).toBe(409);
+  });
+
+  it("returns 500 internal error when the cached database status is not a valid IdempotencyStatus", async () => {
+    mockCachedRow = {
+      contentHash: await computeContentHash(content),
+      responseStatus: 999, // invalid status code
+      responseBody: { foo: "bar" },
+    };
+
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-invalid-status" },
+      content,
+      execute,
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 500,
+      body: {
+        error: "INTERNAL_ERROR",
+        message: "Cached response has invalid status code",
+      },
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 999 }),
+      expect.stringContaining(
+        "cached status code in database is not a valid IdempotencyStatus",
+      ),
+    );
   });
 });

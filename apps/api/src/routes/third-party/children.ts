@@ -183,11 +183,13 @@ export const createThirdPartyChildHandler = factory.createHandlers(
             };
           }
           const errResponse = handleEntityError(c, err);
+          const status = isIdempotencyStatus(errResponse.status)
+            ? errResponse.status
+            : 500;
           return {
-            status: isIdempotencyStatus(errResponse.status)
-              ? errResponse.status
-              : 500,
+            status,
             body: (await errResponse.json()) as unknown,
+            doNotCache: status >= 500,
           };
         }
       },

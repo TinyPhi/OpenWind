@@ -181,9 +181,11 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
           );
         } catch (err) {
           if (err instanceof AttachmentReferenceError) {
+            const status = isIdempotencyStatus(err.status) ? err.status : 500;
             return {
-              status: isIdempotencyStatus(err.status) ? err.status : 500,
+              status,
               body: err.body,
+              doNotCache: status >= 500,
             };
           }
           throw err;
@@ -236,6 +238,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
               error: "INTERNAL_ERROR",
               message: "Failed to record comment",
             },
+            doNotCache: true,
           };
         }
 

@@ -55,13 +55,8 @@ const LOCK_RETRY_AFTER_SECONDS = 1;
 // growth vector against a table with no separate size cap of its own.
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 
-export const RELEASE_LOCK_LUA_SCRIPT = `
-  if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("del", KEYS[1])
-  else
-    return 0
-  end
-`;
+export const RELEASE_LOCK_LUA_SCRIPT =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
 
 export type IdempotencyStatus =
   | 200
@@ -117,9 +112,17 @@ export interface IdempotencyScope {
 // `import()` fires once at module load time so all concurrent first requests
 // share the same Promise rather than racing to import separately.
 const canonicalizeFnPromise: Promise<(value: unknown) => string | undefined> =
-  import("canonicalize").then(
-    (m) => (m as { default: (value: unknown) => string | undefined }).default,
-  );
+  import("canonicalize")
+    .then(
+      (m) => (m as { default: (value: unknown) => string | undefined }).default,
+    )
+    .catch((err) => {
+      logger.error(
+        { err },
+        "idempotency: failed to import ESM package 'canonicalize' at boot time",
+      );
+      throw err;
+    });
 
 /**
  * RFC 8785 JSON Canonicalization Scheme (via the `canonicalize` package,
@@ -143,7 +146,7 @@ function lockKey(
   actingPersonId: string,
   idempotencyKey: string,
 ): string {
-  return `idempotency-lock:${tenantId}:${applicationActorId}:${actingPersonId}:${idempotencyKey}`;
+  return `idempotency-lock:${tenantId}:${applicationActorId}:${actingPersonId}:${encodeURIComponent(idempotencyKey)}`;
 }
 
 /**
@@ -339,7 +342,18 @@ export async function withIdempotency(
     return await executeAndCache();
   } finally {
     try {
-      await redis.eval(RELEASE_LOCK_LUA_SCRIPT, 1, key, lockToken);
+      const result = await redis.eval(
+        RELEASE_LOCK_LUA_SCRIPT,
+        1,
+        key,
+        lockToken,
+      );
+      if (result === 0) {
+        logger.warn(
+          { tenantId, applicationActorId, actingPersonId, idempotencyKey },
+          "idempotency: lock release returned 0, lock likely expired/stale",
+        );
+      }
     } catch (releaseErr) {
       logger.warn(
         { releaseErr, tenantId },

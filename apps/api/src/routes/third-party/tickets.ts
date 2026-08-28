@@ -197,17 +197,21 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           return { status: 201, body: { data: instance } };
         } catch (err) {
           if (err instanceof AttachmentReferenceError) {
+            const status = isIdempotencyStatus(err.status) ? err.status : 500;
             return {
-              status: isIdempotencyStatus(err.status) ? err.status : 500,
+              status,
               body: err.body,
+              doNotCache: status >= 500,
             };
           }
           const errResponse = handleEntityError(c, err);
+          const status = isIdempotencyStatus(errResponse.status)
+            ? errResponse.status
+            : 500;
           return {
-            status: isIdempotencyStatus(errResponse.status)
-              ? errResponse.status
-              : 500,
+            status,
             body: (await errResponse.json()) as unknown,
+            doNotCache: status >= 500,
           };
         }
       },
