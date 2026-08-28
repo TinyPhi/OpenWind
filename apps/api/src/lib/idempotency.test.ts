@@ -268,4 +268,71 @@ describe("withIdempotency", () => {
     expect(mockRedisDel).toHaveBeenCalled();
     expect(mockInsertValues).not.toHaveBeenCalled();
   });
+
+  it("does not call execute() when a concurrent request populates the cache between the fast-path lookup and lock acquisition (TOCTOU fix)", async () => {
+    // Scenario: request A's fast-path lookup misses (no cache), then request B
+    // completes its entire cycle (execute → cache → release lock) before A
+    // acquires the lock. Without the double-checked locking fix, A would
+    // re-execute. With the fix, A's under-lock re-check finds the cached result
+    // and returns it without calling execute().
+    const cachedRow = {
+      contentHash: await computeContentHash(content),
+      responseStatus: 201,
+      responseBody: { data: { id: "from-concurrent-request" } },
+    };
+
+    const { withTenantContext } = await import("@platform/db");
+    // First call: fast-path lookup (no cache)
+    vi.mocked(withTenantContext).mockImplementationOnce((_id, fn) =>
+      fn({
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({ limit: vi.fn().mockResolvedValue([]) })),
+          })),
+        })),
+        insert: vi.fn(() => ({
+          values: (v: unknown) => {
+            mockInsertValues(v);
+            return { onConflictDoNothing: mockOnConflictDoNothing };
+          },
+        })),
+        delete: mockDelete,
+      }),
+    );
+    // Second call: under-lock re-check (concurrent request cached its result in the interim)
+    vi.mocked(withTenantContext).mockImplementationOnce((_id, fn) =>
+      fn({
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([cachedRow]),
+            })),
+          })),
+        })),
+        insert: vi.fn(() => ({
+          values: (v: unknown) => {
+            mockInsertValues(v);
+            return { onConflictDoNothing: mockOnConflictDoNothing };
+          },
+        })),
+        delete: mockDelete,
+      }),
+    );
+
+    mockRedisSet.mockResolvedValue("OK");
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-toctou" },
+      content,
+      execute,
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 201,
+      body: { data: { id: "from-concurrent-request" } },
+    });
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
 });
