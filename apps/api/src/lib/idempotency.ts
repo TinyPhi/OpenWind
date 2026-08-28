@@ -16,8 +16,14 @@
  *   2. Not found -> try to acquire a 30s Redis lock (R5). Lock busy -> 409 +
  *      Retry-After, skip execution (a second identical request must not wait
  *      for the first's result, it must be told to retry).
- *   3. Lock acquired -> run the caller's handler, cache its response, release
- *      the lock, return the response.
+ *   3. Lock acquired -> RE-CHECK the cache (double-checked locking). A faster
+ *      concurrent request can finish its entire execute+cache+release cycle
+ *      between this request's step-1 lookup and its step-2 lock acquisition
+ *      -- without this second check, step 1's stale "not found" would let
+ *      this request execute a second time even though the first request's
+ *      result is now sitting in the cache. Still not found -> run the
+ *      caller's handler, cache its response, release the lock, return the
+ *      response.
  *
  * The lock and the cache lookup are ALWAYS scoped by the identical 3-tuple
  * (tenantId, applicationActorId, actingPersonId) plus the caller-supplied key -- a
@@ -35,7 +41,6 @@
  * response-blocking ones (spec R5/R6's whole point for comments.ts's
  * mention resolution, specifically).
  */
-import canonicalize from "canonicalize";
 import { createHash } from "node:crypto";
 import { eq, and, gt, lte } from "drizzle-orm";
 import { idempotencyKeys, withTenantContext } from "@platform/db";
@@ -63,6 +68,27 @@ export interface IdempotencyScope {
   idempotencyKey?: string | undefined;
 }
 
+// `canonicalize` is a pure-ESM package (its package.json `exports` map has
+// no `require` condition). apps/api has no `"type": "module"`, so tsx
+// transpiles a static `import` of it to a `require()` at runtime, which
+// throws ERR_PACKAGE_PATH_NOT_EXPORTED and crash-loops the server -- caught
+// only by actually booting the compiled server (CI's vitest run tolerates
+// ESM-only deps transparently and never surfaces this). A dynamic
+// `import()` works from CJS regardless of the target package's own type,
+// so this loads the module once and reuses the resolved function.
+let canonicalizeFn: ((value: unknown) => string | undefined) | undefined;
+async function getCanonicalize(): Promise<
+  (value: unknown) => string | undefined
+> {
+  if (!canonicalizeFn) {
+    const mod = (await import("canonicalize")) as {
+      default: (value: unknown) => string | undefined;
+    };
+    canonicalizeFn = mod.default;
+  }
+  return canonicalizeFn;
+}
+
 /**
  * RFC 8785 JSON Canonicalization Scheme (via the `canonicalize` package,
  * the reference JCS implementation) -- NOT a naive `JSON.stringify`, whose
@@ -71,7 +97,10 @@ export interface IdempotencyScope {
  * (defaults filled in), plus any path-param identifiers that distinguish
  * otherwise-identical bodies sent to different resources (e.g. a ticket id).
  */
-export function computeContentHash(content: Record<string, unknown>): string {
+export async function computeContentHash(
+  content: Record<string, unknown>,
+): Promise<string> {
+  const canonicalize = await getCanonicalize();
   const canonical = canonicalize(content) ?? "null";
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -112,35 +141,41 @@ export async function withIdempotency(
       },
     };
   }
-  const contentHash = computeContentHash(content);
+  const contentHash = await computeContentHash(content);
 
   // expiresAt filter -- a row past its 24h TTL (R3) is treated as absent,
   // so the request executes fresh rather than replaying a stale result.
   // Expired rows are NOT deleted here (that's the Phase 3/T8-style sweep
   // job, not yet built) -- this only affects which rows this lookup
   // considers live.
-  const existing = await withTenantContext(tenantId, (tx) =>
-    tx
-      .select({
-        contentHash: idempotencyKeys.contentHash,
-        responseStatus: idempotencyKeys.responseStatus,
-        responseBody: idempotencyKeys.responseBody,
-      })
-      .from(idempotencyKeys)
-      .where(
-        and(
-          eq(idempotencyKeys.tenantId, tenantId),
-          eq(idempotencyKeys.apiKeyId, applicationActorId),
-          eq(idempotencyKeys.actingPersonId, actingPersonId),
-          eq(idempotencyKeys.idempotencyKey, idempotencyKey),
-          gt(idempotencyKeys.expiresAt, new Date()),
-        ),
-      )
-      .limit(1),
-  );
+  const lookupCache = (): Promise<
+    { contentHash: string; responseStatus: number; responseBody: unknown }[]
+  > =>
+    withTenantContext(tenantId, (tx) =>
+      tx
+        .select({
+          contentHash: idempotencyKeys.contentHash,
+          responseStatus: idempotencyKeys.responseStatus,
+          responseBody: idempotencyKeys.responseBody,
+        })
+        .from(idempotencyKeys)
+        .where(
+          and(
+            eq(idempotencyKeys.tenantId, tenantId),
+            eq(idempotencyKeys.apiKeyId, applicationActorId),
+            eq(idempotencyKeys.actingPersonId, actingPersonId),
+            eq(idempotencyKeys.idempotencyKey, idempotencyKey),
+            gt(idempotencyKeys.expiresAt, new Date()),
+          ),
+        )
+        .limit(1),
+    );
 
-  const [row] = existing;
-  if (row) {
+  function respondFromRow(row: {
+    contentHash: string;
+    responseStatus: number;
+    responseBody: unknown;
+  }): IdempotencyResponse {
     if (row.contentHash === contentHash) {
       return { status: row.responseStatus, body: row.responseBody };
     }
@@ -152,6 +187,11 @@ export async function withIdempotency(
           "This idempotency key was already used for a request with different content",
       },
     };
+  }
+
+  const [existingRow] = await lookupCache();
+  if (existingRow) {
+    return respondFromRow(existingRow);
   }
 
   const executeAndCache = async (): Promise<IdempotencyResponse> => {
@@ -249,6 +289,13 @@ export async function withIdempotency(
   }
 
   try {
+    // Double-checked locking -- see the module doc comment. A faster
+    // concurrent request can have already executed and cached its result
+    // between our lookupCache() above and acquiring the lock just now.
+    const [rowAfterLock] = await lookupCache();
+    if (rowAfterLock) {
+      return respondFromRow(rowAfterLock);
+    }
     return await executeAndCache();
   } finally {
     try {
