@@ -56,6 +56,16 @@ function isExistenceRevealingWorkflowError(err: unknown): boolean {
 // eslint-disable-next-line no-control-regex -- intentional: this IS the control-character check.
 const FORBIDDEN_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
 
+// The ONLY role a third-party caller may ever be granted for a transition
+// (docs/specs/third-party-transition-role-mapping.md R1/§V). Typed `as const`
+// so accidentally widening this to include "admin"/"agent" -- e.g. someone
+// "being more permissive" for a special case -- is a visible, reviewable
+// diff on this one line rather than a silent behavioral change buried in the
+// request-building code below. workflow-engine does not export a named
+// constant for its own role strings (they're opaque caller-supplied
+// strings, not an enum), so this is defined locally rather than imported.
+const THIRD_PARTY_BASELINE_ACTOR_ROLES = ["user"] as const;
+
 const ExecuteThirdPartyTransitionSchema = z.object({
   transitionId: z.string().uuid(),
   comment: z
@@ -83,10 +93,14 @@ const ExecuteThirdPartyTransitionSchema = z.object({
  * executeTransition itself is called completely unmodified — no parallel or
  * shortcut validation path — so an invalid/skip-ahead transition gets
  * exactly the same rejection a human caller would (spec R1). actorRoles is
- * passed as [] (the acting person has no internal RBAC role in this system,
- * same convention every other third-party route already uses), so a
- * transition with its own role-restricted guard is enforced identically for
- * API and human-roleless callers.
+ * passed as ["user"] once hasTransitionAccess has already confirmed the
+ * caller is a creator/assignee/workflow-admin -- every seeded workflow's
+ * transitions require at least the baseline "user" role, so passing []
+ * here made every role-restricted transition unreachable via the API even
+ * for callers with genuine ticket-level access (found during Phase 4 E2E
+ * testing). This never grants "admin"/"agent" -- a transition restricted to
+ * those still 403s for a third-party caller, same as it would for any
+ * internal user without that elevated role.
  */
 export const executeThirdPartyTransitionHandler = factory.createHandlers(
   requireAuth(db),
@@ -167,7 +181,10 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
             instanceId,
             transitionId,
             actorId: actingPersonId,
-            actorRoles: [],
+            // Baseline "user" role only, granted here because
+            // hasTransitionAccess (above) already confirmed creator/
+            // assignee/workflow-admin access -- see module doc comment.
+            actorRoles: [...THIRD_PARTY_BASELINE_ACTOR_ROLES],
             triggeredBy: "api",
             ...(comment !== undefined && { comment }),
             ...(idempotencyKey !== undefined && { idempotencyKey }),
