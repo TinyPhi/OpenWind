@@ -26,15 +26,19 @@ vi.mock("@platform/logger", () => ({
 
 // Mock Sentry SDK
 const mockSentryInit = vi.fn();
+const mockSentryCaptureException = vi.fn();
 vi.mock("@sentry/node", () => ({
   init: mockSentryInit,
+  captureException: mockSentryCaptureException,
 }));
 
-const { startErrorTracking, scrubPIIInPlace } = await import("./errors.js");
+const { startErrorTracking, scrubPIIInPlace, captureException } =
+  await import("./errors.js");
 
 describe("Error Tracking Initialization", () => {
   beforeEach(() => {
     mockSentryInit.mockClear();
+    mockSentryCaptureException.mockClear();
     mockWarn.mockClear();
     mockInfo.mockClear();
     mockError.mockClear();
@@ -76,6 +80,21 @@ describe("Error Tracking Initialization", () => {
         beforeSend: expect.any(Function),
       }),
     );
+  });
+});
+
+describe("Manual Exception Capture", () => {
+  it("does not report error when provider is 'none'", () => {
+    mockEnv.ERROR_TRACKING_PROVIDER = "none";
+    captureException(new Error("test error"));
+    expect(mockSentryCaptureException).not.toHaveBeenCalled();
+  });
+
+  it("reports error when provider is active", () => {
+    mockEnv.ERROR_TRACKING_PROVIDER = "sentry";
+    captureException(new Error("test error"));
+    expect(mockSentryCaptureException).toHaveBeenCalledTimes(1);
+    expect(mockSentryCaptureException).toHaveBeenCalledWith(expect.any(Error));
   });
 });
 

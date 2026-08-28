@@ -94,3 +94,12 @@ export function startErrorTracking(): void {
     logger.error({ err: error }, "Failed to initialize error tracking SDK");
   }
 }
+
+/**
+ * Manually captures an exception to Sentry if initialized.
+ */
+export function captureException(error: unknown): void {
+  if (env.ERROR_TRACKING_PROVIDER !== "none") {
+    Sentry.captureException(error);
+  }
+}
