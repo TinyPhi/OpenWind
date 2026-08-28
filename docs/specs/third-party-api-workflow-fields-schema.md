@@ -5,7 +5,7 @@
 > repeated `422` failures. Standard pattern (Jira `createmeta`, Zendesk `ticket_fields`,
 > Salesforce `describe`) — a real gap vs. comparable competitors, not a nice-to-have.
 
-status: draft
+status: implemented
 created: 2026-08-28
 updated: 2026-08-28
 
@@ -179,13 +179,13 @@ the new endpoint's own tests (explicit regression gate, not just an incidental C
 
 | id  | task                                                                                                                                                                                                                                                             | phase | status | depends |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
-| T1  | Add `GET /workflows/:workflowId/fields` route in `apps/api/src/routes/third-party/` — resolve workflow → entityTypeId, reuse entity-engine's existing global+tenant-specific field lookup verbatim (no new/narrower query)                                       | 1     | todo   | —       |
-| T2  | Wire dual-identity auth + `entity:ticket:read` scope check + standard rate-limit middleware, identical pattern to `GET /workflows` (R7)                                                                                                                          | 1     | todo   | T1      |
-| T3  | Shape the response per §I — field name/label/type/required/sensitivity/config, `isSystem` included, ordered by `sortOrder` (R1)                                                                                                                                  | 1     | todo   | T1      |
-| T4  | Isolation tests: happy path (incl. a global-only field and sort-order assertion), zero-fields workflow, cross-tenant 404, missing-scope 403, unauth 401, rate-limit headers present (R7), field-name wire-compatibility check against a live `422` response (R6) | 1     | todo   | T2,T3   |
-| T5  | Regression check: existing `GET /workflows` and `POST /tickets` isolation/unit suites still pass unmodified (R5)                                                                                                                                                 | 1     | todo   | T4      |
-| T6  | Update `docs/third-party-api-design.md` / the partner-facing API reference doc with the new endpoint                                                                                                                                                             | 2     | todo   | T5      |
-| T7  | (Follow-up, separate PR) Wire OWTesterUI's Create Ticket panel to call this instead of raw-JSON textarea                                                                                                                                                         | 2     | todo   | T5      |
+| T1  | Add `GET /workflows/:workflowId/fields` route in `apps/api/src/routes/third-party/` — resolve workflow → entityTypeId, reuse entity-engine's existing global+tenant-specific field lookup verbatim (no new/narrower query)                                       | 1     | done   | —       |
+| T2  | Wire dual-identity auth + `entity:ticket:read` scope check + standard rate-limit middleware, identical pattern to `GET /workflows` (R7)                                                                                                                          | 1     | done   | T1      |
+| T3  | Shape the response per §I — field name/label/type/required/sensitivity/config, `isSystem` included, ordered by `sortOrder` (R1)                                                                                                                                  | 1     | done   | T1      |
+| T4  | Isolation tests: happy path (incl. a global-only field and sort-order assertion), zero-fields workflow, cross-tenant 404, missing-scope 403, unauth 401, rate-limit headers present (R7), field-name wire-compatibility check against a live `422` response (R6) | 1     | done   | T2,T3   |
+| T5  | Regression check: existing `GET /workflows` and `POST /tickets` isolation/unit suites still pass unmodified (R5)                                                                                                                                                 | 1     | done   | T4      |
+| T6  | Update the partner-facing API reference doc (`work docs/OW/API exposur/third-party-api-reference.md` — `docs/third-party-api-design.md` does not exist in-repo) with the new endpoint                                                                            | 2     | done   | T5      |
+| T7  | (Follow-up, separate PR, outside this repo) Wire OWTesterUI's Create Ticket panel to call this instead of raw-JSON textarea                                                                                                                                      | 2     | todo   | T5      |
 
 phase gate: all unit + isolation tests pass
 
