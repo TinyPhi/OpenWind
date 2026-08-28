@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
 import * as Sentry from "@sentry/node";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
