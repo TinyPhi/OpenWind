@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — dashboards and alerting (Stage 4)]
+
+### Added
+
+- **Grafana dashboards provisioning** — Auto-configured Prometheus datasource and provisioned "OpenWind Platform" dashboard displaying API traffic rates, latency percentiles, error rates, and queue depths (#507).
+- **Alertmanager alerts configuration** — Mounted `alertmanager.yml` SMTP configuration pointing to local Mailhog container for developer alert emails (#507).
+- **Prometheus alerting rules** — Added alert rules (`QueueDepthHigh`, `HttpErrorRateHigh`, `HttpLatencyHigh`) targeting BullMQ queue depth backups, HTTP latency, and 5xx error rate spikes (#507).
+
+---
+
 ## [Unreleased — compliance and data retention (Stage 3)]
 
 ### Added

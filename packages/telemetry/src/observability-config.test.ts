@@ -1,0 +1,136 @@
+import { describe, it, expect } from "vitest";
+import { fileURLToPath } from "url";
+import path from "path";
+import fs from "fs";
+import yaml from "js-yaml";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const obsDir = path.resolve(__dirname, "../../../docker/observability");
+
+interface PrometheusRuleGroup {
+  groups: {
+    rules: {
+      alert: string;
+    }[];
+  }[];
+}
+
+interface AlertmanagerConfig {
+  global?: {
+    smtp_smarthost?: string;
+  };
+  receivers?: {
+    name: string;
+  }[];
+}
+
+interface GrafanaDatasources {
+  datasources?: {
+    name: string;
+    url: string;
+  }[];
+}
+
+interface GrafanaDashboards {
+  providers?: {
+    options: {
+      path: string;
+    };
+  }[];
+}
+
+interface GrafanaDashboardJson {
+  title: string;
+  panels: {
+    title: string;
+  }[];
+}
+
+describe("Observability Configuration Validation", () => {
+  it("validates alert.rules.yml has correct syntax and rules", () => {
+    const rulesPath = path.join(obsDir, "alert.rules.yml");
+    expect(fs.existsSync(rulesPath)).toBe(true);
+
+    const content = fs.readFileSync(rulesPath, "utf8");
+    const parsed = yaml.load(content) as PrometheusRuleGroup;
+
+    expect(parsed).toBeDefined();
+    expect(parsed.groups).toBeInstanceOf(Array);
+    expect(parsed.groups.length).toBeGreaterThan(0);
+
+    const alerts = parsed.groups![0]!.rules.map(
+      (r: { alert: string }) => r.alert,
+    );
+    expect(alerts).toContain("QueueDepthHigh");
+    expect(alerts).toContain("HttpErrorRateHigh");
+    expect(alerts).toContain("HttpLatencyHigh");
+  });
+
+  it("validates alertmanager.yml has correct syntax and mailhog config", () => {
+    const amPath = path.join(obsDir, "alertmanager.yml");
+    expect(fs.existsSync(amPath)).toBe(true);
+
+    const content = fs.readFileSync(amPath, "utf8");
+    const parsed = yaml.load(content) as AlertmanagerConfig;
+
+    expect(parsed).toBeDefined();
+    expect(parsed.global).toBeDefined();
+    expect(parsed.global!.smtp_smarthost).toBe("ow-mailhog:1025");
+    expect(parsed.receivers).toBeInstanceOf(Array);
+    expect(parsed.receivers![0]!.name).toBe("mailhog");
+  });
+
+  it("validates Grafana datasources provisioning file syntax", () => {
+    const dsPath = path.join(
+      obsDir,
+      "grafana/provisioning/datasources/datasources.yaml",
+    );
+    expect(fs.existsSync(dsPath)).toBe(true);
+
+    const content = fs.readFileSync(dsPath, "utf8");
+    const parsed = yaml.load(content) as GrafanaDatasources;
+
+    expect(parsed).toBeDefined();
+    expect(parsed.datasources).toBeInstanceOf(Array);
+    expect(parsed.datasources![0]!.name).toBe("Prometheus");
+    expect(parsed.datasources![0]!.url).toBe("http://ow-prometheus:9090");
+  });
+
+  it("validates Grafana dashboards provisioning file syntax", () => {
+    const dbProvPath = path.join(
+      obsDir,
+      "grafana/provisioning/dashboards/dashboards.yaml",
+    );
+    expect(fs.existsSync(dbProvPath)).toBe(true);
+
+    const content = fs.readFileSync(dbProvPath, "utf8");
+    const parsed = yaml.load(content) as GrafanaDashboards;
+
+    expect(parsed).toBeDefined();
+    expect(parsed.providers).toBeInstanceOf(Array);
+    expect(parsed.providers![0]!.options.path).toBe("/etc/grafana/dashboards");
+  });
+
+  it("validates openwind-dashboard.json has correct syntax and expected panels", () => {
+    const dbPath = path.join(
+      obsDir,
+      "grafana/dashboards/openwind-dashboard.json",
+    );
+    expect(fs.existsSync(dbPath)).toBe(true);
+
+    const content = fs.readFileSync(dbPath, "utf8");
+    const parsed = JSON.parse(content) as GrafanaDashboardJson;
+
+    expect(parsed).toBeDefined();
+    expect(parsed.title).toBe("OpenWind Platform");
+    expect(parsed.panels).toBeInstanceOf(Array);
+    expect(parsed.panels.length).toBeGreaterThanOrEqual(4);
+
+    const panelTitles = parsed.panels.map((p: { title: string }) => p.title);
+    expect(panelTitles).toContain("API Request Rate");
+    expect(panelTitles).toContain("HTTP 5xx Error Rate (%)");
+    expect(panelTitles).toContain("HTTP Latency (P95)");
+    expect(panelTitles).toContain("BullMQ Queue Depths (Waiting Jobs)");
+  });
+});
