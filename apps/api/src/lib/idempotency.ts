@@ -114,20 +114,12 @@ export interface IdempotencyScope {
 // throws ERR_PACKAGE_PATH_NOT_EXPORTED and crash-loops the server -- caught
 // only by actually booting the compiled server (CI's vitest run tolerates
 // ESM-only deps transparently and never surfaces this). A dynamic
-// `import()` works from CJS regardless of the target package's own type,
-// so this loads the module once and reuses the resolved function.
-let canonicalizeFn: ((value: unknown) => string | undefined) | undefined;
-async function getCanonicalize(): Promise<
-  (value: unknown) => string | undefined
-> {
-  if (!canonicalizeFn) {
-    const mod = (await import("canonicalize")) as {
-      default: (value: unknown) => string | undefined;
-    };
-    canonicalizeFn = mod.default;
-  }
-  return canonicalizeFn;
-}
+// `import()` fires once at module load time so all concurrent first requests
+// share the same Promise rather than racing to import separately.
+const canonicalizeFnPromise: Promise<(value: unknown) => string | undefined> =
+  import("canonicalize").then(
+    (m) => (m as { default: (value: unknown) => string | undefined }).default,
+  );
 
 /**
  * RFC 8785 JSON Canonicalization Scheme (via the `canonicalize` package,
@@ -140,7 +132,7 @@ async function getCanonicalize(): Promise<
 export async function computeContentHash(
   content: Record<string, unknown>,
 ): Promise<string> {
-  const canonicalize = await getCanonicalize();
+  const canonicalize = await canonicalizeFnPromise;
   const canonical = canonicalize(content) ?? "null";
   return createHash("sha256").update(canonical).digest("hex");
 }
