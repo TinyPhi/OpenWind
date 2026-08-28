@@ -276,7 +276,7 @@ describe("withIdempotency", () => {
     // re-execute. With the fix, A's under-lock re-check finds the cached result
     // and returns it without calling execute().
     const cachedRow = {
-      contentHash: computeContentHash(content),
+      contentHash: await computeContentHash(content),
       responseStatus: 201,
       responseBody: { data: { id: "from-concurrent-request" } },
     };
