@@ -148,10 +148,8 @@ export async function withIdempotency(
   // Expired rows are NOT deleted here (that's the Phase 3/T8-style sweep
   // job, not yet built) -- this only affects which rows this lookup
   // considers live.
-  const lookupCache = (): Promise<
-    { contentHash: string; responseStatus: number; responseBody: unknown }[]
-  > =>
-    withTenantContext(tenantId, (tx) =>
+  const lookupCached = async (): Promise<IdempotencyResponse | null> => {
+    const [row] = await withTenantContext(tenantId, (tx) =>
       tx
         .select({
           contentHash: idempotencyKeys.contentHash,
@@ -170,12 +168,7 @@ export async function withIdempotency(
         )
         .limit(1),
     );
-
-  function respondFromRow(row: {
-    contentHash: string;
-    responseStatus: number;
-    responseBody: unknown;
-  }): IdempotencyResponse {
+    if (!row) return null;
     if (row.contentHash === contentHash) {
       return { status: row.responseStatus, body: row.responseBody };
     }
@@ -187,12 +180,10 @@ export async function withIdempotency(
           "This idempotency key was already used for a request with different content",
       },
     };
-  }
+  };
 
-  const [existingRow] = await lookupCache();
-  if (existingRow) {
-    return respondFromRow(existingRow);
-  }
+  const cached = await lookupCached();
+  if (cached) return cached;
 
   const executeAndCache = async (): Promise<IdempotencyResponse> => {
     const response = await execute();
@@ -291,11 +282,9 @@ export async function withIdempotency(
   try {
     // Double-checked locking -- see the module doc comment. A faster
     // concurrent request can have already executed and cached its result
-    // between our lookupCache() above and acquiring the lock just now.
-    const [rowAfterLock] = await lookupCache();
-    if (rowAfterLock) {
-      return respondFromRow(rowAfterLock);
-    }
+    // between our initial lookupCached() and acquiring the lock just now.
+    const cachedUnderLock = await lookupCached();
+    if (cachedUnderLock) return cachedUnderLock;
     return await executeAndCache();
   } finally {
     try {
