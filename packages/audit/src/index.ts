@@ -321,24 +321,24 @@ export async function anonymizeAuditLogForTenant(
   db: Db,
   tenantId: string,
 ): Promise<void> {
-  // Runtime assertion: ensure we are not running inside a tenant RLS transaction context
+  // Runtime assertion: ensure we are not running inside a tenant RLS transaction context.
+  // Any failure of the check itself — not just "tenant is active" — must abort the function:
+  // failing open here would silently run the UPDATE in exactly the scenario the guard prevents.
+  let tenantSetting: string | null;
   try {
     const rlsContext = await db.execute<{ current_setting: string | null }>(
       sql`SELECT current_setting('app.tenant_id', true) as current_setting`,
     );
-    const tenantSetting = rlsContext[0]?.current_setting;
-    if (tenantSetting) {
-      throw new Error(
-        `anonymizeAuditLogForTenant: cannot execute UPDATE under active tenant RLS context (tenant: ${tenantSetting})`,
-      );
-    }
+    tenantSetting = rlsContext[0]?.current_setting ?? null;
   } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message.includes("active tenant RLS context")
-    ) {
-      throw err;
-    }
+    throw new Error(
+      `anonymizeAuditLogForTenant: failed to verify RLS context before UPDATE: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (tenantSetting) {
+    throw new Error(
+      `anonymizeAuditLogForTenant: cannot execute UPDATE under active tenant RLS context (tenant: ${tenantSetting})`,
+    );
   }
 
   const BATCH_SIZE = 1000;
