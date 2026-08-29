@@ -83,6 +83,37 @@ queueDepthGauge.addCallback(async (observableResult) => {
   }
 });
 
+const degradedTenantsGauge = meter.createObservableGauge(
+  "billing_degraded_tenants",
+  {
+    description: "Number of currently degraded tenants by reason",
+  },
+);
+
+degradedTenantsGauge.addCallback(async (observableResult) => {
+  try {
+    const redis = getRedis();
+    const keys = await redis.keys("degraded:*");
+
+    let apiCallsCount = 0;
+    let storageCount = 0;
+    let aiTokensCount = 0;
+
+    for (const key of keys) {
+      const members = await redis.smembers(key);
+      if (members.includes("api_calls")) apiCallsCount++;
+      if (members.includes("storage")) storageCount++;
+      if (members.includes("ai_tokens")) aiTokensCount++;
+    }
+
+    observableResult.observe(apiCallsCount, { reason: "api_calls" });
+    observableResult.observe(storageCount, { reason: "storage" });
+    observableResult.observe(aiTokensCount, { reason: "ai_tokens" });
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
 const serializer = new PrometheusSerializer();
 
 /** Retrieves current metrics in Prometheus exposition format. */

@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
 import yaml from "js-yaml";
+import { execSync } from "child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,9 @@ interface PrometheusRuleGroup {
   groups: {
     rules: {
       alert: string;
+      labels?: {
+        team?: string;
+      };
     }[];
   }[];
 }
@@ -47,6 +51,15 @@ interface GrafanaDashboardJson {
   }[];
 }
 
+function isDockerAvailable(): boolean {
+  try {
+    execSync("docker info", { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("Observability Configuration Validation", () => {
   it("validates alert.rules.yml has correct syntax and rules", () => {
     const rulesPath = path.join(obsDir, "alert.rules.yml");
@@ -59,12 +72,36 @@ describe("Observability Configuration Validation", () => {
     expect(parsed.groups).toBeInstanceOf(Array);
     expect(parsed.groups.length).toBeGreaterThan(0);
 
-    const alerts = parsed.groups![0]!.rules.map(
-      (r: { alert: string }) => r.alert,
-    );
-    expect(alerts).toContain("QueueDepthHigh");
+    const rules = parsed.groups![0]!.rules;
+    const alerts = rules.map((r) => r.alert);
+
+    // Finding 10: QueueDepth split into high/low throughput families
+    expect(alerts).toContain("QueueDepthHighPlatform");
+    expect(alerts).toContain("QueueDepthHighWorker");
     expect(alerts).toContain("HttpErrorRateHigh");
     expect(alerts).toContain("HttpLatencyHigh");
+
+    // Finding 5: Ensure team label is set for routing
+    for (const rule of rules) {
+      expect(rule.labels?.team).toBe("platform");
+    }
+  });
+
+  it("validates alert.rules.yml with promtool check rules if docker is available", () => {
+    if (!isDockerAvailable()) {
+      console.warn("Docker not available, skipping promtool validation");
+      return;
+    }
+    try {
+      const output = execSync(
+        `docker run --rm -v "${obsDir}:/obs" prom/prometheus:v2.53.0 promtool check rules /obs/alert.rules.yml`,
+        { encoding: "utf8" },
+      );
+      expect(output).toContain("SUCCESS");
+    } catch (err: unknown) {
+      const e = err as { stdout?: string; message: string };
+      throw new Error(`promtool validation failed: ${e.stdout || e.message}`);
+    }
   });
 
   it("validates alertmanager.yml has correct syntax and mailhog config", () => {
@@ -79,6 +116,23 @@ describe("Observability Configuration Validation", () => {
     expect(parsed.global!.smtp_smarthost).toBe("ow-mailhog:1025");
     expect(parsed.receivers).toBeInstanceOf(Array);
     expect(parsed.receivers![0]!.name).toBe("mailhog");
+  });
+
+  it("validates alertmanager.yml with amtool check-config if docker is available", () => {
+    if (!isDockerAvailable()) {
+      console.warn("Docker not available, skipping amtool validation");
+      return;
+    }
+    try {
+      const output = execSync(
+        `docker run --rm -v "${obsDir}:/obs" prom/alertmanager:v0.27.0 amtool check-config /obs/alertmanager.yml`,
+        { encoding: "utf8" },
+      );
+      expect(output).toContain("SUCCESS");
+    } catch (err: unknown) {
+      const e = err as { stdout?: string; message: string };
+      throw new Error(`amtool validation failed: ${e.stdout || e.message}`);
+    }
   });
 
   it("validates Grafana datasources provisioning file syntax", () => {
@@ -125,12 +179,15 @@ describe("Observability Configuration Validation", () => {
     expect(parsed).toBeDefined();
     expect(parsed.title).toBe("OpenWind Platform");
     expect(parsed.panels).toBeInstanceOf(Array);
-    expect(parsed.panels.length).toBeGreaterThanOrEqual(4);
+    expect(parsed.panels.length).toBeGreaterThanOrEqual(7);
 
-    const panelTitles = parsed.panels.map((p: { title: string }) => p.title);
+    const panelTitles = parsed.panels.map((p) => p.title);
     expect(panelTitles).toContain("API Request Rate");
     expect(panelTitles).toContain("HTTP 5xx Error Rate (%)");
     expect(panelTitles).toContain("HTTP Latency (P95)");
     expect(panelTitles).toContain("BullMQ Queue Depths (Waiting Jobs)");
+    expect(panelTitles).toContain("HTTP Latency (P99)");
+    expect(panelTitles).toContain("Degraded Tenants by Reason");
+    expect(panelTitles).toContain("Billing Rejections (422)");
   });
 });
