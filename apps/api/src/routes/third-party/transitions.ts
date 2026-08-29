@@ -229,10 +229,20 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
           const pgCode =
             (err as { code?: unknown }).code ??
             (err as { cause?: { code?: unknown } }).cause?.code;
-          if (pgCode === "55P03") {
-            const lockErr = new WorkflowError("TRANSITION_LOCKED", {
-              instanceId,
-            });
+          // Both paths that yield a TRANSITION_LOCKED response must set
+          // doNotCache: true -- caching a 409 retry-hint for 24h would make
+          // every subsequent same-key retry replay the transient error forever.
+          // (a) Raw 55P03 from the route's own T0 SELECT FOR UPDATE lock.
+          // (b) WorkflowError("TRANSITION_LOCKED") thrown by executeTransition's
+          //     internal lock conflict detection -- same semantic, different shape.
+          const isTransitionLocked =
+            pgCode === "55P03" ||
+            (err instanceof WorkflowError && err.code === "TRANSITION_LOCKED");
+          if (isTransitionLocked) {
+            const lockErr =
+              err instanceof WorkflowError && err.code === "TRANSITION_LOCKED"
+                ? err
+                : new WorkflowError("TRANSITION_LOCKED", { instanceId });
             const errResponse = handleWorkflowError(c, lockErr);
             const headers: Record<string, string> = {};
             errResponse.headers.forEach((value, key) => {
@@ -258,9 +268,14 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
           const status = isIdempotencyStatus(errResponse.status)
             ? errResponse.status
             : 500;
+          const headers: Record<string, string> = {};
+          errResponse.headers.forEach((value, key) => {
+            headers[key] = value;
+          });
           return {
             status,
             body: (await errResponse.json()) as unknown,
+            headers,
             doNotCache: status >= 500,
           };
         }

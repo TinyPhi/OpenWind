@@ -111,18 +111,26 @@ export interface IdempotencyScope {
 // ESM-only deps transparently and never surfaces this). A dynamic
 // `import()` fires once at module load time so all concurrent first requests
 // share the same Promise rather than racing to import separately.
-const canonicalizeFnPromise: Promise<(value: unknown) => string | undefined> =
-  import("canonicalize")
+// Mutable so a failed import can be retried on the next request rather than
+// permanently poisoning every subsequent call with the same rejection.
+let canonicalizeFnPromise: Promise<(value: unknown) => string | undefined>;
+function loadCanonicalize(): Promise<(value: unknown) => string | undefined> {
+  canonicalizeFnPromise = import("canonicalize")
     .then(
       (m) => (m as { default: (value: unknown) => string | undefined }).default,
     )
-    .catch((err) => {
+    .catch((err: unknown) => {
       logger.error(
         { err },
-        "idempotency: failed to import ESM package 'canonicalize' at boot time",
+        "idempotency: failed to import ESM package 'canonicalize' — will retry on next request",
       );
-      throw err;
+      // Reset so the next withIdempotency call attempts a fresh import.
+      void loadCanonicalize();
+      throw err as Error;
     });
+  return canonicalizeFnPromise;
+}
+void loadCanonicalize();
 
 /**
  * RFC 8785 JSON Canonicalization Scheme (via the `canonicalize` package,
