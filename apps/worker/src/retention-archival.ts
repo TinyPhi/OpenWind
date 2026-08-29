@@ -6,7 +6,7 @@
  * and tenant_usage_daily records older than tenant_config.retention_days (default 90).
  */
 
-import { and, eq, lt, ne, sql } from "drizzle-orm";
+import { and, eq, lt, ne, sql, isNotNull } from "drizzle-orm";
 import {
   db,
   tenants,
@@ -39,7 +39,7 @@ export async function runRetentionArchivalSweep(): Promise<void> {
     const tenantId = tenant.id;
     const config = tenant.config as Record<string, unknown> | undefined;
     const retentionDays =
-      typeof config?.retention_days === "number"
+      typeof config?.retention_days === "number" && config.retention_days >= 1
         ? config.retention_days
         : DEFAULT_RETENTION_DAYS;
 
@@ -62,12 +62,14 @@ export async function runRetentionArchivalSweep(): Promise<void> {
           ),
         );
 
-      // Delete old outbox events
+      // Delete old outbox events (only if successfully delivered and notified)
       await db
         .delete(outboxEvents)
         .where(
           and(
             eq(outboxEvents.tenantId, tenantId),
+            isNotNull(outboxEvents.deliveredAt),
+            isNotNull(outboxEvents.notifiedDeliveredAt),
             lt(
               outboxEvents.createdAt,
               sql`now() - (${retentionDays} || ' days')::interval`,

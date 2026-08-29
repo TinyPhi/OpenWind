@@ -1031,7 +1031,7 @@ describe("fetchUserInfo caching", () => {
       expect(resBlocked.status).toBe(403);
     });
 
-    it("fails open if database check throws an error", async () => {
+    it("fails closed if database check throws an error", async () => {
       mockModuleDbSelect.mockImplementationOnce(() => ({
         from: vi.fn(() => ({
           where: vi.fn(() => ({
@@ -1045,6 +1045,34 @@ describe("fetchUserInfo caching", () => {
 
       const app = makeApp([requireAuth()]);
       const res = await getWithIp(app, "1.2.3.4");
+      expect(res.status).toBe(503);
+      const json = await res.json();
+      expect(json.error).toBe("SERVICE_UNAVAILABLE");
+    });
+
+    it("allows request when client IP is mapped IPv6 loopback and matches IPv4 allowlist", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["127.0.0.1"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "::ffff:127.0.0.1");
+      expect(res.status).toBe(200);
+    });
+
+    it("allows request when client IP is mapped IPv6 loopback and matches mapped IPv6 CIDR in allowlist", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["::ffff:127.0.0.0/120"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "::ffff:127.0.0.1");
       expect(res.status).toBe(200);
     });
   });

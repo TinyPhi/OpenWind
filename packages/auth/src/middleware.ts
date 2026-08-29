@@ -121,9 +121,19 @@ export function checkIpInAllowlist(
       if (range.includes("/")) {
         // CIDR range
         const [network, prefix] = ipaddr.parseCIDR(range);
+        const normalizedNetwork =
+          network.kind() === "ipv6" &&
+          (network as ipaddr.IPv6).isIPv4MappedAddress()
+            ? (network as ipaddr.IPv6).toIPv4Address()
+            : network;
+        const normalizedPrefix =
+          network.kind() === "ipv6" &&
+          (network as ipaddr.IPv6).isIPv4MappedAddress()
+            ? prefix - 96
+            : prefix;
         if (
-          normalized.kind() === network.kind() &&
-          normalized.match(network, prefix)
+          normalized.kind() === normalizedNetwork.kind() &&
+          normalized.match(normalizedNetwork, normalizedPrefix)
         ) {
           return true;
         }
@@ -175,11 +185,14 @@ async function enforceTenantIpAllowlist(
     }
     return null;
   } catch (err) {
-    logger.warn(
+    logger.error(
       { err, tenantId },
-      "ip-allowlist: check failed unexpectedly — failing open",
+      "ip-allowlist: check failed unexpectedly — failing closed",
     );
-    return null;
+    return c.json(
+      { error: "SERVICE_UNAVAILABLE", message: "Security check failed" },
+      503,
+    );
   }
 }
 

@@ -49,6 +49,7 @@ export {
   listUserRolesByUserId,
   getUserById,
   invalidateUserCache,
+  deleteUser,
 } from "./zitadel-management.js";
 export type { OrgUser } from "./zitadel-management.js";
 export {

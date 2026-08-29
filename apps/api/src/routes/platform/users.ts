@@ -12,15 +12,19 @@ import {
   entityInstances,
   workflows,
   workflowEvents,
+  attachments,
+  idempotencyKeys,
 } from "@platform/db";
 import { eq, and, or, sql } from "drizzle-orm";
 import {
   listOrgUsers,
   listUserRolesByUserId,
   invalidateUserCache,
+  deleteUser,
 } from "../../lib/zitadel-management.js";
 import type { AuthContext } from "@platform/auth";
 import { writeAuditEntry } from "@platform/audit";
+import { logger } from "@platform/logger";
 
 type AppVars = { Variables: { auth: AuthContext } };
 
@@ -169,16 +173,24 @@ usersRouter.delete(
           ),
         );
 
-      // 5. Delete api_keys created or revoked by target user
+      // 5. Delete api_keys created by target user (Finding 6)
       await tx
         .delete(apiKeys)
         .where(
           and(
             eq(apiKeys.tenantId, tenantId),
-            or(
-              eq(apiKeys.createdBy, targetUserId),
-              eq(apiKeys.revokedBy, targetUserId),
-            ),
+            eq(apiKeys.createdBy, targetUserId),
+          ),
+        );
+
+      // 5b. Anonymize api_keys revoked by target user (Finding 6)
+      await tx
+        .update(apiKeys)
+        .set({ revokedBy: "[REDACTED]" })
+        .where(
+          and(
+            eq(apiKeys.tenantId, tenantId),
+            eq(apiKeys.revokedBy, targetUserId),
           ),
         );
 
@@ -249,6 +261,20 @@ usersRouter.delete(
           ),
         );
 
+      // 8b. Anonymize attachments references (Finding 5)
+      await tx
+        .update(attachments)
+        .set({ uploadedBy: "[REDACTED]", actingPersonId: "[REDACTED]" })
+        .where(
+          and(
+            eq(attachments.tenantId, tenantId),
+            or(
+              eq(attachments.uploadedBy, targetUserId),
+              eq(attachments.actingPersonId, targetUserId),
+            ),
+          ),
+        );
+
       // 9. Delete tenant_users association
       await tx
         .delete(tenantUsers)
@@ -259,7 +285,24 @@ usersRouter.delete(
           ),
         );
 
+      // 9b. Delete idempotency_keys associated with target user (Finding 10)
+      await tx
+        .delete(idempotencyKeys)
+        .where(
+          and(
+            eq(idempotencyKeys.tenantId, tenantId),
+            eq(idempotencyKeys.actingPersonId, targetUserId),
+          ),
+        );
+
       // 10. Audit log entry for erasure
+      // NOTE ON adminAuditLog (GDPR Finding 8):
+      // The adminAuditLog table is not anonymized or deleted here because:
+      // (a) It has a database-level INSERT+SELECT only permission structure for security hardening,
+      //     making updates to historical audit logs impossible for the application database role.
+      // (b) It is exempt from GDPR Article 17 erasure requests under Article 17(3)(b)
+      //     (for compliance with a legal obligation or execution of public interest tasks,
+      //     specifically maintaining an unalterable security audit trail of administrative actions).
       await writeAuditEntry(tx, {
         tenantId,
         actorId: adminUserId,
@@ -268,6 +311,14 @@ usersRouter.delete(
         resourceId: targetUserId,
         action: "deleted",
       });
+    });
+
+    // Zitadel account erasure (Finding 7 & Finding 9)
+    await deleteUser(targetUserId).catch((err: unknown) => {
+      logger.error(
+        { err, targetUserId },
+        "GDPR erasure: failed to delete user account from Zitadel",
+      );
     });
 
     invalidateUserCache();
