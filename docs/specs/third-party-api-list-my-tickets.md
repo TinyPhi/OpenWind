@@ -5,7 +5,7 @@
 > mechanism exactly. Closes the real gap that the comment flow's ticket-lookup step otherwise
 > has no way to discover a ticket ID without the caller already having recorded it themselves.
 
-status: draft
+status: implemented
 created: 2026-08-28
 updated: 2026-08-28
 
@@ -84,7 +84,9 @@ scoped to the acting person (or unscoped, if they're the workflow's admin).
   convention as `GET /workflows/:id/fields`)
 - `403 FORBIDDEN` — key lacks `entity:ticket:read`
 - `401 UNAUTHORIZED` — missing/invalid/stale auth
-- `422 VALIDATION_ERROR` — `limit` out of range, or a malformed `cursor`
+- `400 VALIDATION_ERROR` — `limit` out of range, or a malformed `cursor` (matches `GET /workflows`'s
+  own query-param validation status via the shared `zValidator` — 422 is reserved for request-BODY
+  field-schema/business-rule failures elsewhere in this API, not query-param shape)
 
 ---
 
@@ -113,8 +115,8 @@ R3: Pagination is cursor-based and matches `listEntities`'s existing contract ex
 ✓ Passing that `nextCursor` back as `?cursor=` returns the next page, with no duplicate or
 skipped rows across the two pages.
 ✓ The last page returns `nextCursor: null`.
-✓ `limit` defaults to 50, rejects (422) values over 100.
-✓ A malformed/undecodable `cursor` value returns `422 VALIDATION_ERROR`, never a 500 or a silent
+✓ `limit` defaults to 50, rejects (400) values over 100.
+✓ A malformed/undecodable `cursor` value returns `400 VALIDATION_ERROR`, never a 500 or a silent
 fallback to page 1.
 ✓ `nextCursor` is always derived from `listEntities`'s own pre-filter batch position, never
 recomputed from the post-filter (R1's list/get-parity filter) result count — so the ACL-level
@@ -163,6 +165,12 @@ response.
   updating the other.
 - Pagination cursor boundaries are computed from the pre-filter batch, never the post-filter
   result — filtering changes what's shown, never where the next page starts.
+- Cursor comparisons and their ORDER BY must always operate at the SAME timestamp precision the
+  cursor's own encoding can represent (millisecond, via `date_trunc('milliseconds', ...)` in
+  `listEntities`) — comparing a full-microsecond-precision column against a millisecond-truncated
+  cursor value causes the pivot row to duplicate across page boundaries (found as B1; this
+  invariant exists so a future change to either the encode/decode side or the SQL comparison side
+  doesn't silently reintroduce the mismatch).
 
 ---
 
@@ -170,14 +178,14 @@ response.
 
 | id  | task                                                                                                                                                                                                                                                                                                                                       | phase | status | depends     |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ------ | ----------- |
-| T1  | Add `GET /workflows/:workflowId/tickets` route — resolve workflow → entityTypeId, resolve workflow-admin status, call `listEntities` with `scopeToUserId` (or unscoped if admin)                                                                                                                                                           | 1     | todo   | —           |
-| T2  | Wire dual-identity auth + `entity:ticket:read` scope + standard rate-limit middleware, identical pattern to sibling routes (R7)                                                                                                                                                                                                            | 1     | todo   | T1          |
-| T3  | Apply redaction once per page (hoist `entity_fields`/sensitivity-map lookup out of the per-row loop) per §V                                                                                                                                                                                                                                | 1     | todo   | T1          |
-| T4  | Shape the response per §I — `data`/`nextCursor`, `state`/`limit`/`cursor` query params, 422 on invalid `limit`/malformed `cursor` (R3)                                                                                                                                                                                                     | 1     | todo   | T1          |
-| T5  | List/get-parity post-filter (R1's 4th criterion) — drop any row from the fetched page whose only access path is an `__accessUsers` grant with a non-standard `level`, without shifting the pagination cursor boundary (§V)                                                                                                                 | 1     | todo   | T1          |
-| T6  | Isolation tests: creator/assignee/ACL-grant visibility, non-related-ticket exclusion, workflow-admin full visibility, list/get parity (R1's 4th criterion), pagination (2+ pages, no dupes/gaps, malformed-cursor 422), redaction, tenant isolation, cross-tenant/nonexistent 404, missing-scope 403, invalid auth 401, rate-limit headers | 1     | todo   | T2,T3,T4,T5 |
-| T7  | Regression check: existing `GET /tickets/:id`, `GET /workflows`, `GET /workflows/:id/fields` suites still pass unmodified                                                                                                                                                                                                                  | 1     | todo   | T6          |
-| T8  | Update the partner-facing API reference doc with the new endpoint                                                                                                                                                                                                                                                                          | 2     | todo   | T7          |
+| T1  | Add `GET /workflows/:workflowId/tickets` route — resolve workflow → entityTypeId, resolve workflow-admin status, call `listEntities` with `scopeToUserId` (or unscoped if admin)                                                                                                                                                           | 1     | done   | —           |
+| T2  | Wire dual-identity auth + `entity:ticket:read` scope + standard rate-limit middleware, identical pattern to sibling routes (R7)                                                                                                                                                                                                            | 1     | done   | T1          |
+| T3  | Apply redaction once per page (hoist `entity_fields`/sensitivity-map lookup out of the per-row loop) per §V                                                                                                                                                                                                                                | 1     | done   | T1          |
+| T4  | Shape the response per §I — `data`/`nextCursor`, `state`/`limit`/`cursor` query params, 400 on invalid `limit`/malformed `cursor` (R3, corrected from 422 per B2)                                                                                                                                                                          | 1     | done   | T1          |
+| T5  | List/get-parity post-filter (R1's 4th criterion) — drop any row from the fetched page whose only access path is an `__accessUsers` grant with a non-standard `level`, without shifting the pagination cursor boundary (§V)                                                                                                                 | 1     | done   | T1          |
+| T6  | Isolation tests: creator/assignee/ACL-grant visibility, non-related-ticket exclusion, workflow-admin full visibility, list/get parity (R1's 4th criterion), pagination (2+ pages, no dupes/gaps, malformed-cursor 400), redaction, tenant isolation, cross-tenant/nonexistent 404, missing-scope 403, invalid auth 401, rate-limit headers | 1     | done   | T2,T3,T4,T5 |
+| T7  | Regression check: existing `GET /tickets/:id`, `GET /workflows`, `GET /workflows/:id/fields` suites still pass unmodified, PLUS the full `entity-engine`/`workflow-engine` suites (B1's shared-code pagination fix)                                                                                                                        | 1     | done   | T6          |
+| T8  | Update the partner-facing API reference doc with the new endpoint                                                                                                                                                                                                                                                                          | 2     | done   | T7          |
 | T9  | Wire OWTesterUI's comment flow to call this instead of requiring a manually-pasted ticket ID (follow-up, separate PR, outside this repo)                                                                                                                                                                                                   | 2     | todo   | T7          |
 
 phase gate: all unit + isolation tests pass
@@ -186,8 +194,10 @@ phase gate: all unit + isolation tests pass
 
 ## §B Bugs / Backprop Log
 
-| id  | what failed | root cause | promoted to §V? |
-| --- | ----------- | ---------- | --------------- |
+| id  | what failed                                                                                            | root cause                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | promoted to §V?                                      |
+| --- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| B1  | Cursor pagination duplicated the pivot row across page boundaries (found by T6's pagination test)      | `packages/entity-engine`'s cursor compared the raw `entity_instances.createdAt` (Postgres `timestamptz`, microsecond precision) against a cursor value round-tripped through a JS `Date`/`.toISOString()` (millisecond precision only) — the pivot row's own nonzero microsecond remainder made it satisfy `gt(actual, truncated)` against itself. Pre-existing bug in shared code (also affects the internal records page, `apps/api/src/routes/entities/list.ts`), not introduced by this feature. Fixed by truncating both the WHERE-clause comparison and the ORDER BY to the same millisecond precision the cursor can represent (`date_trunc('milliseconds', ...)`), in `packages/entity-engine/src/engine.ts`'s `listEntities`. | yes — see §V's new pagination-precision invariant    |
+| B2  | Spec assumed `422 VALIDATION_ERROR` for invalid `limit`/malformed `cursor`, without checking precedent | The existing `GET /workflows` route already validates its own `limit`/`offset` query params via the shared `zValidator` wrapper, which returns `400`, not `422` (422 is reserved for request-BODY field-schema/business-rule failures per `code-style.md`'s HTTP-semantics table). Spec updated to `400` for consistency; caught during implementation, before merge.                                                                                                                                                                                                                                                                                                                                                                  | no — a spec-accuracy correction, not a new invariant |
 
 ---
 

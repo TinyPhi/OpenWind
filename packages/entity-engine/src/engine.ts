@@ -1,14 +1,4 @@
-import {
-  eq,
-  and,
-  asc,
-  gt,
-  isNull,
-  or,
-  inArray,
-  sql,
-  notExists,
-} from "drizzle-orm";
+import { eq, and, asc, isNull, or, inArray, sql, notExists } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import {
   entityInstances,
@@ -1138,17 +1128,34 @@ export async function listEntities(
       ),
     );
   }
+  // Millisecond-truncated on both sides of the comparison (and in ORDER BY
+  // below) -- entity_instances.createdAt is `timestamptz` at Postgres' default
+  // microsecond precision, but the cursor round-trips through a JS Date
+  // (encodeCursor's `.toISOString()`), which only carries millisecond
+  // precision. Comparing the raw (microsecond) column against a millisecond-
+  // truncated cursor value made the cursor's own pivot row satisfy `gt`
+  // against itself whenever its microsecond remainder was nonzero --
+  // reappearing on the next page instead of being excluded. Truncating the
+  // column to the same precision the cursor can actually represent removes
+  // the mismatch; using the identical truncated expression in ORDER BY keeps
+  // the sort and the WHERE-clause window aligned for rows sharing a
+  // millisecond bucket, so the existing id tie-break still applies correctly
+  // within that bucket.
+  const truncatedCreatedAt = sql`date_trunc('milliseconds', ${entityInstances.createdAt})`;
   if (input.cursor) {
     const decoded = decodeCursor(input.cursor);
     if (decoded) {
-      const cursorCond = or(
-        gt(entityInstances.createdAt, decoded.createdAt),
-        and(
-          eq(entityInstances.createdAt, decoded.createdAt),
-          gt(entityInstances.id, decoded.id),
-        ),
+      // Built as a single raw SQL fragment, not gt()/eq() over `truncatedCreatedAt` --
+      // those helpers expect a real Column on the left side to infer the
+      // right side's pg type; handed a bare SQL<unknown> fragment instead,
+      // they lose that inference. Even with an explicit `::timestamptz` cast,
+      // the postgres-js driver doesn't auto-serialize a raw JS `Date` bound
+      // through a `sql` template the way it does for a typed Column
+      // comparison -- it needs an ISO string handed to it directly.
+      const decodedCreatedAtIso = decoded.createdAt.toISOString();
+      conditions.push(
+        sql`(${truncatedCreatedAt} > ${decodedCreatedAtIso}::timestamptz OR (${truncatedCreatedAt} = ${decodedCreatedAtIso}::timestamptz AND ${entityInstances.id} > ${decoded.id}))`,
       );
-      if (cursorCond) conditions.push(cursorCond);
     }
   }
 
@@ -1156,7 +1163,7 @@ export async function listEntities(
     .select()
     .from(entityInstances)
     .where(and(...conditions))
-    .orderBy(asc(entityInstances.createdAt), asc(entityInstances.id))
+    .orderBy(asc(truncatedCreatedAt), asc(entityInstances.id))
     .limit(limit + 1);
 
   const hasMore = rows.length > limit;
