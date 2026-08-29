@@ -18,7 +18,7 @@
  * silently losing the breach.
  */
 
-import { Worker } from "bullmq";
+import { Worker } from "@platform/telemetry";
 import { eq, and } from "drizzle-orm";
 import {
   withTenantContext,

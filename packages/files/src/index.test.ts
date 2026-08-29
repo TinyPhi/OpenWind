@@ -19,6 +19,7 @@ vi.mock("bullmq", () => ({
   Queue: vi.fn().mockImplementation(function () {
     return { add: mockQueueAdd, close: mockQueueClose };
   }),
+  Worker: vi.fn(),
 }));
 
 vi.mock("@platform/logger", () => ({

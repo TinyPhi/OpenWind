@@ -20,6 +20,8 @@ import type { AuthContext } from "./types.js";
 import {
   getCachedTenantStatus,
   setCachedTenantStatus,
+  getCachedTenantPlan,
+  setCachedTenantPlan,
 } from "./tenant-status-cache.js";
 import { getTenantRateLimitOverride } from "./tenant-rate-limit.js";
 import { applicationActorIdFromUserId } from "./application-actor-id.js";
@@ -113,6 +115,57 @@ async function enforceTenantRateLimit(
     logger.warn(
       { err, tenantId },
       "auth: tenant rate-limit check failed unexpectedly — failing open",
+    );
+    return null;
+  }
+}
+
+/**
+ * enforceTenantBillingGate — billing plan enforcement gate. Peers to the rate-limiter,
+ * increments daily request counter and blocks file uploads if storage is degraded.
+ */
+async function enforceTenantBillingGate(
+  c: Context<AuthVariables>,
+  tenantId: string,
+): Promise<Response | null> {
+  try {
+    const redis = getRedis();
+
+    // 1. Increment daily API calls counter (expire in 48h to prevent key accumulation)
+    const todayStr = new Date().toISOString().split("T")[0];
+    const apiCallsKey = `usage:${tenantId}:${todayStr}:api_calls`;
+    await redis.incr(apiCallsKey).catch((err: unknown) => {
+      logger.warn(
+        { err, tenantId },
+        "billingGate: failed to increment Redis API calls counter",
+      );
+    });
+    await redis.expire(apiCallsKey, 172800).catch(() => undefined); // 48 hours
+
+    // 2. Check current degraded state in Redis
+    const degradedKey = `degraded:${tenantId}`;
+    const degraded = await redis.smembers(degradedKey);
+
+    if (degraded.length > 0) {
+      c.header("X-Tenant-Degraded", degraded.join(","));
+
+      // Block new uploads if storage is degraded
+      if (
+        degraded.includes("storage") &&
+        c.req.method === "POST" &&
+        (c.req.path.endsWith("/files") || c.req.path.endsWith("/files/"))
+      ) {
+        return c.json(
+          { error: "QUOTA_EXCEEDED", message: "Storage quota exceeded" },
+          422,
+        );
+      }
+    }
+    return null;
+  } catch (err) {
+    logger.warn(
+      { err, tenantId },
+      "billingGate: check failed unexpectedly — failing open",
     );
     return null;
   }
@@ -262,6 +315,11 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           auth.tenantId,
         );
         if (tenantRateLimited) return tenantRateLimited;
+        const tenantBillingDegraded = await enforceTenantBillingGate(
+          c,
+          auth.tenantId,
+        );
+        if (tenantBillingDegraded) return tenantBillingDegraded;
         // auth.userId is always "apikey:<id>" on this path (set immediately
         // above by resolveApiKey) -- safe to parse without a fallback branch.
         const applicationActorId = applicationActorIdFromUserId(auth.userId);
@@ -351,6 +409,9 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
 
       const rateLimited = await enforceTenantRateLimit(c, auth.tenantId);
       if (rateLimited) return rateLimited;
+
+      const billingDegraded = await enforceTenantBillingGate(c, auth.tenantId);
+      if (billingDegraded) return billingDegraded;
 
       // Upsert the verified user into tenant_users BEFORE calling next().
       // This must complete before the route handler runs so that
@@ -501,6 +562,30 @@ async function resolveTenantStatus(
   const status = row?.status ?? "deleted";
   setCachedTenantStatus(tenantId, status);
   return status;
+}
+
+/**
+ * Return the tenant's current plan, using a 30 s in-process cache.
+ * The tenants table has no RLS, so we query with the plain db instance.
+ * Returns "standard" if the tenant row does not exist.
+ */
+export async function resolveTenantPlan(
+  tenantId: string,
+  dbHandle?: DbOrTx,
+): Promise<string> {
+  const cached = getCachedTenantPlan(tenantId);
+  if (cached !== undefined) return cached;
+
+  const activeDb = dbHandle ?? db;
+  const [row] = await activeDb
+    .select({ plan: tenants.plan })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1);
+
+  const plan = row?.plan ?? "standard";
+  setCachedTenantPlan(tenantId, plan);
+  return plan;
 }
 
 // Org -> tenant mappings are effectively immutable once set (a tenant is
@@ -729,3 +814,61 @@ export const API_KEY_DEFAULT_TTL_DAYS = 365;
 // original simply stops resolving once expiresAt passes, via the same check
 // resolve_api_key_by_hash (migration 0053) already applies to every key.
 export const API_KEY_ROTATION_OVERLAP_HOURS = 24;
+
+/**
+ * Billing and plan enforcement gate middleware.
+ * Peer to enforceTenantRateLimit, increments Redis usage counters and enforces
+ * degradation constraints (blocks uploads if storage is degraded).
+ */
+export function billingGate(): MiddlewareHandler<AuthVariables> {
+  return async (c: Context<AuthVariables>, next: Next) => {
+    const auth = c.get("auth");
+    if (!auth.tenantId) {
+      return await next();
+    }
+
+    const tenantId = auth.tenantId;
+
+    try {
+      const redis = getRedis();
+
+      // 1. Increment daily API calls counter (expire in 48h to prevent leak)
+      const todayStr = new Date().toISOString().split("T")[0];
+      const apiCallsKey = `usage:${tenantId}:${todayStr}:api_calls`;
+      await redis.incr(apiCallsKey).catch((err: unknown) => {
+        logger.warn(
+          { err, tenantId },
+          "billingGate: failed to increment Redis API calls counter",
+        );
+      });
+      await redis.expire(apiCallsKey, 172800).catch(() => undefined); // 48 hours
+
+      // 2. Check current degraded state in Redis
+      const degradedKey = `degraded:${tenantId}`;
+      const degraded = await redis.smembers(degradedKey);
+
+      if (degraded.length > 0) {
+        c.header("X-Tenant-Degraded", degraded.join(","));
+
+        // Block new uploads if storage is degraded
+        if (
+          degraded.includes("storage") &&
+          c.req.method === "POST" &&
+          (c.req.path.endsWith("/files") || c.req.path.endsWith("/files/"))
+        ) {
+          return c.json(
+            { error: "QUOTA_EXCEEDED", message: "Storage quota exceeded" },
+            422,
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { err, tenantId },
+        "billingGate: check failed unexpectedly — failing open",
+      );
+    }
+
+    return await next();
+  };
+}

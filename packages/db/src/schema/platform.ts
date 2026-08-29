@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   boolean,
   integer,
+  primaryKey,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -612,6 +613,30 @@ export const pluginErrors = pgTable(
     tenantCreatedIdx: index("plugin_errors_tenant_created_idx").on(
       t.tenantId,
       t.createdAt,
+    ),
+  }),
+);
+
+/**
+ * tenantUsageDaily — narrow (tenant_id, usage_date, metric) -> value daily aggregation table
+ * (ADR-015 Decision #3, issue #505).
+ */
+export const tenantUsageDaily = pgTable(
+  "tenant_usage_daily",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    usageDate: date("usage_date").notNull(),
+    metric: text("metric").notNull(), // 'api_calls' | 'storage_bytes' | 'ai_tokens'
+    value: bigint("value", { mode: "number" }).notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.tenantId, t.usageDate, t.metric] }),
+    tenantIdx: index("tenant_usage_daily_tenant_idx").on(t.tenantId),
+    tenantDateIdx: index("tenant_usage_daily_tenant_date_idx").on(
+      t.tenantId,
+      t.usageDate,
     ),
   }),
 );

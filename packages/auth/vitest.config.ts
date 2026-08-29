@@ -9,7 +9,7 @@ export default defineConfig({
     env: {
       DATABASE_URL:
         process.env["DATABASE_URL"] ??
-        "postgresql://platform:platform_dev_password@localhost:5432/platform_test",
+        "postgresql://platform:platform_test_password@localhost:5432/platform_test",
       DATABASE_POOL_MIN: "1",
       DATABASE_POOL_MAX: "3",
       REDIS_URL: "redis://localhost:6379",

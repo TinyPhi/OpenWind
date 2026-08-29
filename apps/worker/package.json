@@ -30,6 +30,7 @@
     "@platform/notifications": "workspace:*",
     "@platform/redis": "workspace:*",
     "@platform/secrets": "workspace:*",
+    "@platform/telemetry": "workspace:*",
     "@platform/workflow-engine": "workspace:*",
     "@types/pdfkit": "^0.17.6",
     "bullmq": "^5.0.0",

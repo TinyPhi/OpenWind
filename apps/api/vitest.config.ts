@@ -48,7 +48,7 @@ export default defineConfig({
         // Allow CI job env to override the local default — vitest env block
         // would otherwise win over the runner's process.env, breaking CI auth.
         process.env["DATABASE_URL"] ??
-        "postgresql://platform:platform_dev_password@localhost:5432/platform_test",
+        "postgresql://platform:platform_test_password@localhost:5432/platform_test",
       DATABASE_POOL_MIN: "1",
       DATABASE_POOL_MAX: "3",
       REDIS_URL: "redis://localhost:6379",

@@ -1,4 +1,5 @@
-import { Worker, type Job } from "bullmq";
+import { Worker } from "@platform/telemetry";
+import type { Job } from "bullmq";
 import Redis from "ioredis";
 import { withTenantContext, deadLetterEvents } from "@platform/db";
 import {

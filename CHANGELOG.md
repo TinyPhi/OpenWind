@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — usage metering and plan enforcement (Stage 2)]
+
+### Added
+
+- **Usage aggregation table** — Added `tenant_usage_daily` with strict Row-Level Security (RLS) policies, indexing on query patterns, and analytics annotations (#505).
+- **Billing plan gate middleware** — Implemented `billingGate()` peer logic in Hono (`enforceTenantBillingGate`) incrementing daily API calls and blocking file uploads if storage quota is exceeded (#505).
+- **Daily usage flusher worker** — Implemented scheduled BullMQ job `usageMeteringWorker` aggregating storage bytes and Redis counters, writing daily records, and triggering Novu plan alerts on state transitions (#505).
+- **Plan degradation banner** — Global error banner listens for `X-Tenant-Degraded` responses and renders a dismissible warning banner linking to settings (#505).
+
+---
+
 ## [Unreleased — network status awareness (admin-ui)]
 
 ### Added
