@@ -14,6 +14,7 @@ import ExcelJS from "exceljs";
 // ── Mocks (only what's needed to import the module safely) ────────────────────
 
 vi.mock("bullmq", () => ({
+  Queue: vi.fn(),
   Worker: vi.fn().mockImplementation(function () {
     return { on: vi.fn(), close: vi.fn().mockResolvedValue(undefined) };
   }),
