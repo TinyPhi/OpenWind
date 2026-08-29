@@ -24,6 +24,7 @@ type ProcessorFn = (job: { id: string; data: PollJobData }) => Promise<void>;
 let capturedProcessor: ProcessorFn | undefined;
 
 vi.mock("bullmq", () => ({
+  Queue: vi.fn(),
   Worker: vi.fn().mockImplementation(function (
     _queue: string,
     processor: ProcessorFn,

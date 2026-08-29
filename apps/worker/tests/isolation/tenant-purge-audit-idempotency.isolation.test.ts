@@ -25,6 +25,7 @@ import {
 let capturedProcessor: ((job: unknown) => Promise<void>) | null = null;
 
 vi.mock("bullmq", () => ({
+  Queue: vi.fn(),
   Worker: vi.fn().mockImplementation(function (
     _queue: string,
     processor: (job: unknown) => Promise<void>,
