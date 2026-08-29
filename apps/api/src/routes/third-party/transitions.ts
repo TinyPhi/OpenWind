@@ -12,7 +12,7 @@ import { hasTransitionAccess } from "../../lib/transition-access.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
-import { withIdempotency } from "../../lib/idempotency.js";
+import { withIdempotency, isIdempotencyStatus } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
@@ -239,9 +239,12 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
               headers[key] = value;
             });
             return {
-              status: errResponse.status,
+              status: isIdempotencyStatus(errResponse.status)
+                ? errResponse.status
+                : 500,
               body: (await errResponse.json()) as unknown,
               headers,
+              doNotCache: true,
             };
           }
 
@@ -252,9 +255,13 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
             };
           }
           const errResponse = handleWorkflowError(c, err);
+          const status = isIdempotencyStatus(errResponse.status)
+            ? errResponse.status
+            : 500;
           return {
-            status: errResponse.status,
+            status,
             body: (await errResponse.json()) as unknown,
+            doNotCache: status >= 500,
           };
         }
       },
@@ -266,6 +273,6 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
       }
     }
 
-    return c.json(response.body as object, response.status as never);
+    return c.json(response.body as object, response.status);
   },
 );
