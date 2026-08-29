@@ -16,6 +16,7 @@ import {
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
+import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 import { withIdempotency } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
@@ -79,7 +80,12 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
         ),
       );
 
-      return c.json({ data: { ...instance, fields: redactedFields } });
+      return c.json({
+        data: {
+          ...instance,
+          fields: stripInternalFields(redactedFields),
+        },
+      });
     } catch (err) {
       if (isEntityNotFound(err)) {
         return notFound(c);
@@ -191,7 +197,21 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               actingPersonId,
               applicationActorId,
             );
-            return created;
+            // ADR-012 Phase G, spec R7 -- same redact-then-strip pass every
+            // read endpoint applies, so a create response (which echoes the
+            // stored entity straight back) is never a second, unfiltered
+            // path to pii/financial values or the internal __accessUsers
+            // ACL object.
+            const redactedFields = await redactEntityFieldsForThirdParty(
+              tx,
+              tenantId,
+              created.entityTypeId,
+              created.fields,
+            );
+            return {
+              ...created,
+              fields: stripInternalFields(redactedFields),
+            };
           });
 
           return { status: 201, body: { data: instance } };

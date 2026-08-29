@@ -236,16 +236,36 @@ describe("POST /api/v1/tickets/:id/children", () => {
     expect(res.status).toBe(201);
   });
 
-  it("child inherits the parent's __accessUsers grants — the ACL-inheritance bug fix", async () => {
+  it("child inherits the parent's __accessUsers grants — the ACL-inheritance bug fix (verified at the DB level, since the API response never exposes this internal key)", async () => {
     const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
     const res = await postChild(app, mentionedTicketId, { title: "sub2" });
     expect(res.status).toBe(201);
-    const { data } = (await res.json()) as {
-      data: { fields: { __accessUsers?: Record<string, { level: string }> } };
+    const { data } = (await res.json()) as { data: { id: string } };
+
+    // The wire response must never expose __accessUsers (strip-internal-
+    // fields.ts) -- inheritance itself is a real, separate mechanism
+    // (createChildRelation copying the parent's grants), verified directly
+    // against the stored row instead.
+    const [childRow] = await db
+      .select({ fields: entityInstances.fields })
+      .from(entityInstances)
+      .where(eq(entityInstances.id, data.id));
+    const childFields = childRow?.fields as {
+      __accessUsers?: Record<string, { level: string }>;
     };
-    expect(data.fields.__accessUsers?.[MENTIONED_PERSON]?.level).toBe(
+    expect(childFields.__accessUsers?.[MENTIONED_PERSON]?.level).toBe(
       "read_comment",
     );
+  });
+
+  it("never includes the internal __accessUsers ACL object in the create response", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await postChild(app, mentionedTicketId, { title: "sub2b" });
+    expect(res.status).toBe(201);
+    const { data } = (await res.json()) as {
+      data: { fields: Record<string, unknown> };
+    };
+    expect(data.fields).not.toHaveProperty("__accessUsers");
   });
 
   it("a person with only mention-grant access on the parent can create a sub-ticket (hasEntityAccess, any level)", async () => {

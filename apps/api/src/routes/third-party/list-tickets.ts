@@ -21,6 +21,7 @@ import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
 import { notFound } from "./not-found.js";
+import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 
 function isWorkflowNotFound(err: unknown): boolean {
   return err instanceof WorkflowError && err.code === "WORKFLOW_NOT_FOUND";
@@ -179,7 +180,9 @@ export const listThirdPartyTicketsHandler = factory.createHandlers(
         entityTypeId: instance.entityTypeId,
         workflowId: workflow.id,
         currentState: instance.currentState,
-        fields: redactMetadata(instance.fields, sensitivityMap),
+        fields: stripInternalFields(
+          redactMetadata(instance.fields, sensitivityMap),
+        ),
         createdBy: instance.createdBy,
         assignedTo: instance.assignedTo,
         createdAt: instance.createdAt,

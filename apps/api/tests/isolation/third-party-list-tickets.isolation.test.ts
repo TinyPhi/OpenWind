@@ -262,6 +262,17 @@ describe("GET /api/v1/workflows/:workflowId/tickets", () => {
     expect(body.data.map((t) => t.id)).toContain(aclGrantedTicketId);
   });
 
+  it("never includes the internal __accessUsers ACL object in any returned ticket's fields", async () => {
+    const app = makeApp(MAIN_PERSON);
+    const res = await listTickets(app, workflowId);
+    const body = (await res.json()) as {
+      data: Array<{ id: string; fields: Record<string, unknown> }>;
+    };
+    const grantedTicket = body.data.find((t) => t.id === aclGrantedTicketId);
+    expect(grantedTicket).toBeDefined();
+    expect(grantedTicket?.fields).not.toHaveProperty("__accessUsers");
+  });
+
   it("excludes a ticket the acting person has no relationship to", async () => {
     const app = makeApp(MAIN_PERSON);
     const res = await listTickets(app, workflowId);

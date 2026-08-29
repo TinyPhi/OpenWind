@@ -12,8 +12,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray } from "drizzle-orm";
-import { db, tenants, workflows, workflowStates } from "@platform/db";
+import { inArray, eq, and, sql } from "drizzle-orm";
+import {
+  db,
+  tenants,
+  workflows,
+  workflowStates,
+  entityInstances,
+} from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { getThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
@@ -130,6 +136,21 @@ beforeAll(async () => {
     currentState: "open",
   });
   otherTenantTicketId = otherTicket.id;
+
+  // Grant CREATOR __accessUsers on their own ticket -- this internal ACL
+  // bookkeeping key must never appear in the third-party response (see
+  // apps/api/src/lib/strip-internal-fields.ts).
+  await db
+    .update(entityInstances)
+    .set({
+      fields: sql`jsonb_set(fields, '{__accessUsers}', jsonb_build_object(${CREATOR}::text, jsonb_build_object('level', 'read_only', 'tag', 'mention')))`,
+    })
+    .where(
+      and(
+        eq(entityInstances.id, creatorTicketId),
+        eq(entityInstances.tenantId, TENANT),
+      ),
+    );
 });
 
 afterAll(async () => {
@@ -179,6 +200,16 @@ describe("GET /api/v1/tickets/:id", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { id: string } };
     expect(body.data.id).toBe(creatorTicketId);
+  });
+
+  it("never includes the internal __accessUsers ACL object in the returned fields", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${creatorTicketId}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { fields: Record<string, unknown> };
+    };
+    expect(body.data.fields).not.toHaveProperty("__accessUsers");
   });
 
   it("assignee can fetch a ticket they're assigned to", async () => {

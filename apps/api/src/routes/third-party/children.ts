@@ -14,6 +14,8 @@ import { withIdempotency } from "../../lib/idempotency.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
+import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
+import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 
 const CreateThirdPartyChildSchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -164,7 +166,24 @@ export const createThirdPartyChildHandler = factory.createHandlers(
               action: "child.created",
               metadata: { parentId },
             });
-            return created;
+            // ADR-012 Phase G, spec R7 -- same redact-then-strip pass the
+            // GET routes apply, so a create response is never a second,
+            // unfiltered path to the same ticket data (pii/financial values,
+            // and the internal __accessUsers ACL object createChildRelation
+            // always seeds from the parent's grants + assignee).
+            const redactedFields = await redactEntityFieldsForThirdParty(
+              tx,
+              tenantId,
+              created.instance.entityTypeId,
+              created.instance.fields,
+            );
+            return {
+              ...created,
+              instance: {
+                ...created.instance,
+                fields: stripInternalFields(redactedFields),
+              },
+            };
           });
           return { status: 201, body: { data: result.instance } };
         } catch (err) {
