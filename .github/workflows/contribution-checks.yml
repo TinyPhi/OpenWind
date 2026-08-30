@@ -6,7 +6,8 @@ name: Contribution guardrails
 
 on:
   pull_request:
-    branches: [main, develop, feat/issue-505-usage-metering]
+    branches:
+      [main, develop, feat/issue-505-usage-metering, feat/issue-506-compliance]
 
 jobs:
   hook-tests:
