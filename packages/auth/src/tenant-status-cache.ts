@@ -17,7 +17,10 @@ import { logger } from "@platform/logger";
 const TTL_MS = 30_000;
 const INVALIDATION_CHANNEL = "tenant-status:invalidate";
 
-const _cache = new Map<string, { status: string; exp: number }>();
+const _cache = new Map<
+  string,
+  { status: string; plan?: string | undefined; exp: number }
+>();
 
 export function getCachedTenantStatus(tenantId: string): string | undefined {
   const entry = _cache.get(tenantId);
@@ -30,7 +33,31 @@ export function getCachedTenantStatus(tenantId: string): string | undefined {
 }
 
 export function setCachedTenantStatus(tenantId: string, status: string): void {
-  _cache.set(tenantId, { status, exp: Date.now() + TTL_MS });
+  const existing = _cache.get(tenantId);
+  _cache.set(tenantId, {
+    status,
+    plan: existing?.plan,
+    exp: Date.now() + TTL_MS,
+  });
+}
+
+export function getCachedTenantPlan(tenantId: string): string | undefined {
+  const entry = _cache.get(tenantId);
+  if (!entry) return undefined;
+  if (Date.now() > entry.exp) {
+    _cache.delete(tenantId);
+    return undefined;
+  }
+  return entry.plan;
+}
+
+export function setCachedTenantPlan(tenantId: string, plan: string): void {
+  const existing = _cache.get(tenantId);
+  _cache.set(tenantId, {
+    status: existing?.status ?? "active",
+    plan,
+    exp: Date.now() + TTL_MS,
+  });
 }
 
 export function invalidateTenantStatusCache(tenantId: string): void {

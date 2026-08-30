@@ -6,6 +6,7 @@ vi.mock("bullmq", () => ({
   Queue: vi.fn().mockImplementation(function (_name: string, opts: unknown) {
     capturedOpts.push(opts);
   }),
+  Worker: vi.fn(),
 }));
 
 vi.mock("./redis.js", () => ({ connection: {} }));

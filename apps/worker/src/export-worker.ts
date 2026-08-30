@@ -13,7 +13,7 @@
  *     — the polling endpoint reads this via queue.getJob(id).returnvalue
  */
 
-import { Worker } from "bullmq";
+import { Worker } from "@platform/telemetry";
 import {
   S3Client,
   PutObjectCommand,

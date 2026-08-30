@@ -31,6 +31,7 @@ vi.mock("bullmq", () => ({
       return mockQueueAdd(...args);
     }
   },
+  Worker: class {},
 }));
 
 vi.mock("../ssrf-guard.js", () => ({

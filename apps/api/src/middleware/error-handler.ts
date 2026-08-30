@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import type { WorkflowError } from "@platform/workflow-engine";
 import type { EntityError, ValidationError } from "@platform/entity-engine";
 import { logger } from "@platform/logger";
+import { captureException } from "@platform/telemetry";
 
 // Postgres error code 55P03 = lock_not_available (raised by FOR UPDATE NOWAIT)
 function isLockNotAvailableError(err: unknown): boolean {
@@ -166,6 +167,8 @@ export function handleError(err: unknown, c: Context): Response {
   if (err instanceof HTTPException) {
     return c.json({ error: "HTTP_ERROR", message: err.message }, err.status);
   }
+
+  captureException(err);
 
   logger.error(
     {

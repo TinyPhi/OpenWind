@@ -13,7 +13,7 @@
  * it (client crash, network error, tab closed).
  */
 
-import { Worker, Queue } from "bullmq";
+import { Worker, Queue } from "@platform/telemetry";
 import fsp from "node:fs/promises";
 import { lt, eq, and, or } from "drizzle-orm";
 import { db, files } from "@platform/db";

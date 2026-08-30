@@ -24,6 +24,7 @@ let _nextId = 0;
 export function GlobalErrorBanner(): React.ReactElement | null {
   const { t } = useTranslation();
   const [banners, setBanners] = useState<Banner[]>([]);
+  const [degradedMsg, setDegradedMsg] = useState<string | null>(null);
   const network = useSyncExternalStore(subscribe, getSnapshot);
 
   const dismiss = useCallback((id: number) => {
@@ -48,6 +49,15 @@ export function GlobalErrorBanner(): React.ReactElement | null {
     return () => window.removeEventListener("api:error", handler);
   }, [dismiss]);
 
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const { degraded } = (e as CustomEvent<{ degraded: string }>).detail;
+      setDegradedMsg(degraded);
+    };
+    window.addEventListener("tenant:degraded", handler);
+    return () => window.removeEventListener("tenant:degraded", handler);
+  }, []);
+
   // Network banners are never dismissible (unlike auth/server banners) — the
   // "recovered" state's own auto-transition to "online" (network-status.ts)
   // is what removes it, so there's no per-banner dismiss affordance to gate.
@@ -64,7 +74,7 @@ export function GlobalErrorBanner(): React.ReactElement | null {
     }
   })();
 
-  if (banners.length === 0 && !networkBanner) return null;
+  if (banners.length === 0 && !networkBanner && !degradedMsg) return null;
 
   return (
     <div
@@ -79,6 +89,27 @@ export function GlobalErrorBanner(): React.ReactElement | null {
             {networkBanner.icon}
           </span>
           <span className="geb-msg">{networkBanner.message}</span>
+        </div>
+      )}
+      {degradedMsg && (
+        <div className="geb-banner geb-server geb-degraded">
+          <span className="geb-icon" aria-hidden="true">
+            ⚠️
+          </span>
+          <span className="geb-msg">
+            {t("network.planDegraded", { metrics: degradedMsg })}
+          </span>
+          <div className="geb-actions">
+            <a className="geb-btn geb-btn-primary" href="#/settings">
+              {t("network.viewUsage")}
+            </a>
+            <button
+              className="geb-btn geb-btn-ghost"
+              onClick={() => setDegradedMsg(null)}
+            >
+              {t("network.dismiss")}
+            </button>
+          </div>
         </div>
       )}
       {banners.map((b) => (

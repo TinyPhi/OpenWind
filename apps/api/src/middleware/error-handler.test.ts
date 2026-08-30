@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
 import { WorkflowError } from "@platform/workflow-engine";
@@ -8,6 +9,17 @@ import { handleError } from "./error-handler.js";
 
 vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+const { mockCaptureException } = vi.hoisted(() => ({
+  mockCaptureException: vi.fn(),
+}));
+
+vi.mock("@platform/telemetry", () => ({
+  captureException: mockCaptureException,
+  getSerializedMetrics: vi.fn(),
+  httpRequestDuration: {} as any,
+  httpRequestsTotal: {} as any,
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -135,7 +147,8 @@ describe("errorHandler — ValidationError", () => {
 });
 
 describe("errorHandler — unhandled errors", () => {
-  it("returns 500 for unknown errors without leaking details", async () => {
+  it("returns 500 for unknown errors without leaking details and reports to Sentry", async () => {
+    mockCaptureException.mockClear();
     const res = await makeApp(new Error("database connection refused")).request(
       "/test",
     );
@@ -143,5 +156,7 @@ describe("errorHandler — unhandled errors", () => {
     const json = await res.json();
     expect(json.error).toBe("INTERNAL_ERROR");
     expect(json.message).not.toContain("database connection refused");
+    expect(mockCaptureException).toHaveBeenCalledTimes(1);
+    expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error));
   });
 });

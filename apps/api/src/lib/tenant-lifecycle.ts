@@ -7,7 +7,7 @@
  * worker runs after deletion_scheduled_at and hard-deletes all tenant data.
  */
 
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, tenants } from "@platform/db";

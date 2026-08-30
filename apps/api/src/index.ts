@@ -1,3 +1,6 @@
+import "@platform/telemetry/instrumentation.js";
+import { startErrorTracking } from "@platform/telemetry";
+startErrorTracking();
 import { serve } from "@hono/node-server";
 import { logger } from "@platform/logger";
 import { closeRedis } from "@platform/redis";

@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "openwind-api"
+    metrics_path: "/metrics"
+    authorization:
+      credentials: "dev-metrics-token-12345"
+    static_configs:
+      - targets: ["ow-backend:3000"]
+
+  - job_name: "openwind-worker"
+    metrics_path: "/metrics"
+    authorization:
+      credentials: "dev-metrics-token-12345"
+    static_configs:
+      - targets: ["ow-worker:3002"]

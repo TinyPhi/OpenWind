@@ -4,6 +4,8 @@ import { Hono } from "hono";
 import { logger } from "@platform/logger";
 import { connection as queuesConnection } from "./queues.js";
 import { connection as automationConnection } from "./automation-worker.js";
+import { getSerializedMetrics } from "@platform/telemetry";
+import { env } from "@platform/config";
 
 const PORT = 3002;
 
@@ -34,6 +36,24 @@ app.get("/healthz", (c) => {
     return c.json({ status: "ok" });
   }
   return c.json({ status: "error", redis: statuses }, 503);
+});
+
+app.get("/metrics", async (c) => {
+  const authHeader = c.req.header("Authorization");
+  if (!env.METRICS_TOKEN || authHeader !== `Bearer ${env.METRICS_TOKEN}`) {
+    return c.text("Unauthorized", 401);
+  }
+  try {
+    const data = await getSerializedMetrics();
+    c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    return c.text(data);
+  } catch (err) {
+    logger.error(
+      { err },
+      "Failed to serialize metrics in worker health server",
+    );
+    return c.text("Error generating metrics", 500);
+  }
 });
 
 let server: ServerType | null = null;

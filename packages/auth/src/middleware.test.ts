@@ -35,8 +35,22 @@ vi.mock("@platform/logger", () => ({
 // validation against an empty test env before any test runs. Stub it out;
 // this suite only exercises the in-memory getCachedTenantStatus path.
 const mockCheckRateLimit = vi.fn();
+const mockRedisIncr = vi.hoisted(() => vi.fn().mockResolvedValue(1));
+const mockRedisExpire = vi.hoisted(() => vi.fn().mockResolvedValue(1));
+const mockRedisSmembers = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+const mockRedisDel = vi.hoisted(() => vi.fn().mockResolvedValue(1));
+const mockRedisSadd = vi.hoisted(() => vi.fn().mockResolvedValue(1));
+const mockRedisGet = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+
 vi.mock("@platform/redis", () => ({
-  getRedis: vi.fn(() => ({})),
+  getRedis: vi.fn(() => ({
+    incr: mockRedisIncr,
+    expire: mockRedisExpire,
+    smembers: mockRedisSmembers,
+    del: mockRedisDel,
+    sadd: mockRedisSadd,
+    get: mockRedisGet,
+  })),
   closeRedis: vi.fn(),
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
 }));
@@ -801,5 +815,90 @@ describe("fetchUserInfo caching", () => {
     expect(res2.status).toBe(200);
     expect(res3.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("enforceTenantBillingGate", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockCheckRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 100,
+        resetAt: Date.now() + 60000,
+      });
+      mockRedisSmembers.mockResolvedValue([]);
+    });
+
+    it("increments api_calls counter on every authenticated request", async () => {
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId: "tenant-bill-1",
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "token-a");
+      expect(res.status).toBe(200);
+
+      expect(mockRedisIncr).toHaveBeenCalled();
+      expect(mockRedisExpire).toHaveBeenCalled();
+    });
+
+    it("injects X-Tenant-Degraded header when degraded state is present", async () => {
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId: "tenant-bill-2",
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+      mockRedisSmembers.mockResolvedValueOnce(["storage", "api_calls"]);
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "token-a");
+      expect(res.headers.get("X-Tenant-Degraded")).toBe("storage,api_calls");
+    });
+
+    it("blocks POST /files upload request when storage is degraded", async () => {
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId: "tenant-bill-3",
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+      mockRedisSmembers.mockResolvedValueOnce(["storage"]);
+
+      const app = new Hono();
+      app.post("/files", requireAuth(), (c) => c.text("success"));
+
+      const res = await app.request("/files", {
+        method: "POST",
+        headers: { Authorization: "Bearer token-a" },
+      });
+      expect(res.status).toBe(422);
+      const json = await res.json();
+      expect(json.error).toBe("QUOTA_EXCEEDED");
+    });
+
+    it("fails open if redis throws an error", async () => {
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId: "tenant-bill-4",
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+      mockRedisIncr.mockRejectedValueOnce(new Error("Redis offline"));
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "token-a");
+      expect(res.status).toBe(200);
+    });
   });
 });
