@@ -22,6 +22,7 @@ import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
 import { createThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
+import { createThirdPartyChildHandler } from "../../src/routes/third-party/children.js";
 import { getRedis } from "@platform/redis";
 import { RELEASE_LOCK_LUA_SCRIPT } from "../../src/lib/idempotency.js";
 
@@ -123,13 +124,14 @@ function makeApp(
   tenantId: string = TENANT,
   apiKeyId: string = API_KEY_ID,
   actingPersonId: string = CREATOR,
+  roles: string[] = ["entity:ticket:comment"],
 ) {
   const app = new Hono<Vars>();
   app.use("*", async (c: Context<Vars>, next: Next) => {
     c.set("auth", {
       userId: `apikey:${apiKeyId}`,
       tenantId,
-      roles: ["entity:ticket:comment", "entity:ticket:create"],
+      roles,
       email: "",
       displayName: "API Key",
       orgId: "org-idempotency",
@@ -143,6 +145,7 @@ function makeApp(
     await next();
   });
   app.post("/tickets/:id/comments", ...createThirdPartyCommentHandler);
+  app.post("/tickets/:id/children", ...createThirdPartyChildHandler);
   app.post("/tickets", ...createThirdPartyTicketHandler);
   return app;
 }
@@ -306,37 +309,60 @@ describe("Phase G — header forwarding and Retry-After verification", () => {
     const key = `busy-lock-comments-${Date.now()}`;
     const redis = getRedis();
     const lKey = `idempotency-lock:${TENANT}:${API_KEY_ID}:${CREATOR}:${encodeURIComponent(key)}`;
-
-    // Hold the lock open explicitly
     await redis.set(lKey, "test-holder", "PX", 5000);
-
-    const res = await postComment("racing", key);
-    expect(res.status).toBe(409);
-    expect(res.headers.get("Retry-After")).toBe("1");
-
-    await redis.del(lKey);
+    try {
+      const res = await postComment("racing", key);
+      expect(res.status).toBe(409);
+      expect(res.headers.get("Retry-After")).toBe("1");
+    } finally {
+      await redis.del(lKey);
+    }
   });
 
   it("includes a Retry-After: 1 header in the HTTP response when the tickets lock is busy (409)", async () => {
     const key = `busy-lock-tickets-${Date.now()}`;
     const redis = getRedis();
     const lKey = `idempotency-lock:${TENANT}:${API_KEY_ID}:${CREATOR}:${encodeURIComponent(key)}`;
-
-    // Hold the lock open explicitly
     await redis.set(lKey, "test-holder", "PX", 5000);
+    try {
+      const app = makeApp(TENANT, API_KEY_ID, CREATOR, [
+        "entity:ticket:comment",
+        "entity:ticket:create",
+      ]);
+      const res = await app.request("/tickets", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Idempotency-Key": key,
+        },
+        body: JSON.stringify({ workflowId, fields: {} }),
+      });
+      expect(res.status).toBe(409);
+      expect(res.headers.get("Retry-After")).toBe("1");
+    } finally {
+      await redis.del(lKey);
+    }
+  });
 
-    const app = makeApp();
-    const res = await app.request("/tickets", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "Idempotency-Key": key,
-      },
-      body: JSON.stringify({ workflowId, fields: {} }),
-    });
-    expect(res.status).toBe(409);
-    expect(res.headers.get("Retry-After")).toBe("1");
-
-    await redis.del(lKey);
+  it("includes a Retry-After: 1 header in the HTTP response when the children lock is busy (409)", async () => {
+    const key = `busy-lock-children-${Date.now()}`;
+    const redis = getRedis();
+    const lKey = `idempotency-lock:${TENANT}:${API_KEY_ID}:${CREATOR}:${encodeURIComponent(key)}`;
+    await redis.set(lKey, "test-holder", "PX", 5000);
+    try {
+      const app = makeApp();
+      const res = await app.request(`/tickets/${ticketId}/children`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Idempotency-Key": key,
+        },
+        body: JSON.stringify({ workflowId, fields: {} }),
+      });
+      expect(res.status).toBe(409);
+      expect(res.headers.get("Retry-After")).toBe("1");
+    } finally {
+      await redis.del(lKey);
+    }
   });
 });

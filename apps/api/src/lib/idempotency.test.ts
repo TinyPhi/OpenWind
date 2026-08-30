@@ -16,6 +16,9 @@ vi.mock("canonicalize", () => {
         if (typeof value !== "object" || value === null) {
           return JSON.stringify(value);
         }
+        // Note: This is a simplified key-sorting JSON canonicalization approximation
+        // sufficient for the test payloads. The real RFC 8785 JCS diverges on
+        // IEEE 754 float precision, NaNs/Infinities, and unicode surrogate pairs.
         const val = value as Record<string, unknown>;
         const sortedKeys = Object.keys(val).sort();
         const obj: Record<string, unknown> = {};
