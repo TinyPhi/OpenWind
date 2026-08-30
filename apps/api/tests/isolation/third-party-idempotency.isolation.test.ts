@@ -37,6 +37,7 @@ const API_KEY_ID_2 = "33333333-3333-4333-3333-333333333333";
 let ticketId: string;
 let ticketId2: string;
 let workflowId: string;
+let entityTypeId: string;
 
 async function seedTenant(
   tenantId: string,
@@ -79,13 +80,18 @@ async function seedTenant(
     workflowId: workflow!.id,
     currentState: "open",
   });
-  return { ticketId: ticket.id, workflowId: workflow!.id };
+  return {
+    ticketId: ticket.id,
+    workflowId: workflow!.id,
+    entityTypeId: entityType.id,
+  };
 }
 
 beforeAll(async () => {
   const t1 = await seedTenant(TENANT, CREATOR);
   ticketId = t1.ticketId;
   workflowId = t1.workflowId;
+  entityTypeId = t1.entityTypeId;
 
   const t2 = await seedTenant(TENANT_2, CREATOR_2);
   ticketId2 = t2.ticketId;
@@ -350,14 +356,16 @@ describe("Phase G — header forwarding and Retry-After verification", () => {
     const lKey = `idempotency-lock:${TENANT}:${API_KEY_ID}:${CREATOR}:${encodeURIComponent(key)}`;
     await redis.set(lKey, "test-holder", "PX", 5000);
     try {
-      const app = makeApp();
+      const app = makeApp(TENANT, API_KEY_ID, CREATOR, [
+        "entity:ticket:subticket",
+      ]);
       const res = await app.request(`/tickets/${ticketId}/children`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "Idempotency-Key": key,
         },
-        body: JSON.stringify({ workflowId, fields: {} }),
+        body: JSON.stringify({ entityTypeId, fields: {} }),
       });
       expect(res.status).toBe(409);
       expect(res.headers.get("Retry-After")).toBe("1");
