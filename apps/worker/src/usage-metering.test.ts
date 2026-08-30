@@ -77,6 +77,7 @@ const mockGet = vi.fn();
 const mockSmembers = vi.fn().mockResolvedValue([]);
 const mockDel = vi.fn();
 const mockSadd = vi.fn();
+const mockSet = vi.fn().mockResolvedValue("OK");
 
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({
@@ -84,6 +85,7 @@ vi.mock("@platform/redis", () => ({
     smembers: mockSmembers,
     del: mockDel,
     sadd: mockSadd,
+    set: mockSet,
   }),
 }));
 
