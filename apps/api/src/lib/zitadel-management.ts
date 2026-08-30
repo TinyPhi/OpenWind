@@ -9,5 +9,6 @@ export {
   listUserRolesByUserId,
   getUserById,
   invalidateUserCache,
+  deleteUser,
   type OrgUser,
 } from "@platform/auth";

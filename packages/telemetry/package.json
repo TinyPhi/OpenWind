@@ -32,7 +32,9 @@
   },
   "devDependencies": {
     "@platform/tsconfig": "workspace:*",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.7.0",
+    "js-yaml": "^4.3.1",
     "typescript": "^5.5.0",
     "vitest": "^4.1.10"
   }

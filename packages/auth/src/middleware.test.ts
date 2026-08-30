@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 import type { AuthContext } from "./types.js";
+import { invalidateTenantStatusCache } from "./tenant-status-cache.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 // Mutable so individual tests can exercise the NODE_ENV=production branch
 // (org-id -> tenant mapping) without affecting the rest of the suite.
 let mockNodeEnv: string | undefined;
+let mockTrustProxy = "true";
 vi.mock("@platform/config", () => ({
   env: {
     ZITADEL_ISSUER: "https://zitadel.example.com",
@@ -21,11 +23,23 @@ vi.mock("@platform/config", () => ({
     get NODE_ENV() {
       return mockNodeEnv;
     },
+    get TRUST_PROXY() {
+      return mockTrustProxy;
+    },
   },
 }));
 
 vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+let mockRemoteAddress: string | undefined = undefined;
+vi.mock("@hono/node-server/conninfo", () => ({
+  getConnInfo: vi.fn(() => ({
+    remote: {
+      address: mockRemoteAddress,
+    },
+  })),
 }));
 
 // middleware.ts -> tenant-status-cache.ts -> @platform/redis, whose module
@@ -42,18 +56,35 @@ const mockRedisDel = vi.hoisted(() => vi.fn().mockResolvedValue(1));
 const mockRedisSadd = vi.hoisted(() => vi.fn().mockResolvedValue(1));
 const mockRedisGet = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 
-vi.mock("@platform/redis", () => ({
-  getRedis: vi.fn(() => ({
+vi.mock("@platform/redis", () => {
+  const mockRedis = {
     incr: mockRedisIncr,
     expire: mockRedisExpire,
     smembers: mockRedisSmembers,
     del: mockRedisDel,
     sadd: mockRedisSadd,
     get: mockRedisGet,
-  })),
-  closeRedis: vi.fn(),
-  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
-}));
+    multi: vi.fn(() => {
+      const chain = {
+        incr: vi.fn((key) => {
+          mockRedisIncr(key);
+          return chain;
+        }),
+        expire: vi.fn((key, ttl) => {
+          mockRedisExpire(key, ttl);
+          return chain;
+        }),
+        exec: vi.fn().mockResolvedValue([1, 1]),
+      };
+      return chain;
+    }),
+  };
+  return {
+    getRedis: vi.fn(() => mockRedis),
+    closeRedis: vi.fn(),
+    checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+  };
+});
 
 const mockArgon2Verify = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
 vi.mock("@node-rs/argon2", () => ({
@@ -79,9 +110,17 @@ vi.mock("./introspection.js", () => ({
 // so one shared row shape covers all three callers.
 // undefined = "no row" (org/tenant has no mapping).
 let mockTenantRow:
-  | { id?: string; status?: string; zitadelOrgId?: string | null }
+  | {
+      id?: string;
+      status?: string;
+      plan?: string;
+      config?: Record<string, unknown>;
+      zitadelOrgId?: string | null;
+    }
   | undefined = {
   status: "active",
+  plan: "standard",
+  config: { ip_allowlist: [] },
   zitadelOrgId: "org-ccc",
 };
 const mockModuleDbSelect = vi.fn(() => ({
@@ -111,6 +150,8 @@ vi.mock("@platform/db", () => ({
   tenants: {
     id: "tenants.id",
     status: "tenants.status",
+    plan: "tenants.plan",
+    config: "tenants.config",
     zitadelOrgId: "tenants.zitadel_org_id",
   },
   tenantUsers: {
@@ -187,6 +228,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockExistingTenantUser = undefined;
   mockNodeEnv = undefined;
+  mockTrustProxy = "true";
+  mockRemoteAddress = undefined;
   mockTenantRow = { status: "active", zitadelOrgId: "org-ccc" };
   mockCheckRateLimit.mockResolvedValue({
     allowed: true,
@@ -855,11 +898,53 @@ describe("fetchUserInfo caching", () => {
         displayName: "John",
         email: "john@example.com",
       });
-      mockRedisSmembers.mockResolvedValueOnce(["storage", "api_calls"]);
+      mockRedisSmembers.mockResolvedValueOnce(["storage"]);
 
       const app = makeApp([requireAuth()]);
       const res = await get(app, "token-a");
-      expect(res.headers.get("X-Tenant-Degraded")).toBe("storage,api_calls");
+      expect(res.headers.get("X-Tenant-Degraded")).toBe("storage");
+    });
+
+    it("blocks request when api_calls is degraded", async () => {
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId: "tenant-bill-2-blocked",
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+      mockRedisSmembers.mockResolvedValueOnce(["api_calls"]);
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "token-a");
+      expect(res.status).toBe(422);
+      const json = await res.json();
+      expect(json.error).toBe("QUOTA_EXCEEDED");
+      expect(json.message).toBe("API calls quota exceeded");
+    });
+
+    it("blocks request to AI/copilot endpoints when ai_tokens is degraded", async () => {
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId: "tenant-bill-2-ai-blocked",
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+      mockRedisSmembers.mockResolvedValueOnce(["ai_tokens"]);
+
+      const app = new Hono();
+      app.get("/ai/chat", requireAuth(), (c) => c.text("success"));
+
+      const res = await app.request("/ai/chat", {
+        headers: { Authorization: "Bearer token-a" },
+      });
+      expect(res.status).toBe(422);
+      const json = await res.json();
+      expect(json.error).toBe("QUOTA_EXCEEDED");
+      expect(json.message).toBe("AI tokens quota exceeded");
     });
 
     it("blocks POST /files upload request when storage is degraded", async () => {
@@ -899,6 +984,215 @@ describe("fetchUserInfo caching", () => {
       const app = makeApp([requireAuth()]);
       const res = await get(app, "token-a");
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe("enforceTenantIpAllowlist", () => {
+    const tenantId = "tenant-ip-test";
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      invalidateTenantStatusCache(tenantId);
+      mockCheckRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 100,
+        resetAt: Date.now() + 60000,
+      });
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId,
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+    });
+
+    const getWithIp = async (app: Hono, ip: string, xForwardedFor?: string) => {
+      const headers: Record<string, string> = {
+        Authorization: "Bearer token-a",
+      };
+      if (xForwardedFor) {
+        headers["x-forwarded-for"] = xForwardedFor;
+      } else {
+        headers["x-real-ip"] = ip;
+      }
+      return app.request("/test", { headers });
+    };
+
+    it("allows request when allowlist is empty", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: [] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "1.2.3.4");
+      expect(res.status).toBe(200);
+    });
+
+    it("allows request when client IP matches a single IP in the allowlist", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4", "5.6.7.8"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "1.2.3.4");
+      expect(res.status).toBe(200);
+    });
+
+    it("blocks request when client IP does not match the allowlist", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4", "5.6.7.8"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "9.9.9.9");
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.error).toBe("FORBIDDEN");
+      expect(json.message).toBe("IP address not allowlisted");
+    });
+
+    it("allows request when client IP is inside a CIDR range in the allowlist", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["192.168.1.0/24"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "192.168.1.55");
+      expect(res.status).toBe(200);
+    });
+
+    it("blocks request when client IP is outside the CIDR range in the allowlist", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["192.168.1.0/24"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "192.168.2.1");
+      expect(res.status).toBe(403);
+    });
+
+    it("uses the first hop in x-forwarded-for header for IP validation", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "", "1.2.3.4, 10.0.0.5, 10.0.0.6");
+      expect(res.status).toBe(200);
+
+      invalidateTenantStatusCache(tenantId);
+      const resBlocked = await getWithIp(app, "", "9.9.9.9, 1.2.3.4");
+      expect(resBlocked.status).toBe(403);
+    });
+
+    it("fails closed if database check throws an error", async () => {
+      mockModuleDbSelect.mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([{ status: "active" }])),
+          })),
+        })),
+      }));
+      mockModuleDbSelect.mockImplementationOnce(() => {
+        throw new Error("DB Connection timed out for IP allowlist");
+      });
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "1.2.3.4");
+      expect(res.status).toBe(503);
+      const json = await res.json();
+      expect(json.error).toBe("SERVICE_UNAVAILABLE");
+    });
+
+    it("allows request when client IP is mapped IPv6 loopback and matches IPv4 allowlist", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["127.0.0.1"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "::ffff:127.0.0.1");
+      expect(res.status).toBe(200);
+    });
+
+    it("allows request when client IP is mapped IPv6 loopback and matches mapped IPv6 CIDR in allowlist", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["::ffff:127.0.0.0/120"] },
+        zitadelOrgId: "org-ccc",
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "::ffff:127.0.0.1");
+      expect(res.status).toBe(200);
+    });
+
+    it("blocks spoofed x-forwarded-for when TRUST_PROXY is false", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4"] },
+        zitadelOrgId: "org-ccc",
+      };
+      mockTrustProxy = "false";
+      mockRemoteAddress = "9.9.9.9";
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "", "1.2.3.4");
+      expect(res.status).toBe(403);
+    });
+
+    it("allows x-forwarded-for when TRUST_PROXY matches the peer IP", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4"] },
+        zitadelOrgId: "org-ccc",
+      };
+      mockTrustProxy = "10.0.0.0/8";
+      mockRemoteAddress = "10.0.0.100";
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "", "1.2.3.4");
+      expect(res.status).toBe(200);
+    });
+
+    it("blocks spoofed x-forwarded-for when TRUST_PROXY does not match the peer IP", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4"] },
+        zitadelOrgId: "org-ccc",
+      };
+      mockTrustProxy = "10.0.0.0/8";
+      mockRemoteAddress = "8.8.8.8";
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "", "1.2.3.4");
+      expect(res.status).toBe(403);
     });
   });
 });

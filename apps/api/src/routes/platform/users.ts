@@ -1,13 +1,30 @@
 import { Hono } from "hono";
 import { requireAuth, requireRole } from "@platform/auth";
-import { db, tenantUsers, withTenantContext } from "@platform/db";
-import { eq } from "drizzle-orm";
+import {
+  db,
+  tenantUsers,
+  withTenantContext,
+  savedViews,
+  notificationRecipients,
+  ticketAlerts,
+  accessRequests,
+  apiKeys,
+  entityInstances,
+  workflows,
+  workflowEvents,
+  attachments,
+  idempotencyKeys,
+} from "@platform/db";
+import { eq, and, or, sql } from "drizzle-orm";
 import {
   listOrgUsers,
   listUserRolesByUserId,
   invalidateUserCache,
+  deleteUser,
 } from "../../lib/zitadel-management.js";
 import type { AuthContext } from "@platform/auth";
+import { writeAuditEntry } from "@platform/audit";
+import { logger } from "@platform/logger";
 
 type AppVars = { Variables: { auth: AuthContext } };
 
@@ -93,5 +110,219 @@ usersRouter.get(
     merged.sort((a, b) => a.displayName.localeCompare(b.displayName));
 
     return c.json({ data: merged });
+  },
+);
+
+// DELETE /users/:userId — GDPR per-user erasure endpoint, admin-only
+usersRouter.delete(
+  "/:userId",
+  requireAuth(db),
+  requireRole("admin"),
+  async (c) => {
+    const { tenantId, userId: adminUserId } = c.get("auth");
+    const targetUserId = c.req.param("userId");
+
+    await withTenantContext(tenantId, async (tx) => {
+      // 1. Delete saved_views
+      await tx
+        .delete(savedViews)
+        .where(
+          and(
+            eq(savedViews.tenantId, tenantId),
+            eq(savedViews.userId, targetUserId),
+          ),
+        );
+
+      // 2. Delete notification_recipients
+      await tx
+        .delete(notificationRecipients)
+        .where(
+          and(
+            eq(notificationRecipients.tenantId, tenantId),
+            eq(notificationRecipients.userId, targetUserId),
+          ),
+        );
+
+      // 3. Delete ticket_alerts created by target user
+      await tx
+        .delete(ticketAlerts)
+        .where(
+          and(
+            eq(ticketAlerts.tenantId, tenantId),
+            eq(ticketAlerts.createdBy, targetUserId),
+          ),
+        );
+
+      // 4. Handle access_requests
+      await tx
+        .delete(accessRequests)
+        .where(
+          and(
+            eq(accessRequests.tenantId, tenantId),
+            eq(accessRequests.requesterId, targetUserId),
+          ),
+        );
+
+      await tx
+        .update(accessRequests)
+        .set({ resolvedBy: "[REDACTED]" })
+        .where(
+          and(
+            eq(accessRequests.tenantId, tenantId),
+            eq(accessRequests.resolvedBy, targetUserId),
+          ),
+        );
+
+      // 5. Delete api_keys created by target user (Finding 6)
+      await tx
+        .delete(apiKeys)
+        .where(
+          and(
+            eq(apiKeys.tenantId, tenantId),
+            eq(apiKeys.createdBy, targetUserId),
+          ),
+        );
+
+      // 5b. Anonymize api_keys revoked by target user (Finding 6)
+      await tx
+        .update(apiKeys)
+        .set({ revokedBy: "[REDACTED]" })
+        .where(
+          and(
+            eq(apiKeys.tenantId, tenantId),
+            eq(apiKeys.revokedBy, targetUserId),
+          ),
+        );
+
+      // 6. Nullify entity_instances references
+      await tx
+        .update(entityInstances)
+        .set({ createdBy: null })
+        .where(
+          and(
+            eq(entityInstances.tenantId, tenantId),
+            eq(entityInstances.createdBy, targetUserId),
+          ),
+        );
+
+      await tx
+        .update(entityInstances)
+        .set({ assignedTo: null })
+        .where(
+          and(
+            eq(entityInstances.tenantId, tenantId),
+            eq(entityInstances.assignedTo, targetUserId),
+          ),
+        );
+
+      // 7. Handle workflows references
+      await tx
+        .update(workflows)
+        .set({ createdBy: null })
+        .where(
+          and(
+            eq(workflows.tenantId, tenantId),
+            eq(workflows.createdBy, targetUserId),
+          ),
+        );
+
+      await tx
+        .update(workflows)
+        .set({
+          assignedTo: sql`array_remove(${workflows.assignedTo}, ${targetUserId})`,
+        })
+        .where(
+          and(
+            eq(workflows.tenantId, tenantId),
+            sql`${targetUserId} = ANY(${workflows.assignedTo})`,
+          ),
+        );
+
+      // 8. Anonymize workflow_events references
+      await tx
+        .update(workflowEvents)
+        .set({ triggeredBy: "[REDACTED]" })
+        .where(
+          and(
+            eq(workflowEvents.tenantId, tenantId),
+            eq(workflowEvents.triggeredBy, targetUserId),
+          ),
+        );
+
+      await tx
+        .update(workflowEvents)
+        .set({
+          actorId: sql`CASE WHEN ${workflowEvents.actorId} = ${targetUserId} THEN '[REDACTED]' ELSE ${workflowEvents.actorId} END`,
+        })
+        .where(
+          and(
+            eq(workflowEvents.tenantId, tenantId),
+            eq(workflowEvents.actorId, targetUserId),
+          ),
+        );
+
+      // 8b. Anonymize attachments references (Finding 5)
+      await tx
+        .update(attachments)
+        .set({ uploadedBy: "[REDACTED]", actingPersonId: "[REDACTED]" })
+        .where(
+          and(
+            eq(attachments.tenantId, tenantId),
+            or(
+              eq(attachments.uploadedBy, targetUserId),
+              eq(attachments.actingPersonId, targetUserId),
+            ),
+          ),
+        );
+
+      // 9. Delete tenant_users association
+      await tx
+        .delete(tenantUsers)
+        .where(
+          and(
+            eq(tenantUsers.tenantId, tenantId),
+            eq(tenantUsers.userId, targetUserId),
+          ),
+        );
+
+      // 9b. Delete idempotency_keys associated with target user (Finding 10)
+      await tx
+        .delete(idempotencyKeys)
+        .where(
+          and(
+            eq(idempotencyKeys.tenantId, tenantId),
+            eq(idempotencyKeys.actingPersonId, targetUserId),
+          ),
+        );
+
+      // 10. Audit log entry for erasure
+      // NOTE ON adminAuditLog (GDPR Finding 8):
+      // The adminAuditLog table is not anonymized or deleted here because:
+      // (a) It has a database-level INSERT+SELECT only permission structure for security hardening,
+      //     making updates to historical audit logs impossible for the application database role.
+      // (b) It is exempt from GDPR Article 17 erasure requests under Article 17(3)(b)
+      //     (for compliance with a legal obligation or execution of public interest tasks,
+      //     specifically maintaining an unalterable security audit trail of administrative actions).
+      await writeAuditEntry(tx, {
+        tenantId,
+        actorId: adminUserId,
+        actorType: "user",
+        resourceType: "user",
+        resourceId: targetUserId,
+        action: "deleted",
+      });
+    });
+
+    // Zitadel account erasure (Finding 7 & Finding 9)
+    await deleteUser(targetUserId).catch((err: unknown) => {
+      logger.error(
+        { err, targetUserId },
+        "GDPR erasure: failed to delete user account from Zitadel",
+      );
+    });
+
+    invalidateUserCache();
+
+    return c.json({ success: true });
   },
 );
