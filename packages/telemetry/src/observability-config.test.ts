@@ -102,7 +102,7 @@ describe("Observability Configuration Validation", () => {
       const e = err as { stdout?: string; message: string };
       throw new Error(`promtool validation failed: ${e.stdout || e.message}`);
     }
-  });
+  }, 60000);
 
   it("validates alertmanager.yml has correct syntax and mailhog config", () => {
     const amPath = path.join(obsDir, "alertmanager.yml");
@@ -133,7 +133,7 @@ describe("Observability Configuration Validation", () => {
       const e = err as { stdout?: string; message: string };
       throw new Error(`amtool validation failed: ${e.stdout || e.message}`);
     }
-  });
+  }, 60000);
 
   it("validates Grafana datasources provisioning file syntax", () => {
     const dsPath = path.join(
