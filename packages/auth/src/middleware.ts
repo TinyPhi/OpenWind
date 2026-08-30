@@ -76,23 +76,46 @@ async function enforceApiKeyRateLimit(
  * Extract the client IP address from request headers or transport remote address.
  */
 function getClientIp(c: Context): string {
-  const forwardedFor = c.req.header("x-forwarded-for");
-  const fromForwarded = forwardedFor
-    ? forwardedFor.split(",")[0]?.trim()
-    : null;
-  if (fromForwarded) return fromForwarded;
-
-  const realIp = c.req.header("x-real-ip")?.trim();
-  if (realIp) return realIp;
-
+  let peerIp = "unknown";
   try {
     const info = getConnInfo(c);
-    if (info.remote.address) return info.remote.address;
+    if (info.remote.address) {
+      peerIp = info.remote.address;
+    }
   } catch {
     // Ignore error if connection info is not resolvable
   }
 
-  return "unknown";
+  const trustProxy = env.TRUST_PROXY;
+  let isTrusted = false;
+
+  if (trustProxy === "true") {
+    isTrusted = true;
+  } else if (trustProxy === "false") {
+    isTrusted = false;
+  } else {
+    // Parse as comma-separated IPs/CIDRs
+    const trustedProxies = trustProxy
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (peerIp !== "unknown") {
+      isTrusted = checkIpInAllowlist(peerIp, trustedProxies);
+    }
+  }
+
+  if (isTrusted) {
+    const forwardedFor = c.req.header("x-forwarded-for");
+    const fromForwarded = forwardedFor
+      ? forwardedFor.split(",")[0]?.trim()
+      : null;
+    if (fromForwarded) return fromForwarded;
+
+    const realIp = c.req.header("x-real-ip")?.trim();
+    if (realIp) return realIp;
+  }
+
+  return peerIp;
 }
 
 /**

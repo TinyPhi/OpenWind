@@ -8,6 +8,7 @@ import { invalidateTenantStatusCache } from "./tenant-status-cache.js";
 // Mutable so individual tests can exercise the NODE_ENV=production branch
 // (org-id -> tenant mapping) without affecting the rest of the suite.
 let mockNodeEnv: string | undefined;
+let mockTrustProxy = "true";
 vi.mock("@platform/config", () => ({
   env: {
     ZITADEL_ISSUER: "https://zitadel.example.com",
@@ -22,11 +23,23 @@ vi.mock("@platform/config", () => ({
     get NODE_ENV() {
       return mockNodeEnv;
     },
+    get TRUST_PROXY() {
+      return mockTrustProxy;
+    },
   },
 }));
 
 vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+let mockRemoteAddress: string | undefined = undefined;
+vi.mock("@hono/node-server/conninfo", () => ({
+  getConnInfo: vi.fn(() => ({
+    remote: {
+      address: mockRemoteAddress,
+    },
+  })),
 }));
 
 // middleware.ts -> tenant-status-cache.ts -> @platform/redis, whose module
@@ -198,6 +211,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockExistingTenantUser = undefined;
   mockNodeEnv = undefined;
+  mockTrustProxy = "true";
+  mockRemoteAddress = undefined;
   mockTenantRow = { status: "active", zitadelOrgId: "org-ccc" };
   mockCheckRateLimit.mockResolvedValue({
     allowed: true,
@@ -1074,6 +1089,51 @@ describe("fetchUserInfo caching", () => {
       const app = makeApp([requireAuth()]);
       const res = await getWithIp(app, "::ffff:127.0.0.1");
       expect(res.status).toBe(200);
+    });
+
+    it("blocks spoofed x-forwarded-for when TRUST_PROXY is false", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4"] },
+        zitadelOrgId: "org-ccc",
+      };
+      mockTrustProxy = "false";
+      mockRemoteAddress = "9.9.9.9";
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "", "1.2.3.4");
+      expect(res.status).toBe(403);
+    });
+
+    it("allows x-forwarded-for when TRUST_PROXY matches the peer IP", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4"] },
+        zitadelOrgId: "org-ccc",
+      };
+      mockTrustProxy = "10.0.0.0/8";
+      mockRemoteAddress = "10.0.0.100";
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "", "1.2.3.4");
+      expect(res.status).toBe(200);
+    });
+
+    it("blocks spoofed x-forwarded-for when TRUST_PROXY does not match the peer IP", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4"] },
+        zitadelOrgId: "org-ccc",
+      };
+      mockTrustProxy = "10.0.0.0/8";
+      mockRemoteAddress = "8.8.8.8";
+
+      const app = makeApp([requireAuth()]);
+      const res = await getWithIp(app, "", "1.2.3.4");
+      expect(res.status).toBe(403);
     });
   });
 });
