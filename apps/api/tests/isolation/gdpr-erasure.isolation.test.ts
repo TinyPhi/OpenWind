@@ -93,15 +93,23 @@ beforeAll(async () => {
   await db.insert(idempotencyKeys).values([
     {
       tenantId: TENANT_A,
-      idempotencyKey: "idem-a-target",
-      expiresAt: new Date(Date.now() + 86400000),
+      apiKeyId: "ffffffff-1111-4000-a000-000000000001",
       actingPersonId: TARGET_USER_ID,
+      idempotencyKey: "idem-a-target",
+      contentHash: "hash-a",
+      responseStatus: 200,
+      responseBody: { success: true },
+      expiresAt: new Date(Date.now() + 86400000),
     },
     {
       tenantId: TENANT_B,
-      idempotencyKey: "idem-b-target",
-      expiresAt: new Date(Date.now() + 86400000),
+      apiKeyId: "ffffffff-1111-4000-a000-000000000001",
       actingPersonId: TARGET_USER_ID,
+      idempotencyKey: "idem-b-target",
+      contentHash: "hash-b",
+      responseStatus: 200,
+      responseBody: { success: true },
+      expiresAt: new Date(Date.now() + 86400000),
     },
   ]);
 });
