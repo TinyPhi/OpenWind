@@ -285,20 +285,42 @@ async function enforceTenantBillingGate(
     // 1. Increment daily API calls counter (expire in 48h to prevent key accumulation)
     const todayStr = new Date().toISOString().split("T")[0];
     const apiCallsKey = `usage:${tenantId}:${todayStr}:api_calls`;
-    await redis.incr(apiCallsKey).catch((err: unknown) => {
-      logger.warn(
-        { err, tenantId },
-        "billingGate: failed to increment Redis API calls counter",
-      );
-    });
-    await redis.expire(apiCallsKey, 172800).catch(() => undefined); // 48 hours
-
+    await redis
+      .multi()
+      .incr(apiCallsKey)
+      .expire(apiCallsKey, 172800)
+      .exec()
+      .catch((err: unknown) => {
+        logger.warn(
+          { err, tenantId },
+          "billingGate: failed to increment Redis API calls counter with expiry",
+        );
+      });
     // 2. Check current degraded state in Redis
     const degradedKey = `degraded:${tenantId}`;
     const degraded = await redis.smembers(degradedKey);
 
     if (degraded.length > 0) {
       c.header("X-Tenant-Degraded", degraded.join(","));
+
+      // Block request if API calls are degraded
+      if (degraded.includes("api_calls")) {
+        return c.json(
+          { error: "QUOTA_EXCEEDED", message: "API calls quota exceeded" },
+          422,
+        );
+      }
+
+      // Block AI features if AI tokens are degraded
+      if (
+        degraded.includes("ai_tokens") &&
+        (c.req.path.includes("/ai") || c.req.path.includes("/copilot"))
+      ) {
+        return c.json(
+          { error: "QUOTA_EXCEEDED", message: "AI tokens quota exceeded" },
+          422,
+        );
+      }
 
       // Block new uploads if storage is degraded
       if (
@@ -1019,13 +1041,17 @@ export function billingGate(): MiddlewareHandler<AuthVariables> {
       // 1. Increment daily API calls counter (expire in 48h to prevent leak)
       const todayStr = new Date().toISOString().split("T")[0];
       const apiCallsKey = `usage:${tenantId}:${todayStr}:api_calls`;
-      await redis.incr(apiCallsKey).catch((err: unknown) => {
-        logger.warn(
-          { err, tenantId },
-          "billingGate: failed to increment Redis API calls counter",
-        );
-      });
-      await redis.expire(apiCallsKey, 172800).catch(() => undefined); // 48 hours
+      await redis
+        .multi()
+        .incr(apiCallsKey)
+        .expire(apiCallsKey, 172800)
+        .exec()
+        .catch((err: unknown) => {
+          logger.warn(
+            { err, tenantId },
+            "billingGate: failed to increment Redis API calls counter with expiry",
+          );
+        });
 
       // 2. Check current degraded state in Redis
       const degradedKey = `degraded:${tenantId}`;
@@ -1033,6 +1059,25 @@ export function billingGate(): MiddlewareHandler<AuthVariables> {
 
       if (degraded.length > 0) {
         c.header("X-Tenant-Degraded", degraded.join(","));
+
+        // Block request if API calls are degraded
+        if (degraded.includes("api_calls")) {
+          return c.json(
+            { error: "QUOTA_EXCEEDED", message: "API calls quota exceeded" },
+            422,
+          );
+        }
+
+        // Block AI features if AI tokens are degraded
+        if (
+          degraded.includes("ai_tokens") &&
+          (c.req.path.includes("/ai") || c.req.path.includes("/copilot"))
+        ) {
+          return c.json(
+            { error: "QUOTA_EXCEEDED", message: "AI tokens quota exceeded" },
+            422,
+          );
+        }
 
         // Block new uploads if storage is degraded
         if (

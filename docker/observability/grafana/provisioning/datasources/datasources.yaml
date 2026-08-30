@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: Prometheus
+    access: proxy
+    url: http://ow-prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST

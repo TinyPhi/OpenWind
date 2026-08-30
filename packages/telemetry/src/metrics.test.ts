@@ -17,6 +17,9 @@ vi.mock("@platform/redis", () => ({
   getRedis: () => ({
     on: vi.fn(),
     quit: vi.fn(),
+    keys: vi.fn().mockResolvedValue([]),
+    smembers: vi.fn().mockResolvedValue([]),
+    get: vi.fn().mockResolvedValue(null),
   }),
 }));
 

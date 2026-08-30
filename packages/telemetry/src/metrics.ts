@@ -83,6 +83,70 @@ queueDepthGauge.addCallback(async (observableResult) => {
   }
 });
 
+const degradedTenantsGauge = meter.createObservableGauge(
+  "billing_degraded_tenants",
+  {
+    description: "Number of currently degraded tenants by reason",
+  },
+);
+
+degradedTenantsGauge.addCallback(async (observableResult) => {
+  try {
+    const redis = getRedis();
+    const keys = await redis.keys("degraded:*");
+
+    let apiCallsCount = 0;
+    let storageCount = 0;
+    let aiTokensCount = 0;
+
+    for (const key of keys) {
+      const members = await redis.smembers(key);
+      if (members.includes("api_calls")) apiCallsCount++;
+      if (members.includes("storage")) storageCount++;
+      if (members.includes("ai_tokens")) aiTokensCount++;
+    }
+
+    observableResult.observe(apiCallsCount, { reason: "api_calls" });
+    observableResult.observe(storageCount, { reason: "storage" });
+    observableResult.observe(aiTokensCount, { reason: "ai_tokens" });
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
+const tenantUsageGauge = meter.createObservableGauge("billing_tenant_usage", {
+  description: "Daily usage counters per tenant",
+});
+
+tenantUsageGauge.addCallback(async (observableResult) => {
+  try {
+    const redis = getRedis();
+    const todayStr = new Date().toISOString().split("T")[0];
+    const keys = await redis.keys("usage:*:*:*");
+
+    for (const key of keys) {
+      const parts = key.split(":");
+      if (parts.length === 4) {
+        const [, tenantId, dateStr, metricName] = parts;
+        if (dateStr === todayStr && tenantId && metricName) {
+          const valStr = await redis.get(key);
+          if (valStr) {
+            const value = parseInt(valStr, 10);
+            if (!isNaN(value)) {
+              observableResult.observe(value, {
+                tenant_id: tenantId,
+                metric: metricName,
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
 const serializer = new PrometheusSerializer();
 
 /** Retrieves current metrics in Prometheus exposition format. */

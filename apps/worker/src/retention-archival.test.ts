@@ -57,6 +57,16 @@ vi.mock("@platform/db", () => ({
 
 vi.mock("./queues.js", () => ({ connection: {} }));
 
+// mock redis
+const mockRedisSet = vi.fn().mockResolvedValue("OK");
+const mockRedisDel = vi.fn().mockResolvedValue(1);
+vi.mock("@platform/redis", () => ({
+  getRedis: () => ({
+    set: mockRedisSet,
+    del: mockRedisDel,
+  }),
+}));
+
 const { runRetentionArchivalSweep } = await import("./retention-archival.js");
 
 describe("Retention Archival Sweep", () => {

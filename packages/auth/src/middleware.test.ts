@@ -56,18 +56,35 @@ const mockRedisDel = vi.hoisted(() => vi.fn().mockResolvedValue(1));
 const mockRedisSadd = vi.hoisted(() => vi.fn().mockResolvedValue(1));
 const mockRedisGet = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 
-vi.mock("@platform/redis", () => ({
-  getRedis: vi.fn(() => ({
+vi.mock("@platform/redis", () => {
+  const mockRedis = {
     incr: mockRedisIncr,
     expire: mockRedisExpire,
     smembers: mockRedisSmembers,
     del: mockRedisDel,
     sadd: mockRedisSadd,
     get: mockRedisGet,
-  })),
-  closeRedis: vi.fn(),
-  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
-}));
+    multi: vi.fn(() => {
+      const chain = {
+        incr: vi.fn((key) => {
+          mockRedisIncr(key);
+          return chain;
+        }),
+        expire: vi.fn((key, ttl) => {
+          mockRedisExpire(key, ttl);
+          return chain;
+        }),
+        exec: vi.fn().mockResolvedValue([1, 1]),
+      };
+      return chain;
+    }),
+  };
+  return {
+    getRedis: vi.fn(() => mockRedis),
+    closeRedis: vi.fn(),
+    checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+  };
+});
 
 const mockArgon2Verify = vi.hoisted(() => vi.fn<() => Promise<boolean>>());
 vi.mock("@node-rs/argon2", () => ({
@@ -881,11 +898,53 @@ describe("fetchUserInfo caching", () => {
         displayName: "John",
         email: "john@example.com",
       });
-      mockRedisSmembers.mockResolvedValueOnce(["storage", "api_calls"]);
+      mockRedisSmembers.mockResolvedValueOnce(["storage"]);
 
       const app = makeApp([requireAuth()]);
       const res = await get(app, "token-a");
-      expect(res.headers.get("X-Tenant-Degraded")).toBe("storage,api_calls");
+      expect(res.headers.get("X-Tenant-Degraded")).toBe("storage");
+    });
+
+    it("blocks request when api_calls is degraded", async () => {
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId: "tenant-bill-2-blocked",
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+      mockRedisSmembers.mockResolvedValueOnce(["api_calls"]);
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "token-a");
+      expect(res.status).toBe(422);
+      const json = await res.json();
+      expect(json.error).toBe("QUOTA_EXCEEDED");
+      expect(json.message).toBe("API calls quota exceeded");
+    });
+
+    it("blocks request to AI/copilot endpoints when ai_tokens is degraded", async () => {
+      mockVerifyJwt.mockResolvedValue({ sub: "user-111" });
+      mockExtractAuthContext.mockReturnValue({
+        tenantId: "tenant-bill-2-ai-blocked",
+        userId: "user-111",
+        roles: ["member"],
+        displayName: "John",
+        email: "john@example.com",
+      });
+      mockRedisSmembers.mockResolvedValueOnce(["ai_tokens"]);
+
+      const app = new Hono();
+      app.get("/ai/chat", requireAuth(), (c) => c.text("success"));
+
+      const res = await app.request("/ai/chat", {
+        headers: { Authorization: "Bearer token-a" },
+      });
+      expect(res.status).toBe(422);
+      const json = await res.json();
+      expect(json.error).toBe("QUOTA_EXCEEDED");
+      expect(json.message).toBe("AI tokens quota exceeded");
     });
 
     it("blocks POST /files upload request when storage is degraded", async () => {
