@@ -208,14 +208,9 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           const status = isIdempotencyStatus(errResponse.status)
             ? errResponse.status
             : 500;
-          const headers: Record<string, string> = {};
-          errResponse.headers.forEach((value, key) => {
-            headers[key] = value;
-          });
           return {
             status,
             body: (await errResponse.json()) as unknown,
-            headers,
             doNotCache: status >= 500,
           };
         }

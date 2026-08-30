@@ -127,6 +127,9 @@ function loadCanonicalize(): Promise<(value: unknown) => string | undefined> {
         "idempotency: failed to import ESM package 'canonicalize' — will retry on next request",
       );
       // Reset so the next withIdempotency call attempts a fresh import.
+      // Note: concurrent in-flight callers awaiting the same rejected promise
+      // will also receive this error, but resetting the reference ensures
+      // subsequent requests trigger a new import attempt.
       canonicalizeFnPromise = undefined;
       throw err as Error;
     });
@@ -234,6 +237,9 @@ export async function withIdempotency(
         body: row.responseBody,
       };
     }
+    // Note: IDEMPOTENCY_KEY_CONFLICT represents a client logic error where a key
+    // is reused for different content. This is a non-retriable 409 condition,
+    // so we intentionally omit the Retry-After header.
     return {
       status: 409,
       body: {

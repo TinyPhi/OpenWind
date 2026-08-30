@@ -5,6 +5,29 @@ vi.mock("@platform/logger", () => ({
   logger: { warn: vi.fn(), error: vi.fn() },
 }));
 
+const mockState = vi.hoisted(() => ({ shouldReject: false }));
+vi.mock("canonicalize", () => {
+  return {
+    get default() {
+      if (mockState.shouldReject) {
+        throw new Error("import failed");
+      }
+      return (value: unknown) => {
+        if (typeof value !== "object" || value === null) {
+          return JSON.stringify(value);
+        }
+        const val = value as Record<string, unknown>;
+        const sortedKeys = Object.keys(val).sort();
+        const obj: Record<string, unknown> = {};
+        for (const key of sortedKeys) {
+          obj[key] = val[key];
+        }
+        return JSON.stringify(obj);
+      };
+    },
+  };
+});
+
 const mockRedisSet = vi.fn();
 const mockRedisDel = vi.fn();
 const mockRedisEval = vi.fn();
@@ -437,19 +460,13 @@ describe("withIdempotency", () => {
   });
 
   it("recovers from ESM import failure on subsequent calls", async () => {
-    vi.doMock("canonicalize", () => {
-      throw new Error("import failed");
-    });
-    const { computeContentHash: computeContentHashFail } =
-      await import("./idempotency.js?test-failure");
-    await expect(computeContentHashFail({ a: 1 })).rejects.toThrow();
+    mockState.shouldReject = true;
+    const { computeContentHash } =
+      await import("./idempotency.js?test-recovery");
+    await expect(computeContentHash({ a: 1 })).rejects.toThrow();
 
-    vi.doMock("canonicalize", () => ({
-      default: (value: unknown) => JSON.stringify(value),
-    }));
-    const { computeContentHash: computeContentHashSuccess } =
-      await import("./idempotency.js?test-success");
-    const hash = await computeContentHashSuccess({ a: 1 });
+    mockState.shouldReject = false;
+    const hash = await computeContentHash({ a: 1 });
     expect(hash).toBeDefined();
   });
 

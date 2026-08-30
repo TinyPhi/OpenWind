@@ -21,6 +21,7 @@ import {
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
+import { createThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
 import { getRedis } from "@platform/redis";
 import { RELEASE_LOCK_LUA_SCRIPT } from "../../src/lib/idempotency.js";
 
@@ -34,8 +35,12 @@ const API_KEY_ID_2 = "33333333-3333-4333-3333-333333333333";
 
 let ticketId: string;
 let ticketId2: string;
+let workflowId: string;
 
-async function seedTenant(tenantId: string, creator: string): Promise<string> {
+async function seedTenant(
+  tenantId: string,
+  creator: string,
+): Promise<{ ticketId: string; workflowId: string }> {
   await db.insert(tenants).values({
     id: tenantId,
     name: `Idempotency Tenant ${tenantId}`,
@@ -73,12 +78,16 @@ async function seedTenant(tenantId: string, creator: string): Promise<string> {
     workflowId: workflow!.id,
     currentState: "open",
   });
-  return ticket.id;
+  return { ticketId: ticket.id, workflowId: workflow!.id };
 }
 
 beforeAll(async () => {
-  ticketId = await seedTenant(TENANT, CREATOR);
-  ticketId2 = await seedTenant(TENANT_2, CREATOR_2);
+  const t1 = await seedTenant(TENANT, CREATOR);
+  ticketId = t1.ticketId;
+  workflowId = t1.workflowId;
+
+  const t2 = await seedTenant(TENANT_2, CREATOR_2);
+  ticketId2 = t2.ticketId;
 
   await db.insert(apiKeys).values([
     {
@@ -120,7 +129,7 @@ function makeApp(
     c.set("auth", {
       userId: `apikey:${apiKeyId}`,
       tenantId,
-      roles: ["entity:ticket:comment"],
+      roles: ["entity:ticket:comment", "entity:ticket:create"],
       email: "",
       displayName: "API Key",
       orgId: "org-idempotency",
@@ -134,6 +143,7 @@ function makeApp(
     await next();
   });
   app.post("/tickets/:id/comments", ...createThirdPartyCommentHandler);
+  app.post("/tickets", ...createThirdPartyTicketHandler);
   return app;
 }
 
@@ -292,15 +302,41 @@ describe("Phase G, spec R5 — stale-lock deletion prevention (Lua script CAS)",
 });
 
 describe("Phase G — header forwarding and Retry-After verification", () => {
-  it("includes a Retry-After: 1 header in the HTTP response when the lock is busy (409)", async () => {
-    const key = `busy-lock-headers-${Date.now()}`;
-    const [a, b] = await Promise.all([
-      postComment("racing", key),
-      postComment("racing", key),
-    ]);
+  it("includes a Retry-After: 1 header in the HTTP response when the comments lock is busy (409)", async () => {
+    const key = `busy-lock-comments-${Date.now()}`;
+    const redis = getRedis();
+    const lKey = `idempotency-lock:${TENANT}:${API_KEY_ID}:${CREATOR}:${encodeURIComponent(key)}`;
 
-    const res409 = a.status === 409 ? a : b;
-    expect(res409.status).toBe(409);
-    expect(res409.headers.get("Retry-After")).toBe("1");
+    // Hold the lock open explicitly
+    await redis.set(lKey, "test-holder", "PX", 5000);
+
+    const res = await postComment("racing", key);
+    expect(res.status).toBe(409);
+    expect(res.headers.get("Retry-After")).toBe("1");
+
+    await redis.del(lKey);
+  });
+
+  it("includes a Retry-After: 1 header in the HTTP response when the tickets lock is busy (409)", async () => {
+    const key = `busy-lock-tickets-${Date.now()}`;
+    const redis = getRedis();
+    const lKey = `idempotency-lock:${TENANT}:${API_KEY_ID}:${CREATOR}:${encodeURIComponent(key)}`;
+
+    // Hold the lock open explicitly
+    await redis.set(lKey, "test-holder", "PX", 5000);
+
+    const app = makeApp();
+    const res = await app.request("/tickets", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "Idempotency-Key": key,
+      },
+      body: JSON.stringify({ workflowId, fields: {} }),
+    });
+    expect(res.status).toBe(409);
+    expect(res.headers.get("Retry-After")).toBe("1");
+
+    await redis.del(lKey);
   });
 });
