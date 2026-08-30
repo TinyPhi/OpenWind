@@ -94,7 +94,7 @@ describe("Observability Configuration Validation", () => {
     }
     try {
       const output = execSync(
-        `docker run --rm -v "${obsDir}:/obs" prom/prometheus:v2.53.0 promtool check rules /obs/alert.rules.yml`,
+        `docker run --rm -v "${obsDir}:/obs" --entrypoint promtool prom/prometheus:v2.53.0 check rules /obs/alert.rules.yml`,
         { encoding: "utf8" },
       );
       expect(output).toContain("SUCCESS");
@@ -125,7 +125,7 @@ describe("Observability Configuration Validation", () => {
     }
     try {
       const output = execSync(
-        `docker run --rm -v "${obsDir}:/obs" prom/alertmanager:v0.27.0 amtool check-config /obs/alertmanager.yml`,
+        `docker run --rm -v "${obsDir}:/obs" --entrypoint amtool prom/alertmanager:v0.27.0 check-config /obs/alertmanager.yml`,
         { encoding: "utf8" },
       );
       expect(output).toContain("SUCCESS");
