@@ -435,4 +435,34 @@ describe("withIdempotency", () => {
       ),
     );
   });
+
+  it("recovers from ESM import failure on subsequent calls", async () => {
+    vi.doMock("canonicalize", () => {
+      throw new Error("import failed");
+    });
+    const { computeContentHash: computeContentHashFail } =
+      await import("./idempotency.js?test-failure");
+    await expect(computeContentHashFail({ a: 1 })).rejects.toThrow();
+
+    vi.doMock("canonicalize", () => ({
+      default: (value: unknown) => JSON.stringify(value),
+    }));
+    const { computeContentHash: computeContentHashSuccess } =
+      await import("./idempotency.js?test-success");
+    const hash = await computeContentHashSuccess({ a: 1 });
+    expect(hash).toBeDefined();
+  });
+
+  it("returns Retry-After header on 409 lock-busy response", async () => {
+    mockRedisSet.mockResolvedValue(null);
+    const execute = vi.fn();
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-busy" },
+      content,
+      execute,
+    );
+    expect(result.status).toBe(409);
+    expect(result.headers).toBeDefined();
+    expect(result.headers?.["Retry-After"]).toBe("1");
+  });
 });

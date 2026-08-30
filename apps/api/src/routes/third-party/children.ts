@@ -186,14 +186,25 @@ export const createThirdPartyChildHandler = factory.createHandlers(
           const status = isIdempotencyStatus(errResponse.status)
             ? errResponse.status
             : 500;
+          const headers: Record<string, string> = {};
+          errResponse.headers.forEach((value, key) => {
+            headers[key] = value;
+          });
           return {
             status,
             body: (await errResponse.json()) as unknown,
+            headers,
             doNotCache: status >= 500,
           };
         }
       },
     );
+
+    if (response.headers) {
+      for (const [key, value] of Object.entries(response.headers)) {
+        c.header(key, value);
+      }
+    }
 
     return c.json(response.body as object, response.status);
   },

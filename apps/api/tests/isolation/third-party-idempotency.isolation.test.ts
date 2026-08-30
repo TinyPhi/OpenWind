@@ -290,3 +290,17 @@ describe("Phase G, spec R5 — stale-lock deletion prevention (Lua script CAS)",
     expect(valueAfterA).toBeNull();
   });
 });
+
+describe("Phase G — header forwarding and Retry-After verification", () => {
+  it("includes a Retry-After: 1 header in the HTTP response when the lock is busy (409)", async () => {
+    const key = `busy-lock-headers-${Date.now()}`;
+    const [a, b] = await Promise.all([
+      postComment("racing", key),
+      postComment("racing", key),
+    ]);
+
+    const res409 = a.status === 409 ? a : b;
+    expect(res409.status).toBe(409);
+    expect(res409.headers.get("Retry-After")).toBe("1");
+  });
+});
