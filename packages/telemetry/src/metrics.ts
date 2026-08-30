@@ -114,6 +114,39 @@ degradedTenantsGauge.addCallback(async (observableResult) => {
   }
 });
 
+const tenantUsageGauge = meter.createObservableGauge("billing_tenant_usage", {
+  description: "Daily usage counters per tenant",
+});
+
+tenantUsageGauge.addCallback(async (observableResult) => {
+  try {
+    const redis = getRedis();
+    const todayStr = new Date().toISOString().split("T")[0];
+    const keys = await redis.keys("usage:*:*:*");
+
+    for (const key of keys) {
+      const parts = key.split(":");
+      if (parts.length === 4) {
+        const [, tenantId, dateStr, metricName] = parts;
+        if (dateStr === todayStr && tenantId && metricName) {
+          const valStr = await redis.get(key);
+          if (valStr) {
+            const value = parseInt(valStr, 10);
+            if (!isNaN(value)) {
+              observableResult.observe(value, {
+                tenant_id: tenantId,
+                metric: metricName,
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
 const serializer = new PrometheusSerializer();
 
 /** Retrieves current metrics in Prometheus exposition format. */

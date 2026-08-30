@@ -212,5 +212,6 @@ describe("Observability Configuration Validation", () => {
     expect(panelTitles).toContain("HTTP Latency (P99)");
     expect(panelTitles).toContain("Degraded Tenants by Reason");
     expect(panelTitles).toContain("Billing Rejections (422)");
+    expect(panelTitles).toContain("Tenant Quota Usage");
   });
 });

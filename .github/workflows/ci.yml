@@ -4,8 +4,7 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches:
-      [main, develop, feat/issue-505-usage-metering, feat/issue-506-compliance]
+    branches: [main, develop, feat/issue-505-usage-metering]
   schedule:
     # CodeQL backstop — non-code PRs (docs/config-only) skip the `security` job below,
     # so this keeps weekly coverage from lapsing on quiet weeks.

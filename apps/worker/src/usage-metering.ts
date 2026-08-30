@@ -238,7 +238,6 @@ export async function runUsageMeteringSweep(): Promise<void> {
           }
         }
       } catch (err) {
-        console.error("OUTER_SWEEP_ERROR:", err);
         logger.error(
           { err, tenantId },
           "usage-metering: failed to process tenant usage metering",
