@@ -28,6 +28,7 @@ let capturedProcessor: ((job: unknown) => Promise<void>) | null = null;
 // vitest 4.x: mockImplementation must use a regular function (not arrow) when
 // the mock is used with `new` — arrow functions are not constructable.
 vi.mock("bullmq", () => ({
+  Queue: vi.fn(),
   Worker: vi.fn().mockImplementation(function (
     _queue: string,
     processor: (job: unknown) => Promise<void>,

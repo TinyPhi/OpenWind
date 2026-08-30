@@ -10,11 +10,14 @@ export {
   API_KEY_ROTATION_OVERLAP_HOURS,
   billingGate,
   resolveTenantPlan,
+  resolveTenantIpAllowlist,
 } from "./middleware.js";
 export {
   invalidateTenantStatusCache,
   getCachedTenantPlan,
   setCachedTenantPlan,
+  getCachedTenantIpAllowlist,
+  setCachedTenantIpAllowlist,
   startTenantStatusInvalidationSubscriber,
   stopTenantStatusInvalidationSubscriber,
 } from "./tenant-status-cache.js";
@@ -46,6 +49,7 @@ export {
   listUserRolesByUserId,
   getUserById,
   invalidateUserCache,
+  deleteUser,
 } from "./zitadel-management.js";
 export type { OrgUser } from "./zitadel-management.js";
 export {

@@ -207,6 +207,8 @@ const EnvSchema = z
       .enum(["sentry", "glitchtip", "bugsink", "none"])
       .default("none"),
     SENTRY_DSN: z.string().url().optional(),
+    // Trusted Proxies Configuration (e.g. "true", "false", or comma-separated IPs/CIDRs)
+    TRUST_PROXY: z.string().default("false"),
   })
   .refine(
     (v) => v.ERROR_TRACKING_PROVIDER === "none" || v.SENTRY_DSN !== undefined,

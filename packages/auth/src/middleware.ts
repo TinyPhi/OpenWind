@@ -22,7 +22,11 @@ import {
   setCachedTenantStatus,
   getCachedTenantPlan,
   setCachedTenantPlan,
+  getCachedTenantIpAllowlist,
+  setCachedTenantIpAllowlist,
 } from "./tenant-status-cache.js";
+import * as ipaddr from "ipaddr.js";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import { getTenantRateLimitOverride } from "./tenant-rate-limit.js";
 import { applicationActorIdFromUserId } from "./application-actor-id.js";
 
@@ -65,6 +69,153 @@ async function enforceApiKeyRateLimit(
       "auth: api-key rate-limit check failed unexpectedly — failing open",
     );
     return null;
+  }
+}
+
+/**
+ * Extract the client IP address from request headers or transport remote address.
+ */
+function getClientIp(c: Context): string {
+  let peerIp = "unknown";
+  try {
+    const info = getConnInfo(c);
+    if (info.remote.address) {
+      peerIp = info.remote.address;
+    }
+  } catch {
+    // Ignore error if connection info is not resolvable
+  }
+
+  const trustProxy = env.TRUST_PROXY;
+  let isTrusted = false;
+
+  if (trustProxy === "true") {
+    isTrusted = true;
+  } else if (trustProxy === "false") {
+    isTrusted = false;
+  } else {
+    // Parse as comma-separated IPs/CIDRs
+    const trustedProxies = trustProxy
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (peerIp !== "unknown") {
+      isTrusted = checkIpInAllowlist(peerIp, trustedProxies);
+    }
+  }
+
+  if (isTrusted) {
+    const forwardedFor = c.req.header("x-forwarded-for");
+    const fromForwarded = forwardedFor
+      ? forwardedFor.split(",")[0]?.trim()
+      : null;
+    if (fromForwarded) return fromForwarded;
+
+    const realIp = c.req.header("x-real-ip")?.trim();
+    if (realIp) return realIp;
+  }
+
+  return peerIp;
+}
+
+/**
+ * Check if the given client IP matches any of the single IPs or CIDR subnets in the allowlist.
+ */
+export function checkIpInAllowlist(
+  ipStr: string,
+  allowlist: string[],
+): boolean {
+  if (allowlist.length === 0) return true;
+
+  let addr: ipaddr.IPv4 | ipaddr.IPv6;
+  try {
+    addr = ipaddr.parse(ipStr);
+  } catch {
+    return false; // Unparseable IP is blocked (fail-safe)
+  }
+
+  const normalized: ipaddr.IPv4 | ipaddr.IPv6 =
+    addr.kind() === "ipv6" && (addr as ipaddr.IPv6).isIPv4MappedAddress()
+      ? (addr as ipaddr.IPv6).toIPv4Address()
+      : addr;
+
+  for (const range of allowlist) {
+    try {
+      if (range.includes("/")) {
+        // CIDR range
+        const [network, prefix] = ipaddr.parseCIDR(range);
+        const normalizedNetwork =
+          network.kind() === "ipv6" &&
+          (network as ipaddr.IPv6).isIPv4MappedAddress()
+            ? (network as ipaddr.IPv6).toIPv4Address()
+            : network;
+        const normalizedPrefix =
+          network.kind() === "ipv6" &&
+          (network as ipaddr.IPv6).isIPv4MappedAddress()
+            ? prefix - 96
+            : prefix;
+        if (
+          normalized.kind() === normalizedNetwork.kind() &&
+          normalized.match(normalizedNetwork, normalizedPrefix)
+        ) {
+          return true;
+        }
+      } else {
+        // Single IP
+        const parsed = ipaddr.parse(range);
+        const normalizedRange =
+          parsed.kind() === "ipv6" &&
+          (parsed as ipaddr.IPv6).isIPv4MappedAddress()
+            ? (parsed as ipaddr.IPv6).toIPv4Address()
+            : parsed;
+        if (
+          normalized.kind() === normalizedRange.kind() &&
+          normalized.toString() === normalizedRange.toString()
+        ) {
+          return true;
+        }
+      }
+    } catch {
+      // Ignore parsing errors for this range, check next
+    }
+  }
+
+  return false;
+}
+
+/**
+ * enforceTenantIpAllowlist — blocks requests from unauthorized IP addresses.
+ * Returns a 403 Response if blocked, or null to let the caller proceed.
+ */
+async function enforceTenantIpAllowlist(
+  c: Context<AuthVariables>,
+  tenantId: string,
+): Promise<Response | null> {
+  try {
+    const ipAllowlist = await resolveTenantIpAllowlist(tenantId);
+    if (ipAllowlist.length > 0) {
+      const clientIp = getClientIp(c);
+      if (!checkIpInAllowlist(clientIp, ipAllowlist)) {
+        logger.warn(
+          { tenantId, clientIp, ipAllowlist },
+          "ip-allowlist: blocked request from unauthorized IP",
+        );
+        return c.json(
+          { error: "FORBIDDEN", message: "IP address not allowlisted" },
+          403,
+        );
+      }
+    }
+    return null;
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "ip-allowlist: check failed unexpectedly — failing closed",
+    );
+    return c.json(
+      { error: "SERVICE_UNAVAILABLE", message: "Security check failed" },
+      503,
+    );
   }
 }
 
@@ -310,6 +461,12 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           );
         }
         c.set("auth", auth);
+        const tenantIpBlocked = await enforceTenantIpAllowlist(
+          c,
+          auth.tenantId,
+        );
+        if (tenantIpBlocked) return tenantIpBlocked;
+
         const tenantRateLimited = await enforceTenantRateLimit(
           c,
           auth.tenantId,
@@ -406,6 +563,9 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
       if (tenantStatus === "deleted" || tenantStatus === "purged") {
         return c.json({ error: "TENANT_NOT_FOUND", message: "Not found" }, 404);
       }
+
+      const ipBlocked = await enforceTenantIpAllowlist(c, auth.tenantId);
+      if (ipBlocked) return ipBlocked;
 
       const rateLimited = await enforceTenantRateLimit(c, auth.tenantId);
       if (rateLimited) return rateLimited;
@@ -586,6 +746,30 @@ export async function resolveTenantPlan(
   const plan = row?.plan ?? "standard";
   setCachedTenantPlan(tenantId, plan);
   return plan;
+}
+
+/**
+ * Return the tenant's IP allowlist configuration, using a 30s in-process cache.
+ * The tenants table has no RLS, so we query with the plain db instance.
+ */
+export async function resolveTenantIpAllowlist(
+  tenantId: string,
+  dbHandle?: DbOrTx,
+): Promise<string[]> {
+  const cached = getCachedTenantIpAllowlist(tenantId);
+  if (cached !== undefined) return cached;
+
+  const activeDb = dbHandle ?? db;
+  const [row] = await activeDb
+    .select({ config: tenants.config })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1);
+
+  const config = row?.config as Record<string, unknown> | undefined;
+  const ipAllowlist = (config?.ip_allowlist as string[] | undefined) ?? [];
+  setCachedTenantIpAllowlist(tenantId, ipAllowlist);
+  return ipAllowlist;
 }
 
 // Org -> tenant mappings are effectively immutable once set (a tenant is

@@ -647,6 +647,25 @@ export async function getUserById(userId: string): Promise<OrgUser | null> {
   }
 }
 
+export async function deleteUser(userId: string): Promise<boolean> {
+  const token = await getAccessToken();
+  if (!token) return false;
+
+  try {
+    const url = `${internalBase()}/zitadel.user.v2.UserService/DeleteUser`;
+    const result = await httpPost(
+      url,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify({ userId }),
+    );
+    return result.status >= 200 && result.status < 300;
+  } catch (err) {
+    logger.error({ err, userId }, "Failed to delete Zitadel user");
+    return false;
+  }
+}
+
 // ── Cache invalidation ────────────────────────────────────────────────────────
 
 export function invalidateUserCache(): void {
