@@ -3,7 +3,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
 import yaml from "js-yaml";
-import { execSync } from "child_process";
+import { spawnSync } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,8 +53,8 @@ interface GrafanaDashboardJson {
 
 function isDockerAvailable(): boolean {
   try {
-    execSync("docker info", { stdio: "ignore" });
-    return true;
+    const res = spawnSync("docker", ["info"], { stdio: "ignore" });
+    return res.status === 0;
   } catch {
     return false;
   }
@@ -92,16 +92,28 @@ describe("Observability Configuration Validation", () => {
       console.warn("Docker not available, skipping promtool validation");
       return;
     }
-    try {
-      const output = execSync(
-        `docker run --rm -v "${obsDir}:/obs" --entrypoint promtool prom/prometheus:v2.53.0 check rules /obs/alert.rules.yml`,
-        { encoding: "utf8" },
+    const res = spawnSync(
+      "docker",
+      [
+        "run",
+        "--rm",
+        "-v",
+        `${obsDir}:/obs`,
+        "--entrypoint",
+        "promtool",
+        "prom/prometheus:v2.53.0",
+        "check",
+        "rules",
+        "/obs/alert.rules.yml",
+      ],
+      { encoding: "utf8" },
+    );
+    if (res.status !== 0) {
+      throw new Error(
+        `promtool validation failed: ${res.stdout || res.stderr || ""}`,
       );
-      expect(output).toContain("SUCCESS");
-    } catch (err: unknown) {
-      const e = err as { stdout?: string; message: string };
-      throw new Error(`promtool validation failed: ${e.stdout || e.message}`);
     }
+    expect(res.stdout).toContain("SUCCESS");
   }, 60000);
 
   it("validates alertmanager.yml has correct syntax and mailhog config", () => {
@@ -123,16 +135,27 @@ describe("Observability Configuration Validation", () => {
       console.warn("Docker not available, skipping amtool validation");
       return;
     }
-    try {
-      const output = execSync(
-        `docker run --rm -v "${obsDir}:/obs" --entrypoint amtool prom/alertmanager:v0.27.0 check-config /obs/alertmanager.yml`,
-        { encoding: "utf8" },
+    const res = spawnSync(
+      "docker",
+      [
+        "run",
+        "--rm",
+        "-v",
+        `${obsDir}:/obs`,
+        "--entrypoint",
+        "amtool",
+        "prom/alertmanager:v0.27.0",
+        "check-config",
+        "/obs/alertmanager.yml",
+      ],
+      { encoding: "utf8" },
+    );
+    if (res.status !== 0) {
+      throw new Error(
+        `amtool validation failed: ${res.stdout || res.stderr || ""}`,
       );
-      expect(output).toContain("SUCCESS");
-    } catch (err: unknown) {
-      const e = err as { stdout?: string; message: string };
-      throw new Error(`amtool validation failed: ${e.stdout || e.message}`);
     }
+    expect(res.stdout).toContain("SUCCESS");
   }, 60000);
 
   it("validates Grafana datasources provisioning file syntax", () => {
