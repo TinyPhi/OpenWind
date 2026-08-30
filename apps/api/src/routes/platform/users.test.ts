@@ -57,6 +57,15 @@ vi.mock("@platform/db", () => ({
     triggeredBy: "triggeredBy",
     actorId: "actorId",
   },
+  attachments: {
+    tenantId: "tenantId",
+    uploadedBy: "uploadedBy",
+    actingPersonId: "actingPersonId",
+  },
+  idempotencyKeys: {
+    tenantId: "tenantId",
+    userId: "userId",
+  },
 }));
 
 vi.mock("@platform/auth", () => ({
@@ -89,6 +98,7 @@ vi.mock("../../lib/zitadel-management.js", () => ({
   listUserRolesByUserId: (...args: unknown[]) =>
     mockListUserRolesByUserId(...args),
   invalidateUserCache: () => mockInvalidateUserCache(),
+  deleteUser: vi.fn().mockResolvedValue(undefined),
 }));
 
 const { usersRouter } = await import("./users.js");
@@ -197,8 +207,8 @@ describe("GET /users", () => {
       expect(body.success).toBe(true);
 
       // Verify that all steps ran inside the transaction
-      expect(mockTx.delete).toHaveBeenCalledTimes(6);
-      expect(mockTx.update).toHaveBeenCalledTimes(7);
+      expect(mockTx.delete).toHaveBeenCalledTimes(7);
+      expect(mockTx.update).toHaveBeenCalledTimes(9);
       expect(mockWriteAuditEntry).toHaveBeenCalled();
       expect(mockInvalidateUserCache).toHaveBeenCalled();
     });
