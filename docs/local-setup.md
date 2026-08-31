@@ -177,6 +177,62 @@ Follow these steps in order.
   - `openwind.example.com` → forwards to the frontend's host port
   - `owzitadel.example.com` → forwards to Zitadel's host port
 
+**The backend is never given its own subdomain or a public port.** The
+third-party API (ADR-012) is reached through the _same_ `openwind.example.com`
+domain as the frontend, split by path at the reverse proxy — same shape as
+`ow-frontend`'s own Vite dev proxy locally (see `apps/admin-ui/vite.config.ts`).
+The backend container only publishes to `127.0.0.1:${API_HOST_PORT:-3002}`
+(`docker-compose.yml`) — reachable by the reverse proxy running on the same
+box, unreachable from outside it. Add these two `location` blocks to the
+**existing** `openwind.example.com` server block, before its catch-all `/`
+block (nginx matches the most specific `location`, so exact placement relative
+to `/` doesn't actually matter, but keeping them together above it reads
+clearer):
+
+```nginx
+    # 3002 below is the API_HOST_PORT default -- if you overrode that env var,
+    # substitute your actual value in BOTH proxy_pass lines; nginx doesn't
+    # read the .env file, so there's no way to keep these in sync automatically.
+    location /api/v1/ {
+        proxy_pass http://127.0.0.1:3002;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # OVERWRITE, not $proxy_add_x_forwarded_for (which APPENDS to
+        # whatever the client already sent). apps/api's rate limiter
+        # (middleware/rate-limit.ts) trusts the FIRST hop of X-Forwarded-For
+        # as the client's identity for its per-IP bucket -- append instead
+        # of overwrite, and an external caller can send their own
+        # X-Forwarded-For value (a fresh one on every request) and have
+        # nginx tack the real IP on afterward, completely defeating the
+        # rate limit. nginx is the single trusted hop here, so $remote_addr
+        # (the actual TCP peer nginx itself sees) is the only value that
+        # can't be forged by the request.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /ws/ {
+        proxy_pass http://127.0.0.1:3002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        # Same reasoning as /api/v1/ above -- without these, nginx proxies the
+        # WebSocket upgrade as a plain TCP connection from 127.0.0.1, and the
+        # rate limiter's getConnInfo() fallback collapses every real client
+        # into one shared bucket keyed on that loopback address. $remote_addr
+        # (overwrite), not $proxy_add_x_forwarded_for, for the same spoofing
+        # reason as the /api/v1/ block.
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+```
+
+No path rewriting here (unlike the frontend's own `/api` rule, which strips
+that prefix for its internal calls) — the backend already expects the literal
+`/api/v1/...` prefix (`apps/api/src/app.ts`'s `app.route("/api/v1", ...)`), so
+forwarding the URI unchanged is correct.
+
 ### Step 2 — Clone the repo
 
 ```bash
