@@ -73,7 +73,7 @@ vi.mock("@platform/db", () => ({
 }));
 
 // mock redis
-const mockGet = vi.fn();
+const mockMget = vi.fn();
 const mockSmembers = vi.fn().mockResolvedValue([]);
 const mockDel = vi.fn();
 const mockSadd = vi.fn();
@@ -81,7 +81,7 @@ const mockSet = vi.fn().mockResolvedValue("OK");
 
 vi.mock("@platform/redis", () => ({
   getRedis: () => ({
-    get: mockGet,
+    mget: mockMget,
     smembers: mockSmembers,
     del: mockDel,
     sadd: mockSadd,
@@ -128,19 +128,10 @@ describe("runUsageMeteringSweep", () => {
       .mockResolvedValueOnce(5_000_000) // tenant-1: 5MB (within 10GB limit)
       .mockResolvedValueOnce(20 * 1024 * 1024 * 1024); // tenant-2: 20GB (exceeds 10GB limit)
 
-    // Mock yesterday's Redis counters
-    mockGet
-      .mockResolvedValueOnce("8000") // tenant-1 api (yesterday)
-      .mockResolvedValueOnce("1000") // tenant-1 ai (yesterday)
-      .mockResolvedValueOnce("15000") // tenant-2 api (yesterday)
-      .mockResolvedValueOnce("20000"); // tenant-2 ai (yesterday)
-
-    // Mock today's running Redis counters
-    mockGet
-      .mockResolvedValueOnce("9000") // tenant-1 api (today)
-      .mockResolvedValueOnce("2000") // tenant-1 ai (today)
-      .mockResolvedValueOnce("12000") // tenant-2 api (today, exceeds 10,000 limit)
-      .mockResolvedValueOnce("55000"); // tenant-2 ai (today, exceeds 50,000 limit)
+    // Mock Redis counters — one mget per tenant: [yesterdayApi, yesterdayAi, todayApi, todayAi]
+    mockMget
+      .mockResolvedValueOnce(["8000", "1000", "15000", "20000"]) // tenant-1: todayApi=15000 exceeds limit
+      .mockResolvedValueOnce(["9000", "2000", "12000", "55000"]); // tenant-2: todayApi+todayAi+storage exceed limits
 
     // Mock tenant admins list
     mockListUserIdsWithRole
@@ -152,10 +143,11 @@ describe("runUsageMeteringSweep", () => {
     // Verify DB inserts occurred for both tenants (both yesterday and today)
     expect(mockInsert).toHaveBeenCalledTimes(4);
 
-    // Verify tenant-1 was NOT flagged as degraded in Redis (limits not exceeded)
+    // tenant-1 todayApi=15000 exceeds apiCallsPerDay=10,000 — degraded on api_calls only
     expect(mockDel).toHaveBeenCalledWith("degraded:tenant-1");
+    expect(mockSadd).toHaveBeenCalledWith("degraded:tenant-1", "api_calls");
 
-    // Verify tenant-2 was flagged as degraded on api_calls, storage, and ai_tokens
+    // tenant-2 exceeds api_calls, storage, and ai_tokens
     expect(mockDel).toHaveBeenCalledWith("degraded:tenant-2");
     expect(mockSadd).toHaveBeenCalledWith(
       "degraded:tenant-2",
@@ -164,7 +156,7 @@ describe("runUsageMeteringSweep", () => {
       "ai_tokens",
     );
 
-    // Verify notification was sent for tenant-2 (which transition into degraded)
+    // 1 notification for tenant-1 (api_calls) + 3 for tenant-2 = 4 total
     expect(mockSendNotification).toHaveBeenCalledTimes(4);
     expect(mockSendNotification).toHaveBeenCalledWith(
       expect.anything(),
@@ -181,7 +173,7 @@ describe("runUsageMeteringSweep", () => {
   it("sends plan_recovered notification when tenant exits degraded state", async () => {
     mockWhere.mockResolvedValueOnce([{ id: "tenant-3", plan: "standard" }]);
     mockGetTenantUsedBytes.mockResolvedValueOnce(1_000_000); // 1MB
-    mockGet.mockResolvedValue("0"); // API & AI all 0
+    mockMget.mockResolvedValueOnce(["0", "0", "0", "0"]); // all counters zero
 
     // Previously degraded on storage
     mockSmembers.mockResolvedValueOnce(["storage"]);
