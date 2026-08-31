@@ -190,8 +190,11 @@ to `/` doesn't actually matter, but keeping them together above it reads
 clearer):
 
 ```nginx
+    # 3002 below is the API_HOST_PORT default -- if you overrode that env var,
+    # substitute your actual value in BOTH proxy_pass lines; nginx doesn't
+    # read the .env file, so there's no way to keep these in sync automatically.
     location /api/v1/ {
-        proxy_pass http://127.0.0.1:3002;   # API_HOST_PORT, if you overrode it
+        proxy_pass http://127.0.0.1:3002;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         # OVERWRITE, not $proxy_add_x_forwarded_for (which APPENDS to
@@ -214,6 +217,14 @@ clearer):
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        # Same reasoning as /api/v1/ above -- without these, nginx proxies the
+        # WebSocket upgrade as a plain TCP connection from 127.0.0.1, and the
+        # rate limiter's getConnInfo() fallback collapses every real client
+        # into one shared bucket keyed on that loopback address. $remote_addr
+        # (overwrite), not $proxy_add_x_forwarded_for, for the same spoofing
+        # reason as the /api/v1/ block.
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
     }
 ```
 

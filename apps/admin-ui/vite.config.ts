@@ -56,6 +56,11 @@ export default defineConfig(({ mode }) => {
               // /api/v1/, so a base URL of http://localhost:3001 behaves
               // identically to the public domain for third-party callers.
               // No separate backend host-port publish needed for this.
+              // DO NOT REORDER these keys (or alphabetize/auto-sort them) --
+              // insertion order is semantically significant here, not just
+              // stylistic. Moving "/api/v1" after "/api" silently breaks
+              // third-party routing (requests get the "/api" prefix stripped
+              // and 404 on the backend) with no error at build or lint time.
               "/api/v1": {
                 target: env["VITE_API_PROXY_TARGET"],
                 changeOrigin: true,
