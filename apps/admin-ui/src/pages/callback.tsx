@@ -2,6 +2,18 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { userManager } from "../authProvider.js";
+import { fetchWithAuth, API_URL } from "../lib/api.js";
+import { toTypeSlug, type EntityType } from "../entity-type-context.js";
+import type { HandoffState } from "./login.js";
+
+function isHandoffState(state: unknown): state is HandoffState {
+  return (
+    typeof state === "object" &&
+    state !== null &&
+    typeof (state as HandoffState).workflowId === "string" &&
+    typeof (state as HandoffState).entityTypeId === "string"
+  );
+}
 
 export function AuthCallback(): React.ReactElement {
   const { t } = useTranslation();
@@ -14,14 +26,41 @@ export function AuthCallback(): React.ReactElement {
     called.current = true;
     userManager
       .signinCallback()
-      .then(async () => {
+      .then(async (user) => {
         // Personal dashboard is reachable by every role (docs/specs/personal-dashboard.md
         // R5) — customers used to be sent straight to /records here, bypassing it entirely.
-        const user = await userManager.getUser();
         if (!user) {
           navigate("/login");
           return;
         }
+
+        // Hosted ticket-create handoff (docs/specs/hosted-ticket-create-handoff.md,
+        // T2/T3) -- resolved via a direct fetchWithAuth call, NOT
+        // EntityTypeProvider's context, which does not wrap this route.
+        // Any failure here (bad id, network error) falls through to the
+        // default /dashboard destination (spec R5) rather than blocking.
+        if (isHandoffState(user.state)) {
+          const handoff = user.state;
+          try {
+            const entityType = (await fetchWithAuth(
+              `${API_URL}/entity-types/${handoff.entityTypeId}`,
+            )) as { data: EntityType };
+            const slug = toTypeSlug(
+              entityType.data.plural || entityType.data.name,
+            );
+            navigate(`/records/${slug}/new`, {
+              state: {
+                workflowId: handoff.workflowId,
+                entityTypeId: handoff.entityTypeId,
+                prefillFields: handoff.prefillFields,
+              },
+            });
+            return;
+          } catch {
+            // fall through to the default destination below
+          }
+        }
+
         navigate("/dashboard");
       })
       .catch((err: Error) => {
