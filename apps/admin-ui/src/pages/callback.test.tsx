@@ -62,35 +62,41 @@ describe("AuthCallback", () => {
     });
   });
 
+  const WORKFLOW_ID = "11111111-1111-4111-8111-111111111111";
+  const ENTITY_TYPE_ID = "22222222-2222-4222-8222-222222222222";
+
   it("with valid handoff state, resolves the entity type and navigates to the pre-filled create page (spec R1)", async () => {
     signinCallback.mockResolvedValue({
       state: {
-        workflowId: "wf-1",
-        entityTypeId: "et-1",
+        workflowId: WORKFLOW_ID,
+        entityTypeId: ENTITY_TYPE_ID,
         prefillFields: { title: "Client dinner" },
       },
     });
     fetchWithAuth.mockResolvedValue({
-      data: { id: "et-1", name: "Expense", plural: "Expenses" },
+      data: { id: ENTITY_TYPE_ID, name: "Expense", plural: "Expenses" },
     });
     renderCallback();
 
     await waitFor(() => {
       expect(navigateSpy).toHaveBeenCalledWith("/records/expenses/new", {
         state: {
-          workflowId: "wf-1",
-          entityTypeId: "et-1",
+          workflowId: WORKFLOW_ID,
+          entityTypeId: ENTITY_TYPE_ID,
           prefillFields: { title: "Client dinner" },
         },
       });
     });
-    expect(fetchWithAuth).toHaveBeenCalledWith("/api/entity-types/et-1");
+    expect(fetchWithAuth).toHaveBeenCalledWith(
+      `/api/entity-types/${ENTITY_TYPE_ID}`,
+    );
   });
 
-  // spec R5 -- nonexistent entityTypeId must degrade gracefully, not crash.
+  // spec R5 -- a well-formed but nonexistent entityTypeId must degrade
+  // gracefully (the backend 404s / fetchWithAuth rejects), not crash.
   it("with a handoff entityTypeId that fails to resolve, falls back to /dashboard instead of crashing", async () => {
     signinCallback.mockResolvedValue({
-      state: { workflowId: "wf-1", entityTypeId: "does-not-exist" },
+      state: { workflowId: WORKFLOW_ID, entityTypeId: ENTITY_TYPE_ID },
     });
     fetchWithAuth.mockRejectedValue(new Error("404"));
     renderCallback();
@@ -104,7 +110,35 @@ describe("AuthCallback", () => {
   // spec R5 -- malformed (non-object / missing fields) state also degrades gracefully.
   it("with malformed handoff state (missing entityTypeId), falls back to /dashboard without calling fetchWithAuth", async () => {
     signinCallback.mockResolvedValue({
-      state: { workflowId: "wf-1" },
+      state: { workflowId: WORKFLOW_ID },
+    });
+    renderCallback();
+
+    await waitFor(() => {
+      expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
+    });
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  // PrabhuVijit's PR #542 review: isHandoffState's original typeof-only
+  // check let a non-UUID (e.g. a path-traversal payload) reach the
+  // fetchWithAuth URL path before anything rejected it. Now rejected at
+  // the guard itself, before any fetch is attempted.
+  it("rejects a non-UUID entityTypeId at the guard, without ever calling fetchWithAuth", async () => {
+    signinCallback.mockResolvedValue({
+      state: { workflowId: WORKFLOW_ID, entityTypeId: "../../api/entities" },
+    });
+    renderCallback();
+
+    await waitFor(() => {
+      expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
+    });
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-UUID workflowId at the guard, without ever calling fetchWithAuth", async () => {
+    signinCallback.mockResolvedValue({
+      state: { workflowId: "not-a-uuid", entityTypeId: ENTITY_TYPE_ID },
     });
     renderCallback();
 
