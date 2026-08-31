@@ -46,16 +46,27 @@ externalIssuer?: string (url)
 externalOrgId?: string
 ```
 
-At creation time, resolve the issuer for the submitted `oidcClientId` (via that issuer's own
-`/.well-known/openid-configuration` if `externalIssuer` isn't explicitly given, or require it
-explicitly — see §T's open resolution task) and compare against the platform's configured
-primary IdP issuer:
+**Resolved (was the spec-review blocker): `externalIssuer` is always supplied explicitly by the
+admin, never derived via a live discovery-document fetch at creation time.** A key-creation
+request is a security-sensitive write path — making it depend on a synchronous call to an
+external IdP's availability (with no clear failure behavior if that IdP is slow/unreachable) is
+worse than just requiring the admin to state the issuer they already know they're configuring.
+Discovery is still used, but only later, at request-verification time (Phase 1's T2, to resolve
+JWKS per-issuer) — never during `POST /api-keys` itself.
 
-- Same issuer (today's default case) → `externalIssuer`/`externalOrgId` must be omitted; if
-  supplied anyway, `422` (don't let a key end up ambiguously double-mapped).
-- Different issuer, `externalOrgId` omitted → `422 ORG_MAPPING_REQUIRED`, per the resolved
-  interview decision (fail closed at creation, not at first use).
-- Different issuer, `externalOrgId` supplied → stored, used at verification time.
+At creation time, compare the submitted `externalIssuer` (if any) against the platform's
+configured primary IdP issuer:
+
+- No `externalIssuer` supplied (today's default case) → the key uses the tenant's primary IdP;
+  `externalOrgId` must also be omitted — if supplied without `externalIssuer`, `422` (an org id
+  with no stated issuer is meaningless).
+- `externalIssuer` supplied but equal to the platform's primary IdP issuer → `422` (redundant;
+  don't let a key end up ambiguously double-mapped to the same IdP two different ways).
+- `externalIssuer` supplied, different from the primary IdP, `externalOrgId` omitted → `422
+ORG_MAPPING_REQUIRED`, per the resolved interview decision (fail closed at creation, not at
+  first use).
+- `externalIssuer` + `externalOrgId` both supplied, issuer differs from primary → stored, used
+  at verification time.
 
 ## §R Requirements
 
@@ -64,11 +75,13 @@ input and behaves byte-for-byte as today.
 ✓ Existing `api-keys` isolation tests for the single-IdP case pass unmodified
 ✓ `external_issuer`/`external_org_id` are `NULL` on a key created this way
 
-R2: Creating a key whose `oidcClientId` belongs to a different IdP than the platform's primary,
-without supplying `externalOrgId`, is rejected at creation — not silently accepted.
-✓ `POST /api-keys` with a foreign-issuer `oidcClientId` and no `externalOrgId` → `422
+R2: Creating a key with an `externalIssuer` different from the platform's primary IdP, without
+supplying `externalOrgId`, is rejected at creation — not silently accepted.
+✓ `POST /api-keys` with a foreign `externalIssuer` and no `externalOrgId` → `422
 ORG_MAPPING_REQUIRED`, clear message naming the mismatch
 ✓ No `api_keys` row is written on this rejection
+✓ Supplying `externalOrgId` without `externalIssuer` is also rejected (`422`) — an org id with no
+stated issuer is meaningless, not a valid partial state
 
 R3: Creating a key with a valid `externalIssuer`/`externalOrgId` pair succeeds and that mapping
 is used at request-verification time instead of the tenant's primary org mapping.
@@ -96,18 +109,28 @@ unaffected for keys that don't use this new mapping.
   to the tenant's primary org id when the issuers actually differ — that would re-introduce
   exactly the confusing cross-IdP 401 this spec exists to prevent, just moved to a different code
   path.
+- `externalOrgId` is trusted admin input, not independently verified against the real IdP at
+  creation time — no call proves the org actually exists or that the admin has real authority
+  over it. A typo creates a mapping that simply never matches any real token, not a security
+  hole, but this file being the closest thing to a security review this feature gets before
+  implementation, that distinction should be explicit, not assumed.
+- Two different tenants' keys mapping to the same `(externalIssuer, externalOrgId)` pair is
+  harmless — verification is scoped to the presented key's own row (already tenant-bound via the
+  key lookup itself), never a global reverse lookup by org id across tenants. Worth stating
+  explicitly given how central org-matching is to this feature's security model, even though nothing
+  in the design actually permits cross-tenant lookup by org id in the first place.
 
 ## §T Tasks
 
-| id  | task                                                                                                                                                                                                                                                                                                                                                                   | phase | status | depends  |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | -------- |
-| T1  | **Open resolution needed before coding**: decide how a key's issuer is determined at creation time — require `externalIssuer` explicitly in the request, or derive it from `oidcClientId` via that client's own discovery document (needs the client id to be globally resolvable to an issuer, which OIDC doesn't guarantee without already knowing which IdP to ask) | 1     | todo   | —        |
-| T2  | Generalize `packages/auth/src/jwks.ts` to resolve JWKS per-issuer (cache multiple `JwksGetter`s keyed by issuer), not one static global source — reconcile with `nexus-OW`'s existing local fork implementation rather than re-deriving                                                                                                                                | 1     | todo   | T1       |
-| T3  | Generalize `dual-identity.ts`'s org-claim read to resolve the claim NAME per-issuer (Zitadel: `urn:zitadel:iam:user:resourceowner:id`; AuthNexus: `org_id`) instead of hardcoding Zitadel's — reconcile with `nexus-OW`'s fork                                                                                                                                         | 1     | todo   | T1       |
-| T4  | Migration: `external_issuer`/`external_org_id` nullable columns on `api_keys`                                                                                                                                                                                                                                                                                          | 2     | todo   | T1       |
-| T5  | `createApiKeyHandler`: issuer-mismatch detection + `ORG_MAPPING_REQUIRED` validation (R2/R4)                                                                                                                                                                                                                                                                           | 2     | todo   | T1,T4    |
-| T6  | `dual-identity.ts`: use `external_org_id` (via T3's per-issuer claim resolution) instead of `tenants.zitadel_org_id` when a key has an external mapping (R3)                                                                                                                                                                                                           | 2     | todo   | T2,T3,T4 |
-| T7  | Isolation tests: R1–R5, plus explicit regression tests that `tenant-org-id-mapping.md`'s existing suite is untouched                                                                                                                                                                                                                                                   | 2     | todo   | T5,T6    |
+| id  | task                                                                                                                                                                                                                                                                                                                                            | phase | status | depends  |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | -------- |
+| T1  | **Resolved by spec-review (see §I)**: `externalIssuer` is always explicit admin input on `POST /api-keys`, never derived via a live discovery-document fetch at creation time — that dependency on external-IdP availability during a write path was the spec-review blocker                                                                    | 1     | done   | —        |
+| T2  | Generalize `packages/auth/src/jwks.ts` to resolve JWKS per-issuer (cache multiple `JwksGetter`s keyed by issuer), not one static global source — reconcile with `nexus-OW`'s existing local fork implementation rather than re-deriving, and run its adopted logic through this repo's own `security.md` checklist rather than porting it as-is | 1     | todo   | T1       |
+| T3  | Generalize `dual-identity.ts`'s org-claim read to resolve the claim NAME per-issuer (Zitadel: `urn:zitadel:iam:user:resourceowner:id`; AuthNexus: `org_id`) instead of hardcoding Zitadel's — reconcile with `nexus-OW`'s fork, same security-review caveat as T2                                                                               | 1     | todo   | T1       |
+| T4  | Migration: `external_issuer`/`external_org_id` nullable columns on `api_keys`                                                                                                                                                                                                                                                                   | 2     | todo   | T1       |
+| T5  | `createApiKeyHandler`: issuer-mismatch detection + `ORG_MAPPING_REQUIRED` validation (R2/R4)                                                                                                                                                                                                                                                    | 2     | todo   | T1,T4    |
+| T6  | `dual-identity.ts`: use `external_org_id` (via T3's per-issuer claim resolution) instead of `tenants.zitadel_org_id` when a key has an external mapping (R3)                                                                                                                                                                                    | 2     | todo   | T2,T3,T4 |
+| T7  | Isolation tests: R1–R5, plus explicit regression tests that `tenant-org-id-mapping.md`'s existing suite is untouched                                                                                                                                                                                                                            | 2     | todo   | T5,T6    |
 
 phase gate: Phase 1 (T1–T3, the multi-issuer verification infra) must land and pass its own
 tests before Phase 2 (the api_keys schema/validation layer) starts — Phase 2 has nothing real to
