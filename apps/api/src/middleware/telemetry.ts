@@ -24,11 +24,13 @@ export function telemetry(): MiddlewareHandler<TelemetryEnv> {
     const route = c.req.routePath;
     const method = c.req.method;
     const status = String(c.res.status);
+    const tenantId = c.get("auth")?.tenantId ?? "unauthenticated";
 
     const labels = {
       method,
       route,
       status,
+      tenant_id: tenantId,
     };
 
     httpRequestsTotal.add(1, labels);

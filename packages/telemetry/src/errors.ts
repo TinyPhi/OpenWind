@@ -40,7 +40,7 @@ export function scrubPIIInPlace(val: unknown, seen = new WeakSet()): void {
   seen.add(val);
 
   if (Array.isArray(val)) {
-    const arr = val as unknown[];
+    const arr = val as unknown[]; // Array.isArray narrows to any[], not unknown[] — widen element type explicitly
     for (let i = 0; i < arr.length; i++) {
       const v = arr[i];
       if (v && typeof v === "object") {
@@ -50,7 +50,7 @@ export function scrubPIIInPlace(val: unknown, seen = new WeakSet()): void {
     return;
   }
 
-  const obj = val as Record<string, unknown>;
+  const obj = val as Record<string, unknown>; // typeof narrows to object but not the string-indexed record shape
   for (const key of Object.keys(obj)) {
     const value = obj[key];
     const lowerKey = key.toLowerCase();
