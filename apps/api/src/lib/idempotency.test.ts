@@ -5,6 +5,32 @@ vi.mock("@platform/logger", () => ({
   logger: { warn: vi.fn(), error: vi.fn() },
 }));
 
+const mockState = vi.hoisted(() => ({ shouldReject: false }));
+vi.mock("canonicalize", () => {
+  return {
+    get default() {
+      if (mockState.shouldReject) {
+        throw new Error("import failed");
+      }
+      return (value: unknown) => {
+        if (typeof value !== "object" || value === null) {
+          return JSON.stringify(value);
+        }
+        // Note: This is a simplified key-sorting JSON canonicalization approximation
+        // sufficient for the test payloads. The real RFC 8785 JCS diverges on
+        // IEEE 754 float precision, NaNs/Infinities, and unicode surrogate pairs.
+        const val = value as Record<string, unknown>;
+        const sortedKeys = Object.keys(val).sort();
+        const obj: Record<string, unknown> = {};
+        for (const key of sortedKeys) {
+          obj[key] = val[key];
+        }
+        return JSON.stringify(obj);
+      };
+    },
+  };
+});
+
 const mockRedisSet = vi.fn();
 const mockRedisDel = vi.fn();
 const mockRedisEval = vi.fn();
@@ -434,5 +460,29 @@ describe("withIdempotency", () => {
         "cached status code in database is not a valid IdempotencyStatus",
       ),
     );
+  });
+
+  it("recovers from ESM import failure on subsequent calls", async () => {
+    mockState.shouldReject = true;
+    const { computeContentHash } =
+      await import("./idempotency.js?test-recovery");
+    await expect(computeContentHash({ a: 1 })).rejects.toThrow();
+
+    mockState.shouldReject = false;
+    const hash = await computeContentHash({ a: 1 });
+    expect(hash).toBeDefined();
+  });
+
+  it("returns Retry-After header on 409 lock-busy response", async () => {
+    mockRedisSet.mockResolvedValue(null);
+    const execute = vi.fn();
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-busy" },
+      content,
+      execute,
+    );
+    expect(result.status).toBe(409);
+    expect(result.headers).toBeDefined();
+    expect(result.headers?.["Retry-After"]).toBe("1");
   });
 });

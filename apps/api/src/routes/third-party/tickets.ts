@@ -217,6 +217,12 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
       },
     );
 
+    if (response.headers) {
+      for (const [key, value] of Object.entries(response.headers)) {
+        c.header(key, value);
+      }
+    }
+
     return c.json(response.body as object, response.status);
   },
 );

@@ -113,9 +113,11 @@ export interface IdempotencyScope {
 // share the same Promise rather than racing to import separately.
 // Mutable so a failed import can be retried on the next request rather than
 // permanently poisoning every subsequent call with the same rejection.
-let canonicalizeFnPromise: Promise<(value: unknown) => string | undefined>;
+let canonicalizeFnPromise:
+  | Promise<(value: unknown) => string | undefined>
+  | undefined;
 function loadCanonicalize(): Promise<(value: unknown) => string | undefined> {
-  canonicalizeFnPromise = import("canonicalize")
+  canonicalizeFnPromise ??= import("canonicalize")
     .then(
       (m) => (m as { default: (value: unknown) => string | undefined }).default,
     )
@@ -125,12 +127,15 @@ function loadCanonicalize(): Promise<(value: unknown) => string | undefined> {
         "idempotency: failed to import ESM package 'canonicalize' — will retry on next request",
       );
       // Reset so the next withIdempotency call attempts a fresh import.
-      void loadCanonicalize();
+      // Note: concurrent in-flight callers awaiting the same rejected promise
+      // will also receive this error, but resetting the reference ensures
+      // subsequent requests trigger a new import attempt.
+      canonicalizeFnPromise = undefined;
       throw err as Error;
     });
   return canonicalizeFnPromise;
 }
-void loadCanonicalize();
+void loadCanonicalize().catch(() => {});
 
 /**
  * RFC 8785 JSON Canonicalization Scheme (via the `canonicalize` package,
@@ -143,7 +148,7 @@ void loadCanonicalize();
 export async function computeContentHash(
   content: Record<string, unknown>,
 ): Promise<string> {
-  const canonicalize = await canonicalizeFnPromise;
+  const canonicalize = await loadCanonicalize();
   const canonical = canonicalize(content) ?? "null";
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -232,6 +237,9 @@ export async function withIdempotency(
         body: row.responseBody,
       };
     }
+    // Note: IDEMPOTENCY_KEY_CONFLICT represents a client logic error where a key
+    // is reused for different content. This is a non-retriable 409 condition,
+    // so we intentionally omit the Retry-After header.
     return {
       status: 409,
       body: {
@@ -335,6 +343,9 @@ export async function withIdempotency(
         error: "IDEMPOTENCY_IN_PROGRESS",
         message: "A request with this idempotency key is already in progress",
         retryAfterSeconds: LOCK_RETRY_AFTER_SECONDS,
+      },
+      headers: {
+        "Retry-After": String(LOCK_RETRY_AFTER_SECONDS),
       },
     };
   }
