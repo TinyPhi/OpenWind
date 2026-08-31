@@ -42,12 +42,20 @@ injection/privilege-escalation) — found during a security review of a separate
 information-disclosure fix (that fix shipped same session). Narrower/severer sibling issue, not
 yet investigated end-to-end — see the issue for full detail.
 
+**Added 2026-08-31:** #540 (rate-limit.ts trusts first X-Forwarded-For hop, spoofable if a
+fronting proxy appends instead of overwrites) — found during a security review of the fix that
+first made the third-party API reachable via a reverse proxy at all (previously the backend
+published no host port, so this was unreachable/unexploitable). This diff's own doc uses the safe
+overwrite form, but the underlying trust assumption in `rate-limit.ts` has no enforcement — see
+the issue for suggested fix directions.
+
 | Finding                                                                                                                                                                                                                               | Issue                    | Owner      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------- |
 | No backup / disaster-recovery runbook — mechanical building block shipped (PR #286), RPO/RTO policy still an open maintainer decision                                                                                                 | [#192](../../issues/192) | Unassigned |
 | No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay); closing vs. leaving open for those 2 is an open maintainer decision | [#198](../../issues/198) | Unassigned |
 | Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                    | [#200](../../issues/200) | Unassigned |
 | `entity-engine`'s `createEntity`/`updateEntity` have no reserved-key check on `fields` — a caller may be able to inject `__accessUsers` directly, bypassing the @mention-grant flow (privilege escalation, unconfirmed end-to-end)    | [#524](../../issues/524) | Unassigned |
+| `rate-limit.ts` trusts the first `X-Forwarded-For` hop with no enforcement that a fronting proxy overwrites (not appends) it — spoofable rate-limit bypass if misconfigured                                                           | [#540](../../issues/540) | Unassigned |
 
 ---
 

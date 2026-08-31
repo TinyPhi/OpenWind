@@ -46,6 +46,20 @@ export default defineConfig(({ mode }) => {
       ...(env["VITE_API_PROXY_TARGET"]
         ? {
             proxy: {
+              // Third-party API (ADR-012) — mounted on the backend at the
+              // literal path "/api/v1" (apps/api/src/app.ts), unlike
+              // admin-ui's own internal routes below. Must be checked
+              // BEFORE the "/api" rule (Vite matches proxy keys in
+              // insertion order, first prefix match wins) and must NOT
+              // rewrite the path — this mirrors exactly what the prod
+              // nginx location for openwind.rokkalabs.com does for
+              // /api/v1/, so a base URL of http://localhost:3001 behaves
+              // identically to the public domain for third-party callers.
+              // No separate backend host-port publish needed for this.
+              "/api/v1": {
+                target: env["VITE_API_PROXY_TARGET"],
+                changeOrigin: true,
+              },
               "/api": {
                 target: env["VITE_API_PROXY_TARGET"],
                 changeOrigin: true,

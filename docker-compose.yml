@@ -377,6 +377,15 @@ services:
       # in-container path only; the host-side bind-mount source is
       # FILES_STORAGE_PATH_HOST below, set from .env.
       FILES_STORAGE_PATH: /data/files
+    ports:
+      # Loopback-only, same pattern as postgres/pgbouncer/redis/openbao below —
+      # never 0.0.0.0. This exists so a reverse proxy running ON THE HOST (nginx/
+      # Caddy/Traefik) can forward /api/v1 (third-party API) and /ws (notification
+      # push) to the backend without the container itself being reachable from
+      # outside the box. In-cluster traffic (ow-frontend's Vite proxy, ow-worker,
+      # etc.) still uses the ow-backend:3000 service name over the Docker network —
+      # this port is for the host-level reverse proxy only.
+      - "127.0.0.1:${API_HOST_PORT:-3002}:3000"
     # The host's primary DNS resolver has been observed timing out
     # intermittently on external lookups (e.g. the ZITADEL_URL host), which
     # Docker's embedded DNS (127.0.0.11) inherits and fails faster on than
