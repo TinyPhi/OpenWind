@@ -1,6 +1,30 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { userManager } from "../authProvider.js";
+
+// Hosted ticket-create handoff (docs/specs/hosted-ticket-create-handoff.md).
+// A 3rd party opens this route with these params instead of the bare
+// /login -- carried through the OAuth round-trip via oidc-client-ts's
+// `state` (not sessionStorage/a server-side cache; state is designed for
+// exactly this and survives the full redirect chain automatically).
+export interface HandoffState {
+  workflowId: string;
+  entityTypeId: string;
+  prefillFields: Record<string, string>;
+}
+
+function readHandoffParams(params: URLSearchParams): HandoffState | undefined {
+  const workflowId = params.get("workflowId");
+  const entityTypeId = params.get("entityTypeId");
+  if (!workflowId || !entityTypeId) return undefined;
+  const prefillFields: Record<string, string> = {};
+  const title = params.get("title");
+  const remark = params.get("remark");
+  if (title) prefillFields["title"] = title;
+  if (remark) prefillFields["remark"] = remark;
+  return { workflowId, entityTypeId, prefillFields };
+}
 
 function SunIcon(): React.ReactElement {
   return (
@@ -48,6 +72,7 @@ function MoonIcon(): React.ReactElement {
 
 export function Login(): React.ReactElement {
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = React.useState(false);
   const [theme, setTheme] = React.useState<"dark" | "light">(() => {
     const stored = localStorage.getItem("ow-theme");
@@ -69,6 +94,29 @@ export function Login(): React.ReactElement {
     setLoading(true);
     await userManager.removeUser();
     await userManager.signinRedirect({ prompt: "login" });
+  }
+
+  async function handleHandoffLogin(handoff: HandoffState): Promise<void> {
+    setLoading(true);
+    // Deliberately NO prompt: "login" (unlike handleLogin above) and NO
+    // removeUser() -- an already-authenticated caller must be able to reuse
+    // their existing session silently and land straight on the pre-filled
+    // page, per spec R1, without a forced re-login screen.
+    await userManager.signinRedirect({ state: handoff });
+  }
+
+  // Deliberately NOT auto-triggered on mount -- the user still sees and
+  // clicks this page's own Sign In button, same as the default flow (an
+  // earlier version auto-fired signinRedirect here, which skipped straight
+  // to Zitadel's hosted login page with no visible OpenWind screen at all;
+  // corrected after live testing showed that wasn't the intended UX).
+  const handoff = readHandoffParams(searchParams);
+  async function handleSignInClick(): Promise<void> {
+    if (handoff) {
+      await handleHandoffLogin(handoff);
+      return;
+    }
+    await handleLogin();
   }
 
   const isDark = theme === "dark";
@@ -124,7 +172,7 @@ export function Login(): React.ReactElement {
           <div className="lp-card-body lp-notebook-body">
             <button
               className="lp-signin-btn"
-              onClick={() => void handleLogin()}
+              onClick={() => void handleSignInClick()}
               disabled={loading}
             >
               {loading ? (

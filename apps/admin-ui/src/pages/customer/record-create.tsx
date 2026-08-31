@@ -406,6 +406,10 @@ export function CustomerRecordCreate(): React.ReactElement {
     workflowId?: string;
     entityTypeId?: string;
     returnTo?: string;
+    // Hosted ticket-create handoff (docs/specs/hosted-ticket-create-handoff.md,
+    // T4) -- set by callback.tsx when arriving via a 3rd-party handoff link.
+    // Keyed by field `name`, same union already used for workflowId preselect.
+    prefillFields?: Record<string, string>;
   };
   const { getTypeBySlug, getTypeById } = useEntityTypes();
   // Prefer the explicit entityTypeId from router state (set by WorkflowRecords) —
@@ -468,6 +472,18 @@ export function CustomerRecordCreate(): React.ReactElement {
         if (cancelled) return;
         const fs = (fieldsRes as { data: EntityField[] }).data;
         setFields(fs);
+        if (routeState.prefillFields) {
+          const prefill = routeState.prefillFields;
+          const matched: Record<string, unknown> = {};
+          for (const field of fs) {
+            if (prefill[field.name] !== undefined) {
+              matched[field.name] = prefill[field.name];
+            }
+          }
+          if (Object.keys(matched).length > 0) {
+            setFieldValues((prev) => ({ ...prev, ...matched }));
+          }
+        }
         const wfs = (wfRes as { data?: WorkflowDef[] }).data ?? [];
         setWorkflows(wfs);
         const preselect = routeState.workflowId;

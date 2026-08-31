@@ -62,6 +62,15 @@ The partner-facing reference doc (payload/response examples, golden-path walkthr
 outside this repo at `work docs/OW/API exposur/third-party-api-reference.md` and is kept in
 sync with this file whenever an endpoint is added or changed.
 
+## Non-API alternative: hosted ticket-create handoff
+
+Not every integration is an API integration. [hosted-ticket-create-handoff](specs/hosted-ticket-create-handoff.md)
+covers a separate, non-API path: a partner sends their end user (who has a real OpenWind login —
+NOT the acting-person/dual-identity model above) to `apps/admin-ui`'s own login/create page with
+`workflowId`/`entityTypeId`/prefill data as query params, and OpenWind handles auth, form
+rendering, and attachment upload UX itself. No new API route, no redirect back to the partner —
+see the spec's §V invariants for why. Partner-facing walkthrough: reference doc §6.1a.
+
 ---
 
 _This file is the canonical behavioral index referenced by CLAUDE.md and ADR-012 — update it
