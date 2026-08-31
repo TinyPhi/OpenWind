@@ -80,6 +80,13 @@ export const getThirdPartyWorkflowFieldsHandler = factory.createHandlers(
             type: field.fieldType,
             required: field.isRequired,
             sensitivity: field.sensitivity,
+            // Passed through raw and unvalidated. Safe today because
+            // `config`'s shape per field type (options/min-max/currencies
+            // etc.) never carries anything sensitive or internal-only --
+            // but if a future field type's config ever grows a field that
+            // shouldn't cross the third-party boundary, it needs an
+            // explicit allow-list/strip step here, not an implicit "it's
+            // always been fine" assumption.
             config: field.config,
           })),
         },

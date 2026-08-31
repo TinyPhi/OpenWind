@@ -9,7 +9,14 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { inArray } from "drizzle-orm";
-import { db, tenants, entityFields } from "@platform/db";
+import {
+  db,
+  tenants,
+  entityTypes,
+  entityFields,
+  workflows,
+  workflowStates,
+} from "@platform/db";
 import { createEntityType, addEntityField } from "@platform/entity-engine";
 import type { EntityType } from "@platform/entity-engine";
 import { createWorkflow } from "@platform/workflow-engine";
@@ -25,6 +32,7 @@ let workflowId: string;
 let emptyEntityType: EntityType;
 let emptyWorkflowId: string;
 let otherTenantWorkflowId: string;
+let otherEntityType: EntityType;
 
 const ACTING_PERSON = "third-party-workflow-fields-actor";
 
@@ -99,7 +107,7 @@ beforeAll(async () => {
   emptyWorkflowId = emptyWorkflow.id;
 
   // A workflow belonging to a different tenant, to prove cross-tenant 404.
-  const otherEntityType = await createEntityType(db, null, {
+  otherEntityType = await createEntityType(db, null, {
     name: `third_party_fields_other_test_${Date.now()}`,
     plural: "third_party_fields_other_tests",
     allowCustomFields: true,
@@ -113,7 +121,30 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.delete(tenants).where(inArray(tenants.id, [TENANT, OTHER_TENANT]));
+  const tenantIds = [TENANT, OTHER_TENANT];
+
+  // Entity types (and the global field on them) created with tenantId: null
+  // are NOT cleaned up by the tenant delete below -- they're global, not
+  // tenant-scoped, so nothing cascades from deleting TENANT/OTHER_TENANT.
+  // Left uncleaned, every CI run adds 3 more orphaned rows here. Workflows
+  // (tenant-scoped) reference these entity types via a FK with no cascade,
+  // so they must go first, before the entity types they point at.
+  const globalEntityTypeIds = [
+    entityType.id,
+    emptyEntityType.id,
+    otherEntityType.id,
+  ];
+  await db
+    .delete(workflowStates)
+    .where(inArray(workflowStates.tenantId, tenantIds));
+  await db.delete(workflows).where(inArray(workflows.tenantId, tenantIds));
+  await db
+    .delete(entityFields)
+    .where(inArray(entityFields.entityTypeId, globalEntityTypeIds));
+  await db
+    .delete(entityTypes)
+    .where(inArray(entityTypes.id, globalEntityTypeIds));
+  await db.delete(tenants).where(inArray(tenants.id, tenantIds));
 });
 
 type Vars = {
