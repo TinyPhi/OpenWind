@@ -25,7 +25,7 @@ updated: 2026-08-31
   no access to return the _identical_ 404 body — never a distinguishable 403. This applies to
   cross-tenant IDs, soft-deleted rows, and access-denied rows alike (security.md).
 - **PII/financial redaction**: any field tagged `sensitivity: pii` or `sensitivity: financial`
-  on `entity_fields` is replaced with `"[REDACTED]"` in every third-party response
+  on `entity_fields` is replaced with `"[REDACTED]"` in every third-party entity instance response (GET /tickets/:id, GET /tickets once shipped).
   (`apps/api/src/lib/redact-entity-fields.ts`, `packages/workflow-engine/src/redact.ts`).
 - **Internal-field stripping**: the `__accessUsers` ACL bookkeeping object (written by
   `@mention`-grant resolution) is never included in any third-party response, regardless of

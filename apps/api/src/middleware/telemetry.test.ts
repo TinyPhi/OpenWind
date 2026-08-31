@@ -41,6 +41,7 @@ describe("telemetry middleware", () => {
       method: "GET",
       route: "/test",
       status: "200",
+      tenant_id: "tenant-123",
     });
 
     expect(mockRecord).toHaveBeenCalledTimes(1);
@@ -48,6 +49,7 @@ describe("telemetry middleware", () => {
       method: "GET",
       route: "/test",
       status: "200",
+      tenant_id: "tenant-123",
     });
   });
 

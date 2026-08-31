@@ -8,6 +8,7 @@ import type { TransitionRequest } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
+import { forwardResponseHeaders } from "./utils.js";
 import { hasTransitionAccess } from "../../lib/transition-access.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { writeAuditEntry } from "@platform/audit";
@@ -282,11 +283,7 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
       },
     );
 
-    if (response.headers) {
-      for (const [key, value] of Object.entries(response.headers)) {
-        c.header(key, value);
-      }
-    }
+    forwardResponseHeaders(c, response);
 
     return c.json(response.body as object, response.status);
   },
