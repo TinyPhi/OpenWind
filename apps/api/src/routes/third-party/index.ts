@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { listThirdPartyWorkflowsHandler } from "./workflows.js";
+import { getThirdPartyWorkflowFieldsHandler } from "./workflow-fields.js";
 import {
   getThirdPartyTicketHandler,
   createThirdPartyTicketHandler,
@@ -17,6 +18,10 @@ const router = new Hono<{
 }>();
 
 router.get("/workflows", ...listThirdPartyWorkflowsHandler);
+router.get(
+  "/workflows/:workflowId/fields",
+  ...getThirdPartyWorkflowFieldsHandler,
+);
 router.post("/tickets", ...createThirdPartyTicketHandler);
 router.get("/tickets/:id", ...getThirdPartyTicketHandler);
 router.post("/tickets/:id/transitions", ...executeThirdPartyTransitionHandler);
