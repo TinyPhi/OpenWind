@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { JWTPayload, KeyLike } from "jose";
+import { z } from "zod";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
 import type { ZitadelClaims, AuthContext } from "./types.js";
@@ -108,6 +109,79 @@ export async function verifyJwtWithAudience(
   return verifyJwtAgainstAudience(token, audience, {
     enforceMaxTokenAge: true,
   });
+}
+
+// Third-party API key external-org mapping (docs/specs/third-party-key-external-org-mapping.md,
+// Phase 1 T2) -- a key's acting-person tokens may come from an entirely
+// different IdP than the platform's configured primary (ZITADEL_ISSUER).
+// This resolves JWKS per-issuer via that issuer's own OIDC discovery
+// document, cached per-issuer indefinitely (a provider's jwks_uri does not
+// change in normal operation the way signing keys inside it do -- those are
+// still bounded by createRemoteJWKSet's own cacheMaxAge below).
+//
+// Deliberately NOT a fork/swap of getJwks() above for a second hardcoded
+// provider (that's what both the Zitadel-only and AuthNexus-only forks of
+// this file already do, independently, and is exactly the gap this spec
+// exists to close) -- this works for any standard-OIDC issuer, discovered
+// at call time, not hardcoded per provider.
+const _jwksByIssuer = new Map<string, JwksGetter>();
+
+const OidcDiscoverySchema = z.object({
+  jwks_uri: z.string().url(),
+});
+
+async function getJwksForIssuer(issuer: string): Promise<JwksGetter> {
+  const cached = _jwksByIssuer.get(issuer);
+  if (cached) return cached;
+
+  const res = await fetch(`${issuer}/.well-known/openid-configuration`);
+  if (!res.ok) {
+    throw new Error(
+      `OIDC discovery failed for issuer ${issuer}: ${res.status}`,
+    );
+  }
+  // External input (security.md: connector/3rd-party responses are always
+  // Zod-validated, never trusted via a bare type assertion) -- a malformed
+  // or malicious discovery document fails closed here instead of producing
+  // a confusing downstream error from new URL(undefined) or similar.
+  const discovery = OidcDiscoverySchema.parse(await res.json());
+
+  const jwks = createRemoteJWKSet(new URL(discovery.jwks_uri), {
+    cacheMaxAge: 60 * 60 * 1000,
+  });
+  _jwksByIssuer.set(issuer, jwks);
+  return jwks;
+}
+
+/**
+ * Same verification shape as verifyJwtWithAudience (signature, issuer,
+ * audience, 5s clock tolerance, max-token-age freshness), but against an
+ * explicit, caller-supplied issuer instead of the platform-wide
+ * ZITADEL_ISSUER. Used when a third-party API key has its own registered
+ * external_issuer (docs/specs/third-party-key-external-org-mapping.md) --
+ * not yet wired to any call site as of Phase 1 (see that spec's Phase 2).
+ */
+export async function verifyJwtForIssuer(
+  token: string,
+  issuer: string,
+  audience: string,
+): Promise<(JWTPayload & Record<string, unknown>) | null> {
+  try {
+    const jwks = await getJwksForIssuer(issuer);
+    const { payload } = await jwtVerify(token, jwks as unknown as KeyLike, {
+      issuer,
+      audience,
+      clockTolerance: 5,
+      maxTokenAge: env.JWT_MAX_TOKEN_AGE_SECONDS,
+    });
+    return payload;
+  } catch (err) {
+    logger.warn(
+      { error: String(err), issuer, audience },
+      "JWT verification failed (external issuer)",
+    );
+    return null;
+  }
 }
 
 export function extractAuthContext(

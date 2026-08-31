@@ -238,6 +238,33 @@ describe("requireActingPerson", () => {
     expect(res.status).toBe(401);
   });
 
+  // Third-party API key external-org mapping (docs/specs/third-party-key-external-org-mapping.md,
+  // Phase 1 T3/T3a) -- a non-Zitadel IdP (e.g. AuthNexus) puts the org id
+  // under a plain "org_id" claim instead of Zitadel's namespaced one. The
+  // org-match check must accept either claim shape, not just Zitadel's.
+  it("accepts a token whose org id is under the plain org_id claim (non-Zitadel IdP shape)", async () => {
+    mockVerifyJwtWithAudience.mockResolvedValue({
+      sub: "person-1",
+      email: "person1@example.com",
+      iat: nowSeconds(),
+      org_id: "org-ccc",
+    });
+    const res = await get(makeApp(API_KEY_AUTH), "some-token");
+    expect(res.status).toBe(200);
+  });
+
+  it("prefers the Zitadel-namespaced org claim over org_id when both are somehow present", async () => {
+    mockVerifyJwtWithAudience.mockResolvedValue({
+      sub: "person-1",
+      email: "person1@example.com",
+      iat: nowSeconds(),
+      "urn:zitadel:iam:user:resourceowner:id": "org-ccc",
+      org_id: "org-different-tenant",
+    });
+    const res = await get(makeApp(API_KEY_AUTH), "some-token");
+    expect(res.status).toBe(200);
+  });
+
   it("rejects a token whose org claim does not match the key's tenant-mapped org", async () => {
     mockVerifyJwtWithAudience.mockResolvedValue({
       sub: "person-1",

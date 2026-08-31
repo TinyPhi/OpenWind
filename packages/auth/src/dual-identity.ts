@@ -34,6 +34,27 @@ const ACTING_PERSON_TOKEN_HEADER = "X-Acting-Person-Token";
 // precedent as API_KEY_ROTATION_OVERLAP_HOURS in middleware.ts.
 export const ACTING_PERSON_TOKEN_MAX_AGE_MINUTES = 15;
 
+// Third-party API key external-org mapping (docs/specs/third-party-key-external-org-mapping.md,
+// Phase 1 T3) -- different IdPs put the org id under different claim names
+// (Zitadel: "urn:zitadel:iam:user:resourceowner:id"; AuthNexus: "org_id").
+// Checked in priority order rather than branching on issuer/provider name,
+// so this works for a new IdP by adding its claim name here, not by adding
+// a new hardcoded provider-detection branch throughout this file. Zitadel's
+// claim is checked first so the existing single-IdP path's behavior is
+// unchanged when only that claim is present.
+const ORG_CLAIM_NAMES = [
+  "urn:zitadel:iam:user:resourceowner:id",
+  "org_id",
+] as const;
+
+function extractOrgClaim(claims: Record<string, unknown>): string | undefined {
+  for (const name of ORG_CLAIM_NAMES) {
+    const value = claims[name];
+    if (typeof value === "string" && value) return value;
+  }
+  return undefined;
+}
+
 function unauthorized(c: Context): Response {
   // Deliberately generic across every failure case below (missing header,
   // malformed token, aud mismatch, stale iat, tenant/org mismatch, key with
@@ -130,7 +151,7 @@ export const requireActingPerson = (): MiddlewareHandler =>
       // fresh token from a *different* tenant/org than the presented key's
       // own tenant is still rejected (spec R4). auth.orgId is the tenant's
       // mapped Zitadel org, already resolved by requireAuth's API-key path.
-      const tokenOrgId = claims["urn:zitadel:iam:user:resourceowner:id"];
+      const tokenOrgId = extractOrgClaim(claims);
       if (!tokenOrgId || tokenOrgId !== auth.orgId) {
         // Deliberately omits apiKeyId/tokenOrgId from this log line — the
         // API key's own audit trail (create/rotate/revoke) already records
