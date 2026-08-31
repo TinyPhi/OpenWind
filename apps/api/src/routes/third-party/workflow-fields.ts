@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db } from "@platform/db";
 import { getWorkflow, WorkflowError } from "@platform/workflow-engine";
@@ -9,6 +10,8 @@ import { notFound } from "./not-found.js";
 function isWorkflowNotFound(err: unknown): boolean {
   return err instanceof WorkflowError && err.code === "WORKFLOW_NOT_FOUND";
 }
+
+const WorkflowIdSchema = z.string().uuid();
 
 /**
  * GET /api/v1/workflows/:workflowId/fields — third-party API schema/describe
@@ -31,9 +34,20 @@ export const getThirdPartyWorkflowFieldsHandler = factory.createHandlers(
   requireActingPerson(),
   requireTicketScope("read"),
   async (c) => {
-    const workflowId = c.req.param("workflowId") ?? "";
+    const rawWorkflowId = c.req.param("workflowId");
     const { tenantId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
+
+    // A non-UUID path segment can never resolve to a real workflow row --
+    // treat it the same as a genuinely nonexistent one (404, not a 500 from
+    // Postgres rejecting the cast, and not a 422/400 that would distinguish
+    // "malformed" from "doesn't exist" -- existence-oracle convention,
+    // security.md).
+    const parsed = WorkflowIdSchema.safeParse(rawWorkflowId);
+    if (!parsed.success) {
+      return notFound(c);
+    }
+    const workflowId = parsed.data;
 
     try {
       const { workflow, fields } = await withTenantContext(
