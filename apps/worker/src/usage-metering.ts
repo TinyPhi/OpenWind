@@ -52,27 +52,18 @@ export async function runUsageMeteringSweep(): Promise<void> {
         // 2. Fetch storage usage
         const storageBytes = await getTenantUsedBytes(db, tenantId);
 
-        // 3. Fetch yesterday's Redis counters
-        const yesterdayApi = parseInt(
-          (await redis.get(`usage:${tenantId}:${yesterdayStr}:api_calls`)) ??
-            "0",
-          10,
-        );
-        const yesterdayAi = parseInt(
-          (await redis.get(`usage:${tenantId}:${yesterdayStr}:ai_tokens`)) ??
-            "0",
-          10,
-        );
-
-        // 4. Fetch today's running Redis counters
-        const todayApi = parseInt(
-          (await redis.get(`usage:${tenantId}:${todayStr}:api_calls`)) ?? "0",
-          10,
-        );
-        const todayAi = parseInt(
-          (await redis.get(`usage:${tenantId}:${todayStr}:ai_tokens`)) ?? "0",
-          10,
-        );
+        // 3 + 4. Fetch yesterday's and today's Redis counters in one round trip
+        const [rawYestApi, rawYestAi, rawTodayApi, rawTodayAi] =
+          await redis.mget(
+            `usage:${tenantId}:${yesterdayStr}:api_calls`,
+            `usage:${tenantId}:${yesterdayStr}:ai_tokens`,
+            `usage:${tenantId}:${todayStr}:api_calls`,
+            `usage:${tenantId}:${todayStr}:ai_tokens`,
+          );
+        const yesterdayApi = parseInt(rawYestApi ?? "0", 10);
+        const yesterdayAi = parseInt(rawYestAi ?? "0", 10);
+        const todayApi = parseInt(rawTodayApi ?? "0", 10);
+        const todayAi = parseInt(rawTodayAi ?? "0", 10);
 
         // 5. Flush to DB for yesterday
         await db
@@ -149,11 +140,9 @@ export async function runUsageMeteringSweep(): Promise<void> {
         const oldDegraded = await redis.smembers(degradedKey);
 
         // 9. Update degraded set in Redis
+        await redis.del(degradedKey);
         if (degradedMetrics.length > 0) {
-          await redis.del(degradedKey);
           await redis.sadd(degradedKey, ...degradedMetrics);
-        } else {
-          await redis.del(degradedKey);
         }
 
         // 10. Handle transitions & notify
