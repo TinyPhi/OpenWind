@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@platform/config", () => ({
   env: {
@@ -19,8 +19,12 @@ vi.mock("jose", () => ({
   jwtVerify: (...args: unknown[]) => mockJwtVerify(...args),
 }));
 
-const { extractAuthContext, verifyJwt, verifyJwtWithAudience } =
-  await import("./jwks.js");
+const {
+  extractAuthContext,
+  verifyJwt,
+  verifyJwtWithAudience,
+  verifyJwtForIssuer,
+} = await import("./jwks.js");
 import type { ZitadelClaims } from "./types.js";
 import type { JWTPayload } from "jose";
 
@@ -168,5 +172,191 @@ describe("getJwks (#262)", () => {
       expect.any(URL),
       expect.objectContaining({ cacheMaxAge: 60 * 60 * 1000 }),
     );
+  });
+});
+
+// Third-party API key external-org mapping (docs/specs/third-party-key-external-org-mapping.md,
+// Phase 1 T2/T3a) -- verifies JWKS resolution generalizes to any issuer via
+// OIDC discovery, not just the platform's hardcoded ZITADEL_ISSUER/
+// ZITADEL_JWKS_URL. Not yet wired to any call site (Phase 2 does that) --
+// these tests exercise the function directly.
+describe("verifyJwtForIssuer (#docs/specs/third-party-key-external-org-mapping.md)", () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.stubGlobal("fetch", mockFetch);
+    // mockCreateRemoteJWKSet is shared with the getJwks()/verifyJwt tests
+    // above and accumulates calls across the whole file (nothing globally
+    // clears mocks between tests) -- clear it so each test here only sees
+    // calls it triggered itself.
+    mockCreateRemoteJWKSet.mockClear();
+  });
+
+  function mockDiscovery(issuer: string, jwksUri: string) {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ jwks_uri: jwksUri }),
+    });
+  }
+
+  // NOTE: the JWKS-per-issuer cache is module-level state that persists
+  // across tests in this file (no vi.resetModules() between them) -- each
+  // test below uses its own unique issuer hostname so a cache hit from an
+  // earlier test can never mask what THIS test is actually asserting.
+
+  it("fetches the issuer's own OIDC discovery document to find its jwks_uri", async () => {
+    mockDiscovery(
+      "https://fetch-test.example.com",
+      "https://fetch-test.example.com/jwks",
+    );
+    mockJwtVerify.mockResolvedValueOnce({ payload: { sub: "user-1" } });
+
+    await verifyJwtForIssuer(
+      "some.jwt",
+      "https://fetch-test.example.com",
+      "client-xyz",
+    );
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://fetch-test.example.com/.well-known/openid-configuration",
+    );
+    expect(mockCreateRemoteJWKSet).toHaveBeenCalledWith(
+      new URL("https://fetch-test.example.com/jwks"),
+      expect.objectContaining({ cacheMaxAge: 60 * 60 * 1000 }),
+    );
+  });
+
+  it("passes issuer, audience, clockTolerance=5, and maxTokenAge to jose's jwtVerify", async () => {
+    mockDiscovery(
+      "https://verify-args-test.example.com",
+      "https://verify-args-test.example.com/jwks",
+    );
+    mockJwtVerify.mockResolvedValueOnce({ payload: { sub: "user-1" } });
+
+    await verifyJwtForIssuer(
+      "some.jwt",
+      "https://verify-args-test.example.com",
+      "client-xyz",
+    );
+
+    expect(mockJwtVerify).toHaveBeenCalledWith(
+      "some.jwt",
+      expect.anything(),
+      expect.objectContaining({
+        issuer: "https://verify-args-test.example.com",
+        audience: "client-xyz",
+        clockTolerance: 5,
+        maxTokenAge: 900,
+      }),
+    );
+  });
+
+  it("caches the JWKS getter per-issuer -- a second call for the same issuer does not re-fetch discovery", async () => {
+    mockDiscovery(
+      "https://cache-test.example.com",
+      "https://cache-test.example.com/jwks",
+    );
+    mockJwtVerify.mockResolvedValue({ payload: { sub: "user-1" } });
+
+    await verifyJwtForIssuer(
+      "token-1",
+      "https://cache-test.example.com",
+      "client-xyz",
+    );
+    await verifyJwtForIssuer(
+      "token-2",
+      "https://cache-test.example.com",
+      "client-xyz",
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockCreateRemoteJWKSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves a distinct JWKS getter for a different issuer -- no cross-contamination", async () => {
+    mockDiscovery(
+      "https://issuer-a-test.example.com",
+      "https://issuer-a-test.example.com/jwks",
+    );
+    mockDiscovery(
+      "https://issuer-b-test.example.com",
+      "https://issuer-b-test.example.com/jwks",
+    );
+    mockJwtVerify.mockResolvedValue({ payload: { sub: "user-1" } });
+
+    await verifyJwtForIssuer(
+      "token-a",
+      "https://issuer-a-test.example.com",
+      "client-a",
+    );
+    await verifyJwtForIssuer(
+      "token-b",
+      "https://issuer-b-test.example.com",
+      "client-b",
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockCreateRemoteJWKSet).toHaveBeenCalledTimes(2);
+    expect(mockCreateRemoteJWKSet).toHaveBeenNthCalledWith(
+      1,
+      new URL("https://issuer-a-test.example.com/jwks"),
+      expect.anything(),
+    );
+    expect(mockCreateRemoteJWKSet).toHaveBeenNthCalledWith(
+      2,
+      new URL("https://issuer-b-test.example.com/jwks"),
+      expect.anything(),
+    );
+  });
+
+  it("returns null when the issuer's discovery document is unreachable", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+
+    const result = await verifyJwtForIssuer(
+      "some.jwt",
+      "https://down-test.example.com",
+      "client-xyz",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  // Security-review finding: discovery response must be Zod-validated, not
+  // trusted via a bare type assertion -- fails closed on a malformed/
+  // malicious document instead of a confusing new URL(undefined) crash.
+  it("returns null when the discovery document is missing jwks_uri", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({ issuer: "https://malformed-test.example.com" }),
+    });
+
+    const result = await verifyJwtForIssuer(
+      "some.jwt",
+      "https://malformed-test.example.com",
+      "client-xyz",
+    );
+
+    expect(result).toBeNull();
+    expect(mockCreateRemoteJWKSet).not.toHaveBeenCalled();
+  });
+
+  it("returns null when jose rejects (bad signature, issuer mismatch, etc.)", async () => {
+    mockDiscovery(
+      "https://reject-test.example.com",
+      "https://reject-test.example.com/jwks",
+    );
+    mockJwtVerify.mockRejectedValueOnce(
+      new Error("signature verification failed"),
+    );
+
+    const result = await verifyJwtForIssuer(
+      "bad.jwt",
+      "https://reject-test.example.com",
+      "client-xyz",
+    );
+
+    expect(result).toBeNull();
   });
 });
