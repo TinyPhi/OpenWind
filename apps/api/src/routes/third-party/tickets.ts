@@ -6,6 +6,7 @@ import { getWorkflow } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
+import { forwardResponseHeaders } from "./utils.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
@@ -217,11 +218,7 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
       },
     );
 
-    if (response.headers) {
-      for (const [key, value] of Object.entries(response.headers)) {
-        c.header(key, value);
-      }
-    }
+    forwardResponseHeaders(c, response);
 
     return c.json(response.body as object, response.status);
   },
