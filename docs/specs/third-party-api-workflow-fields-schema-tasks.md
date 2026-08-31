@@ -2,7 +2,7 @@
 
 **Spec:** docs/specs/third-party-api-workflow-fields-schema.md
 **Generated:** 2026-08-28
-**Status:** not started
+**Status:** done
 
 ---
 
@@ -14,11 +14,11 @@ the right shape, and is proven not to regress anything existing.
 
 | task                                                                                                                                                                                                                                             | requirement   | status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- | ------ |
-| T1: Add `GET /workflows/:workflowId/fields` route in `apps/api/src/routes/third-party/` — resolve workflow → entityTypeId, reuse entity-engine's existing global+tenant-specific field lookup verbatim (no new/narrower query)                   | R1, R6        | todo   |
-| T2: Wire dual-identity auth + `entity:ticket:read` scope check + standard rate-limit middleware, identical pattern to `GET /workflows`                                                                                                           | R4, R7        | todo   |
-| T3: Shape the response per §I — field name/label/type/required/sensitivity/config, `isSystem` included, ordered by `sortOrder`                                                                                                                   | R1, R2, R3    | todo   |
-| T4: Isolation tests — happy path (incl. a global-only field + sort-order assertion), zero-fields workflow, cross-tenant 404, missing-scope 403, unauth 401, rate-limit headers present, field-name wire-compatibility check against a live `422` | R1–R4, R6, R7 | todo   |
-| T5: Regression check — existing `GET /workflows` and `POST /tickets` isolation/unit suites still pass unmodified                                                                                                                                 | R5            | todo   |
+| T1: Add `GET /workflows/:workflowId/fields` route in `apps/api/src/routes/third-party/` — resolve workflow → entityTypeId, reuse entity-engine's existing global+tenant-specific field lookup verbatim (no new/narrower query)                   | R1, R6        | done   |
+| T2: Wire dual-identity auth + `entity:ticket:read` scope check + standard rate-limit middleware, identical pattern to `GET /workflows`                                                                                                           | R4, R7        | done   |
+| T3: Shape the response per §I — field name/label/type/required/sensitivity/config, `isSystem` included, ordered by `sortOrder`                                                                                                                   | R1, R2, R3    | done   |
+| T4: Isolation tests — happy path (incl. a global-only field + sort-order assertion), zero-fields workflow, cross-tenant 404, missing-scope 403, unauth 401, rate-limit headers present, field-name wire-compatibility check against a live `422` | R1–R4, R6, R7 | done   |
+| T5: Regression check — existing `GET /workflows` and `POST /tickets` isolation/unit suites still pass unmodified                                                                                                                                 | R5            | done   |
 
 ---
 
@@ -29,8 +29,8 @@ the right shape, and is proven not to regress anything existing.
 
 | task                                                                                                                                                                               | requirement | status |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T6: Update `docs/third-party-api-design.md` and the partner-facing API reference doc with the new endpoint                                                                         | R1–R7       | todo   |
-| T7 (separate PR, outside this repo's plan-lock — lives in `openWindTest/OWTesterUI`): wire OWTesterUI's Create Ticket panel to call this endpoint instead of the raw-JSON textarea | —           | todo   |
+| T6: Update `docs/third-party-api-design.md` and the partner-facing API reference doc with the new endpoint                                                                         | R1–R7       | done   |
+| T7 (separate PR, outside this repo's plan-lock — lives in `openWindTest/OWTesterUI`): wire OWTesterUI's Create Ticket panel to call this endpoint instead of the raw-JSON textarea | —           | done   |
 
 ---
 

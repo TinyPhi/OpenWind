@@ -251,6 +251,14 @@ describe("GET /api/v1/workflows/:workflowId/fields", () => {
     expect(body).toEqual({ error: "NOT_FOUND", message: "Record not found" });
   });
 
+  it("returns 404, not 500, for a non-UUID workflowId path segment", async () => {
+    const app = makeApp();
+    const res = await getFields(app, "not-a-uuid");
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body).toEqual({ error: "NOT_FOUND", message: "Record not found" });
+  });
+
   it("returns the identical 404 for a workflow belonging to a different tenant", async () => {
     const app = makeApp();
     const res = await getFields(app, otherTenantWorkflowId);
