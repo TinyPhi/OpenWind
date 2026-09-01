@@ -40,7 +40,7 @@
  * each DELETE targets by tenant_id and missing rows are a no-op.
  */
 
-import { Worker } from "bullmq";
+import { Worker } from "@platform/telemetry";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,

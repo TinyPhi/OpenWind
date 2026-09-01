@@ -85,6 +85,15 @@ export async function fetchWithAuth(
     }
   }
 
+  const degradedHeader = response.headers.get("X-Tenant-Degraded");
+  if (degradedHeader) {
+    window.dispatchEvent(
+      new CustomEvent("tenant:degraded", {
+        detail: { degraded: degradedHeader },
+      }),
+    );
+  }
+
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;

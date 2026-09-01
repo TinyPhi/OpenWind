@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, feat/issue-505-usage-metering]
   schedule:
     # CodeQL backstop — non-code PRs (docs/config-only) skip the `security` job below,
     # so this keeps weekly coverage from lapsing on quiet weeks.
@@ -98,6 +98,12 @@ jobs:
 
       - name: Type check
         run: pnpm typecheck --filter="$TURBO_FILTER"
+
+      - name: Validate Prometheus Alert Rules
+        run: docker run --rm -v "${{ github.workspace }}/docker/observability:/obs" --entrypoint promtool prom/prometheus:v2.53.0 check rules /obs/alert.rules.yml
+
+      - name: Validate Alertmanager Config
+        run: docker run --rm -v "${{ github.workspace }}/docker/observability:/obs" --entrypoint amtool prom/alertmanager:v0.27.0 check-config /obs/alertmanager.yml
 
       - name: Build all packages
         run: pnpm build --filter="$TURBO_FILTER"

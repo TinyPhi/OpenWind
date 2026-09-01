@@ -6,6 +6,7 @@ import { getWorkflow } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
+import { forwardResponseHeaders } from "./utils.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { validateFieldsPayload } from "./validate-fields-payload.js";
@@ -16,7 +17,7 @@ import {
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
-import { withIdempotency } from "../../lib/idempotency.js";
+import { withIdempotency, isIdempotencyStatus } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
@@ -197,17 +198,28 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           return { status: 201, body: { data: instance } };
         } catch (err) {
           if (err instanceof AttachmentReferenceError) {
-            return { status: err.status, body: err.body };
+            const status = isIdempotencyStatus(err.status) ? err.status : 500;
+            return {
+              status,
+              body: err.body,
+              doNotCache: status >= 500,
+            };
           }
           const errResponse = handleEntityError(c, err);
+          const status = isIdempotencyStatus(errResponse.status)
+            ? errResponse.status
+            : 500;
           return {
-            status: errResponse.status,
+            status,
             body: (await errResponse.json()) as unknown,
+            doNotCache: status >= 500,
           };
         }
       },
     );
 
-    return c.json(response.body as object, response.status as never);
+    forwardResponseHeaders(c, response);
+
+    return c.json(response.body as object, response.status);
   },
 );

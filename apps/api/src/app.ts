@@ -6,6 +6,8 @@ import { logger } from "@platform/logger";
 import { requireAuth, requireRole } from "@platform/auth";
 import type { AuthContext } from "@platform/auth";
 import { correlationId } from "./middleware/correlation-id.js";
+import { telemetry } from "./middleware/telemetry.js";
+import { getSerializedMetrics } from "@platform/telemetry";
 import { handleError } from "./middleware/error-handler.js";
 import { rateLimit } from "./middleware/rate-limit.js";
 import { httpsEnforcement } from "./middleware/https-enforcement.js";
@@ -97,6 +99,8 @@ export function createApp(): Hono<AppVars> {
   // 3. Correlation ID — must be early so all downstream logs carry the request ID
   app.use("*", correlationId());
 
+  app.use("*", telemetry());
+
   app.use("*", httpsEnforcement());
   // 4. Hono request logger
   app.use("*", honoLogger());
@@ -106,6 +110,21 @@ export function createApp(): Hono<AppVars> {
   app.onError(handleError);
 
   app.get("/health", (c) => c.json({ status: "ok" }));
+
+  app.get("/metrics", async (c) => {
+    const authHeader = c.req.header("Authorization");
+    if (!env.METRICS_TOKEN || authHeader !== `Bearer ${env.METRICS_TOKEN}`) {
+      return c.text("Unauthorized", 401);
+    }
+    try {
+      const data = await getSerializedMetrics();
+      c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+      return c.text(data);
+    } catch (err) {
+      logger.error({ err }, "Failed to serialize metrics");
+      return c.text("Error generating metrics", 500);
+    }
+  });
 
   // OpenAPI spec — unauthenticated, served from generated static object
   app.get("/openapi.json", (c) => c.json(openApiSpec));

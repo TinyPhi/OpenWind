@@ -1,0 +1,42 @@
+groups:
+  - name: openwind-alerts
+    rules:
+      - alert: QueueDepthHighPlatform
+        expr: bullmq_queue_depth{status="waiting", queue_name=~"notify|connector-outbound"} > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "BullMQ high-volume queue {{ $labels.queue_name }} has a high depth of waiting jobs"
+          description: "Queue {{ $labels.queue_name }} has {{ $value }} jobs in waiting state for more than 5 minutes."
+
+      - alert: QueueDepthHighWorker
+        expr: bullmq_queue_depth{status="waiting", queue_name!~"notify|connector-outbound"} > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "BullMQ queue {{ $labels.queue_name }} has a high depth of waiting jobs"
+          description: "Queue {{ $labels.queue_name }} has {{ $value }} jobs in waiting state for more than 5 minutes."
+
+      - alert: HttpErrorRateHigh
+        expr: sum by (route) (rate(http_requests_total{status=~"5.."}[5m])) / sum by (route) (rate(http_requests_total[5m])) * 100 > 2
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "HTTP error rate is high on route {{ $labels.route }}"
+          description: 'HTTP 5xx error rate on route {{ $labels.route }} is {{ $value | printf "%.2f" }}% over the last 5 minutes.'
+
+      - alert: HttpLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m]))) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "HTTP request latency is high on route {{ $labels.route }}"
+          description: 'P95 request latency on route {{ $labels.route }} is {{ $value | printf "%.2f" }}s over the last 5 minutes.'

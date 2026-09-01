@@ -197,11 +197,20 @@ describe("anonymizeAuditLogForTenant", () => {
     from: () => ({ where: () => ({ limit: mockSelectLimit }) }),
   });
 
-  const mockPurgeDb = { update: mockUpdate, select: mockSelect };
+  // execute() is called first to verify no active RLS context; returning
+  // [{current_setting: null}] means no tenant is set (the normal path).
+  const mockExecute = vi.fn().mockResolvedValue([{ current_setting: null }]);
+
+  const mockPurgeDb = {
+    update: mockUpdate,
+    select: mockSelect,
+    execute: mockExecute,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
     selectCallCount = 0;
+    mockExecute.mockResolvedValue([{ current_setting: null }]);
   });
 
   it("issues batched UPDATEs scoped to the tenant, replacing both person-identifying fields", async () => {
@@ -218,5 +227,25 @@ describe("anonymizeAuditLogForTenant", () => {
       }),
     );
     expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws and does not run the UPDATE when an active tenant RLS context is detected", async () => {
+    mockExecute.mockResolvedValue([{ current_setting: "tenant-x" }]);
+
+    await expect(
+      anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a"),
+    ).rejects.toThrow("cannot execute UPDATE under active tenant RLS context");
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("throws and does not run the UPDATE when the RLS context check itself fails — fails closed, not open", async () => {
+    mockExecute.mockRejectedValue(new Error("connection terminated"));
+
+    await expect(
+      anonymizeAuditLogForTenant(mockPurgeDb as never, "tenant-a"),
+    ).rejects.toThrow("failed to verify RLS context before UPDATE");
+
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });

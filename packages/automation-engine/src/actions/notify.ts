@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Redis } from "ioredis";
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import type { DbOrTx } from "@platform/db";
 import {
   notifications,

@@ -1,3 +1,6 @@
+import "@platform/telemetry/instrumentation.js";
+import { startErrorTracking } from "@platform/telemetry";
+startErrorTracking();
 import { logger } from "@platform/logger";
 import { closeRedis } from "@platform/redis";
 import { startOutboxPoller, stopOutboxPoller } from "./outbox-poller.js";
@@ -38,6 +41,14 @@ import {
   scheduleAccessLogRetention,
   stopAccessLogRetentionWorker,
 } from "./access-log-retention.js";
+import {
+  scheduleUsageMetering,
+  stopUsageMeteringWorker,
+} from "./usage-metering.js";
+import {
+  scheduleRetentionArchival,
+  stopRetentionArchivalWorker,
+} from "./retention-archival.js";
 
 logger.info({}, "Worker process starting");
 
@@ -54,6 +65,8 @@ startConnectorPollScheduler();
 void scheduleFileCleanup();
 void scheduleAttachmentCleanup();
 void scheduleAccessLogRetention();
+void scheduleUsageMetering();
+void scheduleRetentionArchival();
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
 // notificationWorker, notificationOutboundWorker, connectorOutboundWorker,
@@ -85,6 +98,8 @@ async function shutdown(): Promise<void> {
     stopMentionResolutionWorker(),
     stopAttachmentCleanupWorker(),
     stopAccessLogRetentionWorker(),
+    stopUsageMeteringWorker(),
+    stopRetentionArchivalWorker(),
     closeRedis(),
   ]);
   process.exit(0);

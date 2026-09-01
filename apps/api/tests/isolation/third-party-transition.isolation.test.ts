@@ -41,6 +41,12 @@ let entityType: EntityType;
 let workflowId: string;
 let openToProcessingId: string;
 let openToInReviewId: string;
+let openToProcessingUserRoleId: string;
+let openToProcessingAdminOnlyId: string;
+let userRoleTicketId: string;
+let assigneeUserRoleTicketId: string;
+let workflowAdminUserRoleTicketId: string;
+let adminOnlyRoleTicketId: string;
 let creatorTicketId: string;
 let assigneeTicketId: string;
 let adminOnlyTicketId: string;
@@ -154,6 +160,40 @@ beforeAll(async () => {
   );
   openToInReviewId = openToInReview.id;
 
+  // Role-mapping fixtures (docs/specs/third-party-transition-role-mapping.md):
+  // every real seeded workflow restricts allowed_roles, so these two prove
+  // the third-party caller is granted the baseline "user" role (but never
+  // "admin"/"agent") once hasTransitionAccess has already passed. Distinct
+  // toState values (rather than both targeting "processing") so this fixture
+  // doesn't create two transitions sharing the same (fromState, toState)
+  // pair on one workflow -- semantically unusual and untested by the engine
+  // today, but avoided here rather than relied upon (review F-04).
+  const openToProcessingUserRole = await addWorkflowTransition(
+    db,
+    TENANT,
+    workflowId,
+    caller,
+    {
+      fromState: "open",
+      toState: "processing_user_role",
+      allowedRoles: ["admin", "agent", "user"],
+    },
+  );
+  openToProcessingUserRoleId = openToProcessingUserRole.id;
+
+  const openToProcessingAdminOnly = await addWorkflowTransition(
+    db,
+    TENANT,
+    workflowId,
+    caller,
+    {
+      fromState: "open",
+      toState: "processing_admin_only",
+      allowedRoles: ["admin"],
+    },
+  );
+  openToProcessingAdminOnlyId = openToProcessingAdminOnly.id;
+
   const creatorTicket = await createEntity(db, TENANT, {
     entityTypeId: entityType.id,
     fields: {},
@@ -206,6 +246,48 @@ beforeAll(async () => {
     currentState: "open",
   });
   slaTestTicketId = slaTestTicket.id;
+
+  const userRoleTicket = await createEntity(db, TENANT, {
+    entityTypeId: entityType.id,
+    fields: {},
+    createdBy: CREATOR,
+    workflowId,
+    currentState: "open",
+  });
+  userRoleTicketId = userRoleTicket.id;
+
+  const adminOnlyRoleTicket = await createEntity(db, TENANT, {
+    entityTypeId: entityType.id,
+    fields: {},
+    createdBy: CREATOR,
+    workflowId,
+    currentState: "open",
+  });
+  adminOnlyRoleTicketId = adminOnlyRoleTicket.id;
+
+  // F-01 (PR #514 review): the role-mapping fixtures above were only
+  // exercised via the creator path -- these two prove the identical
+  // actorRoles: ["user"] behavior for the other two hasTransitionAccess
+  // paths (assignee, workflow-admin), matching the spec's §R claim that all
+  // three access types are covered, not just one.
+  const assigneeUserRoleTicket = await createEntity(db, TENANT, {
+    entityTypeId: entityType.id,
+    fields: {},
+    createdBy: "someone-else",
+    assignedTo: ASSIGNEE,
+    workflowId,
+    currentState: "open",
+  });
+  assigneeUserRoleTicketId = assigneeUserRoleTicket.id;
+
+  const workflowAdminUserRoleTicket = await createEntity(db, TENANT, {
+    entityTypeId: entityType.id,
+    fields: {},
+    createdBy: "someone-else",
+    workflowId,
+    currentState: "open",
+  });
+  workflowAdminUserRoleTicketId = workflowAdminUserRoleTicket.id;
 
   const invalidTransitionTicket = await createEntity(db, TENANT, {
     entityTypeId: entityType.id,
@@ -308,6 +390,48 @@ describe("POST /api/v1/tickets/:id/transitions", () => {
     const app = makeApp(WORKFLOW_ADMIN);
     const res = await postTransition(app, adminOnlyTicketId);
     expect(res.status).toBe(201);
+  });
+
+  it("creator can execute a transition whose allowed_roles includes 'user' — the third-party caller is granted the baseline 'user' role once ticket-level access already passed (docs/specs/third-party-transition-role-mapping.md R1)", async () => {
+    const app = makeApp(CREATOR);
+    const res = await postTransition(
+      app,
+      userRoleTicketId,
+      openToProcessingUserRoleId,
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("assignee can execute a transition whose allowed_roles includes 'user' (review F-01)", async () => {
+    const app = makeApp(ASSIGNEE);
+    const res = await postTransition(
+      app,
+      assigneeUserRoleTicketId,
+      openToProcessingUserRoleId,
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("workflow-admin (no personal createdBy/assignedTo relation) can execute a transition whose allowed_roles includes 'user' (review F-01)", async () => {
+    const app = makeApp(WORKFLOW_ADMIN);
+    const res = await postTransition(
+      app,
+      workflowAdminUserRoleTicketId,
+      openToProcessingUserRoleId,
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("still 403s a transition whose allowed_roles is {'admin'} only — the baseline-'user' mapping never grants elevated roles (R1)", async () => {
+    const app = makeApp(CREATOR);
+    const res = await postTransition(
+      app,
+      adminOnlyRoleTicketId,
+      openToProcessingAdminOnlyId,
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("TRANSITION_FORBIDDEN");
   });
 
   it("rejects a person with only a read_write __accessUsers grant, even though comment/read access would allow it — the critical boundary this phase exists to enforce (spec R2)", async () => {

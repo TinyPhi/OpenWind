@@ -8,11 +8,12 @@ import type { TransitionRequest } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
+import { forwardResponseHeaders } from "./utils.js";
 import { hasTransitionAccess } from "../../lib/transition-access.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
-import { withIdempotency } from "../../lib/idempotency.js";
+import { withIdempotency, isIdempotencyStatus } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isEntityNotFound(err: unknown): boolean {
@@ -56,6 +57,16 @@ function isExistenceRevealingWorkflowError(err: unknown): boolean {
 // eslint-disable-next-line no-control-regex -- intentional: this IS the control-character check.
 const FORBIDDEN_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
 
+// The ONLY role a third-party caller may ever be granted for a transition
+// (docs/specs/third-party-transition-role-mapping.md R1/§V). Typed `as const`
+// so accidentally widening this to include "admin"/"agent" -- e.g. someone
+// "being more permissive" for a special case -- is a visible, reviewable
+// diff on this one line rather than a silent behavioral change buried in the
+// request-building code below. workflow-engine does not export a named
+// constant for its own role strings (they're opaque caller-supplied
+// strings, not an enum), so this is defined locally rather than imported.
+const THIRD_PARTY_BASELINE_ACTOR_ROLES = ["user"] as const;
+
 const ExecuteThirdPartyTransitionSchema = z.object({
   transitionId: z.string().uuid(),
   comment: z
@@ -83,10 +94,14 @@ const ExecuteThirdPartyTransitionSchema = z.object({
  * executeTransition itself is called completely unmodified — no parallel or
  * shortcut validation path — so an invalid/skip-ahead transition gets
  * exactly the same rejection a human caller would (spec R1). actorRoles is
- * passed as [] (the acting person has no internal RBAC role in this system,
- * same convention every other third-party route already uses), so a
- * transition with its own role-restricted guard is enforced identically for
- * API and human-roleless callers.
+ * passed as ["user"] once hasTransitionAccess has already confirmed the
+ * caller is a creator/assignee/workflow-admin -- every seeded workflow's
+ * transitions require at least the baseline "user" role, so passing []
+ * here made every role-restricted transition unreachable via the API even
+ * for callers with genuine ticket-level access (found during Phase 4 E2E
+ * testing). This never grants "admin"/"agent" -- a transition restricted to
+ * those still 403s for a third-party caller, same as it would for any
+ * internal user without that elevated role.
  */
 export const executeThirdPartyTransitionHandler = factory.createHandlers(
   requireAuth(db),
@@ -167,7 +182,10 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
             instanceId,
             transitionId,
             actorId: actingPersonId,
-            actorRoles: [],
+            // Baseline "user" role only, granted here because
+            // hasTransitionAccess (above) already confirmed creator/
+            // assignee/workflow-admin access -- see module doc comment.
+            actorRoles: [...THIRD_PARTY_BASELINE_ACTOR_ROLES],
             triggeredBy: "api",
             ...(comment !== undefined && { comment }),
             ...(idempotencyKey !== undefined && { idempotencyKey }),
@@ -212,19 +230,32 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
           const pgCode =
             (err as { code?: unknown }).code ??
             (err as { cause?: { code?: unknown } }).cause?.code;
-          if (pgCode === "55P03") {
-            const lockErr = new WorkflowError("TRANSITION_LOCKED", {
-              instanceId,
-            });
+          // Both paths that yield a TRANSITION_LOCKED response must set
+          // doNotCache: true -- caching a 409 retry-hint for 24h would make
+          // every subsequent same-key retry replay the transient error forever.
+          // (a) Raw 55P03 from the route's own T0 SELECT FOR UPDATE lock.
+          // (b) WorkflowError("TRANSITION_LOCKED") thrown by executeTransition's
+          //     internal lock conflict detection -- same semantic, different shape.
+          const isTransitionLocked =
+            pgCode === "55P03" ||
+            (err instanceof WorkflowError && err.code === "TRANSITION_LOCKED");
+          if (isTransitionLocked) {
+            const lockErr =
+              err instanceof WorkflowError && err.code === "TRANSITION_LOCKED"
+                ? err
+                : new WorkflowError("TRANSITION_LOCKED", { instanceId });
             const errResponse = handleWorkflowError(c, lockErr);
             const headers: Record<string, string> = {};
             errResponse.headers.forEach((value, key) => {
               headers[key] = value;
             });
             return {
-              status: errResponse.status,
+              status: isIdempotencyStatus(errResponse.status)
+                ? errResponse.status
+                : 500,
               body: (await errResponse.json()) as unknown,
               headers,
+              doNotCache: true,
             };
           }
 
@@ -235,20 +266,25 @@ export const executeThirdPartyTransitionHandler = factory.createHandlers(
             };
           }
           const errResponse = handleWorkflowError(c, err);
+          const status = isIdempotencyStatus(errResponse.status)
+            ? errResponse.status
+            : 500;
+          const headers: Record<string, string> = {};
+          errResponse.headers.forEach((value, key) => {
+            headers[key] = value;
+          });
           return {
-            status: errResponse.status,
+            status,
             body: (await errResponse.json()) as unknown,
+            headers,
+            doNotCache: status >= 500,
           };
         }
       },
     );
 
-    if (response.headers) {
-      for (const [key, value] of Object.entries(response.headers)) {
-        c.header(key, value);
-      }
-    }
+    forwardResponseHeaders(c, response);
 
-    return c.json(response.body as object, response.status as never);
+    return c.json(response.body as object, response.status);
   },
 );

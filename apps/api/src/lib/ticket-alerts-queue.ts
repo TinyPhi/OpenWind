@@ -6,7 +6,7 @@
  * The API never processes jobs from this queue, only cancels them by their
  * deterministic id (`alert-{alertId}`) on edit/delete.
  */
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import { connection } from "./redis.js";
 
 export const ticketAlertsQueue = new Queue("ticket-alerts", { connection });

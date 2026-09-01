@@ -12,7 +12,7 @@
  * is responsible only for delivery orchestration.
  */
 
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import type { Redis } from "ioredis";
 import { eq, sql } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";

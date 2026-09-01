@@ -14,6 +14,7 @@ import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js"
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
+import { forwardResponseHeaders } from "./utils.js";
 import { hasEntityCommentAccessFull } from "../../lib/entity-access.js";
 import { mentionResolutionQueue } from "../../lib/mention-resolution-queue.js";
 import {
@@ -22,7 +23,7 @@ import {
   MAX_ATTACHMENTS_PER_TICKET,
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
-import { withIdempotency } from "../../lib/idempotency.js";
+import { withIdempotency, isIdempotencyStatus } from "../../lib/idempotency.js";
 
 // Same forbidden-char set as validate-fields-payload.ts (ADR-012 Phase B,
 // R11) — null byte/control-character rejection at ingress, ahead of any
@@ -181,7 +182,12 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
           );
         } catch (err) {
           if (err instanceof AttachmentReferenceError) {
-            return { status: err.status, body: err.body };
+            const status = isIdempotencyStatus(err.status) ? err.status : 500;
+            return {
+              status,
+              body: err.body,
+              doNotCache: status >= 500,
+            };
           }
           throw err;
         }
@@ -233,6 +239,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
               error: "INTERNAL_ERROR",
               message: "Failed to record comment",
             },
+            doNotCache: true,
           };
         }
 
@@ -294,6 +301,8 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
       },
     );
 
-    return c.json(response.body as object, response.status as never);
+    forwardResponseHeaders(c, response);
+
+    return c.json(response.body as object, response.status);
   },
 );

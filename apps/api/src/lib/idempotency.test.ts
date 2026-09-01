@@ -1,15 +1,44 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { logger } from "@platform/logger";
 
 vi.mock("@platform/logger", () => ({
-  logger: { warn: vi.fn() },
+  logger: { warn: vi.fn(), error: vi.fn() },
 }));
+
+const mockState = vi.hoisted(() => ({ shouldReject: false }));
+vi.mock("canonicalize", () => {
+  return {
+    get default() {
+      if (mockState.shouldReject) {
+        throw new Error("import failed");
+      }
+      return (value: unknown) => {
+        if (typeof value !== "object" || value === null) {
+          return JSON.stringify(value);
+        }
+        // Note: This is a simplified key-sorting JSON canonicalization approximation
+        // sufficient for the test payloads. The real RFC 8785 JCS diverges on
+        // IEEE 754 float precision, NaNs/Infinities, and unicode surrogate pairs.
+        const val = value as Record<string, unknown>;
+        const sortedKeys = Object.keys(val).sort();
+        const obj: Record<string, unknown> = {};
+        for (const key of sortedKeys) {
+          obj[key] = val[key];
+        }
+        return JSON.stringify(obj);
+      };
+    },
+  };
+});
 
 const mockRedisSet = vi.fn();
 const mockRedisDel = vi.fn();
+const mockRedisEval = vi.fn();
 vi.mock("@platform/redis", () => ({
   getRedis: vi.fn(() => ({
     set: (...args: unknown[]) => mockRedisSet(...args),
     del: (...args: unknown[]) => mockRedisDel(...args),
+    eval: (...args: unknown[]) => mockRedisEval(...args),
   })),
 }));
 
@@ -63,19 +92,19 @@ vi.mock("drizzle-orm", () => ({
   lte: vi.fn((col, val) => ({ col, val, op: "lte" })),
 }));
 
-const { computeContentHash, withIdempotency } =
+const { computeContentHash, withIdempotency, RELEASE_LOCK_LUA_SCRIPT } =
   await import("./idempotency.js");
 
 describe("computeContentHash", () => {
-  it("is stable regardless of key insertion order (RFC 8785)", () => {
-    const a = computeContentHash({ b: 2, a: 1 });
-    const b = computeContentHash({ a: 1, b: 2 });
+  it("is stable regardless of key insertion order (RFC 8785)", async () => {
+    const a = await computeContentHash({ b: 2, a: 1 });
+    const b = await computeContentHash({ a: 1, b: 2 });
     expect(a).toBe(b);
   });
 
-  it("differs when content differs", () => {
-    const a = computeContentHash({ a: 1 });
-    const b = computeContentHash({ a: 2 });
+  it("differs when content differs", async () => {
+    const a = await computeContentHash({ a: 1 });
+    const b = await computeContentHash({ a: 2 });
     expect(a).not.toBe(b);
   });
 });
@@ -92,8 +121,11 @@ describe("withIdempotency", () => {
     mockCachedRow = undefined;
     mockRedisSet.mockReset();
     mockRedisDel.mockReset();
+    mockRedisEval.mockReset();
     mockInsertValues.mockReset();
     mockDelete.mockClear();
+    vi.mocked(logger.warn).mockClear();
+    vi.mocked(logger.error).mockClear();
   });
 
   it("runs execute() directly with no db/redis calls when no idempotency key is given", async () => {
@@ -121,7 +153,7 @@ describe("withIdempotency", () => {
 
   it("returns the cached result without calling execute() on a same-content replay", async () => {
     mockCachedRow = {
-      contentHash: computeContentHash(content),
+      contentHash: await computeContentHash(content),
       responseStatus: 201,
       responseBody: { data: { id: "abc" } },
     };
@@ -142,7 +174,7 @@ describe("withIdempotency", () => {
 
   it("returns 409 conflict without calling execute() when content differs from the cached hash", async () => {
     mockCachedRow = {
-      contentHash: computeContentHash({ different: true }),
+      contentHash: await computeContentHash({ different: true }),
       responseStatus: 201,
       responseBody: {},
     };
@@ -184,7 +216,7 @@ describe("withIdempotency", () => {
         responseStatus: 201,
       }),
     );
-    expect(mockRedisDel).toHaveBeenCalled();
+    expect(mockRedisEval).toHaveBeenCalled();
     // Clears any stale-but-not-yet-swept expired row for this exact scope
     // before inserting, so an expired row can never make the fresh insert
     // silently no-op (onConflictDoNothing would otherwise keep serving it).
@@ -226,6 +258,37 @@ describe("withIdempotency", () => {
     expect(mockInsertValues).toHaveBeenCalled();
   });
 
+  it("re-checks the cache after acquiring the lock and skips execute() if a concurrent request already cached a result (double-checked locking)", async () => {
+    // Simulates the exact race PR #500 fixed and PR #502 regressed: the
+    // first lookup (before lock acquisition) misses, but by the time this
+    // request acquires the lock, a faster concurrent request has already
+    // executed and cached its result. The re-check after lock acquisition
+    // must catch this, not just the pre-lock lookup.
+    mockRedisSet.mockImplementation(async () => {
+      mockCachedRow = {
+        contentHash: await computeContentHash(content),
+        responseStatus: 201,
+        responseBody: { data: { id: "from-the-other-request" } },
+      };
+      return "OK";
+    });
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-1" },
+      content,
+      execute,
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 201,
+      body: { data: { id: "from-the-other-request" } },
+    });
+    // Still releases the lock it acquired, even on the cache-hit early return.
+    expect(mockRedisEval).toHaveBeenCalled();
+  });
+
   it("releases the lock even when execute() throws", async () => {
     mockRedisSet.mockResolvedValue("OK");
     const execute = vi.fn().mockRejectedValue(new Error("boom"));
@@ -234,7 +297,192 @@ describe("withIdempotency", () => {
       withIdempotency({ ...scope, idempotencyKey: "key-1" }, content, execute),
     ).rejects.toThrow("boom");
 
-    expect(mockRedisDel).toHaveBeenCalled();
+    expect(mockRedisEval).toHaveBeenCalled();
     expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("releases the lock with the exact token generated at acquisition time", async () => {
+    mockRedisSet.mockResolvedValue("OK");
+    mockRedisEval.mockResolvedValue(1);
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    await withIdempotency(
+      { ...scope, idempotencyKey: "key-1" },
+      content,
+      execute,
+    );
+
+    expect(mockRedisSet).toHaveBeenCalledTimes(1);
+    const setArgs = mockRedisSet.mock.calls[0];
+    const lockKey = setArgs?.[0];
+    const lockToken = setArgs?.[1];
+
+    expect(mockRedisEval).toHaveBeenCalledTimes(1);
+    const evalArgs = mockRedisEval.mock.calls[0];
+    const script = evalArgs?.[0];
+    const numKeys = evalArgs?.[1];
+    const evalKey = evalArgs?.[2];
+    const evalToken = evalArgs?.[3];
+
+    expect(script).toBe(RELEASE_LOCK_LUA_SCRIPT);
+    expect(numKeys).toBe(1);
+    expect(evalKey).toBe(lockKey);
+    expect(evalToken).toBe(lockToken);
+    expect(typeof lockToken).toBe("string");
+    expect(lockToken).toHaveLength(36); // UUID length
+  });
+
+  it("resolves normally and logs a warning when redis.eval returns 0 (lock already expired/stale)", async () => {
+    mockRedisSet.mockResolvedValue("OK");
+    mockRedisEval.mockResolvedValue(0);
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    await expect(
+      withIdempotency({ ...scope, idempotencyKey: "key-1" }, content, execute),
+    ).resolves.not.toThrow();
+
+    expect(mockRedisEval).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: "key-1" }),
+      expect.stringContaining("lock release returned 0"),
+    );
+  });
+
+  it("does not call execute() when a concurrent request populates the cache between the fast-path lookup and lock acquisition (TOCTOU fix)", async () => {
+    // Scenario: request A's fast-path lookup misses (no cache), then request B
+    // completes its entire cycle (execute → cache → release lock) before A
+    // acquires the lock. Without the double-checked locking fix, A would
+    // re-execute. With the fix, A's under-lock re-check finds the cached result
+    // and returns it without calling execute().
+    const cachedRow = {
+      contentHash: await computeContentHash(content),
+      responseStatus: 201,
+      responseBody: { data: { id: "from-concurrent-request" } },
+    };
+
+    const { withTenantContext } = await import("@platform/db");
+    // First call: fast-path lookup (no cache)
+    vi.mocked(withTenantContext).mockImplementationOnce((_id, fn) =>
+      fn({
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({ limit: vi.fn().mockResolvedValue([]) })),
+          })),
+        })),
+        insert: vi.fn(() => ({
+          values: (v: unknown) => {
+            mockInsertValues(v);
+            return { onConflictDoNothing: mockOnConflictDoNothing };
+          },
+        })),
+        delete: mockDelete,
+      }),
+    );
+    // Second call: under-lock re-check (concurrent request cached its result in the interim)
+    vi.mocked(withTenantContext).mockImplementationOnce((_id, fn) =>
+      fn({
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([cachedRow]),
+            })),
+          })),
+        })),
+        insert: vi.fn(() => ({
+          values: (v: unknown) => {
+            mockInsertValues(v);
+            return { onConflictDoNothing: mockOnConflictDoNothing };
+          },
+        })),
+        delete: mockDelete,
+      }),
+    );
+
+    mockRedisSet.mockResolvedValue("OK");
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-toctou" },
+      content,
+      execute,
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 201,
+      body: { data: { id: "from-concurrent-request" } },
+    });
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("does not cache the response when doNotCache is true", async () => {
+    mockRedisSet.mockResolvedValue("OK");
+    mockRedisEval.mockResolvedValue(1);
+    const execute = vi.fn().mockResolvedValue({
+      status: 409,
+      body: { error: "TRANSITION_LOCKED" },
+      doNotCache: true,
+    });
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-1" },
+      content,
+      execute,
+    );
+    expect(mockInsertValues).not.toHaveBeenCalled();
+    expect(result.status).toBe(409);
+  });
+
+  it("returns 500 internal error when the cached database status is not a valid IdempotencyStatus", async () => {
+    mockCachedRow = {
+      contentHash: await computeContentHash(content),
+      responseStatus: 999, // invalid status code
+      responseBody: { foo: "bar" },
+    };
+
+    const execute = vi.fn().mockResolvedValue({ status: 201, body: {} });
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-invalid-status" },
+      content,
+      execute,
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 500,
+      body: {
+        error: "INTERNAL_ERROR",
+        message: "Cached response has invalid status code",
+      },
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 999 }),
+      expect.stringContaining(
+        "cached status code in database is not a valid IdempotencyStatus",
+      ),
+    );
+  });
+
+  it("recovers from ESM import failure on subsequent calls", async () => {
+    mockState.shouldReject = true;
+    const { computeContentHash } =
+      await import("./idempotency.js?test-recovery");
+    await expect(computeContentHash({ a: 1 })).rejects.toThrow();
+
+    mockState.shouldReject = false;
+    const hash = await computeContentHash({ a: 1 });
+    expect(hash).toBeDefined();
+  });
+
+  it("returns Retry-After header on 409 lock-busy response", async () => {
+    mockRedisSet.mockResolvedValue(null);
+    const execute = vi.fn();
+    const result = await withIdempotency(
+      { ...scope, idempotencyKey: "key-busy" },
+      content,
+      execute,
+    );
+    expect(result.status).toBe(409);
+    expect(result.headers).toBeDefined();
+    expect(result.headers?.["Retry-After"]).toBe("1");
   });
 });

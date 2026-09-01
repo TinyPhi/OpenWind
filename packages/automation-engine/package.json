@@ -19,6 +19,7 @@
     "@platform/db": "workspace:*",
     "@platform/entity-engine": "workspace:*",
     "@platform/logger": "workspace:*",
+    "@platform/telemetry": "workspace:*",
     "@platform/workflow-engine": "workspace:*",
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.45.2",
