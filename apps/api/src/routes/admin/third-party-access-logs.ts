@@ -15,7 +15,20 @@ import { and, eq, inArray } from "drizzle-orm";
 import { factory } from "./factory.js";
 
 const AccessLogsQuerySchema = z.object({
-  application: z.string().uuid().optional(),
+  // Admin-UI API Keys card view — an "application" can span multiple key
+  // rows (rotations), so its access-log filter needs to match any one of
+  // several application (api key) ids, not just a single exact one. Accepts
+  // either a single uuid (unchanged from before) or a comma-separated list.
+  application: z
+    .string()
+    .transform((s) =>
+      s
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.string().uuid()).min(1))
+    .optional(),
   // PR #489 review, F-02 -- a cleared form field submits "" not undefined;
   // .min(1) rejects it at the boundary instead of silently generating
   // WHERE acting_person_id = '' (zero rows, no explanation to the admin).

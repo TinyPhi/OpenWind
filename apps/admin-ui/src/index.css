@@ -348,6 +348,17 @@ h1, h2, h3, h4, h5, h6 {
   margin: 8px 16px;
 }
 
+/* Section heading above the admin-only nav group (below .nav-divider),
+   separating it visually from the all-roles workspace nav above it. */
+.sidebar-section-label {
+  padding: 4px 16px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 /* Pinned to the bottom of the sidebar — sits below the scrollable
    .sidebar-menu (flex: 1), which absorbs the remaining space instead. */
 .sidebar-footer {

@@ -50,6 +50,14 @@ const CreateApiKeySchema = z.object({
 
 const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
 
+// Admin-UI API Keys restructuring: keys are grouped into one card per
+// application by applicationName -- normalized the same way here as the
+// grouping logic on the client, so "Acme " and "acme" can never both exist
+// as separate registrations that would otherwise split into two cards.
+function normalizeApplicationName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 export const createApiKeyHandler = factory.createHandlers(
   requireAuth(),
   requireRole("admin"),
@@ -290,6 +298,68 @@ export const createApiKeyHandler = factory.createHandlers(
       }
     }
 
+    // Migration 0086/0087's own comment: applicationName uniqueness is
+    // tenant-scoped (unlike oidcClientId's global index above) -- two
+    // different tenants can legitimately register their own "Zapier"
+    // integration. Runs inside withTenantContext (RLS + the explicit
+    // tenant_id filter below, both required per security.md) rather than on
+    // the bare `db` client, since this check has no reason to see other
+    // tenants' rows at all. Filtered to applicationNameActive rows only --
+    // a rotation's dying predecessor keeps its applicationName and stays
+    // non-revoked through its grace window, but rotate.ts already flipped
+    // its applicationNameActive to false, so it correctly never counts as
+    // a conflict against its own successor or anything else.
+    if (scopesFormat === "action" && applicationName) {
+      const normalizedName = normalizeApplicationName(applicationName);
+      const candidates = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({
+            id: apiKeys.id,
+            applicationName: apiKeys.applicationName,
+            oidcClientId: apiKeys.oidcClientId,
+            expiresAt: apiKeys.expiresAt,
+          })
+          .from(apiKeys)
+          .where(
+            and(
+              eq(apiKeys.tenantId, tenantId),
+              isNull(apiKeys.revokedAt),
+              eq(apiKeys.applicationNameActive, true),
+            ),
+          ),
+      );
+      const nameConflict = candidates.find(
+        (row) =>
+          row.applicationName !== null &&
+          normalizeApplicationName(row.applicationName) === normalizedName &&
+          row.oidcClientId !== oidcClientId,
+      );
+
+      if (nameConflict) {
+        const isExpired =
+          nameConflict.expiresAt !== null &&
+          nameConflict.expiresAt <= new Date();
+        if (!isExpired) {
+          return c.json(
+            {
+              error: "APPLICATION_NAME_IN_USE",
+              message: `An application named "${applicationName}" is already registered for this tenant — use a different name, or mint a new key under the existing application instead`,
+            },
+            409,
+          );
+        }
+        await withTenantContext(tenantId, (tx) =>
+          tx
+            .update(apiKeys)
+            .set({
+              revokedAt: new Date(),
+              revokedBy: "system:expiry-reclaim",
+            })
+            .where(eq(apiKeys.id, nameConflict.id)),
+        );
+      }
+    }
+
     try {
       const created = await withTenantContext(tenantId, async (tx) => {
         let row;
@@ -338,6 +408,17 @@ export const createApiKeyHandler = factory.createHandlers(
           // 500.
           if (isUniqueViolation(err, "api_keys_oidc_client_id_active_unique")) {
             throw new ClientIdInUseError();
+          }
+          // Same race the pre-insert conflict check above can't fully close
+          // (two concurrent requests for the same normalized name), closed
+          // by migration 0086's own unique index.
+          if (
+            isUniqueViolation(
+              err,
+              "api_keys_tenant_application_name_active_unique",
+            )
+          ) {
+            throw new ApplicationNameInUseError();
           }
           // Migrations 0070/0071's CHECK constraints bound application_name/
           // application_description/application_contact_email/
@@ -402,6 +483,15 @@ export const createApiKeyHandler = factory.createHandlers(
           422,
         );
       }
+      if (err instanceof ApplicationNameInUseError) {
+        return c.json(
+          {
+            error: "APPLICATION_NAME_IN_USE",
+            message: `An application named "${applicationName ?? ""}" is already registered for this tenant — use a different name, or mint a new key under the existing application instead`,
+          },
+          409,
+        );
+      }
       throw err;
     }
   },
@@ -409,3 +499,4 @@ export const createApiKeyHandler = factory.createHandlers(
 
 class ClientIdInUseError extends Error {}
 class FieldTooLongError extends Error {}
+class ApplicationNameInUseError extends Error {}

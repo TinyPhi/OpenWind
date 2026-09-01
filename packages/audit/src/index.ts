@@ -188,7 +188,10 @@ export type QueryAuditLogInput = {
   tenantId: string;
   resourceType?: string | undefined;
   resourceId?: string | undefined;
-  actorId?: string | undefined;
+  /** Admin-UI API Keys card view — an "application" can span multiple key
+   * rows (rotations), so its access-log filter needs to match any one of
+   * several actorIds, not just a single exact key. */
+  actorId?: string | string[] | undefined;
   actorType?: AuditActorType | undefined;
   /** ADR-012 Phase F — the real person acting through a third-party API key, distinct from actorId (the key itself). */
   actingPersonId?: string | undefined;
@@ -230,8 +233,13 @@ export async function queryAuditLog(
   type Condition = ReturnType<typeof eq>;
   const conditions: Condition[] = [eq(adminAuditLog.tenantId, input.tenantId)];
 
-  if (input.actorId !== undefined)
-    conditions.push(eq(adminAuditLog.actorId, input.actorId));
+  if (input.actorId !== undefined) {
+    conditions.push(
+      Array.isArray(input.actorId)
+        ? inArray(adminAuditLog.actorId, input.actorId)
+        : eq(adminAuditLog.actorId, input.actorId),
+    );
+  }
   if (input.actorType !== undefined)
     conditions.push(eq(adminAuditLog.actorType, input.actorType));
   if (input.resourceType !== undefined)
