@@ -71,7 +71,15 @@ function extractOrgClaim(claims: Record<string, unknown>): string | undefined {
 // external issuers default to "org_id" (the common modern-OIDC convention
 // this platform has seen from AuthNexus), which is a reasonable default,
 // not a guarantee. An issuer using something else needs an entry added
-// here explicitly.
+// here explicitly. PR #545 review (PrabhuVijit, SUGGESTION) -- notably,
+// ANY secondary Zitadel instance used as an external issuer would silently
+// 401 under this default, since Zitadel itself uses the namespaced
+// `urn:zitadel:iam:user:resourceowner:id` claim, not `org_id` (see
+// dual-identity.test.ts's "rejects a Zitadel-namespaced org claim on the
+// external path" case). No tracking issue filed yet -- revisit when a
+// second Zitadel-backed customer or another non-AuthNexus IdP using a
+// namespaced org claim is actually onboarded, at which point add its entry
+// here rather than widening the default.
 const ORG_CLAIM_NAME_BY_EXTERNAL_ISSUER: Record<string, string> = {};
 const DEFAULT_EXTERNAL_ORG_CLAIM_NAME = "org_id";
 
@@ -170,6 +178,7 @@ export const requireActingPerson = (): MiddlewareHandler =>
             personToken,
             keyRow.externalIssuer,
             keyRow.oidcClientId,
+            auth.tenantId,
           )
         : await verifyJwtWithAudience(personToken, keyRow.oidcClientId);
       if (!claims) {

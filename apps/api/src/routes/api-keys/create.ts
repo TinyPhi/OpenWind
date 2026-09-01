@@ -44,8 +44,13 @@ const CreateApiKeySchema = z.object({
   // platform's configured primary. externalIssuer is always explicit admin
   // input (spec §I's resolved decision) — never derived via a live
   // discovery-document fetch during this request.
-  externalIssuer: z.string().url().max(500).optional(),
-  externalOrgId: z.string().min(1).max(200).optional(),
+  // PR #545 review (PrabhuVijit) -- .trim() runs before .url()/.min(1), so a
+  // direct API caller (bypassing the admin UI's own trim) can no longer
+  // store a whitespace-padded value that would never match a real OIDC
+  // claim/issuer at verification time. A whitespace-only externalOrgId
+  // still correctly fails .min(1) after trimming.
+  externalIssuer: z.string().url().max(500).trim().optional(),
+  externalOrgId: z.string().min(1).max(200).trim().optional(),
 });
 
 const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
@@ -67,6 +72,30 @@ export const createApiKeyHandler = factory.createHandlers(
       externalOrgId,
     } = c.req.valid("json");
     const { tenantId, roles, userId } = c.get("auth");
+
+    // PR #545 review (PrabhuVijit, MUST FIX) -- stored separately from the
+    // raw `externalIssuer` input. A trailing-slash variant
+    // ("https://auth.example.com/") is a valid URL that passes every
+    // validation branch below unchanged, but stored verbatim it breaks
+    // verification three ways: the discovery fetch becomes a malformed
+    // double-slash URL, the JWKS cache key differs from the no-slash form
+    // (splitting an otherwise-identical issuer's cache), and jose's
+    // `jwtVerify({ issuer })` requires an exact string match against the
+    // token's `iss` claim, which real OIDC issuers essentially never emit
+    // with a trailing slash. Because api_keys rows are immutable after
+    // creation, an un-normalized value here means a key that creates
+    // successfully (201) but 401s on every real use, fixable only by
+    // revoking and recreating it. `.href` (not `.origin`, which strips the
+    // path -- wrong for path-based issuers like Microsoft's
+    // `.../tenant-id/v2.0`) canonicalizes case/default-port/percent-encoding
+    // and drops a root-path's own trailing slash; the explicit `.replace`
+    // covers a non-root path's trailing slash too (`.href` alone leaves
+    // "https://x.com/foo/" as-is). Computed once here (before the malformed-
+    // URL branch below, which already re-parses with its own try/catch) so
+    // every later use -- the stored value -- is consistent.
+    const normalizedExternalIssuer = externalIssuer
+      ? new URL(externalIssuer).href.replace(/\/$/, "")
+      : undefined;
 
     // ADR-008 Decision #6: stamps the format of the scopes actually supplied.
     // detectScopesFormat only throws on a mixed role/action array — checked
@@ -311,7 +340,7 @@ export const createApiKeyHandler = factory.createHandlers(
                     applicationDescription,
                     applicationContactEmail,
                     oidcClientId,
-                    externalIssuer,
+                    externalIssuer: normalizedExternalIssuer,
                     externalOrgId,
                   }
                 : {}),
