@@ -22,6 +22,9 @@ import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
 import { notFound } from "./not-found.js";
 import { stripInternalFields } from "../../lib/strip-internal-fields.js";
+import { writeAuditEntry } from "@platform/audit";
+import { logger } from "@platform/logger";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isWorkflowNotFound(err: unknown): boolean {
   return err instanceof WorkflowError && err.code === "WORKFLOW_NOT_FOUND";
@@ -92,9 +95,10 @@ export const listThirdPartyTicketsHandler = factory.createHandlers(
   zValidator("query", ListThirdPartyTicketsQuerySchema),
   async (c) => {
     const workflowId = c.req.param("workflowId") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const { state, limit, cursor } = c.req.valid("query");
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     // Same shape/status as zValidator's own query-param validation failures
     // (apps/api/src/lib/validator.ts) -- a malformed cursor is a malformed
@@ -188,6 +192,28 @@ export const listThirdPartyTicketsHandler = factory.createHandlers(
         createdAt: instance.createdAt,
         updatedAt: instance.updatedAt,
       }));
+
+      // Best-effort -- a logging hiccup must never turn a successful list
+      // into a 500. No single ticket resourceId applies to a list call, so
+      // this is logged against the workflow being listed instead.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "workflow",
+            resourceId: workflow.id,
+            action: "ticket.listed",
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, workflowId: workflow.id },
+          "third-party ticket list: audit write failed",
+        );
+      }
 
       return c.json({ data, nextCursor: page.nextCursor });
     } catch (err) {

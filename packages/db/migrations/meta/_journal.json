@@ -617,6 +617,13 @@
       "when": 1788330100000,
       "tag": "0087_api_keys_application_name_active_flag",
       "breakpoints": false
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1788330200000,
+      "tag": "0088_admin_audit_log_read_actions",
+      "breakpoints": false
     }
   ]
 }

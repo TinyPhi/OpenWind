@@ -6,9 +6,14 @@ export interface AccessLogRow {
   applicationName: string | null;
   applicationKeyId: string;
   actingPersonId: string | null;
-  ticketId: string;
+  // null for a non-ticket resource (Phase F follow-up's workflow/tenant/
+  // attachment read actions) -- see resourceType for what it actually is.
+  ticketId: string | null;
+  resourceType: string;
+  resourceId: string;
   action: string;
   outcome: "allowed" | "denied";
+  type: "read" | "write";
 }
 
 export interface AccessLogFilters {
@@ -21,6 +26,7 @@ export interface AccessLogFilters {
   from?: string | undefined;
   to?: string | undefined;
   outcome?: "allowed" | "denied" | undefined;
+  type?: "read" | "write" | undefined;
   cursor?: string | undefined;
 }
 
@@ -32,7 +38,7 @@ interface ListResponse {
 export async function listThirdPartyAccessLogs(
   filters: AccessLogFilters = {},
 ): Promise<ListResponse> {
-  const params = new URLSearchParams({ limit: "50" });
+  const params = new URLSearchParams({ limit: "20" });
   const entries = Object.entries(filters) as Array<
     [keyof AccessLogFilters, string | string[] | undefined]
   >;

@@ -49,6 +49,15 @@ export {
   type AuditOutcome,
 } from "./outcome.js";
 import { actionsForOutcome, type AuditOutcome } from "./outcome.js";
+export {
+  classifyRequestKind,
+  actionsForRequestKind,
+  type AuditRequestKind,
+} from "./request-kind.js";
+import {
+  actionsForRequestKind,
+  type AuditRequestKind,
+} from "./request-kind.js";
 
 export type AuditActorType = "user" | "api_key" | "system";
 export type AuditAction =
@@ -90,7 +99,19 @@ export type AuditAction =
   | "child.created"
   | "child.access_denied"
   | "attachment.referenced"
-  | "attachment.reference_denied";
+  | "attachment.reference_denied"
+  // Phase F follow-up, migration 0088 — read endpoints previously wrote no
+  // audit trail at all. Written on success ("viewed"/"listed") and on an
+  // actual ACL denial ("view_denied"/"download_denied") only, never on a
+  // genuinely-missing resource, mirroring every write action's own
+  // existence-oracle convention (security.md 404-not-403).
+  | "ticket.viewed"
+  | "ticket.view_denied"
+  | "ticket.listed"
+  | "workflow.listed"
+  | "workflow_fields.listed"
+  | "attachment.downloaded"
+  | "attachment.download_denied";
 
 export type AuditEntryInput = {
   tenantId: string;
@@ -197,6 +218,8 @@ export type QueryAuditLogInput = {
   actingPersonId?: string | undefined;
   /** ADR-012 Phase F — outcome is derived (see classifyOutcome), not stored; this filters by the set of AuditAction values that classify to the given outcome. */
   outcome?: AuditOutcome | undefined;
+  /** Phase F follow-up — read vs write is derived (see classifyRequestKind), not stored; this filters by the set of AuditAction values that classify to the given kind. */
+  requestKind?: AuditRequestKind | undefined;
   /** Filter entries created at or after this timestamp */
   from?: Date | undefined;
   /** Filter entries created at or before this timestamp */
@@ -251,6 +274,10 @@ export async function queryAuditLog(
   if (input.outcome !== undefined)
     conditions.push(
       inArray(adminAuditLog.action, actionsForOutcome(input.outcome)),
+    );
+  if (input.requestKind !== undefined)
+    conditions.push(
+      inArray(adminAuditLog.action, actionsForRequestKind(input.requestKind)),
     );
   if (input.from !== undefined)
     conditions.push(gte(adminAuditLog.createdAt, input.from));

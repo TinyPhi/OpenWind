@@ -148,10 +148,12 @@ describe("ThirdPartyAccessLogsPage", () => {
     expect(screen.getByText("—")).toBeTruthy();
   });
 
-  // PR #489 review, F-03 -- loadMore() previously read the live (dirty)
-  // filter-editing state instead of the last-applied one, silently mixing
-  // an unapplied edit into the pagination request.
-  it("loadMore() uses the last-applied filters, not an unapplied in-progress edit", async () => {
+  // PR #489 review, F-03 -- pagination previously (as "loadMore") read the
+  // live (dirty) filter-editing state instead of the last-applied one,
+  // silently mixing an unapplied edit into the pagination request. Now
+  // exercised through the Next button instead of Load More (Prev/Next,
+  // 20/page, replaced the old append-only Load More UI).
+  it("Next uses the last-applied filters, not an unapplied in-progress edit", async () => {
     queuedLogsResponse = {
       data: [
         {
@@ -170,7 +172,7 @@ describe("ThirdPartyAccessLogsPage", () => {
 
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Load more")).toBeTruthy();
+      expect(screen.getByText("Next →")).toBeTruthy();
     });
 
     // Edit the Application field WITHOUT clicking "Apply filters".
@@ -182,7 +184,7 @@ describe("ThirdPartyAccessLogsPage", () => {
       ([url]) => !(url as string).includes("/users"),
     ).length;
     queuedLogsResponse = { data: [], nextCursor: null };
-    fireEvent.click(screen.getByText("Load more"));
+    fireEvent.click(screen.getByText("Next →"));
 
     await waitFor(() => {
       const logsCalls = mockFetchWithAuth.mock.calls.filter(
@@ -193,9 +195,40 @@ describe("ThirdPartyAccessLogsPage", () => {
     const logsCalls = mockFetchWithAuth.mock.calls.filter(
       ([url]) => !(url as string).includes("/users"),
     );
-    const loadMoreUrl = logsCalls[logsCalls.length - 1]?.[0] as string;
-    expect(loadMoreUrl).toContain("cursor=cursor-1");
-    expect(loadMoreUrl).not.toContain("unapplied-key-id");
+    const nextPageUrl = logsCalls[logsCalls.length - 1]?.[0] as string;
+    expect(nextPageUrl).toContain("cursor=cursor-1");
+    expect(nextPageUrl).not.toContain("unapplied-key-id");
+  });
+
+  it("Previous is disabled on page 1 and Next is disabled once there's no further cursor", async () => {
+    queuedLogsResponse = {
+      data: [
+        {
+          id: "log-1",
+          timestamp: "2026-08-25T10:00:00.000Z",
+          applicationName: "Acme Sync",
+          applicationKeyId: "11111111-1111-4111-1111-111111111111",
+          actingPersonId: "person-a",
+          ticketId: "22222222-2222-4222-2222-222222222222",
+          action: "comment.created",
+          outcome: "allowed",
+        },
+      ],
+      nextCursor: null,
+    };
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Page 1 · 1 entry")).toBeTruthy();
+    });
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "← Previous" })
+        .disabled,
+    ).toBe(true);
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Next →" })
+        .disabled,
+    ).toBe(true);
   });
 
   it("shows the empty state when no rows match", async () => {

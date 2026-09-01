@@ -10,7 +10,11 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
-import { queryAuditLog, classifyOutcome } from "@platform/audit";
+import {
+  queryAuditLog,
+  classifyOutcome,
+  classifyRequestKind,
+} from "@platform/audit";
 import { and, eq, inArray } from "drizzle-orm";
 import { factory } from "./factory.js";
 
@@ -37,8 +41,12 @@ const AccessLogsQuerySchema = z.object({
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   outcome: z.enum(["allowed", "denied"]).optional(),
+  // Read vs write is derived from the action name (classifyRequestKind), not
+  // stored -- same "filter by the set of actions matching a derived
+  // property" shape as `outcome` above.
+  type: z.enum(["read", "write"]).optional(),
   cursor: z.string().uuid().optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export const getThirdPartyAccessLogsHandler = factory.createHandlers(
@@ -55,9 +63,16 @@ export const getThirdPartyAccessLogsHandler = factory.createHandlers(
         actorType: "api_key",
         actorId: q.application,
         actingPersonId: q.personId,
-        resourceType: "ticket",
+        // resourceType is only pinned to "ticket" when filtering by a
+        // specific ticketId (so that id can't coincidentally match a
+        // workflow/tenant/attachment resourceId under a different
+        // resourceType) -- otherwise left unset, since Phase F follow-up's
+        // read actions can carry resourceType 'workflow'/'tenant'/
+        // 'attachment' and must still show up in the unfiltered list.
+        resourceType: q.ticketId !== undefined ? "ticket" : undefined,
         resourceId: q.ticketId,
         outcome: q.outcome,
+        requestKind: q.type,
         from: q.from !== undefined ? new Date(q.from) : undefined,
         to: q.to !== undefined ? new Date(q.to) : undefined,
         cursor: q.cursor,
@@ -107,9 +122,16 @@ export const getThirdPartyAccessLogsHandler = factory.createHandlers(
       applicationName: result.applicationNames.get(entry.actorId) ?? null,
       applicationKeyId: entry.actorId,
       actingPersonId: entry.actingPersonId ?? null,
-      ticketId: entry.resourceId,
+      // null for the Phase F follow-up's non-ticket resource types
+      // ('workflow'/'tenant'/'attachment') -- resourceId is still that
+      // row's own id, but it isn't a ticket, so it isn't exposed under a
+      // field name that implies one.
+      ticketId: entry.resourceType === "ticket" ? entry.resourceId : null,
+      resourceType: entry.resourceType,
+      resourceId: entry.resourceId,
       action: entry.action,
       outcome: classifyOutcome(entry.action),
+      type: classifyRequestKind(entry.action),
     }));
 
     return c.json({ data, nextCursor: result.logResult.nextCursor });

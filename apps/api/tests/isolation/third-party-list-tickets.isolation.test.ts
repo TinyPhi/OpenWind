@@ -9,7 +9,13 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { inArray, eq, and, sql } from "drizzle-orm";
-import { db, tenants, entityInstances } from "@platform/db";
+import {
+  db,
+  tenants,
+  entityInstances,
+  adminAuditLog,
+  withTenantContext,
+} from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import { createWorkflow, addWorkflowState } from "@platform/workflow-engine";
 import type { EntityType } from "@platform/entity-engine";
@@ -441,5 +447,35 @@ describe("GET /api/v1/workflows/:workflowId/tickets", () => {
     expect(res.headers.get("x-ratelimit-key-person-limit")).not.toBeNull();
     expect(res.headers.get("x-ratelimit-key-person-remaining")).not.toBeNull();
     expect(res.headers.get("x-ratelimit-key-person-reset")).not.toBeNull();
+  });
+
+  // Phase F follow-up: this list call previously wrote no audit trail at
+  // all -- prove-it pattern, would fail against the pre-fix code.
+  it("writes a ticket.listed audit entry against the workflow being listed", async () => {
+    const app = makeApp(MAIN_PERSON);
+    const res = await listTickets(app, workflowId);
+    expect(res.status).toBe(200);
+
+    const [entry] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({
+          actorId: adminAuditLog.actorId,
+          actorType: adminAuditLog.actorType,
+          resourceType: adminAuditLog.resourceType,
+          resourceId: adminAuditLog.resourceId,
+        })
+        .from(adminAuditLog)
+        .where(
+          and(
+            eq(adminAuditLog.resourceId, workflowId),
+            eq(adminAuditLog.action, "ticket.listed"),
+          ),
+        )
+        .limit(1),
+    );
+    expect(entry).toBeDefined();
+    expect(entry?.actorType).toBe("api_key");
+    expect(entry?.actorId).toBe("88888888-8888-4888-8888-888888888888");
+    expect(entry?.resourceType).toBe("workflow");
   });
 });

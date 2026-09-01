@@ -69,10 +69,23 @@ export function AccessLogsPanel({
   const [appliedFilters, setAppliedFilters] =
     useState<AccessLogFilters>(baseFilters);
   const [logs, setLogs] = useState<AccessLogRow[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Real Previous/Next pagination, 20/page, newest first -- built on top of
+  // the backend's own cursor pagination rather than SQL OFFSET (a known
+  // perf cliff on a growing audit-log table). pageCursors[i] is the cursor
+  // used to fetch page i+1 (pageCursors[0] is always undefined, page 1 has
+  // no cursor); pageIndex is the 0-based current page. Going back re-fetches
+  // page pageIndex-1 with its already-known cursor rather than caching
+  // page contents, so a page revisited after Apply-filters-elsewhere always
+  // shows current data.
+  const [pageCursors, setPageCursors] = useState<(string | undefined)[]>([
+    undefined,
+  ]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [paginating, setPaginating] = useState(false);
 
   // Resolved lazily per row on click, not prefetched for every log entry —
   // the audit log only stores the ticket's instance id, not its entity
@@ -102,10 +115,12 @@ export function AccessLogsPanel({
     setLoading(true);
     setError(null);
     setAppliedFilters(nextFilters);
+    setPageCursors([undefined]);
+    setPageIndex(0);
     listThirdPartyAccessLogs(nextFilters)
       .then((res) => {
         setLogs(res.data);
-        setCursor(res.nextCursor);
+        setNextCursor(res.nextCursor);
       })
       .catch((err: unknown) =>
         setError(
@@ -124,20 +139,33 @@ export function AccessLogsPanel({
     load(baseFilters);
   }, []);
 
-  function loadMore(): void {
-    if (!cursor) return;
-    setLoadingMore(true);
+  function goToPage(newIndex: number, cursor: string | undefined): void {
+    setPaginating(true);
     listThirdPartyAccessLogs({ ...appliedFilters, cursor })
       .then((res) => {
-        setLogs((prev) => [...prev, ...res.data]);
-        setCursor(res.nextCursor);
+        setLogs(res.data);
+        setNextCursor(res.nextCursor);
+        setPageIndex(newIndex);
       })
       .catch((err: unknown) =>
         setError(
           err instanceof Error ? err.message : "Failed to load access logs",
         ),
       )
-      .finally(() => setLoadingMore(false));
+      .finally(() => setPaginating(false));
+  }
+
+  function goNext(): void {
+    if (!nextCursor) return;
+    const newIndex = pageIndex + 1;
+    setPageCursors((prev) => [...prev.slice(0, newIndex), nextCursor]);
+    goToPage(newIndex, nextCursor);
+  }
+
+  function goPrev(): void {
+    if (pageIndex === 0) return;
+    const newIndex = pageIndex - 1;
+    goToPage(newIndex, pageCursors[newIndex]);
   }
 
   return (
@@ -210,6 +238,26 @@ export function AccessLogsPanel({
               <option value="">Any</option>
               <option value="allowed">Allowed</option>
               <option value="denied">Denied</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">Type</label>
+            <select
+              className="form-input"
+              value={filters.type ?? ""}
+              onChange={(e) =>
+                setFilters((f) => ({
+                  ...f,
+                  type:
+                    e.target.value === ""
+                      ? undefined
+                      : (e.target.value as "read" | "write"),
+                }))
+              }
+            >
+              <option value="">Any</option>
+              <option value="read">Read</option>
+              <option value="write">Write</option>
             </select>
           </div>
           <div className="form-group" style={{ margin: 0 }}>
@@ -294,16 +342,22 @@ export function AccessLogsPanel({
           <Table scroll={false}>
             <TableHeader>
               <TableRow>
-                {["", "Application", "Person", "Ticket", "Action", "When"].map(
-                  (h) => (
-                    <TableHead
-                      key={h}
-                      style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
-                    >
-                      {h}
-                    </TableHead>
-                  ),
-                )}
+                {[
+                  "",
+                  "Application",
+                  "Person",
+                  "Ticket",
+                  "Type",
+                  "Action",
+                  "When",
+                ].map((h) => (
+                  <TableHead
+                    key={h}
+                    style={{ padding: "10px 16px", whiteSpace: "nowrap" }}
+                  >
+                    {h}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -355,28 +409,62 @@ export function AccessLogsPanel({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => openTicket(log.ticketId)}
-                      disabled={resolvingTicketId === log.ticketId}
+                    {log.ticketId ? (
+                      <button
+                        type="button"
+                        onClick={() => openTicket(log.ticketId as string)}
+                        disabled={resolvingTicketId === log.ticketId}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          font: "inherit",
+                          fontFamily: "monospace",
+                          color: TOKENS.accentPrimary,
+                          cursor:
+                            resolvingTicketId === log.ticketId
+                              ? "wait"
+                              : "pointer",
+                          textDecoration: "underline",
+                        }}
+                      >
+                        {resolvingTicketId === log.ticketId
+                          ? "Opening…"
+                          : log.ticketId}
+                      </button>
+                    ) : (
+                      // Phase F follow-up's non-ticket read actions
+                      // (workflow list, workflow-fields describe, tenant-
+                      // wide workflow list) have no single ticket to link --
+                      // shown as their resourceType instead of a blank cell.
+                      <span style={{ color: TOKENS.textMuted }}>
+                        ({log.resourceType})
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell
+                    style={{
+                      padding: "12px 16px",
+                      fontSize: "11px",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span
                       style={{
-                        background: "none",
-                        border: "none",
-                        padding: 0,
-                        font: "inherit",
-                        fontFamily: "monospace",
-                        color: TOKENS.accentPrimary,
-                        cursor:
-                          resolvingTicketId === log.ticketId
-                            ? "wait"
-                            : "pointer",
-                        textDecoration: "underline",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "2px 8px",
+                        borderRadius: "20px",
+                        fontWeight: 500,
+                        background:
+                          log.type === "write"
+                            ? "rgba(139, 92, 246, 0.15)"
+                            : "rgba(59, 130, 246, 0.15)",
+                        color: log.type === "write" ? "#8b5cf6" : "#3b82f6",
                       }}
                     >
-                      {resolvingTicketId === log.ticketId
-                        ? "Opening…"
-                        : log.ticketId}
-                    </button>
+                      {log.type === "write" ? "Write" : "Read"}
+                    </span>
                   </TableCell>
                   <TableCell
                     style={{
@@ -416,18 +504,27 @@ export function AccessLogsPanel({
             }}
           >
             <span>
-              {logs.length} entr{logs.length !== 1 ? "ies" : "y"}
+              Page {pageIndex + 1} · {logs.length} entr
+              {logs.length !== 1 ? "ies" : "y"}
             </span>
-            {cursor && (
+            <div style={{ display: "flex", gap: "8px" }}>
               <Button
                 type="button"
                 variant="secondary"
-                onClick={loadMore}
-                disabled={loadingMore}
+                onClick={goPrev}
+                disabled={pageIndex === 0 || paginating}
               >
-                {loadingMore ? "Loading…" : "Load more"}
+                ← Previous
               </Button>
-            )}
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={goNext}
+                disabled={!nextCursor || paginating}
+              >
+                {paginating ? "Loading…" : "Next →"}
+              </Button>
+            </div>
           </div>
         </div>
       )}

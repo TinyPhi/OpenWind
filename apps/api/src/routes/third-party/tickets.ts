@@ -19,6 +19,8 @@ import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.
 import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 import { withIdempotency } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
+import { writeAuditEntry } from "@platform/audit";
+import { logger } from "@platform/logger";
 
 function isEntityNotFound(err: unknown): boolean {
   return (
@@ -53,8 +55,9 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
   requireTicketScope("read"),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId } = c.get("actingPerson");
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     try {
       const instance = await withTenantContext(tenantId, (tx) =>
@@ -65,6 +68,27 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
         hasEntityAccess(tx, tenantId, instance, userId, []),
       );
       if (!allowed) {
+        // Best-effort: an audit-write failure must never turn a correct 404
+        // denial into a 500 -- same pattern as transitions.ts's denied
+        // branch.
+        try {
+          await withTenantContext(tenantId, (tx) =>
+            writeAuditEntry(tx, {
+              tenantId,
+              actorId: applicationActorId,
+              actorType: "api_key",
+              actingPersonId: userId,
+              resourceType: "ticket",
+              resourceId: id,
+              action: "ticket.view_denied",
+            }),
+          );
+        } catch (auditErr) {
+          logger.warn(
+            { auditErr, tenantId, instanceId: id },
+            "third-party ticket view: denied-attempt audit write failed",
+          );
+        }
         return notFound(c);
       }
 
@@ -79,6 +103,27 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
           instance.fields,
         ),
       );
+
+      // Best-effort, same rationale as the denied branch above -- a logging
+      // hiccup must never turn a successful read into a 500.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId: userId,
+            resourceType: "ticket",
+            resourceId: id,
+            action: "ticket.viewed",
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, instanceId: id },
+          "third-party ticket view: allowed-attempt audit write failed",
+        );
+      }
 
       return c.json({
         data: {

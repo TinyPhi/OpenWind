@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray, eq, sql } from "drizzle-orm";
+import { inArray, eq, and, sql } from "drizzle-orm";
 import {
   db,
   tenants,
@@ -18,6 +18,8 @@ import {
   entityInstances,
   attachments,
   files,
+  adminAuditLog,
+  withTenantContext,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
@@ -587,5 +589,51 @@ describe("GET /api/v1/attachments/:id/download", () => {
       headers: { "x-test-acting-person": NO_ACCESS_PERSON },
     });
     expect(res.status).toBe(404);
+
+    // Phase F follow-up: this denied branch previously wrote no audit trail
+    // at all -- prove-it pattern, would fail against the pre-fix code.
+    const [deniedEntry] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ actorType: adminAuditLog.actorType })
+        .from(adminAuditLog)
+        .where(eq(adminAuditLog.action, "attachment.download_denied"))
+        .limit(1),
+    );
+    expect(deniedEntry).toBeDefined();
+    expect(deniedEntry?.actorType).toBe("api_key");
+  });
+
+  it("writes an attachment.downloaded audit entry on a successful download", async () => {
+    const app = makeApp();
+    const attachmentId = await createUploadedAttachment(app);
+    await app.request(`/tickets/${ticketA}/comments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "attached", attachmentIds: [attachmentId] }),
+    });
+
+    const res = await app.request(`/attachments/${attachmentId}/download`);
+    expect(res.status).toBe(200);
+
+    const [entry] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({
+          actorId: adminAuditLog.actorId,
+          actorType: adminAuditLog.actorType,
+          resourceType: adminAuditLog.resourceType,
+        })
+        .from(adminAuditLog)
+        .where(
+          and(
+            eq(adminAuditLog.resourceId, attachmentId),
+            eq(adminAuditLog.action, "attachment.downloaded"),
+          ),
+        )
+        .limit(1),
+    );
+    expect(entry).toBeDefined();
+    expect(entry?.actorType).toBe("api_key");
+    expect(entry?.actorId).toBe("55555555-5555-5555-5555-555555555555");
+    expect(entry?.resourceType).toBe("attachment");
   });
 });
