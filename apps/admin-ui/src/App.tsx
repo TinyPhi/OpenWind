@@ -120,19 +120,10 @@ export function App(): React.ReactElement {
             {/* All authenticated users */}
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/analytics" element={<Analytics />} />
             <Route path="/records" element={<AdminRecords />} />
             <Route
               path="/workflows/:workflowSlug/records"
               element={<WorkflowRecords />}
-            />
-
-            {/* Automation rules */}
-            <Route path="/automations" element={<Automations />} />
-            <Route path="/automations/new" element={<AutomationWizard />} />
-            <Route
-              path="/automations/:id/edit"
-              element={<AutomationWizard />}
             />
 
             {/* Customer routes */}
@@ -147,6 +138,10 @@ export function App(): React.ReactElement {
 
             <Route path="/settings" element={<Settings />} />
 
+            {/* Also reachable from the CUSTOMER nav (layout.tsx's
+                isCustomer branch, "browse/fork workflow templates") — must
+                stay outside RequireAdmin even though the admin/agent
+                sidebar's own Templates link is now admin-only. */}
             <Route path="/modules" element={<Modules />} />
             <Route path="/plugins" element={<Plugins />} />
 
@@ -184,6 +179,19 @@ export function App(): React.ReactElement {
               <Route
                 path="/admin/api-keys/:slug"
                 element={<ApiKeyApplicationDetail />}
+              />
+              {/* Moved here (from the "all authenticated users" block above)
+                  to match their sidebar nav now being admin-only — a
+                  direct-URL visit from an agent redirects to /dashboard
+                  instead of the page silently rendering with no nav link
+                  pointing at it. Templates (/modules) stays OUT of this
+                  block — see its own route above; customers also use it. */}
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/automations" element={<Automations />} />
+              <Route path="/automations/new" element={<AutomationWizard />} />
+              <Route
+                path="/automations/:id/edit"
+                element={<AutomationWizard />}
               />
             </Route>
 

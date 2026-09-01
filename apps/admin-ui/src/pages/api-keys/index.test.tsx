@@ -114,6 +114,29 @@ describe("ApiKeys card grid (admin-ui API Keys restructuring)", () => {
     expect(screen.getByText("Revoked")).toBeTruthy();
   });
 
+  it("shows a status pill for every distinct status present across an application's keys, not just one", async () => {
+    const revokedSibling = {
+      ...ACTIVE_KEY,
+      id: "key-1c",
+      revokedAt: "2026-03-01T00:00:00Z",
+    };
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: [ACTIVE_KEY, revokedSibling],
+    });
+    renderPage();
+
+    await screen.findByText("Acme Helpdesk Sync");
+    expect(screen.getByText("Active")).toBeTruthy();
+    expect(screen.getByText("Revoked")).toBeTruthy();
+  });
+
+  it("shows a 'Newest key created' date derived from the application's most recently created key", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({ data: [ACTIVE_KEY] });
+    renderPage();
+
+    await screen.findByText(/Newest key created/);
+  });
+
   it("navigates to the application's detail route when a card is clicked", async () => {
     mockFetchWithAuth.mockResolvedValueOnce({ data: [ACTIVE_KEY] });
     renderPage();

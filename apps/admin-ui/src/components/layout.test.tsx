@@ -67,7 +67,9 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     expect(screen.getByText("Automations")).not.toBeNull();
     expect(screen.getByText("System Logs")).not.toBeNull();
     expect(screen.getByText("API Keys")).not.toBeNull();
-    expect(screen.getByText("API Access Logs")).not.toBeNull();
+    // API Access Logs has no nav entry of its own anymore — its data is
+    // already reachable via the API Keys page's own internal view.
+    expect(screen.queryByText("API Access Logs")).toBeNull();
     // Users is workspace nav (all roles), not part of the admin-only
     // section, but still visible to an admin.
     expect(screen.getByText("Users")).not.toBeNull();
