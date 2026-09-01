@@ -18,6 +18,14 @@ const { mockAuth } = vi.hoisted(() => ({
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
+// Defaults to allowing everything — the SSRF guard's own enforcement logic
+// is unit-tested in packages/auth/src/ssrf-guard.test.ts; here it's only
+// stubbed so create.ts's call site has something to call, with dedicated
+// tests below overriding it to reject.
+const mockAssertExternalIssuerEgressAllowed = vi.fn(() =>
+  Promise.resolve(undefined),
+);
+
 vi.mock("@platform/auth", async () => {
   // detectScopesFormat is pure and has no side effects worth mocking — use the
   // real implementation so this test's insertArg.scopesFormat assertions stay
@@ -43,6 +51,8 @@ vi.mock("@platform/auth", async () => {
     API_KEY_DEFAULT_TTL_DAYS: 365,
     detectScopesFormat: actual.detectScopesFormat,
     unknownTicketActionScopes: actual.unknownTicketActionScopes,
+    assertExternalIssuerEgressAllowed: (...args: unknown[]) =>
+      mockAssertExternalIssuerEgressAllowed(...args),
   };
 });
 
@@ -565,5 +575,109 @@ describe("POST /api-keys — third-party (action-scoped) keys (ADR-012 Phase A)"
       body: thirdPartyBody(),
     });
     expect(res.status).not.toBe(422);
+  });
+});
+
+describe("POST /api-keys — external-org mapping (docs/specs/third-party-key-external-org-mapping.md)", () => {
+  const EXTERNAL_ISSUER = "https://auth.external-idp-test.example";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.roles = ["admin"];
+    mockSelectResult.rows = [];
+    mockInsertError.error = null;
+    mockAssertExternalIssuerEgressAllowed.mockReset();
+    mockAssertExternalIssuerEgressAllowed.mockResolvedValue(undefined);
+  });
+
+  it("stores a valid externalIssuer/externalOrgId pair and runs it through the SSRF guard", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({
+        externalIssuer: EXTERNAL_ISSUER,
+        externalOrgId: "external-org-1",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.externalIssuer).toBe(EXTERNAL_ISSUER);
+    expect(insertArg.externalOrgId).toBe("external-org-1");
+    expect(mockAssertExternalIssuerEgressAllowed).toHaveBeenCalledWith(
+      EXTERNAL_ISSUER,
+    );
+  });
+
+  it("returns 422 when externalOrgId is supplied without externalIssuer", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ externalOrgId: "external-org-orphan" }),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("VALIDATION_ERROR");
+    expect(mockAssertExternalIssuerEgressAllowed).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 ORG_MAPPING_REQUIRED when externalIssuer is supplied without externalOrgId", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({ externalIssuer: EXTERNAL_ISSUER }),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("ORG_MAPPING_REQUIRED");
+  });
+
+  it("rejects externalIssuer/externalOrgId on a role-format key", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body({
+        externalIssuer: EXTERNAL_ISSUER,
+        externalOrgId: "external-org-role-format",
+      }),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("VALIDATION_ERROR");
+  });
+
+  // Security-review finding (docs/specs/third-party-key-external-org-mapping.md
+  // Phase 2): create.ts must actually invoke the SSRF guard and fail closed
+  // when it rejects, not just import it unused.
+  it("returns 422 (not 201, not an unhandled 500) when the SSRF guard rejects the externalIssuer", async () => {
+    mockAssertExternalIssuerEgressAllowed.mockRejectedValueOnce(
+      new Error(
+        'Issuer host "169.254.169.254" resolves to a private/reserved address',
+      ),
+    );
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({
+        externalIssuer: "https://169.254.169.254",
+        externalOrgId: "external-org-blocked",
+      }),
+    });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("VALIDATION_ERROR");
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed externalIssuer with a clean 400 (schema-level url() validation), never reaching the SSRF guard", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({
+        externalIssuer: "not-a-url",
+        externalOrgId: "external-org-malformed",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(mockAssertExternalIssuerEgressAllowed).not.toHaveBeenCalled();
   });
 });

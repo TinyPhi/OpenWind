@@ -19,6 +19,18 @@ vi.mock("jose", () => ({
   jwtVerify: (...args: unknown[]) => mockJwtVerify(...args),
 }));
 
+// verifyJwtForIssuer's tests below use fake .example.com issuer hostnames
+// that don't actually resolve -- without this mock, the real SSRF guard
+// (real DNS lookups) would block every one of them and each test would pay
+// a real DNS-timeout's worth of wall-clock time. Defaults to allowing
+// everything; the guard's own enforcement is exercised by the dedicated
+// tests further down that override this mock to reject.
+const mockAssertExternalIssuerEgressAllowed = vi.fn(() => Promise.resolve());
+vi.mock("./ssrf-guard.js", () => ({
+  assertExternalIssuerEgressAllowed: (...args: unknown[]) =>
+    mockAssertExternalIssuerEgressAllowed(...args),
+}));
+
 const {
   extractAuthContext,
   verifyJwt,
@@ -191,6 +203,83 @@ describe("verifyJwtForIssuer (#docs/specs/third-party-key-external-org-mapping.m
     // clears mocks between tests) -- clear it so each test here only sees
     // calls it triggered itself.
     mockCreateRemoteJWKSet.mockClear();
+    mockAssertExternalIssuerEgressAllowed.mockReset();
+    mockAssertExternalIssuerEgressAllowed.mockResolvedValue(undefined);
+  });
+
+  // Security-review finding (docs/specs/third-party-key-external-org-mapping.md
+  // Phase 2): the discovery/JWKS fetches must actually run through the SSRF
+  // guard, not just have it imported unused.
+  it("runs the issuer through the SSRF guard before fetching its discovery document", async () => {
+    mockDiscovery(
+      "https://ssrf-guard-test.example.com",
+      "https://ssrf-guard-test.example.com/jwks",
+    );
+    mockJwtVerify.mockResolvedValueOnce({ payload: { sub: "user-1" } });
+
+    await verifyJwtForIssuer(
+      "some.jwt",
+      "https://ssrf-guard-test.example.com",
+      "client-xyz",
+    );
+
+    expect(mockAssertExternalIssuerEgressAllowed).toHaveBeenCalledWith(
+      "https://ssrf-guard-test.example.com",
+    );
+  });
+
+  it("also runs the discovery document's own jwks_uri through the SSRF guard before using it", async () => {
+    mockDiscovery(
+      "https://ssrf-guard-jwks-uri-test.example.com",
+      "https://attacker-controlled.example.com/jwks",
+    );
+    mockJwtVerify.mockResolvedValueOnce({ payload: { sub: "user-1" } });
+
+    await verifyJwtForIssuer(
+      "some.jwt",
+      "https://ssrf-guard-jwks-uri-test.example.com",
+      "client-xyz",
+    );
+
+    expect(mockAssertExternalIssuerEgressAllowed).toHaveBeenCalledWith(
+      "https://attacker-controlled.example.com/jwks",
+    );
+  });
+
+  it("returns null (fails closed) when the SSRF guard rejects the issuer, never fetching discovery", async () => {
+    mockAssertExternalIssuerEgressAllowed.mockRejectedValueOnce(
+      new Error("Issuer host resolves to a private/reserved address"),
+    );
+
+    const result = await verifyJwtForIssuer(
+      "some.jwt",
+      "https://blocked-issuer-test.example.com",
+      "client-xyz",
+    );
+
+    expect(result).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns null (fails closed) when the SSRF guard rejects the discovery document's jwks_uri", async () => {
+    mockDiscovery(
+      "https://blocked-jwks-uri-test.example.com",
+      "http://169.254.169.254/jwks",
+    );
+    mockAssertExternalIssuerEgressAllowed.mockImplementation((url: string) =>
+      url.includes("169.254.169.254")
+        ? Promise.reject(new Error("blocked"))
+        : Promise.resolve(),
+    );
+
+    const result = await verifyJwtForIssuer(
+      "some.jwt",
+      "https://blocked-jwks-uri-test.example.com",
+      "client-xyz",
+    );
+
+    expect(result).toBeNull();
+    expect(mockCreateRemoteJWKSet).not.toHaveBeenCalled();
   });
 
   function mockDiscovery(issuer: string, jwksUri: string) {
@@ -308,6 +397,67 @@ describe("verifyJwtForIssuer (#docs/specs/third-party-key-external-org-mapping.m
       new URL("https://issuer-b-test.example.com/jwks"),
       expect.anything(),
     );
+  });
+
+  // docs/specs/third-party-key-external-org-mapping.md §B B3 -- unbounded
+  // growth of the per-issuer cache would become a DoS surface once real
+  // admin-set external_issuer values flow through it. Proves eviction
+  // actually happens once the cap is exceeded, and that the evicted issuer
+  // triggers a fresh discovery fetch on its next use (a stale/leaked entry
+  // would instead show no new fetch).
+  it("evicts the least-recently-used issuer once the cache exceeds its bound", async () => {
+    // MAX_CACHED_EXTERNAL_ISSUERS is 50 and not exported -- exercised via
+    // observable behavior (eviction happens, not the exact constant) rather
+    // than reaching into module-private state.
+    const CAP = 50;
+    for (let i = 0; i < CAP; i++) {
+      mockDiscovery(
+        `https://lru-test-${i}.example.com`,
+        `https://lru-test-${i}.example.com/jwks`,
+      );
+    }
+    mockJwtVerify.mockResolvedValue({ payload: { sub: "user-1" } });
+    for (let i = 0; i < CAP; i++) {
+      await verifyJwtForIssuer(
+        "token",
+        `https://lru-test-${i}.example.com`,
+        "client-xyz",
+      );
+    }
+    // Filling the cache to exactly its cap must not have evicted anything
+    // yet -- issuer 0 (the oldest) still resolves from cache, no new fetch.
+    mockFetch.mockClear();
+    await verifyJwtForIssuer(
+      "token",
+      "https://lru-test-0.example.com",
+      "client-xyz",
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    // One more, distinct issuer pushes the cache over its cap -- issuer 1
+    // (now the actual least-recently-used, since issuer 0 was just touched
+    // above) must be evicted, forcing a fresh discovery fetch next time.
+    mockDiscovery(
+      "https://lru-test-overflow.example.com",
+      "https://lru-test-overflow.example.com/jwks",
+    );
+    await verifyJwtForIssuer(
+      "token",
+      "https://lru-test-overflow.example.com",
+      "client-xyz",
+    );
+
+    mockFetch.mockClear();
+    mockDiscovery(
+      "https://lru-test-1.example.com",
+      "https://lru-test-1.example.com/jwks",
+    );
+    await verifyJwtForIssuer(
+      "token",
+      "https://lru-test-1.example.com",
+      "client-xyz",
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("returns null when the issuer's discovery document is unreachable", async () => {

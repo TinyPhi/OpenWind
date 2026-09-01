@@ -29,6 +29,7 @@ export {
   verifyJwtWithAudience,
   extractAuthContext,
 } from "./jwks.js";
+export { assertExternalIssuerEgressAllowed } from "./ssrf-guard.js";
 export {
   requireActingPerson,
   ACTING_PERSON_TOKEN_MAX_AGE_MINUTES,

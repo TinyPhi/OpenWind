@@ -105,6 +105,9 @@ export const apiKeys = pgTable(
     oidcClientIdActive: boolean("oidc_client_id_active")
       .default(true)
       .notNull(),
+    /** docs/specs/third-party-key-external-org-mapping.md — set together, only when this key's acting-person tokens come from a DIFFERENT IdP than the tenant's primary (tenants.zitadel_org_id). NULL/NULL (the default) means "use the tenant's primary mapping," today's unchanged behavior. Enforced together (and only required when actually needed) at the API layer (create.ts), not here — same pattern as applicationName/oidcClientId above. */
+    externalIssuer: text("external_issuer"),
+    externalOrgId: text("external_org_id"),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
