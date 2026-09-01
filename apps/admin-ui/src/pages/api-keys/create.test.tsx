@@ -16,6 +16,20 @@ vi.mock("../../lib/api.js", () => ({
   fetchWithAuth: (...args: unknown[]) => mockFetchWithAuth(...args),
 }));
 
+// create.tsx reads window.__CONFIG__.ZITADEL_ISSUER at module top-level
+// (PRIMARY_ISSUER) -- this must be set BEFORE the module is imported below,
+// same as any other runtime-config-dependent module in this codebase. Set
+// to a deliberately non-Zitadel-branded, non-OpenWind-branded value to prove
+// the label/description is driven by this deployment's real config, not a
+// hardcoded provider or project name (see the failure mode this fixes:
+// a downstream AuthNexus-paired fork would otherwise show "Same as OpenWind"
+// while actually running against a completely different identity provider).
+declare const window: Window & { __CONFIG__?: Record<string, string> };
+window.__CONFIG__ = {
+  ...window.__CONFIG__,
+  ZITADEL_ISSUER: "https://auth.this-deployment.example",
+};
+
 const { CreateApiKeyModal } = await import("./create.js");
 
 const mockOnClose = vi.fn();
@@ -178,7 +192,16 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
     expect(mockOnClose).not.toHaveBeenCalled();
   });
 
-  it("defaults to 'Same as OpenWind' and sends neither externalIssuer nor externalOrgId", async () => {
+  it("displays this deployment's own configured issuer under 'Same auth provider', not a hardcoded provider/project name", () => {
+    renderModal();
+    expect(
+      screen.getByText(/https:\/\/auth\.this-deployment\.example/),
+    ).not.toBeNull();
+    expect(screen.queryByText(/zitadel/i)).toBeNull();
+    expect(screen.queryByText(/openwind/i)).toBeNull();
+  });
+
+  it("defaults to 'Same auth provider' and sends neither externalIssuer nor externalOrgId", async () => {
     renderModal();
     fireEvent.change(screen.getByPlaceholderText(/acme helpdesk sync/i), {
       target: { value: "Acme Helpdesk Sync" },
@@ -303,7 +326,7 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
     expect(body.externalOrgId).toBe("org-456");
   });
 
-  it("switching back to 'Same as OpenWind' after filling external fields omits them from the request", async () => {
+  it("switching back to 'Same auth provider' after filling external fields omits them from the request", async () => {
     renderModal();
     fireEvent.change(screen.getByPlaceholderText(/acme helpdesk sync/i), {
       target: { value: "Acme Helpdesk Sync" },
@@ -328,7 +351,7 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
       { target: { value: "org-456" } },
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /^same as openwind$/i }),
+      screen.getByRole("button", { name: /^same auth provider$/i }),
     );
 
     mockFetchWithAuth.mockResolvedValueOnce({

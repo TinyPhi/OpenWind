@@ -8,6 +8,15 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 
+// Same runtime-config injection pattern already used in authProvider.ts and
+// users.tsx — Docker wins over Vite build-time env. Never hardcode "Zitadel"
+// or "OpenWind" here: a downstream fork (e.g. an AuthNexus-paired deployment)
+// runs the same codebase against a completely different identity provider,
+// and this label must reflect THIS deployment's actual configured issuer,
+// not the upstream project's name.
+declare const window: Window & { __CONFIG__?: Record<string, string> };
+const PRIMARY_ISSUER = window.__CONFIG__?.ZITADEL_ISSUER ?? null;
+
 // Spec R8: presets are UI sugar only, mapping to the platform's real
 // entity:ticket:<verb> vocabulary — never a stored boolean/enum tier.
 const READ_ONLY_SCOPES = ["entity:ticket:read"];
@@ -264,7 +273,7 @@ export function CreateApiKeyModal({
                     }
                     onClick={() => setIdentityProviderMode("same")}
                   >
-                    Same as OpenWind
+                    Same auth provider
                   </Button>
                   <Button
                     type="button"
@@ -282,9 +291,23 @@ export function CreateApiKeyModal({
                   className="page-subtitle"
                   style={{ marginTop: 0, marginBottom: 8 }}
                 >
-                  {identityProviderMode === "same"
-                    ? "This key's acting-person tokens will be verified against this platform's own identity provider — the default, and correct for almost every key."
-                    : "Only choose this if the application's end users log in through a completely different identity provider than this platform's own — e.g. their own separate OIDC tenant."}
+                  {identityProviderMode === "same" ? (
+                    <>
+                      This key&apos;s acting-person tokens will be verified
+                      against this platform&apos;s own identity provider — the
+                      default, and correct for almost every key.
+                      {PRIMARY_ISSUER && (
+                        <>
+                          {" "}
+                          Currently:{" "}
+                          <code style={{ fontSize: 12 }}>{PRIMARY_ISSUER}</code>
+                          .
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    "Only choose this if the application's end users log in through a completely different identity provider than this platform's own — e.g. their own separate OIDC tenant."
+                  )}
                 </p>
                 {identityProviderMode === "external" && (
                   <>
