@@ -64,7 +64,22 @@ export const getThirdPartyAccessLogsHandler = factory.createHandlers(
         limit: q.limit,
       });
 
-      const keyIds = [...new Set(logResult.entries.map((e) => e.actorId))];
+      // A pre-fix bug (see engine.ts's createEntity audit hook) once wrote a
+      // person id into actor_id on some rows despite actor_type='api_key'.
+      // Those legacy rows still exist and will never match a real
+      // api_keys.id -- filtering to well-formed uuids before the query
+      // avoids Postgres rejecting the whole statement with "invalid input
+      // syntax for type uuid" on a non-uuid literal. Unmatched ids simply
+      // resolve to "(unknown application)" below, same as any other miss.
+      const UUID_RE =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const keyIds = [
+        ...new Set(
+          logResult.entries
+            .map((e) => e.actorId)
+            .filter((id) => UUID_RE.test(id)),
+        ),
+      ];
       const applicationNames = new Map<string, string | null>();
       if (keyIds.length > 0) {
         // Explicit tenant filter (security.md rule 1) -- RLS already scopes
