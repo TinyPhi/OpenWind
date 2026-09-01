@@ -182,7 +182,7 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               fields: input.fields,
               assignedTo: input.assignedTo,
               createdBy: actingPersonId,
-              actorId: actingPersonId,
+              actorId: applicationActorId,
               actorType: "api_key",
               actingPersonId,
             });

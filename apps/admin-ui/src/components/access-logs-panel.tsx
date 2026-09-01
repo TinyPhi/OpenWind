@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Table,
@@ -15,6 +16,13 @@ import {
   type AccessLogFilters,
 } from "../lib/third-party-access-logs-client.js";
 import { relativeTime } from "../lib/format.js";
+import { fetchWithAuth, API_URL } from "../lib/api.js";
+import { useEntityTypes, toTypeSlug } from "../entity-type-context.js";
+
+interface OrgUser {
+  userId: string;
+  displayName: string;
+}
 
 export interface AccessLogsPanelProps {
   /**
@@ -32,9 +40,24 @@ export interface AccessLogsPanelProps {
 export function AccessLogsPanel({
   lockedApplicationIds,
 }: AccessLogsPanelProps): React.ReactElement {
+  const navigate = useNavigate();
+  const { getTypeById } = useEntityTypes();
   const baseFilters: AccessLogFilters = lockedApplicationIds
     ? { application: lockedApplicationIds }
     : {};
+
+  // Acting-person ids in the log are Zitadel user ids, not names — resolved
+  // against the org member list (same source as pages/users.tsx) so the
+  // table reads as a human name instead of a raw numeric id.
+  const [usersById, setUsersById] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    fetchWithAuth(`${API_URL}/users`)
+      .then((res) => {
+        const users = (res as { data?: OrgUser[] }).data ?? [];
+        setUsersById(new Map(users.map((u) => [u.userId, u.displayName])));
+      })
+      .catch(() => undefined);
+  }, []);
 
   // `filters` is the live, in-progress editing state (updated on every
   // keystroke). `appliedFilters` is what the last successful load actually
@@ -50,6 +73,30 @@ export function AccessLogsPanel({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Resolved lazily per row on click, not prefetched for every log entry —
+  // the audit log only stores the ticket's instance id, not its entity
+  // type, so the type slug the /records/:typeSlug/:id route needs comes
+  // from a follow-up GET /entities/:id lookup.
+  const [resolvingTicketId, setResolvingTicketId] = useState<string | null>(
+    null,
+  );
+  function openTicket(ticketId: string): void {
+    setResolvingTicketId(ticketId);
+    fetchWithAuth(`${API_URL}/entities/${ticketId}`)
+      .then((res) => {
+        const entityTypeId = (res as { data?: { entityTypeId?: string } }).data
+          ?.entityTypeId;
+        const type = entityTypeId ? getTypeById(entityTypeId) : undefined;
+        if (!type) {
+          setError("Could not resolve this ticket's record type.");
+          return;
+        }
+        navigate(`/records/${toTypeSlug(type.name)}/${ticketId}`);
+      })
+      .catch(() => setError("Failed to open ticket — it may be deleted."))
+      .finally(() => setResolvingTicketId(null));
+  }
 
   function load(nextFilters: AccessLogFilters): void {
     setLoading(true);
@@ -294,19 +341,42 @@ export function AccessLogsPanel({
                       color: TOKENS.textSecondary,
                       whiteSpace: "nowrap",
                     }}
+                    title={log.actingPersonId ?? undefined}
                   >
-                    {log.actingPersonId ?? "—"}
+                    {log.actingPersonId
+                      ? (usersById.get(log.actingPersonId) ??
+                        log.actingPersonId)
+                      : "—"}
                   </TableCell>
                   <TableCell
                     style={{
                       padding: "12px 16px",
                       fontSize: "12px",
-                      color: TOKENS.textSecondary,
-                      fontFamily: "monospace",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {log.ticketId}
+                    <button
+                      type="button"
+                      onClick={() => openTicket(log.ticketId)}
+                      disabled={resolvingTicketId === log.ticketId}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        font: "inherit",
+                        fontFamily: "monospace",
+                        color: TOKENS.accentPrimary,
+                        cursor:
+                          resolvingTicketId === log.ticketId
+                            ? "wait"
+                            : "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      {resolvingTicketId === log.ticketId
+                        ? "Opening…"
+                        : log.ticketId}
+                    </button>
                   </TableCell>
                   <TableCell
                     style={{
