@@ -7,7 +7,8 @@ import { NotificationBell } from "./notification-bell.js";
 
 // ── Admin nav items ──────────────────────────────────────────────────────────
 
-// Nav shown to super-admins only
+// Nav shown to all workspace roles (admin + agent) — part of ADMIN_NAV, not
+// the admin-only SUPER_ADMIN_NAV_EXTRA section.
 const USERS_NAV = {
   route: "/users",
   label: "Users",
@@ -98,8 +99,75 @@ const API_KEYS_NAV = {
   ),
 };
 
+// Tenant-wide KPI overview — admin only now (was previously admin/agent; see
+// the redirect-away check inside pages/dashboard.tsx, the Analytics
+// component, which is unaffected by this nav-visibility change). This nav
+// entry was formerly labeled "Dashboard" at route "/" before the personal
+// dashboard (below, in ADMIN_NAV) took over that name/landing slot.
+const ANALYTICS_NAV = {
+  route: "/analytics",
+  label: "Analytics",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+      />
+    </svg>
+  ),
+};
+
+const TEMPLATES_NAV = {
+  route: "/modules",
+  label: "Templates",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v2.25A2.25 2.25 0 006 10.5zm0 9.75h2.25A2.25 2.25 0 0010.5 18v-2.25a2.25 2.25 0 00-2.25-2.25H6a2.25 2.25 0 00-2.25 2.25V18A2.25 2.25 0 006 20.25zm9.75-9.75H18a2.25 2.25 0 002.25-2.25V6A2.25 2.25 0 0018 3.75h-2.25A2.25 2.25 0 0013.5 6v2.25a2.25 2.25 0 002.25 2.25z"
+      />
+    </svg>
+  ),
+};
+
+const AUTOMATIONS_NAV = {
+  route: "/automations",
+  label: "Automations",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
+      />
+    </svg>
+  ),
+};
+
 const SUPER_ADMIN_NAV_EXTRA = [
-  USERS_NAV,
+  ANALYTICS_NAV,
+  TEMPLATES_NAV,
+  AUTOMATIONS_NAV,
   SYSTEM_LOGS_NAV,
   API_KEYS_NAV,
   THIRD_PARTY_ACCESS_LOGS_NAV,
@@ -127,48 +195,7 @@ const ADMIN_NAV = [
       </svg>
     ),
   },
-  {
-    // Tenant-wide KPI overview — admin/agent only (see the redirect-away
-    // check inside pages/dashboard.tsx, the Analytics component; this nav
-    // entry was formerly labeled "Dashboard" at route "/" before the
-    // personal dashboard above took over that name/landing slot).
-    route: "/analytics",
-    label: "Analytics",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth="2"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
-        />
-      </svg>
-    ),
-  },
-  {
-    route: "/modules",
-    label: "Templates",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth="2"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v2.25A2.25 2.25 0 006 10.5zm0 9.75h2.25A2.25 2.25 0 0010.5 18v-2.25a2.25 2.25 0 00-2.25-2.25H6a2.25 2.25 0 00-2.25 2.25V18A2.25 2.25 0 006 20.25zm9.75-9.75H18a2.25 2.25 0 002.25-2.25V6A2.25 2.25 0 0018 3.75h-2.25A2.25 2.25 0 0013.5 6v2.25a2.25 2.25 0 002.25 2.25z"
-        />
-      </svg>
-    ),
-  },
+  USERS_NAV,
   {
     route: "/workflows",
     label: "Workflows",
@@ -184,25 +211,6 @@ const ADMIN_NAV = [
           strokeLinecap="round"
           strokeLinejoin="round"
           d="M3 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061A1.125 1.125 0 013 16.811V8.69zM12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061a1.125 1.125 0 01-1.683-.977V8.69z"
-        />
-      </svg>
-    ),
-  },
-  {
-    route: "/automations",
-    label: "Automations",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth="2"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
         />
       </svg>
     ),
@@ -321,9 +329,12 @@ export function Layout({
   }, []);
 
   // RBAC tiers:
-  //   admin  = super admin — full access including Users page
-  //   agent  = workflow admin — Workflows + Templates + Records, no Users/Dashboard
-  //   user   = record assignee — Records only, no Templates (portal-like view)
+  //   admin  = super admin — full access, including the admin-only sidebar
+  //            section (Analytics, Templates, Automations, Users, System
+  //            Logs, API Keys, API Access Logs)
+  //   agent  = workflow admin — Dashboard, Users, Workflows, Records; no
+  //            admin-only section
+  //   user   = record assignee — Records only (portal-like view)
   const isAdmin = roles.includes("admin");
   const isAgent = roles.includes("agent") && !isAdmin;
   const isCustomer =
@@ -787,13 +798,12 @@ export function Layout({
     );
   }
 
-  // Agent nav = admin nav minus Users. Both admin and agent see Dashboard
-  // (personal, all roles) and Analytics (admin/agent only — gated inside the
-  // Analytics page itself, not here) via the shared ADMIN_NAV array.
-  // Super admin ALSO gets SUPER_ADMIN_NAV_EXTRA, rendered as a visually
-  // separate labeled section below (not just appended to the same flat
-  // list) so admin-only items are easy to tell apart from the rest of the
-  // workspace at a glance.
+  // Both admin and agent see everything in ADMIN_NAV (Dashboard, Users,
+  // Workflows, Records). Super admin ALSO gets SUPER_ADMIN_NAV_EXTRA
+  // (Analytics, Templates, Automations, System Logs, API Keys, API Access
+  // Logs), rendered as a visually separate labeled section below (not just
+  // appended to the same flat list) so admin-only items are easy to tell
+  // apart from the rest of the workspace at a glance.
   const workspaceNav = ADMIN_NAV;
   const adminOnlyNav = isAdmin ? SUPER_ADMIN_NAV_EXTRA : [];
 
