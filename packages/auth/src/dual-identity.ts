@@ -3,7 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { Context, Next, MiddlewareHandler } from "hono";
 import { apiKeys, withTenantContext } from "@platform/db";
 import { logger } from "@platform/logger";
-import { verifyJwtWithAudience } from "./jwks.js";
+import { verifyJwtWithAudience, verifyJwtForIssuer } from "./jwks.js";
 import type { AuthContext } from "./types.js";
 
 /**
@@ -53,6 +53,37 @@ function extractOrgClaim(claims: Record<string, unknown>): string | undefined {
     if (typeof value === "string" && value) return value;
   }
   return undefined;
+}
+
+// docs/specs/third-party-key-external-org-mapping.md Phase 2 T6, per the
+// security review of Phase 1 (spec §B B3): a key with an external_issuer
+// mapping must resolve the org-claim NAME for that SPECIFIC issuer, not
+// fall through the flat priority list above. The flat list is safe only
+// when every token verified comes from the platform's single trusted
+// issuer (today's default path, left unchanged below) -- once a second
+// real issuer is in play, a malicious/compromised external IdP could
+// include a Zitadel-shaped claim in its own token and have it win over the
+// correct one. Exact-match by issuer string, not a substring/heuristic
+// match, and no fallback to the flat list.
+//
+// There is deliberately no admin-configurable claim-name field yet (out of
+// scope for this spec, per the plan-lock's scope_paths) -- unrecognized
+// external issuers default to "org_id" (the common modern-OIDC convention
+// this platform has seen from AuthNexus), which is a reasonable default,
+// not a guarantee. An issuer using something else needs an entry added
+// here explicitly.
+const ORG_CLAIM_NAME_BY_EXTERNAL_ISSUER: Record<string, string> = {};
+const DEFAULT_EXTERNAL_ORG_CLAIM_NAME = "org_id";
+
+function extractOrgClaimForExternalIssuer(
+  claims: Record<string, unknown>,
+  issuer: string,
+): string | undefined {
+  const claimName =
+    ORG_CLAIM_NAME_BY_EXTERNAL_ISSUER[issuer] ??
+    DEFAULT_EXTERNAL_ORG_CLAIM_NAME;
+  const value = claims[claimName];
+  return typeof value === "string" && value ? value : undefined;
 }
 
 function unauthorized(c: Context): Response {
@@ -115,7 +146,11 @@ export const requireActingPerson = (): MiddlewareHandler =>
       // revealing which case applied.
       const [keyRow] = await withTenantContext(auth.tenantId, (tx) =>
         tx
-          .select({ oidcClientId: apiKeys.oidcClientId })
+          .select({
+            oidcClientId: apiKeys.oidcClientId,
+            externalIssuer: apiKeys.externalIssuer,
+            externalOrgId: apiKeys.externalOrgId,
+          })
           .from(apiKeys)
           .where(and(eq(apiKeys.id, apiKeyId), isNull(apiKeys.revokedAt)))
           .limit(1),
@@ -124,10 +159,19 @@ export const requireActingPerson = (): MiddlewareHandler =>
         return unauthorized(c);
       }
 
-      const claims = await verifyJwtWithAudience(
-        personToken,
-        keyRow.oidcClientId,
-      );
+      // docs/specs/third-party-key-external-org-mapping.md R3/T6: a key
+      // with an external mapping verifies against THAT issuer's JWKS (via
+      // discovery, Phase 1's verifyJwtForIssuer) instead of the platform's
+      // single hardcoded ZITADEL_ISSUER -- create.ts's validation (T5)
+      // already guarantees externalIssuer/externalOrgId are set together
+      // or not at all, so checking one implies the other here.
+      const claims = keyRow.externalIssuer
+        ? await verifyJwtForIssuer(
+            personToken,
+            keyRow.externalIssuer,
+            keyRow.oidcClientId,
+          )
+        : await verifyJwtWithAudience(personToken, keyRow.oidcClientId);
       if (!claims) {
         return unauthorized(c);
       }
@@ -151,8 +195,17 @@ export const requireActingPerson = (): MiddlewareHandler =>
       // fresh token from a *different* tenant/org than the presented key's
       // own tenant is still rejected (spec R4). auth.orgId is the tenant's
       // mapped Zitadel org, already resolved by requireAuth's API-key path.
-      const tokenOrgId = extractOrgClaim(claims);
-      if (!tokenOrgId || tokenOrgId !== auth.orgId) {
+      // R3/T6: a key with an external mapping compares against ITS OWN
+      // external_org_id instead, using the per-issuer claim-name lookup
+      // (not the flat priority list) since a second real issuer is now in
+      // play — see extractOrgClaimForExternalIssuer's own comment.
+      const expectedOrgId = keyRow.externalIssuer
+        ? keyRow.externalOrgId
+        : auth.orgId;
+      const tokenOrgId = keyRow.externalIssuer
+        ? extractOrgClaimForExternalIssuer(claims, keyRow.externalIssuer)
+        : extractOrgClaim(claims);
+      if (!tokenOrgId || tokenOrgId !== expectedOrgId) {
         // Deliberately omits apiKeyId/tokenOrgId from this log line — the
         // API key's own audit trail (create/rotate/revoke) already records
         // the specific key involved elsewhere; tenantId alone is enough to

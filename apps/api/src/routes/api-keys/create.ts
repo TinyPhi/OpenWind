@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
+import { env } from "@platform/config";
 import {
   requireAuth,
   requireRole,
@@ -10,6 +11,7 @@ import {
   API_KEY_DEFAULT_TTL_DAYS,
   detectScopesFormat,
   unknownTicketActionScopes,
+  assertExternalIssuerEgressAllowed,
 } from "@platform/auth";
 import {
   db,
@@ -37,6 +39,13 @@ const CreateApiKeySchema = z.object({
   // the DB.
   applicationContactEmail: z.string().email().max(320).optional(),
   oidcClientId: z.string().min(1).max(200).optional(),
+  // docs/specs/third-party-key-external-org-mapping.md — only needed when
+  // this key's acting-person tokens come from a different IdP than the
+  // platform's configured primary. externalIssuer is always explicit admin
+  // input (spec §I's resolved decision) — never derived via a live
+  // discovery-document fetch during this request.
+  externalIssuer: z.string().url().max(500).optional(),
+  externalOrgId: z.string().min(1).max(200).optional(),
 });
 
 const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
@@ -54,6 +63,8 @@ export const createApiKeyHandler = factory.createHandlers(
       applicationDescription,
       applicationContactEmail,
       oidcClientId,
+      externalIssuer,
+      externalOrgId,
     } = c.req.valid("json");
     const { tenantId, roles, userId } = c.get("auth");
 
@@ -76,12 +87,97 @@ export const createApiKeyHandler = factory.createHandlers(
 
     if (scopesFormat === "role") {
       // Pre-existing internal-key path — unchanged, per this repo's own
-      // "leave the old one as it is" decision on this feature.
+      // "leave the old one as it is" decision on this feature. A role-format
+      // key never goes through the dual-identity acting-person flow at all,
+      // so an external-org mapping has nothing to attach to here — reject
+      // rather than silently accept-and-drop the fields.
+      if (externalIssuer || externalOrgId) {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message:
+              "externalIssuer/externalOrgId only apply to action-scoped (third-party) keys",
+          },
+          422,
+        );
+      }
       const scopeError = scopeCeilingError(roles, scopes);
       if (scopeError) {
         return c.json({ error: "FORBIDDEN", message: scopeError }, 403);
       }
     } else {
+      // docs/specs/third-party-key-external-org-mapping.md §I's 4-way
+      // validation.
+      if (externalOrgId && !externalIssuer) {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "externalOrgId requires externalIssuer to also be set",
+          },
+          422,
+        );
+      }
+      if (externalIssuer) {
+        // Security-review finding (docs/specs/third-party-key-external-org-mapping.md
+        // Phase 2): a same-provider comparison via string/slash normalization
+        // alone let a URL variant (different case, default port, etc.) of the
+        // SAME origin slip through as "different," and — combined with no
+        // egress check at all — meant an admin-supplied issuer pointed at an
+        // internal/metadata address sailed straight into jwks.ts's discovery
+        // fetch. Compare normalized URL origins (protocol + lowercased host +
+        // port), and separately, unconditionally validate the issuer isn't a
+        // private/reserved/malformed egress target regardless of which branch
+        // below it falls into.
+        let externalIssuerOrigin: string;
+        try {
+          externalIssuerOrigin = new URL(externalIssuer).origin;
+        } catch {
+          return c.json(
+            {
+              error: "VALIDATION_ERROR",
+              message: "externalIssuer must be a valid URL",
+            },
+            422,
+          );
+        }
+        const isPrimaryIdP =
+          externalIssuerOrigin === new URL(env.ZITADEL_ISSUER).origin;
+        if (isPrimaryIdP) {
+          return c.json(
+            {
+              error: "VALIDATION_ERROR",
+              message:
+                "externalIssuer matches this platform's primary identity provider — omit externalIssuer/externalOrgId for a key that uses it",
+            },
+            422,
+          );
+        }
+        if (!externalOrgId) {
+          return c.json(
+            {
+              error: "ORG_MAPPING_REQUIRED",
+              message:
+                "This key's externalIssuer differs from the tenant's primary identity provider — externalOrgId is required so acting-person tokens from that issuer can be matched to this tenant",
+            },
+            422,
+          );
+        }
+        try {
+          await assertExternalIssuerEgressAllowed(externalIssuer);
+        } catch (err) {
+          return c.json(
+            {
+              error: "VALIDATION_ERROR",
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "externalIssuer is not a permitted address",
+            },
+            422,
+          );
+        }
+      }
+
       // ADR-012 Decision #3/spec R8: third-party (action-format) keys are
       // never gated by the creator's own role ceiling — the platform's real
       // action-scope system, enforced at request time as scope ∩ person's
@@ -215,6 +311,8 @@ export const createApiKeyHandler = factory.createHandlers(
                     applicationDescription,
                     applicationContactEmail,
                     oidcClientId,
+                    externalIssuer,
+                    externalOrgId,
                   }
                 : {}),
             })
@@ -227,6 +325,8 @@ export const createApiKeyHandler = factory.createHandlers(
               expiresAt: apiKeys.expiresAt,
               applicationName: apiKeys.applicationName,
               oidcClientId: apiKeys.oidcClientId,
+              externalIssuer: apiKeys.externalIssuer,
+              externalOrgId: apiKeys.externalOrgId,
             });
         } catch (err) {
           // Defense-in-depth for the race the pre-insert conflict check above

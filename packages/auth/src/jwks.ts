@@ -3,6 +3,7 @@ import type { JWTPayload, KeyLike } from "jose";
 import { z } from "zod";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
+import { assertExternalIssuerEgressAllowed } from "./ssrf-guard.js";
 import type { ZitadelClaims, AuthContext } from "./types.js";
 
 type JwksGetter = ReturnType<typeof createRemoteJWKSet>;
@@ -124,7 +125,27 @@ export async function verifyJwtWithAudience(
 // this file already do, independently, and is exactly the gap this spec
 // exists to close) -- this works for any standard-OIDC issuer, discovered
 // at call time, not hardcoded per provider.
+//
+// docs/specs/third-party-key-external-org-mapping.md security review (§B B3):
+// unbounded growth here would become a real DoS surface once Phase 2 (T6)
+// wires admin-set `external_issuer` values into the live verification path
+// -- a tenant with many third-party keys pointed at many distinct (typo'd or
+// otherwise) issuers could grow this map without limit. Bounded to a small
+// LRU-ish cap: Maps preserve insertion order, and `_touchIssuer` re-inserts
+// an entry on every hit to move it to the end, so eviction below always
+// drops the actual least-recently-used issuer, not just the oldest-inserted
+// one.
+const MAX_CACHED_EXTERNAL_ISSUERS = 50;
 const _jwksByIssuer = new Map<string, JwksGetter>();
+
+function _touchIssuer(issuer: string, jwks: JwksGetter): void {
+  _jwksByIssuer.delete(issuer);
+  _jwksByIssuer.set(issuer, jwks);
+  if (_jwksByIssuer.size > MAX_CACHED_EXTERNAL_ISSUERS) {
+    const oldest = _jwksByIssuer.keys().next().value;
+    if (oldest !== undefined) _jwksByIssuer.delete(oldest);
+  }
+}
 
 const OidcDiscoverySchema = z.object({
   jwks_uri: z.string().url(),
@@ -132,7 +153,19 @@ const OidcDiscoverySchema = z.object({
 
 async function getJwksForIssuer(issuer: string): Promise<JwksGetter> {
   const cached = _jwksByIssuer.get(issuer);
-  if (cached) return cached;
+  if (cached) {
+    _touchIssuer(issuer, cached);
+    return cached;
+  }
+
+  // Security review (docs/specs/third-party-key-external-org-mapping.md
+  // Phase 2): `issuer` is admin-supplied at key-creation time (validated only
+  // as `z.string().url()` there, no scheme/host restriction) -- a tenant
+  // admin is not a fully-trusted platform operator, so this is a real SSRF
+  // vector once a key using it is exercised. create.ts already runs this
+  // same check at creation time; it's repeated here as defense-in-depth
+  // (DNS/routing can change between creation and use).
+  await assertExternalIssuerEgressAllowed(issuer);
 
   const res = await fetch(`${issuer}/.well-known/openid-configuration`);
   if (!res.ok) {
@@ -145,11 +178,22 @@ async function getJwksForIssuer(issuer: string): Promise<JwksGetter> {
   // or malicious discovery document fails closed here instead of producing
   // a confusing downstream error from new URL(undefined) or similar.
   const discovery = OidcDiscoverySchema.parse(await res.json());
+  // jwks_uri is issuer-controlled content, not the already-guarded issuer
+  // origin itself -- a compromised/malicious issuer could point it at a
+  // third, unrelated internal target. Guarded the same way before it's ever
+  // handed to createRemoteJWKSet.
+  await assertExternalIssuerEgressAllowed(discovery.jwks_uri);
 
+  // cacheMaxAge stays the same platform-wide constant as getJwks()'s own
+  // Zitadel-tuned value (§B B3 asked this be reconsidered, not necessarily
+  // changed) -- per-issuer-configurable rotation cadence would need a new
+  // admin-facing setting with no real signal yet for what value to default
+  // it to for an arbitrary external IdP; a shorter shared window is a safe
+  // default (worst case: extra discovery/JWKS fetches), not a security gap.
   const jwks = createRemoteJWKSet(new URL(discovery.jwks_uri), {
     cacheMaxAge: 60 * 60 * 1000,
   });
-  _jwksByIssuer.set(issuer, jwks);
+  _touchIssuer(issuer, jwks);
   return jwks;
 }
 
@@ -158,14 +202,22 @@ async function getJwksForIssuer(issuer: string): Promise<JwksGetter> {
  * audience, 5s clock tolerance, max-token-age freshness), but against an
  * explicit, caller-supplied issuer instead of the platform-wide
  * ZITADEL_ISSUER. Used when a third-party API key has its own registered
- * external_issuer (docs/specs/third-party-key-external-org-mapping.md) --
- * not yet wired to any call site as of Phase 1 (see that spec's Phase 2).
+ * external_issuer (docs/specs/third-party-key-external-org-mapping.md,
+ * wired into dual-identity.ts's requireActingPerson in Phase 2).
+ *
+ * Return type intentionally matches verifyJwtWithAudience's
+ * `JWTPayload & ZitadelClaims` (not a bare `Record<string, unknown>`) even
+ * though a non-Zitadel issuer's token won't populate those fields -- they're
+ * all optional, so this is a safe over-declaration, and it keeps callers
+ * that branch between the two functions (dual-identity.ts) working with one
+ * consistent claims type instead of a wider union that loses the specific
+ * optional-field types on `.email`/`.name`/etc.
  */
 export async function verifyJwtForIssuer(
   token: string,
   issuer: string,
   audience: string,
-): Promise<(JWTPayload & Record<string, unknown>) | null> {
+): Promise<(JWTPayload & ZitadelClaims) | null> {
   try {
     const jwks = await getJwksForIssuer(issuer);
     const { payload } = await jwtVerify(token, jwks as unknown as KeyLike, {
@@ -174,7 +226,11 @@ export async function verifyJwtForIssuer(
       clockTolerance: 5,
       maxTokenAge: env.JWT_MAX_TOKEN_AGE_SECONDS,
     });
-    return payload;
+    // Same cast as verifyJwtAgainstAudience above -- `sub` is technically
+    // optional per jose's JWTPayload but required in ZitadelClaims; the
+    // caller (dual-identity.ts) already checks claims.sub is present before
+    // using it, same as it does for the primary-issuer path.
+    return payload as JWTPayload & ZitadelClaims;
   } catch (err) {
     logger.warn(
       { error: String(err), issuer, audience },
