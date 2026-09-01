@@ -210,12 +210,16 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
 
   it("hides the Issuer URL / External Org ID inputs until 'External provider' is chosen", () => {
     renderModal();
-    expect(screen.queryByPlaceholderText(/auth.example.com/i)).toBeNull();
+    expect(
+      screen.queryByPlaceholderText("https://auth.example.com"),
+    ).toBeNull();
 
     fireEvent.click(
       screen.getByRole("button", { name: /^external provider$/i }),
     );
-    expect(screen.getByPlaceholderText(/auth.example.com/i)).not.toBeNull();
+    expect(
+      screen.getByPlaceholderText("https://auth.example.com"),
+    ).not.toBeNull();
   });
 
   it("requires Issuer URL and External Org ID before Create Key is enabled, once External provider is chosen", () => {
@@ -240,7 +244,7 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
       screen.getByRole("button", { name: /^create key$/i }),
     ).toHaveProperty("disabled", true);
 
-    fireEvent.change(screen.getByPlaceholderText(/auth.example.com/i), {
+    fireEvent.change(screen.getByPlaceholderText("https://auth.example.com"), {
       target: { value: "https://auth.example.com" },
     });
     expect(
@@ -273,7 +277,7 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /^external provider$/i }),
     );
-    fireEvent.change(screen.getByPlaceholderText(/auth.example.com/i), {
+    fireEvent.change(screen.getByPlaceholderText("https://auth.example.com"), {
       target: { value: "  https://auth.external.example  " },
     });
     fireEvent.change(
@@ -316,7 +320,7 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /^external provider$/i }),
     );
-    fireEvent.change(screen.getByPlaceholderText(/auth.example.com/i), {
+    fireEvent.change(screen.getByPlaceholderText("https://auth.example.com"), {
       target: { value: "https://auth.external.example" },
     });
     fireEvent.change(
