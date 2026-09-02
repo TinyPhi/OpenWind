@@ -99,11 +99,28 @@ function isBlockedIp(ipStr: string): { blocked: boolean; reason: string } {
 const DNS_TIMEOUT_MS = 2_000;
 
 /**
+ * PR #545 review (PrabhuVijit, GOOD TO FIX) -- distinguishable from a plain
+ * `Error` so callers (jwks.ts's verifyJwtForIssuer) can log an SSRF-blocked
+ * issuer distinctly from an actual JWT signature/claims failure, instead of
+ * both surfacing as an identical "JWT verification failed" warning that
+ * buries the real cause in the error-string field during incident
+ * investigation. Still a plain `Error` subclass — `err instanceof Error`
+ * and `err.message` (safe to surface to an admin, no internal details)
+ * both keep working unchanged for existing callers like create.ts.
+ */
+export class SsrfGuardError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SsrfGuardError";
+  }
+}
+
+/**
  * Validates that `url` is safe to use as an external OIDC issuer: https
  * only, an allowed port, and every DNS-resolved address outside the
  * private/loopback/link-local/metadata ranges above. Fails closed — DNS
  * timeout, DNS error, or zero resolved addresses are all treated as
- * blocked. Throws a plain `Error` (message safe to surface to an admin —
+ * blocked. Throws a `SsrfGuardError` (message safe to surface to an admin —
  * no internal details) on any violation.
  */
 export async function assertExternalIssuerEgressAllowed(
@@ -113,11 +130,11 @@ export async function assertExternalIssuerEgressAllowed(
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`Malformed issuer URL: "${url}"`);
+    throw new SsrfGuardError(`Malformed issuer URL: "${url}"`);
   }
 
   if (parsed.protocol !== "https:") {
-    throw new Error(
+    throw new SsrfGuardError(
       `Issuer scheme "${parsed.protocol}" is not allowed — https only`,
     );
   }
@@ -126,7 +143,7 @@ export async function assertExternalIssuerEgressAllowed(
   if (portStr) {
     const portNum = Number(portStr);
     if (isNaN(portNum) || !ALLOWED_PORTS.has(portNum)) {
-      throw new Error(`Issuer port "${portStr}" is not allowed`);
+      throw new SsrfGuardError(`Issuer port "${portStr}" is not allowed`);
     }
   }
 
@@ -156,13 +173,15 @@ export async function assertExternalIssuerEgressAllowed(
       { hostname, reason: isTimeout ? "dns-timeout" : "dns-error" },
       "auth ssrf-guard: DNS resolution failed — blocking issuer",
     );
-    throw new Error(`Could not resolve issuer host "${hostname}"`);
+    throw new SsrfGuardError(`Could not resolve issuer host "${hostname}"`);
   } finally {
     clearTimeout(timeoutId);
   }
 
   if (addresses.length === 0) {
-    throw new Error(`Issuer host "${hostname}" resolved to no addresses`);
+    throw new SsrfGuardError(
+      `Issuer host "${hostname}" resolved to no addresses`,
+    );
   }
 
   for (const ip of addresses) {
@@ -172,7 +191,7 @@ export async function assertExternalIssuerEgressAllowed(
         { hostname, resolvedIp: ip, reason },
         "auth ssrf-guard: blocked issuer — resolves to a private/reserved address",
       );
-      throw new Error(
+      throw new SsrfGuardError(
         `Issuer host "${hostname}" resolves to a private/reserved address`,
       );
     }

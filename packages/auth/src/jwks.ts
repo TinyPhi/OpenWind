@@ -3,7 +3,10 @@ import type { JWTPayload, KeyLike } from "jose";
 import { z } from "zod";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
-import { assertExternalIssuerEgressAllowed } from "./ssrf-guard.js";
+import {
+  assertExternalIssuerEgressAllowed,
+  SsrfGuardError,
+} from "./ssrf-guard.js";
 import type { ZitadelClaims, AuthContext } from "./types.js";
 
 type JwksGetter = ReturnType<typeof createRemoteJWKSet>;
@@ -148,6 +151,7 @@ function _touchIssuer(issuer: string, jwks: JwksGetter): void {
 }
 
 const OidcDiscoverySchema = z.object({
+  issuer: z.string().url(),
   jwks_uri: z.string().url(),
 });
 
@@ -178,6 +182,18 @@ async function getJwksForIssuer(issuer: string): Promise<JwksGetter> {
   // or malicious discovery document fails closed here instead of producing
   // a confusing downstream error from new URL(undefined) or similar.
   const discovery = OidcDiscoverySchema.parse(await res.json());
+  // PR #545 review (PrabhuVijit) -- RFC 8414 §3.3: "The issuer value returned
+  // MUST be identical to the Issuer URL that was used as the prefix to
+  // /.well-known/openid-configuration." Without this check, a misconfigured
+  // IdP serving a discovery document for the wrong issuer would silently
+  // succeed here and only fail later, confusingly, at jwtVerify's own
+  // issuer check on first real token. Failing closed here surfaces the
+  // misconfiguration at the point it's introduced.
+  if (discovery.issuer !== issuer) {
+    throw new Error(
+      `OIDC discovery document issuer mismatch: expected "${issuer}", got "${discovery.issuer}"`,
+    );
+  }
   // jwks_uri is issuer-controlled content, not the already-guarded issuer
   // origin itself -- a compromised/malicious issuer could point it at a
   // third, unrelated internal target. Guarded the same way before it's ever
@@ -217,6 +233,13 @@ export async function verifyJwtForIssuer(
   token: string,
   issuer: string,
   audience: string,
+  // PR #545 review (PrabhuVijit, SUGGESTION) -- optional since this is a
+  // pure auth primitive with no tenant context of its own; the caller
+  // (dual-identity.ts's requireActingPerson) has auth.tenantId available
+  // and threads it through so a failure here can be correlated with other
+  // tenant-scoped events during an incident, same as the security.md rule
+  // for tenant-scoped logs generally.
+  tenantId?: string,
 ): Promise<(JWTPayload & ZitadelClaims) | null> {
   try {
     const jwks = await getJwksForIssuer(issuer);
@@ -232,9 +255,19 @@ export async function verifyJwtForIssuer(
     // using it, same as it does for the primary-issuer path.
     return payload as JWTPayload & ZitadelClaims;
   } catch (err) {
+    // PR #545 review (PrabhuVijit, GOOD TO FIX) -- an SsrfGuardError here
+    // (the issuer resolved to a private/reserved address at verification
+    // time, e.g. DNS rebinding between key creation and first use) is a
+    // fundamentally different event than an actual JWT signature/claims
+    // failure. Logging both under one identical message buried the real
+    // cause in the error-string field, forcing an on-call engineer to parse
+    // it instead of filtering by log message during incident investigation.
+    const isSsrf = err instanceof SsrfGuardError;
     logger.warn(
-      { error: String(err), issuer, audience },
-      "JWT verification failed (external issuer)",
+      { error: String(err), issuer, audience, tenantId },
+      isSsrf
+        ? "JWT verification blocked — issuer failed SSRF guard at verification time"
+        : "JWT verification failed (external issuer)",
     );
     return null;
   }

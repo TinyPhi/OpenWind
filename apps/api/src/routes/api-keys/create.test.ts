@@ -693,6 +693,43 @@ describe("POST /api-keys — external-org mapping (docs/specs/third-party-key-ex
     expect(mockInsertValues).not.toHaveBeenCalled();
   });
 
+  // PR #545 review (PrabhuVijit, MUST FIX): a trailing-slash externalIssuer
+  // is a valid URL that passed unnoticed through every branch above and was
+  // stored verbatim -- breaking discovery/JWKS-cache-key/jwtVerify at
+  // verification time on an otherwise-correct issuer. Prove-it pattern:
+  // would fail against the pre-fix code (insertArg.externalIssuer would
+  // equal the raw, slash-suffixed input).
+  it("normalizes a trailing-slash externalIssuer before storage", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({
+        externalIssuer: `${EXTERNAL_ISSUER}/`,
+        externalOrgId: "external-org-trailing-slash",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.externalIssuer).toBe(EXTERNAL_ISSUER);
+  });
+
+  // PR #545 review (PrabhuVijit, MUST FIX): a direct API caller (bypassing
+  // the admin UI's own trim) could previously store a whitespace-padded
+  // externalOrgId that would never match a real OIDC org claim value.
+  it("trims whitespace from externalOrgId before storage", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: thirdPartyBody({
+        externalIssuer: EXTERNAL_ISSUER,
+        externalOrgId: "  external-org-padded  ",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const insertArg = mockInsertValues.mock.calls[0][0];
+    expect(insertArg.externalOrgId).toBe("external-org-padded");
+  });
+
   it("rejects a malformed externalIssuer with a clean 400 (schema-level url() validation), never reaching the SSRF guard", async () => {
     const res = await makeApp().request("/", {
       method: "POST",

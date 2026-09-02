@@ -387,6 +387,7 @@ describe("requireActingPerson", () => {
         "some-token",
         EXTERNAL_ISSUER,
         "client-abc",
+        "tenant-abc",
       );
       expect(mockVerifyJwtWithAudience).not.toHaveBeenCalled();
     });

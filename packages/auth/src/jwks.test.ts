@@ -26,9 +26,15 @@ vi.mock("jose", () => ({
 // everything; the guard's own enforcement is exercised by the dedicated
 // tests further down that override this mock to reject.
 const mockAssertExternalIssuerEgressAllowed = vi.fn(() => Promise.resolve());
+// SsrfGuardError must be a REAL class (not a further mock) -- jwks.ts's own
+// `err instanceof SsrfGuardError` check needs actual prototype-chain
+// identity, and this mock factory is the only place jwks.ts's import of it
+// resolves to during this test file.
+class SsrfGuardError extends Error {}
 vi.mock("./ssrf-guard.js", () => ({
   assertExternalIssuerEgressAllowed: (...args: unknown[]) =>
     mockAssertExternalIssuerEgressAllowed(...args),
+  SsrfGuardError,
 }));
 
 const {
@@ -285,7 +291,7 @@ describe("verifyJwtForIssuer (#docs/specs/third-party-key-external-org-mapping.m
   function mockDiscovery(issuer: string, jwksUri: string) {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ jwks_uri: jwksUri }),
+      json: () => Promise.resolve({ issuer, jwks_uri: jwksUri }),
     });
   }
 
@@ -485,6 +491,30 @@ describe("verifyJwtForIssuer (#docs/specs/third-party-key-external-org-mapping.m
     const result = await verifyJwtForIssuer(
       "some.jwt",
       "https://malformed-test.example.com",
+      "client-xyz",
+    );
+
+    expect(result).toBeNull();
+    expect(mockCreateRemoteJWKSet).not.toHaveBeenCalled();
+  });
+
+  // PR #545 review (PrabhuVijit, GOOD TO FIX) -- RFC 8414 §3.3: the
+  // discovery document's own `issuer` field must match the issuer used as
+  // the request prefix. Prove-it pattern: would fail against the pre-fix
+  // schema, which never captured or checked this field at all.
+  it("returns null when the discovery document's own issuer field doesn't match the requested issuer", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          issuer: "https://a-different-issuer.example.com",
+          jwks_uri: "https://mismatch-test.example.com/jwks",
+        }),
+    });
+
+    const result = await verifyJwtForIssuer(
+      "some.jwt",
+      "https://mismatch-test.example.com",
       "client-xyz",
     );
 

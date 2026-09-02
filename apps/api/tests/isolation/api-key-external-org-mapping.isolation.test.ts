@@ -323,6 +323,7 @@ describe("requireActingPerson — external-org mapping verification (T6, real Po
       "some-token",
       EXTERNAL_ISSUER,
       key.oidcClientId,
+      TENANT_A,
     );
   });
 
