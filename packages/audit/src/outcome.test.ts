@@ -18,6 +18,8 @@ const DENIED: AuditAction[] = [
   "comment.access_denied",
   "child.access_denied",
   "attachment.reference_denied",
+  "ticket.view_denied",
+  "attachment.download_denied",
 ];
 
 describe("classifyOutcome", () => {

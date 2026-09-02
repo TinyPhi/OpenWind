@@ -101,7 +101,7 @@ beforeAll(async () => {
       })
       .returning({ id: apiKeys.id }),
   );
-  if (!rowA1 || !rowA2 || !rowB) {
+  if (!rowA2 || !rowB) {
     throw new Error("api key insert failed");
   }
   keyA1Id = rowA1.id;
