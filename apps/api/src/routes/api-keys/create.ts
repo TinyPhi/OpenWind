@@ -21,7 +21,7 @@ import {
   isCheckViolation,
 } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { factory } from "./factory.js";
 import { scopeCeilingError } from "./scope-ceiling.js";
 
@@ -32,7 +32,12 @@ import { scopeCeilingError } from "./scope-ceiling.js";
 const CreateApiKeySchema = z.object({
   name: z.string().min(1).max(200),
   scopes: z.array(z.string().min(1)).default([]),
-  applicationName: z.string().min(1).max(200).optional(),
+  // .trim() before .min()/.max(), same fix and same reason as
+  // externalIssuer/externalOrgId below -- a direct API caller bypassing the
+  // admin UI's own trim could otherwise store a value with stray leading/
+  // trailing whitespace, even though the uniqueness check and DB index both
+  // normalize it away for comparison purposes.
+  applicationName: z.string().trim().min(1).max(200).optional(),
   applicationDescription: z.string().max(2000).optional(),
   // 320 = RFC 5321's max total address length; matches migration 0069's
   // CHECK constraint (issue #445) so an oversized value 400s here, not at
@@ -44,13 +49,14 @@ const CreateApiKeySchema = z.object({
   // platform's configured primary. externalIssuer is always explicit admin
   // input (spec §I's resolved decision) — never derived via a live
   // discovery-document fetch during this request.
-  // PR #545 review (PrabhuVijit) -- .trim() runs before .url()/.min(1), so a
-  // direct API caller (bypassing the admin UI's own trim) can no longer
-  // store a whitespace-padded value that would never match a real OIDC
-  // claim/issuer at verification time. A whitespace-only externalOrgId
-  // still correctly fails .min(1) after trimming.
-  externalIssuer: z.string().url().max(500).trim().optional(),
-  externalOrgId: z.string().min(1).max(200).trim().optional(),
+  // PR #546 review (PrabhuVijit) -- .trim() must run before .url()/.min(1)
+  // (code-style.md's Zod-ordering invariant), not after: with .trim() last,
+  // a caller could POST " " (length 1, passes .min(1)), which is then
+  // trimmed to "" and stored empty -- the invariant is already violated at
+  // rest by the time anything downstream checks it. Trimming first means a
+  // whitespace-only externalOrgId now correctly fails .min(1) up front.
+  externalIssuer: z.string().trim().url().max(500).optional(),
+  externalOrgId: z.string().trim().min(1).max(200).optional(),
 });
 
 const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
@@ -319,6 +325,85 @@ export const createApiKeyHandler = factory.createHandlers(
       }
     }
 
+    // Migration 0087/0088's own comment: applicationName uniqueness is
+    // tenant-scoped (unlike oidcClientId's global index above) -- two
+    // different tenants can legitimately register their own "Zapier"
+    // integration. Runs inside withTenantContext (RLS + the explicit
+    // tenant_id filter below, both required per security.md) rather than on
+    // the bare `db` client, since this check has no reason to see other
+    // tenants' rows at all. Filtered to applicationNameActive rows only --
+    // a rotation's dying predecessor keeps its applicationName and stays
+    // non-revoked through its grace window, but rotate.ts already flipped
+    // its applicationNameActive to false, so it correctly never counts as
+    // a conflict against its own successor or anything else.
+    if (scopesFormat === "action" && applicationName) {
+      // PR #546 review (PrabhuVijit) -- was an unbounded fetch-all-then-
+      // filter-in-JS scan; pushed the comparison into the same
+      // lower(btrim(...)) form migration 0088's own unique index uses, plus
+      // an explicit LIMIT, so this stays O(1) regardless of how many keys a
+      // tenant has accumulated instead of degrading with tenant size.
+      // Deliberately NOT normalizeApplicationName() here -- that also
+      // collapses internal whitespace runs (for the client's own grouping
+      // display), which lower(btrim()) does not; matching the DB's actual
+      // transform exactly is what keeps this query's notion of "conflict"
+      // consistent with the unique index that ultimately enforces it.
+      // Both sides go through Postgres's own lower(btrim(...)) -- not a JS
+      // .trim() on the right-hand side -- since JS .trim() strips a wider
+      // whitespace set (tabs, newlines, etc.) than btrim()'s space-only
+      // default, which could otherwise make this pre-check disagree with
+      // what the real unique index (migration 0088) would actually allow.
+      const [nameConflict] = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({
+            id: apiKeys.id,
+            oidcClientId: apiKeys.oidcClientId,
+            expiresAt: apiKeys.expiresAt,
+          })
+          .from(apiKeys)
+          .where(
+            and(
+              eq(apiKeys.tenantId, tenantId),
+              isNull(apiKeys.revokedAt),
+              eq(apiKeys.applicationNameActive, true),
+              sql`lower(btrim(${apiKeys.applicationName})) = lower(btrim(${applicationName}))`,
+            ),
+          )
+          .limit(1),
+      );
+
+      if (nameConflict && nameConflict.oidcClientId !== oidcClientId) {
+        const isExpired =
+          nameConflict.expiresAt !== null &&
+          nameConflict.expiresAt <= new Date();
+        if (!isExpired) {
+          return c.json(
+            {
+              error: "APPLICATION_NAME_IN_USE",
+              message: `An application named "${applicationName}" is already registered for this tenant — use a different name, or mint a new key under the existing application instead`,
+            },
+            409,
+          );
+        }
+        await withTenantContext(tenantId, (tx) =>
+          tx
+            .update(apiKeys)
+            .set({
+              revokedAt: new Date(),
+              revokedBy: "system:expiry-reclaim",
+            })
+            // PR #546 review (PrabhuVijit) -- explicit tenant_id filter is
+            // security.md rule 1's primary guard; RLS via withTenantContext
+            // is the second layer, not a substitute for it.
+            .where(
+              and(
+                eq(apiKeys.id, nameConflict.id),
+                eq(apiKeys.tenantId, tenantId),
+              ),
+            ),
+        );
+      }
+    }
+
     try {
       const created = await withTenantContext(tenantId, async (tx) => {
         let row;
@@ -367,6 +452,17 @@ export const createApiKeyHandler = factory.createHandlers(
           // 500.
           if (isUniqueViolation(err, "api_keys_oidc_client_id_active_unique")) {
             throw new ClientIdInUseError();
+          }
+          // Same race the pre-insert conflict check above can't fully close
+          // (two concurrent requests for the same normalized name), closed
+          // by migration 0087's own unique index.
+          if (
+            isUniqueViolation(
+              err,
+              "api_keys_tenant_application_name_active_unique",
+            )
+          ) {
+            throw new ApplicationNameInUseError();
           }
           // Migrations 0070/0071's CHECK constraints bound application_name/
           // application_description/application_contact_email/
@@ -431,6 +527,15 @@ export const createApiKeyHandler = factory.createHandlers(
           422,
         );
       }
+      if (err instanceof ApplicationNameInUseError) {
+        return c.json(
+          {
+            error: "APPLICATION_NAME_IN_USE",
+            message: `An application named "${applicationName ?? ""}" is already registered for this tenant — use a different name, or mint a new key under the existing application instead`,
+          },
+          409,
+        );
+      }
       throw err;
     }
   },
@@ -438,3 +543,4 @@ export const createApiKeyHandler = factory.createHandlers(
 
 class ClientIdInUseError extends Error {}
 class FieldTooLongError extends Error {}
+class ApplicationNameInUseError extends Error {}

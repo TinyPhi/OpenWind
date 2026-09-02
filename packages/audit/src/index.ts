@@ -49,6 +49,15 @@ export {
   type AuditOutcome,
 } from "./outcome.js";
 import { actionsForOutcome, type AuditOutcome } from "./outcome.js";
+export {
+  classifyRequestKind,
+  actionsForRequestKind,
+  type AuditRequestKind,
+} from "./request-kind.js";
+import {
+  actionsForRequestKind,
+  type AuditRequestKind,
+} from "./request-kind.js";
 
 export type AuditActorType = "user" | "api_key" | "system";
 export type AuditAction =
@@ -90,7 +99,19 @@ export type AuditAction =
   | "child.created"
   | "child.access_denied"
   | "attachment.referenced"
-  | "attachment.reference_denied";
+  | "attachment.reference_denied"
+  // Phase F follow-up, migration 0089 — read endpoints previously wrote no
+  // audit trail at all. Written on success ("viewed"/"listed") and on an
+  // actual ACL denial ("view_denied"/"download_denied") only, never on a
+  // genuinely-missing resource, mirroring every write action's own
+  // existence-oracle convention (security.md 404-not-403).
+  | "ticket.viewed"
+  | "ticket.view_denied"
+  | "ticket.listed"
+  | "workflow.listed"
+  | "workflow_fields.listed"
+  | "attachment.downloaded"
+  | "attachment.download_denied";
 
 export type AuditEntryInput = {
   tenantId: string;
@@ -188,12 +209,17 @@ export type QueryAuditLogInput = {
   tenantId: string;
   resourceType?: string | undefined;
   resourceId?: string | undefined;
-  actorId?: string | undefined;
+  /** Admin-UI API Keys card view — an "application" can span multiple key
+   * rows (rotations), so its access-log filter needs to match any one of
+   * several actorIds, not just a single exact key. */
+  actorId?: string | string[] | undefined;
   actorType?: AuditActorType | undefined;
   /** ADR-012 Phase F — the real person acting through a third-party API key, distinct from actorId (the key itself). */
   actingPersonId?: string | undefined;
   /** ADR-012 Phase F — outcome is derived (see classifyOutcome), not stored; this filters by the set of AuditAction values that classify to the given outcome. */
   outcome?: AuditOutcome | undefined;
+  /** Phase F follow-up — read vs write is derived (see classifyRequestKind), not stored; this filters by the set of AuditAction values that classify to the given kind. */
+  requestKind?: AuditRequestKind | undefined;
   /** Filter entries created at or after this timestamp */
   from?: Date | undefined;
   /** Filter entries created at or before this timestamp */
@@ -230,8 +256,13 @@ export async function queryAuditLog(
   type Condition = ReturnType<typeof eq>;
   const conditions: Condition[] = [eq(adminAuditLog.tenantId, input.tenantId)];
 
-  if (input.actorId !== undefined)
-    conditions.push(eq(adminAuditLog.actorId, input.actorId));
+  if (input.actorId !== undefined) {
+    conditions.push(
+      Array.isArray(input.actorId)
+        ? inArray(adminAuditLog.actorId, input.actorId)
+        : eq(adminAuditLog.actorId, input.actorId),
+    );
+  }
   if (input.actorType !== undefined)
     conditions.push(eq(adminAuditLog.actorType, input.actorType));
   if (input.resourceType !== undefined)
@@ -243,6 +274,10 @@ export async function queryAuditLog(
   if (input.outcome !== undefined)
     conditions.push(
       inArray(adminAuditLog.action, actionsForOutcome(input.outcome)),
+    );
+  if (input.requestKind !== undefined)
+    conditions.push(
+      inArray(adminAuditLog.action, actionsForRequestKind(input.requestKind)),
     );
   if (input.from !== undefined)
     conditions.push(gte(adminAuditLog.createdAt, input.from));

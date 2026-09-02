@@ -46,6 +46,14 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // own system/status outcome on a file already accepted for upload.
   "attachment.quarantined": true,
   "attachment.scan_failed": true,
+  // Phase F follow-up, migration 0089 -- read endpoints' own audit actions.
+  "ticket.viewed": true,
+  "ticket.view_denied": true,
+  "ticket.listed": true,
+  "workflow.listed": true,
+  "workflow_fields.listed": true,
+  "attachment.downloaded": true,
+  "attachment.download_denied": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since
@@ -66,6 +74,8 @@ const DENIED_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "comment.access_denied",
   "child.access_denied",
   "attachment.reference_denied",
+  "ticket.view_denied",
+  "attachment.download_denied",
 ]);
 
 /**

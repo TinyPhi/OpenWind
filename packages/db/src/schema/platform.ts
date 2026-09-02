@@ -109,6 +109,10 @@ export const apiKeys = pgTable(
     /** docs/specs/third-party-key-external-org-mapping.md — set together, only when this key's acting-person tokens come from a DIFFERENT IdP than the tenant's primary (tenants.zitadel_org_id). NULL/NULL (the default) means "use the tenant's primary mapping," today's unchanged behavior. Enforced together (and only required when actually needed) at the API layer (create.ts), not here — same pattern as applicationName/oidcClientId above. */
     externalIssuer: text("external_issuer"),
     externalOrgId: text("external_org_id"),
+    /** Migration 0087/0088 — admin-UI API Keys card view groups keys into one card per (tenant-scoped, normalized) applicationName; enforced as a real DB uniqueness constraint, same rationale as oidcClientId's global one. Same active-claim-holder pattern as oidcClientIdActive above and for the same reason: rotate.ts keeps a rotated key's predecessor row active (revoked_at untouched) for its 24h grace window while inserting a successor under the SAME applicationName — rotate.ts flips this false on the predecessor in the same update that flips oidcClientIdActive false. */
+    applicationNameActive: boolean("application_name_active")
+      .default(true)
+      .notNull(),
   },
   (t) => ({
     tenantIdx: index("api_keys_tenant_idx").on(t.tenantId),
@@ -123,6 +127,17 @@ export const apiKeys = pgTable(
       .on(t.oidcClientId)
       .where(
         sql`${t.revokedAt} IS NULL AND ${t.oidcClientIdActive} = true AND ${t.oidcClientId} IS NOT NULL`,
+      ),
+    // Migration 0087/0088 — same active-claim-holder shape as the Client ID
+    // index above, keyed by (tenant, normalized name) instead of a global
+    // Client ID, since applicationName is a per-tenant human label, not a
+    // platform-wide external identity.
+    applicationNameActiveUnique: uniqueIndex(
+      "api_keys_tenant_application_name_active_unique",
+    )
+      .on(t.tenantId, sql`lower(btrim(${t.applicationName}))`)
+      .where(
+        sql`${t.revokedAt} IS NULL AND ${t.applicationNameActive} = true AND ${t.applicationName} IS NOT NULL`,
       ),
   }),
 );

@@ -12,8 +12,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray } from "drizzle-orm";
-import { db, tenants, workflows, workflowStates } from "@platform/db";
+import { inArray, eq, and } from "drizzle-orm";
+import {
+  db,
+  tenants,
+  workflows,
+  workflowStates,
+  adminAuditLog,
+  withTenantContext,
+} from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { getThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
@@ -224,5 +231,71 @@ describe("GET /api/v1/tickets/:id", () => {
     );
     const res = await app.request(`/${creatorTicketId}`);
     expect(res.status).toBe(403);
+  });
+
+  // Phase F follow-up: reads previously wrote no audit trail at all, allowed
+  // or denied -- a compromised/leaked key could read every ticket with zero
+  // trace. Prove-it pattern: these two would fail against the pre-fix code
+  // (no writeAuditEntry call existed on either branch).
+  it("writes a ticket.viewed audit entry on a successful read", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${creatorTicketId}`);
+    expect(res.status).toBe(200);
+
+    const [entry] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({
+          actorId: adminAuditLog.actorId,
+          actorType: adminAuditLog.actorType,
+          actingPersonId: adminAuditLog.actingPersonId,
+        })
+        .from(adminAuditLog)
+        .where(
+          and(
+            eq(adminAuditLog.resourceId, creatorTicketId),
+            eq(adminAuditLog.action, "ticket.viewed"),
+          ),
+        )
+        .limit(1),
+    );
+    expect(entry).toBeDefined();
+    expect(entry?.actorType).toBe("api_key");
+    expect(entry?.actorId).toBe("22222222-2222-2222-2222-222222222222");
+    expect(entry?.actingPersonId).toBe(CREATOR);
+  });
+
+  it("writes a ticket.view_denied audit entry when access is denied", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(NO_ACCESS_PERSON));
+    const res = await app.request(`/${noAccessTicketId}`);
+    expect(res.status).toBe(404);
+
+    const [entry] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ actorType: adminAuditLog.actorType })
+        .from(adminAuditLog)
+        .where(
+          and(
+            eq(adminAuditLog.resourceId, noAccessTicketId),
+            eq(adminAuditLog.action, "ticket.view_denied"),
+          ),
+        )
+        .limit(1),
+    );
+    expect(entry).toBeDefined();
+  });
+
+  it("writes no audit entry for a genuinely nonexistent ticket (existence-oracle convention)", async () => {
+    const nonexistent = "99999999-9999-4999-9999-999999999999";
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${nonexistent}`);
+    expect(res.status).toBe(404);
+
+    const rows = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ id: adminAuditLog.id })
+        .from(adminAuditLog)
+        .where(eq(adminAuditLog.resourceId, nonexistent)),
+    );
+    expect(rows).toHaveLength(0);
   });
 });

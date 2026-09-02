@@ -3,9 +3,12 @@ import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db } from "@platform/db";
 import { getWorkflow, WorkflowError } from "@platform/workflow-engine";
 import { listEntityFields } from "@platform/entity-engine";
+import { writeAuditEntry } from "@platform/audit";
+import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
 import { notFound } from "./not-found.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function isWorkflowNotFound(err: unknown): boolean {
   return err instanceof WorkflowError && err.code === "WORKFLOW_NOT_FOUND";
@@ -35,8 +38,9 @@ export const getThirdPartyWorkflowFieldsHandler = factory.createHandlers(
   requireTicketScope("read"),
   async (c) => {
     const rawWorkflowId = c.req.param("workflowId");
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     // A non-UUID path segment can never resolve to a real workflow row --
     // treat it the same as a genuinely nonexistent one (404, not a 500 from
@@ -65,6 +69,27 @@ export const getThirdPartyWorkflowFieldsHandler = factory.createHandlers(
           return { workflow, fields };
         },
       );
+
+      // Best-effort -- a logging hiccup must never turn a successful describe
+      // call into a 500.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "workflow",
+            resourceId: workflow.id,
+            action: "workflow_fields.listed",
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, workflowId: workflow.id },
+          "third-party workflow fields: audit write failed",
+        );
+      }
 
       return c.json({
         data: {

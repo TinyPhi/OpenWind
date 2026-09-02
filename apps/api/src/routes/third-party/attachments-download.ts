@@ -8,9 +8,12 @@ import {
   entityInstances,
 } from "@platform/db";
 import { getFileStream, FileError } from "@platform/files";
+import { writeAuditEntry } from "@platform/audit";
+import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
+import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 
 function notFound(c: {
   json: (body: unknown, status: 404) => Response;
@@ -34,8 +37,9 @@ export const downloadAttachmentHandler = factory.createHandlers(
   requireTicketScope("read"),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId } = c.get("auth");
+    const { tenantId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
+    const applicationActorId = applicationActorIdFromUserId(authUserId);
 
     const [attachment] = await withTenantContext(tenantId, (tx) =>
       tx
@@ -75,6 +79,27 @@ export const downloadAttachmentHandler = factory.createHandlers(
       hasEntityAccess(tx, tenantId, instance, actingPersonId, []),
     );
     if (!allowed) {
+      // Best-effort -- an audit-write failure must never turn a correct 404
+      // denial into a 500, same pattern as every other third-party route's
+      // denied branch.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "attachment",
+            resourceId: id,
+            action: "attachment.download_denied",
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, attachmentId: id },
+          "third-party attachment download: denied-attempt audit write failed",
+        );
+      }
       return notFound(c);
     }
 
@@ -82,6 +107,27 @@ export const downloadAttachmentHandler = factory.createHandlers(
       const result = await withTenantContext(tenantId, (tx) =>
         getFileStream(tx, tenantId, filesId),
       );
+
+      // Best-effort -- a logging hiccup must never turn a successful
+      // download into a 500.
+      try {
+        await withTenantContext(tenantId, (tx) =>
+          writeAuditEntry(tx, {
+            tenantId,
+            actorId: applicationActorId,
+            actorType: "api_key",
+            actingPersonId,
+            resourceType: "attachment",
+            resourceId: id,
+            action: "attachment.downloaded",
+          }),
+        );
+      } catch (auditErr) {
+        logger.warn(
+          { auditErr, tenantId, attachmentId: id },
+          "third-party attachment download: allowed-attempt audit write failed",
+        );
+      }
 
       // Same sanitization as apps/api/src/routes/files/download.ts (spec R6):
       // strip characters that break/inject the header, and bidi-override

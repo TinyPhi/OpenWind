@@ -6,18 +6,27 @@ export interface AccessLogRow {
   applicationName: string | null;
   applicationKeyId: string;
   actingPersonId: string | null;
-  ticketId: string;
+  // null for a non-ticket resource (Phase F follow-up's workflow/tenant/
+  // attachment read actions) -- see resourceType for what it actually is.
+  ticketId: string | null;
+  resourceType: string;
+  resourceId: string;
   action: string;
   outcome: "allowed" | "denied";
+  type: "read" | "write";
 }
 
 export interface AccessLogFilters {
-  application?: string | undefined;
+  // Admin-UI API Keys detail view can lock this to every key id belonging
+  // to one "application" (a rotation can span multiple key rows) — the
+  // standalone logs page still passes a single id, unchanged.
+  application?: string | string[] | undefined;
   personId?: string | undefined;
   ticketId?: string | undefined;
   from?: string | undefined;
   to?: string | undefined;
   outcome?: "allowed" | "denied" | undefined;
+  type?: "read" | "write" | undefined;
   cursor?: string | undefined;
 }
 
@@ -29,12 +38,13 @@ interface ListResponse {
 export async function listThirdPartyAccessLogs(
   filters: AccessLogFilters = {},
 ): Promise<ListResponse> {
-  const params = new URLSearchParams({ limit: "50" });
+  const params = new URLSearchParams({ limit: "20" });
   const entries = Object.entries(filters) as Array<
-    [keyof AccessLogFilters, string | undefined]
+    [keyof AccessLogFilters, string | string[] | undefined]
   >;
   for (const [key, value] of entries) {
-    if (value) params.set(key, value);
+    if (!value) continue;
+    params.set(key, Array.isArray(value) ? value.join(",") : value);
   }
   const res = (await fetchWithAuth(
     `${API_URL}/admin/third-party-access-logs?${params.toString()}`,

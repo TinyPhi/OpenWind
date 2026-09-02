@@ -10,12 +10,29 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { withTenantContext, apiKeys } from "@platform/db";
-import { queryAuditLog, classifyOutcome } from "@platform/audit";
+import {
+  queryAuditLog,
+  classifyOutcome,
+  classifyRequestKind,
+} from "@platform/audit";
 import { and, eq, inArray } from "drizzle-orm";
 import { factory } from "./factory.js";
 
 const AccessLogsQuerySchema = z.object({
-  application: z.string().uuid().optional(),
+  // Admin-UI API Keys card view — an "application" can span multiple key
+  // rows (rotations), so its access-log filter needs to match any one of
+  // several application (api key) ids, not just a single exact one. Accepts
+  // either a single uuid (unchanged from before) or a comma-separated list.
+  application: z
+    .string()
+    .transform((s) =>
+      s
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.string().uuid()).min(1))
+    .optional(),
   // PR #489 review, F-02 -- a cleared form field submits "" not undefined;
   // .min(1) rejects it at the boundary instead of silently generating
   // WHERE acting_person_id = '' (zero rows, no explanation to the admin).
@@ -24,8 +41,12 @@ const AccessLogsQuerySchema = z.object({
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   outcome: z.enum(["allowed", "denied"]).optional(),
+  // Read vs write is derived from the action name (classifyRequestKind), not
+  // stored -- same "filter by the set of actions matching a derived
+  // property" shape as `outcome` above.
+  type: z.enum(["read", "write"]).optional(),
   cursor: z.string().uuid().optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export const getThirdPartyAccessLogsHandler = factory.createHandlers(
@@ -42,16 +63,38 @@ export const getThirdPartyAccessLogsHandler = factory.createHandlers(
         actorType: "api_key",
         actorId: q.application,
         actingPersonId: q.personId,
-        resourceType: "ticket",
+        // resourceType is only pinned to "ticket" when filtering by a
+        // specific ticketId (so that id can't coincidentally match a
+        // workflow/tenant/attachment resourceId under a different
+        // resourceType) -- otherwise left unset, since Phase F follow-up's
+        // read actions can carry resourceType 'workflow'/'tenant'/
+        // 'attachment' and must still show up in the unfiltered list.
+        resourceType: q.ticketId !== undefined ? "ticket" : undefined,
         resourceId: q.ticketId,
         outcome: q.outcome,
+        requestKind: q.type,
         from: q.from !== undefined ? new Date(q.from) : undefined,
         to: q.to !== undefined ? new Date(q.to) : undefined,
         cursor: q.cursor,
         limit: q.limit,
       });
 
-      const keyIds = [...new Set(logResult.entries.map((e) => e.actorId))];
+      // A pre-fix bug (see engine.ts's createEntity audit hook) once wrote a
+      // person id into actor_id on some rows despite actor_type='api_key'.
+      // Those legacy rows still exist and will never match a real
+      // api_keys.id -- filtering to well-formed uuids before the query
+      // avoids Postgres rejecting the whole statement with "invalid input
+      // syntax for type uuid" on a non-uuid literal. Unmatched ids simply
+      // resolve to "(unknown application)" below, same as any other miss.
+      const UUID_RE =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const keyIds = [
+        ...new Set(
+          logResult.entries
+            .map((e) => e.actorId)
+            .filter((id) => UUID_RE.test(id)),
+        ),
+      ];
       const applicationNames = new Map<string, string | null>();
       if (keyIds.length > 0) {
         // Explicit tenant filter (security.md rule 1) -- RLS already scopes
@@ -79,9 +122,16 @@ export const getThirdPartyAccessLogsHandler = factory.createHandlers(
       applicationName: result.applicationNames.get(entry.actorId) ?? null,
       applicationKeyId: entry.actorId,
       actingPersonId: entry.actingPersonId ?? null,
-      ticketId: entry.resourceId,
+      // null for the Phase F follow-up's non-ticket resource types
+      // ('workflow'/'tenant'/'attachment') -- resourceId is still that
+      // row's own id, but it isn't a ticket, so it isn't exposed under a
+      // field name that implies one.
+      ticketId: entry.resourceType === "ticket" ? entry.resourceId : null,
+      resourceType: entry.resourceType,
+      resourceId: entry.resourceId,
       action: entry.action,
       outcome: classifyOutcome(entry.action),
+      type: classifyRequestKind(entry.action),
     }));
 
     return c.json({ data, nextCursor: result.logResult.nextCursor });
