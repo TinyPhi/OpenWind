@@ -14,8 +14,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray } from "drizzle-orm";
-import { db, tenants, workflows, entityTypes } from "@platform/db";
+import { inArray, eq } from "drizzle-orm";
+import {
+  db,
+  tenants,
+  workflows,
+  entityTypes,
+  adminAuditLog,
+  withTenantContext,
+} from "@platform/db";
 import { createEntityType } from "@platform/entity-engine";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { listThirdPartyWorkflowsHandler } from "../../src/routes/third-party/workflows.js";
@@ -177,5 +184,33 @@ describe("GET /api/v1/workflows", () => {
     );
     const res = await app.request("/");
     expect(res.status).toBe(403);
+  });
+
+  // Phase F follow-up: this list call previously wrote no audit trail at
+  // all -- a compromised/leaked key could enumerate every workflow with
+  // zero trace. Prove-it pattern: would fail against the pre-fix code (no
+  // writeAuditEntry call existed on this path).
+  it("writes a workflow.listed audit entry", async () => {
+    const app = makeApp(apiKeyAuth(), ACTING_PERSON);
+    const res = await app.request("/");
+    expect(res.status).toBe(200);
+
+    const [entry] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({
+          actorId: adminAuditLog.actorId,
+          actorType: adminAuditLog.actorType,
+          resourceType: adminAuditLog.resourceType,
+          resourceId: adminAuditLog.resourceId,
+        })
+        .from(adminAuditLog)
+        .where(eq(adminAuditLog.action, "workflow.listed"))
+        .limit(1),
+    );
+    expect(entry).toBeDefined();
+    expect(entry?.actorType).toBe("api_key");
+    expect(entry?.actorId).toBe("11111111-1111-1111-1111-111111111111");
+    expect(entry?.resourceType).toBe("tenant");
+    expect(entry?.resourceId).toBe(TENANT);
   });
 });

@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray } from "drizzle-orm";
+import { inArray, eq, and } from "drizzle-orm";
 import {
   db,
   tenants,
@@ -16,6 +16,8 @@ import {
   entityFields,
   workflows,
   workflowStates,
+  adminAuditLog,
+  withTenantContext,
 } from "@platform/db";
 import { createEntityType, addEntityField } from "@platform/entity-engine";
 import type { EntityType } from "@platform/entity-engine";
@@ -344,5 +346,34 @@ describe("GET /api/v1/workflows/:workflowId/fields", () => {
     expect(res.headers.get("x-ratelimit-key-person-limit")).not.toBeNull();
     expect(res.headers.get("x-ratelimit-key-person-remaining")).not.toBeNull();
     expect(res.headers.get("x-ratelimit-key-person-reset")).not.toBeNull();
+  });
+
+  // Phase F follow-up: this describe call previously wrote no audit trail
+  // at all -- prove-it pattern, would fail against the pre-fix code.
+  it("writes a workflow_fields.listed audit entry", async () => {
+    const app = makeApp();
+    const res = await getFields(app, workflowId);
+    expect(res.status).toBe(200);
+
+    const [entry] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({
+          actorId: adminAuditLog.actorId,
+          actorType: adminAuditLog.actorType,
+          resourceType: adminAuditLog.resourceType,
+        })
+        .from(adminAuditLog)
+        .where(
+          and(
+            eq(adminAuditLog.resourceId, workflowId),
+            eq(adminAuditLog.action, "workflow_fields.listed"),
+          ),
+        )
+        .limit(1),
+    );
+    expect(entry).toBeDefined();
+    expect(entry?.actorType).toBe("api_key");
+    expect(entry?.actorId).toBe("77777777-7777-4777-7777-777777777777");
+    expect(entry?.resourceType).toBe("workflow");
   });
 });

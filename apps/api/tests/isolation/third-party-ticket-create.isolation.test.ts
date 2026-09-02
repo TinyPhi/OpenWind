@@ -205,6 +205,14 @@ describe("POST /api/v1/tickets", () => {
 
     expect(entry?.actorType).toBe("api_key");
     expect(entry?.actingPersonId).toBe(ACTING_PERSON.userId);
+    // Bug: createEntity's audit hook used to stamp actor_id with createdBy
+    // (the acting person) instead of the key's own application-actor id,
+    // even though actorType was correctly "api_key" — admin/third-party-
+    // access-logs.ts then failed trying to look up that non-uuid person id
+    // as an api_keys.id. actor_id must be the key, distinct from both
+    // actor_type and acting_person_id above.
+    expect(entry?.actorId).toBe("33333333-3333-3333-3333-333333333333");
+    expect(entry?.actorId).not.toBe(ACTING_PERSON.userId);
   });
 
   it("rejects a key without the entity:ticket:create scope", async () => {
