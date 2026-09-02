@@ -44,7 +44,7 @@ overrides:
   undici: ">=7.29.0 <8"
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
   # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths
-  postcss: ">=8.5.18"
+  postcss: ">=8.5.23"
   # GHSA-2v37-7h3g-55p8: nanoid can loop indefinitely when size is 0 — pulled in
   # transitively via postcss (vite/vitest chains in admin-ui devDependencies), 27 paths.
   # Bounded to <4 — postcss's own package.json pins nanoid as ^3.x, so an unbounded
@@ -57,3 +57,19 @@ overrides:
   # GHSA-73wf-gq98-2v4g (prototype write via untrusted browserslist-stats.json normalizeStats):
   # pulled in via @vitejs/plugin-react → @babel/core → @babel/helper-compilation-targets
   browserslist: ">=4.28.7"
+  # GHSA-q8mj-m7cp-5q26: qs.stringify crashes with TypeError on null/undefined entries
+  # in comma-format arrays when encodeValuesOnly is set — pulled in via @refinedev/core and
+  # @refinedev/react-router-v6 (admin-ui dependencies)
+  qs: ">=6.15.2"
+  # GHSA-2j2x-hqr9-3h42: open redirect in react-router 6.x — bounded to <7 to prevent
+  # a major-version jump that would break all routing (react-router 7 has breaking API changes)
+  react-router: ">=6.30.4 <7"
+  # GHSA-jjmj-jmhj-qwj2: open redirect leading to XSS in react-router-dom 6.30.2–6.30.4
+  react-router-dom: ">=6.30.5 <7"
+  # GHSA-2j2x-hqr9-3h42: same advisory as react-router above — @remix-run/router is the
+  # internal peer pulled in by react-router and react-router-dom
+  "@remix-run/router": ">=1.23.3"
+  # GHSA-frvp-7c67-39w9 (path traversal via encoded backslash on Windows, serve-static) +
+  # GHSA-9mqv-5hh9-4cgg (memory-leak DoS via aborted WebSocket handshake) — pulled in by
+  # apps/api, apps/worker, and packages/auth
+  "@hono/node-server": ">=2.0.10"
