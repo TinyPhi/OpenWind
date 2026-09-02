@@ -41,14 +41,14 @@
 **Goal:** The tag renders correctly, in the agreed format, on every surface a human sees ticket/comment content.
 **Gate:** §R acceptance criteria met → then Phase 4
 
-| task                                                                                                                                                                                                                      | requirement | status |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T11: Shared tag-rendering component — takes `origin` (mechanism + resolved app name + performer username), renders `External · [App] · [Person]` / `Redirected · [App] · [Person]`, renders nothing when `origin` is null | R1–R5       | todo   |
-| T12: Records-list badge using T11's component                                                                                                                                                                             | R1, R2, R4  | todo   |
-| T13: Ticket-detail page tag using T11's component                                                                                                                                                                         | R1, R2, R4  | todo   |
-| T14: Comment-thread per-comment tag using T11's component                                                                                                                                                                 | R3          | todo   |
-| T15: Activity/history timeline entry tag using T11's component                                                                                                                                                            | R5          | todo   |
-| T16: Sub-ticket isolation test — a sub-ticket created via API shows its own tag independent of the parent's tag state (confirms T12/T13 correctly key off the sub-ticket's own origin row, not the parent's)              | R4          | todo   |
+| task                                                                                                                                                                                                                                                                      | requirement | status |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
+| T11: `apps/admin-ui/src/components/origin-tag.tsx` — `OriginTag` (inline badge) + `OriginBanner` (detail-page variant), render `External · [App] · [Person]` / `Redirected · [App] · [Person]`, render nothing when `origin` is null. Own unit test file, 6/6 passing.    | R1–R5       | done   |
+| T12: Records-list badge (`workflow-records.tsx`'s `RecordCard` + `ChildTicketCard`, covering both top-level and sub-ticket kanban cards)                                                                                                                                  | R1, R2, R4  | done   |
+| T13: Ticket-detail page banner (`record-detail.tsx`, next to the title/state header)                                                                                                                                                                                      | R1, R2, R4  | done   |
+| T14: Comment-thread per-comment tag (`renderCommentBubble`, shared by both the Comments tab and the History tab's comment branch — one fix covers both)                                                                                                                   | R3          | done   |
+| T15: Activity/history timeline entry tag (appended alongside `renderFeedEvent`'s output rather than threaded through its many per-event-type branches)                                                                                                                    | R5          | done   |
+| T16: Sub-ticket tag — wired into `record-detail.tsx`'s sub-tasks table AND discovered two more read paths needed the same fix as T9: `list-children.ts` and `my-tickets.ts` were still returning raw origin columns without resolving them to a display name. Fixed both. | R4          | done   |
 
 ---
 

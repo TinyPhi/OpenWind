@@ -10,6 +10,10 @@ import {
 } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import {
+  batchLookupApplicationNames,
+  toOriginDisplay,
+} from "../../lib/resolve-origin-display.js";
 // Uses the same hasEntityReadAccess gate get.ts applies to this exact parent
 // record — not canUserReadInstance (which lacks createdBy/__accessUsers ACL
 // checks and would be stricter than get.ts's own gate on the parent).
@@ -48,7 +52,15 @@ export const listChildrenHandler = factory.createHandlers(
           limit: query.limit,
         }),
       );
-      return c.json({ data: page.data, nextCursor: page.nextCursor });
+      // docs/specs/third-party-api-origin-tagging.md R4 -- sub-tickets get
+      // their own independent tag, same live-resolution as the parent list.
+      const nameByClientId = await batchLookupApplicationNames(page.data);
+      const data = page.data.map((row) => ({
+        ...row,
+        origin: toOriginDisplay(row, nameByClientId),
+      }));
+
+      return c.json({ data, nextCursor: page.nextCursor });
     } catch (err) {
       return handleEntityError(c, err);
     }
