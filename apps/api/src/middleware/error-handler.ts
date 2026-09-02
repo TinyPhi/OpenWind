@@ -172,6 +172,18 @@ export function handleError(err: unknown, c: Context): Response {
       requestId,
       error: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
+      // Drizzle/postgres-js wrap the real Postgres error (code, detail,
+      // routine) in .cause — without it, every DB failure logs only the
+      // generic "Failed query: ..." wrapper text, losing the one field
+      // (code) that actually says what went wrong. Real incident: this gap
+      // turned a 5-minute RLS/GUC diagnosis into a much longer one.
+      cause:
+        err instanceof Error && err.cause instanceof Error
+          ? {
+              message: err.cause.message,
+              code: (err.cause as { code?: unknown }).code,
+            }
+          : undefined,
     },
     "Unhandled error",
   );
