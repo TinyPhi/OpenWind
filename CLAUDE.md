@@ -256,7 +256,8 @@ field is no longer read). Do not remove these:
   GHSA-v3r7-h72x-cjcm; bounded to `<8` so a major bump doesn't break jsdom's internal file
   imports.
 - `postcss ">=8.5.23"` — GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL
-  auto-loading); pulled in via vite (admin-ui devDep).
+  auto-loading) + GHSA-fxqj-rqcc-2cmp (second path traversal variant, bumped from
+  `>=8.5.18` to `>=8.5.23` to close it); pulled in via vite (admin-ui devDep).
 - `nanoid ">=3.3.17 <4"` — GHSA-2v37-7h3g-55p8 (indefinite loop when size is 0);
   pulled in via postcss (vite/vitest chains in admin-ui devDeps). Bounded to `<4` —
   postcss's own package.json pins nanoid as `^3.x`, so an unbounded floor would
@@ -278,6 +279,18 @@ field is no longer read). Do not remove these:
 - `browserslist ">=4.28.7"` — GHSA-c83g-rgw3-j3cx (unbounded memory growth) +
   GHSA-73wf-gq98-2v4g (prototype write via normalizeStats); pulled in via
   @vitejs/plugin-react → @babel/core → @babel/helper-compilation-targets.
+
+**Deferred overrides (require major-version coordination before adding):**
+
+- `uuid` GHSA-w5hq-g745-h8pq (buffer bounds check in v3/v5/v6 when `buf` is provided):
+  fix requires `>=11.1.1` but `exceljs` pins `uuid@8.x` internally — uuid 11 dropped
+  CommonJS and changed APIs, so a forced override would break exceljs at runtime. Revisit
+  when exceljs ships native uuid-v11 support.
+- `@opentelemetry/core` GHSA-8988-4f7v-96qf (unbounded memory in W3C Baggage propagation):
+  fix requires `>=2.8.0` but current version is `1.30.1` — a 1→2 major bump; `@sentry/node`
+  and all OTel instrumentation packages in `packages/telemetry` are pinned to the 1.x API
+  and are not yet compatible with OTel core 2.x. Revisit when Sentry releases a 2.x-compatible
+  SDK version.
 
 ---
 
