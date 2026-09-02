@@ -255,12 +255,42 @@ field is no longer read). Do not remove these:
 - `undici ">=7.29.0 <8"` — GHSA-4cwx-7wf7-3272 / GHSA-m8rv-5g2x-5cg5 / GHSA-jr45-8vmc-qm54 /
   GHSA-v3r7-h72x-cjcm; bounded to `<8` so a major bump doesn't break jsdom's internal file
   imports.
-- `postcss ">=8.5.18"` — GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL
-  auto-loading); pulled in via vite (admin-ui devDep).
+- `postcss ">=8.5.23"` — GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL
+  auto-loading) + GHSA-fxqj-rqcc-2cmp (second path traversal variant, bumped from
+  `>=8.5.18` to `>=8.5.23` to close it); pulled in via vite (admin-ui devDep).
 - `nanoid ">=3.3.17 <4"` — GHSA-2v37-7h3g-55p8 (indefinite loop when size is 0);
   pulled in via postcss (vite/vitest chains in admin-ui devDeps). Bounded to `<4` —
   postcss's own package.json pins nanoid as `^3.x`, so an unbounded floor would
   silently force it onto an untested major (resolves to 6.0.1) instead of just the fix.
+- `qs ">=6.15.2"` — GHSA-q8mj-m7cp-5q26 (qs.stringify crashes on null/undefined entries in
+  comma-format arrays with encodeValuesOnly); pulled in via @refinedev/core and
+  @refinedev/react-router-v6 (admin-ui dependencies).
+- `react-router ">=6.30.4 <7"` — GHSA-2j2x-hqr9-3h42 (open redirect in 6.x); bounded
+  to `<7` — react-router 7 has breaking API changes; the two open-redirect advisories that
+  require `>=7.18.0` (GHSA-wrjc-x8rr-h8h6 / GHSA-337j-9hxr-rhxg) are deferred until a
+  coordinated v7 upgrade.
+- `react-router-dom ">=6.30.5 <7"` — GHSA-jjmj-jmhj-qwj2 (open redirect → XSS in
+  6.30.2–6.30.4); bounded to `<7` for the same reason as react-router above.
+- `"@remix-run/router" ">=1.23.3"` — GHSA-2j2x-hqr9-3h42 (same advisory; this is the
+  internal peer pulled in by react-router and react-router-dom).
+- `"@hono/node-server" ">=2.0.10"` — GHSA-frvp-7c67-39w9 (path traversal via encoded
+  backslash on Windows in serve-static) + GHSA-9mqv-5hh9-4cgg (memory-leak DoS via aborted
+  WebSocket handshake); pulled in by apps/api, apps/worker, packages/auth.
+- `browserslist ">=4.28.7"` — GHSA-c83g-rgw3-j3cx (unbounded memory growth) +
+  GHSA-73wf-gq98-2v4g (prototype write via normalizeStats); pulled in via
+  @vitejs/plugin-react → @babel/core → @babel/helper-compilation-targets.
+
+**Deferred overrides (require major-version coordination before adding):**
+
+- `uuid` GHSA-w5hq-g745-h8pq (buffer bounds check in v3/v5/v6 when `buf` is provided):
+  fix requires `>=11.1.1` but `exceljs` pins `uuid@8.x` internally — uuid 11 dropped
+  CommonJS and changed APIs, so a forced override would break exceljs at runtime. Revisit
+  when exceljs ships native uuid-v11 support.
+- `@opentelemetry/core` GHSA-8988-4f7v-96qf (unbounded memory in W3C Baggage propagation):
+  fix requires `>=2.8.0` but current version is `1.30.1` — a 1→2 major bump; `@sentry/node`
+  and all OTel instrumentation packages in `packages/telemetry` are pinned to the 1.x API
+  and are not yet compatible with OTel core 2.x. Revisit when Sentry releases a 2.x-compatible
+  SDK version.
 
 ---
 
