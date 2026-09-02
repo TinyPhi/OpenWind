@@ -306,6 +306,9 @@ export async function createEntity(
       createdBy: input.createdBy ?? null,
       assignedTo: input.assignedTo ?? null,
       dueDate: input.dueDate ? new Date(input.dueDate) : null,
+      originMechanism: input.originMechanism ?? null,
+      originOidcClientId: input.originOidcClientId ?? null,
+      originPerformerUserId: input.originPerformerUserId ?? null,
     })
     .returning();
 

@@ -14,6 +14,7 @@ import { withIdempotency } from "../../lib/idempotency.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
+import { resolveOriginOidcClientId } from "../../lib/resolve-origin-oidc-client-id.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
 import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 
@@ -69,6 +70,15 @@ export const createThirdPartyChildHandler = factory.createHandlers(
         },
         422,
       );
+    }
+
+    // docs/specs/third-party-api-origin-tagging.md R4/§V -- sub-tickets follow
+    // the exact same tagging rules as top-level tickets (see tickets.ts's
+    // identical check for the full rationale).
+    const originOidcClientId =
+      await resolveOriginOidcClientId(applicationActorId);
+    if (!originOidcClientId) {
+      return c.json({ error: "UNAUTHORIZED", message: "Invalid API key" }, 401);
     }
 
     // deletedAt filtered out here (unlike a plain existence check) so a
@@ -155,6 +165,9 @@ export const createThirdPartyChildHandler = factory.createHandlers(
               actorType: "api_key",
               actingPersonId,
               maxAncestorDepth: 1,
+              originMechanism: "api",
+              originOidcClientId,
+              originPerformerUserId: actingPersonId,
             });
             await writeAuditEntry(tx, {
               tenantId,

@@ -19,6 +19,7 @@ import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.
 import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 import { withIdempotency } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
+import { resolveOriginOidcClientId } from "../../lib/resolve-origin-oidc-client-id.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 
@@ -197,6 +198,18 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
       );
     }
 
+    // docs/specs/third-party-api-origin-tagging.md §V -- every API-originated
+    // ticket ALWAYS has a resolvable app+performer identity, never created
+    // untagged. The key just authenticated this request (requireAuth already
+    // ran), so a null here means it was revoked/deleted in the moment
+    // between auth and this line -- treat as unauthorized, not a 500, since
+    // the caller's credential is what actually became invalid.
+    const originOidcClientId =
+      await resolveOriginOidcClientId(applicationActorId);
+    if (!originOidcClientId) {
+      return c.json({ error: "UNAUTHORIZED", message: "Invalid API key" }, 401);
+    }
+
     // ADR-012 Phase G, spec R3/R4/R5 -- idempotency wraps only the actual
     // mutating operation, not upstream validation, so a caller retrying a
     // request that already 422'd above re-validates fresh rather than
@@ -230,6 +243,9 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               actorId: applicationActorId,
               actorType: "api_key",
               actingPersonId,
+              originMechanism: "api",
+              originOidcClientId,
+              originPerformerUserId: actingPersonId,
             });
             // Same transaction as the create above -- a rejected attachment
             // reference rolls back the whole ticket creation, never leaving a

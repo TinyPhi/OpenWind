@@ -2,7 +2,13 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
-import { files, tenantUsers, withTenantContext } from "@platform/db";
+import {
+  files,
+  tenantUsers,
+  apiKeys,
+  db,
+  withTenantContext,
+} from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -16,7 +22,42 @@ const CreateEntitySchema = z.object({
   dueDate: z.string().datetime().nullable().optional(),
   workflowId: z.string().uuid().optional(),
   currentState: z.string().optional(),
+  // docs/specs/hosted-ticket-create-handoff.md R7 / third-party-api-origin-
+  // tagging.md R2 — set ONLY when this create request arrives via the hosted
+  // handoff flow (apps/admin-ui/src/pages/customer/record-create.tsx, threaded
+  // from callback.tsx's state). Absent entirely on every normal, direct in-app
+  // creation — those are never origin-tagged, by design (spec §V). When
+  // present it is NOT trusted at face value: it must resolve to a real,
+  // active, non-revoked api_keys row below, or creation is rejected outright.
+  appClientId: z.string().trim().min(1).optional(),
 });
+
+/**
+ * docs/specs/hosted-ticket-create-handoff.md R7 — the handoff URL's
+ * appClientId param must resolve to a real, active, non-revoked api_keys row
+ * before a ticket created through that flow can be tagged with it. Runs on
+ * the bare `db` client (not withTenantContext) for the same reason
+ * create.ts's own Client-ID uniqueness check does (see that file's comment):
+ * a Zitadel Client ID identifies one external application, not one tenant's
+ * registration of it, and the caller doesn't know the resolved tenant yet at
+ * this point in the flow.
+ */
+async function isValidActiveAppClientId(
+  oidcClientId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: apiKeys.id })
+    .from(apiKeys)
+    .where(
+      and(
+        eq(apiKeys.oidcClientId, oidcClientId),
+        eq(apiKeys.oidcClientIdActive, true),
+        isNull(apiKeys.revokedAt),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -74,6 +115,27 @@ export const createEntityHandler = factory.createHandlers(
       }
     }
 
+    // docs/specs/hosted-ticket-create-handoff.md R7 — reject outright, never
+    // silently create untagged, when the caller sent an appClientId that
+    // doesn't resolve. Checked before any other work so a bad handoff
+    // identity can't leave a partially-processed side effect behind.
+    if (input.appClientId !== undefined) {
+      const valid = await isValidActiveAppClientId(input.appClientId);
+      if (!valid) {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "Validation failed",
+            fields: {
+              appClientId:
+                "Does not resolve to a real, active, registered application",
+            },
+          },
+          422,
+        );
+      }
+    }
+
     try {
       const [dbUser] = await withTenantContext(tenantId, (tx) =>
         tx
@@ -110,11 +172,23 @@ export const createEntityHandler = factory.createHandlers(
           input.fields,
           orgId,
         );
+        const { appClientId, ...createInput } = input;
         return createEntity(tx, tenantId, {
-          ...input,
+          ...createInput,
           actorId: userId,
           actorName: actorName ?? undefined,
           createdBy: userId,
+          // appClientId was already validated above (or is undefined, the
+          // normal non-handoff case) — every third-party-origin-tagging.md
+          // §V branch here is set together or not at all, matching the
+          // migration 0090 DB CHECK.
+          ...(appClientId
+            ? {
+                originMechanism: "handoff" as const,
+                originOidcClientId: appClientId,
+                originPerformerUserId: userId,
+              }
+            : {}),
         });
       });
 

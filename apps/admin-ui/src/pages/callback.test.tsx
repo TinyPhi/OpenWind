@@ -68,6 +68,7 @@ describe("AuthCallback", () => {
         workflowId: "wf-1",
         entityTypeId: "et-1",
         prefillFields: { title: "Client dinner" },
+        appClientId: "app-1",
       },
     });
     fetchWithAuth.mockResolvedValue({
@@ -81,6 +82,7 @@ describe("AuthCallback", () => {
           workflowId: "wf-1",
           entityTypeId: "et-1",
           prefillFields: { title: "Client dinner" },
+          appClientId: "app-1",
         },
       });
     });
@@ -90,7 +92,11 @@ describe("AuthCallback", () => {
   // spec R5 -- nonexistent entityTypeId must degrade gracefully, not crash.
   it("with a handoff entityTypeId that fails to resolve, falls back to /dashboard instead of crashing", async () => {
     signinCallback.mockResolvedValue({
-      state: { workflowId: "wf-1", entityTypeId: "does-not-exist" },
+      state: {
+        workflowId: "wf-1",
+        entityTypeId: "does-not-exist",
+        appClientId: "app-1",
+      },
     });
     fetchWithAuth.mockRejectedValue(new Error("404"));
     renderCallback();
@@ -105,6 +111,21 @@ describe("AuthCallback", () => {
   it("with malformed handoff state (missing entityTypeId), falls back to /dashboard without calling fetchWithAuth", async () => {
     signinCallback.mockResolvedValue({
       state: { workflowId: "wf-1" },
+    });
+    renderCallback();
+
+    await waitFor(() => {
+      expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
+    });
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  // docs/specs/third-party-api-origin-tagging.md R2 -- appClientId is
+  // required exactly like workflowId/entityTypeId; missing it must degrade
+  // the same way a missing entityTypeId does, never a partial handoff.
+  it("with handoff state missing appClientId, falls back to /dashboard without calling fetchWithAuth", async () => {
+    signinCallback.mockResolvedValue({
+      state: { workflowId: "wf-1", entityTypeId: "et-1" },
     });
     renderCallback();
 

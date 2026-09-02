@@ -11,6 +11,7 @@ import {
 import { logger } from "@platform/logger";
 import { writeAuditEntry } from "@platform/audit";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
+import { resolveOriginOidcClientId } from "../../lib/resolve-origin-oidc-client-id.js";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
 import { requireTicketScope } from "./require-ticket-scope.js";
@@ -102,6 +103,15 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
       return notFound(c);
     }
     const workflowId = instance.workflowId;
+
+    // docs/specs/third-party-api-origin-tagging.md §V -- same fail-closed
+    // rationale as tickets.ts's identical check (the key just authenticated
+    // this request; a null here means it was revoked/deleted in between).
+    const originOidcClientId =
+      await resolveOriginOidcClientId(applicationActorId);
+    if (!originOidcClientId) {
+      return c.json({ error: "UNAUTHORIZED", message: "Invalid API key" }, 401);
+    }
 
     // hasEntityCommentAccessFull does an internal getWorkflow lookup, which
     // can throw WORKFLOW_NOT_FOUND if the workflow is deleted between the
@@ -209,6 +219,9 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
                 actorType: "api_key",
                 actingPersonId,
               },
+              originMechanism: "api",
+              originOidcClientId,
+              originPerformerUserId: actingPersonId,
             })
             .returning();
           if (inserted) {
