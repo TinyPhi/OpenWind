@@ -80,6 +80,9 @@ export async function searchEntities(
       updatedAt: entityInstances.updatedAt,
       deletedAt: entityInstances.deletedAt,
       searchVector: entityInstances.searchVector,
+      originMechanism: entityInstances.originMechanism,
+      originOidcClientId: entityInstances.originOidcClientId,
+      originPerformerUserId: entityInstances.originPerformerUserId,
       rank: rankExpr,
     })
     .from(entityInstances)
@@ -121,5 +124,8 @@ function rowToInstance(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt ?? null,
+    originMechanism: row.originMechanism as "api" | "handoff" | null,
+    originOidcClientId: row.originOidcClientId ?? null,
+    originPerformerUserId: row.originPerformerUserId ?? null,
   };
 }

@@ -18,6 +18,7 @@ import {
   workflows,
   workflowStates,
   adminAuditLog,
+  apiKeys,
   withTenantContext,
 } from "@platform/db";
 import {
@@ -25,10 +26,13 @@ import {
   registerEntityAuditHook,
 } from "@platform/entity-engine";
 import { writeAuditEntry } from "@platform/audit";
+import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
 
 const TENANT = "12121212-0000-4000-a000-000000000506";
+const API_KEY_ID = "33333333-3333-3333-3333-333333333333";
+const ORIGIN_OIDC_CLIENT_ID = "third-party-ticket-create-test-client";
 
 let entityTypeId: string;
 let workflowId: string;
@@ -59,6 +63,21 @@ beforeAll(async () => {
     id: TENANT,
     name: "3P Ticket Create Tenant",
     slug: `3p-ticket-create-${TENANT}`,
+  });
+
+  // docs/specs/third-party-api-origin-tagging.md — the create route now
+  // resolves the authenticating key's oidcClientId (resolveOriginOidcClientId)
+  // via a real DB lookup, not just the stubbed auth context above. Matches
+  // apiKeyAuth()'s synthetic "apikey:33333333-..." id so that lookup succeeds
+  // the same way it would for a genuinely authenticated request.
+  await db.insert(apiKeys).values({
+    id: API_KEY_ID,
+    tenantId: TENANT,
+    name: "3P Ticket Create Test Key",
+    keyHash: hashApiKey(`sk_3p_ticket_create_test_${TENANT}`),
+    scopesFormat: "action",
+    scopes: ["entity:ticket:create"],
+    oidcClientId: ORIGIN_OIDC_CLIENT_ID,
   });
 
   const entityType = await createEntityType(db, null, {
@@ -98,6 +117,7 @@ afterAll(async () => {
   // through the bare/superuser db connection, same as
   // audit-log.isolation.test.ts's own teardown.
   await db.delete(adminAuditLog).where(eq(adminAuditLog.tenantId, TENANT));
+  await db.delete(apiKeys).where(eq(apiKeys.id, API_KEY_ID));
   await db.delete(tenants).where(eq(tenants.id, TENANT));
 });
 

@@ -410,6 +410,11 @@ export function CustomerRecordCreate(): React.ReactElement {
     // T4) -- set by callback.tsx when arriving via a 3rd-party handoff link.
     // Keyed by field `name`, same union already used for workflowId preselect.
     prefillFields?: Record<string, string>;
+    // docs/specs/third-party-api-origin-tagging.md R2 -- present only when
+    // this page was reached via the handoff flow (callback.tsx). Sent as-is
+    // to POST /entities, which validates it server-side before allowing
+    // creation (never trusted client-side).
+    appClientId?: string;
   };
   const { getTypeBySlug, getTypeById } = useEntityTypes();
   // Prefer the explicit entityTypeId from router state (set by WorkflowRecords) —
@@ -521,6 +526,8 @@ export function CustomerRecordCreate(): React.ReactElement {
       if (currentState) payload["currentState"] = currentState;
       if (assignedTo) payload["assignedTo"] = assignedTo;
       if (dueDate) payload["dueDate"] = new Date(dueDate).toISOString();
+      if (routeState.appClientId)
+        payload["appClientId"] = routeState.appClientId;
       const res = await fetchWithAuth(`${API_URL}/entities`, {
         method: "POST",
         body: JSON.stringify(payload),

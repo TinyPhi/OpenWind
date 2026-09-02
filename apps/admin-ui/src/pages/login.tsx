@@ -12,6 +12,14 @@ export interface HandoffState {
   workflowId: string;
   entityTypeId: string;
   prefillFields: Record<string, string>;
+  // docs/specs/third-party-api-origin-tagging.md R2 — the initiating
+  // application's own oidcClientId. Required (readHandoffParams returns
+  // undefined without it, same as a missing workflowId/entityTypeId): a
+  // handoff-created ticket without a resolvable app identity is never
+  // silently created untagged (spec §V). Carried through unmodified — the
+  // actual validation happens server-side (apps/api/src/routes/entities/
+  // create.ts), never trusted client-side.
+  appClientId: string;
 }
 
 // RFC 4122 UUID format used for defence-in-depth validation in
@@ -34,7 +42,8 @@ const UUID_RE =
 function readHandoffParams(params: URLSearchParams): HandoffState | undefined {
   const workflowId = params.get("workflowId");
   const entityTypeId = params.get("entityTypeId");
-  if (!workflowId || !entityTypeId) return undefined;
+  const appClientId = params.get("appClientId");
+  if (!workflowId || !entityTypeId || !appClientId) return undefined;
   // defence-in-depth: isHandoffState in callback.tsx also validates, but
   // we reject non-UUIDs here so invalid state is never written to the OAuth
   // redirect (fixing issue #544).
@@ -46,7 +55,7 @@ function readHandoffParams(params: URLSearchParams): HandoffState | undefined {
   const remark = params.get("remark");
   if (title) prefillFields["title"] = title;
   if (remark) prefillFields["remark"] = remark;
-  return { workflowId, entityTypeId, prefillFields };
+  return { workflowId, entityTypeId, prefillFields, appClientId };
 }
 
 function SunIcon(): React.ReactElement {
