@@ -1,7 +1,12 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { JWTPayload, KeyLike } from "jose";
+import { z } from "zod";
 import { env } from "@platform/config";
 import { logger } from "@platform/logger";
+import {
+  assertExternalIssuerEgressAllowed,
+  SsrfGuardError,
+} from "./ssrf-guard.js";
 import type { ZitadelClaims, AuthContext } from "./types.js";
 
 type JwksGetter = ReturnType<typeof createRemoteJWKSet>;
@@ -108,6 +113,164 @@ export async function verifyJwtWithAudience(
   return verifyJwtAgainstAudience(token, audience, {
     enforceMaxTokenAge: true,
   });
+}
+
+// Third-party API key external-org mapping (docs/specs/third-party-key-external-org-mapping.md,
+// Phase 1 T2) -- a key's acting-person tokens may come from an entirely
+// different IdP than the platform's configured primary (ZITADEL_ISSUER).
+// This resolves JWKS per-issuer via that issuer's own OIDC discovery
+// document, cached per-issuer indefinitely (a provider's jwks_uri does not
+// change in normal operation the way signing keys inside it do -- those are
+// still bounded by createRemoteJWKSet's own cacheMaxAge below).
+//
+// Deliberately NOT a fork/swap of getJwks() above for a second hardcoded
+// provider (that's what both the Zitadel-only and AuthNexus-only forks of
+// this file already do, independently, and is exactly the gap this spec
+// exists to close) -- this works for any standard-OIDC issuer, discovered
+// at call time, not hardcoded per provider.
+//
+// docs/specs/third-party-key-external-org-mapping.md security review (§B B3):
+// unbounded growth here would become a real DoS surface once Phase 2 (T6)
+// wires admin-set `external_issuer` values into the live verification path
+// -- a tenant with many third-party keys pointed at many distinct (typo'd or
+// otherwise) issuers could grow this map without limit. Bounded to a small
+// LRU-ish cap: Maps preserve insertion order, and `_touchIssuer` re-inserts
+// an entry on every hit to move it to the end, so eviction below always
+// drops the actual least-recently-used issuer, not just the oldest-inserted
+// one.
+const MAX_CACHED_EXTERNAL_ISSUERS = 50;
+const _jwksByIssuer = new Map<string, JwksGetter>();
+
+function _touchIssuer(issuer: string, jwks: JwksGetter): void {
+  _jwksByIssuer.delete(issuer);
+  _jwksByIssuer.set(issuer, jwks);
+  if (_jwksByIssuer.size > MAX_CACHED_EXTERNAL_ISSUERS) {
+    const oldest = _jwksByIssuer.keys().next().value;
+    if (oldest !== undefined) _jwksByIssuer.delete(oldest);
+  }
+}
+
+const OidcDiscoverySchema = z.object({
+  issuer: z.string().url(),
+  jwks_uri: z.string().url(),
+});
+
+async function getJwksForIssuer(issuer: string): Promise<JwksGetter> {
+  const cached = _jwksByIssuer.get(issuer);
+  if (cached) {
+    _touchIssuer(issuer, cached);
+    return cached;
+  }
+
+  // Security review (docs/specs/third-party-key-external-org-mapping.md
+  // Phase 2): `issuer` is admin-supplied at key-creation time (validated only
+  // as `z.string().url()` there, no scheme/host restriction) -- a tenant
+  // admin is not a fully-trusted platform operator, so this is a real SSRF
+  // vector once a key using it is exercised. create.ts already runs this
+  // same check at creation time; it's repeated here as defense-in-depth
+  // (DNS/routing can change between creation and use).
+  await assertExternalIssuerEgressAllowed(issuer);
+
+  const res = await fetch(`${issuer}/.well-known/openid-configuration`);
+  if (!res.ok) {
+    throw new Error(
+      `OIDC discovery failed for issuer ${issuer}: ${res.status}`,
+    );
+  }
+  // External input (security.md: connector/3rd-party responses are always
+  // Zod-validated, never trusted via a bare type assertion) -- a malformed
+  // or malicious discovery document fails closed here instead of producing
+  // a confusing downstream error from new URL(undefined) or similar.
+  const discovery = OidcDiscoverySchema.parse(await res.json());
+  // PR #545 review (PrabhuVijit) -- RFC 8414 §3.3: "The issuer value returned
+  // MUST be identical to the Issuer URL that was used as the prefix to
+  // /.well-known/openid-configuration." Without this check, a misconfigured
+  // IdP serving a discovery document for the wrong issuer would silently
+  // succeed here and only fail later, confusingly, at jwtVerify's own
+  // issuer check on first real token. Failing closed here surfaces the
+  // misconfiguration at the point it's introduced.
+  if (discovery.issuer !== issuer) {
+    throw new Error(
+      `OIDC discovery document issuer mismatch: expected "${issuer}", got "${discovery.issuer}"`,
+    );
+  }
+  // jwks_uri is issuer-controlled content, not the already-guarded issuer
+  // origin itself -- a compromised/malicious issuer could point it at a
+  // third, unrelated internal target. Guarded the same way before it's ever
+  // handed to createRemoteJWKSet.
+  await assertExternalIssuerEgressAllowed(discovery.jwks_uri);
+
+  // cacheMaxAge stays the same platform-wide constant as getJwks()'s own
+  // Zitadel-tuned value (§B B3 asked this be reconsidered, not necessarily
+  // changed) -- per-issuer-configurable rotation cadence would need a new
+  // admin-facing setting with no real signal yet for what value to default
+  // it to for an arbitrary external IdP; a shorter shared window is a safe
+  // default (worst case: extra discovery/JWKS fetches), not a security gap.
+  const jwks = createRemoteJWKSet(new URL(discovery.jwks_uri), {
+    cacheMaxAge: 60 * 60 * 1000,
+  });
+  _touchIssuer(issuer, jwks);
+  return jwks;
+}
+
+/**
+ * Same verification shape as verifyJwtWithAudience (signature, issuer,
+ * audience, 5s clock tolerance, max-token-age freshness), but against an
+ * explicit, caller-supplied issuer instead of the platform-wide
+ * ZITADEL_ISSUER. Used when a third-party API key has its own registered
+ * external_issuer (docs/specs/third-party-key-external-org-mapping.md,
+ * wired into dual-identity.ts's requireActingPerson in Phase 2).
+ *
+ * Return type intentionally matches verifyJwtWithAudience's
+ * `JWTPayload & ZitadelClaims` (not a bare `Record<string, unknown>`) even
+ * though a non-Zitadel issuer's token won't populate those fields -- they're
+ * all optional, so this is a safe over-declaration, and it keeps callers
+ * that branch between the two functions (dual-identity.ts) working with one
+ * consistent claims type instead of a wider union that loses the specific
+ * optional-field types on `.email`/`.name`/etc.
+ */
+export async function verifyJwtForIssuer(
+  token: string,
+  issuer: string,
+  audience: string,
+  // PR #545 review (PrabhuVijit, SUGGESTION) -- optional since this is a
+  // pure auth primitive with no tenant context of its own; the caller
+  // (dual-identity.ts's requireActingPerson) has auth.tenantId available
+  // and threads it through so a failure here can be correlated with other
+  // tenant-scoped events during an incident, same as the security.md rule
+  // for tenant-scoped logs generally.
+  tenantId?: string,
+): Promise<(JWTPayload & ZitadelClaims) | null> {
+  try {
+    const jwks = await getJwksForIssuer(issuer);
+    const { payload } = await jwtVerify(token, jwks as unknown as KeyLike, {
+      issuer,
+      audience,
+      clockTolerance: 5,
+      maxTokenAge: env.JWT_MAX_TOKEN_AGE_SECONDS,
+    });
+    // Same cast as verifyJwtAgainstAudience above -- `sub` is technically
+    // optional per jose's JWTPayload but required in ZitadelClaims; the
+    // caller (dual-identity.ts) already checks claims.sub is present before
+    // using it, same as it does for the primary-issuer path.
+    return payload as JWTPayload & ZitadelClaims;
+  } catch (err) {
+    // PR #545 review (PrabhuVijit, GOOD TO FIX) -- an SsrfGuardError here
+    // (the issuer resolved to a private/reserved address at verification
+    // time, e.g. DNS rebinding between key creation and first use) is a
+    // fundamentally different event than an actual JWT signature/claims
+    // failure. Logging both under one identical message buried the real
+    // cause in the error-string field, forcing an on-call engineer to parse
+    // it instead of filtering by log message during incident investigation.
+    const isSsrf = err instanceof SsrfGuardError;
+    logger.warn(
+      { error: String(err), issuer, audience, tenantId },
+      isSsrf
+        ? "JWT verification blocked — issuer failed SSRF guard at verification time"
+        : "JWT verification failed (external issuer)",
+    );
+    return null;
+  }
 }
 
 export function extractAuthContext(

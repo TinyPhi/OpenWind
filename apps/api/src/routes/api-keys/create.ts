@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
+import { env } from "@platform/config";
 import {
   requireAuth,
   requireRole,
@@ -10,6 +11,7 @@ import {
   API_KEY_DEFAULT_TTL_DAYS,
   detectScopesFormat,
   unknownTicketActionScopes,
+  assertExternalIssuerEgressAllowed,
 } from "@platform/auth";
 import {
   db,
@@ -37,6 +39,18 @@ const CreateApiKeySchema = z.object({
   // the DB.
   applicationContactEmail: z.string().email().max(320).optional(),
   oidcClientId: z.string().min(1).max(200).optional(),
+  // docs/specs/third-party-key-external-org-mapping.md — only needed when
+  // this key's acting-person tokens come from a different IdP than the
+  // platform's configured primary. externalIssuer is always explicit admin
+  // input (spec §I's resolved decision) — never derived via a live
+  // discovery-document fetch during this request.
+  // PR #545 review (PrabhuVijit) -- .trim() runs before .url()/.min(1), so a
+  // direct API caller (bypassing the admin UI's own trim) can no longer
+  // store a whitespace-padded value that would never match a real OIDC
+  // claim/issuer at verification time. A whitespace-only externalOrgId
+  // still correctly fails .min(1) after trimming.
+  externalIssuer: z.string().url().max(500).trim().optional(),
+  externalOrgId: z.string().min(1).max(200).trim().optional(),
 });
 
 const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
@@ -54,8 +68,34 @@ export const createApiKeyHandler = factory.createHandlers(
       applicationDescription,
       applicationContactEmail,
       oidcClientId,
+      externalIssuer,
+      externalOrgId,
     } = c.req.valid("json");
     const { tenantId, roles, userId } = c.get("auth");
+
+    // PR #545 review (PrabhuVijit, MUST FIX) -- stored separately from the
+    // raw `externalIssuer` input. A trailing-slash variant
+    // ("https://auth.example.com/") is a valid URL that passes every
+    // validation branch below unchanged, but stored verbatim it breaks
+    // verification three ways: the discovery fetch becomes a malformed
+    // double-slash URL, the JWKS cache key differs from the no-slash form
+    // (splitting an otherwise-identical issuer's cache), and jose's
+    // `jwtVerify({ issuer })` requires an exact string match against the
+    // token's `iss` claim, which real OIDC issuers essentially never emit
+    // with a trailing slash. Because api_keys rows are immutable after
+    // creation, an un-normalized value here means a key that creates
+    // successfully (201) but 401s on every real use, fixable only by
+    // revoking and recreating it. `.href` (not `.origin`, which strips the
+    // path -- wrong for path-based issuers like Microsoft's
+    // `.../tenant-id/v2.0`) canonicalizes case/default-port/percent-encoding
+    // and drops a root-path's own trailing slash; the explicit `.replace`
+    // covers a non-root path's trailing slash too (`.href` alone leaves
+    // "https://x.com/foo/" as-is). Computed once here (before the malformed-
+    // URL branch below, which already re-parses with its own try/catch) so
+    // every later use -- the stored value -- is consistent.
+    const normalizedExternalIssuer = externalIssuer
+      ? new URL(externalIssuer).href.replace(/\/$/, "")
+      : undefined;
 
     // ADR-008 Decision #6: stamps the format of the scopes actually supplied.
     // detectScopesFormat only throws on a mixed role/action array — checked
@@ -76,12 +116,97 @@ export const createApiKeyHandler = factory.createHandlers(
 
     if (scopesFormat === "role") {
       // Pre-existing internal-key path — unchanged, per this repo's own
-      // "leave the old one as it is" decision on this feature.
+      // "leave the old one as it is" decision on this feature. A role-format
+      // key never goes through the dual-identity acting-person flow at all,
+      // so an external-org mapping has nothing to attach to here — reject
+      // rather than silently accept-and-drop the fields.
+      if (externalIssuer || externalOrgId) {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message:
+              "externalIssuer/externalOrgId only apply to action-scoped (third-party) keys",
+          },
+          422,
+        );
+      }
       const scopeError = scopeCeilingError(roles, scopes);
       if (scopeError) {
         return c.json({ error: "FORBIDDEN", message: scopeError }, 403);
       }
     } else {
+      // docs/specs/third-party-key-external-org-mapping.md §I's 4-way
+      // validation.
+      if (externalOrgId && !externalIssuer) {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "externalOrgId requires externalIssuer to also be set",
+          },
+          422,
+        );
+      }
+      if (externalIssuer) {
+        // Security-review finding (docs/specs/third-party-key-external-org-mapping.md
+        // Phase 2): a same-provider comparison via string/slash normalization
+        // alone let a URL variant (different case, default port, etc.) of the
+        // SAME origin slip through as "different," and — combined with no
+        // egress check at all — meant an admin-supplied issuer pointed at an
+        // internal/metadata address sailed straight into jwks.ts's discovery
+        // fetch. Compare normalized URL origins (protocol + lowercased host +
+        // port), and separately, unconditionally validate the issuer isn't a
+        // private/reserved/malformed egress target regardless of which branch
+        // below it falls into.
+        let externalIssuerOrigin: string;
+        try {
+          externalIssuerOrigin = new URL(externalIssuer).origin;
+        } catch {
+          return c.json(
+            {
+              error: "VALIDATION_ERROR",
+              message: "externalIssuer must be a valid URL",
+            },
+            422,
+          );
+        }
+        const isPrimaryIdP =
+          externalIssuerOrigin === new URL(env.ZITADEL_ISSUER).origin;
+        if (isPrimaryIdP) {
+          return c.json(
+            {
+              error: "VALIDATION_ERROR",
+              message:
+                "externalIssuer matches this platform's primary identity provider — omit externalIssuer/externalOrgId for a key that uses it",
+            },
+            422,
+          );
+        }
+        if (!externalOrgId) {
+          return c.json(
+            {
+              error: "ORG_MAPPING_REQUIRED",
+              message:
+                "This key's externalIssuer differs from the tenant's primary identity provider — externalOrgId is required so acting-person tokens from that issuer can be matched to this tenant",
+            },
+            422,
+          );
+        }
+        try {
+          await assertExternalIssuerEgressAllowed(externalIssuer);
+        } catch (err) {
+          return c.json(
+            {
+              error: "VALIDATION_ERROR",
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "externalIssuer is not a permitted address",
+            },
+            422,
+          );
+        }
+      }
+
       // ADR-012 Decision #3/spec R8: third-party (action-format) keys are
       // never gated by the creator's own role ceiling — the platform's real
       // action-scope system, enforced at request time as scope ∩ person's
@@ -215,6 +340,8 @@ export const createApiKeyHandler = factory.createHandlers(
                     applicationDescription,
                     applicationContactEmail,
                     oidcClientId,
+                    externalIssuer: normalizedExternalIssuer,
+                    externalOrgId,
                   }
                 : {}),
             })
@@ -227,6 +354,8 @@ export const createApiKeyHandler = factory.createHandlers(
               expiresAt: apiKeys.expiresAt,
               applicationName: apiKeys.applicationName,
               oidcClientId: apiKeys.oidcClientId,
+              externalIssuer: apiKeys.externalIssuer,
+              externalOrgId: apiKeys.externalOrgId,
             });
         } catch (err) {
           // Defense-in-depth for the race the pre-insert conflict check above

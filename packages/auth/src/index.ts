@@ -37,6 +37,10 @@ export {
   extractAuthContext,
 } from "./jwks.js";
 export {
+  assertExternalIssuerEgressAllowed,
+  SsrfGuardError,
+} from "./ssrf-guard.js";
+export {
   requireActingPerson,
   ACTING_PERSON_TOKEN_MAX_AGE_MINUTES,
 } from "./dual-identity.js";

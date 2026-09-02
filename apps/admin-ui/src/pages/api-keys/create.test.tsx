@@ -16,6 +16,20 @@ vi.mock("../../lib/api.js", () => ({
   fetchWithAuth: (...args: unknown[]) => mockFetchWithAuth(...args),
 }));
 
+// create.tsx reads window.__CONFIG__.ZITADEL_ISSUER at module top-level
+// (PRIMARY_ISSUER) -- this must be set BEFORE the module is imported below,
+// same as any other runtime-config-dependent module in this codebase. Set
+// to a deliberately non-Zitadel-branded, non-OpenWind-branded value to prove
+// the label/description is driven by this deployment's real config, not a
+// hardcoded provider or project name (see the failure mode this fixes:
+// a downstream AuthNexus-paired fork would otherwise show "Same as OpenWind"
+// while actually running against a completely different identity provider).
+declare const window: Window & { __CONFIG__?: Record<string, string> };
+window.__CONFIG__ = {
+  ...window.__CONFIG__,
+  ZITADEL_ISSUER: "https://auth.this-deployment.example",
+};
+
 const { CreateApiKeyModal } = await import("./create.js");
 
 const mockOnClose = vi.fn();
@@ -176,6 +190,183 @@ describe("CreateApiKeyModal (ADR-012 Phase A spec R7/R8, PR A5)", () => {
     fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
     expect(mockOnCreated).toHaveBeenCalledOnce();
     expect(mockOnClose).not.toHaveBeenCalled();
+  });
+
+  it("displays this deployment's own configured issuer under 'Same auth provider', not a hardcoded provider/project name", () => {
+    renderModal();
+    expect(
+      screen.getByText(/https:\/\/auth\.this-deployment\.example/),
+    ).not.toBeNull();
+    expect(screen.queryByText(/zitadel/i)).toBeNull();
+    expect(screen.queryByText(/openwind/i)).toBeNull();
+  });
+
+  it("defaults to 'Same auth provider' and sends neither externalIssuer nor externalOrgId", async () => {
+    renderModal();
+    fireEvent.change(screen.getByPlaceholderText(/acme helpdesk sync/i), {
+      target: { value: "Acme Helpdesk Sync" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/ops@example.com/i), {
+      target: { value: "ops@acme.example" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/acme-helpdesk-sync-client/i),
+      {
+        target: { value: "acme-client" },
+      },
+    );
+
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: { key: "sk_live_abc123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^create key$/i }));
+
+    await waitFor(() => expect(mockFetchWithAuth).toHaveBeenCalled());
+    const [, options] = mockFetchWithAuth.mock.calls[0] as [
+      string,
+      { body: string },
+    ];
+    const body = JSON.parse(options.body) as Record<string, unknown>;
+    expect(body["externalIssuer"]).toBeUndefined();
+    expect(body["externalOrgId"]).toBeUndefined();
+  });
+
+  it("hides the Issuer URL / External Org ID inputs until 'External provider' is chosen", () => {
+    renderModal();
+    expect(
+      screen.queryByPlaceholderText("https://auth.example.com"),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^external provider$/i }),
+    );
+    expect(
+      screen.getByPlaceholderText("https://auth.example.com"),
+    ).not.toBeNull();
+  });
+
+  it("requires Issuer URL and External Org ID before Create Key is enabled, once External provider is chosen", () => {
+    renderModal();
+    fireEvent.change(screen.getByPlaceholderText(/acme helpdesk sync/i), {
+      target: { value: "Acme Helpdesk Sync" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/ops@example.com/i), {
+      target: { value: "ops@acme.example" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/acme-helpdesk-sync-client/i),
+      {
+        target: { value: "acme-client" },
+      },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^external provider$/i }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: /^create key$/i }),
+    ).toHaveProperty("disabled", true);
+
+    fireEvent.change(screen.getByPlaceholderText("https://auth.example.com"), {
+      target: { value: "https://auth.example.com" },
+    });
+    expect(
+      screen.getByRole("button", { name: /^create key$/i }),
+    ).toHaveProperty("disabled", true);
+
+    fireEvent.change(
+      screen.getByPlaceholderText(/org id this application's users belong to/i),
+      { target: { value: "org-123" } },
+    );
+    expect(
+      screen.getByRole("button", { name: /^create key$/i }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("sends externalIssuer and externalOrgId when External provider is chosen and filled in", async () => {
+    renderModal();
+    fireEvent.change(screen.getByPlaceholderText(/acme helpdesk sync/i), {
+      target: { value: "Acme Helpdesk Sync" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/ops@example.com/i), {
+      target: { value: "ops@acme.example" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/acme-helpdesk-sync-client/i),
+      {
+        target: { value: "acme-client" },
+      },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^external provider$/i }),
+    );
+    fireEvent.change(screen.getByPlaceholderText("https://auth.example.com"), {
+      target: { value: "  https://auth.external.example  " },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/org id this application's users belong to/i),
+      { target: { value: "  org-456  " } },
+    );
+
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: { key: "sk_live_abc123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^create key$/i }));
+
+    await waitFor(() => expect(mockFetchWithAuth).toHaveBeenCalled());
+    const [, options] = mockFetchWithAuth.mock.calls[0] as [
+      string,
+      { body: string },
+    ];
+    const body = JSON.parse(options.body) as {
+      externalIssuer: string;
+      externalOrgId: string;
+    };
+    expect(body.externalIssuer).toBe("https://auth.external.example");
+    expect(body.externalOrgId).toBe("org-456");
+  });
+
+  it("switching back to 'Same auth provider' after filling external fields omits them from the request", async () => {
+    renderModal();
+    fireEvent.change(screen.getByPlaceholderText(/acme helpdesk sync/i), {
+      target: { value: "Acme Helpdesk Sync" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/ops@example.com/i), {
+      target: { value: "ops@acme.example" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/acme-helpdesk-sync-client/i),
+      {
+        target: { value: "acme-client" },
+      },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^external provider$/i }),
+    );
+    fireEvent.change(screen.getByPlaceholderText("https://auth.example.com"), {
+      target: { value: "https://auth.external.example" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/org id this application's users belong to/i),
+      { target: { value: "org-456" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^same auth provider$/i }),
+    );
+
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: { key: "sk_live_abc123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^create key$/i }));
+
+    await waitFor(() => expect(mockFetchWithAuth).toHaveBeenCalled());
+    const [, options] = mockFetchWithAuth.mock.calls[0] as [
+      string,
+      { body: string },
+    ];
+    const body = JSON.parse(options.body) as Record<string, unknown>;
+    expect(body["externalIssuer"]).toBeUndefined();
+    expect(body["externalOrgId"]).toBeUndefined();
   });
 
   it("shows the API error message when creation fails", async () => {

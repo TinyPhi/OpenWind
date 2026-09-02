@@ -8,6 +8,15 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 
+// Same runtime-config injection pattern already used in authProvider.ts and
+// users.tsx — Docker wins over Vite build-time env. Never hardcode "Zitadel"
+// or "OpenWind" here: a downstream fork (e.g. an AuthNexus-paired deployment)
+// runs the same codebase against a completely different identity provider,
+// and this label must reflect THIS deployment's actual configured issuer,
+// not the upstream project's name.
+declare const window: Window & { __CONFIG__?: Record<string, string> };
+const PRIMARY_ISSUER = window.__CONFIG__?.ZITADEL_ISSUER ?? null;
+
 // Spec R8: presets are UI sugar only, mapping to the platform's real
 // entity:ticket:<verb> vocabulary — never a stored boolean/enum tier.
 const READ_ONLY_SCOPES = ["entity:ticket:read"];
@@ -22,6 +31,13 @@ const READ_WRITE_SCOPES = [
 const ALL_VERBS = READ_WRITE_SCOPES;
 
 type ScopeMode = "read-only" | "read-write" | "custom";
+
+// docs/specs/third-party-key-external-org-mapping.md — a key's acting-person
+// tokens can come from the platform's own identity provider (default,
+// unchanged behavior) or from a different one entirely, when explicitly
+// registered. "same"/"external" is UI sugar over the two real API shapes:
+// same -> neither field sent; external -> both required.
+type IdentityProviderMode = "same" | "external";
 
 export interface CreateApiKeyModalProps {
   open: boolean;
@@ -39,6 +55,10 @@ export function CreateApiKeyModal({
   const [applicationDescription, setApplicationDescription] = useState("");
   const [applicationContactEmail, setApplicationContactEmail] = useState("");
   const [oidcClientId, setOidcClientId] = useState("");
+  const [identityProviderMode, setIdentityProviderMode] =
+    useState<IdentityProviderMode>("same");
+  const [externalIssuer, setExternalIssuer] = useState("");
+  const [externalOrgId, setExternalOrgId] = useState("");
   const [scopeMode, setScopeMode] = useState<ScopeMode>("read-only");
   const [customScopes, setCustomScopes] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -56,13 +76,18 @@ export function CreateApiKeyModal({
     applicationName.trim().length > 0 &&
     applicationContactEmail.trim().length > 0 &&
     oidcClientId.trim().length > 0 &&
-    scopes.length > 0;
+    scopes.length > 0 &&
+    (identityProviderMode === "same" ||
+      (externalIssuer.trim().length > 0 && externalOrgId.trim().length > 0));
 
   function resetForm(): void {
     setApplicationName("");
     setApplicationDescription("");
     setApplicationContactEmail("");
     setOidcClientId("");
+    setIdentityProviderMode("same");
+    setExternalIssuer("");
+    setExternalOrgId("");
     setScopeMode("read-only");
     setCustomScopes([]);
     setError(null);
@@ -90,6 +115,12 @@ export function CreateApiKeyModal({
           applicationDescription: applicationDescription.trim() || undefined,
           applicationContactEmail: applicationContactEmail.trim(),
           oidcClientId: oidcClientId.trim(),
+          ...(identityProviderMode === "external"
+            ? {
+                externalIssuer: externalIssuer.trim(),
+                externalOrgId: externalOrgId.trim(),
+              }
+            : {}),
         }),
       })) as { data: { key: string } };
       setCreatedKey(res.data.key);
@@ -230,6 +261,79 @@ export function CreateApiKeyModal({
                   onChange={(e) => setOidcClientId(e.target.value)}
                   required
                 />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Identity Provider *</label>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <Button
+                    type="button"
+                    variant={
+                      identityProviderMode === "same" ? "primary" : "secondary"
+                    }
+                    onClick={() => setIdentityProviderMode("same")}
+                  >
+                    Same auth provider
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={
+                      identityProviderMode === "external"
+                        ? "primary"
+                        : "secondary"
+                    }
+                    onClick={() => setIdentityProviderMode("external")}
+                  >
+                    External provider
+                  </Button>
+                </div>
+                <p
+                  className="page-subtitle"
+                  style={{ marginTop: 0, marginBottom: 8 }}
+                >
+                  {identityProviderMode === "same" ? (
+                    <>
+                      This key&apos;s acting-person tokens will be verified
+                      against this platform&apos;s own identity provider — the
+                      default, and correct for almost every key.
+                      {PRIMARY_ISSUER && (
+                        <>
+                          {" "}
+                          Currently:{" "}
+                          <code style={{ fontSize: 12 }}>{PRIMARY_ISSUER}</code>
+                          .
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    "Only choose this if the application's end users log in through a completely different identity provider than this platform's own — e.g. their own separate OIDC tenant."
+                  )}
+                </p>
+                {identityProviderMode === "external" && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Issuer URL *</label>
+                      <input
+                        className="form-input"
+                        type="url"
+                        placeholder="https://auth.example.com"
+                        value={externalIssuer}
+                        onChange={(e) => setExternalIssuer(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">External Org ID *</label>
+                      <input
+                        className="form-input"
+                        placeholder="the org id this application's users belong to on that issuer"
+                        value={externalOrgId}
+                        onChange={(e) => setExternalOrgId(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="form-group">

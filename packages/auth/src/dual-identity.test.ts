@@ -9,15 +9,28 @@ vi.mock("@platform/logger", () => ({
 }));
 
 const mockVerifyJwtWithAudience = vi.fn();
+const mockVerifyJwtForIssuer = vi.fn();
 vi.mock("./jwks.js", () => ({
   verifyJwtWithAudience: (...args: unknown[]) =>
     mockVerifyJwtWithAudience(...args),
+  verifyJwtForIssuer: (...args: unknown[]) => mockVerifyJwtForIssuer(...args),
 }));
 
 // Row returned for the tenant-scoped api_keys lookup — undefined means "no
 // row" (key doesn't exist / already revoked, filtered by the WHERE clause).
-let mockKeyRow: { oidcClientId: string | null } | undefined = {
+// externalIssuer/externalOrgId default to null (today's single-IdP default,
+// docs/specs/third-party-key-external-org-mapping.md) unless a test
+// overrides them.
+let mockKeyRow:
+  | {
+      oidcClientId: string | null;
+      externalIssuer?: string | null;
+      externalOrgId?: string | null;
+    }
+  | undefined = {
   oidcClientId: "client-abc",
+  externalIssuer: null,
+  externalOrgId: null,
 };
 
 const mockDbSelect = vi.fn(() => ({
@@ -33,6 +46,8 @@ vi.mock("@platform/db", () => ({
     id: "api_keys.id",
     oidcClientId: "api_keys.oidc_client_id",
     revokedAt: "api_keys.revoked_at",
+    externalIssuer: "api_keys.external_issuer",
+    externalOrgId: "api_keys.external_org_id",
   },
   withTenantContext: vi.fn((_tenantId: string, fn: (tx: unknown) => unknown) =>
     fn({ select: mockDbSelect }),
@@ -238,6 +253,33 @@ describe("requireActingPerson", () => {
     expect(res.status).toBe(401);
   });
 
+  // Third-party API key external-org mapping (docs/specs/third-party-key-external-org-mapping.md,
+  // Phase 1 T3/T3a) -- a non-Zitadel IdP (e.g. AuthNexus) puts the org id
+  // under a plain "org_id" claim instead of Zitadel's namespaced one. The
+  // org-match check must accept either claim shape, not just Zitadel's.
+  it("accepts a token whose org id is under the plain org_id claim (non-Zitadel IdP shape)", async () => {
+    mockVerifyJwtWithAudience.mockResolvedValue({
+      sub: "person-1",
+      email: "person1@example.com",
+      iat: nowSeconds(),
+      org_id: "org-ccc",
+    });
+    const res = await get(makeApp(API_KEY_AUTH), "some-token");
+    expect(res.status).toBe(200);
+  });
+
+  it("prefers the Zitadel-namespaced org claim over org_id when both are somehow present", async () => {
+    mockVerifyJwtWithAudience.mockResolvedValue({
+      sub: "person-1",
+      email: "person1@example.com",
+      iat: nowSeconds(),
+      "urn:zitadel:iam:user:resourceowner:id": "org-ccc",
+      org_id: "org-different-tenant",
+    });
+    const res = await get(makeApp(API_KEY_AUTH), "some-token");
+    expect(res.status).toBe(200);
+  });
+
   it("rejects a token whose org claim does not match the key's tenant-mapped org", async () => {
     mockVerifyJwtWithAudience.mockResolvedValue({
       sub: "person-1",
@@ -313,5 +355,113 @@ describe("requireActingPerson", () => {
     expect(noHeader.status).toBe(401);
     expect(noClientId.status).toBe(401);
     expect(badToken.status).toBe(401);
+  });
+
+  // Third-party API key external-org mapping (docs/specs/third-party-key-external-org-mapping.md,
+  // Phase 2 T6) -- a key with externalIssuer/externalOrgId set trusts a
+  // DIFFERENT IdP than the tenant's primary login IdP, verified via
+  // verifyJwtForIssuer (issuer-specific JWKS) instead of the default
+  // verifyJwtWithAudience, and compared against the key's own
+  // externalOrgId instead of auth.orgId.
+  describe("external-issuer org mapping (T6)", () => {
+    const EXTERNAL_ISSUER = "https://auth.rokkalabs.com";
+
+    beforeEach(() => {
+      mockKeyRow = {
+        oidcClientId: "client-abc",
+        externalIssuer: EXTERNAL_ISSUER,
+        externalOrgId: "external-org-999",
+      };
+    });
+
+    it("verifies via verifyJwtForIssuer (not verifyJwtWithAudience) when the key has an external mapping", async () => {
+      mockVerifyJwtForIssuer.mockResolvedValue({
+        sub: "person-1",
+        email: "person1@example.com",
+        iat: nowSeconds(),
+        org_id: "external-org-999",
+      });
+      const res = await get(makeApp(API_KEY_AUTH), "some-token");
+      expect(res.status).toBe(200);
+      expect(mockVerifyJwtForIssuer).toHaveBeenCalledWith(
+        "some-token",
+        EXTERNAL_ISSUER,
+        "client-abc",
+        "tenant-abc",
+      );
+      expect(mockVerifyJwtWithAudience).not.toHaveBeenCalled();
+    });
+
+    it("accepts when the token's org_id claim matches the key's own externalOrgId, not auth.orgId", async () => {
+      // auth.orgId is "org-ccc" (API_KEY_AUTH) — deliberately different from
+      // externalOrgId, proving the external path compares against the KEY's
+      // mapping, not the tenant's primary one.
+      mockVerifyJwtForIssuer.mockResolvedValue({
+        sub: "person-1",
+        email: "person1@example.com",
+        iat: nowSeconds(),
+        org_id: "external-org-999",
+      });
+      const res = await get(makeApp(API_KEY_AUTH), "some-token");
+      expect(res.status).toBe(200);
+    });
+
+    it("rejects when the token's org_id does not match the key's externalOrgId", async () => {
+      mockVerifyJwtForIssuer.mockResolvedValue({
+        sub: "person-1",
+        email: "person1@example.com",
+        iat: nowSeconds(),
+        org_id: "some-other-org",
+      });
+      const res = await get(makeApp(API_KEY_AUTH), "some-token");
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects a Zitadel-namespaced org claim on the external path — only org_id is recognized for an unregistered external issuer", async () => {
+      // Proves the external path uses the issuer-exact-match lookup
+      // (defaulting to "org_id" for unrecognized issuers), NOT the default
+      // path's flat priority list that would otherwise accept this claim.
+      mockVerifyJwtForIssuer.mockResolvedValue({
+        sub: "person-1",
+        email: "person1@example.com",
+        iat: nowSeconds(),
+        "urn:zitadel:iam:user:resourceowner:id": "external-org-999",
+      });
+      const res = await get(makeApp(API_KEY_AUTH), "some-token");
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects when verifyJwtForIssuer itself fails (bad signature/issuer/expiry/aud for that external issuer)", async () => {
+      mockVerifyJwtForIssuer.mockResolvedValue(null);
+      const res = await get(makeApp(API_KEY_AUTH), "some-token");
+      expect(res.status).toBe(401);
+      expect(mockVerifyJwtWithAudience).not.toHaveBeenCalled();
+    });
+
+    it("sets actingPerson.orgId to the token's own claim value on success", async () => {
+      mockVerifyJwtForIssuer.mockResolvedValue({
+        sub: "person-1",
+        email: "person1@example.com",
+        name: "External Person",
+        iat: nowSeconds(),
+        org_id: "external-org-999",
+      });
+      const res = await get(makeApp(API_KEY_AUTH), "some-token");
+      const body = (await res.json()) as {
+        actingPerson: { orgId: string };
+      };
+      expect(body.actingPerson.orgId).toBe("external-org-999");
+    });
+
+    it("keeps the default (non-external) path unaffected when externalIssuer is absent, confirming backward compatibility (R1)", async () => {
+      mockKeyRow = { oidcClientId: "client-abc" };
+      const res = await get(makeApp(API_KEY_AUTH), "some-token");
+      expect(res.status).toBe(200);
+      expect(mockVerifyJwtWithAudience).toHaveBeenCalledWith(
+        "some-token",
+        "client-abc",
+      );
+      expect(mockVerifyJwtForIssuer).not.toHaveBeenCalled();
+    });
   });
 });
