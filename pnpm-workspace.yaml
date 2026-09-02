@@ -53,3 +53,7 @@ overrides:
   nanoid: ">=3.3.17 <4"
   # GHSA-wcpc-wj8m-hjx6 + GHSA-685m-2w69-288q: protobufjs DoS vulnerabilities in OTel transformer
   "@opentelemetry/otlp-transformer>protobufjs": "^8.8.0"
+  # GHSA-c83g-rgw3-j3cx (unbounded cache growth / OOM) + GHSA-73wf-gq98-2v4g (uncaught crash /
+  # prototype write via untrusted browserslist-stats.json) — pulled in via @vitejs/plugin-react's
+  # @babel/core -> @babel/helper-compilation-targets chain (admin-ui devDependency), 6 paths.
+  browserslist: ">=4.28.7"

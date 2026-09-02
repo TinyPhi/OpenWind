@@ -32,6 +32,8 @@ import { createThirdPartyCommentHandler } from "../../src/routes/third-party/com
 import { createThirdPartyChildHandler } from "../../src/routes/third-party/children.js";
 import { executeThirdPartyTransitionHandler } from "../../src/routes/third-party/transitions.js";
 import { getThirdPartyAccessLogsHandler } from "../../src/routes/admin/third-party-access-logs.js";
+import { writeAuditEntry } from "@platform/audit";
+import { withTenantContext } from "@platform/db";
 
 const TENANT = "bbccddee-0000-4000-b000-000000000f01";
 const OTHER_TENANT = "bbccddee-0000-4000-b000-000000000f02";
@@ -359,6 +361,43 @@ describe("GET /admin/third-party-access-logs — spec AC2, tenant isolation", ()
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown[] };
     expect(body.data).toHaveLength(0);
+  });
+
+  // Bug: createEntity's audit hook used to stamp actor_id with the acting
+  // person's (non-uuid, e.g. Zitadel numeric) id instead of the api key's
+  // uuid for actor_type='api_key' rows -- see engine.ts's fireEntityAuditHook
+  // fix. Legacy rows written before that fix still exist in production and
+  // must not crash this endpoint: Postgres rejects a non-uuid literal
+  // compared against api_keys.id (a uuid column) for the WHOLE query, not
+  // just that one row, so a single bad row previously 500'd the entire list.
+  it("tolerates a legacy row whose actor_id is not a valid uuid instead of 500ing", async () => {
+    await withTenantContext(TENANT, (tx) =>
+      writeAuditEntry(tx, {
+        tenantId: TENANT,
+        actorId: "378676050449661954",
+        actorType: "api_key",
+        actingPersonId: "378676050449661954",
+        resourceType: "ticket",
+        resourceId: noAccessCommentTicketId,
+        action: "comment.created",
+        beforeSnapshot: null,
+        afterSnapshot: null,
+      }),
+    );
+
+    const app = makeAdminApp(TENANT);
+    const res = await app.request(
+      `/admin/third-party-access-logs?ticketId=${noAccessCommentTicketId}`,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ applicationName: string | null; applicationKeyId: string }>;
+    };
+    const legacyRow = body.data.find(
+      (r) => r.applicationKeyId === "378676050449661954",
+    );
+    expect(legacyRow).toBeDefined();
+    expect(legacyRow?.applicationName).toBeNull();
   });
 
   it("rejects a non-admin caller", async () => {

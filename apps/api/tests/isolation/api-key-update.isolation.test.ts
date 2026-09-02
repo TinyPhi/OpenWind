@@ -55,16 +55,23 @@ function skHeaders() {
 }
 
 async function insertKey(overrides: Partial<typeof apiKeys.$inferInsert> = {}) {
+  const unique = Math.random().toString(36).slice(2);
   const [row] = await withTenantContext(TENANT_A, (tx) =>
     tx
       .insert(apiKeys)
       .values({
         tenantId: TENANT_A,
         name: "update-test-key",
-        keyHash: `sha256:update-test-${Math.random().toString(36).slice(2)}`,
+        keyHash: `sha256:update-test-${unique}`,
         scopes: ["entity:ticket:read"],
         scopesFormat: "action",
-        applicationName: "Update Test App",
+        // Migration 0087/0088 enforces per-tenant applicationName
+        // uniqueness among active keys -- unique per call so this file's
+        // real subject (tenant-scoped PATCH behavior) isn't accidentally
+        // blocked by an unrelated applicationName collision between its
+        // own test cases, most of which insert more than one key in the
+        // same tenant.
+        applicationName: `Update Test App (${unique})`,
         applicationDescription: "Original description",
         applicationContactEmail: "original@example.com",
         ...overrides,

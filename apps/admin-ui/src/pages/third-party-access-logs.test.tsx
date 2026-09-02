@@ -6,26 +6,54 @@ import {
   cleanup,
   fireEvent,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
-const mockFetchWithAuth = vi.fn((_url: string) =>
-  Promise.resolve({ data: [] as unknown[], nextCursor: null as string | null }),
-);
+// AccessLogsPanel also resolves acting-person names via GET /users and
+// (lazily, on ticket click) the record's type via GET /entities/:id — this
+// mock routes by URL so the log-list response queued per test isn't
+// accidentally consumed by one of those other calls instead.
+let queuedLogsResponse: {
+  data: unknown[];
+  nextCursor: string | null;
+} = { data: [], nextCursor: null };
+const mockFetchWithAuth = vi.fn((url: string): Promise<unknown> => {
+  if (url.includes("/users")) return Promise.resolve({ data: [] });
+  return Promise.resolve(queuedLogsResponse);
+});
 vi.mock("../lib/api.js", () => ({
   API_URL: "/api",
   fetchWithAuth: (url: string) => mockFetchWithAuth(url),
 }));
 
+vi.mock("../entity-type-context.js", () => ({
+  useEntityTypes: () => ({ getTypeById: () => undefined }),
+  toTypeSlug: (name: string) => name.toLowerCase(),
+}));
+
 const { ThirdPartyAccessLogsPage } =
   await import("./third-party-access-logs.js");
+
+function renderPage(): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter>
+      <ThirdPartyAccessLogsPage />
+    </MemoryRouter>,
+  );
+}
 
 describe("ThirdPartyAccessLogsPage", () => {
   afterEach(() => {
     cleanup();
     mockFetchWithAuth.mockReset();
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.includes("/users")) return Promise.resolve({ data: [] });
+      return Promise.resolve(queuedLogsResponse);
+    });
+    queuedLogsResponse = { data: [], nextCursor: null };
   });
 
   it("renders rows including one denied outcome and the residual-risk caveat", async () => {
-    mockFetchWithAuth.mockResolvedValueOnce({
+    queuedLogsResponse = {
       data: [
         {
           id: "log-1",
@@ -49,20 +77,53 @@ describe("ThirdPartyAccessLogsPage", () => {
         },
       ],
       nextCursor: null,
-    });
+    };
 
-    render(<ThirdPartyAccessLogsPage />);
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getAllByText("Acme Sync").length).toBe(2);
     });
+    // No matching org member was resolved (mocked /users returns none), so
+    // the table falls back to the raw acting-person id.
     expect(screen.getByText("person-a")).toBeTruthy();
     expect(screen.getByText("person-b")).toBeTruthy();
     expect(screen.getByText(/known residual risk/i)).toBeTruthy();
   });
 
+  it("resolves an acting-person id to its org member display name when one matches", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.includes("/users")) {
+        return Promise.resolve({
+          data: [{ userId: "person-a", displayName: "Jane Doe" }],
+        });
+      }
+      return Promise.resolve(queuedLogsResponse);
+    });
+    queuedLogsResponse = {
+      data: [
+        {
+          id: "log-1",
+          timestamp: "2026-08-25T10:00:00.000Z",
+          applicationName: "Acme Sync",
+          applicationKeyId: "11111111-1111-4111-1111-111111111111",
+          actingPersonId: "person-a",
+          ticketId: "22222222-2222-4222-2222-222222222222",
+          action: "comment.created",
+          outcome: "allowed",
+        },
+      ],
+      nextCursor: null,
+    };
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeTruthy());
+    expect(screen.queryByText("person-a")).toBeNull();
+  });
+
   it("renders an anonymized/placeholder row without erroring (spec R6)", async () => {
-    mockFetchWithAuth.mockResolvedValueOnce({
+    queuedLogsResponse = {
       data: [
         {
           id: "log-anon",
@@ -76,9 +137,9 @@ describe("ThirdPartyAccessLogsPage", () => {
         },
       ],
       nextCursor: null,
-    });
+    };
 
-    render(<ThirdPartyAccessLogsPage />);
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByText("(unknown application)")).toBeTruthy();
@@ -87,11 +148,13 @@ describe("ThirdPartyAccessLogsPage", () => {
     expect(screen.getByText("—")).toBeTruthy();
   });
 
-  // PR #489 review, F-03 -- loadMore() previously read the live (dirty)
-  // filter-editing state instead of the last-applied one, silently mixing
-  // an unapplied edit into the pagination request.
-  it("loadMore() uses the last-applied filters, not an unapplied in-progress edit", async () => {
-    mockFetchWithAuth.mockResolvedValueOnce({
+  // PR #489 review, F-03 -- pagination previously (as "loadMore") read the
+  // live (dirty) filter-editing state instead of the last-applied one,
+  // silently mixing an unapplied edit into the pagination request. Now
+  // exercised through the Next button instead of Load More (Prev/Next,
+  // 20/page, replaced the old append-only Load More UI).
+  it("Next uses the last-applied filters, not an unapplied in-progress edit", async () => {
+    queuedLogsResponse = {
       data: [
         {
           id: "log-1",
@@ -105,11 +168,11 @@ describe("ThirdPartyAccessLogsPage", () => {
         },
       ],
       nextCursor: "cursor-1",
-    });
+    };
 
-    render(<ThirdPartyAccessLogsPage />);
+    renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Load more")).toBeTruthy();
+      expect(screen.getByText("Next →")).toBeTruthy();
     });
 
     // Edit the Application field WITHOUT clicking "Apply filters".
@@ -117,21 +180,61 @@ describe("ThirdPartyAccessLogsPage", () => {
       target: { value: "unapplied-key-id" },
     });
 
-    mockFetchWithAuth.mockResolvedValueOnce({ data: [], nextCursor: null });
-    fireEvent.click(screen.getByText("Load more"));
+    const logsCallsBefore = mockFetchWithAuth.mock.calls.filter(
+      ([url]) => !(url as string).includes("/users"),
+    ).length;
+    queuedLogsResponse = { data: [], nextCursor: null };
+    fireEvent.click(screen.getByText("Next →"));
 
     await waitFor(() => {
-      expect(mockFetchWithAuth).toHaveBeenCalledTimes(2);
+      const logsCalls = mockFetchWithAuth.mock.calls.filter(
+        ([url]) => !(url as string).includes("/users"),
+      );
+      expect(logsCalls.length).toBe(logsCallsBefore + 1);
     });
-    const loadMoreUrl = mockFetchWithAuth.mock.calls[1]?.[0] as string;
-    expect(loadMoreUrl).toContain("cursor=cursor-1");
-    expect(loadMoreUrl).not.toContain("unapplied-key-id");
+    const logsCalls = mockFetchWithAuth.mock.calls.filter(
+      ([url]) => !(url as string).includes("/users"),
+    );
+    const nextPageUrl = logsCalls[logsCalls.length - 1]?.[0] as string;
+    expect(nextPageUrl).toContain("cursor=cursor-1");
+    expect(nextPageUrl).not.toContain("unapplied-key-id");
+  });
+
+  it("Previous is disabled on page 1 and Next is disabled once there's no further cursor", async () => {
+    queuedLogsResponse = {
+      data: [
+        {
+          id: "log-1",
+          timestamp: "2026-08-25T10:00:00.000Z",
+          applicationName: "Acme Sync",
+          applicationKeyId: "11111111-1111-4111-1111-111111111111",
+          actingPersonId: "person-a",
+          ticketId: "22222222-2222-4222-2222-222222222222",
+          action: "comment.created",
+          outcome: "allowed",
+        },
+      ],
+      nextCursor: null,
+    };
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("Page 1 · 1 entry")).toBeTruthy();
+    });
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "← Previous" })
+        .disabled,
+    ).toBe(true);
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Next →" })
+        .disabled,
+    ).toBe(true);
   });
 
   it("shows the empty state when no rows match", async () => {
-    mockFetchWithAuth.mockResolvedValueOnce({ data: [], nextCursor: null });
+    queuedLogsResponse = { data: [], nextCursor: null };
 
-    render(<ThirdPartyAccessLogsPage />);
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByText("No matching requests")).toBeTruthy();

@@ -408,7 +408,7 @@ export async function createEntity(
   await fireEntityAuditHook({
     db,
     tenantId,
-    actorId: input.createdBy ?? "system",
+    actorId: input.actorId ?? input.createdBy ?? "system",
     actorType:
       input.actorType ?? (input.createdBy !== undefined ? "user" : "system"),
     actingPersonId: input.actingPersonId,

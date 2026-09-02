@@ -610,6 +610,27 @@
       "when": 1788180346578,
       "tag": "0086_api_keys_external_org_mapping",
       "breakpoints": false
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1788330000000,
+      "tag": "0087_api_keys_application_name_unique",
+      "breakpoints": false
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1788330100000,
+      "tag": "0088_api_keys_application_name_active_flag",
+      "breakpoints": false
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1788330200000,
+      "tag": "0089_admin_audit_log_read_actions",
+      "breakpoints": false
     }
   ]
 }
