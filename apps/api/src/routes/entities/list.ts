@@ -9,6 +9,10 @@ import {
 } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import {
+  batchLookupApplicationNames,
+  toOriginDisplay,
+} from "../../lib/resolve-origin-display.js";
 
 const ListEntitiesQuerySchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -92,7 +96,16 @@ export const listEntitiesHandler = factory.createHandlers(
           rootOnly: rest.rootOnly,
         }),
       );
-      return c.json({ data: page.data, nextCursor: page.nextCursor });
+      // docs/specs/third-party-api-origin-tagging.md §C — one batch lookup
+      // for the whole page instead of N per-row lookups, resolving live
+      // application names for R1/R2/R4's records-list badge.
+      const nameByClientId = await batchLookupApplicationNames(page.data);
+      const data = page.data.map((row) => ({
+        ...row,
+        origin: toOriginDisplay(row, nameByClientId),
+      }));
+
+      return c.json({ data, nextCursor: page.nextCursor });
     } catch (err) {
       return handleEntityError(c, err);
     }

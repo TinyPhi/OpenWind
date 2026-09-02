@@ -57,6 +57,16 @@ export interface WorkflowEvent {
   comment: string | null;
   metadata: Record<string, unknown>;
   createdAt: Date;
+  /**
+   * docs/specs/third-party-api-origin-tagging.md. Set together or not at
+   * all (migration 0090's DB CHECK). Null/null/null means normal human,
+   * in-app creation (no origin tag) -- covers both comment events (R3) and
+   * every other timeline entry (R5), since comments are workflow_events
+   * rows, not a separate table.
+   */
+  originMechanism: "api" | "handoff" | null;
+  originOidcClientId: string | null;
+  originPerformerUserId: string | null;
   // Identity of the executeTransition call that produced this event,
   // generated fresh each call — not persisted on workflow_events itself, so
   // historical rows read back via getWorkflowEventLog don't have one.
