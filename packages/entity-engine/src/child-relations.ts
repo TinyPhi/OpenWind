@@ -780,6 +780,9 @@ function rowToInstance(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
+    originMechanism: row.originMechanism as "api" | "handoff" | null,
+    originOidcClientId: row.originOidcClientId,
+    originPerformerUserId: row.originPerformerUserId,
   };
 }
 

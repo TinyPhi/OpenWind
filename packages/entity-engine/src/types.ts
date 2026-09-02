@@ -46,6 +46,14 @@ export interface EntityInstance {
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
+  /**
+   * docs/specs/third-party-api-origin-tagging.md. All three null together means
+   * normal human, in-app creation (no origin tag). Never partially set — see
+   * migration 0090's DB-level CHECK constraint.
+   */
+  originMechanism: "api" | "handoff" | null;
+  originOidcClientId: string | null;
+  originPerformerUserId: string | null;
 }
 
 export interface EntityRelation {

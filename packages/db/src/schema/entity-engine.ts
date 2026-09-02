@@ -75,6 +75,16 @@ export const entityInstances = pgTable(
     fields: jsonb("fields").default({}).notNull(),
     createdBy: text("created_by"),
     assignedTo: text("assigned_to"),
+    // docs/specs/third-party-api-origin-tagging.md — migration 0090. All three
+    // are set together or not at all (DB CHECK constraint); NULL/NULL/NULL means
+    // normal human, in-app creation (no origin tag). originMechanism is
+    // "api" | "handoff" at the app layer; originOidcClientId is deliberately
+    // NOT a FK (see the migration's own comment) — the live application name is
+    // resolved by joining to whichever api_keys row is currently active for
+    // that client id, never pinned to one historical key row.
+    originMechanism: text("origin_mechanism"),
+    originOidcClientId: text("origin_oidc_client_id"),
+    originPerformerUserId: text("origin_performer_user_id"),
     dueDate: timestamp("due_date", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

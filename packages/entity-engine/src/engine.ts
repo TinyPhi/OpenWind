@@ -1333,6 +1333,9 @@ function rowToInstance(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt ?? null,
+    originMechanism: row.originMechanism as "api" | "handoff" | null,
+    originOidcClientId: row.originOidcClientId ?? null,
+    originPerformerUserId: row.originPerformerUserId ?? null,
   };
 }
 

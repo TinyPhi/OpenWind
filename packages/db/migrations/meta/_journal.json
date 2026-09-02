@@ -631,6 +631,13 @@
       "when": 1788343052834,
       "tag": "0089_api_keys_rls_null_safe_tenant_guc",
       "breakpoints": false
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1788356659836,
+      "tag": "0090_origin_tagging_columns",
+      "breakpoints": false
     }
   ]
 }
