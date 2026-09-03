@@ -225,6 +225,7 @@ clearer):
         # reason as the /api/v1/ block.
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 ```
 

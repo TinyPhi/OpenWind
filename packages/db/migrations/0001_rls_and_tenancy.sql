@@ -78,6 +78,22 @@ CREATE TABLE api_keys (
 CREATE INDEX api_keys_tenant_idx ON api_keys (tenant_id);
 
 -- ── 4. RLS: entity_instances ──────────────────────────────────────────────
+--
+-- ⚠ POOLED-CONNECTION SAFETY NOTE (issue #554 / migration 0090):
+-- The bare form `current_setting('app.tenant_id', true)::UUID` used
+-- throughout this migration is latently dangerous on pooled connections.
+-- After a `SET LOCAL app.tenant_id = '...'` transaction commits, pgBouncer
+-- and Supavisor reset the GUC to '' (empty string) on the next request
+-- that reuses the same physical connection.  `''::uuid` then throws a
+-- PostgreSQL cast error, breaking the RLS policy for that request.
+--
+-- The SAFE form, introduced in migration 0090, is:
+--   nullif(current_setting('app.tenant_id', true), '')::uuid
+-- which returns NULL (causing RLS to deny the row) instead of throwing.
+--
+-- Do NOT copy the bare `::UUID` cast from this migration into new policies.
+-- Use the nullif-wrapped form from migration 0090 instead.
+--
 
 ALTER TABLE entity_instances ENABLE ROW LEVEL SECURITY;
 

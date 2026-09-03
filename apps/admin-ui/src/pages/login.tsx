@@ -14,6 +14,13 @@ export interface HandoffState {
   prefillFields: Record<string, string>;
 }
 
+// RFC 4122 UUID v4 shape used for defence-in-depth validation in
+// readHandoffParams below. isHandoffState in callback.tsx also validates,
+// but we reject non-UUIDs here so invalid state is never written into the
+// OAuth redirect in the first place.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Deliberately only ever extracts `title`/`remark` -- never arbitrary query
 // params -- because this whole path travels as plain URL query string (into
 // oidc-client-ts's `state`, itself embedded in the OAuth redirect chain) and
@@ -25,6 +32,12 @@ function readHandoffParams(params: URLSearchParams): HandoffState | undefined {
   const workflowId = params.get("workflowId");
   const entityTypeId = params.get("entityTypeId");
   if (!workflowId || !entityTypeId) return undefined;
+  // defence-in-depth: isHandoffState in callback.tsx also validates, but
+  // we reject non-UUIDs here so invalid state is never written to the OAuth
+  // redirect (fixing issue #544).
+  if (!UUID_RE.test(workflowId) || !UUID_RE.test(entityTypeId)) {
+    return undefined;
+  }
   const prefillFields: Record<string, string> = {};
   const title = params.get("title");
   const remark = params.get("remark");
