@@ -79,7 +79,7 @@ CREATE INDEX api_keys_tenant_idx ON api_keys (tenant_id);
 
 -- ── 4. RLS: entity_instances ──────────────────────────────────────────────
 --
--- ⚠ POOLED-CONNECTION SAFETY NOTE (issue #554 / migration 0090):
+-- WARNING: POOLED-CONNECTION SAFETY NOTE (issue #554 / migration 0090):
 -- The bare form `current_setting('app.tenant_id', true)::UUID` used
 -- throughout this migration is latently dangerous on pooled connections.
 -- After a `SET LOCAL app.tenant_id = '...'` transaction commits, pgBouncer
