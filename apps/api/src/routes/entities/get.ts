@@ -10,6 +10,7 @@ import {
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
+import { resolveOriginDisplay } from "../../lib/resolve-origin-display.js";
 
 async function getAncestorDepth(
   db: Parameters<Parameters<typeof withTenantContext>[1]>[0],
@@ -76,8 +77,13 @@ export const getEntityHandler = factory.createHandlers(
 
       const canAddChildren = maxChildDepth > 0 && ancestorDepth < maxChildDepth;
 
+      // docs/specs/third-party-api-origin-tagging.md §C — resolves the live
+      // application name for display (R1/R2/R4's ticket-detail tag), not
+      // the raw oidc_client_id the record itself stores.
+      const origin = await resolveOriginDisplay(instance);
+
       return c.json({
-        data: { ...instance, parentId, childCount, canAddChildren },
+        data: { ...instance, parentId, childCount, canAddChildren, origin },
       });
     } catch (err) {
       return handleEntityError(c, err);
