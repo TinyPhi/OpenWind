@@ -102,6 +102,27 @@ describe("origin display resolution survives key rotation and app rename (R7)", 
     expect(body.data.origin?.appName).toBe("Acme Sync");
   });
 
+  // resolve-origin-display.ts's performer-name lookup calls Zitadel's
+  // GetUserByID for originPerformerUserId; "rotation-rename-test-user" isn't
+  // a real Zitadel user id, so this exercises the not-found fallback path --
+  // it must return the raw id rather than throwing or 500ing the read.
+  it("falls back to the raw performer id when the performer can't be resolved via Zitadel", async () => {
+    const res = await makeApp().request(`/${ticketId}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        origin: {
+          performerUserId: string;
+          performerDisplayName: string;
+        } | null;
+      };
+    };
+    expect(body.data.origin?.performerUserId).toBe("rotation-rename-test-user");
+    expect(body.data.origin?.performerDisplayName).toBe(
+      "rotation-rename-test-user",
+    );
+  });
+
   it("still resolves to the same application after the key is rotated (oidcClientId carried forward, original revoked)", async () => {
     // Revoke the original FIRST (frees the applicationNameActiveUnique
     // partial index's claim on this name — see migration 0087) before

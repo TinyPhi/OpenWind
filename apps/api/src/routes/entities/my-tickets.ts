@@ -16,6 +16,7 @@ import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { buildUserScopeFilter } from "./scoped-access.js";
 import {
   batchLookupApplicationNames,
+  batchLookupPerformerNames,
   toOriginDisplay,
 } from "../../lib/resolve-origin-display.js";
 
@@ -253,7 +254,10 @@ export const myTicketsHandler = factory.createHandlers(
 
       // docs/specs/third-party-api-origin-tagging.md R1/R2/R4 -- one batch
       // lookup for the whole page, same pattern as list.ts/list-children.ts.
-      const nameByClientId = await batchLookupApplicationNames(accessibleRows);
+      const [nameByClientId, performerNameByUserId] = await Promise.all([
+        batchLookupApplicationNames(accessibleRows),
+        batchLookupPerformerNames(accessibleRows),
+      ]);
 
       // ── Step 5: split into parents and children, compute access reasons ────
       const parentTickets = [];
@@ -300,7 +304,7 @@ export const myTicketsHandler = factory.createHandlers(
             assignedTo: row.assignedTo,
             createdAt: row.createdAt.toISOString(),
             accessReason: reason === "creator" ? ("manual" as const) : reason,
-            origin: toOriginDisplay(row, nameByClientId),
+            origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
           });
         } else {
           // Parent ticket
@@ -312,7 +316,7 @@ export const myTicketsHandler = factory.createHandlers(
             assignedTo: row.assignedTo,
             createdAt: row.createdAt.toISOString(),
             accessReason: reason,
-            origin: toOriginDisplay(row, nameByClientId),
+            origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
           });
         }
 

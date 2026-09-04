@@ -12,6 +12,7 @@ import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import {
   batchLookupApplicationNames,
+  batchLookupPerformerNames,
   toOriginDisplay,
 } from "../../lib/resolve-origin-display.js";
 // Uses the same hasEntityReadAccess gate get.ts applies to this exact parent
@@ -54,10 +55,13 @@ export const listChildrenHandler = factory.createHandlers(
       );
       // docs/specs/third-party-api-origin-tagging.md R4 -- sub-tickets get
       // their own independent tag, same live-resolution as the parent list.
-      const nameByClientId = await batchLookupApplicationNames(page.data);
+      const [nameByClientId, performerNameByUserId] = await Promise.all([
+        batchLookupApplicationNames(page.data),
+        batchLookupPerformerNames(page.data),
+      ]);
       const data = page.data.map((row) => ({
         ...row,
-        origin: toOriginDisplay(row, nameByClientId),
+        origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
       }));
 
       return c.json({ data, nextCursor: page.nextCursor });

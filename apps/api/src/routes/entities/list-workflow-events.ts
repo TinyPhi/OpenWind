@@ -17,6 +17,7 @@ import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import {
   batchLookupApplicationNames,
+  batchLookupPerformerNames,
   toOriginDisplay,
 } from "../../lib/resolve-origin-display.js";
 
@@ -131,7 +132,11 @@ export const listWorkflowEventsHandler = factory.createHandlers(
       // docs/specs/third-party-api-origin-tagging.md §C — one batch lookup
       // for the whole event list, resolving live application names for
       // R3 (comment tag) / R5 (activity-timeline tag).
-      const originNameByClientId = await batchLookupApplicationNames(events);
+      const [originNameByClientId, originPerformerNameByUserId] =
+        await Promise.all([
+          batchLookupApplicationNames(events),
+          batchLookupPerformerNames(events),
+        ]);
 
       // Enrich events with resolved display names
       const enriched = events.map((e) => {
@@ -173,7 +178,11 @@ export const listWorkflowEventsHandler = factory.createHandlers(
           ...e,
           actorDisplayName,
           metadata: { ...e.metadata, changed: enrichedChanged },
-          origin: toOriginDisplay(e, originNameByClientId),
+          origin: toOriginDisplay(
+            e,
+            originNameByClientId,
+            originPerformerNameByUserId,
+          ),
         };
       });
 

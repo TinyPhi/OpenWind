@@ -1,10 +1,12 @@
 import { inArray, eq, desc, sql } from "drizzle-orm";
 import { db, apiKeys } from "@platform/db";
+import { getUserById } from "./zitadel-management.js";
 
 export type OriginDisplay = {
   mechanism: "api" | "handoff";
   appName: string;
   performerUserId: string;
+  performerDisplayName: string;
 } | null;
 
 type OriginColumns = {
@@ -31,12 +33,31 @@ export async function resolveOriginDisplay(
 ): Promise<OriginDisplay> {
   if (!row.originMechanism || !row.originOidcClientId) return null;
 
-  const appName = await lookupApplicationName(row.originOidcClientId);
+  const [appName, performerDisplayName] = await Promise.all([
+    lookupApplicationName(row.originOidcClientId),
+    lookupPerformerDisplayName(row.originPerformerUserId),
+  ]);
   return {
     mechanism: row.originMechanism as "api" | "handoff",
     appName,
     performerUserId: row.originPerformerUserId ?? "",
+    performerDisplayName,
   };
+}
+
+// Same last-resort single-user lookup list-workflow-events.ts falls back to
+// for actorId names not found in a batch — getUserById is itself 5-minute
+// cached (packages/auth/src/zitadel-management.ts), so per-row calls here
+// are cheap on repeat views. Falls back to the raw id (never throws) so a
+// deactivated/deleted Zitadel user never 500s a read endpoint.
+async function lookupPerformerDisplayName(
+  performerUserId: string | null,
+): Promise<string> {
+  if (!performerUserId) return "";
+  const user = await getUserById(performerUserId);
+  if (!user) return performerUserId;
+  const name = user.displayName !== user.userId ? user.displayName : null;
+  return (name ?? user.loginName) || performerUserId;
 }
 
 async function lookupApplicationName(oidcClientId: string): Promise<string> {
@@ -96,15 +117,45 @@ export async function batchLookupApplicationNames(
   return nameByClientId;
 }
 
+/**
+ * Batch variant of lookupPerformerDisplayName for list endpoints — one
+ * round of (cached) getUserById calls instead of one per row rendered.
+ */
+export async function batchLookupPerformerNames(
+  rows: OriginColumns[],
+): Promise<Map<string, string>> {
+  const performerIds = [
+    ...new Set(
+      rows
+        .filter((r) => r.originMechanism && r.originPerformerUserId)
+        .map((r) => r.originPerformerUserId as string),
+    ),
+  ];
+  if (performerIds.length === 0) return new Map();
+
+  const nameByUserId = new Map<string, string>();
+  await Promise.all(
+    performerIds.map(async (uid) => {
+      const name = await lookupPerformerDisplayName(uid);
+      if (name) nameByUserId.set(uid, name);
+    }),
+  );
+  return nameByUserId;
+}
+
 export function toOriginDisplay(
   row: OriginColumns,
   nameByClientId: Map<string, string>,
+  performerNameByUserId: Map<string, string> = new Map(),
 ): OriginDisplay {
   if (!row.originMechanism || !row.originOidcClientId) return null;
+  const performerUserId = row.originPerformerUserId ?? "";
   return {
     mechanism: row.originMechanism as "api" | "handoff",
     appName:
       nameByClientId.get(row.originOidcClientId) ?? "Unknown application",
-    performerUserId: row.originPerformerUserId ?? "",
+    performerUserId,
+    performerDisplayName:
+      performerNameByUserId.get(performerUserId) ?? performerUserId,
   };
 }
