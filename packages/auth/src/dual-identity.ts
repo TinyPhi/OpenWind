@@ -76,10 +76,10 @@ function extractOrgClaim(claims: Record<string, unknown>): string | undefined {
 // 401 under this default, since Zitadel itself uses the namespaced
 // `urn:zitadel:iam:user:resourceowner:id` claim, not `org_id` (see
 // dual-identity.test.ts's "rejects a Zitadel-namespaced org claim on the
-// external path" case). No tracking issue filed yet -- revisit when a
-// second Zitadel-backed customer or another non-AuthNexus IdP using a
-// namespaced org claim is actually onboarded, at which point add its entry
-// here rather than widening the default.
+// external path" case). Tracked in issue #549 -- populate entries here
+// when a second Zitadel-backed customer or another non-AuthNexus IdP using
+// a namespaced org claim is onboarded, adding its entry here rather than
+// widening the default.
 const ORG_CLAIM_NAME_BY_EXTERNAL_ISSUER: Record<string, string> = {};
 const DEFAULT_EXTERNAL_ORG_CLAIM_NAME = "org_id";
 

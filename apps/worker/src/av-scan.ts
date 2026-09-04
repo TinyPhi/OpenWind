@@ -16,7 +16,7 @@
 
 import fsp, { type FileHandle } from "node:fs/promises";
 import net from "node:net";
-import { Worker } from "bullmq";
+import { Worker } from "@platform/telemetry";
 import { eq, and } from "drizzle-orm";
 import { files, outboxEvents, withTenantContext } from "@platform/db";
 import { env } from "@platform/config";

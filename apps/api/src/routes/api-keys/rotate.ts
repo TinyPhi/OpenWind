@@ -125,7 +125,7 @@ export const rotateApiKeyHandler = factory.createHandlers(
           // ever the "holder" at a time. A no-op for role-format keys
           // (column stays at its default there regardless).
           oidcClientIdActive: false,
-          // Migration 0086/0087 — same handoff, same reason, for
+          // Migration 0087/0088 — same handoff, same reason, for
           // applicationName's own uniqueness claim: the predecessor keeps
           // its applicationName *value* (still identifies the right
           // application during the grace window) but hands off the

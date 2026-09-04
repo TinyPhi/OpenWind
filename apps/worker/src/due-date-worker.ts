@@ -15,7 +15,7 @@
  * transaction (withTenantContext), matching sla-breacher.ts's G1 rationale.
  */
 
-import { Worker } from "bullmq";
+import { Worker } from "@platform/telemetry";
 import { eq, and } from "drizzle-orm";
 import { withTenantContext, outboxEvents, entityInstances } from "@platform/db";
 import { logger } from "@platform/logger";

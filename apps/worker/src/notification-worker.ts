@@ -1,4 +1,5 @@
-import { Worker, type Job } from "bullmq";
+import { Worker } from "@platform/telemetry";
+import type { Job } from "bullmq";
 import { eq, and } from "drizzle-orm";
 import {
   withTenantContext,

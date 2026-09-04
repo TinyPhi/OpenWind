@@ -1,6 +1,6 @@
 /**
  * Isolation tests for the api_keys.(tenant_id, lower(btrim(application_name)))
- * partial unique index (migration 0086) and create.ts's own pre-insert
+ * partial unique index (migration 0087) and create.ts's own pre-insert
  * conflict/reclaim check built on top of it.
  *
  * Uses a real Postgres database (no mocks). Proves, against the real
@@ -91,7 +91,7 @@ function mintBody(
   });
 }
 
-describe("POST /api-keys — applicationName uniqueness, real Postgres (migration 0086)", () => {
+describe("POST /api-keys — applicationName uniqueness, real Postgres (migration 0087)", () => {
   it("mints a third-party key successfully with a fresh application name", async () => {
     const res = await makeApp().request("/", {
       method: "POST",

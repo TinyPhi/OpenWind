@@ -65,7 +65,7 @@ async function insertKey(overrides: Partial<typeof apiKeys.$inferInsert> = {}) {
         keyHash: `sha256:update-test-${unique}`,
         scopes: ["entity:ticket:read"],
         scopesFormat: "action",
-        // Migration 0086/0087 enforces per-tenant applicationName
+        // Migration 0087/0088 enforces per-tenant applicationName
         // uniqueness among active keys -- unique per call so this file's
         // real subject (tenant-scoped PATCH behavior) isn't accidentally
         // blocked by an unrelated applicationName collision between its

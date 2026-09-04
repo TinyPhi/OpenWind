@@ -6,6 +6,7 @@ packages:
 allowBuilds:
   esbuild: true
   msgpackr-extract: true
+  protobufjs: true
 
 # Moved from package.json's "pnpm.overrides" field for pnpm 11 (that field is no longer
 # read; see CLAUDE.md's Maintenance notes for why the esbuild pin must not be removed).
@@ -37,16 +38,41 @@ overrides:
   # GHSA-4c8g-83qw-93j6 + GHSA-v2hh-gcrm-f6hx: fast-uri host confusion (IDN canonicalization
   # failure, literal backslash authority delimiter) — pulled in via commitlint's ajv dep
   # GHSA-7p8r-x3mc-p8w7: fast-uri host confusion via backslash authority introducer
-  "fast-uri": ">=3.1.4 <4.0.0 || >=4.1.2"
+  # GHSA-5jgf-p345-68v8 + GHSA-f65p-4m7j-42xc + GHSA-fph4-wmhf-6fwf + GHSA-jqff-g426-hqxp:
+  # fast-uri host confusion / SSRF via IDN skip, malformed IPv6, repeated percent-decode,
+  # percent-encoded scheme — all patched in >=4.1.3.
+  "fast-uri": ">=3.1.4 <4.0.0 || >=4.1.3"
   # GHSA-4cwx-7wf7-3272 / GHSA-m8rv-5g2x-5cg5 / GHSA-jr45-8vmc-qm54 / GHSA-v3r7-h72x-cjcm: undici security vulnerability fixes.
   # Bounded to <8 to prevent major upgrades breaking jsdom's internal file imports.
   undici: ">=7.29.0 <8"
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
   # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths
-  postcss: ">=8.5.18"
+  postcss: ">=8.5.23"
   # GHSA-2v37-7h3g-55p8: nanoid can loop indefinitely when size is 0 — pulled in
   # transitively via postcss (vite/vitest chains in admin-ui devDependencies), 27 paths.
   # Bounded to <4 — postcss's own package.json pins nanoid as ^3.x, so an unbounded
   # >=3.3.17 silently forces it onto an untested major (resolves to 6.0.1); staying
   # on the v3 line gets the fix without the major jump (PR #356 review).
   nanoid: ">=3.3.17 <4"
+  # GHSA-wcpc-wj8m-hjx6 + GHSA-685m-2w69-288q: protobufjs DoS vulnerabilities in OTel transformer
+  "@opentelemetry/otlp-transformer>protobufjs": "^8.8.0"
+  # GHSA-c83g-rgw3-j3cx (unbounded memory growth via distinct query results) +
+  # GHSA-73wf-gq98-2v4g (prototype write via untrusted browserslist-stats.json normalizeStats):
+  # pulled in via @vitejs/plugin-react → @babel/core → @babel/helper-compilation-targets
+  browserslist: ">=4.28.7"
+  # GHSA-q8mj-m7cp-5q26: qs.stringify crashes with TypeError on null/undefined entries
+  # in comma-format arrays when encodeValuesOnly is set — pulled in via @refinedev/core and
+  # @refinedev/react-router-v6 (admin-ui dependencies)
+  qs: ">=6.15.2"
+  # GHSA-2j2x-hqr9-3h42: open redirect in react-router 6.x — bounded to <7 to prevent
+  # a major-version jump that would break all routing (react-router 7 has breaking API changes)
+  react-router: ">=6.30.4 <7"
+  # GHSA-jjmj-jmhj-qwj2: open redirect leading to XSS in react-router-dom 6.30.2–6.30.4
+  react-router-dom: ">=6.30.5 <7"
+  # GHSA-2j2x-hqr9-3h42: same advisory as react-router above — @remix-run/router is the
+  # internal peer pulled in by react-router and react-router-dom
+  "@remix-run/router": ">=1.23.3"
+  # GHSA-frvp-7c67-39w9 (path traversal via encoded backslash on Windows, serve-static) +
+  # GHSA-9mqv-5hh9-4cgg (memory-leak DoS via aborted WebSocket handshake) — pulled in by
+  # apps/api, apps/worker, and packages/auth
+  "@hono/node-server": ">=2.0.10"

@@ -46,7 +46,7 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // own system/status outcome on a file already accepted for upload.
   "attachment.quarantined": true,
   "attachment.scan_failed": true,
-  // Phase F follow-up, migration 0088 -- read endpoints' own audit actions.
+  // Phase F follow-up, migration 0089 -- read endpoints' own audit actions.
   "ticket.viewed": true,
   "ticket.view_denied": true,
   "ticket.listed": true,

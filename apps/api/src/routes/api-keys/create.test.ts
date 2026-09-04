@@ -136,11 +136,16 @@ vi.mock("@platform/db", async (importOriginal) => {
           ]);
         },
         // Tenant-scoped applicationName conflict check (create.ts, migration
-        // 0086) — a separate select/update chain on the same tx object,
-        // independent of the insert chain above.
+        // 0086/0088) — a separate select/update chain on the same tx object,
+        // independent of the insert chain above. The real query now filters
+        // by name in SQL (lower(btrim(...))) and takes .limit(1) — this mock
+        // doesn't simulate that filtering, so fixtures must only ever set
+        // mockAppNameCandidates.rows to what a real matching query would
+        // actually return, not rely on this mock to skip non-matching rows.
         select: () => tx,
         from: () => tx,
-        where: () => Promise.resolve(mockAppNameCandidates.rows),
+        where: () => tx,
+        limit: () => Promise.resolve(mockAppNameCandidates.rows),
         update: () => tx,
         set: (...args: unknown[]) => {
           mockUpdateSet(...args);
@@ -831,14 +836,11 @@ describe("POST /api-keys — applicationName uniqueness (migration 0086, admin-u
   });
 
   it("proceeds with no conflict when no other key shares the normalized name", async () => {
-    mockAppNameCandidates.rows = [
-      {
-        id: "unrelated-key",
-        applicationName: "Totally Different App",
-        oidcClientId: "different-client-id",
-        expiresAt: new Date(Date.now() + 60_000),
-      },
-    ];
+    // The name-conflict lookup now filters by name in SQL (lower(btrim(...)))
+    // — a real query for this request's applicationName would never return
+    // an unrelated "Totally Different App" row in the first place, so the
+    // correct fixture for "no conflict" is simply no rows.
+    mockAppNameCandidates.rows = [];
     const res = await makeApp().request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

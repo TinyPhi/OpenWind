@@ -31,6 +31,7 @@ let capturedFailedHandler:
   | undefined;
 
 vi.mock("bullmq", () => ({
+  Queue: vi.fn(),
   Worker: vi.fn().mockImplementation(function (
     _queue: string,
     processor: typeof capturedProcessor,

@@ -5,7 +5,7 @@ import {
 } from "./status.js";
 
 // Mirrors apps/api/src/routes/api-keys/create.ts's normalizeApplicationName
-// exactly (trim + lowercase + collapse whitespace) -- migration 0086
+// exactly (trim + lowercase + collapse whitespace) -- migration 0087
 // enforces this same normalization as a real DB uniqueness constraint, so
 // grouping client-side by it is safe: two active keys can never legitimately
 // have names that normalize to the same value without being the one
@@ -25,7 +25,7 @@ export interface ApplicationGroup {
   slug: string;
   // Display name from the most-recently-created key in the group -- if an
   // application's name casing/whitespace ever varied across its own key
-  // history (only possible for rows created before migration 0086 started
+  // history (only possible for rows created before migration 0087 started
   // enforcing normalized uniqueness), the newest key's exact text wins.
   displayName: string;
   keys: ApiKeyRow[];

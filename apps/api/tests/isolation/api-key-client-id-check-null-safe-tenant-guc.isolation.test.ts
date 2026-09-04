@@ -16,7 +16,7 @@
  * authenticated request (to upsert tenant_users) — so by the time this
  * route's bare query runs, on postgres-js's reused connection, the RLS
  * policy's cast throws `invalid input syntax for type uuid: ""` instead of
- * safely evaluating to no-match. Fixed in migration 0089 by wrapping the
+ * safely evaluating to no-match. Fixed in migration 0090 by wrapping the
  * cast in nullif(..., '').
  *
  * Uses a real Postgres database (no mocks) — this class of bug is invisible
@@ -41,7 +41,7 @@ afterAll(async () => {
   await db.delete(tenants).where(eq(tenants.id, TENANT));
 });
 
-describe("api_keys tenant_read/tenant_write RLS survives a prior withTenantContext transaction on the same connection (migration 0089)", () => {
+describe("api_keys tenant_read/tenant_write RLS survives a prior withTenantContext transaction on the same connection (migration 0090)", () => {
   it("a bare, unscoped query on api_keys after a withTenantContext call does not throw invalid uuid syntax", async () => {
     // Simulates requireAuth()'s own withTenantContext call, which runs on
     // every authenticated request before any route handler code — this is

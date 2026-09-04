@@ -100,7 +100,7 @@ export type AuditAction =
   | "child.access_denied"
   | "attachment.referenced"
   | "attachment.reference_denied"
-  // Phase F follow-up, migration 0088 — read endpoints previously wrote no
+  // Phase F follow-up, migration 0089 — read endpoints previously wrote no
   // audit trail at all. Written on success ("viewed"/"listed") and on an
   // actual ACL denial ("view_denied"/"download_denied") only, never on a
   // genuinely-missing resource, mirroring every write action's own

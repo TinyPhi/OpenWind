@@ -39,7 +39,7 @@ denied — a compromised/leaked third-party key could read every ticket in a ten
 trace. This was Phase B/F's actual documented scope (R7's wording only ever discussed writes),
 not a regression — flagged to the human, who decided to close the gap rather than accept it.
 
-Added 6 new `AuditAction` values (migration 0088): `ticket.viewed`/`ticket.view_denied`,
+Added 6 new `AuditAction` values (migration 0089): `ticket.viewed`/`ticket.view_denied`,
 `ticket.listed`, `workflow.listed`, `workflow_fields.listed`,
 `attachment.downloaded`/`attachment.download_denied`. New `classifyRequestKind` helper in
 `@platform/audit` (mirrors `classifyOutcome`'s exhaustive-map pattern exactly) derives read vs.

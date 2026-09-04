@@ -15,7 +15,7 @@
  * the separate overdue path (due-date-worker.ts) covers that case.
  */
 
-import { Worker } from "bullmq";
+import { Worker } from "@platform/telemetry";
 import { eq, and } from "drizzle-orm";
 import { withTenantContext, outboxEvents, entityInstances } from "@platform/db";
 import { logger } from "@platform/logger";

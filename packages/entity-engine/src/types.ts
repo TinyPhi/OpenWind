@@ -49,7 +49,7 @@ export interface EntityInstance {
   /**
    * docs/specs/third-party-api-origin-tagging.md. All three null together means
    * normal human, in-app creation (no origin tag). Never partially set — see
-   * migration 0090's DB-level CHECK constraint.
+   * migration 0091's DB-level CHECK constraint.
    */
   originMechanism: "api" | "handoff" | null;
   originOidcClientId: string | null;
@@ -95,7 +95,7 @@ export type CreateChildRelationInput = {
   /**
    * docs/specs/third-party-api-origin-tagging.md R4 — sub-tickets follow the
    * exact same tagging rules as top-level tickets, own independent tag. Set
-   * together or not at all (migration 0090's DB CHECK).
+   * together or not at all (migration 0091's DB CHECK).
    */
   originMechanism?: "api" | "handoff" | undefined;
   originOidcClientId?: string | undefined;
@@ -137,7 +137,7 @@ export type CreateEntityInput = {
   depth?: number | undefined;
   /**
    * docs/specs/third-party-api-origin-tagging.md. Set together or not at
-   * all — migration 0090's DB CHECK enforces this; callers passing only one
+   * all — migration 0091's DB CHECK enforces this; callers passing only one
    * of the three get a rejected insert, not a silently partial origin.
    */
   originMechanism?: "api" | "handoff" | undefined;

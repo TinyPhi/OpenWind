@@ -77,7 +77,7 @@ function mintBody(clientId: string, overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     name: "third-party-mint-reclaim-test",
     scopes: ["entity:ticket:read"],
-    // Migration 0086/0087 enforces per-tenant applicationName uniqueness
+    // Migration 0087/0088 enforces per-tenant applicationName uniqueness
     // among active keys -- derived from the caller's own
     // (already-unique-per-call) clientId so this file's real subject
     // (Client ID reclaim) isn't accidentally blocked by an unrelated

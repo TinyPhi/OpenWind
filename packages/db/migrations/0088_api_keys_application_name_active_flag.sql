@@ -1,11 +1,11 @@
 -- analytics: excluded (column + index changes only, no new table)
 --
--- Fixes a real regression migration 0086 introduced: rotate.ts (ADR-012
+-- Fixes a real regression migration 0087 introduced: rotate.ts (ADR-012
 -- Phase A, migration 0069/0072) deliberately keeps a rotated key's
 -- PREDECESSOR row active (revoked_at untouched) for a 24h grace window while
 -- the new successor row is inserted with the SAME application_name -- by
 -- design, since it's still the same application, just a new credential.
--- Migration 0086's plain (tenant_id, normalized name) unique index has no
+-- Migration 0087's plain (tenant_id, normalized name) unique index has no
 -- way to allow that intentional one-name/two-active-rows overlap, so every
 -- graceful rotation of a third-party key started failing with
 -- api_keys_tenant_application_name_active_unique violations.

@@ -190,7 +190,33 @@ const EnvSchema = z
     // AppRole auth (production) — both required together when OPENBAO_TOKEN is absent
     OPENBAO_ROLE_ID: z.string().optional(),
     OPENBAO_SECRET_ID: z.string().optional(),
+    // Telemetry and Tracing (Stage 0)
+    TELEMETRY_ENABLED: z
+      .string()
+      .transform((v) => v === "true")
+      .default("false"),
+    OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
+    OTEL_SERVICE_NAME: z.string().optional(),
+    METRICS_TOKEN: z.string().default("dev-metrics-token-12345"),
+    OTEL_TRACE_SAMPLE_RATIO: z
+      .string()
+      .transform((v) => parseFloat(v))
+      .default("0.01"),
+    // Error Tracking (Stage 1)
+    ERROR_TRACKING_PROVIDER: z
+      .enum(["sentry", "glitchtip", "bugsink", "none"])
+      .default("none"),
+    SENTRY_DSN: z.string().url().optional(),
+    // Trusted Proxies Configuration (e.g. "true", "false", or comma-separated IPs/CIDRs)
+    TRUST_PROXY: z.string().default("false"),
   })
+  .refine(
+    (v) => v.ERROR_TRACKING_PROVIDER === "none" || v.SENTRY_DSN !== undefined,
+    {
+      message:
+        "SENTRY_DSN is required when ERROR_TRACKING_PROVIDER is set to a provider",
+    },
+  )
   .refine(
     (v) => v.SECRETS_PROVIDER !== "openbao" || v.OPENBAO_ADDR !== undefined,
     {
@@ -230,3 +256,27 @@ export type Env = z.infer<typeof EnvSchema>;
 // parse a minimal env object directly instead of mutating process.env before
 // this module's top-level `env.parse(process.env)` side effect has already run.
 export { EnvSchema };
+
+export interface PlanLimits {
+  apiCallsPerDay: number;
+  storageBytes: number;
+  aiTokensPerDay: number;
+}
+
+export const PLAN_LIMITS: Record<string, PlanLimits> = {
+  standard: {
+    apiCallsPerDay: 10_000,
+    storageBytes: 10 * 1024 * 1024 * 1024, // 10 GB
+    aiTokensPerDay: 50_000,
+  },
+  premium: {
+    apiCallsPerDay: 100_000,
+    storageBytes: 100 * 1024 * 1024 * 1024, // 100 GB
+    aiTokensPerDay: 500_000,
+  },
+  enterprise: {
+    apiCallsPerDay: 1_000_000,
+    storageBytes: 1000 * 1024 * 1024 * 1024, // 1 TB
+    aiTokensPerDay: 5_000_000,
+  },
+};

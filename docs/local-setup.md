@@ -190,8 +190,11 @@ to `/` doesn't actually matter, but keeping them together above it reads
 clearer):
 
 ```nginx
+    # 3002 below is the API_HOST_PORT default -- if you overrode that env var,
+    # substitute your actual value in BOTH proxy_pass lines; nginx doesn't
+    # read the .env file, so there's no way to keep these in sync automatically.
     location /api/v1/ {
-        proxy_pass http://127.0.0.1:3002;   # API_HOST_PORT, if you overrode it
+        proxy_pass http://127.0.0.1:3002;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         # OVERWRITE, not $proxy_add_x_forwarded_for (which APPENDS to
@@ -214,6 +217,15 @@ clearer):
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        # Same reasoning as /api/v1/ above -- without these, nginx proxies the
+        # WebSocket upgrade as a plain TCP connection from 127.0.0.1, and the
+        # rate limiter's getConnInfo() fallback collapses every real client
+        # into one shared bucket keyed on that loopback address. $remote_addr
+        # (overwrite), not $proxy_add_x_forwarded_for, for the same spoofing
+        # reason as the /api/v1/ block.
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 ```
 
@@ -368,10 +380,11 @@ this repo's `docker compose up -d`.
 
 Start with `docker compose --profile <name> up -d`:
 
-| Profile         | Services                                                              |
-| --------------- | --------------------------------------------------------------------- |
-| `notifications` | Novu API, worker, web UI, MongoDB                                     |
-| `tools`         | MailHog (email trap port 8025), BullBoard (queue dashboard port 3099) |
+| Profile         | Services                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------- |
+| `notifications` | Novu API, worker, web UI, MongoDB                                                                       |
+| `tools`         | MailHog (email trap port 8025), BullBoard (queue dashboard port 3099)                                   |
+| `observability` | Prometheus (port 9090), Grafana (port 3005), Alertmanager (port 9093), OTel Collector (ports 4317/4318) |
 
 ### Image version pinning policy
 
@@ -416,6 +429,9 @@ refuses to start if any required variable is missing or malformed.
 | `VITE_ZITADEL_ISSUER`                 | bootstrap         | Same issuer, prefixed for Vite (browser-accessible)                             |
 | `VITE_ZITADEL_OIDC_CLIENT_ID`         | bootstrap         | Same client ID for Vite                                                         |
 | `ANTHROPIC_API_KEY`                   | manual            | AI features only — rest of platform works without it                            |
+| `TELEMETRY_ENABLED`                   | `.env.example`    | Flag to enable/disable OpenTelemetry and Prometheus collection                  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`         | `.env.example`    | HTTP endpoint for trace export (e.g., http://localhost:4318/v1/traces)          |
+| `OTEL_SERVICE_NAME`                   | `.env.example`    | Service name for distributed trace grouping                                     |
 
 **Why two database URLs?**
 `app_user` connects via PgBouncer in transaction mode, which is required for

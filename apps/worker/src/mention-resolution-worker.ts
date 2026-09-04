@@ -26,7 +26,7 @@
  * Access Logs screen exists (see the Phase C spec's §C "new schema" row).
  */
 
-import { Worker } from "bullmq";
+import { Worker } from "@platform/telemetry";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import {
   entityInstances,

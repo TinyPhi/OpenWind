@@ -181,7 +181,7 @@ export const createEntityHandler = factory.createHandlers(
           // appClientId was already validated above (or is undefined, the
           // normal non-handoff case) — every third-party-origin-tagging.md
           // §V branch here is set together or not at all, matching the
-          // migration 0090 DB CHECK.
+          // migration 0091 DB CHECK.
           ...(appClientId
             ? {
                 originMechanism: "handoff" as const,

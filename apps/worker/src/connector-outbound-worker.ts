@@ -76,7 +76,8 @@
 import { randomUUID } from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
-import { Worker, type Job } from "bullmq";
+import { Worker } from "@platform/telemetry";
+import type { Job } from "bullmq";
 import { eq, and, or, isNull } from "drizzle-orm";
 import {
   db,

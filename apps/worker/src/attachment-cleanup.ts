@@ -17,7 +17,7 @@
  * presign-and-abandon pattern (full-phase security review finding).
  */
 
-import { Worker, Queue } from "bullmq";
+import { Worker, Queue } from "@platform/telemetry";
 import { lt, eq, and, inArray } from "drizzle-orm";
 import { db, attachments } from "@platform/db";
 import { logger } from "@platform/logger";

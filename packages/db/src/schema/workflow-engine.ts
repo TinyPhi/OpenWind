@@ -126,7 +126,7 @@ export const workflowEvents = pgTable(
     triggeredBy: text("triggered_by").notNull(),
     actorId: text("actor_id"),
     comment: text("comment"),
-    // docs/specs/third-party-api-origin-tagging.md — migration 0090. Same
+    // docs/specs/third-party-api-origin-tagging.md — migration 0091. Same
     // all-or-nothing shape as entity_instances' origin columns (see that
     // table's comment in entity-engine.ts) — comments are stored as
     // workflow_events rows, so this is where the comment-level and

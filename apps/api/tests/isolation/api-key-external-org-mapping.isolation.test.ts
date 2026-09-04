@@ -131,7 +131,7 @@ function mintBody(clientId: string, overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     name: "external-org-mapping-test",
     scopes: ["entity:ticket:read"],
-    // Migration 0086 (docs/specs, admin-ui API Keys restructuring) enforces
+    // Migration 0087 (docs/specs, admin-ui API Keys restructuring) enforces
     // per-tenant applicationName uniqueness among active keys -- derived
     // from the caller's own (already-unique-per-call) clientId so every
     // test in this file mints a distinct application, same as it always

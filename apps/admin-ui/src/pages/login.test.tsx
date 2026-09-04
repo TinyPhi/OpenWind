@@ -83,7 +83,7 @@ describe("Login", () => {
   // Sign In themselves, same as the default flow.
   it("with handoff query params present, does nothing until the user clicks Sign In", async () => {
     renderAt(
-      "/login?workflowId=wf-1&entityTypeId=et-1&title=Client+dinner&remark=needs+approval&appClientId=app-1",
+      "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&title=Client+dinner&remark=needs+approval&appClientId=app-1",
     );
 
     await new Promise((r) => setTimeout(r, 0));
@@ -92,15 +92,15 @@ describe("Login", () => {
 
   it("with handoff query params present, clicking Sign In calls signinRedirect with state and WITHOUT prompt: login or removeUser (spec R1)", async () => {
     renderAt(
-      "/login?workflowId=wf-1&entityTypeId=et-1&title=Client+dinner&remark=needs+approval&appClientId=app-1",
+      "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&title=Client+dinner&remark=needs+approval&appClientId=app-1",
     );
     screen.getByRole("button", { name: /Continue with SSO/ }).click();
 
     await waitFor(() => {
       expect(userManager.signinRedirect).toHaveBeenCalledWith({
         state: {
-          workflowId: "wf-1",
-          entityTypeId: "et-1",
+          workflowId: "11111111-1111-4111-a111-111111111111",
+          entityTypeId: "22222222-2222-4222-a222-222222222222",
           prefillFields: { title: "Client dinner", remark: "needs approval" },
           appClientId: "app-1",
         },
@@ -121,12 +121,62 @@ describe("Login", () => {
     expect(userManager.removeUser).toHaveBeenCalled();
   });
 
+  // issue #544 — UUID_RE defence-in-depth guard in readHandoffParams
+  it("rejects a non-UUID workflowId and falls back to normal login", async () => {
+    renderAt(
+      "/login?workflowId=not-a-uuid&entityTypeId=22222222-2222-4222-a222-222222222222&appClientId=app-1",
+    );
+    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+
+    await waitFor(() => {
+      expect(userManager.signinRedirect).toHaveBeenCalledWith({
+        prompt: "login",
+      });
+    });
+    expect(userManager.removeUser).toHaveBeenCalled();
+  });
+
+  it("rejects a non-UUID entityTypeId and falls back to normal login", async () => {
+    renderAt(
+      "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=et-1&appClientId=app-1",
+    );
+    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+
+    await waitFor(() => {
+      expect(userManager.signinRedirect).toHaveBeenCalledWith({
+        prompt: "login",
+      });
+    });
+    expect(userManager.removeUser).toHaveBeenCalled();
+  });
+
+  it("accepts all fields when workflowId/entityTypeId are valid UUIDs and appClientId is present (positive path)", async () => {
+    renderAt(
+      "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&appClientId=app-1",
+    );
+    screen.getByRole("button", { name: /Continue with SSO/ }).click();
+
+    await waitFor(() => {
+      expect(userManager.signinRedirect).toHaveBeenCalledWith({
+        state: {
+          workflowId: "11111111-1111-4111-a111-111111111111",
+          entityTypeId: "22222222-2222-4222-a222-222222222222",
+          prefillFields: {},
+          appClientId: "app-1",
+        },
+      });
+    });
+    expect(userManager.removeUser).not.toHaveBeenCalled();
+  });
+
   // docs/specs/third-party-api-origin-tagging.md R2 -- appClientId is
   // required exactly like workflowId/entityTypeId (not optional), so a
   // handoff URL missing it must be treated identically: fall back to normal
   // login, never a partial/untagged handoff attempt.
   it("ignores handoff params missing appClientId and falls back to normal login on click", async () => {
-    renderAt("/login?workflowId=wf-1&entityTypeId=et-1&title=Client+dinner");
+    renderAt(
+      "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&title=Client+dinner",
+    );
     screen.getByRole("button", { name: /Continue with SSO/ }).click();
 
     await waitFor(() => {

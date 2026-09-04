@@ -1,4 +1,4 @@
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import { connection } from "./redis.js";
 
 // ADR-012 Phase C, spec R5 — a separate Queue instance with the same name as

@@ -7,7 +7,7 @@
  * worker runs after deletion_scheduled_at and hard-deletes all tenant data.
  */
 
-import { Queue } from "bullmq";
+import { Queue } from "@platform/telemetry";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, tenants } from "@platform/db";
@@ -22,6 +22,12 @@ const tenantPurgeQueue = new Queue("tenant-purge", { connection });
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
+const TenantConfigSchema = z
+  .object({
+    retention_days: z.number().int().min(1).optional(),
+  })
+  .catchall(z.unknown());
+
 export const ProvisionTenantSchema = z.object({
   name: z.string().min(1).max(255),
   slug: z
@@ -30,7 +36,7 @@ export const ProvisionTenantSchema = z.object({
     .max(63)
     .regex(/^[a-z0-9-]+$/, "slug must be lowercase alphanumeric with hyphens"),
   plan: z.enum(["standard", "professional", "enterprise"]).default("standard"),
-  config: z.record(z.unknown()).optional(),
+  config: TenantConfigSchema.optional(),
 });
 
 export type ProvisionTenantInput = z.infer<typeof ProvisionTenantSchema>;

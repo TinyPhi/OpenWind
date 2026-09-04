@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — dashboards and alerting (Stage 4)]
+
+### Added
+
+- **Grafana dashboards provisioning** — Auto-configured Prometheus datasource and provisioned "OpenWind Platform" dashboard displaying API traffic rates, latency percentiles, error rates, and queue depths (#507).
+- **Alertmanager alerts configuration** — Mounted `alertmanager.yml` SMTP configuration pointing to local Mailhog container for developer alert emails (#507).
+- **Prometheus alerting rules** — Added alert rules (`QueueDepthHigh`, `HttpErrorRateHigh`, `HttpLatencyHigh`) targeting BullMQ queue depth backups, HTTP latency, and 5xx error rate spikes (#507).
+
+---
+
+## [Unreleased — compliance and data retention (Stage 3)]
+
+### Added
+
+- **GDPR per-user erasure endpoint** — Added `DELETE /users/:userId` route restricted to tenant admins, transactionally deleting user views, alerts, notifications, and api keys, and anonymizing user references across tickets, workflows, and events (#506).
+- **IP allowlisting auth check** — Added client IP validation middleware (`enforceTenantIpAllowlist`) in Hono auth middleware resolving matching single IPs/CIDR subnets from `tenants.config.ip_allowlist` (#506).
+- **Retention archival daily sweep** — Implemented repeatable BullMQ worker `retentionArchivalWorker` running daily at 04:00 to purge tenant workflow events, outbox events, and usage metrics older than `tenants.config.retention_days` (#506).
+
+---
+
+## [Unreleased — usage metering and plan enforcement (Stage 2)]
+
+### Added
+
+- **Usage aggregation table** — Added `tenant_usage_daily` with strict Row-Level Security (RLS) policies, indexing on query patterns, and analytics annotations (#505).
+- **Billing plan gate middleware** — Implemented `billingGate()` peer logic in Hono (`enforceTenantBillingGate`) incrementing daily API calls and blocking file uploads if storage quota is exceeded (#505).
+- **Daily usage flusher worker** — Implemented scheduled BullMQ job `usageMeteringWorker` aggregating storage bytes and Redis counters, writing daily records, and triggering Novu plan alerts on state transitions (#505).
+- **Plan degradation banner** — Global error banner listens for `X-Tenant-Degraded` responses and renders a dismissible warning banner linking to settings (#505).
+
+---
+
 ## [Unreleased — network status awareness (admin-ui)]
 
 ### Added

@@ -62,20 +62,13 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     renderLayout();
 
     await waitFor(() => expect(screen.getByText("Admin")).not.toBeNull());
-    expect(screen.getByText("Analytics")).not.toBeNull();
-    expect(screen.getByText("Templates")).not.toBeNull();
-    expect(screen.getByText("Automations")).not.toBeNull();
+    expect(screen.getByText("Users")).not.toBeNull();
     expect(screen.getByText("System Logs")).not.toBeNull();
     expect(screen.getByText("API Keys")).not.toBeNull();
-    // API Access Logs has no nav entry of its own anymore — its data is
-    // already reachable via the API Keys page's own internal view.
-    expect(screen.queryByText("API Access Logs")).toBeNull();
-    // Users is workspace nav (all roles), not part of the admin-only
-    // section, but still visible to an admin.
-    expect(screen.getByText("Users")).not.toBeNull();
+    expect(screen.getByText("API Access Logs")).not.toBeNull();
   });
 
-  it("hides the 'Admin' section entirely for an agent (no admin role), but still shows workspace nav including Users", async () => {
+  it("hides the 'Admin' section entirely for an agent (no admin role)", async () => {
     mockUserWithRoles(["agent"]);
     renderLayout();
 
@@ -84,13 +77,9 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     await waitFor(() => expect(screen.getByText("Dashboard")).not.toBeNull());
 
     expect(screen.queryByText("Admin")).toBeNull();
-    expect(screen.queryByText("Analytics")).toBeNull();
-    expect(screen.queryByText("Templates")).toBeNull();
-    expect(screen.queryByText("Automations")).toBeNull();
+    expect(screen.queryByText("Users")).toBeNull();
     expect(screen.queryByText("System Logs")).toBeNull();
     expect(screen.queryByText("API Keys")).toBeNull();
     expect(screen.queryByText("API Access Logs")).toBeNull();
-    // Users moved into the all-roles workspace section — an agent sees it.
-    expect(screen.getByText("Users")).not.toBeNull();
   });
 });

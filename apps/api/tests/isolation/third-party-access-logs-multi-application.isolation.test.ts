@@ -46,7 +46,7 @@ beforeAll(async () => {
 
   // Two key rows in Tenant A under the SAME application name (simulating a
   // rotation lineage) plus one unrelated key in Tenant B.
-  // Simulates a rotation lineage: migration 0086's unique index only allows
+  // Simulates a rotation lineage: migration 0087's unique index only allows
   // ONE active row per (tenant, normalized applicationName) at a time, so
   // the old key must already be revoked before the new one exists — exactly
   // what a real rotation does (rotate.ts revokes the old row when minting

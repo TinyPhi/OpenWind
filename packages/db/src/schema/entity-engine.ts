@@ -75,7 +75,7 @@ export const entityInstances = pgTable(
     fields: jsonb("fields").default({}).notNull(),
     createdBy: text("created_by"),
     assignedTo: text("assigned_to"),
-    // docs/specs/third-party-api-origin-tagging.md — migration 0090. All three
+    // docs/specs/third-party-api-origin-tagging.md — migration 0091. All three
     // are set together or not at all (DB CHECK constraint); NULL/NULL/NULL means
     // normal human, in-app creation (no origin tag). originMechanism is
     // "api" | "handoff" at the app layer; originOidcClientId is deliberately

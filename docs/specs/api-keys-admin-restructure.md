@@ -22,7 +22,7 @@ filtered access logs — without leaving the page.
 
 | constraint      | value                                                                                                                                                                                                                                                  |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| stack           | `apps/admin-ui/src/{components/layout.tsx,pages/api-keys/**,components/access-logs-panel.tsx}`, `apps/api/src/routes/{api-keys/create.ts,api-keys/rotate.ts,admin/third-party-access-logs.ts}`, `packages/audit`, `packages/db` (migrations 0086/0087) |
+| stack           | `apps/admin-ui/src/{components/layout.tsx,pages/api-keys/**,components/access-logs-panel.tsx}`, `apps/api/src/routes/{api-keys/create.ts,api-keys/rotate.ts,admin/third-party-access-logs.ts}`, `packages/audit`, `packages/db` (migrations 0087/0088) |
 | out of scope    | A real `applications` table — grouping stays a normalized-name convention on `api_keys.application_name`, enforced as a DB uniqueness constraint rather than modeled as its own entity                                                                 |
 | backward compat | The standalone `/admin/third-party-access-logs` route and its own sidebar entry are kept, unchanged — the new `/admin/api-keys` page's "API Access Logs" internal view is an additional way to reach the same data, not a replacement                  |
 
@@ -31,13 +31,13 @@ filtered access logs — without leaving the page.
 **Two new nullable-turned-constrained columns' worth of behavior on `api_keys`** (no new table):
 
 ```
-application_name_active   boolean   not null default true   -- migration 0087
+application_name_active   boolean   not null default true   -- migration 0088
 ```
 
 Mirrors `oidc_client_id_active` (migration 0072) exactly: a rotation's dying predecessor keeps its
 `application_name` value but hands off the _uniqueness claim_ to its successor.
 
-**New unique index** (migration 0086, refined by 0087):
+**New unique index** (migration 0087, refined by 0088):
 
 ```
 api_keys_tenant_application_name_active_unique
@@ -114,8 +114,8 @@ tenant → `409 APPLICATION_NAME_IN_USE`, no row written
 
 | id  | task                                                                                                                                                                                          | phase | status | depends |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
-| T1  | Migration 0086: `application_name` uniqueness (tenant-scoped, normalized) + `create.ts`'s `APPLICATION_NAME_IN_USE` check with expiry-reclaim                                                 | 1     | done   | —       |
-| T2  | Migration 0087: `application_name_active` flag, fixing the rotation-grace-window regression T1's plain index caused (§B B1); `rotate.ts` updated to flip it alongside `oidc_client_id_active` | 1     | done   | T1      |
+| T1  | Migration 0087: `application_name` uniqueness (tenant-scoped, normalized) + `create.ts`'s `APPLICATION_NAME_IN_USE` check with expiry-reclaim                                                 | 1     | done   | —       |
+| T2  | Migration 0088: `application_name_active` flag, fixing the rotation-grace-window regression T1's plain index caused (§B B1); `rotate.ts` updated to flip it alongside `oidc_client_id_active` | 1     | done   | T1      |
 | T3  | `packages/audit`'s `queryAuditLog` widened to `actorId: string \| string[]`; `GET /admin/third-party-access-logs` accepts a comma-separated `application` list                                | 1     | done   | —       |
 | T4  | Sidebar split into all-roles/admin-only sections; new admin-only "API Keys" nav entry                                                                                                         | 2     | done   | —       |
 | T5  | `AccessLogsPanel` extracted from `ThirdPartyAccessLogsPage` as a reusable component with an optional `lockedApplicationIds` prop; standalone page unchanged behaviorally                      | 2     | done   | T3      |

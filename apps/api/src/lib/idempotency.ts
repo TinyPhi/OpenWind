@@ -41,7 +41,7 @@
  * response-blocking ones (spec R5/R6's whole point for comments.ts's
  * mention resolution, specifically).
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { eq, and, gt, lte } from "drizzle-orm";
 import { idempotencyKeys, withTenantContext } from "@platform/db";
 import { getRedis } from "@platform/redis";
@@ -55,10 +55,45 @@ const LOCK_RETRY_AFTER_SECONDS = 1;
 // growth vector against a table with no separate size cap of its own.
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 
+export const RELEASE_LOCK_LUA_SCRIPT =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
+
+export type IdempotencyStatus =
+  | 200
+  | 201
+  | 400
+  | 401
+  | 403
+  | 404
+  | 409
+  | 422
+  | 429
+  | 500;
+
+export function isIdempotencyStatus(
+  status: number,
+): status is IdempotencyStatus {
+  return [200, 201, 400, 401, 403, 404, 409, 422, 429, 500].includes(status);
+}
+
 export interface IdempotencyResponse {
-  status: number;
+  status: IdempotencyStatus;
   body: unknown;
   headers?: Record<string, string>;
+  /**
+   * Set to `true` to prevent this response from being written to the 24-hour
+   * result cache (stored in the `idempotency_keys` database table).
+   *
+   * **CRITICAL**: Use this only for transient/temporary errors (such as
+   * concurrent database lock timeouts or temporary rate limits). If a transient
+   * error response is cached without setting `doNotCache: true`, every subsequent
+   * retry with the same idempotency key will replay the error response for 24h,
+   * blocking successful execution.
+   *
+   * See `apps/api/src/routes/third-party/transitions.ts` (the 55P03 lock conflict
+   * block) for the canonical example.
+   */
+  doNotCache?: boolean;
 }
 
 export interface IdempotencyScope {
@@ -74,20 +109,33 @@ export interface IdempotencyScope {
 // throws ERR_PACKAGE_PATH_NOT_EXPORTED and crash-loops the server -- caught
 // only by actually booting the compiled server (CI's vitest run tolerates
 // ESM-only deps transparently and never surfaces this). A dynamic
-// `import()` works from CJS regardless of the target package's own type,
-// so this loads the module once and reuses the resolved function.
-let canonicalizeFn: ((value: unknown) => string | undefined) | undefined;
-async function getCanonicalize(): Promise<
-  (value: unknown) => string | undefined
-> {
-  if (!canonicalizeFn) {
-    const mod = (await import("canonicalize")) as {
-      default: (value: unknown) => string | undefined;
-    };
-    canonicalizeFn = mod.default;
-  }
-  return canonicalizeFn;
+// `import()` fires once at module load time so all concurrent first requests
+// share the same Promise rather than racing to import separately.
+// Mutable so a failed import can be retried on the next request rather than
+// permanently poisoning every subsequent call with the same rejection.
+let canonicalizeFnPromise:
+  | Promise<(value: unknown) => string | undefined>
+  | undefined;
+function loadCanonicalize(): Promise<(value: unknown) => string | undefined> {
+  canonicalizeFnPromise ??= import("canonicalize")
+    .then(
+      (m) => (m as { default: (value: unknown) => string | undefined }).default,
+    )
+    .catch((err: unknown) => {
+      logger.error(
+        { err },
+        "idempotency: failed to import ESM package 'canonicalize' — will retry on next request",
+      );
+      // Reset so the next withIdempotency call attempts a fresh import.
+      // Note: concurrent in-flight callers awaiting the same rejected promise
+      // will also receive this error, but resetting the reference ensures
+      // subsequent requests trigger a new import attempt.
+      canonicalizeFnPromise = undefined;
+      throw err as Error;
+    });
+  return canonicalizeFnPromise;
 }
+void loadCanonicalize().catch(() => {});
 
 /**
  * RFC 8785 JSON Canonicalization Scheme (via the `canonicalize` package,
@@ -100,7 +148,7 @@ async function getCanonicalize(): Promise<
 export async function computeContentHash(
   content: Record<string, unknown>,
 ): Promise<string> {
-  const canonicalize = await getCanonicalize();
+  const canonicalize = await loadCanonicalize();
   const canonical = canonicalize(content) ?? "null";
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -111,7 +159,7 @@ function lockKey(
   actingPersonId: string,
   idempotencyKey: string,
 ): string {
-  return `idempotency-lock:${tenantId}:${applicationActorId}:${actingPersonId}:${idempotencyKey}`;
+  return `idempotency-lock:${tenantId}:${applicationActorId}:${actingPersonId}:${encodeURIComponent(idempotencyKey)}`;
 }
 
 /**
@@ -170,8 +218,28 @@ export async function withIdempotency(
     );
     if (!row) return null;
     if (row.contentHash === contentHash) {
-      return { status: row.responseStatus, body: row.responseBody };
+      const status = row.responseStatus;
+      if (!isIdempotencyStatus(status)) {
+        logger.error(
+          { status, tenantId, applicationActorId },
+          "idempotency: cached status code in database is not a valid IdempotencyStatus",
+        );
+        return {
+          status: 500,
+          body: {
+            error: "INTERNAL_ERROR",
+            message: "Cached response has invalid status code",
+          },
+        };
+      }
+      return {
+        status,
+        body: row.responseBody,
+      };
     }
+    // Note: IDEMPOTENCY_KEY_CONFLICT represents a client logic error where a key
+    // is reused for different content. This is a non-retriable 409 condition,
+    // so we intentionally omit the Retry-After header.
     return {
       status: 409,
       body: {
@@ -189,10 +257,7 @@ export async function withIdempotency(
 
   const executeAndCache = async (): Promise<IdempotencyResponse> => {
     const response = await execute();
-    if (
-      response.status === 409 &&
-      (response.body as { error?: string }).error === "TRANSITION_LOCKED"
-    ) {
+    if (response.doNotCache) {
       return response;
     }
     try {
@@ -248,9 +313,10 @@ export async function withIdempotency(
     actingPersonId,
     idempotencyKey,
   );
+  const lockToken = randomUUID();
   let acquired = false;
   try {
-    const result = await redis.set(key, "1", "PX", LOCK_TTL_MS, "NX");
+    const result = await redis.set(key, lockToken, "PX", LOCK_TTL_MS, "NX");
     acquired = result === "OK";
   } catch (err) {
     // Fails open, same philosophy as every other rate-limit/lock primitive
@@ -278,6 +344,9 @@ export async function withIdempotency(
         message: "A request with this idempotency key is already in progress",
         retryAfterSeconds: LOCK_RETRY_AFTER_SECONDS,
       },
+      headers: {
+        "Retry-After": String(LOCK_RETRY_AFTER_SECONDS),
+      },
     };
   }
 
@@ -292,7 +361,18 @@ export async function withIdempotency(
     return await executeAndCache();
   } finally {
     try {
-      await redis.del(key);
+      const result = await redis.eval(
+        RELEASE_LOCK_LUA_SCRIPT,
+        1,
+        key,
+        lockToken,
+      );
+      if (result === 0) {
+        logger.warn(
+          { tenantId, applicationActorId, actingPersonId, idempotencyKey },
+          "idempotency: lock release returned 0, lock likely expired/stale",
+        );
+      }
     } catch (releaseErr) {
       logger.warn(
         { releaseErr, tenantId },

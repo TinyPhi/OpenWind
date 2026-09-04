@@ -22,11 +22,34 @@ export interface HandoffState {
   appClientId: string;
 }
 
+// RFC 4122 UUID format used for defence-in-depth validation in
+// readHandoffParams below. isHandoffState in callback.tsx also validates,
+// but we reject non-UUIDs here so invalid state is never written into the
+// OAuth redirect in the first place.
+// Note: the regex matches any 8-4-4-4-12 hex structure regardless of
+// version or variant nibble -- that is intentional; the guard exists to
+// reject obvious garbage (e.g. "wf-1"), not to enforce v4 semantics.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Deliberately only ever extracts `title`/`remark` -- never arbitrary query
+// params -- because this whole path travels as plain URL query string (into
+// oidc-client-ts's `state`, itself embedded in the OAuth redirect chain) and
+// is visible in browser history and proxy access logs along the way (spec
+// §C). Only low-sensitivity, non-PII fields belong here; adding a generic
+// passthrough for arbitrary field names would silently widen that exposure
+// without the privacy review this limit was based on.
 function readHandoffParams(params: URLSearchParams): HandoffState | undefined {
   const workflowId = params.get("workflowId");
   const entityTypeId = params.get("entityTypeId");
   const appClientId = params.get("appClientId");
   if (!workflowId || !entityTypeId || !appClientId) return undefined;
+  // defence-in-depth: isHandoffState in callback.tsx also validates, but
+  // we reject non-UUIDs here so invalid state is never written to the OAuth
+  // redirect (fixing issue #544).
+  if (!UUID_RE.test(workflowId) || !UUID_RE.test(entityTypeId)) {
+    return undefined;
+  }
   const prefillFields: Record<string, string> = {};
   const title = params.get("title");
   const remark = params.get("remark");
@@ -101,17 +124,29 @@ export function Login(): React.ReactElement {
 
   async function handleLogin(): Promise<void> {
     setLoading(true);
-    await userManager.removeUser();
-    await userManager.signinRedirect({ prompt: "login" });
+    try {
+      await userManager.removeUser();
+      await userManager.signinRedirect({ prompt: "login" });
+    } catch {
+      // signinRedirect navigates away on success, so this only runs on a
+      // genuine failure (IdP unreachable, misconfigured OIDC endpoint) --
+      // without resetting loading here, the button stays permanently
+      // disabled for the rest of the session with no way to retry.
+      setLoading(false);
+    }
   }
 
   async function handleHandoffLogin(handoff: HandoffState): Promise<void> {
     setLoading(true);
-    // Deliberately NO prompt: "login" (unlike handleLogin above) and NO
-    // removeUser() -- an already-authenticated caller must be able to reuse
-    // their existing session silently and land straight on the pre-filled
-    // page, per spec R1, without a forced re-login screen.
-    await userManager.signinRedirect({ state: handoff });
+    try {
+      // Deliberately NO prompt: "login" (unlike handleLogin above) and NO
+      // removeUser() -- an already-authenticated caller must be able to
+      // reuse their existing session silently and land straight on the
+      // pre-filled page, per spec R1, without a forced re-login screen.
+      await userManager.signinRedirect({ state: handoff });
+    } catch {
+      setLoading(false);
+    }
   }
 
   // Deliberately NOT auto-triggered on mount -- the user still sees and
@@ -119,7 +154,10 @@ export function Login(): React.ReactElement {
   // earlier version auto-fired signinRedirect here, which skipped straight
   // to Zitadel's hosted login page with no visible OpenWind screen at all;
   // corrected after live testing showed that wasn't the intended UX).
-  const handoff = readHandoffParams(searchParams);
+  const handoff = React.useMemo(
+    () => readHandoffParams(searchParams),
+    [searchParams],
+  );
   async function handleSignInClick(): Promise<void> {
     if (handoff) {
       await handleHandoffLogin(handoff);

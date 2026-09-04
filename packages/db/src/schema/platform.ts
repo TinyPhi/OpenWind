@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   boolean,
   integer,
+  primaryKey,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -108,7 +109,7 @@ export const apiKeys = pgTable(
     /** docs/specs/third-party-key-external-org-mapping.md — set together, only when this key's acting-person tokens come from a DIFFERENT IdP than the tenant's primary (tenants.zitadel_org_id). NULL/NULL (the default) means "use the tenant's primary mapping," today's unchanged behavior. Enforced together (and only required when actually needed) at the API layer (create.ts), not here — same pattern as applicationName/oidcClientId above. */
     externalIssuer: text("external_issuer"),
     externalOrgId: text("external_org_id"),
-    /** Migration 0086/0087 — admin-UI API Keys card view groups keys into one card per (tenant-scoped, normalized) applicationName; enforced as a real DB uniqueness constraint, same rationale as oidcClientId's global one. Same active-claim-holder pattern as oidcClientIdActive above and for the same reason: rotate.ts keeps a rotated key's predecessor row active (revoked_at untouched) for its 24h grace window while inserting a successor under the SAME applicationName — rotate.ts flips this false on the predecessor in the same update that flips oidcClientIdActive false. */
+    /** Migration 0087/0088 — admin-UI API Keys card view groups keys into one card per (tenant-scoped, normalized) applicationName; enforced as a real DB uniqueness constraint, same rationale as oidcClientId's global one. Same active-claim-holder pattern as oidcClientIdActive above and for the same reason: rotate.ts keeps a rotated key's predecessor row active (revoked_at untouched) for its 24h grace window while inserting a successor under the SAME applicationName — rotate.ts flips this false on the predecessor in the same update that flips oidcClientIdActive false. */
     applicationNameActive: boolean("application_name_active")
       .default(true)
       .notNull(),
@@ -127,7 +128,7 @@ export const apiKeys = pgTable(
       .where(
         sql`${t.revokedAt} IS NULL AND ${t.oidcClientIdActive} = true AND ${t.oidcClientId} IS NOT NULL`,
       ),
-    // Migration 0086/0087 — same active-claim-holder shape as the Client ID
+    // Migration 0087/0088 — same active-claim-holder shape as the Client ID
     // index above, keyed by (tenant, normalized name) instead of a global
     // Client ID, since applicationName is a per-tenant human label, not a
     // platform-wide external identity.
@@ -630,6 +631,30 @@ export const pluginErrors = pgTable(
     tenantCreatedIdx: index("plugin_errors_tenant_created_idx").on(
       t.tenantId,
       t.createdAt,
+    ),
+  }),
+);
+
+/**
+ * tenantUsageDaily — narrow (tenant_id, usage_date, metric) -> value daily aggregation table
+ * (ADR-015 Decision #3, issue #505).
+ */
+export const tenantUsageDaily = pgTable(
+  "tenant_usage_daily",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    usageDate: date("usage_date").notNull(),
+    metric: text("metric").notNull(), // 'api_calls' | 'storage_bytes' | 'ai_tokens'
+    value: bigint("value", { mode: "number" }).notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.tenantId, t.usageDate, t.metric] }),
+    tenantIdx: index("tenant_usage_daily_tenant_idx").on(t.tenantId),
+    tenantDateIdx: index("tenant_usage_daily_tenant_date_idx").on(
+      t.tenantId,
+      t.usageDate,
     ),
   }),
 );

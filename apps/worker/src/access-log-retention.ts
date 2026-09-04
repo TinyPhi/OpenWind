@@ -21,7 +21,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@platform/db";
 import { logger } from "@platform/logger";
-import { Worker, Queue } from "bullmq";
+import { Worker, Queue } from "@platform/telemetry";
 import { connection } from "./queues.js";
 
 const QUEUE_NAME = "access-log-retention";

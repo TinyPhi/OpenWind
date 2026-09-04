@@ -1,5 +1,5 @@
 /**
- * Isolation tests for migration 0090 (docs/specs/third-party-api-origin-tagging.md,
+ * Isolation tests for migration 0091 (docs/specs/third-party-api-origin-tagging.md,
  * Phase 1, T2/T4) — proves the DB-level all-or-nothing CHECK constraint on
  * origin_mechanism/origin_oidc_client_id/origin_performer_user_id, on both
  * entity_instances (ticket/sub-ticket-level tag) and workflow_events
@@ -81,7 +81,7 @@ afterAll(async () => {
   await db.delete(tenants).where(eq(tenants.id, TENANT));
 });
 
-describe("entity_instances origin columns (migration 0090)", () => {
+describe("entity_instances origin columns (migration 0091)", () => {
   it("allows all three origin columns NULL together (human, in-app creation)", async () => {
     await expect(
       db
@@ -148,7 +148,7 @@ describe("entity_instances origin columns (migration 0090)", () => {
   });
 });
 
-describe("workflow_events origin columns (migration 0090) — comments/timeline entries", () => {
+describe("workflow_events origin columns (migration 0091) — comments/timeline entries", () => {
   it("allows all three origin columns set together on a workflow_events row", async () => {
     const [event] = await db
       .insert(workflowEvents)

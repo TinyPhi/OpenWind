@@ -21,7 +21,7 @@ import {
   isCheckViolation,
 } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { factory } from "./factory.js";
 import { scopeCeilingError } from "./scope-ceiling.js";
 
@@ -32,7 +32,12 @@ import { scopeCeilingError } from "./scope-ceiling.js";
 const CreateApiKeySchema = z.object({
   name: z.string().min(1).max(200),
   scopes: z.array(z.string().min(1)).default([]),
-  applicationName: z.string().min(1).max(200).optional(),
+  // .trim() before .min()/.max(), same fix and same reason as
+  // externalIssuer/externalOrgId below -- a direct API caller bypassing the
+  // admin UI's own trim could otherwise store a value with stray leading/
+  // trailing whitespace, even though the uniqueness check and DB index both
+  // normalize it away for comparison purposes.
+  applicationName: z.string().trim().min(1).max(200).optional(),
   applicationDescription: z.string().max(2000).optional(),
   // 320 = RFC 5321's max total address length; matches migration 0069's
   // CHECK constraint (issue #445) so an oversized value 400s here, not at
@@ -44,24 +49,17 @@ const CreateApiKeySchema = z.object({
   // platform's configured primary. externalIssuer is always explicit admin
   // input (spec §I's resolved decision) — never derived via a live
   // discovery-document fetch during this request.
-  // PR #545 review (PrabhuVijit) -- .trim() runs before .url()/.min(1), so a
-  // direct API caller (bypassing the admin UI's own trim) can no longer
-  // store a whitespace-padded value that would never match a real OIDC
-  // claim/issuer at verification time. A whitespace-only externalOrgId
-  // still correctly fails .min(1) after trimming.
-  externalIssuer: z.string().url().max(500).trim().optional(),
-  externalOrgId: z.string().min(1).max(200).trim().optional(),
+  // PR #546 review (PrabhuVijit) -- .trim() must run before .url()/.min(1)
+  // (code-style.md's Zod-ordering invariant), not after: with .trim() last,
+  // a caller could POST " " (length 1, passes .min(1)), which is then
+  // trimmed to "" and stored empty -- the invariant is already violated at
+  // rest by the time anything downstream checks it. Trimming first means a
+  // whitespace-only externalOrgId now correctly fails .min(1) up front.
+  externalIssuer: z.string().trim().url().max(500).optional(),
+  externalOrgId: z.string().trim().min(1).max(200).optional(),
 });
 
 const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
-
-// Admin-UI API Keys restructuring: keys are grouped into one card per
-// application by applicationName -- normalized the same way here as the
-// grouping logic on the client, so "Acme " and "acme" can never both exist
-// as separate registrations that would otherwise split into two cards.
-function normalizeApplicationName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
-}
 
 export const createApiKeyHandler = factory.createHandlers(
   requireAuth(),
@@ -327,7 +325,7 @@ export const createApiKeyHandler = factory.createHandlers(
       }
     }
 
-    // Migration 0086/0087's own comment: applicationName uniqueness is
+    // Migration 0087/0088's own comment: applicationName uniqueness is
     // tenant-scoped (unlike oidcClientId's global index above) -- two
     // different tenants can legitimately register their own "Zapier"
     // integration. Runs inside withTenantContext (RLS + the explicit
@@ -339,12 +337,25 @@ export const createApiKeyHandler = factory.createHandlers(
     // its applicationNameActive to false, so it correctly never counts as
     // a conflict against its own successor or anything else.
     if (scopesFormat === "action" && applicationName) {
-      const normalizedName = normalizeApplicationName(applicationName);
-      const candidates = await withTenantContext(tenantId, (tx) =>
+      // PR #546 review (PrabhuVijit) -- was an unbounded fetch-all-then-
+      // filter-in-JS scan; pushed the comparison into the same
+      // lower(btrim(...)) form migration 0088's own unique index uses, plus
+      // an explicit LIMIT, so this stays O(1) regardless of how many keys a
+      // tenant has accumulated instead of degrading with tenant size.
+      // Deliberately NOT normalizeApplicationName() here -- that also
+      // collapses internal whitespace runs (for the client's own grouping
+      // display), which lower(btrim()) does not; matching the DB's actual
+      // transform exactly is what keeps this query's notion of "conflict"
+      // consistent with the unique index that ultimately enforces it.
+      // Both sides go through Postgres's own lower(btrim(...)) -- not a JS
+      // .trim() on the right-hand side -- since JS .trim() strips a wider
+      // whitespace set (tabs, newlines, etc.) than btrim()'s space-only
+      // default, which could otherwise make this pre-check disagree with
+      // what the real unique index (migration 0088) would actually allow.
+      const [nameConflict] = await withTenantContext(tenantId, (tx) =>
         tx
           .select({
             id: apiKeys.id,
-            applicationName: apiKeys.applicationName,
             oidcClientId: apiKeys.oidcClientId,
             expiresAt: apiKeys.expiresAt,
           })
@@ -354,17 +365,13 @@ export const createApiKeyHandler = factory.createHandlers(
               eq(apiKeys.tenantId, tenantId),
               isNull(apiKeys.revokedAt),
               eq(apiKeys.applicationNameActive, true),
+              sql`lower(btrim(${apiKeys.applicationName})) = lower(btrim(${applicationName}))`,
             ),
-          ),
-      );
-      const nameConflict = candidates.find(
-        (row) =>
-          row.applicationName !== null &&
-          normalizeApplicationName(row.applicationName) === normalizedName &&
-          row.oidcClientId !== oidcClientId,
+          )
+          .limit(1),
       );
 
-      if (nameConflict) {
+      if (nameConflict && nameConflict.oidcClientId !== oidcClientId) {
         const isExpired =
           nameConflict.expiresAt !== null &&
           nameConflict.expiresAt <= new Date();
@@ -384,7 +391,15 @@ export const createApiKeyHandler = factory.createHandlers(
               revokedAt: new Date(),
               revokedBy: "system:expiry-reclaim",
             })
-            .where(eq(apiKeys.id, nameConflict.id)),
+            // PR #546 review (PrabhuVijit) -- explicit tenant_id filter is
+            // security.md rule 1's primary guard; RLS via withTenantContext
+            // is the second layer, not a substitute for it.
+            .where(
+              and(
+                eq(apiKeys.id, nameConflict.id),
+                eq(apiKeys.tenantId, tenantId),
+              ),
+            ),
         );
       }
     }
@@ -440,7 +455,7 @@ export const createApiKeyHandler = factory.createHandlers(
           }
           // Same race the pre-insert conflict check above can't fully close
           // (two concurrent requests for the same normalized name), closed
-          // by migration 0086's own unique index.
+          // by migration 0087's own unique index.
           if (
             isUniqueViolation(
               err,

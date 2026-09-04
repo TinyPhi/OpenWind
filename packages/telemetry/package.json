@@ -1,0 +1,41 @@
+{
+  "name": "@platform/telemetry",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@sentry/node": "^8.20.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
+    "@opentelemetry/exporter-prometheus": "^0.221.0",
+    "@opentelemetry/sdk-metrics": "^1.30.0",
+    "otel-instrumentation-postgres": "^1.0.0",
+    "bullmq-otel": "^1.2.0",
+    "@platform/config": "workspace:*",
+    "@platform/logger": "workspace:*",
+    "@platform/redis": "workspace:*",
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0"
+  },
+  "devDependencies": {
+    "@platform/tsconfig": "workspace:*",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.7.0",
+    "js-yaml": "^4.3.1",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  }
+}
