@@ -20,9 +20,11 @@ import {
   workflows,
   workflowStates,
   outboxEvents,
+  apiKeys,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import { getRedis } from "@platform/redis";
+import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
 
@@ -88,9 +90,36 @@ beforeAll(async () => {
 
   const other = await seedTenant(OTHER_TENANT);
   otherTenantTicketId = other.ticketId;
+
+  // docs/specs/third-party-api-origin-tagging.md -- the comment route now
+  // resolves the authenticating key's oidcClientId via a real DB lookup.
+  // Matches the NO_SCOPE_ACTOR_ID/VOLUME_ACTOR_ID stub ids used below.
+  await db.insert(apiKeys).values([
+    {
+      id: NO_SCOPE_ACTOR_ID,
+      tenantId: TENANT,
+      name: "Misuse Alerts No-Scope Test Key",
+      keyHash: hashApiKey(`sk_misuse_alerts_no_scope_${TENANT}`),
+      scopesFormat: "action",
+      scopes: [],
+      oidcClientId: `misuse-alerts-no-scope-test-client`,
+    },
+    {
+      id: VOLUME_ACTOR_ID,
+      tenantId: TENANT,
+      name: "Misuse Alerts Volume Test Key",
+      keyHash: hashApiKey(`sk_misuse_alerts_volume_${TENANT}`),
+      scopesFormat: "action",
+      scopes: ["entity:ticket:comment"],
+      oidcClientId: `misuse-alerts-volume-test-client`,
+    },
+  ]);
 });
 
 afterAll(async () => {
+  await db
+    .delete(apiKeys)
+    .where(inArray(apiKeys.id, [NO_SCOPE_ACTOR_ID, VOLUME_ACTOR_ID]));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT, OTHER_TENANT]));
   const redis = getRedis();
   const keys = await redis.keys(`misuse:*`);
