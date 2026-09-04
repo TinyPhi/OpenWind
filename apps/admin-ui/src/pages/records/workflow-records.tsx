@@ -11,6 +11,7 @@ import { userManager } from "../../authProvider.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 import { humanizeWorkflowName } from "../../lib/format.js";
 import { TransitionModal } from "../../components/transition-modal.js";
+import { OriginTag, type Origin } from "../../components/origin-tag.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,10 @@ type EntityInstance = {
   createdAt: string;
   updatedAt: string;
   assignedTo?: string | null;
+  // docs/specs/third-party-api-origin-tagging.md — resolved server-side by
+  // apps/api/src/lib/resolve-origin-display.ts. Absent/null = normal,
+  // human, in-app creation, no tag rendered.
+  origin?: Origin;
 };
 type OrgUser = {
   userId: string;
@@ -60,6 +65,7 @@ type ChildTicket = {
   assignedTo: string | null;
   createdAt: string;
   accessReason: "assigned" | "mention" | "manual";
+  origin?: Origin;
 };
 
 function toWorkflowSlug(name: string): string {
@@ -131,6 +137,12 @@ function ChildTicketCard({
       onClick={() => navigate(`/records/${typeSlug}/${ticket.id}`)}
     >
       <div className="kb-card-title">{title}</div>
+
+      {ticket.origin && (
+        <div style={{ margin: "4px 0" }}>
+          <OriginTag origin={ticket.origin} size="compact" />
+        </div>
+      )}
 
       <div className="kb-card-meta">
         <span className="kb-card-meta-label">State</span>
@@ -215,6 +227,12 @@ function RecordCard({
       <div className="kb-card-title">
         {preview[0]?.value ?? `#${record.id.slice(0, 8)}`}
       </div>
+
+      {record.origin && (
+        <div style={{ margin: "4px 0" }}>
+          <OriginTag origin={record.origin} size="compact" />
+        </div>
+      )}
 
       {stateLabel && (
         <div className="kb-card-meta">
