@@ -14,6 +14,11 @@ import { MAX_PAGE_SIZE } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { buildUserScopeFilter } from "./scoped-access.js";
+import {
+  batchLookupApplicationNames,
+  batchLookupPerformerNames,
+  toOriginDisplay,
+} from "../../lib/resolve-origin-display.js";
 
 // M-1: hard cap on the primary query — this endpoint aggregates across
 // parents/children/workflow-summary rather than a single cursor-paginated
@@ -86,6 +91,9 @@ export const myTicketsHandler = factory.createHandlers(
             assignedTo: entityInstances.assignedTo,
             createdBy: entityInstances.createdBy,
             createdAt: entityInstances.createdAt,
+            originMechanism: entityInstances.originMechanism,
+            originOidcClientId: entityInstances.originOidcClientId,
+            originPerformerUserId: entityInstances.originPerformerUserId,
           })
           .from(entityInstances)
           .where(baseConditions)
@@ -244,6 +252,13 @@ export const myTicketsHandler = factory.createHandlers(
         );
       }
 
+      // docs/specs/third-party-api-origin-tagging.md R1/R2/R4 -- one batch
+      // lookup for the whole page, same pattern as list.ts/list-children.ts.
+      const [nameByClientId, performerNameByUserId] = await Promise.all([
+        batchLookupApplicationNames(accessibleRows),
+        batchLookupPerformerNames(accessibleRows),
+      ]);
+
       // ── Step 5: split into parents and children, compute access reasons ────
       const parentTickets = [];
       const childTickets = [];
@@ -289,6 +304,7 @@ export const myTicketsHandler = factory.createHandlers(
             assignedTo: row.assignedTo,
             createdAt: row.createdAt.toISOString(),
             accessReason: reason === "creator" ? ("manual" as const) : reason,
+            origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
           });
         } else {
           // Parent ticket
@@ -300,6 +316,7 @@ export const myTicketsHandler = factory.createHandlers(
             assignedTo: row.assignedTo,
             createdAt: row.createdAt.toISOString(),
             accessReason: reason,
+            origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
           });
         }
 

@@ -35,6 +35,12 @@ import {
   TOKENS,
   useHoverStyle,
 } from "@platform/ui";
+import {
+  OriginTag,
+  OriginHeaderPill,
+  OriginDetailLine,
+  type Origin,
+} from "../../components/origin-tag.js";
 
 type EntityField = {
   id: string;
@@ -63,6 +69,9 @@ type EntityInstance = {
   childCount?: number;
   canAddChildren?: boolean;
   deletedAt?: string | null;
+  // docs/specs/third-party-api-origin-tagging.md — resolved server-side.
+  // Absent/null = normal, human, in-app creation, no tag rendered.
+  origin?: Origin;
 };
 type ChildInstance = {
   id: string;
@@ -75,6 +84,7 @@ type ChildInstance = {
   // EntityInstance rows) — just untyped here until the table view needed them.
   createdBy: string | null;
   createdAt: string;
+  origin?: Origin;
 };
 type Transition = {
   id: string;
@@ -100,6 +110,10 @@ type WorkflowEvent = {
   triggeredAt: string;
   createdAt?: string;
   metadata?: Record<string, unknown>;
+  // docs/specs/third-party-api-origin-tagging.md R3/R5 — comments are
+  // workflow_events rows, so this same type covers both the comment tag
+  // and every other activity-timeline entry's tag.
+  origin?: Origin;
 };
 type LinkedTicket = {
   relationId: string;
@@ -2834,6 +2848,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 minute: "2-digit",
               })}
             </span>
+            {event.origin && <OriginTag origin={event.origin} size="compact" />}
             {canComment && (
               <button
                 type="button"
@@ -3415,7 +3430,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                   allStates={effectiveStates}
                 />
                 <span className="rcd-id-chip">{record.id.slice(0, 8)}</span>
+                <OriginHeaderPill origin={record.origin} />
               </div>
+              {record.origin && <OriginDetailLine origin={record.origin} />}
             </div>
             <div className="rcd-card-header-right">
               {!editing && isAdminOrAgent && record.deletedAt && (
@@ -4248,6 +4265,17 @@ export function CustomerRecordDetail(): React.ReactElement {
                       .map((event) => (
                         <React.Fragment key={event.id}>
                           {renderFeedEvent(event)}
+                          {/* docs/specs/third-party-api-origin-tagging.md R5 —
+                              appended as a sibling rather than threaded through
+                              renderFeedEvent's many per-type branches. */}
+                          {event.origin && (
+                            <div
+                              className="rcd-feed-event-body"
+                              style={{ marginTop: "-4px", marginLeft: "30px" }}
+                            >
+                              <OriginTag origin={event.origin} size="compact" />
+                            </div>
+                          )}
                         </React.Fragment>
                       ))}
                   </div>
@@ -4409,6 +4437,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                                     <span className="rcd-child-id">
                                       #{child.id.slice(0, 6)}
                                     </span>
+                                    {child.origin && (
+                                      <OriginTag
+                                        origin={child.origin}
+                                        size="compact"
+                                      />
+                                    )}
                                   </div>
                                 </td>
                                 <td>
