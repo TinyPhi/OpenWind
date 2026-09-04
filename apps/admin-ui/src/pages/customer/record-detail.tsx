@@ -37,7 +37,8 @@ import {
 } from "@platform/ui";
 import {
   OriginTag,
-  OriginBanner,
+  OriginHeaderPill,
+  OriginDetailLine,
   type Origin,
 } from "../../components/origin-tag.js";
 
@@ -3429,12 +3430,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                   allStates={effectiveStates}
                 />
                 <span className="rcd-id-chip">{record.id.slice(0, 8)}</span>
+                <OriginHeaderPill origin={record.origin} />
               </div>
-              {record.origin && (
-                <div style={{ marginTop: "6px" }}>
-                  <OriginBanner origin={record.origin} />
-                </div>
-              )}
+              {record.origin && <OriginDetailLine origin={record.origin} />}
             </div>
             <div className="rcd-card-header-right">
               {!editing && isAdminOrAgent && record.deletedAt && (

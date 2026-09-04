@@ -11,6 +11,7 @@ import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import {
   batchLookupApplicationNames,
+  batchLookupPerformerNames,
   toOriginDisplay,
 } from "../../lib/resolve-origin-display.js";
 
@@ -99,10 +100,13 @@ export const listEntitiesHandler = factory.createHandlers(
       // docs/specs/third-party-api-origin-tagging.md §C — one batch lookup
       // for the whole page instead of N per-row lookups, resolving live
       // application names for R1/R2/R4's records-list badge.
-      const nameByClientId = await batchLookupApplicationNames(page.data);
+      const [nameByClientId, performerNameByUserId] = await Promise.all([
+        batchLookupApplicationNames(page.data),
+        batchLookupPerformerNames(page.data),
+      ]);
       const data = page.data.map((row) => ({
         ...row,
-        origin: toOriginDisplay(row, nameByClientId),
+        origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
       }));
 
       return c.json({ data, nextCursor: page.nextCursor });
