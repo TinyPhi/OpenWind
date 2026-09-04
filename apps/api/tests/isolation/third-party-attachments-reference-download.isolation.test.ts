@@ -19,9 +19,11 @@ import {
   attachments,
   files,
   adminAuditLog,
+  apiKeys,
   withTenantContext,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
+import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { presignAttachmentHandler } from "../../src/routes/third-party/attachments-presign.js";
 import { uploadAttachmentHandler } from "../../src/routes/third-party/attachments-upload.js";
@@ -31,6 +33,8 @@ import { createThirdPartyTicketHandler } from "../../src/routes/third-party/tick
 
 const TENANT = "aabbccdd-0000-4000-a000-000000000801";
 const OTHER_TENANT = "aabbccdd-0000-4000-a000-000000000802";
+const API_KEY_ID = "55555555-5555-5555-5555-555555555555";
+const ORIGIN_OIDC_CLIENT_ID = "attachments-reference-download-test-client";
 
 let entityTypeId: string;
 let workflowId: string;
@@ -81,6 +85,19 @@ beforeAll(async () => {
       slug: `3p-attach-ref-other-${OTHER_TENANT}`,
     },
   ]);
+
+  // docs/specs/third-party-api-origin-tagging.md -- the ticket/comment
+  // create routes now resolve the authenticating key's oidcClientId via a
+  // real DB lookup. Matches the "apikey:55555555-..." stub id.
+  await db.insert(apiKeys).values({
+    id: API_KEY_ID,
+    tenantId: TENANT,
+    name: "Attachments Reference Download Test Key",
+    keyHash: hashApiKey(`sk_attachments_reference_download_test_${TENANT}`),
+    scopesFormat: "action",
+    scopes: ["entity:ticket:create", "entity:ticket:comment"],
+    oidcClientId: ORIGIN_OIDC_CLIENT_ID,
+  });
 
   const entityType = await createEntityType(db, null, {
     name: `third_party_attachment_ref_test_${Date.now()}`,
@@ -156,6 +173,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(apiKeys).where(eq(apiKeys.id, API_KEY_ID));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT, OTHER_TENANT]));
 });
 

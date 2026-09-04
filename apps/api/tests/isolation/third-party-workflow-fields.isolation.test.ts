@@ -12,25 +12,33 @@ import { inArray, eq, and } from "drizzle-orm";
 import {
   db,
   tenants,
+  entityTypes,
   entityFields,
+  workflows,
+  workflowStates,
   adminAuditLog,
+  apiKeys,
   withTenantContext,
 } from "@platform/db";
 import { createEntityType, addEntityField } from "@platform/entity-engine";
 import type { EntityType } from "@platform/entity-engine";
 import { createWorkflow } from "@platform/workflow-engine";
+import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { getThirdPartyWorkflowFieldsHandler } from "../../src/routes/third-party/workflow-fields.js";
 import { createThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
 
 const TENANT = "ffffffff-0000-4000-f000-000000000f01";
 const OTHER_TENANT = "ffffffff-0000-4000-f000-000000000f02";
+const API_KEY_ID = "77777777-7777-4777-7777-777777777777";
+const ORIGIN_OIDC_CLIENT_ID = "workflow-fields-test-client";
 
 let entityType: EntityType;
 let workflowId: string;
 let emptyEntityType: EntityType;
 let emptyWorkflowId: string;
 let otherTenantWorkflowId: string;
+let otherEntityType: EntityType;
 
 const ACTING_PERSON = "third-party-workflow-fields-actor";
 
@@ -43,6 +51,19 @@ beforeAll(async () => {
       slug: `3p-fields-other-${OTHER_TENANT}`,
     },
   ]);
+
+  // docs/specs/third-party-api-origin-tagging.md -- the ticket-create route
+  // used below now resolves the authenticating key's oidcClientId via a
+  // real DB lookup. Matches the "apikey:77777777-..." stub id.
+  await db.insert(apiKeys).values({
+    id: API_KEY_ID,
+    tenantId: TENANT,
+    name: "Workflow Fields Test Key",
+    keyHash: hashApiKey(`sk_workflow_fields_test_${TENANT}`),
+    scopesFormat: "action",
+    scopes: ["entity:ticket:create"],
+    oidcClientId: ORIGIN_OIDC_CLIENT_ID,
+  });
 
   // Global entity type (tenantId null) so a tenant-specific field can be
   // layered on top -- proves the response unions both, per spec R1.
@@ -105,7 +126,7 @@ beforeAll(async () => {
   emptyWorkflowId = emptyWorkflow.id;
 
   // A workflow belonging to a different tenant, to prove cross-tenant 404.
-  const otherEntityType = await createEntityType(db, null, {
+  otherEntityType = await createEntityType(db, null, {
     name: `third_party_fields_other_test_${Date.now()}`,
     plural: "third_party_fields_other_tests",
     allowCustomFields: true,
@@ -119,7 +140,31 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.delete(tenants).where(inArray(tenants.id, [TENANT, OTHER_TENANT]));
+  await db.delete(apiKeys).where(eq(apiKeys.id, API_KEY_ID));
+  const tenantIds = [TENANT, OTHER_TENANT];
+
+  // Entity types (and the global field on them) created with tenantId: null
+  // are NOT cleaned up by the tenant delete below -- they're global, not
+  // tenant-scoped, so nothing cascades from deleting TENANT/OTHER_TENANT.
+  // Left uncleaned, every CI run adds 3 more orphaned rows here. Workflows
+  // (tenant-scoped) reference these entity types via a FK with no cascade,
+  // so they must go first, before the entity types they point at.
+  const globalEntityTypeIds = [
+    entityType.id,
+    emptyEntityType.id,
+    otherEntityType.id,
+  ];
+  await db
+    .delete(workflowStates)
+    .where(inArray(workflowStates.tenantId, tenantIds));
+  await db.delete(workflows).where(inArray(workflows.tenantId, tenantIds));
+  await db
+    .delete(entityFields)
+    .where(inArray(entityFields.entityTypeId, globalEntityTypeIds));
+  await db
+    .delete(entityTypes)
+    .where(inArray(entityTypes.id, globalEntityTypeIds));
+  await db.delete(tenants).where(inArray(tenants.id, tenantIds));
 });
 
 type Vars = {
