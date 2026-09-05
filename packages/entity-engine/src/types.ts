@@ -1,5 +1,6 @@
 import type { FieldType } from "./field-types.js";
 import type { FieldError } from "./errors.js";
+import type { TicketSeverity } from "./severity-and-tags.js";
 
 /** PII classification for a field — controls redaction in workflow_events.metadata. */
 export type FieldSensitivity = "public" | "internal" | "pii" | "financial";
@@ -54,6 +55,11 @@ export interface EntityInstance {
   originMechanism: "api" | "handoff" | null;
   originOidcClientId: string | null;
   originPerformerUserId: string | null;
+  /**
+   * docs/specs/ticket-severity-and-tags.md. NULL only on rows created before this
+   * feature shipped (§V) — every creation path since writes a real value.
+   */
+  severity: TicketSeverity | null;
 }
 
 export interface EntityRelation {

@@ -1339,6 +1339,7 @@ function rowToInstance(
     originMechanism: row.originMechanism as "api" | "handoff" | null,
     originOidcClientId: row.originOidcClientId ?? null,
     originPerformerUserId: row.originPerformerUserId ?? null,
+    severity: row.severity ?? null,
   };
 }
 

@@ -83,6 +83,7 @@ export async function searchEntities(
       originMechanism: entityInstances.originMechanism,
       originOidcClientId: entityInstances.originOidcClientId,
       originPerformerUserId: entityInstances.originPerformerUserId,
+      severity: entityInstances.severity,
       rank: rankExpr,
     })
     .from(entityInstances)
@@ -127,5 +128,6 @@ function rowToInstance(
     originMechanism: row.originMechanism as "api" | "handoff" | null,
     originOidcClientId: row.originOidcClientId ?? null,
     originPerformerUserId: row.originPerformerUserId ?? null,
+    severity: row.severity ?? null,
   };
 }

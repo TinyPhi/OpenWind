@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./errors.js";
 export * from "./field-types.js";
+export * from "./severity-and-tags.js";
 export type { CursorPage } from "./pagination.js";
 export {
   encodeCursor,
