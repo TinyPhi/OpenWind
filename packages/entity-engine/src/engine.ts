@@ -34,6 +34,7 @@ import {
   normalizeTagText,
   TAG_TEXT_MAX_LENGTH,
   DEFAULT_TICKET_SEVERITY,
+  escapeLikePattern,
 } from "./severity-and-tags.js";
 import {
   encodeCursor,
@@ -1281,15 +1282,17 @@ export async function listEntities(
   } else if (input.origin === "redirected") {
     conditions.push(eq(entityInstances.originMechanism, "handoff"));
   }
-  // docs/specs/ticket-severity-and-tags.md R6 — exact match on an
-  // already-normalized tag (the route layer normalizes before this call).
+  // docs/specs/ticket-severity-and-tags.md R6 — substring match (live
+  // type-ahead UX) on an already-normalized tag (the route layer normalizes
+  // before this call); wildcard chars in the user's input are escaped so a
+  // literal "%"/"_" in a tag search can't act as a SQL wildcard.
   if (input.tag !== undefined) {
     conditions.push(
       sql`EXISTS (
         SELECT 1 FROM entity_instance_tags eit
         WHERE eit.entity_instance_id = ${entityInstances.id}
           AND eit.tenant_id = ${tenantId}
-          AND eit.tag_text = ${input.tag}
+          AND eit.tag_text ILIKE ${`%${escapeLikePattern(input.tag)}%`} ESCAPE '\\'
       )`,
     );
   }

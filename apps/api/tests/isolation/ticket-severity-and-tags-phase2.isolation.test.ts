@@ -274,6 +274,73 @@ describe("listEntities — severity and tag filters", () => {
     await db.delete(entityInstances).where(eq(entityInstances.id, tagged.id));
   });
 
+  it("tag filter matches on a substring, not just the full tag (live type-ahead UX)", async () => {
+    const tagged = await createEntity(db, TENANT_A, {
+      entityTypeId: entityTypeIdA,
+      fields: {},
+      createdBy: "user-a",
+      severity: "medium",
+    });
+    await withTenantContext(TENANT_A, (tx) =>
+      addEntityInstanceTag(tx, TENANT_A, tagged.id, "railways", "user-a"),
+    );
+
+    for (const partial of ["r", "rail", "ways", "railways"]) {
+      const page = await withTenantContext(TENANT_A, (tx) =>
+        listEntities(tx, TENANT_A, {
+          entityTypeId: entityTypeIdA,
+          tag: partial,
+        }),
+      );
+      expect(page.data.map((r) => r.id)).toContain(tagged.id);
+    }
+
+    // A substring that doesn't appear anywhere in the tag still excludes it.
+    const miss = await withTenantContext(TENANT_A, (tx) =>
+      listEntities(tx, TENANT_A, {
+        entityTypeId: entityTypeIdA,
+        tag: "zzz",
+      }),
+    );
+    expect(miss.data.map((r) => r.id)).not.toContain(tagged.id);
+
+    await db.delete(entityInstances).where(eq(entityInstances.id, tagged.id));
+  });
+
+  it("tag filter treats a literal % or _ in the search text as a literal character, not a SQL wildcard", async () => {
+    const taggedPercent = await createEntity(db, TENANT_A, {
+      entityTypeId: entityTypeIdA,
+      fields: {},
+      createdBy: "user-a",
+      severity: "medium",
+    });
+    // Tag text itself can't contain "%" (normalizeTagText doesn't strip it,
+    // and the DB CHECK only restricts length/emptiness) -- this proves an
+    // unrelated tag containing "e" isn't matched by a search for "e%" being
+    // interpreted as a wildcard (which would match anything starting with "e").
+    await withTenantContext(TENANT_A, (tx) =>
+      addEntityInstanceTag(
+        tx,
+        TENANT_A,
+        taggedPercent.id,
+        "everything",
+        "user-a",
+      ),
+    );
+
+    const page = await withTenantContext(TENANT_A, (tx) =>
+      listEntities(tx, TENANT_A, {
+        entityTypeId: entityTypeIdA,
+        tag: "e%zzz",
+      }),
+    );
+    expect(page.data.map((r) => r.id)).not.toContain(taggedPercent.id);
+
+    await db
+      .delete(entityInstances)
+      .where(eq(entityInstances.id, taggedPercent.id));
+  });
+
   it("tag filter never returns another tenant's instance even with a matching tag", async () => {
     const page = await withTenantContext(TENANT_A, (tx) =>
       listEntities(tx, TENANT_A, {

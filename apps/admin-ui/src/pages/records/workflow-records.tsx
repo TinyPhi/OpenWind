@@ -18,7 +18,6 @@ import {
   type Origin,
 } from "../../components/origin-tag.js";
 import {
-  SeverityBadge,
   SEVERITY_LEVELS,
   SEVERITY_LABEL,
   SEVERITY_COLOR,
@@ -151,6 +150,11 @@ function ChildTicketCard({
     <div
       className="kb-card kb-card--child"
       onClick={() => navigate(`/records/${typeSlug}/${ticket.id}`)}
+      style={
+        ticket.severity
+          ? { borderLeft: `3px solid ${SEVERITY_COLOR[ticket.severity]}` }
+          : undefined
+      }
     >
       <OriginCornerBadge origin={ticket.origin} />
 
@@ -169,12 +173,6 @@ function ChildTicketCard({
           {isDone ? "✓ Closed" : "○ Open"}
         </span>
       </div>
-
-      {ticket.severity && (
-        <div className="kb-card-meta">
-          <SeverityBadge severity={ticket.severity} compact />
-        </div>
-      )}
 
       <div className="kb-card-footer">
         <span className="kb-card-time">
@@ -246,6 +244,11 @@ function RecordCard({
         divRef.current?.classList.remove("kb-card--ghost");
       }}
       onClick={() => navigate(`/records/${typeSlug}/${record.id}`)}
+      style={
+        record.severity
+          ? { borderLeft: `3px solid ${SEVERITY_COLOR[record.severity]}` }
+          : undefined
+      }
     >
       <OriginCornerBadge origin={record.origin} />
 
@@ -260,11 +263,6 @@ function RecordCard({
         <div className="kb-card-meta">
           <span className="kb-card-meta-label">State</span>
           <span className="kb-card-meta-value">{stateLabel}</span>
-        </div>
-      )}
-      {record.severity && (
-        <div className="kb-card-meta">
-          <SeverityBadge severity={record.severity} compact />
         </div>
       )}
 
@@ -528,6 +526,9 @@ export function WorkflowRecords(): React.ReactElement {
   const [workflowId, setWorkflowId] = useState<string>("");
   const [entityTypeId, setEntityTypeId] = useState<string>("");
   const [workflowName, setWorkflowName] = useState<string>("");
+  const [workflowCreatedBy, setWorkflowCreatedBy] = useState<string | null>(
+    null,
+  );
   const [workflowAssignedTo, setWorkflowAssignedTo] = useState<string[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
@@ -535,6 +536,10 @@ export function WorkflowRecords(): React.ReactElement {
   const [fields, setFields] = useState<EntityField[]>([]);
   const [records, setRecords] = useState<EntityInstance[]>([]);
   const [childTickets, setChildTickets] = useState<ChildTicket[]>([]);
+  // docs/specs/ticket-severity-and-tags.md — filter changes only refetch the
+  // ticket list (this flag), never the full-page `loading` state, so the
+  // board/filter panel/inputs never unmount and lose focus mid-type.
+  const [recordsRefreshing, setRecordsRefreshing] = useState(false);
   const [states, setStates] = useState<WorkflowState[]>([]);
   const [transitions, setTransitions] = useState<Transition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -548,6 +553,22 @@ export function WorkflowRecords(): React.ReactElement {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const [filterOpen, setFilterOpen] = useState(false);
+  // Filter panel redesign: accordion sections instead of one long stacked
+  // list — each section collapses/expands independently, "Date" and
+  // "Assigned to" (the two tallest sections) start collapsed so the panel
+  // opens compact; the rest start open since their content is a single row
+  // of chips.
+  const [openFilterSections, setOpenFilterSections] = useState<Set<string>>(
+    new Set(["source", "severity", "tag"]),
+  );
+  function toggleFilterSection(key: string): void {
+    setOpenFilterSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
   const [filterDateField, setFilterDateField] = useState<
     "createdAt" | "updatedAt" | ""
   >("");
@@ -606,6 +627,10 @@ export function WorkflowRecords(): React.ReactElement {
     });
   }, []);
 
+  // Workflow shell — resolves the slug, loads workflow/states/fields/users.
+  // Runs once per workflowSlug change; NOT re-run on filter changes, so the
+  // full-page loading state (and therefore the whole board/filter panel)
+  // never unmounts just because a filter was toggled or typed into.
   useEffect(() => {
     if (!workflowSlug) return;
     setLoading(true);
@@ -647,6 +672,7 @@ export function WorkflowRecords(): React.ReactElement {
         setWorkflowId(wf.id);
         setWorkflowName(wf.name);
         setEntityTypeId(wf.entityTypeId);
+        setWorkflowCreatedBy(wf.createdBy);
         setWorkflowAssignedTo((wf.assignedTo as string[] | null) ?? []);
 
         const loadedStates = wf.states as WorkflowState[];
@@ -664,44 +690,8 @@ export function WorkflowRecords(): React.ReactElement {
           return [...kept, ...added];
         });
 
-        // A "user"-role caller who is this workflow's creator or in its
-        // assignedTo list is a workflow admin and gets the same unrestricted
-        // list access as admin/agent (mirrors apps/api/src/routes/entities/
-        // list.ts's isWorkflowAdmin check) - isUserRole alone only reflects
-        // the raw admin/agent role, so without this a workflow admin was
-        // silently routed through /entities/my-tickets and only ever saw
-        // their own tickets.
-        const isWorkflowAdminForThisWorkflow =
-          isUserRole &&
-          currentUserId !== null &&
-          (currentUserId === wf.createdBy ||
-            ((wf.assignedTo as string[] | null) ?? []).includes(currentUserId));
-        const useMyTickets = isUserRole && !isWorkflowAdminForThisWorkflow;
-
-        // docs/specs/ticket-severity-and-tags.md T16 — severity/tag/origin
-        // all filter server-side now, shared by both fetch paths (list.ts's
-        // own params and my-tickets.ts's mirrored ones).
-        const filterParams = new URLSearchParams();
-        if (filterSeverities.size > 0) {
-          filterParams.set("severity", [...filterSeverities].join(","));
-        }
-        if (filterTag) {
-          filterParams.set("tag", filterTag);
-        }
-        if (filterOrigin) {
-          filterParams.set("origin", filterOrigin);
-        }
-        const filterQS = filterParams.toString();
-
-        const [fieldsRes, recRes, usersRes] = await Promise.all([
+        const [fieldsRes, usersRes] = await Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
-          useMyTickets
-            ? fetchWithAuth(
-                `${API_URL}/entities/my-tickets?workflowId=${wf.id}${filterQS ? `&${filterQS}` : ""}`,
-              )
-            : fetchWithAuth(
-                `${API_URL}/entities?entityTypeId=${wf.entityTypeId}&rootOnly=true${filterQS ? `&${filterQS}` : ""}`,
-              ),
           fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
         ]);
         setFields(
@@ -709,6 +699,60 @@ export function WorkflowRecords(): React.ReactElement {
             (f) => !f.isSystem,
           ),
         );
+        setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
+      })
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : "Failed to load"),
+      )
+      .finally(() => setLoading(false));
+  }, [workflowSlug]);
+
+  // Ticket list — re-fetches on its own whenever the workflow shell above
+  // resolves OR any filter changes, using recordsRefreshing (a subtle,
+  // non-blocking indicator) instead of the full-page `loading` state, so
+  // typing in the tag filter or toggling a chip never remounts the page or
+  // drops input focus.
+  useEffect(() => {
+    if (!workflowId || !entityTypeId) return;
+    setRecordsRefreshing(true);
+
+    // A "user"-role caller who is this workflow's creator or in its
+    // assignedTo list is a workflow admin and gets the same unrestricted
+    // list access as admin/agent (mirrors apps/api/src/routes/entities/
+    // list.ts's isWorkflowAdmin check) - isUserRole alone only reflects
+    // the raw admin/agent role, so without this a workflow admin was
+    // silently routed through /entities/my-tickets and only ever saw
+    // their own tickets.
+    const isWorkflowAdminForThisWorkflow =
+      isUserRole &&
+      currentUserId !== null &&
+      (currentUserId === workflowCreatedBy ||
+        workflowAssignedTo.includes(currentUserId));
+    const useMyTickets = isUserRole && !isWorkflowAdminForThisWorkflow;
+
+    // docs/specs/ticket-severity-and-tags.md T16 — severity/tag/origin all
+    // filter server-side, shared by both fetch paths (list.ts's own params
+    // and my-tickets.ts's mirrored ones).
+    const filterParams = new URLSearchParams();
+    if (filterSeverities.size > 0) {
+      filterParams.set("severity", [...filterSeverities].join(","));
+    }
+    if (filterTag) {
+      filterParams.set("tag", filterTag);
+    }
+    if (filterOrigin) {
+      filterParams.set("origin", filterOrigin);
+    }
+    const filterQS = filterParams.toString();
+
+    const url = useMyTickets
+      ? `${API_URL}/entities/my-tickets?workflowId=${workflowId}${filterQS ? `&${filterQS}` : ""}`
+      : `${API_URL}/entities?entityTypeId=${entityTypeId}&rootOnly=true${filterQS ? `&${filterQS}` : ""}`;
+
+    let cancelled = false;
+    fetchWithAuth(url)
+      .then((recRes) => {
+        if (cancelled) return;
         if (useMyTickets) {
           const myData =
             (
@@ -725,13 +769,28 @@ export function WorkflowRecords(): React.ReactElement {
           setRecords((recRes as { data?: EntityInstance[] }).data ?? []);
           setChildTickets([]);
         }
-        setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
       })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
-      )
-      .finally(() => setLoading(false));
-  }, [workflowSlug, isUserRole, filterSeverities, filterTag, filterOrigin]);
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Failed to load");
+      })
+      .finally(() => {
+        if (!cancelled) setRecordsRefreshing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    workflowId,
+    entityTypeId,
+    isUserRole,
+    currentUserId,
+    workflowCreatedBy,
+    workflowAssignedTo,
+    filterSeverities,
+    filterTag,
+    filterOrigin,
+  ]);
 
   useEffect(() => {
     if (!searchExpanded) return;
@@ -1204,273 +1263,425 @@ export function WorkflowRecords(): React.ReactElement {
                   )}
                 </div>
 
-                {/* Date filter */}
-                <div className="kb-filter-section">
-                  <div className="kb-filter-section-label">Date</div>
-                  <select
-                    className="kb-filter-select"
-                    value={filterDateField}
-                    onChange={(e) => {
-                      setFilterDateField(
-                        e.target.value as "createdAt" | "updatedAt" | "",
-                      );
-                      setFilterDateValue("");
-                    }}
-                  >
-                    <option value="">Select field…</option>
-                    <option value="createdAt">Created at</option>
-                    <option value="updatedAt">Last updated</option>
-                  </select>
-                  {filterDateField && (
-                    <input
-                      type="date"
-                      className="kb-filter-date-input"
-                      value={filterDateValue}
-                      onChange={(e) => setFilterDateValue(e.target.value)}
-                      style={{ marginTop: "8px" }}
-                    />
-                  )}
-                </div>
-
-                {/* Source filter — docs/specs/third-party-api-origin-tagging.md */}
-                <div className="kb-filter-section">
-                  <div className="kb-filter-section-label">Source</div>
-                  <div className="kb-filter-origin-options">
-                    {[
-                      { key: "" as const, label: "Any", color: null },
-                      {
-                        key: "internal" as const,
-                        label: "Internal",
-                        color: null,
-                      },
-                      {
-                        key: "external" as const,
-                        label: LABEL_BY_MECHANISM.api,
-                        color: COLOR_BY_MECHANISM.api,
-                      },
-                      {
-                        key: "redirected" as const,
-                        label: LABEL_BY_MECHANISM.handoff,
-                        color: COLOR_BY_MECHANISM.handoff,
-                      },
-                    ].map((opt) => (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        className={`kb-filter-origin-chip ${filterOrigin === opt.key ? "kb-filter-origin-chip-active" : ""}`}
-                        onClick={() => setFilterOrigin(opt.key)}
-                        style={
-                          opt.color && filterOrigin === opt.key
-                            ? {
-                                background: opt.color,
-                                borderColor: opt.color,
-                                color: "hsl(0, 0%, 100%)",
-                              }
-                            : undefined
-                        }
+                <div className="kb-filter-panel-body">
+                  {/* Date filter */}
+                  <div className="kb-filter-section">
+                    <button
+                      type="button"
+                      className="kb-filter-section-toggle"
+                      onClick={() => toggleFilterSection("date")}
+                    >
+                      <span className="kb-filter-section-label">
+                        Date
+                        {filterDateField && filterDateValue && (
+                          <span className="kb-filter-section-count">1</span>
+                        )}
+                      </span>
+                      <svg
+                        className={`kb-filter-chevron ${openFilterSections.has("date") ? "kb-filter-chevron-open" : ""}`}
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        {opt.color && (
-                          <span
-                            className="kb-filter-origin-dot"
-                            style={{
-                              background:
-                                filterOrigin === opt.key
-                                  ? "hsl(0, 0%, 100%)"
-                                  : opt.color,
-                            }}
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                    {openFilterSections.has("date") && (
+                      <div className="kb-filter-section-body">
+                        <select
+                          className="kb-filter-select"
+                          value={filterDateField}
+                          onChange={(e) => {
+                            setFilterDateField(
+                              e.target.value as "createdAt" | "updatedAt" | "",
+                            );
+                            setFilterDateValue("");
+                          }}
+                        >
+                          <option value="">Select field…</option>
+                          <option value="createdAt">Created at</option>
+                          <option value="updatedAt">Last updated</option>
+                        </select>
+                        {filterDateField && (
+                          <input
+                            type="date"
+                            className="kb-filter-date-input"
+                            value={filterDateValue}
+                            onChange={(e) => setFilterDateValue(e.target.value)}
+                            style={{ marginTop: "8px" }}
                           />
                         )}
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Severity filter — docs/specs/ticket-severity-and-tags.md R6 */}
-                <div className="kb-filter-section">
-                  <div className="kb-filter-section-label">Severity</div>
-                  <div className="kb-filter-origin-options">
-                    {SEVERITY_LEVELS.map((level) => {
-                      const active = filterSeverities.has(level);
-                      const color = SEVERITY_COLOR[level];
-                      return (
-                        <button
-                          key={level}
-                          type="button"
-                          className={`kb-filter-origin-chip ${active ? "kb-filter-origin-chip-active" : ""}`}
-                          onClick={() =>
-                            setFilterSeverities((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(level)) next.delete(level);
-                              else next.add(level);
-                              return next;
-                            })
-                          }
-                          style={
-                            active
-                              ? {
-                                  background: color,
-                                  borderColor: color,
-                                  color: "hsl(0, 0%, 100%)",
-                                }
-                              : undefined
-                          }
-                        >
-                          <span
-                            className="kb-filter-origin-dot"
-                            style={{
-                              background: active ? "hsl(0, 0%, 100%)" : color,
-                            }}
-                          />
-                          {SEVERITY_LABEL[level]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Tag filter — docs/specs/ticket-severity-and-tags.md R6 */}
-                <div className="kb-filter-section">
-                  <div className="kb-filter-section-label">Tag</div>
-                  <input
-                    type="text"
-                    className="kb-filter-select"
-                    placeholder="Filter by exact tag…"
-                    value={filterTagInput}
-                    onChange={(e) => handleFilterTagInputChange(e.target.value)}
-                  />
-                </div>
-
-                {/* Assigned to filter */}
-                <div className="kb-filter-section">
-                  <div className="kb-filter-section-label">Assigned to</div>
-                  <div className="kb-filter-user-search-wrap">
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <circle cx="11" cy="11" r="8" />
-                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                    </svg>
-                    <input
-                      className="kb-filter-user-search"
-                      placeholder="Search name or email…"
-                      value={userSearch}
-                      onChange={(e) => setUserSearch(e.target.value)}
-                    />
-                  </div>
-                  <div className="kb-filter-assignee-list">
-                    {!userSearch && (
-                      <>
-                        <button
-                          type="button"
-                          className={`kb-filter-assignee-item ${filterAssignedTo === "" ? "kb-filter-assignee-active" : ""}`}
-                          onClick={() => setFilterAssignedTo("")}
-                        >
-                          <span className="kb-filter-assignee-avatar kb-filter-assignee-avatar-all">
-                            A
-                          </span>
-                          <span>Anyone</span>
-                          {filterAssignedTo === "" && (
-                            <svg
-                              className="kb-filter-check"
-                              width="12"
-                              height="12"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className={`kb-filter-assignee-item ${filterAssignedTo === "__unassigned__" ? "kb-filter-assignee-active" : ""}`}
-                          onClick={() =>
-                            setFilterAssignedTo(
-                              filterAssignedTo === "__unassigned__"
-                                ? ""
-                                : "__unassigned__",
-                            )
-                          }
-                        >
-                          <span className="kb-filter-assignee-avatar kb-filter-assignee-avatar-none">
-                            ?
-                          </span>
-                          <span>Unassigned</span>
-                          {filterAssignedTo === "__unassigned__" && (
-                            <svg
-                              className="kb-filter-check"
-                              width="12"
-                              height="12"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </button>
-                      </>
+                      </div>
                     )}
-                    {users
-                      .filter((u) => {
-                        if (!userSearch) return true;
-                        const q = userSearch.toLowerCase();
-                        return (
-                          (u.displayName ?? "").toLowerCase().includes(q) ||
-                          u.email.toLowerCase().includes(q)
-                        );
-                      })
-                      .map((u) => (
-                        <button
-                          key={u.userId}
-                          type="button"
-                          className={`kb-filter-assignee-item ${filterAssignedTo === u.userId ? "kb-filter-assignee-active" : ""}`}
-                          onClick={() =>
-                            setFilterAssignedTo(
-                              filterAssignedTo === u.userId ? "" : u.userId,
-                            )
-                          }
-                        >
-                          <span className="kb-filter-assignee-avatar">
-                            {(u.displayName ?? u.email)
-                              .slice(0, 1)
-                              .toUpperCase()}
-                          </span>
-                          <span className="kb-filter-assignee-name">
-                            {u.displayName ?? u.email}
-                          </span>
-                          {filterAssignedTo === u.userId && (
-                            <svg
-                              className="kb-filter-check"
-                              width="12"
-                              height="12"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
+                  </div>
+
+                  {/* Source filter — docs/specs/third-party-api-origin-tagging.md */}
+                  <div className="kb-filter-section">
+                    <button
+                      type="button"
+                      className="kb-filter-section-toggle"
+                      onClick={() => toggleFilterSection("source")}
+                    >
+                      <span className="kb-filter-section-label">
+                        Source
+                        {filterOrigin && (
+                          <span className="kb-filter-section-count">1</span>
+                        )}
+                      </span>
+                      <svg
+                        className={`kb-filter-chevron ${openFilterSections.has("source") ? "kb-filter-chevron-open" : ""}`}
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                    {openFilterSections.has("source") && (
+                      <div className="kb-filter-section-body">
+                        <div className="kb-filter-origin-options">
+                          {[
+                            { key: "" as const, label: "Any", color: null },
+                            {
+                              key: "internal" as const,
+                              label: "Internal",
+                              color: null,
+                            },
+                            {
+                              key: "external" as const,
+                              label: LABEL_BY_MECHANISM.api,
+                              color: COLOR_BY_MECHANISM.api,
+                            },
+                            {
+                              key: "redirected" as const,
+                              label: LABEL_BY_MECHANISM.handoff,
+                              color: COLOR_BY_MECHANISM.handoff,
+                            },
+                          ].map((opt) => (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              className={`kb-filter-origin-chip ${filterOrigin === opt.key ? "kb-filter-origin-chip-active" : ""}`}
+                              onClick={() => setFilterOrigin(opt.key)}
+                              style={
+                                opt.color && filterOrigin === opt.key
+                                  ? {
+                                      background: opt.color,
+                                      borderColor: opt.color,
+                                      color: "hsl(0, 0%, 100%)",
+                                    }
+                                  : undefined
+                              }
                             >
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
+                              {opt.color && (
+                                <span
+                                  className="kb-filter-origin-dot"
+                                  style={{
+                                    background:
+                                      filterOrigin === opt.key
+                                        ? "hsl(0, 0%, 100%)"
+                                        : opt.color,
+                                  }}
+                                />
+                              )}
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Severity filter — docs/specs/ticket-severity-and-tags.md R6 */}
+                  <div className="kb-filter-section">
+                    <button
+                      type="button"
+                      className="kb-filter-section-toggle"
+                      onClick={() => toggleFilterSection("severity")}
+                    >
+                      <span className="kb-filter-section-label">
+                        Severity
+                        {filterSeverities.size > 0 && (
+                          <span className="kb-filter-section-count">
+                            {filterSeverities.size}
+                          </span>
+                        )}
+                      </span>
+                      <svg
+                        className={`kb-filter-chevron ${openFilterSections.has("severity") ? "kb-filter-chevron-open" : ""}`}
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                    {openFilterSections.has("severity") && (
+                      <div className="kb-filter-section-body">
+                        <div className="kb-filter-origin-options">
+                          {SEVERITY_LEVELS.map((level) => {
+                            const active = filterSeverities.has(level);
+                            const color = SEVERITY_COLOR[level];
+                            return (
+                              <button
+                                key={level}
+                                type="button"
+                                className={`kb-filter-origin-chip ${active ? "kb-filter-origin-chip-active" : ""}`}
+                                onClick={() =>
+                                  setFilterSeverities((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(level)) next.delete(level);
+                                    else next.add(level);
+                                    return next;
+                                  })
+                                }
+                                style={
+                                  active
+                                    ? {
+                                        background: color,
+                                        borderColor: color,
+                                        color: "hsl(0, 0%, 100%)",
+                                      }
+                                    : undefined
+                                }
+                              >
+                                <span
+                                  className="kb-filter-origin-dot"
+                                  style={{
+                                    background: active
+                                      ? "hsl(0, 0%, 100%)"
+                                      : color,
+                                  }}
+                                />
+                                {SEVERITY_LABEL[level]}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Tag filter — docs/specs/ticket-severity-and-tags.md R6 */}
+                  <div className="kb-filter-section">
+                    <button
+                      type="button"
+                      className="kb-filter-section-toggle"
+                      onClick={() => toggleFilterSection("tag")}
+                    >
+                      <span className="kb-filter-section-label">
+                        Tag
+                        {filterTag && (
+                          <span className="kb-filter-section-count">1</span>
+                        )}
+                      </span>
+                      <svg
+                        className={`kb-filter-chevron ${openFilterSections.has("tag") ? "kb-filter-chevron-open" : ""}`}
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                    {openFilterSections.has("tag") && (
+                      <div className="kb-filter-section-body">
+                        <input
+                          type="text"
+                          className="kb-filter-select"
+                          placeholder="Search tags…"
+                          value={filterTagInput}
+                          onChange={(e) =>
+                            handleFilterTagInputChange(e.target.value)
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Assigned to filter */}
+                  <div className="kb-filter-section">
+                    <button
+                      type="button"
+                      className="kb-filter-section-toggle"
+                      onClick={() => toggleFilterSection("assignedTo")}
+                    >
+                      <span className="kb-filter-section-label">
+                        Assigned to
+                        {filterAssignedTo && (
+                          <span className="kb-filter-section-count">1</span>
+                        )}
+                      </span>
+                      <svg
+                        className={`kb-filter-chevron ${openFilterSections.has("assignedTo") ? "kb-filter-chevron-open" : ""}`}
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                    {openFilterSections.has("assignedTo") && (
+                      <div className="kb-filter-section-body">
+                        <div className="kb-filter-user-search-wrap">
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <circle cx="11" cy="11" r="8" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                          </svg>
+                          <input
+                            className="kb-filter-user-search"
+                            placeholder="Search name or email…"
+                            value={userSearch}
+                            onChange={(e) => setUserSearch(e.target.value)}
+                          />
+                        </div>
+                        <div className="kb-filter-assignee-list">
+                          {!userSearch && (
+                            <>
+                              <button
+                                type="button"
+                                className={`kb-filter-assignee-item ${filterAssignedTo === "" ? "kb-filter-assignee-active" : ""}`}
+                                onClick={() => setFilterAssignedTo("")}
+                              >
+                                <span className="kb-filter-assignee-avatar kb-filter-assignee-avatar-all">
+                                  A
+                                </span>
+                                <span>Anyone</span>
+                                {filterAssignedTo === "" && (
+                                  <svg
+                                    className="kb-filter-check"
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.5"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className={`kb-filter-assignee-item ${filterAssignedTo === "__unassigned__" ? "kb-filter-assignee-active" : ""}`}
+                                onClick={() =>
+                                  setFilterAssignedTo(
+                                    filterAssignedTo === "__unassigned__"
+                                      ? ""
+                                      : "__unassigned__",
+                                  )
+                                }
+                              >
+                                <span className="kb-filter-assignee-avatar kb-filter-assignee-avatar-none">
+                                  ?
+                                </span>
+                                <span>Unassigned</span>
+                                {filterAssignedTo === "__unassigned__" && (
+                                  <svg
+                                    className="kb-filter-check"
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.5"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                )}
+                              </button>
+                            </>
                           )}
-                        </button>
-                      ))}
+                          {users
+                            .filter((u) => {
+                              if (!userSearch) return true;
+                              const q = userSearch.toLowerCase();
+                              return (
+                                (u.displayName ?? "")
+                                  .toLowerCase()
+                                  .includes(q) ||
+                                u.email.toLowerCase().includes(q)
+                              );
+                            })
+                            .map((u) => (
+                              <button
+                                key={u.userId}
+                                type="button"
+                                className={`kb-filter-assignee-item ${filterAssignedTo === u.userId ? "kb-filter-assignee-active" : ""}`}
+                                onClick={() =>
+                                  setFilterAssignedTo(
+                                    filterAssignedTo === u.userId
+                                      ? ""
+                                      : u.userId,
+                                  )
+                                }
+                              >
+                                <span className="kb-filter-assignee-avatar">
+                                  {(u.displayName ?? u.email)
+                                    .slice(0, 1)
+                                    .toUpperCase()}
+                                </span>
+                                <span className="kb-filter-assignee-name">
+                                  {u.displayName ?? u.email}
+                                </span>
+                                {filterAssignedTo === u.userId && (
+                                  <svg
+                                    className="kb-filter-check"
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.5"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                )}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1553,7 +1764,12 @@ export function WorkflowRecords(): React.ReactElement {
         </div>
       ) : (
         <div className="kb-board-scroll">
-          <div className="kb-board">
+          {recordsRefreshing && (
+            <div className="kb-records-refreshing-pill">Updating…</div>
+          )}
+          <div
+            className={`kb-board ${recordsRefreshing ? "kb-board--refreshing" : ""}`}
+          >
             {columns.map(({ state, recs, children }) => (
               <KanbanColumn
                 key={state?.name ?? "__unassigned__"}
@@ -1691,11 +1907,23 @@ export function WorkflowRecords(): React.ReactElement {
         .kb-board-scroll {
           flex: 1; overflow-x: auto; overflow-y: hidden;
           padding: 20px 28px 24px;
+          position: relative;
         }
         .kb-board {
           display: flex; gap: 12px; align-items: flex-start;
           min-height: calc(100vh - 185px);
           width: max-content;
+          transition: opacity .15s ease;
+        }
+        .kb-board--refreshing { opacity: .55; }
+        .kb-records-refreshing-pill {
+          position: absolute; top: 8px; right: 28px; z-index: 50;
+          display: flex; align-items: center; gap: 6px;
+          padding: 4px 12px; border-radius: 999px;
+          background: var(--bg-secondary); border: 1px solid var(--border-color);
+          box-shadow: 0 4px 16px rgba(0,0,0,.3);
+          font-size: 11.5px; font-weight: 600; color: var(--text-secondary);
+          animation: kb-fadein .1s ease;
         }
 
         .kb-col {
@@ -1979,11 +2207,15 @@ export function WorkflowRecords(): React.ReactElement {
           border: 1px solid var(--border-color); border-radius: var(--radius-md);
           box-shadow: 0 8px 32px rgba(0,0,0,.45);
           animation: kb-fadein .1s ease;
+          max-height: min(70vh, 560px);
+          display: flex; flex-direction: column;
+          overflow: hidden;
         }
         .kb-filter-panel-header {
           display: flex; align-items: center; justify-content: space-between;
           padding: 12px 14px 8px;
           border-bottom: 1px solid var(--border-color);
+          flex-shrink: 0;
         }
         .kb-filter-panel-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; }
         .kb-filter-clear-all {
@@ -1993,9 +2225,32 @@ export function WorkflowRecords(): React.ReactElement {
         }
         .kb-filter-clear-all:hover { opacity: .7; }
 
-        .kb-filter-section { padding: 12px 14px; border-bottom: 1px solid var(--border-color); }
-        .kb-filter-section:last-child { border-bottom: none; padding-bottom: 8px; }
-        .kb-filter-section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+        /* Accordion: the whole section list scrolls as one region (below
+           the sticky header), so opening several sections at once just
+           scrolls rather than pushing the panel off-screen. */
+        .kb-filter-panel-body { flex: 1; overflow-y: auto; min-height: 0; }
+        .kb-filter-section { border-bottom: 1px solid var(--border-color); }
+        .kb-filter-section:last-child { border-bottom: none; }
+        .kb-filter-section-toggle {
+          width: 100%; display: flex; align-items: center; justify-content: space-between;
+          padding: 10px 14px; background: none; border: none; cursor: pointer;
+          text-align: left;
+        }
+        .kb-filter-section-toggle:hover { background: var(--bg-tertiary); }
+        .kb-filter-section-label {
+          display: flex; align-items: center; gap: 6px;
+          font-size: 11px; font-weight: 600; color: var(--text-muted);
+          text-transform: uppercase; letter-spacing: .05em;
+        }
+        .kb-filter-section-count {
+          display: inline-flex; align-items: center; justify-content: center;
+          min-width: 15px; height: 15px; padding: 0 3px;
+          border-radius: 999px; background: var(--accent-primary); color: #fff;
+          font-size: 10px; font-weight: 700; text-transform: none; letter-spacing: 0;
+        }
+        .kb-filter-chevron { color: var(--text-muted); flex-shrink: 0; transition: transform .12s; }
+        .kb-filter-chevron-open { transform: rotate(180deg); }
+        .kb-filter-section-body { padding: 0 14px 12px; }
 
         .kb-filter-select {
           width: 100%; padding: 6px 9px;

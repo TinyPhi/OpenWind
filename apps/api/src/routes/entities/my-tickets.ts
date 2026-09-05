@@ -14,6 +14,8 @@ import {
   MAX_PAGE_SIZE,
   TicketSeveritySchema,
   normalizeTagText,
+  escapeLikePattern,
+  TAG_TEXT_MAX_LENGTH,
 } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -57,6 +59,7 @@ const MyTicketsQuerySchema = z.object({
     }),
   tag: z
     .string()
+    .max(TAG_TEXT_MAX_LENGTH)
     .optional()
     .transform((v) => (v === undefined ? undefined : normalizeTagText(v))),
   origin: z.enum(["internal", "external", "redirected"]).optional(),
@@ -121,12 +124,16 @@ export const myTicketsHandler = factory.createHandlers(
         origin === "redirected"
           ? eq(entityInstances.originMechanism, "handoff")
           : undefined,
+        // docs/specs/ticket-severity-and-tags.md R6 — substring match
+        // (live type-ahead UX), mirroring list.ts's identical condition.
+        // Wildcard chars in the user's input are escaped so a literal
+        // "%"/"_" can't act as a SQL wildcard.
         tag !== undefined
           ? sql`EXISTS (
               SELECT 1 FROM entity_instance_tags eit
               WHERE eit.entity_instance_id = ${entityInstances.id}
                 AND eit.tenant_id = ${tenantId}
-                AND eit.tag_text = ${tag}
+                AND eit.tag_text ILIKE ${`%${escapeLikePattern(tag)}%`} ESCAPE '\\'
             )`
           : undefined,
       );

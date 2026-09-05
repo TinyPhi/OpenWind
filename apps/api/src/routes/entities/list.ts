@@ -7,6 +7,7 @@ import {
   MAX_PAGE_SIZE,
   TicketSeveritySchema,
   normalizeTagText,
+  TAG_TEXT_MAX_LENGTH,
 } from "@platform/entity-engine";
 import {
   getWorkflowByEntityTypeId,
@@ -81,10 +82,12 @@ const ListEntitiesQuerySchema = z.object({
       }
       return parsed.data;
     }),
-  // docs/specs/ticket-severity-and-tags.md R6 — single tag, exact match after
-  // normalization (trim+lowercase, same as tag creation).
+  // docs/specs/ticket-severity-and-tags.md R6 — single tag, substring match
+  // (ILIKE) after normalization (trim+lowercase, same as tag creation) —
+  // revised from exact match for a live type-ahead UX.
   tag: z
     .string()
+    .max(TAG_TEXT_MAX_LENGTH)
     .optional()
     .transform((v) => (v === undefined ? undefined : normalizeTagText(v))),
   // T16 — records-page Source filter, converted from client-side to

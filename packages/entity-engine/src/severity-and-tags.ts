@@ -34,6 +34,18 @@ export const TagTextSchema = z
   .transform(normalizeTagText)
   .pipe(z.string().min(1).max(TAG_TEXT_MAX_LENGTH));
 
+/**
+ * Escapes ILIKE wildcard characters (%, _) and the escape character itself
+ * (\) in a user-supplied substring before it's wrapped in %...% for a
+ * records-page tag-filter query — otherwise a tag filter containing a
+ * literal "%" or "_" would act as a SQL wildcard instead of a literal
+ * character. Callers must pass this through Postgres' ILIKE ... ESCAPE '\'
+ * clause, not bare ILIKE, for the escaping to take effect.
+ */
+export function escapeLikePattern(raw: string): string {
+  return raw.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 export interface EntityInstanceTag {
   id: string;
   tenantId: string;

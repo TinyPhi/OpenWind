@@ -199,8 +199,10 @@ export type ListEntitiesInput = {
   severity?: TicketSeverity[] | undefined;
   /**
    * docs/specs/ticket-severity-and-tags.md R6 — a single already-normalized
-   * (trim+lowercase) tag, exact match. Callers must normalize before passing
-   * this in — see normalizeTagText.
+   * (trim+lowercase) tag substring, matched via ILIKE (revised from exact
+   * match for a live type-ahead UX). Callers must normalize before passing
+   * this in — see normalizeTagText. escapeLikePattern is applied downstream
+   * (in engine.ts), not by the caller.
    */
   tag?: string | undefined;
   /**

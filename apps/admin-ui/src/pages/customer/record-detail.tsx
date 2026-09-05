@@ -945,6 +945,62 @@ function StateDropdown({
   );
 }
 
+// docs/specs/ticket-severity-and-tags.md R4 — deterministic per-tag color
+// (same tag text always gets the same hue, so it stays recognizable across
+// tickets) rather than truly random-per-render, which would flicker on
+// every re-fetch/re-render. Bold, fully-opaque background; text color
+// picked (pure white or black) by the background's actual luminance so it
+// always reads clearly, rather than assuming light or dark per hue.
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  s /= 100;
+  l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return [
+    Math.round((r + m) * 255),
+    Math.round((g + m) * 255),
+    Math.round((b + m) * 255),
+  ];
+}
+
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  const [rl, gl, bl] = [r, g, b].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return (
+    0.2126 * (rl as number) + 0.7152 * (gl as number) + 0.0722 * (bl as number)
+  );
+}
+
+function tagColor(text: string): { bg: string; border: string; fg: string } {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash << 5) - hash + text.charCodeAt(i);
+    hash |= 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  const sat = 68;
+  const light = 48;
+  const rgb = hslToRgb(hue, sat, light);
+  const fg = relativeLuminance(rgb) > 0.4 ? "#000000" : "#ffffff";
+  return {
+    bg: `hsl(${hue}, ${sat}%, ${light}%)`,
+    border: `hsl(${hue}, ${sat}%, ${Math.max(light - 12, 0)}%)`,
+    fg,
+  };
+}
+
 function formatFieldValue(
   value: unknown,
   fieldType?: string,
@@ -1326,9 +1382,13 @@ export function CustomerRecordDetail(): React.ReactElement {
   type AccessEntry = { userId: string; level: AccessLevel; tag: AccessTag };
   const [accessList, setAccessList] = useState<AccessEntry[]>([]);
 
-  // docs/specs/ticket-severity-and-tags.md — tags (T14)
+  // docs/specs/ticket-severity-and-tags.md — tags (T14). Adding a tag opens
+  // via the kebab menu into a small modal (matching the redesign request:
+  // the always-visible tags row on the card only shows existing tags +
+  // remove buttons, not an inline add box).
   const [tags, setTags] = useState<EntityInstanceTag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagModalOpen, setTagModalOpen] = useState(false);
   const [newTagText, setNewTagText] = useState("");
   const [addingTag, setAddingTag] = useState(false);
   const [tagError, setTagError] = useState<string | null>(null);
@@ -2689,6 +2749,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       const created = (res as { data: EntityInstanceTag }).data;
       setTags((prev) => [...prev, created]);
       setNewTagText("");
+      setTagModalOpen(false);
     } catch (err) {
       setTagError(err instanceof Error ? err.message : "Failed to add tag");
     } finally {
@@ -3688,6 +3749,20 @@ export function CustomerRecordDetail(): React.ReactElement {
                         >
                           Set Alert
                         </button>
+                        {canAddTag && (
+                          <button
+                            type="button"
+                            className="rcd-kebab-menu-item"
+                            onClick={() => {
+                              setKebabMenuOpen(false);
+                              setNewTagText("");
+                              setTagError(null);
+                              setTagModalOpen(true);
+                            }}
+                          >
+                            Add Tag
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
@@ -3869,76 +3944,61 @@ export function CustomerRecordDetail(): React.ReactElement {
             </div>
           )}
 
-          {/* Tags — docs/specs/ticket-severity-and-tags.md R4/R5 */}
-          <div className="rcd-parent-row" style={{ flexWrap: "wrap" }}>
-            <span className="rcd-parent-label">Tags</span>
-            {!tagsLoading &&
-              tags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="rcd-parent-chip"
-                  style={{ cursor: "default" }}
-                >
-                  {tag.tagText}
-                  {canRemoveTag(tag) && (
-                    <button
-                      type="button"
-                      className="rcd-detach-btn"
-                      title="Remove tag"
-                      disabled={removingTagId === tag.id}
-                      onClick={() => void removeTag(tag.id)}
+          {/* Tags — docs/specs/ticket-severity-and-tags.md R4/R5. Always
+              visible at the bottom of this card, chips only — adding a tag
+              happens via the kebab menu's "Add Tag" modal below, not an
+              inline input here. */}
+          {(!tagsLoading && tags.length > 0) || canAddTag ? (
+            <div className="rcd-parent-row" style={{ flexWrap: "wrap" }}>
+              <span className="rcd-parent-label">Tags</span>
+              {!tagsLoading &&
+                tags.map((tag) => {
+                  const color = tagColor(tag.tagText);
+                  return (
+                    <span
+                      key={tag.id}
+                      className="rcd-tag-chip"
+                      style={{
+                        background: color.bg,
+                        color: color.fg,
+                      }}
                     >
-                      ×
-                    </button>
-                  )}
-                </span>
-              ))}
-            {canAddTag && (
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                }}
-              >
-                <input
-                  type="text"
-                  className="portal-input"
-                  style={{
-                    width: "120px",
-                    fontSize: "12px",
-                    padding: "3px 8px",
-                  }}
-                  placeholder="Add tag…"
-                  value={newTagText}
-                  disabled={addingTag}
-                  onChange={(e) => setNewTagText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void addTag();
-                    }
-                  }}
-                />
+                      {tag.tagText}
+                      {canRemoveTag(tag) && (
+                        <button
+                          type="button"
+                          className="rcd-tag-remove-btn"
+                          title="Remove tag"
+                          disabled={removingTagId === tag.id}
+                          onClick={() => void removeTag(tag.id)}
+                          style={{ color: color.fg }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
+              {canAddTag && (
                 <button
                   type="button"
-                  className="rcd-btn-secondary"
-                  disabled={addingTag || !newTagText.trim()}
-                  onClick={() => void addTag()}
-                  style={{ padding: "3px 8px", fontSize: "12px" }}
+                  className="rcd-parent-chip"
+                  style={{
+                    cursor: "pointer",
+                    background: "transparent",
+                    borderStyle: "dashed",
+                  }}
+                  onClick={() => {
+                    setNewTagText("");
+                    setTagError(null);
+                    setTagModalOpen(true);
+                  }}
                 >
-                  {addingTag ? "…" : "Add"}
+                  + Add tag
                 </button>
-              </span>
-            )}
-            {tagError && (
-              <span
-                style={{ color: "var(--danger, #dc2626)", fontSize: "11px" }}
-              >
-                {tagError}
-              </span>
-            )}
-          </div>
+              )}
+            </div>
+          ) : null}
 
           {/* Expandable: all fields / edit form */}
           <div
@@ -5502,6 +5562,75 @@ export function CustomerRecordDetail(): React.ReactElement {
               onClick={() => void createChild()}
             >
               {creatingChild ? "Creating…" : "Create sub-task"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add tag modal (docs/specs/ticket-severity-and-tags.md R4) ──── */}
+      <Dialog
+        open={tagModalOpen}
+        onOpenChange={(next) => {
+          if (!next) {
+            setTagModalOpen(false);
+            setNewTagText("");
+            setTagError(null);
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Add tag</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            {tagError && (
+              <div
+                className="portal-alert-error"
+                style={{ marginBottom: "12px" }}
+              >
+                {tagError}
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Tag</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. railways"
+                value={newTagText}
+                disabled={addingTag}
+                onChange={(e) => setNewTagText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void addTag();
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button variant="secondary" onClick={() => setTagModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={addingTag || !newTagText.trim()}
+              onClick={() => void addTag()}
+            >
+              {addingTag ? "Adding…" : "Add"}
             </Button>
           </div>
         </DialogContent>

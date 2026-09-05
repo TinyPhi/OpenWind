@@ -131,9 +131,13 @@ removals, also records the original creator's id)
 R6: Records page supports filtering by severity and by tag.
 ✓ A severity filter lets the user narrow the record list to one or more severity levels
 ✓ A tag filter is a debounced freeform text input; typing filters the list to tickets carrying
-a tag that exactly matches (post-normalization) the typed text
+a tag whose text _contains_ the typed substring (revised from the original exact-match design
+— a live, as-you-type input needs partial matches, or every keystroke before the full tag is
+typed shows zero results, which reads as broken rather than as a search box)
 ✓ The filter input text is normalized (trim + lowercase) the same way tag creation is, before
-matching — a user typing "Railways " still matches tickets tagged "railways"
+matching — a user typing "Rail" still matches tickets tagged "railways"
+✓ A literal `%` or `_` in the typed filter text is escaped before being used in the underlying
+SQL `ILIKE`, so it's treated as a literal character, never as a SQL wildcard
 ✓ Both filters compose with the existing Source (Internal/External/Redirected) filter already
 on the records page
 
