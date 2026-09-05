@@ -15,6 +15,11 @@ import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 // or a workflow admin who can GET/PATCH the record gets locked out of its
 // own transition history.
 import { hasEntityAccess } from "../../lib/entity-access.js";
+import {
+  batchLookupApplicationNames,
+  batchLookupPerformerNames,
+  toOriginDisplay,
+} from "../../lib/resolve-origin-display.js";
 
 function resolveDisplayName(
   userId: string,
@@ -124,6 +129,15 @@ export const listWorkflowEventsHandler = factory.createHandlers(
         "history-enrich: nameMap built",
       );
 
+      // docs/specs/third-party-api-origin-tagging.md §C — one batch lookup
+      // for the whole event list, resolving live application names for
+      // R3 (comment tag) / R5 (activity-timeline tag).
+      const [originNameByClientId, originPerformerNameByUserId] =
+        await Promise.all([
+          batchLookupApplicationNames(events),
+          batchLookupPerformerNames(events),
+        ]);
+
       // Enrich events with resolved display names
       const enriched = events.map((e) => {
         // Prefer snapshot stored in metadata (immutable truth for new events),
@@ -164,6 +178,11 @@ export const listWorkflowEventsHandler = factory.createHandlers(
           ...e,
           actorDisplayName,
           metadata: { ...e.metadata, changed: enrichedChanged },
+          origin: toOriginDisplay(
+            e,
+            originNameByClientId,
+            originPerformerNameByUserId,
+          ),
         };
       });
 

@@ -2,13 +2,24 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
-import { listEntities, MAX_PAGE_SIZE } from "@platform/entity-engine";
+import {
+  listEntities,
+  MAX_PAGE_SIZE,
+  TicketSeveritySchema,
+  normalizeTagText,
+  TAG_TEXT_MAX_LENGTH,
+} from "@platform/entity-engine";
 import {
   getWorkflowByEntityTypeId,
   isWorkflowAdmin,
 } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import {
+  batchLookupApplicationNames,
+  batchLookupPerformerNames,
+  toOriginDisplay,
+} from "../../lib/resolve-origin-display.js";
 
 const ListEntitiesQuerySchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -52,6 +63,36 @@ const ListEntitiesQuerySchema = z.object({
     .enum(["true", "false"])
     .transform((v) => v === "true")
     .optional(),
+  // docs/specs/ticket-severity-and-tags.md R6 — comma-separated list of one
+  // or more severity levels, OR'd together.
+  severity: z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      const parts = v.split(",").filter((s) => s.length > 0);
+      const parsed = z.array(TicketSeveritySchema).safeParse(parts);
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "severity must be a comma-separated list of low/medium/high/critical",
+        });
+        return z.NEVER;
+      }
+      return parsed.data;
+    }),
+  // docs/specs/ticket-severity-and-tags.md R6 — single tag, substring match
+  // (ILIKE) after normalization (trim+lowercase, same as tag creation) —
+  // revised from exact match for a live type-ahead UX.
+  tag: z
+    .string()
+    .max(TAG_TEXT_MAX_LENGTH)
+    .optional()
+    .transform((v) => (v === undefined ? undefined : normalizeTagText(v))),
+  // T16 — records-page Source filter, converted from client-side to
+  // server-side.
+  origin: z.enum(["internal", "external", "redirected"]).optional(),
 });
 
 export const listEntitiesHandler = factory.createHandlers(
@@ -92,7 +133,19 @@ export const listEntitiesHandler = factory.createHandlers(
           rootOnly: rest.rootOnly,
         }),
       );
-      return c.json({ data: page.data, nextCursor: page.nextCursor });
+      // docs/specs/third-party-api-origin-tagging.md §C — one batch lookup
+      // for the whole page instead of N per-row lookups, resolving live
+      // application names for R1/R2/R4's records-list badge.
+      const [nameByClientId, performerNameByUserId] = await Promise.all([
+        batchLookupApplicationNames(page.data),
+        batchLookupPerformerNames(page.data),
+      ]);
+      const data = page.data.map((row) => ({
+        ...row,
+        origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
+      }));
+
+      return c.json({ data, nextCursor: page.nextCursor });
     } catch (err) {
       return handleEntityError(c, err);
     }

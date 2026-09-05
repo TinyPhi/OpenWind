@@ -638,6 +638,20 @@
       "when": 1788343052834,
       "tag": "0090_api_keys_rls_null_safe_tenant_guc",
       "breakpoints": false
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1788356659836,
+      "tag": "0091_origin_tagging_columns",
+      "breakpoints": false
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1788443059836,
+      "tag": "0092_ticket_severity_and_tags",
+      "breakpoints": false
     }
   ]
 }

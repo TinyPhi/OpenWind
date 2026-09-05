@@ -15,6 +15,7 @@ import {
 } from "./pagination.js";
 import { logger } from "@platform/logger";
 import { EntityError } from "./errors.js";
+import { DEFAULT_TICKET_SEVERITY } from "./severity-and-tags.js";
 import {
   buildEntityAssignedPayload,
   buildEntityCreatedPayload,
@@ -190,6 +191,9 @@ export async function createChildRelation(
     actorType,
     actingPersonId,
     maxAncestorDepth,
+    originMechanism,
+    originOidcClientId,
+    originPerformerUserId,
   } = input;
 
   // Load parent — lock row to prevent concurrent race on cap/depth
@@ -325,6 +329,12 @@ export async function createChildRelation(
       createdBy: createdBy ?? null,
       currentState: "open",
       dueDate: dueDate ? new Date(dueDate) : null,
+      originMechanism: originMechanism ?? null,
+      originOidcClientId: originOidcClientId ?? null,
+      originPerformerUserId: originPerformerUserId ?? null,
+      // docs/specs/ticket-severity-and-tags.md R1/R7 — sub-tickets follow the
+      // same "never NULL past creation" rule as top-level tickets.
+      severity: DEFAULT_TICKET_SEVERITY,
     })
     .returning();
 
@@ -780,6 +790,10 @@ function rowToInstance(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
+    originMechanism: row.originMechanism as "api" | "handoff" | null,
+    originOidcClientId: row.originOidcClientId,
+    originPerformerUserId: row.originPerformerUserId,
+    severity: row.severity ?? null,
   };
 }
 

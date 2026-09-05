@@ -5,7 +5,9 @@
 
 status: review
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-02 — amended for docs/specs/third-party-api-origin-tagging.md R2: entry URL
+gains a required `appClientId` param (§I), creation is now rejected outright without a valid one
+(new R7, new §V invariant)
 
 ---
 
@@ -33,16 +35,25 @@ native upload UX, no new API surface, no redirect-back to the 3rd party.
 **Entry URL** (opened by the 3rd party in a new tab):
 
 ```
-{adminUiUrl}/login?workflowId={uuid}&entityTypeId={uuid}&title={text}&remark={text}
+{adminUiUrl}/login?workflowId={uuid}&entityTypeId={uuid}&title={text}&remark={text}&appClientId={id}
 ```
 
 `workflowId`/`entityTypeId` come from the 3rd party's own prior `GET /workflows` call (already
 returns both — see `docs/third-party-api-design.md`). `title`/`remark` are freeform, optional.
 
+`appClientId` (**added 2026-09-02, required** — docs/specs/third-party-api-origin-tagging.md R2)
+is the OIDC Client ID of the 3rd party's own registered `api_keys` row (the same value the
+application already has from its own key-management setup — not a new credential to obtain).
+Unlike `title`/`remark`, this is NOT freeform/unverified: the server validates it resolves to a
+real, active, non-revoked `api_keys` row before the create page will let the user submit (§R R7).
+This is what lets the resulting ticket carry a `Redirected · [AppName] · [PerformerUsername]`
+tag — see the origin-tagging spec's §C for why `oidcClientId` specifically (not `applicationName`,
+not the key's own row id) is the stable reference used.
+
 **`state` shape** threaded through `signinRedirect`/`signinCallback`:
 
 ```ts
-{ workflowId?: string; entityTypeId?: string; prefillFields?: Record<string, string> }
+{ workflowId?: string; entityTypeId?: string; prefillFields?: Record<string, string>; appClientId?: string }
 ```
 
 **`login.tsx` prompt behavior (resolves review blocker 1):** `handleLogin()` currently always
@@ -128,37 +139,15 @@ create/comment flows.
 `{adminUiUrl}/login?workflowId=...&entityTypeId=...&title=...&remark=...` in a new tab
 ✓ Existing guided create/comment flows in OWTesterUI are unchanged (same files, same behavior)
 
-## §V Invariants
-
-- This flow NEVER redirects the browser to a URL sourced from 3rd-party-controlled input (no
-  open-redirect surface) — `returnTo`/callback-style params from an external source are never
-  read by this feature, by design (R4).
-- Prefill data (`title`/`remark`) is always presented to the user for review before creation —
-  never auto-submitted. Because the user must be authenticated in their own OpenWind session AND
-  must explicitly click Create, this is UX convenience only, never a privilege-escalation path —
-  no signed token or tamper-proofing is needed for this reason specifically (an attacker-crafted
-  link can only pre-fill misleading TEXT the real logged-in user still chooses whether to submit).
-- The entry URL's host must always be one the END USER'S BROWSER can resolve — never a
-  container-internal DNS alias (e.g. `host.docker.internal`), which only resolves for a process
-  running inside a container (B2). This applies specifically to any URL handed to
-  `window.open()`/`navigate()`/a link a human clicks — a server-to-server `fetch()` target (like
-  the third-party API proxy's own base URL) is a different case and may legitimately use such an
-  alias.
-
-## §T Tasks
-
-| id  | task                                                                                                                                                                                              | phase | status | depends  |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | -------- |
-| T1  | `login.tsx`: read `workflowId`/`entityTypeId`/`title`/`remark` from its own query string; when present, call `signinRedirect({ state: {...} })` WITHOUT `prompt: "login"` (§I)                    | 1     | todo   | —        |
-| T2  | `callback.tsx`: capture `signinCallback()`'s resolved user (currently discarded); branch on `user.state.workflowId`                                                                               | 1     | todo   | —        |
-| T3  | `callback.tsx`: resolve `entityTypeId` -> `typeSlug` via a direct `fetchWithAuth` call (§I -- not via `EntityTypeProvider`, which doesn't wrap this route); failure falls through to `/dashboard` | 1     | todo   | T2       |
-| T4  | `record-create.tsx`: extend `routeState` type + seed `fieldValues` from `prefillFields`, keyed by field `name`, once the workflow's field schema has loaded                                       | 1     | todo   | T1,T2    |
-| T5  | Unit test (R2): default login (no query params) still lands on `/dashboard`, unaffected                                                                                                           | 1     | todo   | T1,T2    |
-| T6  | Unit test (R5): prefill flow lands on correct create page w/ fields populated; nonexistent AND malformed (non-UUID) ids both degrade to the `/dashboard` fallback, not a crash                    | 1     | todo   | T2,T3,T4 |
-| T7  | Unit test (R3): no create-API call fires between mount and explicit user submit, with prefill data present -- regression guard, not current-behavior-by-omission                                  | 1     | todo   | T4       |
-| T8  | `/security-review` pass on this feature's diff (R4): explicitly confirm no code path reads a URL/query/state value and passes it to `navigate()`/`window.location` as a redirect target           | 1     | todo   | T1–T4    |
-| T9  | OWTesterUI: "Create Here" button opening the entry URL in a new tab, alongside (not replacing) the existing create flow                                                                           | 2     | todo   | T1–T4    |
-| T10 | Update `docs/third-party-api-design.md` / partner reference doc with this handoff pattern as a documented alternative to the full API-driven create flow                                          | 2     | todo   | T1–T9    |
+R7 (added 2026-09-02, docs/specs/third-party-api-origin-tagging.md R2): Creation via this flow is
+rejected outright — no ticket row is ever created — if `appClientId` is missing, malformed, or
+doesn't resolve to a real, active, non-revoked `api_keys` row.
+✓ Entry URL with no `appClientId` → create page loads (if `workflowId`/`entityTypeId` are
+otherwise valid) but the Create button is disabled/submission is rejected server-side with a
+clear error — same graceful-degradation posture as R5, not a crash, but never a silent
+untagged-ticket fallback either
+✓ Entry URL with a well-formed but unregistered/revoked `appClientId` → same rejection
+✓ Valid `appClientId` → ticket is created and tagged per the origin-tagging spec's R2
 
 phase gate: all unit tests pass (T5, T6, T7) AND the T8 security-review pass is clean before
 Phase 2 (OWTesterUI + docs). Phase 2 gate: manual OWTesterUI walkthrough confirms the link works

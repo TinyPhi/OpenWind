@@ -35,6 +35,17 @@ import {
   TOKENS,
   useHoverStyle,
 } from "@platform/ui";
+import {
+  OriginTag,
+  OriginHeaderPill,
+  OriginDetailLine,
+  type Origin,
+} from "../../components/origin-tag.js";
+import {
+  SeverityBadge,
+  SeverityDropdown,
+  type Severity,
+} from "../../components/severity-tag.js";
 
 type EntityField = {
   id: string;
@@ -63,6 +74,18 @@ type EntityInstance = {
   childCount?: number;
   canAddChildren?: boolean;
   deletedAt?: string | null;
+  // docs/specs/third-party-api-origin-tagging.md — resolved server-side.
+  // Absent/null = normal, human, in-app creation, no tag rendered.
+  origin?: Origin;
+  // docs/specs/ticket-severity-and-tags.md — null only for tickets created
+  // before this feature shipped (§V).
+  severity?: Severity | null;
+};
+type EntityInstanceTag = {
+  id: string;
+  tagText: string;
+  createdBy: string;
+  createdAt: string;
 };
 type ChildInstance = {
   id: string;
@@ -75,6 +98,7 @@ type ChildInstance = {
   // EntityInstance rows) — just untyped here until the table view needed them.
   createdBy: string | null;
   createdAt: string;
+  origin?: Origin;
 };
 type Transition = {
   id: string;
@@ -100,6 +124,10 @@ type WorkflowEvent = {
   triggeredAt: string;
   createdAt?: string;
   metadata?: Record<string, unknown>;
+  // docs/specs/third-party-api-origin-tagging.md R3/R5 — comments are
+  // workflow_events rows, so this same type covers both the comment tag
+  // and every other activity-timeline entry's tag.
+  origin?: Origin;
 };
 type LinkedTicket = {
   relationId: string;
@@ -917,6 +945,62 @@ function StateDropdown({
   );
 }
 
+// docs/specs/ticket-severity-and-tags.md R4 — deterministic per-tag color
+// (same tag text always gets the same hue, so it stays recognizable across
+// tickets) rather than truly random-per-render, which would flicker on
+// every re-fetch/re-render. Bold, fully-opaque background; text color
+// picked (pure white or black) by the background's actual luminance so it
+// always reads clearly, rather than assuming light or dark per hue.
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  s /= 100;
+  l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return [
+    Math.round((r + m) * 255),
+    Math.round((g + m) * 255),
+    Math.round((b + m) * 255),
+  ];
+}
+
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  const [rl, gl, bl] = [r, g, b].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return (
+    0.2126 * (rl as number) + 0.7152 * (gl as number) + 0.0722 * (bl as number)
+  );
+}
+
+function tagColor(text: string): { bg: string; border: string; fg: string } {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash << 5) - hash + text.charCodeAt(i);
+    hash |= 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  const sat = 68;
+  const light = 48;
+  const rgb = hslToRgb(hue, sat, light);
+  const fg = relativeLuminance(rgb) > 0.4 ? "#000000" : "#ffffff";
+  return {
+    bg: `hsl(${hue}, ${sat}%, ${light}%)`,
+    border: `hsl(${hue}, ${sat}%, ${Math.max(light - 12, 0)}%)`,
+    fg,
+  };
+}
+
 function formatFieldValue(
   value: unknown,
   fieldType?: string,
@@ -1298,6 +1382,19 @@ export function CustomerRecordDetail(): React.ReactElement {
   type AccessEntry = { userId: string; level: AccessLevel; tag: AccessTag };
   const [accessList, setAccessList] = useState<AccessEntry[]>([]);
 
+  // docs/specs/ticket-severity-and-tags.md — tags (T14). Adding a tag opens
+  // via the kebab menu into a small modal (matching the redesign request:
+  // the always-visible tags row on the card only shows existing tags +
+  // remove buttons, not an inline add box).
+  const [tags, setTags] = useState<EntityInstanceTag[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagModalOpen, setTagModalOpen] = useState(false);
+  const [newTagText, setNewTagText] = useState("");
+  const [addingTag, setAddingTag] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
+  const [removingTagId, setRemovingTagId] = useState<string | null>(null);
+  const [settingSeverity, setSettingSeverity] = useState(false);
+
   // Access change modal (revoke / change level)
   const [accessChangeModal, setAccessChangeModal] = useState<{
     userId: string;
@@ -1550,6 +1647,19 @@ export function CustomerRecordDetail(): React.ReactElement {
   // Creator/assignee get sub-task creation too, alongside admin/agent/
   // workflow-admin (isAdminOrAgent) — see canLinkOrCreateSubtask above.
   const canCreateChild = canLinkOrCreateSubtask;
+
+  // docs/specs/ticket-severity-and-tags.md R3/R4/R5 — severity + tag-add use
+  // the same "full access" model as canLinkOrCreateSubtask (creator OR
+  // assignee OR workflow-admin OR global admin/agent) — NOT the tighter
+  // canChangeAssignedTo/canChangeDueDate rule that deliberately excludes the
+  // plain assignee. Tag *removal* is further gated per-tag by
+  // canRemoveTag below (creator-lock, server-enforced regardless of what
+  // the UI shows).
+  const canChangeSeverity = isAdminOrAgent || isOwner;
+  const canAddTag = isAdminOrAgent || isOwner;
+  function canRemoveTag(tag: EntityInstanceTag): boolean {
+    return isAdminOrAgent || tag.createdBy === currentUserId;
+  }
 
   async function handleAccessChange(): Promise<void> {
     if (!id || !accessChangeModal) return;
@@ -2422,10 +2532,12 @@ export function CustomerRecordDetail(): React.ReactElement {
     setParentRecord(null);
     setAccessDenied(false);
     setError(null);
+    setTags([]);
     initializedCollapse.current = false;
     void loadRecord().then(() => {
       void loadComments();
       void refreshAttachments();
+      void loadTags();
     });
   }, [id]);
 
@@ -2594,6 +2706,67 @@ export function CustomerRecordDetail(): React.ReactElement {
       void loadRecord();
     } finally {
       setQuickAssigning(false);
+    }
+  }
+
+  async function quickSetSeverity(severity: Severity): Promise<void> {
+    if (!id) return;
+    setSettingSeverity(true);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/severity`, {
+        method: "PATCH",
+        body: JSON.stringify({ severity }),
+      });
+      void loadRecord();
+    } finally {
+      setSettingSeverity(false);
+    }
+  }
+
+  async function loadTags(): Promise<void> {
+    if (!id) return;
+    setTagsLoading(true);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/entities/${id}/tags`);
+      setTags((res as { data?: EntityInstanceTag[] }).data ?? []);
+    } catch {
+      /* ignore — tags panel just stays empty */
+    } finally {
+      setTagsLoading(false);
+    }
+  }
+
+  async function addTag(): Promise<void> {
+    const text = newTagText.trim();
+    if (!id || !text || addingTag) return;
+    setAddingTag(true);
+    setTagError(null);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/entities/${id}/tags`, {
+        method: "POST",
+        body: JSON.stringify({ tagText: text }),
+      });
+      const created = (res as { data: EntityInstanceTag }).data;
+      setTags((prev) => [...prev, created]);
+      setNewTagText("");
+      setTagModalOpen(false);
+    } catch (err) {
+      setTagError(err instanceof Error ? err.message : "Failed to add tag");
+    } finally {
+      setAddingTag(false);
+    }
+  }
+
+  async function removeTag(tagId: string): Promise<void> {
+    if (!id) return;
+    setRemovingTagId(tagId);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/tags/${tagId}`, {
+        method: "DELETE",
+      });
+      setTags((prev) => prev.filter((t) => t.id !== tagId));
+    } finally {
+      setRemovingTagId(null);
     }
   }
 
@@ -2834,6 +3007,7 @@ export function CustomerRecordDetail(): React.ReactElement {
                 minute: "2-digit",
               })}
             </span>
+            {event.origin && <OriginTag origin={event.origin} size="compact" />}
             {canComment && (
               <button
                 type="button"
@@ -2980,6 +3154,10 @@ export function CustomerRecordDetail(): React.ReactElement {
       meta?.type === "link_removed" || meta?.type === "reference_removed";
     const isFileDeleted = meta?.type === "file_deleted";
     const isFileDownloaded = meta?.type === "file_downloaded";
+    // docs/specs/ticket-severity-and-tags.md R3/R5
+    const isSeverityChanged = meta?.type === "severity_changed";
+    const isTagAdded = meta?.type === "tag_added";
+    const isTagRemoved = meta?.type === "tag_removed";
 
     if (isComment) {
       return (
@@ -3127,6 +3305,73 @@ export function CustomerRecordDetail(): React.ReactElement {
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
               <strong>{actor}</strong> {fileVerb} <strong>{fileName}</strong>
+            </span>
+            <div className="rcd-feed-event-time">
+              {new Date(event.triggeredAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isSeverityChanged) {
+      const actor = resolveActorName(event.actorDisplayName, event.actorId);
+      const m = meta as Record<string, unknown>;
+      const prev = m["previousSeverity"] as string | null;
+      const next = m["severity"] as string;
+      return (
+        <div key={event.id} className="rcd-feed-event">
+          <div className="rcd-feed-event-icon-wrap">
+            <HistoryIcon type="update" />
+            <div className="rcd-feed-event-line" />
+          </div>
+          <div className="rcd-feed-event-body">
+            <span className="rcd-feed-event-text">
+              <strong>{actor}</strong> changed severity{" "}
+              {prev && (
+                <>
+                  from <SeverityBadge severity={prev as Severity} compact />{" "}
+                  to{" "}
+                </>
+              )}
+              {!prev && "to "}
+              <SeverityBadge severity={next as Severity} compact />
+            </span>
+            <div className="rcd-feed-event-time">
+              {new Date(event.triggeredAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isTagAdded || isTagRemoved) {
+      const actor = resolveActorName(event.actorDisplayName, event.actorId);
+      const m = meta as Record<string, unknown>;
+      const tagText = String(m["tagText"] ?? "");
+      return (
+        <div key={event.id} className="rcd-feed-event">
+          <div className="rcd-feed-event-icon-wrap">
+            <HistoryIcon type={isTagAdded ? "create" : "update"} />
+            <div className="rcd-feed-event-line" />
+          </div>
+          <div className="rcd-feed-event-body">
+            <span className="rcd-feed-event-text">
+              <strong>{actor}</strong>{" "}
+              {isTagAdded ? "added tag" : "removed tag"}{" "}
+              <span className="rcd-tl-state">{tagText}</span>
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -3415,7 +3660,9 @@ export function CustomerRecordDetail(): React.ReactElement {
                   allStates={effectiveStates}
                 />
                 <span className="rcd-id-chip">{record.id.slice(0, 8)}</span>
+                <OriginHeaderPill origin={record.origin} />
               </div>
+              {record.origin && <OriginDetailLine origin={record.origin} />}
             </div>
             <div className="rcd-card-header-right">
               {!editing && isAdminOrAgent && record.deletedAt && (
@@ -3502,6 +3749,20 @@ export function CustomerRecordDetail(): React.ReactElement {
                         >
                           Set Alert
                         </button>
+                        {canAddTag && (
+                          <button
+                            type="button"
+                            className="rcd-kebab-menu-item"
+                            onClick={() => {
+                              setKebabMenuOpen(false);
+                              setNewTagText("");
+                              setTagError(null);
+                              setTagModalOpen(true);
+                            }}
+                          >
+                            Add Tag
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
@@ -3552,6 +3813,21 @@ export function CustomerRecordDetail(): React.ReactElement {
                       void executeTransition(t);
                     }
                   }}
+                />
+              </div>
+            </div>
+
+            <div className="rcd-info-divider" />
+
+            {/* Severity — docs/specs/ticket-severity-and-tags.md R2/R3 */}
+            <div className="rcd-info-item">
+              <span className="rcd-info-lbl">Severity</span>
+              <div className="rcd-info-val">
+                <SeverityDropdown
+                  value={record.severity ?? null}
+                  required
+                  disabled={settingSeverity || !canChangeSeverity}
+                  onChange={(s) => void quickSetSeverity(s)}
                 />
               </div>
             </div>
@@ -3667,6 +3943,62 @@ export function CustomerRecordDetail(): React.ReactElement {
               </button>
             </div>
           )}
+
+          {/* Tags — docs/specs/ticket-severity-and-tags.md R4/R5. Always
+              visible at the bottom of this card, chips only — adding a tag
+              happens via the kebab menu's "Add Tag" modal below, not an
+              inline input here. */}
+          {(!tagsLoading && tags.length > 0) || canAddTag ? (
+            <div className="rcd-parent-row" style={{ flexWrap: "wrap" }}>
+              <span className="rcd-parent-label">Tags</span>
+              {!tagsLoading &&
+                tags.map((tag) => {
+                  const color = tagColor(tag.tagText);
+                  return (
+                    <span
+                      key={tag.id}
+                      className="rcd-tag-chip"
+                      style={{
+                        background: color.bg,
+                        color: color.fg,
+                      }}
+                    >
+                      {tag.tagText}
+                      {canRemoveTag(tag) && (
+                        <button
+                          type="button"
+                          className="rcd-tag-remove-btn"
+                          title="Remove tag"
+                          disabled={removingTagId === tag.id}
+                          onClick={() => void removeTag(tag.id)}
+                          style={{ color: color.fg }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
+              {canAddTag && (
+                <button
+                  type="button"
+                  className="rcd-parent-chip"
+                  style={{
+                    cursor: "pointer",
+                    background: "transparent",
+                    borderStyle: "dashed",
+                  }}
+                  onClick={() => {
+                    setNewTagText("");
+                    setTagError(null);
+                    setTagModalOpen(true);
+                  }}
+                >
+                  + Add tag
+                </button>
+              )}
+            </div>
+          ) : null}
 
           {/* Expandable: all fields / edit form */}
           <div
@@ -4248,6 +4580,17 @@ export function CustomerRecordDetail(): React.ReactElement {
                       .map((event) => (
                         <React.Fragment key={event.id}>
                           {renderFeedEvent(event)}
+                          {/* docs/specs/third-party-api-origin-tagging.md R5 —
+                              appended as a sibling rather than threaded through
+                              renderFeedEvent's many per-type branches. */}
+                          {event.origin && (
+                            <div
+                              className="rcd-feed-event-body"
+                              style={{ marginTop: "-4px", marginLeft: "30px" }}
+                            >
+                              <OriginTag origin={event.origin} size="compact" />
+                            </div>
+                          )}
                         </React.Fragment>
                       ))}
                   </div>
@@ -4409,6 +4752,12 @@ export function CustomerRecordDetail(): React.ReactElement {
                                     <span className="rcd-child-id">
                                       #{child.id.slice(0, 6)}
                                     </span>
+                                    {child.origin && (
+                                      <OriginTag
+                                        origin={child.origin}
+                                        size="compact"
+                                      />
+                                    )}
                                   </div>
                                 </td>
                                 <td>
@@ -5213,6 +5562,75 @@ export function CustomerRecordDetail(): React.ReactElement {
               onClick={() => void createChild()}
             >
               {creatingChild ? "Creating…" : "Create sub-task"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add tag modal (docs/specs/ticket-severity-and-tags.md R4) ──── */}
+      <Dialog
+        open={tagModalOpen}
+        onOpenChange={(next) => {
+          if (!next) {
+            setTagModalOpen(false);
+            setNewTagText("");
+            setTagError(null);
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="modal"
+          style={DIALOG_CONTENT_RESET}
+        >
+          <div className="modal-header">
+            <DialogTitle asChild>
+              <h3 className="modal-title">Add tag</h3>
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="modal-close" aria-label="Close">
+                ×
+              </button>
+            </DialogClose>
+          </div>
+          <div className="modal-body">
+            {tagError && (
+              <div
+                className="portal-alert-error"
+                style={{ marginBottom: "12px" }}
+              >
+                {tagError}
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Tag</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. railways"
+                value={newTagText}
+                disabled={addingTag}
+                onChange={(e) => setNewTagText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void addTag();
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button variant="secondary" onClick={() => setTagModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={addingTag || !newTagText.trim()}
+              onClick={() => void addTag()}
+            >
+              {addingTag ? "Adding…" : "Add"}
             </Button>
           </div>
         </DialogContent>

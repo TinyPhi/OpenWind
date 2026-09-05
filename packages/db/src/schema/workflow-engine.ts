@@ -126,6 +126,14 @@ export const workflowEvents = pgTable(
     triggeredBy: text("triggered_by").notNull(),
     actorId: text("actor_id"),
     comment: text("comment"),
+    // docs/specs/third-party-api-origin-tagging.md — migration 0091. Same
+    // all-or-nothing shape as entity_instances' origin columns (see that
+    // table's comment in entity-engine.ts) — comments are stored as
+    // workflow_events rows, so this is where the comment-level and
+    // activity-timeline origin tag (spec R3/R5) is read from.
+    originMechanism: text("origin_mechanism"),
+    originOidcClientId: text("origin_oidc_client_id"),
+    originPerformerUserId: text("origin_performer_user_id"),
     idempotencyKey: text("idempotency_key"),
     metadata: jsonb("metadata").default({}).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })

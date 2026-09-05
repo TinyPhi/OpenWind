@@ -25,7 +25,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { inArray } from "drizzle-orm";
-import { db, tenants, workflows, workflowStates } from "@platform/db";
+import { db, tenants, workflows, workflowStates, apiKeys } from "@platform/db";
+import { hashApiKey } from "@platform/auth";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import { getRedis } from "@platform/redis";
 import { env } from "@platform/config";
@@ -33,6 +34,8 @@ import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
 
 const TENANT = "ddeeff00-0000-4000-d000-000000000f01";
+const API_KEY_ID = "11111111-1111-4111-1111-111111111111";
+const ORIGIN_OIDC_CLIENT_ID = "rate-limit-tiers-test-client";
 
 let ticketId: string;
 
@@ -44,6 +47,19 @@ beforeAll(async () => {
     id: TENANT,
     name: "Rate Limit Tiers Tenant",
     slug: `rate-limit-tiers-${TENANT}`,
+  });
+
+  // docs/specs/third-party-api-origin-tagging.md -- the comment route now
+  // resolves the authenticating key's oidcClientId via a real DB lookup.
+  // Matches the apiKeyId literal ("11111111-...") used below.
+  await db.insert(apiKeys).values({
+    id: API_KEY_ID,
+    tenantId: TENANT,
+    name: "Rate Limit Tiers Test Key",
+    keyHash: hashApiKey(`sk_rate_limit_tiers_test_${TENANT}`),
+    scopesFormat: "action",
+    scopes: ["entity:ticket:comment"],
+    oidcClientId: ORIGIN_OIDC_CLIENT_ID,
   });
 
   const entityType = await createEntityType(db, null, {
@@ -89,6 +105,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(apiKeys).where(inArray(apiKeys.id, [API_KEY_ID]));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT]));
   const redis = getRedis();
   const keys = await redis.keys(`rl:*${TENANT}*`);

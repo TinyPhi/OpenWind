@@ -1246,10 +1246,12 @@ describe("listEntities", () => {
       entityTypeId: ENTITY_TYPE_ID,
     });
 
-    // The __accessUsers containment check only fires as part of the
-    // scopeToUserId filter (or fieldFilters, unused here) — its absence
-    // confirms the scope OR-clause wasn't built.
-    expect(sql).not.toHaveBeenCalled();
+    // `sql` is always called exactly once for the cursor/ORDER BY millisecond
+    // truncation (unconditional, independent of any filter) — the
+    // __accessUsers containment check would be a SECOND call, only fired as
+    // part of the scopeToUserId filter (or fieldFilters, unused here). Its
+    // absence here confirms the scope OR-clause wasn't built.
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 
   it("applies JSONB containment filter when fieldFilters is provided", async () => {
@@ -1275,6 +1277,9 @@ describe("listEntities", () => {
       fieldFilters: {},
     });
 
-    expect(sql).not.toHaveBeenCalled();
+    // Same reasoning as "omits the scope filter" above — `sql` is always
+    // called once for the unconditional cursor/ORDER BY truncation; a second
+    // call would indicate the (empty, should-be-skipped) JSONB filter fired.
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 });

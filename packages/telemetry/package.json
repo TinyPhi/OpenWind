@@ -5,6 +5,16 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./instrumentation.js": {
+      "types": "./dist/instrumentation.d.ts",
+      "default": "./dist/instrumentation.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
