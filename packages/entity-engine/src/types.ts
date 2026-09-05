@@ -203,6 +203,13 @@ export type ListEntitiesInput = {
    * this in — see normalizeTagText.
    */
   tag?: string | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md T16 (records-page Source filter,
+   * converted from client-side to server-side) — "internal" means
+   * originMechanism IS NULL (normal human creation), "external" means "api",
+   * "redirected" means "handoff". See docs/specs/third-party-api-origin-tagging.md.
+   */
+  origin?: "internal" | "external" | "redirected" | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
   includeDeleted?: boolean | undefined;

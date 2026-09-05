@@ -13,6 +13,13 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // pages/records/workflow-records.tsx's filterOrigin state and the chips
 // that set it. Kept in its own file (workflow-records.test.tsx already
 // covers a different concern — per-role ticket visibility).
+//
+// docs/specs/ticket-severity-and-tags.md T16 — this filter was converted
+// from client-side (filter an already-fetched page) to server-side
+// (re-fetch with an `origin=` query param) alongside the new severity/tag
+// filters. The mock below now inspects the fetch URL's origin param and
+// returns only the matching subset, mirroring what apps/api/src/routes/
+// entities/list.ts's real origin filter does server-side.
 
 const mockFetchWithAuth = vi.fn(
   (_url: string): Promise<unknown> => Promise.resolve({ data: undefined }),
@@ -63,44 +70,55 @@ function mockRoutes(): void {
       return Promise.resolve({ data: [] });
     }
     if (url.includes(`/entities?entityTypeId=${ENTITY_TYPE_ID}`)) {
-      return Promise.resolve({
-        data: [
-          {
-            id: "internal-ticket",
-            currentState: null,
-            fields: {},
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            origin: null,
+      const allTickets = [
+        {
+          id: "internal-ticket",
+          currentState: null,
+          fields: {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          origin: null,
+        },
+        {
+          id: "api-ticket",
+          currentState: null,
+          fields: {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          origin: {
+            mechanism: "api",
+            appName: "Acme Sync",
+            performerUserId: "u1",
+            performerDisplayName: "Jane Doe",
           },
-          {
-            id: "api-ticket",
-            currentState: null,
-            fields: {},
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            origin: {
-              mechanism: "api",
-              appName: "Acme Sync",
-              performerUserId: "u1",
-              performerDisplayName: "Jane Doe",
-            },
+        },
+        {
+          id: "handoff-ticket",
+          currentState: null,
+          fields: {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          origin: {
+            mechanism: "handoff",
+            appName: "Acme Portal",
+            performerUserId: "u2",
+            performerDisplayName: "Real User",
           },
-          {
-            id: "handoff-ticket",
-            currentState: null,
-            fields: {},
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            origin: {
-              mechanism: "handoff",
-              appName: "Acme Portal",
-              performerUserId: "u2",
-              performerDisplayName: "Real User",
-            },
-          },
-        ],
-      });
+        },
+      ];
+      // Server-side origin filter (T16) — mirrors list.ts's own
+      // internal/external/redirected semantics.
+      const params = new URL(url, "http://localhost").searchParams;
+      const origin = params.get("origin");
+      const filtered =
+        origin === "internal"
+          ? allTickets.filter((t) => !t.origin)
+          : origin === "external"
+            ? allTickets.filter((t) => t.origin?.mechanism === "api")
+            : origin === "redirected"
+              ? allTickets.filter((t) => t.origin?.mechanism === "handoff")
+              : allTickets;
+      return Promise.resolve({ data: filtered });
     }
     if (url.includes("/users")) {
       return Promise.resolve({ data: [] });

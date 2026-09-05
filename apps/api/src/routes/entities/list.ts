@@ -87,6 +87,9 @@ const ListEntitiesQuerySchema = z.object({
     .string()
     .optional()
     .transform((v) => (v === undefined ? undefined : normalizeTagText(v))),
+  // T16 — records-page Source filter, converted from client-side to
+  // server-side.
+  origin: z.enum(["internal", "external", "redirected"]).optional(),
 });
 
 export const listEntitiesHandler = factory.createHandlers(

@@ -41,6 +41,11 @@ import {
   OriginDetailLine,
   type Origin,
 } from "../../components/origin-tag.js";
+import {
+  SeverityBadge,
+  SeverityDropdown,
+  type Severity,
+} from "../../components/severity-tag.js";
 
 type EntityField = {
   id: string;
@@ -72,6 +77,15 @@ type EntityInstance = {
   // docs/specs/third-party-api-origin-tagging.md — resolved server-side.
   // Absent/null = normal, human, in-app creation, no tag rendered.
   origin?: Origin;
+  // docs/specs/ticket-severity-and-tags.md — null only for tickets created
+  // before this feature shipped (§V).
+  severity?: Severity | null;
+};
+type EntityInstanceTag = {
+  id: string;
+  tagText: string;
+  createdBy: string;
+  createdAt: string;
 };
 type ChildInstance = {
   id: string;
@@ -1312,6 +1326,15 @@ export function CustomerRecordDetail(): React.ReactElement {
   type AccessEntry = { userId: string; level: AccessLevel; tag: AccessTag };
   const [accessList, setAccessList] = useState<AccessEntry[]>([]);
 
+  // docs/specs/ticket-severity-and-tags.md — tags (T14)
+  const [tags, setTags] = useState<EntityInstanceTag[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [newTagText, setNewTagText] = useState("");
+  const [addingTag, setAddingTag] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
+  const [removingTagId, setRemovingTagId] = useState<string | null>(null);
+  const [settingSeverity, setSettingSeverity] = useState(false);
+
   // Access change modal (revoke / change level)
   const [accessChangeModal, setAccessChangeModal] = useState<{
     userId: string;
@@ -1564,6 +1587,19 @@ export function CustomerRecordDetail(): React.ReactElement {
   // Creator/assignee get sub-task creation too, alongside admin/agent/
   // workflow-admin (isAdminOrAgent) — see canLinkOrCreateSubtask above.
   const canCreateChild = canLinkOrCreateSubtask;
+
+  // docs/specs/ticket-severity-and-tags.md R3/R4/R5 — severity + tag-add use
+  // the same "full access" model as canLinkOrCreateSubtask (creator OR
+  // assignee OR workflow-admin OR global admin/agent) — NOT the tighter
+  // canChangeAssignedTo/canChangeDueDate rule that deliberately excludes the
+  // plain assignee. Tag *removal* is further gated per-tag by
+  // canRemoveTag below (creator-lock, server-enforced regardless of what
+  // the UI shows).
+  const canChangeSeverity = isAdminOrAgent || isOwner;
+  const canAddTag = isAdminOrAgent || isOwner;
+  function canRemoveTag(tag: EntityInstanceTag): boolean {
+    return isAdminOrAgent || tag.createdBy === currentUserId;
+  }
 
   async function handleAccessChange(): Promise<void> {
     if (!id || !accessChangeModal) return;
@@ -2436,10 +2472,12 @@ export function CustomerRecordDetail(): React.ReactElement {
     setParentRecord(null);
     setAccessDenied(false);
     setError(null);
+    setTags([]);
     initializedCollapse.current = false;
     void loadRecord().then(() => {
       void loadComments();
       void refreshAttachments();
+      void loadTags();
     });
   }, [id]);
 
@@ -2608,6 +2646,66 @@ export function CustomerRecordDetail(): React.ReactElement {
       void loadRecord();
     } finally {
       setQuickAssigning(false);
+    }
+  }
+
+  async function quickSetSeverity(severity: Severity): Promise<void> {
+    if (!id) return;
+    setSettingSeverity(true);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/severity`, {
+        method: "PATCH",
+        body: JSON.stringify({ severity }),
+      });
+      void loadRecord();
+    } finally {
+      setSettingSeverity(false);
+    }
+  }
+
+  async function loadTags(): Promise<void> {
+    if (!id) return;
+    setTagsLoading(true);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/entities/${id}/tags`);
+      setTags((res as { data?: EntityInstanceTag[] }).data ?? []);
+    } catch {
+      /* ignore — tags panel just stays empty */
+    } finally {
+      setTagsLoading(false);
+    }
+  }
+
+  async function addTag(): Promise<void> {
+    const text = newTagText.trim();
+    if (!id || !text || addingTag) return;
+    setAddingTag(true);
+    setTagError(null);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/entities/${id}/tags`, {
+        method: "POST",
+        body: JSON.stringify({ tagText: text }),
+      });
+      const created = (res as { data: EntityInstanceTag }).data;
+      setTags((prev) => [...prev, created]);
+      setNewTagText("");
+    } catch (err) {
+      setTagError(err instanceof Error ? err.message : "Failed to add tag");
+    } finally {
+      setAddingTag(false);
+    }
+  }
+
+  async function removeTag(tagId: string): Promise<void> {
+    if (!id) return;
+    setRemovingTagId(tagId);
+    try {
+      await fetchWithAuth(`${API_URL}/entities/${id}/tags/${tagId}`, {
+        method: "DELETE",
+      });
+      setTags((prev) => prev.filter((t) => t.id !== tagId));
+    } finally {
+      setRemovingTagId(null);
     }
   }
 
@@ -2995,6 +3093,10 @@ export function CustomerRecordDetail(): React.ReactElement {
       meta?.type === "link_removed" || meta?.type === "reference_removed";
     const isFileDeleted = meta?.type === "file_deleted";
     const isFileDownloaded = meta?.type === "file_downloaded";
+    // docs/specs/ticket-severity-and-tags.md R3/R5
+    const isSeverityChanged = meta?.type === "severity_changed";
+    const isTagAdded = meta?.type === "tag_added";
+    const isTagRemoved = meta?.type === "tag_removed";
 
     if (isComment) {
       return (
@@ -3142,6 +3244,73 @@ export function CustomerRecordDetail(): React.ReactElement {
           <div className="rcd-feed-event-body">
             <span className="rcd-feed-event-text">
               <strong>{actor}</strong> {fileVerb} <strong>{fileName}</strong>
+            </span>
+            <div className="rcd-feed-event-time">
+              {new Date(event.triggeredAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isSeverityChanged) {
+      const actor = resolveActorName(event.actorDisplayName, event.actorId);
+      const m = meta as Record<string, unknown>;
+      const prev = m["previousSeverity"] as string | null;
+      const next = m["severity"] as string;
+      return (
+        <div key={event.id} className="rcd-feed-event">
+          <div className="rcd-feed-event-icon-wrap">
+            <HistoryIcon type="update" />
+            <div className="rcd-feed-event-line" />
+          </div>
+          <div className="rcd-feed-event-body">
+            <span className="rcd-feed-event-text">
+              <strong>{actor}</strong> changed severity{" "}
+              {prev && (
+                <>
+                  from <SeverityBadge severity={prev as Severity} compact />{" "}
+                  to{" "}
+                </>
+              )}
+              {!prev && "to "}
+              <SeverityBadge severity={next as Severity} compact />
+            </span>
+            <div className="rcd-feed-event-time">
+              {new Date(event.triggeredAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isTagAdded || isTagRemoved) {
+      const actor = resolveActorName(event.actorDisplayName, event.actorId);
+      const m = meta as Record<string, unknown>;
+      const tagText = String(m["tagText"] ?? "");
+      return (
+        <div key={event.id} className="rcd-feed-event">
+          <div className="rcd-feed-event-icon-wrap">
+            <HistoryIcon type={isTagAdded ? "create" : "update"} />
+            <div className="rcd-feed-event-line" />
+          </div>
+          <div className="rcd-feed-event-body">
+            <span className="rcd-feed-event-text">
+              <strong>{actor}</strong>{" "}
+              {isTagAdded ? "added tag" : "removed tag"}{" "}
+              <span className="rcd-tl-state">{tagText}</span>
             </span>
             <div className="rcd-feed-event-time">
               {new Date(event.triggeredAt).toLocaleString(undefined, {
@@ -3575,6 +3744,21 @@ export function CustomerRecordDetail(): React.ReactElement {
 
             <div className="rcd-info-divider" />
 
+            {/* Severity — docs/specs/ticket-severity-and-tags.md R2/R3 */}
+            <div className="rcd-info-item">
+              <span className="rcd-info-lbl">Severity</span>
+              <div className="rcd-info-val">
+                <SeverityDropdown
+                  value={record.severity ?? null}
+                  required
+                  disabled={settingSeverity || !canChangeSeverity}
+                  onChange={(s) => void quickSetSeverity(s)}
+                />
+              </div>
+            </div>
+
+            <div className="rcd-info-divider" />
+
             {/* Assigned to */}
             <div className="rcd-info-item">
               <span className="rcd-info-lbl">Assigned to</span>
@@ -3684,6 +3868,77 @@ export function CustomerRecordDetail(): React.ReactElement {
               </button>
             </div>
           )}
+
+          {/* Tags — docs/specs/ticket-severity-and-tags.md R4/R5 */}
+          <div className="rcd-parent-row" style={{ flexWrap: "wrap" }}>
+            <span className="rcd-parent-label">Tags</span>
+            {!tagsLoading &&
+              tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="rcd-parent-chip"
+                  style={{ cursor: "default" }}
+                >
+                  {tag.tagText}
+                  {canRemoveTag(tag) && (
+                    <button
+                      type="button"
+                      className="rcd-detach-btn"
+                      title="Remove tag"
+                      disabled={removingTagId === tag.id}
+                      onClick={() => void removeTag(tag.id)}
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              ))}
+            {canAddTag && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                <input
+                  type="text"
+                  className="portal-input"
+                  style={{
+                    width: "120px",
+                    fontSize: "12px",
+                    padding: "3px 8px",
+                  }}
+                  placeholder="Add tag…"
+                  value={newTagText}
+                  disabled={addingTag}
+                  onChange={(e) => setNewTagText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void addTag();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="rcd-btn-secondary"
+                  disabled={addingTag || !newTagText.trim()}
+                  onClick={() => void addTag()}
+                  style={{ padding: "3px 8px", fontSize: "12px" }}
+                >
+                  {addingTag ? "…" : "Add"}
+                </button>
+              </span>
+            )}
+            {tagError && (
+              <span
+                style={{ color: "var(--danger, #dc2626)", fontSize: "11px" }}
+              >
+                {tagError}
+              </span>
+            )}
+          </div>
 
           {/* Expandable: all fields / edit form */}
           <div

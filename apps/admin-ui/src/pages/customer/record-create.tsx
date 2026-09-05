@@ -9,6 +9,11 @@ import {
   StagedFileChip,
 } from "../../components/file-attachment.js";
 import { TOKENS, useHoverStyle } from "@platform/ui";
+import {
+  SeverityDropdown,
+  DEFAULT_SEVERITY,
+  type Severity,
+} from "../../components/severity-tag.js";
 
 type UserOption = {
   userId: string;
@@ -433,6 +438,9 @@ export function CustomerRecordCreate(): React.ReactElement {
   const [workflowId, setWorkflowId] = useState("");
   const [currentState, setCurrentState] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
+  // docs/specs/ticket-severity-and-tags.md R1 — pre-filled Medium, always
+  // required at submit; the create form never lets this go null.
+  const [severity, setSeverity] = useState<Severity>(DEFAULT_SEVERITY);
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -521,6 +529,7 @@ export function CustomerRecordCreate(): React.ReactElement {
       const payload: Record<string, unknown> = {
         entityTypeId,
         fields: fieldValues,
+        severity,
       };
       if (workflowId) payload["workflowId"] = workflowId;
       if (currentState) payload["currentState"] = currentState;
@@ -616,6 +625,12 @@ export function CustomerRecordCreate(): React.ReactElement {
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
           />
+        </div>
+        <div className="portal-field-group">
+          <label className="portal-field-label">
+            Severity<span className="portal-required">*</span>
+          </label>
+          <SeverityDropdown value={severity} onChange={setSeverity} />
         </div>
         {fields.map((field) => (
           <div key={field.id} className="portal-field-group">

@@ -1271,6 +1271,16 @@ export async function listEntities(
   if (input.severity !== undefined && input.severity.length > 0) {
     conditions.push(inArray(entityInstances.severity, input.severity));
   }
+  // T16 — records-page Source filter, converted from client-side to
+  // server-side. See docs/specs/third-party-api-origin-tagging.md for the
+  // origin_mechanism column semantics.
+  if (input.origin === "internal") {
+    conditions.push(isNull(entityInstances.originMechanism));
+  } else if (input.origin === "external") {
+    conditions.push(eq(entityInstances.originMechanism, "api"));
+  } else if (input.origin === "redirected") {
+    conditions.push(eq(entityInstances.originMechanism, "handoff"));
+  }
   // docs/specs/ticket-severity-and-tags.md R6 — exact match on an
   // already-normalized tag (the route layer normalizes before this call).
   if (input.tag !== undefined) {

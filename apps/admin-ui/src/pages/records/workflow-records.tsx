@@ -17,6 +17,13 @@ import {
   LABEL_BY_MECHANISM,
   type Origin,
 } from "../../components/origin-tag.js";
+import {
+  SeverityBadge,
+  SEVERITY_LEVELS,
+  SEVERITY_LABEL,
+  SEVERITY_COLOR,
+  type Severity,
+} from "../../components/severity-tag.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -41,6 +48,9 @@ type EntityInstance = {
   // apps/api/src/lib/resolve-origin-display.ts. Absent/null = normal,
   // human, in-app creation, no tag rendered.
   origin?: Origin;
+  // docs/specs/ticket-severity-and-tags.md — null only on tickets created
+  // before this feature shipped (§V).
+  severity?: Severity | null;
 };
 type OrgUser = {
   userId: string;
@@ -71,6 +81,7 @@ type ChildTicket = {
   createdAt: string;
   accessReason: "assigned" | "mention" | "manual";
   origin?: Origin;
+  severity?: Severity | null;
 };
 
 function toWorkflowSlug(name: string): string {
@@ -159,6 +170,12 @@ function ChildTicketCard({
         </span>
       </div>
 
+      {ticket.severity && (
+        <div className="kb-card-meta">
+          <SeverityBadge severity={ticket.severity} compact />
+        </div>
+      )}
+
       <div className="kb-card-footer">
         <span className="kb-card-time">
           Created {relativeTime(ticket.createdAt)}
@@ -243,6 +260,11 @@ function RecordCard({
         <div className="kb-card-meta">
           <span className="kb-card-meta-label">State</span>
           <span className="kb-card-meta-value">{stateLabel}</span>
+        </div>
+      )}
+      {record.severity && (
+        <div className="kb-card-meta">
+          <SeverityBadge severity={record.severity} compact />
         </div>
       )}
 
@@ -534,6 +556,31 @@ export function WorkflowRecords(): React.ReactElement {
   const [filterOrigin, setFilterOrigin] = useState<
     "" | "internal" | "external" | "redirected"
   >("");
+  // docs/specs/ticket-severity-and-tags.md T16 — severity + tag + (now)
+  // origin all filter server-side, re-fetching on change, rather than
+  // client-side over an already-loaded page.
+  const [filterSeverities, setFilterSeverities] = useState<Set<Severity>>(
+    new Set(),
+  );
+  const [filterTagInput, setFilterTagInput] = useState("");
+  const [filterTag, setFilterTag] = useState(""); // debounced value actually sent to the server
+  const filterTagDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  function handleFilterTagInputChange(value: string): void {
+    setFilterTagInput(value);
+    if (filterTagDebounceRef.current)
+      clearTimeout(filterTagDebounceRef.current);
+    filterTagDebounceRef.current = setTimeout(() => {
+      setFilterTag(value.trim());
+    }, 400);
+  }
+  useEffect(() => {
+    return () => {
+      if (filterTagDebounceRef.current)
+        clearTimeout(filterTagDebounceRef.current);
+    };
+  }, []);
   const [userSearch, setUserSearch] = useState("");
   const filterBtnRef = useRef<HTMLButtonElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
@@ -631,14 +678,29 @@ export function WorkflowRecords(): React.ReactElement {
             ((wf.assignedTo as string[] | null) ?? []).includes(currentUserId));
         const useMyTickets = isUserRole && !isWorkflowAdminForThisWorkflow;
 
+        // docs/specs/ticket-severity-and-tags.md T16 — severity/tag/origin
+        // all filter server-side now, shared by both fetch paths (list.ts's
+        // own params and my-tickets.ts's mirrored ones).
+        const filterParams = new URLSearchParams();
+        if (filterSeverities.size > 0) {
+          filterParams.set("severity", [...filterSeverities].join(","));
+        }
+        if (filterTag) {
+          filterParams.set("tag", filterTag);
+        }
+        if (filterOrigin) {
+          filterParams.set("origin", filterOrigin);
+        }
+        const filterQS = filterParams.toString();
+
         const [fieldsRes, recRes, usersRes] = await Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
           useMyTickets
             ? fetchWithAuth(
-                `${API_URL}/entities/my-tickets?workflowId=${wf.id}`,
+                `${API_URL}/entities/my-tickets?workflowId=${wf.id}${filterQS ? `&${filterQS}` : ""}`,
               )
             : fetchWithAuth(
-                `${API_URL}/entities?entityTypeId=${wf.entityTypeId}&rootOnly=true`,
+                `${API_URL}/entities?entityTypeId=${wf.entityTypeId}&rootOnly=true${filterQS ? `&${filterQS}` : ""}`,
               ),
           fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
         ]);
@@ -669,7 +731,7 @@ export function WorkflowRecords(): React.ReactElement {
         setError(err instanceof Error ? err.message : "Failed to load"),
       )
       .finally(() => setLoading(false));
-  }, [workflowSlug, isUserRole]);
+  }, [workflowSlug, isUserRole, filterSeverities, filterTag, filterOrigin]);
 
   useEffect(() => {
     if (!searchExpanded) return;
@@ -727,6 +789,8 @@ export function WorkflowRecords(): React.ReactElement {
     filterDateField !== "" && filterDateValue !== "",
     filterAssignedTo !== "",
     filterOrigin !== "",
+    filterSeverities.size > 0,
+    filterTag !== "",
   ].filter(Boolean).length;
 
   // For general users: apply the chip filter from Records page URL param
@@ -759,11 +823,8 @@ export function WorkflowRecords(): React.ReactElement {
       )
         return false;
     }
-    if (filterOrigin === "internal" && rec.origin) return false;
-    if (filterOrigin === "external" && rec.origin?.mechanism !== "api")
-      return false;
-    if (filterOrigin === "redirected" && rec.origin?.mechanism !== "handoff")
-      return false;
+    // Severity/tag/origin (Source) are all applied server-side now — see
+    // the fetch effect above — so no client-side filter for them here.
     return true;
   });
 
@@ -1132,6 +1193,9 @@ export function WorkflowRecords(): React.ReactElement {
                         setFilterDateValue("");
                         setFilterAssignedTo("");
                         setFilterOrigin("");
+                        setFilterSeverities(new Set());
+                        setFilterTagInput("");
+                        setFilterTag("");
                         setUserSearch("");
                       }}
                     >
@@ -1220,6 +1284,61 @@ export function WorkflowRecords(): React.ReactElement {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Severity filter — docs/specs/ticket-severity-and-tags.md R6 */}
+                <div className="kb-filter-section">
+                  <div className="kb-filter-section-label">Severity</div>
+                  <div className="kb-filter-origin-options">
+                    {SEVERITY_LEVELS.map((level) => {
+                      const active = filterSeverities.has(level);
+                      const color = SEVERITY_COLOR[level];
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          className={`kb-filter-origin-chip ${active ? "kb-filter-origin-chip-active" : ""}`}
+                          onClick={() =>
+                            setFilterSeverities((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(level)) next.delete(level);
+                              else next.add(level);
+                              return next;
+                            })
+                          }
+                          style={
+                            active
+                              ? {
+                                  background: color,
+                                  borderColor: color,
+                                  color: "hsl(0, 0%, 100%)",
+                                }
+                              : undefined
+                          }
+                        >
+                          <span
+                            className="kb-filter-origin-dot"
+                            style={{
+                              background: active ? "hsl(0, 0%, 100%)" : color,
+                            }}
+                          />
+                          {SEVERITY_LABEL[level]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Tag filter — docs/specs/ticket-severity-and-tags.md R6 */}
+                <div className="kb-filter-section">
+                  <div className="kb-filter-section-label">Tag</div>
+                  <input
+                    type="text"
+                    className="kb-filter-select"
+                    placeholder="Filter by exact tag…"
+                    value={filterTagInput}
+                    onChange={(e) => handleFilterTagInputChange(e.target.value)}
+                  />
                 </div>
 
                 {/* Assigned to filter */}

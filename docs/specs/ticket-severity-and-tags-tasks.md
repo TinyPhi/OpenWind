@@ -2,7 +2,8 @@
 
 **Spec:** docs/specs/ticket-severity-and-tags.md
 **Generated:** 2026-09-05
-**Status:** Phase 1 + 2 done (T1-T11); Phase 3 (T12-T17, UI) not started
+**Status:** All phases done (T1-T17, plus T10b/T10c added mid-Phase-3 as a scope
+expansion — see below). Feature complete, ready for upstream PR.
 
 ---
 
@@ -38,6 +39,8 @@ existing outbound service, records-list endpoint supports both filters.
 | T9: Tag-remove route: enforce creator-lock (only `created_by` may remove) with global/workflow-admin override, write `tag.removed` audit-log entry (recording original creator id when overridden)                                        | R5                 | done   |
 | T10: Records-list route: add severity filter (one or more levels) and tag filter (normalized exact match) query params, composable with existing Source filter                                                                            | R6                 | done   |
 | T11: Isolation + integration tests for T6–T10 (creator-lock enforcement, admin override, notification fan-out via existing service, third-party API always-Medium path)                                                                   | R1, R2, R3, R5, R6 | done   |
+| T10b: (added mid-Phase-3, scope expansion) list.ts gains an origin/Source filter query param, alongside severity/tag, so the records page's Source filter can also move server-side                                                       | R6                 | done   |
+| T10c: (added mid-Phase-3) my-tickets.ts (the separate aggregating endpoint for plain "user"-role callers) gains its own severity/tag/origin filter conditions mirroring list.ts's, so both fetch paths filter identically server-side     | R6                 | done   |
 
 ---
 
@@ -49,12 +52,12 @@ records page gets severity + tag filters; all changes visible in ticket activity
 
 | task                                                                                                                                                                                                   | requirement | status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ------ |
-| T12: Ticket-create form: severity field pre-filled Medium, changeable, required (client + relies on T6 server validation)                                                                              | R1          | todo   |
-| T13: Ticket-detail page: severity control editable by creator/assignee/workflow-admin/global-admin only, shows red-asterisk required state when NULL and blocks save via existing Edit-form validation | R2, R3      | todo   |
-| T14: Ticket-detail page: tag add/remove UI — add open to any edit-access user, remove button only rendered/enabled for the tag's creator or admins (server still enforces via T9)                      | R4, R5      | todo   |
-| T15: Ticket-detail activity/timeline: render `severity.changed`, `tag.added`, `tag.removed` entries (actor, timestamp, and old/new or creator-override detail)                                         | R3, R5      | todo   |
-| T16: Records page: severity filter control (multi-select, color-coded per §I's rank/color table) + debounced tag-text filter input, both composing with existing Source filter                         | R6          | todo   |
-| T17: Component/e2e tests for T12–T16                                                                                                                                                                   | R1–R6       | todo   |
+| T12: Ticket-create form: severity field pre-filled Medium, changeable, required (client + relies on T6 server validation)                                                                              | R1          | done   |
+| T13: Ticket-detail page: severity control editable by creator/assignee/workflow-admin/global-admin only, shows red-asterisk required state when NULL and blocks save via existing Edit-form validation | R2, R3      | done   |
+| T14: Ticket-detail page: tag add/remove UI — add open to any edit-access user, remove button only rendered/enabled for the tag's creator or admins (server still enforces via T9)                      | R4, R5      | done   |
+| T15: Ticket-detail activity/timeline: render `severity.changed`, `tag.added`, `tag.removed` entries (actor, timestamp, and old/new or creator-override detail)                                         | R3, R5      | done   |
+| T16: Records page: severity filter control (multi-select, color-coded per §I's rank/color table) + debounced tag-text filter input, both composing with existing Source filter                         | R6          | done   |
+| T17: Component/e2e tests for T12–T16                                                                                                                                                                   | R1–R6       | done   |
 
 ---
 
