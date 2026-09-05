@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db } from "@platform/db";
-import { getEntity, createEntity } from "@platform/entity-engine";
+import {
+  getEntity,
+  createEntity,
+  DEFAULT_TICKET_SEVERITY,
+} from "@platform/entity-engine";
 import { getWorkflow } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
@@ -247,6 +251,10 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               originMechanism: "api",
               originOidcClientId,
               originPerformerUserId: actingPersonId,
+              // docs/specs/ticket-severity-and-tags.md R1 — the third-party
+              // API always creates at Medium, unconditionally; no request
+              // param can set this (out of scope for this feature's v1).
+              severity: DEFAULT_TICKET_SEVERITY,
             });
             // Same transaction as the create above -- a rejected attachment
             // reference rolls back the whole ticket creation, never leaving a

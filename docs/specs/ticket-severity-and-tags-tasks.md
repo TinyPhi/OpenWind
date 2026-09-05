@@ -2,7 +2,7 @@
 
 **Spec:** docs/specs/ticket-severity-and-tags.md
 **Generated:** 2026-09-05
-**Status:** not started
+**Status:** Phase 1 + 2 done (T1-T11); Phase 3 (T12-T17, UI) not started
 
 ---
 
@@ -15,11 +15,11 @@ creator-lock and dedup rules depend on.
 
 | task                                                                                                                                                                                            | requirement | status |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T1: Add nullable `severity` column (Low/Medium/High/Critical enum, rank-ordered) to `entity_instances` in `packages/db/src/schema/entity-engine.ts` + migration, no backfill                    | R1, R2, R7  | todo   |
-| T2: Create `entity_instance_tags` join table (tenant_id, entity_instance_id, tag_text, created_by, created_at) with RLS + composite unique index on `(tenant_id, entity_instance_id, tag_text)` | R4, R5, R7  | todo   |
-| T3: Migration files + `meta/_journal.json` entries + analytics annotations on both schema changes                                                                                               | R1, R4, R7  | todo   |
-| T4: Zod schemas + TS types for severity enum and tag shape in entity-engine (`z.infer`-derived, per code-style.md)                                                                              | R1, R4      | todo   |
-| T5: Isolation tests: RLS on `entity_instance_tags`, composite-uniqueness constraint rejects concurrent duplicate                                                                                | R4, R5, R7  | todo   |
+| T1: Add nullable `severity` column (Low/Medium/High/Critical enum, rank-ordered) to `entity_instances` in `packages/db/src/schema/entity-engine.ts` + migration, no backfill                    | R1, R2, R7  | done   |
+| T2: Create `entity_instance_tags` join table (tenant_id, entity_instance_id, tag_text, created_by, created_at) with RLS + composite unique index on `(tenant_id, entity_instance_id, tag_text)` | R4, R5, R7  | done   |
+| T3: Migration files + `meta/_journal.json` entries + analytics annotations on both schema changes                                                                                               | R1, R4, R7  | done   |
+| T4: Zod schemas + TS types for severity enum and tag shape in entity-engine (`z.infer`-derived, per code-style.md)                                                                              | R1, R4      | done   |
+| T5: Isolation tests: RLS on `entity_instance_tags`, composite-uniqueness constraint rejects concurrent duplicate                                                                                | R4, R5, R7  | done   |
 
 ---
 
@@ -32,12 +32,12 @@ existing outbound service, records-list endpoint supports both filters.
 
 | task                                                                                                                                                                                                                                      | requirement        | status |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------ |
-| T6: Ticket-create routes (admin-ui-facing) require severity, default Medium; third-party API create route always writes Medium unconditionally, no severity param accepted                                                                | R1                 | todo   |
-| T7: Ticket-edit route: reject save when severity is NULL/missing; on change, write `severity.changed` audit-log entry + call existing outbound notification service for every user in the ticket's access list                            | R2, R3             | todo   |
-| T8: Tag-add route: normalize (trim+lowercase), reject empty, reject >50 chars, rely on DB composite constraint for same-ticket dedup (surface constraint violation as "already exists on this ticket"), write `tag.added` audit-log entry | R4, R5             | todo   |
-| T9: Tag-remove route: enforce creator-lock (only `created_by` may remove) with global/workflow-admin override, write `tag.removed` audit-log entry (recording original creator id when overridden)                                        | R5                 | todo   |
-| T10: Records-list route: add severity filter (one or more levels) and tag filter (normalized exact match) query params, composable with existing Source filter                                                                            | R6                 | todo   |
-| T11: Isolation + integration tests for T6–T10 (creator-lock enforcement, admin override, notification fan-out via existing service, third-party API always-Medium path)                                                                   | R1, R2, R3, R5, R6 | todo   |
+| T6: Ticket-create routes (admin-ui-facing) require severity, default Medium; third-party API create route always writes Medium unconditionally, no severity param accepted                                                                | R1                 | done   |
+| T7: Ticket-edit route: reject save when severity is NULL/missing; on change, write `severity.changed` audit-log entry + call existing outbound notification service for every user in the ticket's access list                            | R2, R3             | done   |
+| T8: Tag-add route: normalize (trim+lowercase), reject empty, reject >50 chars, rely on DB composite constraint for same-ticket dedup (surface constraint violation as "already exists on this ticket"), write `tag.added` audit-log entry | R4, R5             | done   |
+| T9: Tag-remove route: enforce creator-lock (only `created_by` may remove) with global/workflow-admin override, write `tag.removed` audit-log entry (recording original creator id when overridden)                                        | R5                 | done   |
+| T10: Records-list route: add severity filter (one or more levels) and tag filter (normalized exact match) query params, composable with existing Source filter                                                                            | R6                 | done   |
+| T11: Isolation + integration tests for T6–T10 (creator-lock enforcement, admin override, notification fan-out via existing service, third-party API always-Medium path)                                                                   | R1, R2, R3, R5, R6 | done   |
 
 ---
 

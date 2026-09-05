@@ -17,7 +17,11 @@ export type EntityErrorCode =
   | "CHILDREN_DISABLED"
   | "ENTITY_HAS_ACTIVE_CHILDREN"
   | "RELATION_SELF_LINK"
-  | "RELATION_ALREADY_EXISTS";
+  | "RELATION_ALREADY_EXISTS"
+  | "SEVERITY_REQUIRED"
+  | "TAG_NOT_FOUND"
+  | "TAG_FORBIDDEN"
+  | "TAG_ALREADY_EXISTS";
 
 export class EntityError extends Error {
   constructor(

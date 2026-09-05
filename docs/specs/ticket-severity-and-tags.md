@@ -3,9 +3,9 @@
 > mandatory severity (Low/Med/High/Crit) + freeform shared tags, on all workflow-instance
 > tickets platform-wide, w/ audit logging + severity-change notifications.
 
-status: draft
+status: in-progress (Phase 1+2 implemented; Phase 3 UI pending)
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 
 ---
 
@@ -176,17 +176,17 @@ Full phase-gated breakdown: `docs/specs/ticket-severity-and-tags-tasks.md`
 
 | id  | task                                                               | phase | status | depends  |
 | --- | ------------------------------------------------------------------ | ----- | ------ | -------- |
-| T1  | severity column + migration on entity_instances                    | 1     | todo   | —        |
-| T2  | entity_instance_tags join table + RLS + composite unique index     | 1     | todo   | —        |
-| T3  | migration files + journal + analytics annotations                  | 1     | todo   | T1,T2    |
-| T4  | Zod/TS types for severity enum + tag shape                         | 1     | todo   | T1,T2    |
-| T5  | isolation tests: RLS + composite-uniqueness                        | 1     | todo   | T1,T2    |
-| T6  | ticket-create routes: severity required/default/third-party-Medium | 2     | todo   | T1,T4    |
-| T7  | ticket-edit route: severity gate + audit log + notification        | 2     | todo   | T1,T4    |
-| T8  | tag-add route: normalize/validate/dedup/audit log                  | 2     | todo   | T2,T4    |
-| T9  | tag-remove route: creator-lock + admin override + audit log        | 2     | todo   | T2,T4    |
-| T10 | records-list route: severity + tag filters                         | 2     | todo   | T1,T2    |
-| T11 | integration/isolation tests for T6–T10                             | 2     | todo   | T6-T10   |
+| T1  | severity column + migration on entity_instances                    | 1     | done   | —        |
+| T2  | entity_instance_tags join table + RLS + composite unique index     | 1     | done   | —        |
+| T3  | migration files + journal + analytics annotations                  | 1     | done   | T1,T2    |
+| T4  | Zod/TS types for severity enum + tag shape                         | 1     | done   | T1,T2    |
+| T5  | isolation tests: RLS + composite-uniqueness                        | 1     | done   | T1,T2    |
+| T6  | ticket-create routes: severity required/default/third-party-Medium | 2     | done   | T1,T4    |
+| T7  | ticket-edit route: severity gate + audit log + notification        | 2     | done   | T1,T4    |
+| T8  | tag-add route: normalize/validate/dedup/audit log                  | 2     | done   | T2,T4    |
+| T9  | tag-remove route: creator-lock + admin override + audit log        | 2     | done   | T2,T4    |
+| T10 | records-list route: severity + tag filters                         | 2     | done   | T1,T2    |
+| T11 | integration/isolation tests for T6–T10                             | 2     | done   | T6-T10   |
 | T12 | ticket-create form UI                                              | 3     | todo   | T6       |
 | T13 | ticket-detail severity control UI                                  | 3     | todo   | T7       |
 | T14 | ticket-detail tag add/remove UI                                    | 3     | todo   | T8,T9    |

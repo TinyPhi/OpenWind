@@ -15,6 +15,7 @@ import {
 } from "./pagination.js";
 import { logger } from "@platform/logger";
 import { EntityError } from "./errors.js";
+import { DEFAULT_TICKET_SEVERITY } from "./severity-and-tags.js";
 import {
   buildEntityAssignedPayload,
   buildEntityCreatedPayload,
@@ -331,6 +332,9 @@ export async function createChildRelation(
       originMechanism: originMechanism ?? null,
       originOidcClientId: originOidcClientId ?? null,
       originPerformerUserId: originPerformerUserId ?? null,
+      // docs/specs/ticket-severity-and-tags.md R1/R7 — sub-tickets follow the
+      // same "never NULL past creation" rule as top-level tickets.
+      severity: DEFAULT_TICKET_SEVERITY,
     })
     .returning();
 

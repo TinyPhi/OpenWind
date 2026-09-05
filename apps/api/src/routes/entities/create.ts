@@ -9,7 +9,11 @@ import {
   db,
   withTenantContext,
 } from "@platform/db";
-import { createEntity } from "@platform/entity-engine";
+import {
+  createEntity,
+  TicketSeveritySchema,
+  DEFAULT_TICKET_SEVERITY,
+} from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { listUserIdsWithRole } from "../../lib/zitadel-management.js";
@@ -22,6 +26,10 @@ const CreateEntitySchema = z.object({
   dueDate: z.string().datetime().nullable().optional(),
   workflowId: z.string().uuid().optional(),
   currentState: z.string().optional(),
+  // docs/specs/ticket-severity-and-tags.md R1 — optional on the wire; the
+  // handler below defaults to Medium when omitted. Never NULL once past
+  // this route (§V).
+  severity: TicketSeveritySchema.optional(),
   // docs/specs/hosted-ticket-create-handoff.md R7 / third-party-api-origin-
   // tagging.md R2 — set ONLY when this create request arrives via the hosted
   // handoff flow (apps/admin-ui/src/pages/customer/record-create.tsx, threaded
@@ -175,6 +183,7 @@ export const createEntityHandler = factory.createHandlers(
         const { appClientId, ...createInput } = input;
         return createEntity(tx, tenantId, {
           ...createInput,
+          severity: createInput.severity ?? DEFAULT_TICKET_SEVERITY,
           actorId: userId,
           actorName: actorName ?? undefined,
           createdBy: userId,

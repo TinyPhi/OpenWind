@@ -149,6 +149,14 @@ export type CreateEntityInput = {
   originMechanism?: "api" | "handoff" | undefined;
   originOidcClientId?: string | undefined;
   originPerformerUserId?: string | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md R1 — required at the route layer
+   * (defaulted to "medium" there if the caller omitted it); createEntity
+   * itself does not default this, so a root caller must always resolve a
+   * value before calling in, matching the spec's "never a code path that
+   * writes NULL after this feature ships" invariant.
+   */
+  severity?: TicketSeverity | undefined;
 };
 
 export type UpdateEntityInput = {
@@ -187,6 +195,14 @@ export type ListEntitiesInput = {
    */
   scopeToUserId?: string | undefined;
   fieldFilters?: Record<string, unknown> | undefined;
+  /** docs/specs/ticket-severity-and-tags.md R6 — one or more severity levels (OR'd). */
+  severity?: TicketSeverity[] | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md R6 — a single already-normalized
+   * (trim+lowercase) tag, exact match. Callers must normalize before passing
+   * this in — see normalizeTagText.
+   */
+  tag?: string | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
   includeDeleted?: boolean | undefined;

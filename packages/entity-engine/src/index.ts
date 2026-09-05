@@ -21,6 +21,10 @@ export {
   bulkCreateEntities,
   bulkUpdateEntities,
   bulkSetState,
+  setEntityInstanceSeverity,
+  addEntityInstanceTag,
+  removeEntityInstanceTag,
+  listEntityInstanceTags,
 } from "./engine.js";
 export {
   registerEntityAuditHook,

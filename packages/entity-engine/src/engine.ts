@@ -8,7 +8,9 @@ import {
   workflowStates,
   workflowEvents,
   entityRelations,
+  entityInstanceTags,
   outboxEvents,
+  isUniqueViolation,
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import type {
@@ -27,6 +29,12 @@ import type {
   EntityDueDateScheduledEvent,
   FieldSensitivity,
 } from "./types.js";
+import type { TicketSeverity, EntityInstanceTag } from "./severity-and-tags.js";
+import {
+  normalizeTagText,
+  TAG_TEXT_MAX_LENGTH,
+  DEFAULT_TICKET_SEVERITY,
+} from "./severity-and-tags.js";
 import {
   encodeCursor,
   decodeCursor,
@@ -309,6 +317,7 @@ export async function createEntity(
       originMechanism: input.originMechanism ?? null,
       originOidcClientId: input.originOidcClientId ?? null,
       originPerformerUserId: input.originPerformerUserId ?? null,
+      severity: input.severity ?? null,
     })
     .returning();
 
@@ -997,6 +1006,186 @@ export async function updateEntity(
   return rowToInstance(existing);
 }
 
+// docs/specs/ticket-severity-and-tags.md, Phase 2 (T7). Deliberately NOT folded
+// into updateEntity — that function's fields/state branching is already large,
+// and severity has no interaction with field validation, formulas, or workflow
+// state, so a small dedicated update keeps both functions easier to reason
+// about. Callers (the route layer) own defaulting-to-Medium and the
+// required-on-save gate; this function only ever writes the value it's given.
+export async function setEntityInstanceSeverity(
+  db: DbOrTx,
+  tenantId: string,
+  instanceId: string,
+  severity: TicketSeverity,
+): Promise<{
+  instance: EntityInstance;
+  previousSeverity: TicketSeverity | null;
+}> {
+  const [existing] = await db
+    .select()
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.id, instanceId),
+        eq(entityInstances.tenantId, tenantId),
+        isNull(entityInstances.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!existing) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
+
+  const [updated] = await db
+    .update(entityInstances)
+    .set({ severity, updatedAt: new Date() })
+    .where(
+      and(
+        eq(entityInstances.id, instanceId),
+        eq(entityInstances.tenantId, tenantId),
+      ),
+    )
+    .returning();
+  if (!updated) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
+
+  return {
+    instance: rowToInstance(updated),
+    previousSeverity: (existing.severity as TicketSeverity | null) ?? null,
+  };
+}
+
+// docs/specs/ticket-severity-and-tags.md, Phase 2 (T8). Uniqueness on
+// (tenantId, entityInstanceId, tagText) is enforced by the DB (migration
+// 0092) — this function relies on that constraint rather than a
+// read-then-write pre-check, so two concurrent submits of the same
+// normalized tag can't both succeed (see the migration's own comment).
+export async function addEntityInstanceTag(
+  db: DbOrTx,
+  tenantId: string,
+  entityInstanceId: string,
+  rawTagText: string,
+  createdBy: string,
+): Promise<EntityInstanceTag> {
+  const tagText = normalizeTagText(rawTagText);
+  if (tagText.length === 0 || tagText.length > TAG_TEXT_MAX_LENGTH) {
+    throw new ValidationError([
+      {
+        field: "tagText",
+        code: "invalid",
+        message: `Tag must be 1-${TAG_TEXT_MAX_LENGTH} characters after trimming`,
+      },
+    ]);
+  }
+
+  const [instance] = await db
+    .select({ id: entityInstances.id })
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.id, entityInstanceId),
+        eq(entityInstances.tenantId, tenantId),
+        isNull(entityInstances.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!instance)
+    throw new EntityError("ENTITY_NOT_FOUND", { entityInstanceId });
+
+  try {
+    const [row] = await db
+      .insert(entityInstanceTags)
+      .values({ tenantId, entityInstanceId, tagText, createdBy })
+      .returning();
+    if (!row) throw new EntityError("TAG_NOT_FOUND", { entityInstanceId });
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      entityInstanceId: row.entityInstanceId,
+      tagText: row.tagText,
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
+    };
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new EntityError("TAG_ALREADY_EXISTS", {
+        entityInstanceId,
+        tagText,
+      });
+    }
+    throw err;
+  }
+}
+
+// docs/specs/ticket-severity-and-tags.md, Phase 2 (T9). Creator-lock: only
+// the tag's own creator may remove it, unless `allowAdminOverride` is true
+// (the route layer sets this only for global/workflow admins — see §V).
+export async function removeEntityInstanceTag(
+  db: DbOrTx,
+  tenantId: string,
+  entityInstanceId: string,
+  tagId: string,
+  requestingUserId: string,
+  allowAdminOverride: boolean,
+): Promise<EntityInstanceTag> {
+  const [existing] = await db
+    .select()
+    .from(entityInstanceTags)
+    .where(
+      and(
+        eq(entityInstanceTags.id, tagId),
+        eq(entityInstanceTags.entityInstanceId, entityInstanceId),
+        eq(entityInstanceTags.tenantId, tenantId),
+      ),
+    )
+    .limit(1);
+  if (!existing) throw new EntityError("TAG_NOT_FOUND", { tagId });
+
+  if (existing.createdBy !== requestingUserId && !allowAdminOverride) {
+    throw new EntityError("TAG_FORBIDDEN", { tagId });
+  }
+
+  await db
+    .delete(entityInstanceTags)
+    .where(
+      and(
+        eq(entityInstanceTags.id, tagId),
+        eq(entityInstanceTags.tenantId, tenantId),
+      ),
+    );
+
+  return {
+    id: existing.id,
+    tenantId: existing.tenantId,
+    entityInstanceId: existing.entityInstanceId,
+    tagText: existing.tagText,
+    createdBy: existing.createdBy,
+    createdAt: existing.createdAt,
+  };
+}
+
+export async function listEntityInstanceTags(
+  db: DbOrTx,
+  tenantId: string,
+  entityInstanceId: string,
+): Promise<EntityInstanceTag[]> {
+  const rows = await db
+    .select()
+    .from(entityInstanceTags)
+    .where(
+      and(
+        eq(entityInstanceTags.entityInstanceId, entityInstanceId),
+        eq(entityInstanceTags.tenantId, tenantId),
+      ),
+    )
+    .orderBy(asc(entityInstanceTags.createdAt));
+  return rows.map((row) => ({
+    id: row.id,
+    tenantId: row.tenantId,
+    entityInstanceId: row.entityInstanceId,
+    tagText: row.tagText,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+  }));
+}
+
 export async function deleteEntity(
   db: DbOrTx,
   tenantId: string,
@@ -1077,6 +1266,22 @@ export async function listEntities(
   }
   if (input.assignedTo !== undefined) {
     conditions.push(eq(entityInstances.assignedTo, input.assignedTo));
+  }
+  // docs/specs/ticket-severity-and-tags.md R6 — OR across the given levels.
+  if (input.severity !== undefined && input.severity.length > 0) {
+    conditions.push(inArray(entityInstances.severity, input.severity));
+  }
+  // docs/specs/ticket-severity-and-tags.md R6 — exact match on an
+  // already-normalized tag (the route layer normalizes before this call).
+  if (input.tag !== undefined) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM entity_instance_tags eit
+        WHERE eit.entity_instance_id = ${entityInstances.id}
+          AND eit.tenant_id = ${tenantId}
+          AND eit.tag_text = ${input.tag}
+      )`,
+    );
   }
   if (input.scopeToUserId !== undefined) {
     // Reuses the exact OR shape apps/api/src/routes/entities/my-tickets.ts
@@ -1443,6 +1648,12 @@ export async function bulkCreateEntities(
       createdBy: input.createdBy ?? null,
       assignedTo: input.assignedTo ?? null,
       dueDate: input.dueDate ? new Date(input.dueDate) : null,
+      // docs/specs/ticket-severity-and-tags.md R1 — a creation path, same
+      // rule as createEntity: never NULL past this point. bulkCreateEntities
+      // has no route-level "handoff vs API" distinction createEntity does,
+      // so it defaults directly here rather than pushing that decision onto
+      // every caller.
+      severity: input.severity ?? DEFAULT_TICKET_SEVERITY,
     });
 
     // Save audit context for this item (parallel to toInsert)
