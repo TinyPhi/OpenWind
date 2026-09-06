@@ -20,15 +20,19 @@ CREATE TABLE teams (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   deleted_at  timestamptz,
 
-  CONSTRAINT teams_name_tenant_unique UNIQUE (tenant_id, name)
   -- analytics: included(id, tenant_id, name, created_at, deleted_at)
 );
 
+-- Partial unique index so soft-deleted names can be reused
+CREATE UNIQUE INDEX teams_name_tenant_unique ON teams (tenant_id, name) WHERE deleted_at IS NULL;
 CREATE INDEX teams_tenant_idx ON teams (tenant_id) WHERE deleted_at IS NULL;
 
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
-CREATE POLICY teams_tenant_isolation ON teams
-  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+CREATE POLICY teams_tenant_read ON teams FOR SELECT
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY teams_tenant_write ON teams FOR ALL
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
 
 ### 1.2 `services`
@@ -44,16 +48,20 @@ CREATE TABLE services (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   deleted_at  timestamptz,
 
-  CONSTRAINT services_name_tenant_unique UNIQUE (tenant_id, name)
   -- analytics: included(id, tenant_id, team_id, name, created_at, deleted_at)
 );
 
+-- Partial unique index so soft-deleted names can be reused
+CREATE UNIQUE INDEX services_name_tenant_unique ON services (tenant_id, name) WHERE deleted_at IS NULL;
 CREATE INDEX services_tenant_idx ON services (tenant_id) WHERE deleted_at IS NULL;
 CREATE INDEX services_team_idx   ON services (team_id)   WHERE deleted_at IS NULL;
 
 ALTER TABLE services ENABLE ROW LEVEL SECURITY;
-CREATE POLICY services_tenant_isolation ON services
-  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+CREATE POLICY services_tenant_read ON services FOR SELECT
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY services_tenant_write ON services FOR ALL
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
 
 ### 1.3 `labels`
@@ -69,15 +77,19 @@ CREATE TABLE labels (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   deleted_at  timestamptz,
 
-  CONSTRAINT labels_name_tenant_unique UNIQUE (tenant_id, name)
   -- analytics: included(id, tenant_id, name, created_at, deleted_at)
 );
 
+-- Partial unique index so soft-deleted names can be reused
+CREATE UNIQUE INDEX labels_name_tenant_unique ON labels (tenant_id, name) WHERE deleted_at IS NULL;
 CREATE INDEX labels_tenant_idx ON labels (tenant_id) WHERE deleted_at IS NULL;
 
 ALTER TABLE labels ENABLE ROW LEVEL SECURITY;
-CREATE POLICY labels_tenant_isolation ON labels
-  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+CREATE POLICY labels_tenant_read ON labels FOR SELECT
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY labels_tenant_write ON labels FOR ALL
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
 
 ### 1.4 `ticket_labels`
@@ -99,8 +111,11 @@ CREATE INDEX ticket_labels_label_idx  ON ticket_labels (label_id);
 CREATE INDEX ticket_labels_tenant_idx ON ticket_labels (tenant_id);
 
 ALTER TABLE ticket_labels ENABLE ROW LEVEL SECURITY;
-CREATE POLICY ticket_labels_tenant_isolation ON ticket_labels
-  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+CREATE POLICY ticket_labels_tenant_read ON ticket_labels FOR SELECT
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY ticket_labels_tenant_write ON ticket_labels FOR ALL
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
 
 ### 1.5 `on_call_schedules`
@@ -114,12 +129,13 @@ CREATE TABLE on_call_schedules (
   label                       text NOT NULL,
   starts_at                   timestamptz NOT NULL,
   ends_at                     timestamptz NOT NULL,
-  primary_user_id             uuid NOT NULL,   -- FK to auth users; validated at write time
-  backup_user_id              uuid,            -- nullable
-  escalation_manager_user_id  uuid,            -- nullable
-  created_by                  uuid NOT NULL,
+  primary_user_id             uuid NOT NULL REFERENCES users(id),
+  backup_user_id              uuid REFERENCES users(id),            -- nullable
+  escalation_manager_user_id  uuid REFERENCES users(id),            -- nullable
+  created_by                  uuid NOT NULL REFERENCES users(id),
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now(),
+  deleted_at                  timestamptz,   -- soft-delete; preserves audit trail history
 
   CONSTRAINT schedule_window_valid CHECK (ends_at > starts_at),
 
@@ -129,16 +145,19 @@ CREATE TABLE on_call_schedules (
     tenant_id WITH =,
     team_id   WITH =,
     tstzrange(starts_at, ends_at, '[)') WITH &&
-  )
-  -- analytics: included(id, tenant_id, team_id, starts_at, ends_at, created_at)
+  ) WHERE (deleted_at IS NULL)
+  -- analytics: included(id, tenant_id, team_id, starts_at, ends_at, created_at, deleted_at)
 );
 
 CREATE INDEX on_call_schedules_team_time_idx
-  ON on_call_schedules (tenant_id, team_id, starts_at, ends_at);
+  ON on_call_schedules (tenant_id, team_id, starts_at, ends_at) WHERE deleted_at IS NULL;
 
 ALTER TABLE on_call_schedules ENABLE ROW LEVEL SECURITY;
-CREATE POLICY on_call_schedules_tenant_isolation ON on_call_schedules
-  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+CREATE POLICY on_call_schedules_tenant_read ON on_call_schedules FOR SELECT
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY on_call_schedules_tenant_write ON on_call_schedules FOR ALL
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
 
 ### 1.6 `notification_policies`
@@ -182,8 +201,11 @@ CREATE UNIQUE INDEX notif_policy_team_workflow_severity
   WHERE team_id IS NOT NULL AND workflow_type_id IS NOT NULL;
 
 ALTER TABLE notification_policies ENABLE ROW LEVEL SECURITY;
-CREATE POLICY notification_policies_tenant_isolation ON notification_policies
-  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+CREATE POLICY notification_policies_tenant_read ON notification_policies FOR SELECT
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY notification_policies_tenant_write ON notification_policies FOR ALL
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
 
 ### 1.7 Ticket entity type — new system fields (seed SQL)
@@ -335,7 +357,7 @@ Response `201`. Errors: `409` overlap; `422` invalid window or foreign user.
 
 #### `GET /admin/on-call-schedules/current`
 
-No query params. Returns active schedule entry per team (inner join to all tenant teams).
+No query params. Returns every team in the tenant with its active schedule entry if one exists (LEFT JOIN — teams with no active schedule appear with `oncall: null`, not omitted). This is how the coverage-gap badge data is served.
 
 Response `200`:
 
@@ -555,6 +577,13 @@ resolution and write `oncall.skipped_explicit_assignee`. Applied before the sche
 **Idempotency key:** `oncall_resolve:{ticketId}:{team_id_value}` — if already processed for
 this (ticket, team_id) pair, skip and return.
 
+**Accepted TOCTOU trade-off:** the schedule lookup in step 2 is a plain SELECT without `FOR
+UPDATE`. Between the lookup and the `updateEntity` call in step 4, the schedule entry may be
+deleted or rotated. This window is accepted: schedule changes are infrequent admin operations,
+and the lookup-to-assign latency is sub-100ms. The assignee set by `resolve_oncall` reflects
+the primary on-call at lookup time, not guaranteed-current at commit time. If stronger
+guarantees are needed in future, add a `SELECT ... FOR UPDATE` inside the write transaction.
+
 ### 3.2 `dispatch_severity_notification`
 
 **Trigger condition** (system-seeded automation rule):
@@ -610,9 +639,12 @@ for channel in policy.channels:
     })
     // no per-channel audit write on success — covered by the single dispatched entry
   catch:
+    // sanitize: provider errors (Twilio, Meta, Novu) may include phone numbers or PII.
+    // Strip raw err.message; log only the error code and a masked, truncated form.
+    sanitized = sanitizeProviderError(err)   // masks E.164 numbers, truncates to 200 chars
     writeAuditEntry({ action: 'notification.channel_failed',
-                      metadata: { channel, error: err.message } })
-    logger.warn({ channel, ticketId, error }, 'notification channel failed')
+                      metadata: { channel, errorCode: sanitized.code, errorSummary: sanitized.message } })
+    logger.warn({ channel, ticketId, errorCode: sanitized.code }, 'notification channel failed')
     // continue — do not abort remaining channels
 
 writeAuditEntry({ action: 'notification.dispatched',
@@ -626,15 +658,18 @@ dispatch if the same `entity.updated` event is re-delivered.
 
 ## 4. Security Model
 
-| Concern                                   | Mechanism                                                                                                                                    |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cross-tenant team data                    | RLS policy on `teams`, `services`, `on_call_schedules`, `notification_policies`; all queries inside `withTenantContext`                      |
-| Cross-tenant user references in schedules | At write time, `primary_user_id`/`backup_user_id`/`escalation_manager_user_id` are validated against the tenant's user list before insert    |
-| Cross-tenant `entity_ref` on tickets      | Entity engine's built-in cross-tenant reference guard (`CROSS_TENANT_REFERENCE` error code) covers `team_id` and `service_id`                |
-| Schedule overlap correctness              | GIST exclusion constraint — not application-layer-only                                                                                       |
-| Notification policy write access          | `requireRole("admin")` on all POST/PATCH/DELETE policy routes                                                                                |
-| Notification policy slot collision        | Partial unique indexes per specificity level; application-layer check returns `409` before hitting the DB constraint for a clean error       |
-| Audit trail                               | Every routing and notification event (success or failure) written to `admin_audit_log` in the same DB transaction as the triggering mutation |
+| Concern                                                               | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cross-tenant team data                                                | RLS read/write policy pairs (nullif-guarded) on all 6 new tables; all queries inside `withTenantContext`                                                                                                                                                                                                                                                                                                                                                            |
+| Cross-tenant user references in schedules                             | At write time, `primary_user_id`/`backup_user_id`/`escalation_manager_user_id` are validated against the tenant's user list before insert; DB FKs to `users` provide referential integrity                                                                                                                                                                                                                                                                          |
+| Cross-tenant FK bypass (`services.team_id`, `ticket_labels.label_id`) | PostgreSQL FK checks run as table owner and bypass RLS. The `POST/PATCH /admin/services` route **must** validate that the provided `teamId` belongs to the same tenant as the service before executing the write (application-layer ownership check). The `POST /tickets/:id/labels/:labelId` route must perform the same check for `labelId`. This is the platform's canonical pattern for cross-table FKs between tenant-scoped tables — see `db-conventions.md`. |
+| Cross-tenant `entity_ref` on tickets                                  | Entity engine's built-in cross-tenant reference guard (`CROSS_TENANT_REFERENCE` error code) covers `team_id` and `service_id`                                                                                                                                                                                                                                                                                                                                       |
+| Schedule overlap correctness                                          | GIST exclusion constraint (with `WHERE deleted_at IS NULL`) — not application-layer-only                                                                                                                                                                                                                                                                                                                                                                            |
+| Notification policy write access                                      | `requireRole("admin")` on all POST/PATCH/DELETE policy routes                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Notification policy slot collision                                    | Partial unique indexes per specificity level; application-layer check returns `409` before hitting the DB constraint for a clean error                                                                                                                                                                                                                                                                                                                              |
+| Provider error PII in audit log                                       | Twilio/Novu/WhatsApp error messages may include phone numbers, email addresses, or provider user IDs. The `notification.channel_failed` audit entry must strip the raw `err.message` and log only a sanitized form: error code + truncated provider message with E.164 numbers masked. Same sanitization applies to `logger.warn` calls.                                                                                                                            |
+| Resolve endpoint user name disclosure                                 | `GET /admin/notification-policies/resolve` returns the names and user IDs of the current on-call person and escalation manager. This is intentional: on-call information is not confidential within a tenant and agents need it to understand routing. The endpoint is rate-limited per ADR-013's per-key tier.                                                                                                                                                     |
+| Audit trail                                                           | Every routing and notification event (success or failure) written to `admin_audit_log` in the same DB transaction as the triggering mutation                                                                                                                                                                                                                                                                                                                        |
 
 ---
 

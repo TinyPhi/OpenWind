@@ -62,7 +62,7 @@ after the ADR draft is reviewed and the human opens GitHub issues for each phase
 
 - **OQ-1 (ADR):** Should services have their own on-call schedule independent of their owning
   team? (v1 spec says no; services inherit routing from team)
-- **OQ-2 (ADR):** Should `tags` be free-text or require a managed tenant vocabulary? (v1: free-text)
+- **OQ-2 (ADR):** ~~Should `tags` be free-text or require a managed tenant vocabulary?~~ **Resolved** — decided on managed `labels` table with required hex color; free-text tags removed entirely. See ADR-016 draft Decision 3.
 - **OQ-3 (ADR):** Should `dispatch_severity_notification` fire on initial ticket creation if
   severity is set at create time? (v1 spec: yes — severity set from null is treated the same
   as a severity change)

@@ -188,8 +188,8 @@ DELETE /admin/services/:id               soft-delete
 
 GET    /admin/on-call-schedules          list schedules (filter: team_id, from, to)
 POST   /admin/on-call-schedules          create schedule entry
-PATCH  /admin/on-call-schedules/:id      update (reconfigure before window starts)
-DELETE /admin/on-call-schedules/:id      delete (hard delete — schedule entries are admin-controlled records)
+PATCH  /admin/on-call-schedules/:id      update — only permitted if starts_at > now() (future window); editing an already-started or past window returns 422
+DELETE /admin/on-call-schedules/:id      soft-delete (deleted_at set; entry preserved for audit trail and historical on-call lookups)
 
 GET    /admin/on-call-schedules/current  active on-call per team right now (UI dashboard)
 
@@ -359,6 +359,10 @@ R20: The dry-run resolver endpoint returns the effective policy without side eff
 - Policy specificity is computed at dispatch time from live DB state, never cached — a policy change takes effect on the next severity-change event, not the next cache refresh
 - A `notification.dispatched` audit entry is written per dispatch attempt, one `notification.channel_failed` per failed channel — never swallowed silently
 - No policy at any specificity level = email-only; no severity on the ticket = no notification dispatch at all
+- The assignee set by `resolve_oncall` reflects the primary on-call at schedule-lookup time, not guaranteed-current at commit time — accepted TOCTOU trade-off; schedule changes are infrequent admin operations
+- Provider error messages written to `admin_audit_log` or logs must be sanitized: raw `err.message` is never stored; only error code + masked, truncated provider message (E.164 numbers masked) is written
+- On-call schedule entries are soft-deleted (`deleted_at`), never hard-deleted — audit entries referencing a `scheduleId` remain resolvable after admin deletion
+- A schedule entry whose window has already started (`starts_at <= now()`) cannot be modified via PATCH — returns `422`; only future-window entries are editable
 
 ---
 
