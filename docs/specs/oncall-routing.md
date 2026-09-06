@@ -1,6 +1,6 @@
 # On-Call Routing & Roster Scheduler
 
-> Smart ticket routing via on-call schedules — assigns primary on-call, tags backup, prevents single-person bottlenecks.
+> Smart ticket routing via on-call schedules and severity-driven notification dispatch — assigns primary on-call, tags backup, and escalates via the right channel mix for the ticket's severity.
 
 status: draft
 created: 2026-09-06
@@ -19,23 +19,26 @@ Done when:
 
 - Admin can define teams, services, and weekly/monthly on-call rosters
 - Ticket creation/update with a team assignment triggers auto-resolve + assign within 5 s
-- No manual intervention needed once roster is configured
-- Any ticket without a team assignment is untouched (existing behaviour preserved)
+- Ticket severity drives a configurable notification channel mix (email / SMS / WhatsApp / call) scoped to team, dept, and workflow type
+- No manual intervention needed once roster and notification policies are configured
+- Any ticket without a team assignment or severity is untouched (existing behaviour preserved)
 
 ---
 
 ## §C Constraints
 
-| constraint        | value                                                                                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| stack             | TypeScript · Hono · Drizzle ORM · Vitest · BullMQ · pnpm workspaces                                                                                                 |
-| auth              | Zitadel JWT; tenant-scoped RLS on all new tables; explicit `WHERE tenant_id` on every query                                                                         |
-| entity engine     | reuse for custom field definitions (severity, tags, team_ref, service_ref on ticket type)                                                                           |
-| automation engine | new action type `resolve_oncall` hooks into the existing rule executor                                                                                              |
-| audit             | all roster changes + auto-assignments written to `admin_audit_log`                                                                                                  |
-| perf              | on-call lookup ≤ 100 ms p99 (single indexed query); roster write ≤ 500 ms                                                                                           |
-| out of scope      | AI-suggested roster generation, mobile push notifications, multi-timezone auto-DST, SLA-aware escalation paging, external pager integrations (PagerDuty / OpsGenie) |
-| custom fields     | entity engine's `addEntityField()` already handles ad-hoc custom fields when `allowCustomFields: true` — no new mechanism needed                                    |
+| constraint        | value                                                                                                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| stack             | TypeScript · Hono · Drizzle ORM · Vitest · BullMQ · pnpm workspaces                                                                                                                       |
+| auth              | Zitadel JWT; tenant-scoped RLS on all new tables; explicit `WHERE tenant_id` on every query                                                                                               |
+| entity engine     | reuse for custom field definitions (severity, tags, team_ref, service_ref on ticket type)                                                                                                 |
+| automation engine | new action type `resolve_oncall` hooks into the existing rule executor                                                                                                                    |
+| audit             | all roster changes + auto-assignments written to `admin_audit_log`                                                                                                                        |
+| perf              | on-call lookup ≤ 100 ms p99 (single indexed query); roster write ≤ 500 ms                                                                                                                 |
+| notifications     | `@platform/notifications` (Novu wrapper) already exists; new channels (SMS, WhatsApp, call) require new Novu provider configs — no new notification package                               |
+| channel providers | Novu abstracts providers; specific provider choice (Twilio SMS, Meta WhatsApp, Twilio Voice) is an ops config decision, not a code decision                                               |
+| out of scope      | AI-suggested roster generation, multi-timezone auto-DST, SLA-aware escalation paging, external pager integrations (PagerDuty / OpsGenie), notification delivery retries (handled by Novu) |
+| custom fields     | entity engine's `addEntityField()` already handles ad-hoc custom fields when `allowCustomFields: true` — no new mechanism needed                                                          |
 
 ---
 
@@ -73,7 +76,38 @@ on_call_schedules
   created_at / updated_at
 
   CONSTRAINT no_overlap: EXCLUDE USING gist (tenant_id WITH =, team_id WITH =, tstzrange(starts_at, ends_at) WITH &&)
+
+notification_policies
+  id uuid PK
+  tenant_id uuid FK NOT NULL
+  -- scope dimensions — all nullable; null = "match any value for this dimension"
+  team_id          uuid FK teams     (nullable)
+  workflow_type_id uuid FK workflows (nullable)  -- matches the workflow type of the ticket
+  severity         text NOT NULL CHECK (severity IN ('critical','high','medium','low'))
+  -- channels enabled for this policy
+  channels         text[] NOT NULL  -- subset of ['email','sms','whatsapp','call']
+  -- recipients beyond assignee
+  notify_backup    bool NOT NULL DEFAULT true
+  notify_escalation_manager bool NOT NULL DEFAULT false  -- auto-true for critical if unset
+  created_by uuid FK users NOT NULL
+  created_at / updated_at
+
+  UNIQUE per specificity: partial unique indexes so (tenant,team,workflow,severity) has at most
+  one row per specificity level — enforced as four partial indexes, not one composite unique
+  (because NULL != NULL in composite unique constraints in Postgres)
 ```
+
+**Policy specificity resolution** (evaluated at notification dispatch time, highest score wins):
+
+| team_id set | workflow_type_id set | specificity score |
+| ----------- | -------------------- | ----------------- |
+| ✓           | ✓                    | 3 — most specific |
+| ✓           | ✗                    | 2                 |
+| ✗           | ✓                    | 1                 |
+| ✗           | ✗                    | 0 — global        |
+
+If no policy matches, system falls back to `email` only (hardcoded safe default).
+Multiple policies at the same score are an error at write time (`409`).
 
 ### New entity fields (added to the `ticket` entity type as system fields)
 
@@ -86,7 +120,7 @@ on_call_schedules
 
 Custom ad-hoc fields continue via the existing `addEntityField()` path — nothing new required.
 
-### New automation action type
+### New automation action types
 
 ```
 resolve_oncall
@@ -101,6 +135,23 @@ resolve_oncall
     4. write audit entry (action: "oncall.auto_assigned")
   fail-safe: if no active schedule found → leave assignee unchanged,
              emit warning log, write audit entry (action: "oncall.no_schedule")
+
+dispatch_severity_notification
+  input:  severity field value + team_id + workflow_type_id from the triggering entity
+  effect:
+    1. resolve notification policy (specificity score, highest wins; fallback = email only)
+    2. build recipient list:
+         - always: ticket assignee
+         - if notify_backup: backup on-call from current on_call_schedules entry
+         - if notify_escalation_manager (or severity='critical'): escalation manager from current schedule
+    3. for each channel in policy.channels:
+         email     → send via Novu email channel
+         sms       → send via Novu SMS channel (provider: Twilio or equiv.)
+         whatsapp  → send via Novu WhatsApp channel
+         call      → trigger Novu voice/call channel (provider: Twilio Voice or equiv.)
+    4. write audit entry (action: "notification.dispatched", metadata: {channels, recipientCount, policyId})
+  fail-safe: channel dispatch failures do not roll back the ticket mutation;
+             each channel failure is logged independently + written to audit as "notification.channel_failed"
 ```
 
 ### REST API surface (admin-only writes; agent read-only)
@@ -122,6 +173,15 @@ PATCH  /admin/on-call-schedules/:id      update (reconfigure before window start
 DELETE /admin/on-call-schedules/:id      delete (hard delete — schedule entries are admin-controlled records)
 
 GET    /admin/on-call-schedules/current  active on-call per team right now (UI dashboard)
+
+GET    /admin/notification-policies               list all policies (filter: team_id, workflow_type_id, severity)
+POST   /admin/notification-policies               create policy (409 if same specificity slot already taken)
+PATCH  /admin/notification-policies/:id           update channels / recipients
+DELETE /admin/notification-policies/:id           delete (falls back to next-lower-specificity policy)
+
+GET    /admin/notification-policies/resolve        dry-run resolver — given ?team_id=&workflow_type_id=&severity=
+                                                   returns the policy that would be applied + effective channel list
+                                                   (used by UI "preview" before saving)
 ```
 
 ---
@@ -201,6 +261,44 @@ R13: Only `admin` role can write teams, services, and schedules; agents get read
 ✓ `agent` role `POST /admin/teams` → `403`
 ✓ `agent` role `GET /admin/teams` → `200` (needed for ticket-form dropdowns)
 
+### Severity-based notification routing
+
+R14: Admins configure notification policies mapping (severity × optional team × optional workflow type) → channel list.
+✓ `POST /admin/notification-policies` with `{severity:"high", channels:["email","sms"]}` (no team, no workflow) creates a global policy
+✓ Same call with `team_id` set creates a team-scoped policy at higher specificity
+✓ Two policies at identical specificity (same severity + same team_id + same workflow_type_id) return `409`
+✓ `channels` must be a non-empty subset of `["email","sms","whatsapp","call"]`; invalid channel name returns `422`
+
+R15: Policy specificity resolution — most specific matching policy wins; global policy is fallback; email-only is hardcoded last resort.
+✓ Ticket with team_id=A, workflow_type_id=W, severity=high: if a policy exists for (team=A, workflow=W, severity=high) it wins over (team=A, severity=high)
+✓ Ticket with no team_id: team-scoped policies are skipped; workflow or global policy applies
+✓ Ticket with severity=low and no matching policy at any level: only email is dispatched (hardcoded fallback)
+✓ `GET /admin/notification-policies/resolve?team_id=A&severity=high` returns the resolved policy + effective channel list without sending anything
+
+R16: When a ticket's severity is set or changed, notification dispatch fires using the resolved policy for that ticket.
+✓ Ticket created with `severity: "critical"` → all channels in the matching critical policy fire within 10 s
+✓ Ticket updated from `severity: "low"` to `severity: "high"` → high policy fires; low policy does NOT re-fire
+✓ Severity unchanged on update → no re-dispatch
+✓ Ticket with severity but no team_id or workflow_type_id → global policy for that severity applies
+
+R17: Recipient set is resolved from the on-call schedule at dispatch time, not at ticket creation.
+✓ If primary on-call changes between ticket creation and notification dispatch, the notification goes to the on-call person at dispatch time
+✓ Assignee always receives notification regardless of policy (they are always in the recipient list)
+✓ Backup on-call receives notification only when `notify_backup: true` on the resolved policy
+✓ Escalation manager receives notification when `notify_escalation_manager: true` OR when severity = "critical" (implicit)
+
+R18: Per-channel dispatch failures are isolated — one failed channel does not suppress the others.
+✓ If SMS delivery fails but email succeeds: email is delivered; SMS failure is logged + audited as `notification.channel_failed`
+✓ Ticket mutation is never rolled back due to a notification failure
+✓ Admin UI surfaces recent `notification.channel_failed` entries per ticket (last 24 h)
+
+R19: Only `admin` role can write notification policies; agents and customers cannot.
+✓ `agent` role `POST /admin/notification-policies` → `403`
+✓ Notification policies are tenant-scoped; isolation test: Tenant B policy never affects Tenant A dispatch
+
+R20: The dry-run resolver endpoint returns the effective policy without side effects.
+✓ `GET /admin/notification-policies/resolve?severity=critical&team_id=X` returns `{policyId, channels, recipients: [...], matchedAt: "team+severity"}` — no notification sent, no audit entry written
+
 ---
 
 ## §V Invariants
@@ -211,33 +309,51 @@ R13: Only `admin` role can write teams, services, and schedules; agents get read
 - System ticket fields (`severity`, `tags`, `team_id`, `service_id`) survive a schema cache invalidation cycle without data loss
 - Auto-assignment audit entries are written in the same DB transaction as the assignment; rolled-back assignments produce no dangling audit entries
 - `team_id` field on a ticket is always validated against the same tenant's `teams` table (entity engine cross-tenant-reference guard already covers `entity_ref` fields)
+- Notification dispatch is always decoupled from ticket mutation: a notification failure never rolls back the ticket write
+- Severity re-dispatch fires only when the severity field value changes, not on every ticket update — prevents notification storms on unrelated edits
+- Policy specificity is computed at dispatch time from live DB state, never cached — a policy change takes effect on the next severity-change event, not the next cache refresh
+- A `notification.dispatched` audit entry is written per dispatch attempt, one `notification.channel_failed` per failed channel — never swallowed silently
+- No policy at any specificity level = email-only; no severity on the ticket = no notification dispatch at all
 
 ---
 
 ## §T Tasks
 
-| id  | task                                                                                          | phase | status | depends  |
-| --- | --------------------------------------------------------------------------------------------- | ----- | ------ | -------- |
-| T1  | Migration: `teams` table + RLS policy + analytics annotation                                  | 1     | todo   | —        |
-| T2  | Migration: `services` table + RLS policy + analytics annotation                               | 1     | todo   | T1       |
-| T3  | Migration: `on_call_schedules` table + GIST exclusion + RLS + analytics annotation            | 1     | todo   | T1       |
-| T4  | Migration: extend `admin_audit_log` CHECK constraint for `oncall.*` action strings            | 1     | todo   | T3       |
-| T5  | Seed SQL: add `severity`, `tags`, `team_id`, `service_id` system fields to ticket entity type | 1     | todo   | T1,T2    |
-| T6  | `packages/teams` (or inline in packages/db): CRUD + on-call lookup + tenant guard             | 2     | todo   | T1,T2,T3 |
-| T7  | `GET/POST/PATCH/DELETE /admin/teams` routes + Zod schemas + unit + integration tests          | 2     | todo   | T6       |
-| T8  | `GET/POST/PATCH/DELETE /admin/services` routes + tests                                        | 2     | todo   | T6       |
-| T9  | `GET/POST/PATCH/DELETE /admin/on-call-schedules` routes + overlap validation + tests          | 2     | todo   | T6       |
-| T10 | `GET /admin/on-call-schedules/current` snapshot endpoint + tests                              | 2     | todo   | T9       |
-| T11 | Isolation tests: cross-tenant schedule / team / service isolation                             | 2     | todo   | T7,T8,T9 |
-| T12 | `resolve_oncall` action type in `packages/automation-engine`                                  | 3     | todo   | T6,T9    |
-| T13 | Automation rule seed: trigger on `entity.updated` where `team_id` changed → `resolve_oncall`  | 3     | todo   | T12      |
-| T14 | Explicit-assignee-wins guard (R10) + idempotency guard (R11)                                  | 3     | todo   | T12      |
-| T15 | Backup on-call notification via `@platform/notifications`                                     | 3     | todo   | T12      |
-| T16 | Isolation tests: auto-assignment cross-tenant isolation                                       | 3     | todo   | T12,T13  |
-| T17 | Admin UI: Teams & Services management pages                                                   | 4     | todo   | T7,T8    |
-| T18 | Admin UI: Roster calendar / schedule builder per team                                         | 4     | todo   | T9,T10   |
-| T19 | Admin UI: coverage-gap badge on tickets (R9 surface)                                          | 4     | todo   | T13      |
-| T20 | Admin UI: ticket form — severity dropdown, tags multi-select, team/service pickers            | 4     | todo   | T5       |
+| id  | task                                                                                                               | phase | status | depends  |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ----- | ------ | -------- |
+| T1  | Migration: `teams` table + RLS policy + analytics annotation                                                       | 1     | todo   | —        |
+| T2  | Migration: `services` table + RLS policy + analytics annotation                                                    | 1     | todo   | T1       |
+| T3  | Migration: `on_call_schedules` table + GIST exclusion + RLS + analytics annotation                                 | 1     | todo   | T1       |
+| T4  | Migration: extend `admin_audit_log` CHECK constraint for `oncall.*` action strings                                 | 1     | todo   | T3       |
+| T5  | Seed SQL: add `severity`, `tags`, `team_id`, `service_id` system fields to ticket entity type                      | 1     | todo   | T1,T2    |
+| T6  | `packages/teams` (or inline in packages/db): CRUD + on-call lookup + tenant guard                                  | 2     | todo   | T1,T2,T3 |
+| T7  | `GET/POST/PATCH/DELETE /admin/teams` routes + Zod schemas + unit + integration tests                               | 2     | todo   | T6       |
+| T8  | `GET/POST/PATCH/DELETE /admin/services` routes + tests                                                             | 2     | todo   | T6       |
+| T9  | `GET/POST/PATCH/DELETE /admin/on-call-schedules` routes + overlap validation + tests                               | 2     | todo   | T6       |
+| T10 | `GET /admin/on-call-schedules/current` snapshot endpoint + tests                                                   | 2     | todo   | T9       |
+| T11 | Isolation tests: cross-tenant schedule / team / service isolation                                                  | 2     | todo   | T7,T8,T9 |
+| T12 | `resolve_oncall` action type in `packages/automation-engine`                                                       | 3     | todo   | T6,T9    |
+| T13 | Automation rule seed: trigger on `entity.updated` where `team_id` changed → `resolve_oncall`                       | 3     | todo   | T12      |
+| T14 | Explicit-assignee-wins guard (R10) + idempotency guard (R11)                                                       | 3     | todo   | T12      |
+| T15 | Backup on-call notification via `@platform/notifications`                                                          | 3     | todo   | T12      |
+| T16 | Isolation tests: auto-assignment cross-tenant isolation                                                            | 3     | todo   | T12,T13  |
+| T17 | Admin UI: Teams & Services management pages                                                                        | 4     | todo   | T7,T8    |
+| T18 | Admin UI: Roster calendar / schedule builder per team                                                              | 4     | todo   | T9,T10   |
+| T19 | Admin UI: coverage-gap badge on tickets (R9 surface)                                                               | 4     | todo   | T13      |
+| T20 | Admin UI: ticket form — severity dropdown, tags multi-select, team/service pickers                                 | 4     | todo   | T5       |
+| T21 | Migration: `notification_policies` table + partial unique indexes + RLS + analytics annotation                     | 1     | todo   | —        |
+| T22 | Migration: extend `admin_audit_log` CHECK for `notification.*` action strings                                      | 1     | todo   | T21      |
+| T23 | Notification policy CRUD library (resolve query with specificity scoring, tenant guard)                            | 2     | todo   | T21      |
+| T24 | `GET/POST/PATCH/DELETE /admin/notification-policies` routes + Zod schemas + tests                                  | 2     | todo   | T23      |
+| T25 | `GET /admin/notification-policies/resolve` dry-run endpoint + tests                                                | 2     | todo   | T23      |
+| T26 | Isolation tests: cross-tenant policy isolation                                                                     | 2     | todo   | T24      |
+| T27 | `dispatch_severity_notification` action type in `packages/automation-engine`                                       | 3     | todo   | T23,T15  |
+| T28 | Automation rule seed: trigger on `entity.updated` where `severity` changed → `dispatch_severity_notification`      | 3     | todo   | T27      |
+| T29 | Novu channel wiring: SMS + WhatsApp + call channel configs + provider env vars documented in `docs/local-setup.md` | 3     | todo   | T27      |
+| T30 | Severity-change idempotency guard (R16 — no re-dispatch on unchanged severity)                                     | 3     | todo   | T27      |
+| T31 | Isolation tests: cross-tenant notification dispatch isolation                                                      | 3     | todo   | T27,T28  |
+| T32 | Admin UI: Notification Policy builder (severity × team/workflow matrix, channel toggles, preview via /resolve)     | 4     | todo   | T24,T25  |
+| T33 | Admin UI: per-ticket notification failure badge (R18 surface, last-24h channel_failed entries)                     | 4     | todo   | T28      |
 
 phase gate: all unit + integration + isolation tests pass before advancing to next phase
 
