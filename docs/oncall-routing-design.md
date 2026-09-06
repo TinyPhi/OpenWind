@@ -56,7 +56,54 @@ CREATE POLICY services_tenant_isolation ON services
   USING (tenant_id = current_setting('app.tenant_id')::uuid);
 ```
 
-### 1.3 `on_call_schedules`
+### 1.3 `labels`
+
+```sql
+CREATE TABLE labels (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id),
+  name        text NOT NULL,
+  color       text NOT NULL CHECK (color ~ '^#[0-9a-fA-F]{6}$'),
+  description text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  deleted_at  timestamptz,
+
+  CONSTRAINT labels_name_tenant_unique UNIQUE (tenant_id, name)
+  -- analytics: included(id, tenant_id, name, created_at, deleted_at)
+);
+
+CREATE INDEX labels_tenant_idx ON labels (tenant_id) WHERE deleted_at IS NULL;
+
+ALTER TABLE labels ENABLE ROW LEVEL SECURITY;
+CREATE POLICY labels_tenant_isolation ON labels
+  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+```
+
+### 1.4 `ticket_labels`
+
+```sql
+CREATE TABLE ticket_labels (
+  ticket_instance_id uuid NOT NULL REFERENCES entity_instances(id),
+  label_id           uuid NOT NULL REFERENCES labels(id),
+  tenant_id          uuid NOT NULL REFERENCES tenants(id),
+  assigned_by        uuid NOT NULL REFERENCES users(id),
+  assigned_at        timestamptz NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (ticket_instance_id, label_id)
+  -- analytics: included(ticket_instance_id, label_id, tenant_id, assigned_by, assigned_at)
+);
+
+CREATE INDEX ticket_labels_ticket_idx ON ticket_labels (ticket_instance_id);
+CREATE INDEX ticket_labels_label_idx  ON ticket_labels (label_id);
+CREATE INDEX ticket_labels_tenant_idx ON ticket_labels (tenant_id);
+
+ALTER TABLE ticket_labels ENABLE ROW LEVEL SECURITY;
+CREATE POLICY ticket_labels_tenant_isolation ON ticket_labels
+  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+```
+
+### 1.5 `on_call_schedules`
 
 ```sql
 -- Requires btree_gist extension (already enabled by migration 0001)
@@ -94,7 +141,7 @@ CREATE POLICY on_call_schedules_tenant_isolation ON on_call_schedules
   USING (tenant_id = current_setting('app.tenant_id')::uuid);
 ```
 
-### 1.4 `notification_policies`
+### 1.6 `notification_policies`
 
 ```sql
 CREATE TABLE notification_policies (
@@ -139,7 +186,7 @@ CREATE POLICY notification_policies_tenant_isolation ON notification_policies
   USING (tenant_id = current_setting('app.tenant_id')::uuid);
 ```
 
-### 1.5 Ticket entity type — new system fields (seed SQL)
+### 1.7 Ticket entity type — new system fields (seed SQL)
 
 Added via `modules/helpdesk/seed.sql` (and mirrored in any other ticket-bearing module):
 
@@ -151,26 +198,23 @@ SELECT id, 'severity', 'select', true,
   (SELECT COALESCE(MAX("order"),0)+10 FROM entity_fields WHERE entity_type_id = et.id)
 FROM entity_types et WHERE et.slug = 'ticket' AND et.tenant_id IS NULL;
 
--- tags
-INSERT INTO entity_fields (entity_type_id, name, field_type, is_system, "order")
-SELECT id, 'tags', 'multi_select', true,
-  (SELECT COALESCE(MAX("order"),0)+20 FROM entity_fields WHERE entity_type_id = et.id)
-FROM entity_types et WHERE et.slug = 'ticket' AND et.tenant_id IS NULL;
-
 -- team_id
 INSERT INTO entity_fields (entity_type_id, name, field_type, is_system, ref_table, "order")
 SELECT id, 'team_id', 'entity_ref', true, 'teams',
-  (SELECT COALESCE(MAX("order"),0)+30 FROM entity_fields WHERE entity_type_id = et.id)
+  (SELECT COALESCE(MAX("order"),0)+20 FROM entity_fields WHERE entity_type_id = et.id)
 FROM entity_types et WHERE et.slug = 'ticket' AND et.tenant_id IS NULL;
 
 -- service_id
 INSERT INTO entity_fields (entity_type_id, name, field_type, is_system, ref_table, "order")
 SELECT id, 'service_id', 'entity_ref', true, 'services',
-  (SELECT COALESCE(MAX("order"),0)+40 FROM entity_fields WHERE entity_type_id = et.id)
+  (SELECT COALESCE(MAX("order"),0)+30 FROM entity_fields WHERE entity_type_id = et.id)
 FROM entity_types et WHERE et.slug = 'ticket' AND et.tenant_id IS NULL;
+
+-- Note: labels are NOT entity-engine fields. They are managed via the `labels` table and
+-- assigned through the `ticket_labels` junction table. See sections 1.3, 1.4, and 2.x.
 ```
 
-### 1.6 `admin_audit_log` new action strings
+### 1.8 `admin_audit_log` new action strings
 
 Added to the DB CHECK constraint (migration):
 
@@ -178,7 +222,9 @@ Added to the DB CHECK constraint (migration):
 -- oncall routing
 'oncall.auto_assigned', 'oncall.no_schedule', 'oncall.skipped_explicit_assignee',
 -- severity notifications
-'notification.dispatched', 'notification.channel_failed'
+'notification.dispatched', 'notification.channel_failed',
+-- label assignment
+'label.assigned', 'label.removed'
 ```
 
 ---
@@ -379,6 +425,95 @@ Response `200`:
   ]
 }
 ```
+
+### 2.5 Labels
+
+#### `GET /admin/labels`
+
+Query params: `cursor?: uuid`, `limit?: number (1–100, default 20)`, `includeDeleted?: boolean`
+
+Response `200`:
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "string",
+      "color": "#e11d48",
+      "description": "string|null",
+      "createdAt": "ISO8601"
+    }
+  ],
+  "nextCursor": "uuid|null"
+}
+```
+
+#### `POST /admin/labels`
+
+Body:
+
+```json
+{ "name": "string (1–80)", "color": "#rrggbb", "description": "string|null" }
+```
+
+Response `201`: `{ "data": { ...label } }`
+Errors: `409` duplicate name; `422` invalid hex color format.
+
+Roles: `admin` write, `agent` GET read-only (needed for ticket form label picker).
+
+#### `PATCH /admin/labels/:id`
+
+Body: same fields, all optional. Response `200`: `{ "data": { ...label } }`
+
+#### `DELETE /admin/labels/:id`
+
+Soft-delete — `deleted_at` set; existing `ticket_labels` rows are kept for history.
+Response `204`. Errors: `404` not found.
+
+### 2.6 Ticket Label Assignment
+
+#### `GET /tickets/:id/labels`
+
+Response `200`:
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "string",
+      "color": "#e11d48",
+      "assignedBy": "uuid",
+      "assignedAt": "ISO8601"
+    }
+  ]
+}
+```
+
+#### `PUT /tickets/:id/labels`
+
+Atomically replaces the ticket's full label set.
+
+Body: `{ "labelIds": ["uuid", ...] }` — empty array removes all labels.
+
+Response `200`: `{ "data": [ ...labels ] }` (full set after replace)
+Errors: `422` if any labelId belongs to a different tenant.
+
+#### `POST /tickets/:id/labels/:labelId`
+
+Adds one label. Idempotent — adding an already-applied label returns `200` without duplicating.
+Response `200`: `{ "data": { ...label } }`
+Errors: `404` label not found in tenant; `422` cross-tenant label.
+
+Writes audit entry: `label.assigned { labelId, labelName, ticketId, actorId }`.
+
+#### `DELETE /tickets/:id/labels/:labelId`
+
+Removes one label.
+Response `204`. Errors: `404` label not on this ticket.
+
+Writes audit entry: `label.removed { labelId, labelName, ticketId, actorId }`.
 
 ---
 
@@ -591,14 +726,16 @@ pattern as the existing Novu `NOVU_API_KEY` guard). See `docs/local-setup.md` fo
 
 ## 7. Migration Sequence
 
-| Migration ID | What it does                                                                                |
-| ------------ | ------------------------------------------------------------------------------------------- |
-| 0090         | `teams` table + RLS + index                                                                 |
-| 0091         | `services` table + RLS + index                                                              |
-| 0092         | `on_call_schedules` table + GIST exclusion + RLS                                            |
-| 0093         | `notification_policies` table + partial unique indexes + RLS                                |
-| 0094         | Extend `admin_audit_log` CHECK constraint for `oncall.*` + `notification.*` action strings  |
-| 0095         | Seed: add `severity`, `tags`, `team_id`, `service_id` system fields to `ticket` entity type |
+| Migration ID | What it does                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------- |
+| 0090         | `teams` table + RLS + index                                                                     |
+| 0091         | `services` table + RLS + index                                                                  |
+| 0092         | `on_call_schedules` table + GIST exclusion + RLS                                                |
+| 0093         | `notification_policies` table + partial unique indexes + RLS                                    |
+| 0094         | Extend `admin_audit_log` CHECK constraint for `oncall.*` + `notification.*` + `label.*` strings |
+| 0095         | Seed: add `severity`, `team_id`, `service_id` system fields to `ticket` entity type             |
+| 0096         | `labels` table + RLS + index                                                                    |
+| 0097         | `ticket_labels` junction table + RLS + indexes                                                  |
 
 Each migration follows the standard pattern: `docs/migrations/<id>_<slug>.sql` + journal entry.
 The GIST exclusion on `on_call_schedules` requires `btree_gist` — confirm it is enabled in the

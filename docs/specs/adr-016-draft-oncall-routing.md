@@ -81,14 +81,31 @@ Coverage gaps (windows where no row exists for a team) are surfaced by the
 `GET /admin/on-call-schedules/current` snapshot endpoint and a badge in the admin UI. The API
 does not auto-fill gaps.
 
-### Decision 3 — Four new system ticket fields: severity, tags, team_id, service_id
+### Decision 3 — Three new system ticket fields + a dedicated labels table
 
-Severity (`critical`/`high`/`medium`/`low`), multi-select tags, and entity-ref fields for
-team and service are added to the ticket entity type as **system fields** (isSystem: true)
-via seed SQL. They cannot be deleted via the custom-field API — same invariant as other system
-fields on existing entity types.
+Severity (`critical`/`high`/`medium`/`low`) and entity-ref fields for team and service are
+added to the ticket entity type as **system fields** (`isSystem: true`) via seed SQL. They
+cannot be deleted via the custom-field API — same invariant as other system fields on existing
+entity types.
 
-Custom fields remain available via the existing `addEntityField()` path when
+**Labels are not an entity engine field.** The original design used a free-text `multi_select`
+field called `tags` (JSONB array). This was replaced with a proper `labels` table (name, color,
+description, per-tenant) and a `ticket_labels` junction table. Labels are managed through their
+own CRUD API (`/admin/labels`) and assigned to tickets via `/tickets/:id/labels` endpoints.
+
+**Why not a free-text tags field:** free-text tags provide no consistent vocabulary, no visual
+color identity, and no way to efficiently filter or group tickets by a canonical tag value
+across the tenant. GitHub-style labels — a tenant-managed vocabulary with required hex color —
+solve all three gaps. Admins define the vocabulary once; agents apply labels from a picker;
+the filter API uses label IDs, not string matching.
+
+**Why not entity engine field:** the entity engine's `multi_select` stores arbitrary strings.
+Making labels structured (name + color + description) requires a first-class table with its own
+UNIQUE constraint and soft-delete semantics. A junction table (`ticket_labels`) is the correct
+relational shape for many-to-many; it also gives a clean audit trail for assignment history
+even after a label is soft-deleted.
+
+Custom ad-hoc fields remain available via the existing `addEntityField()` path when
 `allowCustomFields: true`. This decision adds no new custom-field mechanism.
 
 ### Decision 4 — Two new automation action types: `resolve_oncall` and `dispatch_severity_notification`
@@ -191,7 +208,7 @@ ends_at`) on a GIST-indexed column; p99 target ≤ 100 ms enforced by an integra
 | ID   | Question                                                                                                 | Notes                                                                                                                                                            |
 | ---- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | OQ-1 | Should `services` have their own on-call schedule independent of their owning team?                      | v1: services inherit routing from their team only. A service-level schedule is a natural extension but adds complexity without a clear customer requirement yet. |
-| OQ-2 | Should `tags` support a tenant-managed vocabulary (pre-defined tag list) or remain fully free-text?      | v1: free-text. A managed vocabulary is a UI enhancement deferred until tag chaos is observed in practice.                                                        |
+| OQ-2 | ~~Should `tags` support a tenant-managed vocabulary or remain fully free-text?~~ **Resolved.**           | Decided: labels table with required name + hex color + optional description. Free-text tags removed. See Decision 3.                                             |
 | OQ-3 | Should `dispatch_severity_notification` also fire on initial ticket creation (not just severity change)? | v1: yes, if severity is set at creation time. The trigger checks "severity is being set from null to a value" — same as "changed".                               |
 
 ---

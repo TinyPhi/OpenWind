@@ -31,7 +31,7 @@ Done when:
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | stack             | TypeScript · Hono · Drizzle ORM · Vitest · BullMQ · pnpm workspaces                                                                                                                       |
 | auth              | Zitadel JWT; tenant-scoped RLS on all new tables; explicit `WHERE tenant_id` on every query                                                                                               |
-| entity engine     | reuse for custom field definitions (severity, tags, team_ref, service_ref on ticket type)                                                                                                 |
+| entity engine     | reuse for system field definitions (severity, team_ref, service_ref on ticket type); labels managed outside entity engine via own table + junction                                        |
 | automation engine | new action type `resolve_oncall` hooks into the existing rule executor                                                                                                                    |
 | audit             | all roster changes + auto-assignments written to `admin_audit_log`                                                                                                                        |
 | perf              | on-call lookup ≤ 100 ms p99 (single indexed query); roster write ≤ 500 ms                                                                                                                 |
@@ -61,6 +61,22 @@ services
   description text
   team_id uuid FK teams (optional default owner team)
   created_at / updated_at / deleted_at
+
+labels
+  id uuid PK
+  tenant_id uuid FK NOT NULL
+  name text NOT NULL           -- unique per tenant
+  color text NOT NULL          -- hex color e.g. '#e11d48' — required for display
+  description text             -- optional; shown as tooltip in UI
+  created_at / updated_at / deleted_at
+
+ticket_labels (junction — many tickets ↔ many labels)
+  ticket_instance_id uuid FK entity_instances NOT NULL
+  label_id           uuid FK labels NOT NULL
+  tenant_id          uuid FK NOT NULL    -- denormalised for RLS
+  assigned_by        uuid FK users NOT NULL
+  assigned_at        timestamptz NOT NULL DEFAULT now()
+  PRIMARY KEY (ticket_instance_id, label_id)
 
 on_call_schedules
   id uuid PK
@@ -111,12 +127,15 @@ Multiple policies at the same score are an error at write time (`409`).
 
 ### New entity fields (added to the `ticket` entity type as system fields)
 
-| field name   | type           | values / notes                         |
-| ------------ | -------------- | -------------------------------------- |
-| `severity`   | `select`       | `critical` / `high` / `medium` / `low` |
-| `tags`       | `multi_select` | free-text values, stored JSONB array   |
-| `team_id`    | `entity_ref`   | references `teams` table               |
-| `service_id` | `entity_ref`   | references `services` table            |
+| field name   | type         | values / notes                         |
+| ------------ | ------------ | -------------------------------------- |
+| `severity`   | `select`     | `critical` / `high` / `medium` / `low` |
+| `team_id`    | `entity_ref` | references `teams` table               |
+| `service_id` | `entity_ref` | references `services` table            |
+
+Labels are not an entity engine field — they are managed via the `labels` + `ticket_labels`
+tables and exposed through dedicated endpoints (`/admin/labels`, `/tickets/:id/labels`).
+This gives colored, named, tenant-managed labels with proper many-to-many assignment.
 
 Custom ad-hoc fields continue via the existing `addEntityField()` path — nothing new required.
 
@@ -182,6 +201,16 @@ DELETE /admin/notification-policies/:id           delete (falls back to next-low
 GET    /admin/notification-policies/resolve        dry-run resolver — given ?team_id=&workflow_type_id=&severity=
                                                    returns the policy that would be applied + effective channel list
                                                    (used by UI "preview" before saving)
+
+GET    /admin/labels                              list tenant labels (paginated, cursor-based)
+POST   /admin/labels                              create label (name + color required)
+PATCH  /admin/labels/:id                          update name / color / description
+DELETE /admin/labels/:id                          soft-delete (clears from future assignments; existing ticket_labels rows kept for history)
+
+GET    /tickets/:id/labels                        list labels on a ticket
+PUT    /tickets/:id/labels                        replace full label set (array of label IDs)
+POST   /tickets/:id/labels/:labelId               add a single label to a ticket
+DELETE /tickets/:id/labels/:labelId               remove a single label from a ticket
 ```
 
 ---
@@ -190,13 +219,27 @@ GET    /admin/notification-policies/resolve        dry-run resolver — given ?t
 
 ### Ticket fields
 
-R1: Ticket entity type ships four new system fields — `severity`, `tags`, `team_id`, `service_id`.
+R1: Ticket entity type ships three new system fields — `severity`, `team_id`, `service_id`.
 ✓ Creating a ticket with `severity: "critical"` stores and returns "critical"
 ✓ Creating with an unrecognised severity value returns `422` with a field-level error
-✓ Tags accept an array of strings; duplicates within one ticket are deduplicated on save
 ✓ `team_id` references a valid `teams` row in the same tenant; cross-tenant ref returns `422`
 ✓ `service_id` references a valid `services` row in the same tenant; cross-tenant ref returns `422`
-✓ All four fields are optional — tickets without them behave exactly as before (no regression)
+✓ All three fields are optional — tickets without them behave exactly as before (no regression)
+
+R1b: Admins can manage a tenant-scoped label vocabulary — create, rename, recolor, and soft-delete labels.
+✓ `POST /admin/labels {name, color}` → `201`; `GET /admin/labels` lists it with color chip
+✓ `color` is required and must be a valid 6-digit hex string (e.g. `#e11d48`); invalid format → `422`
+✓ Duplicate name within a tenant returns `409`
+✓ Soft-deleting a label removes it from the label picker in the ticket form; existing ticket_labels rows are kept (history preserved)
+✓ Only `admin` role can create, update, or delete labels; `agent` role gets read-only (`GET /admin/labels → 200`, write → `403`)
+
+R1c: Agents and admins can apply and remove labels on individual tickets; tickets are filterable by label.
+✓ `POST /tickets/:id/labels/:labelId` → `200`; label appears in `GET /tickets/:id/labels` response
+✓ `DELETE /tickets/:id/labels/:labelId` → `204`; label no longer in response
+✓ `PUT /tickets/:id/labels` with an array of label IDs replaces the full label set atomically
+✓ Assigning a label from a different tenant returns `422` (cross-tenant guard)
+✓ Label assignment and removal are written to `admin_audit_log` (`label.assigned`, `label.removed`)
+✓ `GET /tickets?label_id=X` returns only tickets carrying label X within the same tenant
 
 R2: System ticket fields cannot be removed or redefined via the custom-field API.
 ✓ `removeEntityField("severity")` on a ticket type returns a `400` or is blocked at the schema level
@@ -306,7 +349,9 @@ R20: The dry-run resolver endpoint returns the effective policy without side eff
 - Schedule entries never overlap for the same (tenant, team) pair — enforced at DB level via GIST exclusion constraint, not application-layer alone
 - `resolve_oncall` is fail-open: lookup failure leaves ticket unchanged, never assigns to a wrong user
 - Cross-tenant user references in schedule entries are rejected at write time, not silently stored
-- System ticket fields (`severity`, `tags`, `team_id`, `service_id`) survive a schema cache invalidation cycle without data loss
+- System ticket fields (`severity`, `team_id`, `service_id`) survive a schema cache invalidation cycle without data loss
+- Cross-tenant label assignment is rejected at write time (`422`); `ticket_labels.tenant_id` is always the ticket's tenant, never the label assigner's caller tenant
+- Soft-deleting a label never deletes historical `ticket_labels` rows — label history is append-only
 - Auto-assignment audit entries are written in the same DB transaction as the assignment; rolled-back assignments produce no dangling audit entries
 - `team_id` field on a ticket is always validated against the same tenant's `teams` table (entity engine cross-tenant-reference guard already covers `entity_ref` fields)
 - Notification dispatch is always decoupled from ticket mutation: a notification failure never rolls back the ticket write
@@ -325,7 +370,10 @@ R20: The dry-run resolver endpoint returns the effective policy without side eff
 | T2  | Migration: `services` table + RLS policy + analytics annotation                                                    | 1     | todo   | T1       |
 | T3  | Migration: `on_call_schedules` table + GIST exclusion + RLS + analytics annotation                                 | 1     | todo   | T1       |
 | T4  | Migration: extend `admin_audit_log` CHECK constraint for `oncall.*` action strings                                 | 1     | todo   | T3       |
-| T5  | Seed SQL: add `severity`, `tags`, `team_id`, `service_id` system fields to ticket entity type                      | 1     | todo   | T1,T2    |
+| T5  | Seed SQL: add `severity`, `team_id`, `service_id` system fields to ticket entity type                              | 1     | todo   | T1,T2    |
+| T34 | Migration: `labels` table + RLS policy + analytics annotation                                                      | 1     | todo   | —        |
+| T35 | Migration: `ticket_labels` junction table + RLS + analytics annotation                                             | 1     | todo   | T34      |
+| T36 | Migration: extend `admin_audit_log` CHECK for `label.*` action strings                                             | 1     | todo   | T35      |
 | T6  | `packages/teams` (or inline in packages/db): CRUD + on-call lookup + tenant guard                                  | 2     | todo   | T1,T2,T3 |
 | T7  | `GET/POST/PATCH/DELETE /admin/teams` routes + Zod schemas + unit + integration tests                               | 2     | todo   | T6       |
 | T8  | `GET/POST/PATCH/DELETE /admin/services` routes + tests                                                             | 2     | todo   | T6       |
@@ -340,7 +388,9 @@ R20: The dry-run resolver endpoint returns the effective policy without side eff
 | T17 | Admin UI: Teams & Services management pages                                                                        | 4     | todo   | T7,T8    |
 | T18 | Admin UI: Roster calendar / schedule builder per team                                                              | 4     | todo   | T9,T10   |
 | T19 | Admin UI: coverage-gap badge on tickets (R9 surface)                                                               | 4     | todo   | T13      |
-| T20 | Admin UI: ticket form — severity dropdown, tags multi-select, team/service pickers                                 | 4     | todo   | T5       |
+| T20 | Admin UI: ticket form — severity dropdown, team/service pickers, label chip selector                               | 4     | todo   | T5,T37   |
+| T37 | `GET/POST/PATCH/DELETE /admin/labels` routes + Zod schemas + unit + integration tests                              | 2     | todo   | T34      |
+| T38 | `GET/PUT/POST/DELETE /tickets/:id/labels` endpoints + cross-tenant guard + audit + isolation tests                 | 2     | todo   | T35,T37  |
 | T21 | Migration: `notification_policies` table + partial unique indexes + RLS + analytics annotation                     | 1     | todo   | —        |
 | T22 | Migration: extend `admin_audit_log` CHECK for `notification.*` action strings                                      | 1     | todo   | T21      |
 | T23 | Notification policy CRUD library (resolve query with specificity scoring, tenant guard)                            | 2     | todo   | T21      |
