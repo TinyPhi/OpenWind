@@ -211,30 +211,33 @@ CREATE POLICY notification_policies_tenant_write ON notification_policies FOR AL
 
 ### 1.7 Ticket entity type — new system fields (seed SQL)
 
-Added via `modules/helpdesk/seed.sql` (and mirrored in any other ticket-bearing module):
+**`severity` is NOT seeded here.** PR #557 (`tushar` branch) already adds
+`entity_instances.severity` as a direct typed column (`TEXT NOT NULL CHECK (severity IN
+('low','medium','high','critical') OR severity IS NULL)`, defaults to `medium`) in its own
+migration. `resolve_oncall` and `dispatch_severity_notification` read and write this column
+directly — not via the entity engine's JSONB blob. This avoids a second representation and aligns
+with Decision 1's reasoning: severity is filtered on the records page today, so an indexed real
+column beats JSONB traversal on the same hot-path logic.
+
+Only `team_id` and `service_id` are added via entity engine seed (they are genuinely new):
 
 ```sql
--- severity
-INSERT INTO entity_fields (entity_type_id, name, field_type, is_system, options, "order")
-SELECT id, 'severity', 'select', true,
-  '{"choices":["critical","high","medium","low"]}',
+-- team_id (entity-engine ref field — new)
+INSERT INTO entity_fields (entity_type_id, name, field_type, is_system, ref_table, "order")
+SELECT id, 'team_id', 'entity_ref', true, 'teams',
   (SELECT COALESCE(MAX("order"),0)+10 FROM entity_fields WHERE entity_type_id = et.id)
 FROM entity_types et WHERE et.slug = 'ticket' AND et.tenant_id IS NULL;
 
--- team_id
-INSERT INTO entity_fields (entity_type_id, name, field_type, is_system, ref_table, "order")
-SELECT id, 'team_id', 'entity_ref', true, 'teams',
-  (SELECT COALESCE(MAX("order"),0)+20 FROM entity_fields WHERE entity_type_id = et.id)
-FROM entity_types et WHERE et.slug = 'ticket' AND et.tenant_id IS NULL;
-
--- service_id
+-- service_id (entity-engine ref field — new)
 INSERT INTO entity_fields (entity_type_id, name, field_type, is_system, ref_table, "order")
 SELECT id, 'service_id', 'entity_ref', true, 'services',
-  (SELECT COALESCE(MAX("order"),0)+30 FROM entity_fields WHERE entity_type_id = et.id)
+  (SELECT COALESCE(MAX("order"),0)+20 FROM entity_fields WHERE entity_type_id = et.id)
 FROM entity_types et WHERE et.slug = 'ticket' AND et.tenant_id IS NULL;
 
 -- Note: labels are NOT entity-engine fields. They are managed via the `labels` table and
 -- assigned through the `ticket_labels` junction table. See sections 1.3, 1.4, and 2.x.
+-- Note: free-text tags (entity_instance_tags) are a separate feature — labels coexist
+-- alongside them; they solve different problems (see §4 Security Model).
 ```
 
 ### 1.8 `admin_audit_log` new action strings
@@ -589,9 +592,13 @@ guarantees are needed in future, add a `SELECT ... FOR UPDATE` inside the write 
 
 **Trigger condition** (system-seeded automation rule):
 
-- Event: `entity.updated`
-- Condition: `fields.severity IS NOT NULL AND fields.severity != prev_fields.severity`
-  (or `entity.created` with `fields.severity IS NOT NULL`)
+- Event: `entity.updated` (or `entity.created`)
+- Reads: `entity_instances.severity` — the direct typed column added by PR #557, not the entity
+  engine JSONB blob. The action queries `SELECT severity FROM entity_instances WHERE id = :ticketId`
+  to get the current value, and compares against the previous value surfaced in the automation
+  engine's event payload.
+- Condition: `severity IS NOT NULL AND severity != prev_severity`
+  (or `entity.created` with `severity IS NOT NULL`)
 
 **Policy resolution algorithm:**
 
@@ -611,7 +618,11 @@ candidates = SELECT * FROM notification_policies
                AND (workflow_type_id IS NULL OR workflow_type_id = :workflowTypeId)
 
 policy = candidate with highest score(policy)
-       ?? { channels: ['email'], notifyBackup: true, notifyEscalationManager: false }
+       ?? FALLBACK  // no configured policy → delegate to existing severity-change
+                    // notification behavior (email-only, same recipients as today's
+                    // severity.changed event handler). Do NOT reimplement email-to-all
+                    // as a second code path — call the same notification function PR #557
+                    // already wires to severity.changed so the two can never drift apart.
 ```
 
 **Recipient resolution:**
@@ -688,6 +699,7 @@ dispatch if the same `entity.updated` event is re-delivered.
 | Notification policy slot collision                                    | Partial unique indexes per specificity level; application-layer check returns `409` before hitting the DB constraint for a clean error                                                                                                                                                                                                                                                                                                                              |
 | Provider error PII in audit log                                       | Twilio/Novu/WhatsApp error messages may include phone numbers, email addresses, or provider user IDs. The `notification.channel_failed` audit entry must strip the raw `err.message` and log only a sanitized form: error code + truncated provider message with E.164 numbers masked. Same sanitization applies to `logger.warn` calls.                                                                                                                            |
 | Resolve endpoint user name disclosure                                 | `GET /admin/notification-policies/resolve` returns the names and user IDs of the current on-call person and escalation manager. This is intentional: on-call information is not confidential within a tenant and agents need it to understand routing. The endpoint is rate-limited per ADR-013's per-key tier.                                                                                                                                                     |
+| Labels vs. free-text tags coexistence                                 | `labels` / `ticket_labels` (this PR) and `entity_instance_tags` (PR #557) solve different problems and coexist: labels provide admin-curated, colored, tenant-wide vocabulary; tags provide ad-hoc per-ticket annotation without admin pre-registration. Nothing in this design removes or replaces `entity_instance_tags`.                                                                                                                                         |
 | Audit trail                                                           | Every routing and notification event (success or failure) written to `admin_audit_log` in the same DB transaction as the triggering mutation                                                                                                                                                                                                                                                                                                                        |
 
 ---
@@ -780,22 +792,25 @@ pattern as the existing Novu `NOVU_API_KEY` guard). See `docs/local-setup.md` fo
 
 ## 7. Migration Sequence
 
-| Migration ID | What it does                                                                                    |
-| ------------ | ----------------------------------------------------------------------------------------------- |
-| 0090         | `teams` table + RLS + index                                                                     |
-| 0091         | `services` table + RLS + index                                                                  |
-| 0092         | `CREATE EXTENSION IF NOT EXISTS btree_gist` + `on_call_schedules` table + GIST exclusion + RLS  |
-| 0093         | `notification_policies` table + partial unique indexes + RLS                                    |
-| 0094         | Extend `admin_audit_log` CHECK constraint for `oncall.*` + `notification.*` + `label.*` strings |
-| 0095         | Seed: add `severity`, `team_id`, `service_id` system fields to `ticket` entity type             |
-| 0096         | `labels` table + RLS + index                                                                    |
-| 0097         | `ticket_labels` junction table + RLS + indexes                                                  |
+**⚠ Migration numbering conflict:** PR #557 (`tushar` branch, heading to `main`) already uses
+migrations `0090` (api-keys RLS fix), `0091` (origin-tagging columns), and `0092`
+(`entity_instances.severity` + `entity_instance_tags`). The IDs below use `N`, `N+1`, … as
+placeholders — the Phase 1 implementer must renumber starting from the next free ID at merge
+time. The `btree_gist` extension creation moves into whichever migration creates
+`on_call_schedules`.
+
+| Migration ID | What it does                                                                                                                     |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| N            | `teams` table + RLS + index                                                                                                      |
+| N+1          | `services` table + RLS + index                                                                                                   |
+| N+2          | `CREATE EXTENSION IF NOT EXISTS btree_gist` + `on_call_schedules` table + GIST exclusion + RLS                                   |
+| N+3          | `notification_policies` table + partial unique indexes + RLS                                                                     |
+| N+4          | Extend `admin_audit_log` CHECK constraint for `oncall.*` + `notification.*` + `label.*` strings                                  |
+| N+5          | Seed: add `team_id`, `service_id` system fields to `ticket` entity type (`severity` already exists as a real column via PR #557) |
+| N+6          | `labels` table + RLS + index                                                                                                     |
+| N+7          | `ticket_labels` junction table + RLS + indexes                                                                                   |
 
 Each migration follows the standard pattern: `docs/migrations/<id>_<slug>.sql` + journal entry.
-Migration 0092 includes `CREATE EXTENSION IF NOT EXISTS btree_gist;` as its first statement,
-before the table and GIST-constraint DDL. (`grep -rn "CREATE EXTENSION" packages/db/migrations/`
-returns no hits in the current repo — `btree_gist` is not yet enabled anywhere, so 0092 must
-create it; the `IF NOT EXISTS` guard makes the statement idempotent.)
 
 ---
 
