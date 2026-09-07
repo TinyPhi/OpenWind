@@ -59,6 +59,10 @@ export async function executeTransition(
         comment: existing.comment ?? null,
         metadata: (existing.metadata ?? {}) as Record<string, unknown>,
         createdAt: existing.createdAt,
+        // Drizzle infers this text() column as string | null, not the
+        // narrower union — migration 0091's CHECK constraint guarantees only
+        // these two values (or null) are ever stored, so the type system
+        // can't infer it but the DB does enforce it.
         originMechanism: (existing.originMechanism ?? null) as
           | "api"
           | "handoff"
@@ -366,6 +370,10 @@ export async function executeTransition(
     comment: eventRow.comment ?? null,
     metadata: (eventRow.metadata ?? {}) as Record<string, unknown>,
     createdAt: eventRow.createdAt,
+    // Drizzle infers this text() column as string | null, not the narrower
+    // union — migration 0091's CHECK constraint guarantees only these two
+    // values (or null) are ever stored, so the type system can't infer it
+    // but the DB does enforce it.
     originMechanism: (eventRow.originMechanism ?? null) as
       | "api"
       | "handoff"
@@ -484,6 +492,10 @@ export async function getWorkflowEventLog(
     metadata: (e.metadata ?? {}) as Record<string, unknown>,
     createdAt: e.createdAt,
     triggeredAt: e.createdAt.toISOString(),
+    // Drizzle infers this text() column as string | null, not the narrower
+    // union — migration 0091's CHECK constraint guarantees only these two
+    // values (or null) are ever stored, so the type system can't infer it
+    // but the DB does enforce it.
     originMechanism: (e.originMechanism ?? null) as "api" | "handoff" | null,
     originOidcClientId: e.originOidcClientId ?? null,
     originPerformerUserId: e.originPerformerUserId ?? null,

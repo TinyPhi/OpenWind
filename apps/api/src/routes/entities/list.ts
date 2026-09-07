@@ -101,7 +101,7 @@ export const listEntitiesHandler = factory.createHandlers(
       // for the whole page instead of N per-row lookups, resolving live
       // application names for R1/R2/R4's records-list badge.
       const [nameByClientId, performerNameByUserId] = await Promise.all([
-        batchLookupApplicationNames(page.data),
+        batchLookupApplicationNames(tenantId, page.data),
         batchLookupPerformerNames(page.data),
       ]);
       const data = page.data.map((row) => ({

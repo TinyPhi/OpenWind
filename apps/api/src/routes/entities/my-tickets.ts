@@ -255,7 +255,7 @@ export const myTicketsHandler = factory.createHandlers(
       // docs/specs/third-party-api-origin-tagging.md R1/R2/R4 -- one batch
       // lookup for the whole page, same pattern as list.ts/list-children.ts.
       const [nameByClientId, performerNameByUserId] = await Promise.all([
-        batchLookupApplicationNames(accessibleRows),
+        batchLookupApplicationNames(tenantId, accessibleRows),
         batchLookupPerformerNames(accessibleRows),
       ]);
 

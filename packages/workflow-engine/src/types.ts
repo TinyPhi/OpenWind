@@ -59,7 +59,7 @@ export interface WorkflowEvent {
   createdAt: Date;
   /**
    * docs/specs/third-party-api-origin-tagging.md. Set together or not at
-   * all (migration 0090's DB CHECK). Null/null/null means normal human,
+   * all (migration 0091's DB CHECK). Null/null/null means normal human,
    * in-app creation (no origin tag) -- covers both comment events (R3) and
    * every other timeline entry (R5), since comments are workflow_events
    * rows, not a separate table.

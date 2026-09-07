@@ -2,7 +2,9 @@
 
 **Spec:** docs/specs/third-party-api-origin-tagging.md
 **Generated:** 2026-09-02
-**Status:** not started
+**Status:** Phases 1-3 done (T1-T21); T22 (manual OWTesterUI e2e pass) still todo. PR #556
+review (PrabhuVijit) — this status line was stale, still reading "not started" after
+implementation completed.
 
 ---
 
@@ -72,12 +74,15 @@ phase gate: all unit + integration tests pass before advancing to next phase
 
 ## Kick-Off Prompt
 
-Copy this into your Claude Code / AntiGravity session to start implementation:
+Phases 1-3 (T1-T21) are done — this prompt is a stale artifact from spec generation, kept
+only as a template for the one remaining task. To pick up T22 (manual OWTesterUI e2e pass):
 
 ```
 Read docs/specs/third-party-api-origin-tagging.md and docs/specs/third-party-api-origin-tagging-tasks.md.
 
-Implement Phase 1 tasks only (T1–T4).
+Run T22: a full end-to-end pass through OWTesterUI (all 4 environment presets) — create a
+ticket via direct API, via handoff, post a comment, verify all four tag surfaces render
+correctly against a real deployment.
 
 Rules:
 - Do not begin Phase 2 until all Phase 1 tests pass

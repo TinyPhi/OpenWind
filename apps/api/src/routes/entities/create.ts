@@ -42,7 +42,15 @@ const CreateEntitySchema = z.object({
  * registration of it, and the caller doesn't know the resolved tenant yet at
  * this point in the flow.
  */
+// PR #556 review (PrabhuVijit) — must filter by tenantId. Unlike
+// resolveOriginOidcClientId (which looks up the authenticating key's own,
+// already-trusted client id), the caller supplies this appClientId directly
+// in the request body with no prior proof it belongs to their tenant.
+// Without this filter, a Tenant A caller who knows Tenant B's oidcClientId
+// could pass validation and tag their own ticket with Tenant B's
+// application name (false attribution across tenants).
 async function isValidActiveAppClientId(
+  tenantId: string,
   oidcClientId: string,
 ): Promise<boolean> {
   const [row] = await db
@@ -50,6 +58,7 @@ async function isValidActiveAppClientId(
     .from(apiKeys)
     .where(
       and(
+        eq(apiKeys.tenantId, tenantId),
         eq(apiKeys.oidcClientId, oidcClientId),
         eq(apiKeys.oidcClientIdActive, true),
         isNull(apiKeys.revokedAt),
@@ -120,7 +129,7 @@ export const createEntityHandler = factory.createHandlers(
     // doesn't resolve. Checked before any other work so a bad handoff
     // identity can't leave a partially-processed side effect behind.
     if (input.appClientId !== undefined) {
-      const valid = await isValidActiveAppClientId(input.appClientId);
+      const valid = await isValidActiveAppClientId(tenantId, input.appClientId);
       if (!valid) {
         return c.json(
           {

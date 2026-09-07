@@ -134,7 +134,7 @@ export const listWorkflowEventsHandler = factory.createHandlers(
       // R3 (comment tag) / R5 (activity-timeline tag).
       const [originNameByClientId, originPerformerNameByUserId] =
         await Promise.all([
-          batchLookupApplicationNames(events),
+          batchLookupApplicationNames(tenantId, events),
           batchLookupPerformerNames(events),
         ]);
 

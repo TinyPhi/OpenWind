@@ -80,7 +80,7 @@ export const getEntityHandler = factory.createHandlers(
       // docs/specs/third-party-api-origin-tagging.md §C — resolves the live
       // application name for display (R1/R2/R4's ticket-detail tag), not
       // the raw oidc_client_id the record itself stores.
-      const origin = await resolveOriginDisplay(instance);
+      const origin = await resolveOriginDisplay(tenantId, instance);
 
       return c.json({
         data: { ...instance, parentId, childCount, canAddChildren, origin },

@@ -1,4 +1,4 @@
-import { inArray, eq, desc, sql } from "drizzle-orm";
+import { inArray, eq, desc, sql, and } from "drizzle-orm";
 import { db, apiKeys } from "@platform/db";
 import { getUserById } from "./zitadel-management.js";
 
@@ -29,12 +29,13 @@ type OriginColumns = {
  * provenance data on an old row.
  */
 export async function resolveOriginDisplay(
+  tenantId: string,
   row: OriginColumns,
 ): Promise<OriginDisplay> {
   if (!row.originMechanism || !row.originOidcClientId) return null;
 
   const [appName, performerDisplayName] = await Promise.all([
-    lookupApplicationName(row.originOidcClientId),
+    lookupApplicationName(tenantId, row.originOidcClientId),
     lookupPerformerDisplayName(row.originPerformerUserId),
   ]);
   return {
@@ -60,7 +61,16 @@ async function lookupPerformerDisplayName(
   return (name ?? user.loginName) || performerUserId;
 }
 
-async function lookupApplicationName(oidcClientId: string): Promise<string> {
+// PR #556 review (PrabhuVijit) — filtered by tenantId, matching security.md
+// rule 1's explicit-filter requirement. api_keys.oidcClientId is not
+// guaranteed globally unique across tenants (each tenant mints its own
+// Zitadel application), so an unfiltered lookup could resolve to a
+// different tenant's application name if two tenants' client ids ever
+// collided.
+async function lookupApplicationName(
+  tenantId: string,
+  oidcClientId: string,
+): Promise<string> {
   // Prefer the currently-active (non-revoked) row sharing this client id --
   // a rotation lineage can have several historical rows, and only the
   // active one reflects the application's current name (a rename updates
@@ -71,7 +81,12 @@ async function lookupApplicationName(oidcClientId: string): Promise<string> {
   const [key] = await db
     .select({ applicationName: apiKeys.applicationName })
     .from(apiKeys)
-    .where(eq(apiKeys.oidcClientId, oidcClientId))
+    .where(
+      and(
+        eq(apiKeys.tenantId, tenantId),
+        eq(apiKeys.oidcClientId, oidcClientId),
+      ),
+    )
     .orderBy(sql`${apiKeys.revokedAt} IS NULL DESC`, desc(apiKeys.createdAt))
     .limit(1);
   return key?.applicationName ?? "Unknown application";
@@ -84,6 +99,7 @@ async function lookupApplicationName(oidcClientId: string): Promise<string> {
  * into this map, so no fragile composite key is needed.
  */
 export async function batchLookupApplicationNames(
+  tenantId: string,
   rows: OriginColumns[],
 ): Promise<Map<string, string>> {
   const clientIds = [
@@ -98,13 +114,20 @@ export async function batchLookupApplicationNames(
   // Same active-row-first, most-recent-fallback ordering as
   // lookupApplicationName above — first-wins below only picks the "best"
   // row per client id because this order guarantees it arrives first.
+  // PR #556 review (PrabhuVijit) — explicit tenantId filter, same reasoning
+  // as lookupApplicationName's single-row version above.
   const keys = await db
     .select({
       oidcClientId: apiKeys.oidcClientId,
       applicationName: apiKeys.applicationName,
     })
     .from(apiKeys)
-    .where(inArray(apiKeys.oidcClientId, clientIds))
+    .where(
+      and(
+        eq(apiKeys.tenantId, tenantId),
+        inArray(apiKeys.oidcClientId, clientIds),
+      ),
+    )
     .orderBy(sql`${apiKeys.revokedAt} IS NULL DESC`, desc(apiKeys.createdAt));
 
   const nameByClientId = new Map<string, string>();
