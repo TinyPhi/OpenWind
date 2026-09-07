@@ -23,6 +23,14 @@ const REVOKED_KEY_ID = "90000000-9000-4000-9000-000000000002";
 const ACTIVE_CLIENT_ID = "handoff-origin-test-active-client";
 const REVOKED_CLIENT_ID = "handoff-origin-test-revoked-client";
 
+// PR #556 review (PrabhuVijit, follow-up) — a second tenant with its own
+// active key, used to prove isValidActiveAppClientId (create.ts) rejects an
+// appClientId that resolves to a real, active key belonging to a DIFFERENT
+// tenant than the caller's own.
+const OTHER_TENANT = "aabbccdd-0000-4000-a000-000000000091";
+const OTHER_TENANT_KEY_ID = "90000000-9000-4000-9000-000000000003";
+const OTHER_TENANT_CLIENT_ID = "handoff-origin-test-other-tenant-client";
+
 let entityTypeId: string;
 const createdInstanceIds: string[] = [];
 
@@ -39,6 +47,12 @@ beforeAll(async () => {
     allowCustomFields: true,
   });
   entityTypeId = entityType.id;
+
+  await db.insert(tenants).values({
+    id: OTHER_TENANT,
+    name: "Handoff Origin Tagging Test — Other Tenant",
+    slug: `handoff-origin-tagging-other-${OTHER_TENANT}`,
+  });
 
   await db.insert(apiKeys).values([
     {
@@ -60,6 +74,15 @@ beforeAll(async () => {
       oidcClientId: REVOKED_CLIENT_ID,
       revokedAt: new Date(),
     },
+    {
+      id: OTHER_TENANT_KEY_ID,
+      tenantId: OTHER_TENANT,
+      name: "Handoff Origin Test Other-Tenant Active Key",
+      keyHash: hashApiKey(`sk_handoff_origin_other_tenant_${OTHER_TENANT}`),
+      scopesFormat: "action",
+      scopes: ["entity:ticket:create"],
+      oidcClientId: OTHER_TENANT_CLIENT_ID,
+    },
   ]);
 });
 
@@ -69,7 +92,9 @@ afterAll(async () => {
   }
   await db.delete(apiKeys).where(eq(apiKeys.id, ACTIVE_KEY_ID));
   await db.delete(apiKeys).where(eq(apiKeys.id, REVOKED_KEY_ID));
+  await db.delete(apiKeys).where(eq(apiKeys.id, OTHER_TENANT_KEY_ID));
   await db.delete(tenants).where(eq(tenants.id, TENANT));
+  await db.delete(tenants).where(eq(tenants.id, OTHER_TENANT));
 });
 
 type Vars = { Variables: { auth: AuthContext } };
@@ -173,5 +198,35 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
       }),
     });
     expect(res.status).toBe(422);
+  });
+
+  // PR #556 review (PrabhuVijit, follow-up) — proves isValidActiveAppClientId
+  // (create.ts) rejects an appClientId that resolves to a real, active key,
+  // but one belonging to a DIFFERENT tenant than the caller's own. Without
+  // the tenantId filter this test guards, a Tenant A caller who knew Tenant
+  // B's oidcClientId could pass validation and falsely attribute their own
+  // ticket to Tenant B's application.
+  it("rejects appClientId belonging to a different tenant — no entity row is created", async () => {
+    const before = await db
+      .select({ id: entityInstances.id })
+      .from(entityInstances)
+      .where(eq(entityInstances.entityTypeId, entityTypeId));
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId,
+        fields: {},
+        appClientId: OTHER_TENANT_CLIENT_ID,
+      }),
+    });
+    expect(res.status).toBe(422);
+
+    const after = await db
+      .select({ id: entityInstances.id })
+      .from(entityInstances)
+      .where(eq(entityInstances.entityTypeId, entityTypeId));
+    expect(after.length).toBe(before.length);
   });
 });

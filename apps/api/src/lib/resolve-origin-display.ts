@@ -39,6 +39,10 @@ export async function resolveOriginDisplay(
     lookupPerformerDisplayName(row.originPerformerUserId),
   ]);
   return {
+    // Drizzle infers this text() column as string | null; the null case was
+    // already ruled out by the guard above. Migration 0091's CHECK
+    // constraint guarantees only these two literals (or null) are ever
+    // stored, so the type system can't infer it but the DB does enforce it.
     mechanism: row.originMechanism as "api" | "handoff",
     appName,
     performerUserId: row.originPerformerUserId ?? "",
@@ -174,6 +178,10 @@ export function toOriginDisplay(
   if (!row.originMechanism || !row.originOidcClientId) return null;
   const performerUserId = row.originPerformerUserId ?? "";
   return {
+    // Drizzle infers this text() column as string | null; the null case was
+    // already ruled out by the guard above. Migration 0091's CHECK
+    // constraint guarantees only these two literals (or null) are ever
+    // stored, so the type system can't infer it but the DB does enforce it.
     mechanism: row.originMechanism as "api" | "handoff",
     appName:
       nameByClientId.get(row.originOidcClientId) ?? "Unknown application",
