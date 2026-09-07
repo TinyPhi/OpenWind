@@ -27,6 +27,21 @@ export function buildZodSchema(
   return z.object(shape);
 }
 
+// A single-choice field's `config.options` has been seeded in two different
+// shapes across modules: the documented `{value,label}[]` form (most
+// modules, and what admin-ui's field builder writes), and a plain
+// `string[]` form (modules/helpdesk/seed/001_entity_types.sql's priority/
+// category fields). Both are real, on-disk, currently-in-use data -- accept
+// either rather than only the documented shape, so existing seeded fields
+// don't silently lose validation just because of which shape their options
+// happen to be stored in.
+function extractOptionValues(opts: unknown): string[] {
+  if (!Array.isArray(opts)) return [];
+  return opts
+    .map((o) => (typeof o === "string" ? o : (o as { value?: unknown }).value))
+    .filter((v): v is string => typeof v === "string");
+}
+
 function buildFieldSchema(field: EntityField): z.ZodTypeAny {
   const cfg = field.config;
 
@@ -93,21 +108,19 @@ function buildFieldSchema(field: EntityField): z.ZodTypeAny {
     case "boolean":
       return z.boolean();
 
-    case "enum": {
-      const opts = cfg["options"];
-      const values = Array.isArray(opts)
-        ? (opts as { value: string }[]).map((o) => o.value)
-        : [];
+    // "select" is a recognized alias for "enum" (see field-types.ts's own
+    // comment) -- same schema, same options handling, just a different name
+    // some seed data/UI code uses for a single-choice field.
+    case "enum":
+    case "select": {
+      const values = extractOptionValues(cfg["options"]);
       return values.length > 0
         ? z.enum(values as [string, ...string[]])
         : z.string();
     }
 
     case "multi_enum": {
-      const opts = cfg["options"];
-      const values = Array.isArray(opts)
-        ? (opts as { value: string }[]).map((o) => o.value)
-        : [];
+      const values = extractOptionValues(cfg["options"]);
       return values.length > 0
         ? z.array(z.enum(values as [string, ...string[]]))
         : z.array(z.string());
