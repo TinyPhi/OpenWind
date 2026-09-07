@@ -81,33 +81,29 @@ Coverage gaps (windows where no row exists for a team) are surfaced by the
 `GET /admin/on-call-schedules/current` snapshot endpoint and a badge in the admin UI. The API
 does not auto-fill gaps.
 
-### Decision 3 — Two new system ticket entity-ref fields + a dedicated labels table (alongside existing severity column and free-text tags)
+### Decision 3 — Three new system ticket fields + a dedicated labels table
 
-**Severity** is NOT added by this feature. PR #557 (`tushar` branch) already ships
-`entity_instances.severity` as a direct typed column (`TEXT CHECK (severity IN (...))`).
-`dispatch_severity_notification` reads this column directly — same reasoning as Decision 1
-(hot-path lookups need indexed real columns, not JSONB traversal). This avoids two
-representations of the same value.
+Severity (`critical`/`high`/`medium`/`low`) and entity-ref fields for team and service are
+added to the ticket entity type as **system fields** (`isSystem: true`) via seed SQL. They
+cannot be deleted via the custom-field API — same invariant as other system fields on existing
+entity types.
 
-**`team_id` and `service_id`** are added as entity-engine system entity-ref fields (`isSystem: true`)
-via seed SQL. They cannot be deleted via the custom-field API — same invariant as other system
-fields on existing entity types.
+**Labels are not an entity engine field.** The original design used a free-text `multi_select`
+field called `tags` (JSONB array). This was replaced with a proper `labels` table (name, color,
+description, per-tenant) and a `ticket_labels` junction table. Labels are managed through their
+own CRUD API (`/admin/labels`) and assigned to tickets via `/tickets/:id/labels` endpoints.
 
-**Labels (new, this feature) and free-text tags (existing, PR #557) coexist.** The original
-design proposed replacing free-text tags with labels, but `entity_instance_tags` already shipped
-on the `tushar` branch and agents depend on it for ad-hoc annotation. Labels and tags solve
-different problems:
+**Why not a free-text tags field:** free-text tags provide no consistent vocabulary, no visual
+color identity, and no way to efficiently filter or group tickets by a canonical tag value
+across the tenant. GitHub-style labels — a tenant-managed vocabulary with required hex color —
+solve all three gaps. Admins define the vocabulary once; agents apply labels from a picker;
+the filter API uses label IDs, not string matching.
 
-- **Labels** (`labels` + `ticket_labels`): admin-curated, colored, tenant-wide vocabulary;
-  agents pick from a defined set; filter API uses label IDs. Good for consistent cross-team tagging.
-- **Tags** (`entity_instance_tags`): ad-hoc per-ticket text annotation; any user with edit-access
-  can add one without admin pre-registration. Good for "waiting-on-vendor", "reproduced-locally"-style notes.
-
-**Why labels are not an entity engine field:** the entity engine's `multi_select` stores arbitrary
-strings. Making labels structured (name + color + description) requires a first-class table with its
-own UNIQUE constraint and soft-delete semantics. A junction table (`ticket_labels`) is the correct
-relational shape for many-to-many; it also gives a clean audit trail for assignment history even
-after a label is soft-deleted.
+**Why not entity engine field:** the entity engine's `multi_select` stores arbitrary strings.
+Making labels structured (name + color + description) requires a first-class table with its own
+UNIQUE constraint and soft-delete semantics. A junction table (`ticket_labels`) is the correct
+relational shape for many-to-many; it also gives a clean audit trail for assignment history
+even after a label is soft-deleted.
 
 Custom ad-hoc fields remain available via the existing `addEntityField()` path when
 `allowCustomFields: true`. This decision adds no new custom-field mechanism.
@@ -209,11 +205,11 @@ ends_at`) on a GIST-indexed column; p99 target ≤ 100 ms enforced by an integra
 
 ## Open Questions
 
-| ID   | Question                                                                                                 | Notes                                                                                                                                                                                                                                                                                                                            |
-| ---- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OQ-1 | Should `services` have their own on-call schedule independent of their owning team?                      | v1: services inherit routing from their team only. A service-level schedule is a natural extension but adds complexity without a clear customer requirement yet.                                                                                                                                                                 |
-| OQ-2 | ~~Should `tags` support a tenant-managed vocabulary or remain fully free-text?~~ **Partially resolved.** | Labels table (name + hex color + description) is added **alongside** `entity_instance_tags` (PR #557), not in place of it. The two coexist: labels = curated vocabulary; tags = ad-hoc per-ticket annotation. "Free-text tags removed" in earlier drafts was incorrect — `entity_instance_tags` already shipped. See Decision 3. |
-| OQ-3 | Should `dispatch_severity_notification` also fire on initial ticket creation (not just severity change)? | v1: yes, if severity is set at creation time. The trigger checks "severity is being set from null to a value" — same as "changed".                                                                                                                                                                                               |
+| ID   | Question                                                                                                 | Notes                                                                                                                                                            |
+| ---- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-1 | Should `services` have their own on-call schedule independent of their owning team?                      | v1: services inherit routing from their team only. A service-level schedule is a natural extension but adds complexity without a clear customer requirement yet. |
+| OQ-2 | ~~Should `tags` support a tenant-managed vocabulary or remain fully free-text?~~ **Resolved.**           | Decided: labels table with required name + hex color + optional description. Free-text tags removed. See Decision 3.                                             |
+| OQ-3 | Should `dispatch_severity_notification` also fire on initial ticket creation (not just severity change)? | v1: yes, if severity is set at creation time. The trigger checks "severity is being set from null to a value" — same as "changed".                               |
 
 ---
 

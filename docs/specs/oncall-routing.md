@@ -127,19 +127,15 @@ Multiple policies at the same score are an error at write time (`409`).
 
 ### New entity fields (added to the `ticket` entity type as system fields)
 
-| field name   | type         | values / notes                                                                                                                                               |
-| ------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `severity`   | _(existing)_ | **Not seeded here.** PR #557 adds `entity_instances.severity` as a real typed column (`TEXT CHECK ...`). Read/written directly, not via entity-engine JSONB. |
-| `team_id`    | `entity_ref` | New — references `teams` table (added by this feature)                                                                                                       |
-| `service_id` | `entity_ref` | New — references `services` table (added by this feature)                                                                                                    |
+| field name   | type         | values / notes                         |
+| ------------ | ------------ | -------------------------------------- |
+| `severity`   | `select`     | `critical` / `high` / `medium` / `low` |
+| `team_id`    | `entity_ref` | references `teams` table               |
+| `service_id` | `entity_ref` | references `services` table            |
 
 Labels are not an entity engine field — they are managed via the `labels` + `ticket_labels`
 tables and exposed through dedicated endpoints (`/admin/labels`, `/tickets/:id/labels`).
 This gives colored, named, tenant-managed labels with proper many-to-many assignment.
-
-**Labels and free-text tags coexist.** `entity_instance_tags` (PR #557) remains — it supports
-ad-hoc per-ticket annotation. Labels serve a different purpose: admin-curated, colored, tenancy-wide
-vocabulary. Neither replaces the other.
 
 Custom ad-hoc fields continue via the existing `addEntityField()` path — nothing new required.
 
@@ -223,12 +219,12 @@ DELETE /tickets/:id/labels/:labelId               remove a single label from a t
 
 ### Ticket fields
 
-R1: Ticket entity type gains two new system entity-ref fields — `team_id`, `service_id`.
-`severity` is NOT new: PR #557 already adds `entity_instances.severity` as a direct typed column.
+R1: Ticket entity type ships three new system fields — `severity`, `team_id`, `service_id`.
+✓ Creating a ticket with `severity: "critical"` stores and returns "critical"
+✓ Creating with an unrecognised severity value returns `422` with a field-level error
 ✓ `team_id` references a valid `teams` row in the same tenant; cross-tenant ref returns `422`
 ✓ `service_id` references a valid `services` row in the same tenant; cross-tenant ref returns `422`
-✓ Both fields are optional — tickets without them behave exactly as before (no regression)
-✓ Existing `severity` behaviour (PR #557) is unchanged: `critical`/`high`/`medium`/`low`, defaults to `medium`
+✓ All three fields are optional — tickets without them behave exactly as before (no regression)
 
 R1b: Admins can manage a tenant-scoped label vocabulary — create, rename, recolor, and soft-delete labels.
 ✓ `POST /admin/labels {name, color}` → `201`; `GET /admin/labels` lists it with color chip
