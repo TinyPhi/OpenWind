@@ -121,7 +121,8 @@ CREATE POLICY ticket_labels_tenant_write ON ticket_labels FOR ALL
 ### 1.5 `on_call_schedules`
 
 ```sql
--- Requires btree_gist extension (already enabled by migration 0001)
+-- Requires btree_gist extension — migration 0092 includes
+-- CREATE EXTENSION IF NOT EXISTS btree_gist before this table DDL.
 CREATE TABLE on_call_schedules (
   id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id                   uuid NOT NULL REFERENCES tenants(id),
@@ -628,28 +629,46 @@ if (policy.notifyEscalationManager OR severity == 'critical')
 
 **Channel dispatch (independent per channel):**
 
+`@platform/notifications.sendNotification` **enqueues a BullMQ job** and returns — it does not
+deliver synchronously. It throws only on enqueue-time failures (Redis unavailable, bad template
+ID). Actual delivery failures happen asynchronously inside `notification-outbound-worker.ts`
+under ADR-014's 3-attempt retry/exhaustion policy, which emits its own `notification.delivery_failed`
+audit event and system note. `dispatch_severity_notification` does not own delivery semantics.
+
 ```
 for channel in policy.channels:
   try:
-    @platform/notifications.send({
+    // sendNotification enqueues a BullMQ delivery job — does NOT deliver inline.
+    // Throws only on enqueue failure (Redis down, unknown templateId).
+    sendNotification({
       channel,
       recipients,
       subject: buildSubject(ticket, severity),
       payload: buildPayload(ticket),
     })
-    // no per-channel audit write on success — covered by the single dispatched entry
+    // no per-channel audit write on enqueue success — covered by dispatched entry below
   catch:
-    // sanitize: provider errors (Twilio, Meta, Novu) may include phone numbers or PII.
-    // Strip raw err.message; log only the error code and a masked, truncated form.
+    // Enqueue-time failure only (Redis, bad template). Provider errors that contain
+    // PII (phone numbers, email addresses) never reach here — those surface at delivery
+    // time in the notification-outbound-worker under ADR-014's pipeline.
     sanitized = sanitizeProviderError(err)   // masks E.164 numbers, truncates to 200 chars
     writeAuditEntry({ action: 'notification.channel_failed',
                       metadata: { channel, errorCode: sanitized.code, errorSummary: sanitized.message } })
-    logger.warn({ channel, ticketId, errorCode: sanitized.code }, 'notification channel failed')
+    logger.warn({ channel, ticketId, errorCode: sanitized.code }, 'notification channel enqueue failed')
     // continue — do not abort remaining channels
 
 writeAuditEntry({ action: 'notification.dispatched',
                   metadata: { channels, recipientCount, policyId, matchedAt } })
+// Note: 'notification.dispatched' records enqueue completion, not delivery confirmation.
+// Delivery confirmation / failure is tracked by ADR-014's worker via 'notification.delivery_failed'.
 ```
+
+**Two-level failure model:**
+
+| Event                          | Who writes it                          | When                                     |
+| ------------------------------ | -------------------------------------- | ---------------------------------------- |
+| `notification.channel_failed`  | `dispatch_severity_notification`       | Enqueue fails (Redis down, bad template) |
+| `notification.delivery_failed` | ADR-014 `notification-outbound-worker` | Delivery exhausted after 3 attempts      |
 
 **Idempotency key:** `severity_notify:{ticketId}:{severity_value}` — prevents duplicate
 dispatch if the same `entity.updated` event is re-delivered.
@@ -765,7 +784,7 @@ pattern as the existing Novu `NOVU_API_KEY` guard). See `docs/local-setup.md` fo
 | ------------ | ----------------------------------------------------------------------------------------------- |
 | 0090         | `teams` table + RLS + index                                                                     |
 | 0091         | `services` table + RLS + index                                                                  |
-| 0092         | `on_call_schedules` table + GIST exclusion + RLS                                                |
+| 0092         | `CREATE EXTENSION IF NOT EXISTS btree_gist` + `on_call_schedules` table + GIST exclusion + RLS  |
 | 0093         | `notification_policies` table + partial unique indexes + RLS                                    |
 | 0094         | Extend `admin_audit_log` CHECK constraint for `oncall.*` + `notification.*` + `label.*` strings |
 | 0095         | Seed: add `severity`, `team_id`, `service_id` system fields to `ticket` entity type             |
@@ -773,9 +792,10 @@ pattern as the existing Novu `NOVU_API_KEY` guard). See `docs/local-setup.md` fo
 | 0097         | `ticket_labels` junction table + RLS + indexes                                                  |
 
 Each migration follows the standard pattern: `docs/migrations/<id>_<slug>.sql` + journal entry.
-The GIST exclusion on `on_call_schedules` requires `btree_gist` — confirm it is enabled in the
-migration 0001 baseline before landing 0092. If not, add `CREATE EXTENSION IF NOT EXISTS
-btree_gist;` at the top of 0092 (safe to run twice).
+Migration 0092 includes `CREATE EXTENSION IF NOT EXISTS btree_gist;` as its first statement,
+before the table and GIST-constraint DDL. (`grep -rn "CREATE EXTENSION" packages/db/migrations/`
+returns no hits in the current repo — `btree_gist` is not yet enabled anywhere, so 0092 must
+create it; the `IF NOT EXISTS` guard makes the statement idempotent.)
 
 ---
 
@@ -802,17 +822,17 @@ code paths in the two hot-path actions).
 
 #### `dispatch_severity_notification` action
 
-| Scenario                                                                  | Expected                                                                   |
-| ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Policy at team+workflow level (score=3) wins over team-only (score=2)     | team+workflow policy channels dispatched                                   |
-| Policy at global level only                                               | global policy channels dispatched                                          |
-| No policy at any level                                                    | email-only (hardcoded default) dispatched                                  |
-| SMS channel dispatch throws                                               | email still dispatched; `notification.channel_failed` audited for SMS only |
-| All channels throw                                                        | `notification.channel_failed` for each; ticket mutation not rolled back    |
-| `severity` unchanged on update (idempotency key hit)                      | no re-dispatch                                                             |
-| Severity set to same value as current                                     | no re-dispatch                                                             |
-| `severity = "critical"` with `notify_escalation_manager: false` on policy | escalation manager notified anyway (implicit critical rule)                |
-| Provider error message contains E.164 phone number                        | audit entry stores masked form, not raw `err.message`                      |
+| Scenario                                                                  | Expected                                                                                                                        |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Policy at team+workflow level (score=3) wins over team-only (score=2)     | team+workflow policy channels dispatched                                                                                        |
+| Policy at global level only                                               | global policy channels dispatched                                                                                               |
+| No policy at any level                                                    | email-only (hardcoded default) dispatched                                                                                       |
+| SMS enqueue fails (Redis down / bad template)                             | email still enqueued; `notification.channel_failed` audited for SMS only                                                        |
+| All channel enqueues fail                                                 | `notification.channel_failed` for each; ticket mutation not rolled back; delivery failures handled separately by ADR-014 worker |
+| `severity` unchanged on update (idempotency key hit)                      | no re-dispatch                                                                                                                  |
+| Severity set to same value as current                                     | no re-dispatch                                                                                                                  |
+| `severity = "critical"` with `notify_escalation_manager: false` on policy | escalation manager notified anyway (implicit critical rule)                                                                     |
+| Provider error message contains E.164 phone number                        | audit entry stores masked form, not raw `err.message`                                                                           |
 
 #### Notification policy specificity scorer
 

@@ -64,17 +64,18 @@ Reference docs (read before starting work in a new area):
 not repeated here since it drifts)
 **Phase 2 status:** ✅ Complete as of 2026-06-18 (all 4 tracks + pre-pilot hardening merged)
 
-Phase 3 tracks (3A in progress, 3B done; 3C/3D/3-OPS still 0% — no active work yet; starting
+Phase 3 tracks (3A in progress, 3B done, 3D done; 3E spec+design complete (ADR-016 pending); 3C/3-OPS still 0% — no active work yet; starting
 either is a human scope call — no ADR exists for either yet — consistent with
 `agent-behaviour.md`'s general "no phase advance without explicit sign-off" rule, not a
-3C/3D-specific one):
+3C-specific one):
 
 | ID    | Track                                               | Notes                                                                                                                                                                                                                   |
 | ----- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 3A    | Integration layer — connector runtime, marketplace  | 🟡 In progress. Stage 0/1 done, Stage 2 runtime + scopes tracks landing. Detailed sequence + status in `.claude/context/phase-3-primer.md`; live % in `docs/sup-docs/roadmap-tracker.md` — update both there, not here. |
 | 3B    | Plugin system — Module Federation, slot registry    | ✅ Done — PR #397 (2026-08-13), all 3 phases.                                                                                                                                                                           |
 | 3C    | AI layer — automation gen, workflow suggestion, RAG | Not yet started; no ADR yet — a human scope call, not a 3B-blocked dependency                                                                                                                                           |
-| 3D    | Observability + compliance — OTel, Prometheus, GDPR | Parallel with 3A–3C possible                                                                                                                                                                                            |
+| 3D    | Observability + compliance — OTel, Prometheus, GDPR | ✅ Done — PR #503–507 (all stages). Live % in `docs/sup-docs/roadmap-tracker.md`.                                                                                                                                       |
+| 3E    | On-call routing & severity-based notification       | 🔴 Spec + design complete 2026-09-06 (`docs/oncall-routing-spec`). ADR-016 draft pending human acceptance. Phase 1 (DB) starts after ADR accepted + GH issues opened.                                                   |
 | 3-OPS | Deferred ops/infra concerns                         | See Phase 1 carry-overs in tracker                                                                                                                                                                                      |
 
 New findings from any review go through
