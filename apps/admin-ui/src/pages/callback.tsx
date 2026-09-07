@@ -22,7 +22,12 @@ function isHandoffState(state: unknown): state is HandoffState {
     typeof (state as HandoffState).workflowId === "string" &&
     typeof (state as HandoffState).entityTypeId === "string" &&
     UUID_RE.test((state as HandoffState).workflowId) &&
-    UUID_RE.test((state as HandoffState).entityTypeId)
+    UUID_RE.test((state as HandoffState).entityTypeId) &&
+    // docs/specs/third-party-api-origin-tagging.md R2 — required. A state
+    // object missing it (e.g. an in-flight redirect started before this
+    // param existed) falls through to the default /dashboard destination
+    // below, same graceful-degradation posture as a bad workflowId (R5).
+    typeof (state as HandoffState).appClientId === "string"
   );
 }
 
@@ -67,6 +72,7 @@ export function AuthCallback(): React.ReactElement {
                 workflowId: handoff.workflowId,
                 entityTypeId: handoff.entityTypeId,
                 prefillFields: handoff.prefillFields,
+                appClientId: handoff.appClientId,
               },
             });
             return;

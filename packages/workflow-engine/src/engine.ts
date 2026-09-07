@@ -59,6 +59,16 @@ export async function executeTransition(
         comment: existing.comment ?? null,
         metadata: (existing.metadata ?? {}) as Record<string, unknown>,
         createdAt: existing.createdAt,
+        // Drizzle infers this text() column as string | null, not the
+        // narrower union — migration 0091's CHECK constraint guarantees only
+        // these two values (or null) are ever stored, so the type system
+        // can't infer it but the DB does enforce it.
+        originMechanism: (existing.originMechanism ?? null) as
+          | "api"
+          | "handoff"
+          | null,
+        originOidcClientId: existing.originOidcClientId ?? null,
+        originPerformerUserId: existing.originPerformerUserId ?? null,
         // No new outbox row is written on this replay path, so this value
         // is inert — nothing ever reads it off an outbox event for this call.
         transitionEventId,
@@ -360,6 +370,16 @@ export async function executeTransition(
     comment: eventRow.comment ?? null,
     metadata: (eventRow.metadata ?? {}) as Record<string, unknown>,
     createdAt: eventRow.createdAt,
+    // Drizzle infers this text() column as string | null, not the narrower
+    // union — migration 0091's CHECK constraint guarantees only these two
+    // values (or null) are ever stored, so the type system can't infer it
+    // but the DB does enforce it.
+    originMechanism: (eventRow.originMechanism ?? null) as
+      | "api"
+      | "handoff"
+      | null,
+    originOidcClientId: eventRow.originOidcClientId ?? null,
+    originPerformerUserId: eventRow.originPerformerUserId ?? null,
     transitionEventId,
   };
 }
@@ -472,6 +492,13 @@ export async function getWorkflowEventLog(
     metadata: (e.metadata ?? {}) as Record<string, unknown>,
     createdAt: e.createdAt,
     triggeredAt: e.createdAt.toISOString(),
+    // Drizzle infers this text() column as string | null, not the narrower
+    // union — migration 0091's CHECK constraint guarantees only these two
+    // values (or null) are ever stored, so the type system can't infer it
+    // but the DB does enforce it.
+    originMechanism: (e.originMechanism ?? null) as "api" | "handoff" | null,
+    originOidcClientId: e.originOidcClientId ?? null,
+    originPerformerUserId: e.originPerformerUserId ?? null,
   }));
 }
 

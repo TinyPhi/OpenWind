@@ -22,13 +22,17 @@ import {
   entityInstances,
   workflowEvents,
   outboxEvents,
+  apiKeys,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
+import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
 
 const TENANT = "eeeeeeee-0000-4000-e000-000000000604";
 const OTHER_TENANT = "ffffffff-0000-4000-f000-000000000605";
+const API_KEY_ID = "33333333-3333-3333-3333-333333333333";
+const ORIGIN_OIDC_CLIENT_ID = "third-party-comment-post-test-client";
 
 let entityTypeId: string;
 let workflowId: string;
@@ -77,6 +81,19 @@ beforeAll(async () => {
       slug: `3p-comment-other-${OTHER_TENANT}`,
     },
   ]);
+
+  // docs/specs/third-party-api-origin-tagging.md — the comment route now
+  // resolves the authenticating key's oidcClientId via a real DB lookup.
+  // Matches apiKeyAuth()'s synthetic "apikey:33333333-..." id below.
+  await db.insert(apiKeys).values({
+    id: API_KEY_ID,
+    tenantId: TENANT,
+    name: "3P Comment Post Test Key",
+    keyHash: hashApiKey(`sk_3p_comment_post_test_${TENANT}`),
+    scopesFormat: "action",
+    scopes: ["entity:ticket:comment"],
+    oidcClientId: ORIGIN_OIDC_CLIENT_ID,
+  });
 
   const entityType = await createEntityType(db, null, {
     name: `third_party_comment_test_${Date.now()}`,
@@ -175,6 +192,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(apiKeys).where(eq(apiKeys.id, API_KEY_ID));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT, OTHER_TENANT]));
 });
 

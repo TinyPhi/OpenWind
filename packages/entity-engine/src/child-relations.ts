@@ -190,6 +190,9 @@ export async function createChildRelation(
     actorType,
     actingPersonId,
     maxAncestorDepth,
+    originMechanism,
+    originOidcClientId,
+    originPerformerUserId,
   } = input;
 
   // Load parent — lock row to prevent concurrent race on cap/depth
@@ -325,6 +328,9 @@ export async function createChildRelation(
       createdBy: createdBy ?? null,
       currentState: "open",
       dueDate: dueDate ? new Date(dueDate) : null,
+      originMechanism: originMechanism ?? null,
+      originOidcClientId: originOidcClientId ?? null,
+      originPerformerUserId: originPerformerUserId ?? null,
     })
     .returning();
 
@@ -780,6 +786,13 @@ function rowToInstance(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
+    // Drizzle infers this text() column as string | null, not the narrower
+    // union — migration 0091's CHECK constraint guarantees only these two
+    // values (or null) are ever stored, so the type system can't infer it
+    // but the DB does enforce it.
+    originMechanism: row.originMechanism as "api" | "handoff" | null,
+    originOidcClientId: row.originOidcClientId,
+    originPerformerUserId: row.originPerformerUserId,
   };
 }
 

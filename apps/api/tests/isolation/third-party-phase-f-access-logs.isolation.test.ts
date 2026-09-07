@@ -19,6 +19,7 @@ import {
   workflowEvents,
   adminAuditLog,
   attachments,
+  apiKeys,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
 import {
@@ -27,6 +28,7 @@ import {
   addWorkflowTransition,
 } from "@platform/workflow-engine";
 import type { EntityType } from "@platform/entity-engine";
+import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
 import { createThirdPartyChildHandler } from "../../src/routes/third-party/children.js";
@@ -60,6 +62,19 @@ beforeAll(async () => {
       slug: `phase-f-other-${OTHER_TENANT}`,
     },
   ]);
+
+  // docs/specs/third-party-api-origin-tagging.md — comment/child creation
+  // routes now resolve the authenticating key's oidcClientId via a real DB
+  // lookup, not just the stubbed auth context (API_KEY_ID above).
+  await db.insert(apiKeys).values({
+    id: API_KEY_ID,
+    tenantId: TENANT,
+    name: "Phase F Access Logs Test Key",
+    keyHash: hashApiKey(`sk_phase_f_access_logs_test_${TENANT}`),
+    scopesFormat: "action",
+    scopes: ["entity:ticket:comment", "entity:ticket:subticket"],
+    oidcClientId: "phase-f-access-logs-test-client",
+  });
 
   entityType = await createEntityType(db, null, {
     name: `phase_f_access_logs_test_${Date.now()}`,
@@ -150,6 +165,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(apiKeys).where(eq(apiKeys.id, API_KEY_ID));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT, OTHER_TENANT]));
 });
 

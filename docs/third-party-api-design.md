@@ -78,6 +78,14 @@ NOT the acting-person/dual-identity model above) to `apps/admin-ui`'s own login/
 rendering, and attachment upload UX itself. No new API route, no redirect back to the partner —
 see the spec's §V invariants for why. Partner-facing walkthrough: reference doc §6.1a.
 
+**As of 2026-09-02, this entry URL requires one more param: `appClientId`** — the partner's own
+registered `oidcClientId` (the same value from their `api_keys` registration, same identifier
+used to authenticate the direct-API path above). Without a valid, active, non-revoked one, ticket
+creation through this flow is rejected outright — see
+[third-party-api-origin-tagging](specs/third-party-api-origin-tagging.md) for why: every ticket
+created through either path now carries a visible tag naming the application and performing
+person, and this is the piece of data the handoff flow was missing to support that.
+
 ---
 
 _This file is the canonical behavioral index referenced by CLAUDE.md and ADR-012 — update it

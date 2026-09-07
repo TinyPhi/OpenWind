@@ -16,13 +16,16 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { inArray } from "drizzle-orm";
-import { db, tenants, workflows, workflowStates } from "@platform/db";
+import { eq, inArray } from "drizzle-orm";
+import { db, tenants, workflows, workflowStates, apiKeys } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
+import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
 
 const TENANT = "eeeeeeee-0000-4000-e000-000000000804";
+const API_KEY_ID = "55555555-5555-5555-5555-555555555555";
+const ORIGIN_OIDC_CLIENT_ID = "third-party-mention-uniformity-test-client";
 
 let entityTypeId: string;
 let workflowId: string;
@@ -35,6 +38,18 @@ beforeAll(async () => {
     id: TENANT,
     name: "3P Mention Uniformity Tenant",
     slug: `3p-mention-uniformity-${TENANT}`,
+  });
+
+  // docs/specs/third-party-api-origin-tagging.md — the comment route now
+  // resolves the authenticating key's oidcClientId via a real DB lookup.
+  await db.insert(apiKeys).values({
+    id: API_KEY_ID,
+    tenantId: TENANT,
+    name: "3P Mention Uniformity Test Key",
+    keyHash: hashApiKey(`sk_3p_mention_uniformity_test_${TENANT}`),
+    scopesFormat: "action",
+    scopes: ["entity:ticket:comment"],
+    oidcClientId: ORIGIN_OIDC_CLIENT_ID,
   });
 
   const entityType = await createEntityType(db, null, {
@@ -74,6 +89,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(apiKeys).where(eq(apiKeys.id, API_KEY_ID));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT]));
 });
 

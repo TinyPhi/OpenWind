@@ -71,6 +71,7 @@ describe("AuthCallback", () => {
         workflowId: WORKFLOW_ID,
         entityTypeId: ENTITY_TYPE_ID,
         prefillFields: { title: "Client dinner" },
+        appClientId: "app-1",
       },
     });
     fetchWithAuth.mockResolvedValue({
@@ -84,6 +85,7 @@ describe("AuthCallback", () => {
           workflowId: WORKFLOW_ID,
           entityTypeId: ENTITY_TYPE_ID,
           prefillFields: { title: "Client dinner" },
+          appClientId: "app-1",
         },
       });
     });
@@ -96,7 +98,16 @@ describe("AuthCallback", () => {
   // gracefully (the backend 404s / fetchWithAuth rejects), not crash.
   it("with a handoff entityTypeId that fails to resolve, falls back to /dashboard instead of crashing", async () => {
     signinCallback.mockResolvedValue({
-      state: { workflowId: WORKFLOW_ID, entityTypeId: ENTITY_TYPE_ID },
+      // Well-formed UUIDs (not "does-not-exist" -- that would fail the
+      // isHandoffState UUID shape check before ever reaching fetchWithAuth,
+      // making the mockRejectedValue below pointless) so this test actually
+      // exercises the fetch-rejects-with-404 path, not the malformed-shape
+      // short-circuit (that's the next test).
+      state: {
+        workflowId: WORKFLOW_ID,
+        entityTypeId: "99999999-9999-4999-8999-999999999999",
+        appClientId: "app-1",
+      },
     });
     fetchWithAuth.mockRejectedValue(new Error("404"));
     renderCallback();
@@ -139,6 +150,21 @@ describe("AuthCallback", () => {
   it("rejects a non-UUID workflowId at the guard, without ever calling fetchWithAuth", async () => {
     signinCallback.mockResolvedValue({
       state: { workflowId: "not-a-uuid", entityTypeId: ENTITY_TYPE_ID },
+    });
+    renderCallback();
+
+    await waitFor(() => {
+      expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
+    });
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  // docs/specs/third-party-api-origin-tagging.md R2 -- appClientId is
+  // required exactly like workflowId/entityTypeId; missing it must degrade
+  // the same way a missing entityTypeId does, never a partial handoff.
+  it("with handoff state missing appClientId, falls back to /dashboard without calling fetchWithAuth", async () => {
+    signinCallback.mockResolvedValue({
+      state: { workflowId: WORKFLOW_ID, entityTypeId: ENTITY_TYPE_ID },
     });
     renderCallback();
 

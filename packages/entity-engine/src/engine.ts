@@ -316,6 +316,9 @@ export async function createEntity(
       createdBy: input.createdBy ?? null,
       assignedTo: input.assignedTo ?? null,
       dueDate: input.dueDate ? new Date(input.dueDate) : null,
+      originMechanism: input.originMechanism ?? null,
+      originOidcClientId: input.originOidcClientId ?? null,
+      originPerformerUserId: input.originPerformerUserId ?? null,
     })
     .returning();
 
@@ -1326,6 +1329,13 @@ function rowToInstance(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt ?? null,
+    // Drizzle infers this text() column as string | null, not the narrower
+    // union — migration 0091's CHECK constraint guarantees only these two
+    // values (or null) are ever stored, so the type system can't infer it
+    // but the DB does enforce it.
+    originMechanism: row.originMechanism as "api" | "handoff" | null,
+    originOidcClientId: row.originOidcClientId ?? null,
+    originPerformerUserId: row.originPerformerUserId ?? null,
   };
 }
 

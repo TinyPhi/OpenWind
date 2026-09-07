@@ -17,13 +17,17 @@ import {
   workflows,
   workflowStates,
   entityInstances,
+  apiKeys,
 } from "@platform/db";
 import { createEntityType, createEntity } from "@platform/entity-engine";
+import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyChildHandler } from "../../src/routes/third-party/children.js";
 
 const TENANT = "eeeeeeee-0000-4000-e000-000000000704";
 const OTHER_TENANT = "ffffffff-0000-4000-f000-000000000705";
+const API_KEY_ID = "44444444-4444-4444-4444-444444444444";
+const ORIGIN_OIDC_CLIENT_ID = "third-party-subticket-create-test-client";
 
 let entityTypeId: string;
 let workflowId: string;
@@ -72,6 +76,18 @@ beforeAll(async () => {
       slug: `3p-child-other-${OTHER_TENANT}`,
     },
   ]);
+
+  // docs/specs/third-party-api-origin-tagging.md — the child-create route now
+  // resolves the authenticating key's oidcClientId via a real DB lookup.
+  await db.insert(apiKeys).values({
+    id: API_KEY_ID,
+    tenantId: TENANT,
+    name: "3P Subticket Create Test Key",
+    keyHash: hashApiKey(`sk_3p_subticket_create_test_${TENANT}`),
+    scopesFormat: "action",
+    scopes: ["entity:ticket:subticket"],
+    oidcClientId: ORIGIN_OIDC_CLIENT_ID,
+  });
 
   const entityType = await createEntityType(db, null, {
     name: `third_party_child_test_${Date.now()}`,
@@ -178,6 +194,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(apiKeys).where(eq(apiKeys.id, API_KEY_ID));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT, OTHER_TENANT]));
 });
 

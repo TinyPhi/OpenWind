@@ -103,6 +103,11 @@ beforeAll(async () => {
       name: "Idempotency API Key 1",
       keyHash: "idempotency-test-hash-1",
       scopes: [],
+      // docs/specs/third-party-api-origin-tagging.md -- third-party create
+      // routes now resolve the authenticating key's oidcClientId via a real
+      // DB lookup; without it they 401 before reaching the route logic
+      // under test here.
+      oidcClientId: `idempotency-test-client-${API_KEY_ID}`,
     },
     {
       id: API_KEY_ID_2,
@@ -110,6 +115,7 @@ beforeAll(async () => {
       name: "Idempotency API Key 2",
       keyHash: "idempotency-test-hash-2",
       scopes: [],
+      oidcClientId: `idempotency-test-client-${API_KEY_ID_2}`,
     },
   ]);
 });

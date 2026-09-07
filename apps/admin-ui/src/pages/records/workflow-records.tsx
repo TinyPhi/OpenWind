@@ -11,6 +11,12 @@ import { userManager } from "../../authProvider.js";
 import { isRenderableIcon } from "../../lib/icon.js";
 import { humanizeWorkflowName } from "../../lib/format.js";
 import { TransitionModal } from "../../components/transition-modal.js";
+import {
+  OriginCornerBadge,
+  COLOR_BY_MECHANISM,
+  LABEL_BY_MECHANISM,
+  type Origin,
+} from "../../components/origin-tag.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -31,6 +37,10 @@ type EntityInstance = {
   createdAt: string;
   updatedAt: string;
   assignedTo?: string | null;
+  // docs/specs/third-party-api-origin-tagging.md — resolved server-side by
+  // apps/api/src/lib/resolve-origin-display.ts. Absent/null = normal,
+  // human, in-app creation, no tag rendered.
+  origin?: Origin;
 };
 type OrgUser = {
   userId: string;
@@ -60,6 +70,7 @@ type ChildTicket = {
   assignedTo: string | null;
   createdAt: string;
   accessReason: "assigned" | "mention" | "manual";
+  origin?: Origin;
 };
 
 function toWorkflowSlug(name: string): string {
@@ -130,7 +141,14 @@ function ChildTicketCard({
       className="kb-card kb-card--child"
       onClick={() => navigate(`/records/${typeSlug}/${ticket.id}`)}
     >
-      <div className="kb-card-title">{title}</div>
+      <OriginCornerBadge origin={ticket.origin} />
+
+      <div
+        className="kb-card-title"
+        style={ticket.origin ? { paddingRight: "58px" } : undefined}
+      >
+        {title}
+      </div>
 
       <div className="kb-card-meta">
         <span className="kb-card-meta-label">State</span>
@@ -212,7 +230,12 @@ function RecordCard({
       }}
       onClick={() => navigate(`/records/${typeSlug}/${record.id}`)}
     >
-      <div className="kb-card-title">
+      <OriginCornerBadge origin={record.origin} />
+
+      <div
+        className="kb-card-title"
+        style={record.origin ? { paddingRight: "58px" } : undefined}
+      >
         {preview[0]?.value ?? `#${record.id.slice(0, 8)}`}
       </div>
 
@@ -508,6 +531,9 @@ export function WorkflowRecords(): React.ReactElement {
   >("");
   const [filterDateValue, setFilterDateValue] = useState("");
   const [filterAssignedTo, setFilterAssignedTo] = useState("");
+  const [filterOrigin, setFilterOrigin] = useState<
+    "" | "internal" | "external" | "redirected"
+  >("");
   const [userSearch, setUserSearch] = useState("");
   const filterBtnRef = useRef<HTMLButtonElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
@@ -700,6 +726,7 @@ export function WorkflowRecords(): React.ReactElement {
   const activeFilterCount = [
     filterDateField !== "" && filterDateValue !== "",
     filterAssignedTo !== "",
+    filterOrigin !== "",
   ].filter(Boolean).length;
 
   // For general users: apply the chip filter from Records page URL param
@@ -732,6 +759,11 @@ export function WorkflowRecords(): React.ReactElement {
       )
         return false;
     }
+    if (filterOrigin === "internal" && rec.origin) return false;
+    if (filterOrigin === "external" && rec.origin?.mechanism !== "api")
+      return false;
+    if (filterOrigin === "redirected" && rec.origin?.mechanism !== "handoff")
+      return false;
     return true;
   });
 
@@ -1099,6 +1131,7 @@ export function WorkflowRecords(): React.ReactElement {
                         setFilterDateField("");
                         setFilterDateValue("");
                         setFilterAssignedTo("");
+                        setFilterOrigin("");
                         setUserSearch("");
                       }}
                     >
@@ -1133,6 +1166,60 @@ export function WorkflowRecords(): React.ReactElement {
                       style={{ marginTop: "8px" }}
                     />
                   )}
+                </div>
+
+                {/* Source filter — docs/specs/third-party-api-origin-tagging.md */}
+                <div className="kb-filter-section">
+                  <div className="kb-filter-section-label">Source</div>
+                  <div className="kb-filter-origin-options">
+                    {[
+                      { key: "" as const, label: "Any", color: null },
+                      {
+                        key: "internal" as const,
+                        label: "Internal",
+                        color: null,
+                      },
+                      {
+                        key: "external" as const,
+                        label: LABEL_BY_MECHANISM.api,
+                        color: COLOR_BY_MECHANISM.api,
+                      },
+                      {
+                        key: "redirected" as const,
+                        label: LABEL_BY_MECHANISM.handoff,
+                        color: COLOR_BY_MECHANISM.handoff,
+                      },
+                    ].map((opt) => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        className={`kb-filter-origin-chip ${filterOrigin === opt.key ? "kb-filter-origin-chip-active" : ""}`}
+                        onClick={() => setFilterOrigin(opt.key)}
+                        style={
+                          opt.color && filterOrigin === opt.key
+                            ? {
+                                background: opt.color,
+                                borderColor: opt.color,
+                                color: "hsl(0, 0%, 100%)",
+                              }
+                            : undefined
+                        }
+                      >
+                        {opt.color && (
+                          <span
+                            className="kb-filter-origin-dot"
+                            style={{
+                              background:
+                                filterOrigin === opt.key
+                                  ? "hsl(0, 0%, 100%)"
+                                  : opt.color,
+                            }}
+                          />
+                        )}
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Assigned to filter */}
@@ -1636,6 +1723,7 @@ export function WorkflowRecords(): React.ReactElement {
         .kb-add-btn:hover { color: var(--text-primary); background: var(--bg-tertiary); }
 
         .kb-card {
+          position: relative;
           background: var(--bg-card);
           border: 1px solid var(--border-subtle);
           border-radius: var(--radius-sm);
@@ -1649,6 +1737,23 @@ export function WorkflowRecords(): React.ReactElement {
             transform var(--transition-fast),
             opacity var(--transition-fast),
             border-color var(--transition-fast);
+        }
+        .kb-card-origin-corner {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 7px;
+          border-radius: 999px;
+          font-size: 9.5px;
+          font-weight: 700;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          line-height: 1.4;
+          white-space: nowrap;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+          z-index: 1;
         }
         .kb-card:hover {
           box-shadow: var(--shadow-sm);
@@ -1789,6 +1894,18 @@ export function WorkflowRecords(): React.ReactElement {
           transition: border-color var(--transition-fast);
         }
         .kb-filter-date-input:focus { border-color: var(--accent-primary); }
+
+        .kb-filter-origin-options { display: flex; flex-wrap: wrap; gap: 6px; }
+        .kb-filter-origin-chip {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 4px 10px; border-radius: 999px;
+          background: var(--bg-tertiary); border: 1px solid var(--border-color);
+          color: var(--text-secondary); font-size: 12px; font-weight: 600;
+          cursor: pointer; transition: background var(--transition-fast), border-color var(--transition-fast);
+        }
+        .kb-filter-origin-chip:hover { border-color: var(--border-focus); }
+        .kb-filter-origin-chip-active { background: hsla(250,84%,60%,.12); border-color: hsla(250,84%,60%,.4); color: var(--accent-primary); }
+        .kb-filter-origin-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
         .kb-filter-user-search-wrap {
           display: flex; align-items: center; gap: 7px;
