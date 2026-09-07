@@ -779,32 +779,270 @@ btree_gist;` at the top of 0092 (safe to run twice).
 
 ---
 
-## 8. Testing Checklist
+## 8. Test Coverage
 
-### Unit tests (per package)
+**Coverage targets:** ≥ 90 % line coverage on all new packages and route handlers; 100 %
+branch coverage on `resolveOncall()` and `dispatchSeverityNotification()` (zero untested
+code paths in the two hot-path actions).
 
-- `resolve_oncall`: no schedule → unchanged assignee + audit; active schedule → assignee set;
-  explicit assignee + team_id → skipped; idempotent re-delivery → no duplicate write
-- `dispatch_severity_notification`: policy resolution scores; fallback to global; fallback to
-  email-only default; one channel failing doesn't abort others; idempotent re-delivery
-- Notification policy CRUD: overlap collision → 409; empty channels → 422; cross-tenant user
-  in schedule → 422
+### 8.1 Unit tests
 
-### Integration tests (per route)
+#### `resolve_oncall` action
 
-- `POST /admin/on-call-schedules`: overlap → 409; invalid window → 422; foreign user → 422
-- `GET /admin/on-call-schedules/current`: all teams returned; null oncall for uncovered teams
-- `GET /admin/notification-policies/resolve`: returns correct match at each specificity level;
-  hardcoded default when no policy exists
+| Scenario                                                   | Expected                                                             |
+| ---------------------------------------------------------- | -------------------------------------------------------------------- |
+| Active schedule exists for team                            | `assignee` set to `primary_user_id`; `oncall.auto_assigned` audited  |
+| No active schedule (gap)                                   | `assignee` unchanged; `oncall.no_schedule` audited                   |
+| `assignee` + `team_id` both in same payload                | explicit `assignee` wins; `oncall.skipped_explicit_assignee` audited |
+| Re-delivery of same event version (idempotency key hit)    | no second write, no duplicate audit row                              |
+| `primary_user_id` in schedule belongs to different tenant  | rejected at write time; never reaches resolution                     |
+| `backup_user_id` is null                                   | no backup notification enqueued; no error                            |
+| Schedule found but `starts_at > now()` (future entry only) | treated as no active schedule                                        |
+| `team_id` changed to same value (no actual change)         | action skipped; trigger condition not met                            |
 
-### Isolation tests (RLS)
+#### `dispatch_severity_notification` action
 
-- Teams/services/schedules/policies: Tenant B reads return empty when only Tenant A has data
-- `resolve_oncall` action: schedule lookup never crosses tenant boundary
-- `dispatch_severity_notification`: policy lookup never crosses tenant boundary
+| Scenario                                                                  | Expected                                                                   |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Policy at team+workflow level (score=3) wins over team-only (score=2)     | team+workflow policy channels dispatched                                   |
+| Policy at global level only                                               | global policy channels dispatched                                          |
+| No policy at any level                                                    | email-only (hardcoded default) dispatched                                  |
+| SMS channel dispatch throws                                               | email still dispatched; `notification.channel_failed` audited for SMS only |
+| All channels throw                                                        | `notification.channel_failed` for each; ticket mutation not rolled back    |
+| `severity` unchanged on update (idempotency key hit)                      | no re-dispatch                                                             |
+| Severity set to same value as current                                     | no re-dispatch                                                             |
+| `severity = "critical"` with `notify_escalation_manager: false` on policy | escalation manager notified anyway (implicit critical rule)                |
+| Provider error message contains E.164 phone number                        | audit entry stores masked form, not raw `err.message`                      |
 
-### End-to-end (Docker stack)
+#### Notification policy specificity scorer
 
-- Full ticket lifecycle: create ticket with team_id → assignee set within 5 s
-- Full severity flow: patch severity to "critical" → all channels in critical policy dispatch
-- Coverage-gap badge: team with no active schedule shows badge in admin UI
+| Input (team_id, workflow_type_id) | Expected score                    |
+| --------------------------------- | --------------------------------- |
+| both set                          | 3                                 |
+| team only                         | 2                                 |
+| workflow only                     | 1                                 |
+| neither                           | 0                                 |
+| Two candidates at same score      | rejected at write time with `409` |
+
+#### Label CRUD and assignment
+
+| Scenario                                            | Expected                                                   |
+| --------------------------------------------------- | ---------------------------------------------------------- |
+| `color` not a 6-digit hex                           | `422`                                                      |
+| Duplicate label name in same tenant                 | `409`                                                      |
+| Duplicate name after soft-delete of original        | `201` (partial unique index allows reuse)                  |
+| Assign label from different tenant                  | `422`                                                      |
+| `PUT /tickets/:id/labels` with empty array          | all labels removed atomically                              |
+| `POST /tickets/:id/labels/:labelId` already applied | `200`, no duplicate row                                    |
+| Soft-delete a label then fetch ticket's labels      | label no longer in response; `ticket_labels` row preserved |
+
+#### On-call schedule constraints
+
+| Scenario                                                     | Expected                       |
+| ------------------------------------------------------------ | ------------------------------ |
+| Overlapping window for same (tenant, team)                   | `409` (GIST exclusion)         |
+| `starts_at >= ends_at`                                       | `422`                          |
+| `PATCH` on schedule where `starts_at <= now()`               | `422` (window already started) |
+| Soft-delete preserves row; audit references still resolvable | `200` on audit fetch           |
+
+---
+
+### 8.2 Integration tests (per route group)
+
+#### Teams + Services
+
+- `POST /admin/teams` → `201`; `GET /admin/teams` lists it; duplicate name → `409`
+- `DELETE /admin/teams/:id` → soft-delete; `GET /admin/teams` hides it; team still FK-present
+- Name reuse after soft-delete: `POST /admin/teams` with same name → `201`
+- Agent `POST /admin/teams` → `403`; agent `GET /admin/teams` → `200`
+- `POST /admin/services` with `teamId` from different tenant → `422` (application-layer FK guard)
+
+#### On-Call Schedules
+
+- `POST` with overlap → `409`; `POST` with valid non-overlapping window → `201`
+- `GET /admin/on-call-schedules/current` — all teams returned including uncovered (`oncall: null`)
+- `PATCH` on future-window entry → `200`; `PATCH` on active/past entry → `422`
+- `DELETE` → soft-delete; entry still resolvable in audit context
+
+#### Notification Policies
+
+- `POST` with same specificity slot twice → `409`
+- `POST` with `channels: []` → `422`
+- `POST` with unknown channel name → `422`
+- `GET /admin/notification-policies/resolve` — correct policy at each of 4 specificity levels; hardcoded default when none exist
+
+#### Labels
+
+- Full CRUD; `color` validation; soft-delete; name reuse after delete
+- `PUT /tickets/:id/labels` with mixed valid + cross-tenant IDs → `422` (atomic; none applied)
+
+---
+
+### 8.3 Isolation tests (RLS — `tests/isolation/`)
+
+One file per new table (`teams.isolation.test.ts`, `services.isolation.test.ts`, etc.).
+
+| Table                   | What to verify                                                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `teams`                 | Tenant B reads return `[]` when only Tenant A has rows; Tenant B write with Tenant A `tenant_id` in body → blocked by `WITH CHECK` |
+| `services`              | Same; also: Tenant B cannot reference Tenant A's team via `teamId` FK (application check)                                          |
+| `on_call_schedules`     | `resolve_oncall` only queries schedules in the triggering ticket's tenant                                                          |
+| `notification_policies` | `dispatch_severity_notification` never returns policies from another tenant                                                        |
+| `labels`                | Tenant B reads return `[]`; Tenant B cannot assign Tenant A's label to a ticket                                                    |
+| `ticket_labels`         | `GET /tickets/:id/labels` never returns labels from another tenant's label table                                                   |
+
+---
+
+### 8.4 End-to-end tests (Docker stack)
+
+- **Full routing flow:** `POST /tickets` with `team_id` set → poll for `assignee` set within 5 s; audit log contains `oncall.auto_assigned`
+- **Full notification flow:** `PATCH /tickets/:id` with `severity: "critical"` → Novu test-mode event received for every channel in the matching critical policy within 10 s
+- **Coverage-gap badge:** create team with no schedule → admin UI shows badge on affected tickets
+- **Label filter:** apply label to 3 tickets; `GET /tickets?label_id=X` returns exactly those 3
+- **Policy update takes effect immediately:** change policy channels → next severity-change event uses new channels, not cached old ones
+
+---
+
+## 9. Observability & Telemetry
+
+### 9.1 Structured logging
+
+All new log statements follow the existing pino convention — **object first, message second**.
+Required fields per context:
+
+| Context                          | Required fields                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
+| `resolve_oncall`                 | `tenantId`, `ticketId`, `teamId`, `result` (`assigned`/`no_schedule`/`skipped`)      |
+| `dispatch_severity_notification` | `tenantId`, `ticketId`, `severity`, `policyId`, `channels`, `recipientCount`         |
+| `notification.channel_failed`    | `tenantId`, `ticketId`, `channel`, `errorCode` (sanitized — no raw provider message) |
+| Label assignment                 | `tenantId`, `ticketId`, `labelId`, `actorId`, `action` (`assigned`/`removed`)        |
+| Schedule overlap rejected        | `tenantId`, `teamId`, `conflictingScheduleId`                                        |
+
+**Never log:** raw provider error bodies, phone numbers, email addresses, user names, ticket subject/body content.
+
+---
+
+### 9.2 Prometheus metrics
+
+All new metrics are registered in `packages/telemetry/src/metrics.ts` following the existing naming convention (`openwind_*`).
+
+#### Counters
+
+| Metric                                     | Labels                                                              | What it counts                                  |
+| ------------------------------------------ | ------------------------------------------------------------------- | ----------------------------------------------- |
+| `openwind_oncall_resolution_total`         | `result={assigned,no_schedule,skipped_explicit}`, `tenant_hash`     | Every `resolve_oncall` action invocation        |
+| `openwind_notification_dispatch_total`     | `channel`, `result={success,failed}`, `severity`                    | Per-channel dispatch attempt                    |
+| `openwind_notification_policy_match_total` | `matched_at={team_workflow,team,workflow,global,hardcoded_default}` | Where in the specificity chain the match landed |
+| `openwind_label_assignment_total`          | `action={assigned,removed}`                                         | Label assignment / removal events               |
+
+#### Histograms
+
+| Metric                                            | Labels    | SLO                                                                      |
+| ------------------------------------------------- | --------- | ------------------------------------------------------------------------ |
+| `openwind_oncall_resolution_duration_seconds`     | `result`  | p99 ≤ 100 ms (enforced by integration test asserting `durationMs < 100`) |
+| `openwind_notification_dispatch_duration_seconds` | `channel` | p99 ≤ 2 s per channel                                                    |
+
+#### Gauges
+
+| Metric                               | Labels        | What it measures                                                                                                                |
+| ------------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `openwind_oncall_coverage_gap_teams` | `tenant_hash` | Number of active teams in the tenant with no current on-call schedule entry; refreshed every minute by the SLA scheduler worker |
+
+---
+
+### 9.3 OpenTelemetry tracing
+
+New spans created inside the two automation actions. All spans inherit the parent trace from the BullMQ job that fires them (the existing worker OTel setup propagates context through the job payload).
+
+#### `resolve_oncall` span
+
+```
+span name:  "oncall.resolve"
+kind:       INTERNAL
+attributes:
+  oncall.team_id        string
+  oncall.ticket_id      string
+  oncall.tenant_id      string (hashed — not raw UUID)
+  oncall.result         string  // "assigned" | "no_schedule" | "skipped_explicit"
+  oncall.schedule_id    string  // set only on "assigned"
+  oncall.duration_ms    int
+events:
+  "schedule.lookup"   — on DB query start
+  "entity.update"     — on assignee write start
+```
+
+#### `dispatch_severity_notification` span
+
+```
+span name:  "notification.dispatch_severity"
+kind:       INTERNAL
+attributes:
+  notification.ticket_id       string
+  notification.tenant_id       string (hashed)
+  notification.severity        string
+  notification.policy_id       string | "hardcoded_default"
+  notification.matched_at      string  // specificity level
+  notification.channel_count   int
+  notification.recipient_count int
+child spans (one per channel):
+  span name:  "notification.send_channel"
+  attributes: notification.channel string, notification.result string
+  status:     OK on success, ERROR on failure (with sanitized error description)
+```
+
+---
+
+### 9.4 Grafana dashboard
+
+Add a new **On-Call Routing** row to the existing ops dashboard (`docs/sup-docs/grafana-oncall.json` — to be created by the Phase 1 implementer from the metric names above).
+
+**Panels:**
+
+| Panel                             | Query                                                                                                                            | Purpose                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| On-Call Resolution Rate           | `rate(openwind_oncall_resolution_total[5m])` by `result`                                                                         | Spot coverage gaps (rising `no_schedule`)                                    |
+| Resolution p99 Latency            | `histogram_quantile(0.99, openwind_oncall_resolution_duration_seconds_bucket)`                                                   | SLO alert if > 100 ms                                                        |
+| Notification Channel Success Rate | `rate(openwind_notification_dispatch_total{result="success"}[5m]) / rate(openwind_notification_dispatch_total[5m])` by `channel` | Detect provider degradation per channel                                      |
+| Notification Dispatch Latency p99 | `histogram_quantile(0.99, openwind_notification_dispatch_duration_seconds_bucket)` by `channel`                                  | Per-channel delivery health                                                  |
+| Policy Match Distribution         | `rate(openwind_notification_policy_match_total[5m])` by `matched_at`                                                             | Confirm policies are being hit (high `hardcoded_default` = misconfiguration) |
+| Coverage Gaps (live)              | `openwind_oncall_coverage_gap_teams`                                                                                             | Teams currently uncovered — drives admin badge                               |
+
+**Alert rules** (Prometheus alerting rules — add to `prometheus/alerts/oncall.yml`):
+
+```yaml
+- alert: OncallResolutionSLOBreached
+  expr: histogram_quantile(0.99, rate(openwind_oncall_resolution_duration_seconds_bucket[5m])) > 0.1
+  for: 2m
+  labels: { severity: warning }
+  annotations:
+    summary: "On-call resolution p99 > 100 ms"
+
+- alert: NotificationChannelHighFailureRate
+  expr: rate(openwind_notification_dispatch_total{result="failed"}[5m])
+    / rate(openwind_notification_dispatch_total[5m]) > 0.1
+  for: 5m
+  labels: { severity: warning }
+  annotations:
+    summary: "Notification channel {{ $labels.channel }} failure rate > 10 %"
+
+- alert: OncallCoverageGapsDetected
+  expr: sum(openwind_oncall_coverage_gap_teams) > 0
+  for: 10m
+  labels: { severity: info }
+  annotations:
+    summary: "{{ $value }} team(s) have no active on-call schedule"
+```
+
+---
+
+### 9.5 New tasks (test coverage + observability)
+
+These extend the §T task list in `docs/specs/oncall-routing.md`:
+
+| ID  | Task                                                                                                                                    | Phase |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| T39 | Register Prometheus metrics in `packages/telemetry/src/metrics.ts` (`openwind_oncall_*`, `openwind_notification_*`, `openwind_label_*`) | 3     |
+| T40 | Add OTel spans to `resolve_oncall` and `dispatch_severity_notification` with the attribute set in §9.3                                  | 3     |
+| T41 | Add `openwind_oncall_coverage_gap_teams` gauge refresh to the SLA scheduler worker (1-minute cadence)                                   | 3     |
+| T42 | Grafana dashboard JSON for the On-Call Routing row (6 panels from §9.4)                                                                 | 4     |
+| T43 | Prometheus alert rules YAML (`oncall.yml`) with the 3 alert rules from §9.4                                                             | 4     |
