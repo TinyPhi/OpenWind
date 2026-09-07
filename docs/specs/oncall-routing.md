@@ -89,7 +89,7 @@ on_call_schedules
   backup_user_id    uuid FK users           -- nullable; optional but recommended
   escalation_manager_user_id uuid FK users  -- nullable
   created_by uuid FK users NOT NULL
-  created_at / updated_at
+  created_at / updated_at / deleted_at   -- soft-delete; preserves audit trail history
 
   CONSTRAINT no_overlap: EXCLUDE USING gist (tenant_id WITH =, team_id WITH =, tstzrange(starts_at, ends_at) WITH &&)
 
@@ -351,7 +351,7 @@ R20: The dry-run resolver endpoint returns the effective policy without side eff
 - Cross-tenant user references in schedule entries are rejected at write time, not silently stored
 - System ticket fields (`severity`, `team_id`, `service_id`) survive a schema cache invalidation cycle without data loss
 - Cross-tenant label assignment is rejected at write time (`422`); `ticket_labels.tenant_id` is always the ticket's tenant, never the label assigner's caller tenant
-- Soft-deleting a label never deletes historical `ticket_labels` rows — label history is append-only
+- Soft-deleting a label never deletes historical `ticket_labels` rows — `ticket_labels` rows are hard-deleted only on explicit label removal (`DELETE /tickets/:id/labels/:labelId`); label assignment history is preserved via the audit log's `label.removed` entries
 - Auto-assignment audit entries are written in the same DB transaction as the assignment; rolled-back assignments produce no dangling audit entries
 - `team_id` field on a ticket is always validated against the same tenant's `teams` table (entity engine cross-tenant-reference guard already covers `entity_ref` fields)
 - Notification dispatch is always decoupled from ticket mutation: a notification failure never rolls back the ticket write

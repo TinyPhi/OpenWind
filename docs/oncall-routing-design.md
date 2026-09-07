@@ -41,7 +41,7 @@ CREATE POLICY teams_tenant_write ON teams FOR ALL
 CREATE TABLE services (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id   uuid NOT NULL REFERENCES tenants(id),
-  team_id     uuid REFERENCES teams(id),      -- nullable: service without owning team
+  team_id     uuid REFERENCES teams(id) ON DELETE RESTRICT,  -- nullable: service without owning team
   name        text NOT NULL,
   description text,
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -97,7 +97,7 @@ CREATE POLICY labels_tenant_write ON labels FOR ALL
 ```sql
 CREATE TABLE ticket_labels (
   ticket_instance_id uuid NOT NULL REFERENCES entity_instances(id),
-  label_id           uuid NOT NULL REFERENCES labels(id),
+  label_id           uuid NOT NULL REFERENCES labels(id) ON DELETE RESTRICT,
   tenant_id          uuid NOT NULL REFERENCES tenants(id),
   assigned_by        uuid NOT NULL REFERENCES users(id),
   assigned_at        timestamptz NOT NULL DEFAULT now(),
@@ -126,7 +126,7 @@ CREATE POLICY ticket_labels_tenant_write ON ticket_labels FOR ALL
 CREATE TABLE on_call_schedules (
   id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id                   uuid NOT NULL REFERENCES tenants(id),
-  team_id                     uuid NOT NULL REFERENCES teams(id),
+  team_id                     uuid NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
   label                       text NOT NULL,
   starts_at                   timestamptz NOT NULL,
   ends_at                     timestamptz NOT NULL,
@@ -168,38 +168,45 @@ CREATE TABLE notification_policies (
   id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id                 uuid NOT NULL REFERENCES tenants(id),
   -- scope dimensions (all nullable; null = "any")
-  team_id                   uuid REFERENCES teams(id),
-  workflow_type_id          uuid,   -- references workflow type; nullable
+  team_id                   uuid REFERENCES teams(id) ON DELETE RESTRICT,
+  -- workflow_type_id references workflows(id) but no FK constraint is declared here:
+  -- workflows is tenant-scoped and FK checks bypass RLS, so referential integrity is
+  -- enforced at the app layer (POST/PATCH must validate workflow_type_id belongs to
+  -- the same tenant) — same pattern as services.team_id and ticket_labels.label_id.
+  workflow_type_id          uuid,
   severity                  text NOT NULL
                             CHECK (severity IN ('critical','high','medium','low')),
   channels                  text[] NOT NULL,   -- non-empty subset of known channel names
   notify_backup             boolean NOT NULL DEFAULT true,
   notify_escalation_manager boolean NOT NULL DEFAULT false,
-  created_by                uuid NOT NULL,
+  created_by                uuid NOT NULL REFERENCES users(id),
   created_at                timestamptz NOT NULL DEFAULT now(),
   updated_at                timestamptz NOT NULL DEFAULT now(),
+  deleted_at                timestamptz,   -- soft-delete; preserves audit trail history
 
   CONSTRAINT channels_not_empty CHECK (cardinality(channels) > 0)
-  -- analytics: included(id, tenant_id, team_id, severity, channels, created_at)
+  -- analytics: included(id, tenant_id, team_id, severity, channels, created_at, deleted_at)
 );
 
 -- Uniqueness at each specificity level enforced via four partial indexes
 -- (composite UNIQUE fails for nullable columns in Postgres: NULL != NULL)
+-- All indexes are predicated on deleted_at IS NULL so soft-deleted policies
+-- free their uniqueness slot for a replacement.
 CREATE UNIQUE INDEX notif_policy_global_severity
   ON notification_policies (tenant_id, severity)
-  WHERE team_id IS NULL AND workflow_type_id IS NULL;
+  WHERE team_id IS NULL AND workflow_type_id IS NULL AND deleted_at IS NULL;
 
 CREATE UNIQUE INDEX notif_policy_team_severity
   ON notification_policies (tenant_id, team_id, severity)
-  WHERE team_id IS NOT NULL AND workflow_type_id IS NULL;
+  WHERE team_id IS NOT NULL AND workflow_type_id IS NULL AND deleted_at IS NULL;
 
 CREATE UNIQUE INDEX notif_policy_workflow_severity
   ON notification_policies (tenant_id, workflow_type_id, severity)
-  WHERE team_id IS NULL AND workflow_type_id IS NOT NULL;
+  WHERE team_id IS NULL AND workflow_type_id IS NOT NULL AND deleted_at IS NULL;
 
 CREATE UNIQUE INDEX notif_policy_team_workflow_severity
   ON notification_policies (tenant_id, team_id, workflow_type_id, severity)
-  WHERE team_id IS NOT NULL AND workflow_type_id IS NOT NULL;
+  WHERE team_id IS NOT NULL AND workflow_type_id IS NOT NULL AND deleted_at IS NULL;
 
 ALTER TABLE notification_policies ENABLE ROW LEVEL SECURITY;
 CREATE POLICY notification_policies_tenant_read ON notification_policies FOR SELECT
@@ -538,6 +545,19 @@ Response `204`. Errors: `404` label not on this ticket.
 
 Writes audit entry: `label.removed { labelId, labelName, ticketId, actorId }`.
 
+### 2.7 Ticket list label filter (extension to existing `GET /tickets`)
+
+R1c requires that tickets can be filtered by label. This is implemented as an additional
+query param on the existing ticket listing endpoint (not a new route):
+
+```
+GET /tickets?label_id=<uuid>
+```
+
+Returns only tickets that have the given label assigned, within the same tenant. The label
+must belong to the same tenant — a label_id from another tenant returns an empty result (not
+a 404, to avoid tenant existence disclosure). Accessible to `agent` role.
+
 ---
 
 ## 3. Automation Actions
@@ -688,6 +708,7 @@ dispatch if the same `entity.updated` event is re-delivered.
 | Notification policy slot collision                                    | Partial unique indexes per specificity level; application-layer check returns `409` before hitting the DB constraint for a clean error                                                                                                                                                                                                                                                                                                                              |
 | Provider error PII in audit log                                       | Twilio/Novu/WhatsApp error messages may include phone numbers, email addresses, or provider user IDs. The `notification.channel_failed` audit entry must strip the raw `err.message` and log only a sanitized form: error code + truncated provider message with E.164 numbers masked. Same sanitization applies to `logger.warn` calls.                                                                                                                            |
 | Resolve endpoint user name disclosure                                 | `GET /admin/notification-policies/resolve` returns the names and user IDs of the current on-call person and escalation manager. This is intentional: on-call information is not confidential within a tenant and agents need it to understand routing. The endpoint is rate-limited per ADR-013's per-key tier.                                                                                                                                                     |
+| Label assignment rate limiting                                        | `POST /tickets/:id/labels/:labelId` and `PUT /tickets/:id/labels` are agent-accessible and could be abused to flood the `ticket_labels` table at scale. Both endpoints must apply ADR-013's per-key-and-person tier. Write routes on `/admin/labels`, `/admin/on-call-schedules`, and `/admin/notification-policies` apply ADR-013's per-key tier (admin-only, lower abuse risk).                                                                                   |
 | Audit trail                                                           | Every routing and notification event (success or failure) written to `admin_audit_log` in the same DB transaction as the triggering mutation                                                                                                                                                                                                                                                                                                                        |
 
 ---
