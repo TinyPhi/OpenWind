@@ -399,7 +399,7 @@ describe("POST /api/v1/tickets/:id/children", () => {
     expect(systemReply).toBeTruthy();
     expect(
       (systemReply?.metadata as { actorName?: string } | null)?.actorName,
-    ).toBe("System Agent");
+    ).toBe("System");
 
     const [mentionOutbox] = await withTenantContext(TENANT, (tx) =>
       tx

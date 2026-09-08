@@ -293,7 +293,7 @@ describe("POST /api/v1/tickets", () => {
     expect(systemReply).toBeTruthy();
     expect(
       (systemReply?.metadata as { actorName?: string } | null)?.actorName,
-    ).toBe("System Agent");
+    ).toBe("System");
     // No replyTo here -- this tree's schema has no remark field to seed a
     // host comment from, so the system comment is posted top-level and the
     // creator is notified via comment.mentioned instead of comment.replied.

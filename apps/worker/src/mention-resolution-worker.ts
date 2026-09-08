@@ -59,14 +59,6 @@ export type MentionResolutionJob = {
   /** The comment's own author, for audit attribution of the tag action. */
   actingPersonId: string;
   commentId: string;
-  /**
-   * The authenticating key's resolved oidcClientId, carried from
-   * comments.ts's own resolveOriginOidcClientId call at enqueue time --
-   * needed here so the outcome-3 "System Agent" reply comment (via
-   * postSystemComment) is origin-tagged the same way every other
-   * API-originated comment is (docs/specs/third-party-api-origin-tagging.md).
-   */
-  originOidcClientId: string;
 };
 
 // Per-ticket rolling-window cap on tagging-driven auto-grants (spec R7),
@@ -122,7 +114,6 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
       mentionIdentifier,
       actingPersonId,
       commentId,
-      originOidcClientId,
     } = job.data;
 
     const active = await validateActiveTenant(tenantId, "mention-resolution", {
@@ -240,18 +231,23 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
               metadata: {
                 type: "comment",
                 text: `The mention "${mentionIdentifier}" could not be resolved to an org member.`,
-                actorName: "System Agent",
+                // "System" not "System Agent"/"system" -- ported from the
+                // sibling AuthNexus fork's same-day fix: list-workflow-events.ts's
+                // dedup guard discards metadata.actorName whenever it exactly
+                // equals actorId ("system" here), which would otherwise render
+                // this as a truncated "system…".
+                actorName: "System",
                 replyTo: commentId,
               },
-              // Same origin tag every other API-originated comment on this
-              // ticket carries (docs/specs/third-party-api-origin-tagging.md)
-              // -- originOidcClientId is threaded through the job payload
-              // from comments.ts's own resolveOriginOidcClientId call at
-              // enqueue time, since a BullMQ job has no live request context
-              // to re-resolve it from.
-              originMechanism: "api",
-              originOidcClientId,
-              originPerformerUserId: "system",
+              // Deliberately NOT origin-tagged -- same reasoning as
+              // post-system-comment.ts's identical fix: this is an
+              // internally-generated notice, not something the third-party
+              // app itself submitted, so tagging it with the triggering
+              // request's originOidcClientId would wrongly render it as
+              // "External · <caller's app>", misattributing a platform
+              // notice to whichever app happened to surface the failure.
+              // A null origin renders no tag, same as any other normal
+              // in-app comment.
             })
             .returning();
           if (!event) return;

@@ -317,7 +317,6 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
             mentionIdentifier,
             actingPersonId,
             commentId: event.id,
-            originOidcClientId,
           });
         }
 

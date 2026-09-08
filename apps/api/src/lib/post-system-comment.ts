@@ -2,8 +2,8 @@ import type { DbOrTx } from "@platform/db";
 import { workflowEvents, outboxEvents } from "@platform/db";
 
 /**
- * Posts a system-generated comment ("System Agent") notifying one specific
- * user that something they submitted via the third-party API (an assignedTo
+ * Posts a system-generated comment ("System") notifying one specific user
+ * that something they submitted via the third-party API (an assignedTo
  * value, a comment mention) could not be resolved to a real org member.
  *
  * Ported from the sibling AuthNexus-paired fork's identical fix (2026-09-08).
@@ -28,8 +28,21 @@ import { workflowEvents, outboxEvents } from "@platform/db";
  * notification outcome, no reply target required.
  *
  * `actorId`/`triggeredBy` are the fixed sentinel `"system"` (never a real
- * user id), with `metadata.actorName: "System Agent"` set so the comment
+ * user id), with `metadata.actorName: "System"` set so the comment
  * timeline renders a fixed label without attempting an org-member lookup.
+ * Deliberately NOT "System Agent" or "system" -- ported from the sibling
+ * AuthNexus fork's own same-day fix: (1) originally this set
+ * originMechanism: "api" / originOidcClientId (copied from the request
+ * context that triggered it), which made OriginTag render this internal
+ * message as "External · <caller's app>", wrongly attributing an
+ * internally-generated notice to the third-party application whose
+ * request happened to surface the failure -- fixed by not setting any
+ * origin fields at all (a null origin renders no tag, same as any other
+ * normal in-app comment). (2) list-workflow-events.ts's snapshot-name
+ * dedup guard discards metadata.actorName whenever it exactly equals
+ * actorId -- if this were the lowercase "system" sentinel, it would
+ * collide with actorId: "system" and render as a truncated "system…";
+ * "System" (capitalized) sidesteps that entirely.
  */
 export async function postSystemComment(
   tx: DbOrTx,
@@ -41,7 +54,6 @@ export async function postSystemComment(
     text: string;
     replyToEventId?: string | undefined;
     notifyUserId: string;
-    originOidcClientId: string;
   },
 ): Promise<void> {
   const {
@@ -52,7 +64,6 @@ export async function postSystemComment(
     text,
     replyToEventId,
     notifyUserId,
-    originOidcClientId,
   } = params;
 
   const [event] = await tx
@@ -69,12 +80,9 @@ export async function postSystemComment(
       metadata: {
         type: "comment",
         text,
-        actorName: "System Agent",
+        actorName: "System",
         ...(replyToEventId ? { replyTo: replyToEventId } : {}),
       },
-      originMechanism: "api",
-      originOidcClientId,
-      originPerformerUserId: "system",
     })
     .returning();
   if (!event) return;

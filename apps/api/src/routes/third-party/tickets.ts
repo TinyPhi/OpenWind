@@ -302,7 +302,6 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
                   currentState: created.currentState,
                   text: `assignedTo "${input.assignedTo}" could not be resolved to an org member -- this ticket was created unassigned.`,
                   notifyUserId: actingPersonId,
-                  originOidcClientId,
                 });
               } catch (systemCommentErr) {
                 logger.error(
