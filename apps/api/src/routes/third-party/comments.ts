@@ -41,9 +41,17 @@ const CreateThirdPartyCommentSchema = z.object({
     .refine((v) => !FORBIDDEN_CHAR_PATTERN.test(v), {
       message: "text contains a null byte or control character",
     }),
-  // Stable identifiers only (email or Zitadel org user ID) — never a display
-  // name (spec R4). Resolution happens fully async, after this response is
-  // already sent (spec R5/R6) — see mention-resolution-worker.ts.
+  // Accepts a userId, email, or username (loginName) -- never a free-text
+  // display name (spec R4; see resolveIdentifier in
+  // mention-resolution-worker.ts for the exact three-way match). Resolution
+  // happens fully async, after this response is already sent (spec R5/R6).
+  // An identifier that fails to resolve never blocks or changes this
+  // response (a same-day 422-on-failure design was tried and reverted once
+  // security review flagged it as a fast, scriptable "does this identifier
+  // exist" oracle) -- instead the worker's outcome-3 branch posts a "System
+  // Agent" reply comment notifying the original commenter, so the failure
+  // is only ever visible to the one person who submitted it, through a real
+  // notification, never through the API response itself.
   mentions: z.array(z.string().min(1)).max(20).default([]),
   // ADR-012 Phase D, spec R3 -- references completed attachment uploads;
   // never file content itself (spec R2, see attachments-presign.ts).
@@ -309,6 +317,7 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
             mentionIdentifier,
             actingPersonId,
             commentId: event.id,
+            originOidcClientId,
           });
         }
 

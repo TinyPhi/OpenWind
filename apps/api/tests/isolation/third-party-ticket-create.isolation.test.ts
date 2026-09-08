@@ -8,7 +8,7 @@
  * force-to-initial-state, scope, actor-identity, and payload-guard behavior.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { eq, and } from "drizzle-orm";
@@ -19,6 +19,8 @@ import {
   workflowStates,
   adminAuditLog,
   apiKeys,
+  workflowEvents,
+  outboxEvents,
   withTenantContext,
 } from "@platform/db";
 import {
@@ -29,6 +31,37 @@ import { writeAuditEntry } from "@platform/audit";
 import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { createThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
+
+// assignedTo now resolves against a real Zitadel org-users lookup (an
+// external service call, not the database -- mocking it here follows
+// testing-conventions.md's "mock at service boundaries, never the DB"
+// rule). "some-assignee" resolves to itself so every existing assertion
+// against that literal string keeps working.
+import type * as ZitadelManagement from "../../src/lib/zitadel-management.js";
+vi.mock("../../src/lib/zitadel-management.js", async (importOriginal) => {
+  const real = await importOriginal<typeof ZitadelManagement>();
+  return {
+    ...real,
+    listOrgUsers: async () => [
+      {
+        userId: "some-assignee",
+        email: "some-assignee@example.com",
+        displayName: "some-assignee",
+        loginName: "some-assignee",
+        phone: undefined,
+      },
+      // Distinct userId/loginName pair -- proves username resolution
+      // actually maps to the canonical id, not just an identity function.
+      {
+        userId: "real-user-id-999",
+        email: "bob@example.com",
+        displayName: "Bob",
+        loginName: "bob-username",
+        phone: undefined,
+      },
+    ],
+  };
+});
 
 const TENANT = "12121212-0000-4000-a000-000000000506";
 const API_KEY_ID = "33333333-3333-3333-3333-333333333333";
@@ -194,6 +227,90 @@ describe("POST /api/v1/tickets", () => {
     };
     createdInstanceIds.push(body.data.id);
     expect(body.data.assignedTo).toBe("some-assignee");
+  });
+
+  // Found via manual testing against a real client org's production
+  // instance (on the sibling AuthNexus fork): assignedTo was stored
+  // verbatim with zero validation, so a caller-supplied username silently
+  // landed in assigned_to and never matched any real user in admin-ui's own
+  // lookup (which keys strictly on userId) -- the ticket just looked
+  // unassigned with no error anywhere.
+  it("resolves a username (loginName) assignee to its canonical userId", async () => {
+    const app = makeApp(apiKeyAuth(), ACTING_PERSON);
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflowId,
+        fields: {},
+        assignedTo: "bob-username",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      data: { id: string; assignedTo: string };
+    };
+    createdInstanceIds.push(body.data.id);
+    expect(body.data.assignedTo).toBe("real-user-id-999");
+  });
+
+  // Policy (ported from the sibling AuthNexus fork, revised from an earlier
+  // 422-on-failure design tried the same day): an unresolvable assignedTo
+  // no longer blocks creation or shows up as a synchronous error -- the
+  // ticket is always created (unassigned here), and the caller learns about
+  // the failure only via a system-generated comment notifying the acting
+  // person who created the ticket. See post-system-comment.ts for the full
+  // rationale (this closes the fast, scriptable "does this identifier
+  // exist" oracle a 422 response here would otherwise be).
+  it("creates the ticket unassigned (never 422s) when assignedTo matches no real org member, and posts a System Agent reply notifying the creator", async () => {
+    const app = makeApp(apiKeyAuth(), ACTING_PERSON);
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflowId,
+        fields: {},
+        assignedTo: "totally-unknown-identifier-xyz",
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      data: { id: string; assignedTo: string | null };
+    };
+    createdInstanceIds.push(body.data.id);
+    expect(body.data.assignedTo).toBeNull();
+
+    const events = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({
+          actorId: workflowEvents.actorId,
+          metadata: workflowEvents.metadata,
+        })
+        .from(workflowEvents)
+        .where(eq(workflowEvents.instanceId, body.data.id)),
+    );
+    const systemReply = events.find((e) => e.actorId === "system");
+    expect(systemReply).toBeTruthy();
+    expect(
+      (systemReply?.metadata as { actorName?: string } | null)?.actorName,
+    ).toBe("System Agent");
+    // No replyTo here -- this tree's schema has no remark field to seed a
+    // host comment from, so the system comment is posted top-level and the
+    // creator is notified via comment.mentioned instead of comment.replied.
+    expect(
+      (systemReply?.metadata as { replyTo?: string } | null)?.replyTo,
+    ).toBeFalsy();
+
+    const [mentionOutbox] = await withTenantContext(TENANT, (tx) =>
+      tx
+        .select({ payload: outboxEvents.payload })
+        .from(outboxEvents)
+        .where(eq(outboxEvents.eventType, "comment.mentioned")),
+    );
+    expect(
+      (mentionOutbox?.payload as { mentionedUserIds?: string[] } | undefined)
+        ?.mentionedUserIds,
+    ).toEqual([ACTING_PERSON.userId]);
   });
 
   it("records actor_type=api_key plus a populated acting_person_id distinct from actor_id", async () => {

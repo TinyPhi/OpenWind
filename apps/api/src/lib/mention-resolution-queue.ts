@@ -16,6 +16,12 @@ export type MentionResolutionJob = {
   mentionIdentifier: string;
   actingPersonId: string;
   commentId: string;
+  /**
+   * The authenticating key's resolved oidcClientId, so the worker's
+   * outcome-3 "System Agent" reply comment can be origin-tagged the same
+   * way every other API-originated comment is.
+   */
+  originOidcClientId: string;
 };
 
 // PR #470 review fix: without an explicit defaultJobOptions, BullMQ defaults
