@@ -14,7 +14,8 @@ import {
   MAX_PAGE_SIZE,
 } from "./pagination.js";
 import { logger } from "@platform/logger";
-import { EntityError } from "./errors.js";
+import { EntityError, ValidationError } from "./errors.js";
+import { validateReservedFieldNames } from "./validation/index.js";
 import {
   buildEntityAssignedPayload,
   buildEntityCreatedPayload,
@@ -215,6 +216,23 @@ export async function createChildRelation(
 
   if (!parent || parent.deletedAt) {
     throw new EntityError("ENTITY_NOT_FOUND", { instanceId: parentId });
+  }
+
+  try {
+    validateReservedFieldNames(childFields);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      logger.warn(
+        {
+          tenantId,
+          parentId,
+          actorId: createdBy,
+          reservedFields: err.fields.map((f) => f.field),
+        },
+        "Security: attempt to create child ticket with reserved field blocked",
+      );
+    }
+    throw err;
   }
 
   // Workflow limits — parent must have a workflow_id (top-level ticket)

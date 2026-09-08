@@ -46,12 +46,18 @@ function firstForwardedIp(header: string): string | null {
  * that misconfiguration should be fixed at the proxy, not papered over here.
  */
 function rateLimitKey(c: Parameters<MiddlewareHandler>[0]): string {
+  // Issue #540: Prefer X-Real-IP over X-Forwarded-For. If a reverse proxy is
+  // configured to append rather than overwrite X-Forwarded-For (the common nginx
+  // $proxy_add_x_forwarded_for idiom), a client can inject arbitrary prefixes into
+  // X-Forwarded-For and spoof its rate-limit identity if we trust the first hop.
+  // X-Real-IP is single-valued and set directly to $remote_addr by the proxy,
+  // making it unforgeable against header-appending attacks.
+  const realIp = c.req.header("x-real-ip")?.trim();
+  if (realIp && realIp.length > 0) return realIp;
+
   const forwardedFor = c.req.header("x-forwarded-for");
   const fromForwardedFor = forwardedFor ? firstForwardedIp(forwardedFor) : null;
   if (fromForwardedFor) return fromForwardedFor;
-
-  const realIp = c.req.header("x-real-ip")?.trim();
-  if (realIp) return realIp;
 
   try {
     const info = getConnInfo(c);
@@ -64,7 +70,7 @@ function rateLimitKey(c: Parameters<MiddlewareHandler>[0]): string {
 
   logger.warn(
     {},
-    "rate-limit: no x-forwarded-for/x-real-ip header and no connection info available — using shared fallback bucket",
+    "rate-limit: no x-real-ip/x-forwarded-for header and no connection info available — using shared fallback bucket",
   );
   return "unknown";
 }

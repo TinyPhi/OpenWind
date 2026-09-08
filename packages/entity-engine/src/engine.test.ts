@@ -96,6 +96,24 @@ vi.mock("./validation/index.js", () => ({
   applyFormulaFields: (...args: unknown[]) => mockApplyFormulaFields(...args),
   buildZodSchema: vi.fn(),
   evaluateFormula: vi.fn(),
+  isReservedFieldName: vi.fn((name: string) => name.startsWith("__")),
+  validateReservedFieldNames: vi.fn(
+    (fields: Record<string, unknown> | undefined | null) => {
+      if (!fields || typeof fields !== "object") return;
+      const reservedKeys = Object.keys(fields).filter((k) =>
+        k.startsWith("__"),
+      );
+      if (reservedKeys.length > 0) {
+        throw new ValidationError(
+          reservedKeys.map((key) => ({
+            field: key,
+            code: "RESERVED_FIELD",
+            message: `Field '${key}' is reserved for internal engine use and cannot be set directly`,
+          })),
+        );
+      }
+    },
+  ),
   // validateEntityRefs — default no-op (returns no errors); individual tests can
   // override via mockResolvedValueOnce to exercise the rejection path.
   validateEntityRefs: vi.fn().mockResolvedValue([]),
@@ -212,6 +230,19 @@ describe("createEntity", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it("throws ValidationError when caller provides reserved field names like __accessUsers (#524)", async () => {
+    await expect(
+      createEntity(dbMock as never, TENANT_ID, {
+        entityTypeId: ENTITY_TYPE_ID,
+        fields: {
+          subject: "Exploit attempt",
+          __accessUsers: { "attacker-id": { level: "read_write" } },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+
   it("throws EntityError when entity type is not found", async () => {
     // Reset and only mock empty result — loadEntityType returns nothing
     dbMock.select.mockReset();
@@ -266,6 +297,7 @@ describe("getEntity", () => {
 describe("updateEntity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    dbMock.select.mockReset();
     dbMock.select
       .mockReturnValueOnce(makeQueryBuilder(() => [fakeInstance]))
       // isChildTicket check against entity_relations — empty means "not a
@@ -299,6 +331,18 @@ describe("updateEntity", () => {
         fields: { subject: "x".repeat(1000) },
       }),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("throws ValidationError when updating with reserved field names like __accessUsers (#524)", async () => {
+    dbMock.select.mockReturnValueOnce(makeQueryBuilder(() => [fakeInstance]));
+    await expect(
+      updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+        fields: {
+          __accessUsers: { "attacker-id": { level: "read_write" } },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(dbMock.update).not.toHaveBeenCalled();
   });
 
   it("throws EntityError when entity not found", async () => {
@@ -1135,6 +1179,16 @@ describe("addEntityField", () => {
     await expect(
       addEntityField(dbMock as never, TENANT_ID, ENTITY_TYPE_ID, fieldInput),
     ).rejects.toBeInstanceOf(EntityError);
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+
+  it("throws ValidationError when attempting to create a field with a reserved __ name (#524)", async () => {
+    await expect(
+      addEntityField(dbMock as never, TENANT_ID, ENTITY_TYPE_ID, {
+        ...fieldInput,
+        name: "__accessUsers",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
     expect(dbMock.insert).not.toHaveBeenCalled();
   });
 });

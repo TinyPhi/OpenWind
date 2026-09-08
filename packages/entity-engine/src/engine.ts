@@ -53,6 +53,8 @@ import {
   applyFormulaFields,
   validateEntityRefs,
   validateUserRefs,
+  isReservedFieldName,
+  validateReservedFieldNames,
 } from "./validation/index.js";
 import {
   resolveLookupFields,
@@ -229,6 +231,23 @@ export async function createEntity(
   input: CreateEntityInput,
 ): Promise<EntityInstance> {
   const entityType = await loadEntityType(db, input.entityTypeId, tenantId);
+
+  try {
+    validateReservedFieldNames(input.fields);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      logger.warn(
+        {
+          tenantId,
+          entityTypeId: input.entityTypeId,
+          actorId: input.actorId ?? input.createdBy,
+          reservedFields: err.fields.map((f) => f.field),
+        },
+        "Security: attempt to write reserved internal field blocked",
+      );
+    }
+    throw err;
+  }
 
   const schema = await getValidationSchema(
     db,
@@ -489,6 +508,23 @@ export async function updateEntity(
   if (!existing) throw new EntityError("ENTITY_NOT_FOUND", { instanceId });
 
   if (input.fields !== undefined) {
+    try {
+      validateReservedFieldNames(input.fields);
+    } catch (err) {
+      if (err instanceof ValidationError) {
+        logger.warn(
+          {
+            tenantId,
+            instanceId,
+            actorId: input.actorId,
+            reservedFields: err.fields.map((f) => f.field),
+          },
+          "Security: attempt to update reserved internal field blocked",
+        );
+      }
+      throw err;
+    }
+
     // Step 1: validate only the provided fields (type/format checks)
     const partialSchema = await getValidationSchema(
       db,
@@ -1202,6 +1238,16 @@ export async function addEntityField(
   entityTypeId: string,
   field: Omit<EntityField, "id" | "tenantId">,
 ): Promise<EntityField> {
+  if (isReservedFieldName(field.name)) {
+    throw new ValidationError([
+      {
+        field: "name",
+        code: "RESERVED_FIELD",
+        message: `Field name '${field.name}' is reserved for internal engine use`,
+      },
+    ]);
+  }
+
   const entityType = await loadEntityType(db, entityTypeId, tenantId);
 
   if (!entityType.allowCustomFields && entityType.tenantId !== null) {
@@ -1380,6 +1426,26 @@ export async function bulkCreateEntities(
   }
 
   for (const [i, input] of inputs.entries()) {
+    try {
+      validateReservedFieldNames(input.fields);
+    } catch (err) {
+      if (err instanceof ValidationError) {
+        logger.warn(
+          {
+            tenantId,
+            entityTypeId: input.entityTypeId,
+            actorId: input.actorId ?? input.createdBy,
+            index: i,
+            reservedFields: err.fields.map((f) => f.field),
+          },
+          "Security: attempt to bulk create reserved internal field blocked",
+        );
+        errors.push({ index: i, fields: err.fields });
+        continue;
+      }
+      throw err;
+    }
+
     const schema = await getValidationSchema(
       db,
       input.entityTypeId,
@@ -1629,6 +1695,31 @@ export async function bulkUpdateEntities(
       }
 
       if (input.fields !== undefined) {
+        try {
+          validateReservedFieldNames(input.fields);
+        } catch (err) {
+          if (err instanceof ValidationError) {
+            logger.warn(
+              {
+                tenantId,
+                instanceId: id,
+                actorId: input.actorId,
+                index: i,
+                reservedFields: err.fields.map((f) => f.field),
+              },
+              "Security: attempt to bulk update reserved internal field blocked",
+            );
+            errors.push({
+              index: i,
+              id,
+              code: "VALIDATION_ERROR",
+              fields: err.fields,
+            });
+            return;
+          }
+          throw err;
+        }
+
         const partialSchema = await getValidationSchema(
           db,
           existing.entityTypeId,
