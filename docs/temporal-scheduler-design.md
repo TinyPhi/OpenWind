@@ -284,7 +284,8 @@ Response `200`:
 ```
 
 Computes the next `count` cron fires from now using `cron-parser`. No DB write. Rate-limited
-per ADR-013's per-key tier (can be called frequently from the rule form's preview panel).
+per ADR-013's per-tenant tier (JWT-admin routes with no `api_keys` row fall under per-tenant,
+not per-key, per ADR-013).
 
 ---
 
@@ -304,7 +305,8 @@ async function schedulerTick(): Promise<void> {
   const now = new Date();
   const tickStart = Date.now();
   let success = 0,
-    failed = 0;
+    failed = 0,
+    skipped = 0;
 
   // system-level cross-tenant poll — intentionally no tenant_id filter;
   // the worker legitimately processes rules for all tenants in one pass.
@@ -329,15 +331,21 @@ async function schedulerTick(): Promise<void> {
     const claimed = await claimRule(rule, now);
     if (!claimed) continue; // another worker instance already claimed this rule
 
-    // Detect overdue: if originalScheduledAt is older than one tick interval, the rule missed
-    // at least one fire cycle — route to catch-up handling instead of a normal fire.
+    // Detect overdue: 2× multiplier avoids misclassifying rules delayed by a slow tick (up to
+    // one full TICK_INTERVAL_MS of jitter) as overdue. A rule must be older than two full tick
+    // intervals before catch-up handling kicks in.
     const isOverdue =
-      originalScheduledAt.getTime() < now.getTime() - TICK_INTERVAL_MS;
+      originalScheduledAt.getTime() < now.getTime() - 2 * TICK_INTERVAL_MS;
 
     if (isOverdue) {
-      await withTenantContext(rule.tenantId, () =>
-        handleCatchUp(rule, originalScheduledAt, now),
-      );
+      try {
+        const ruleSkipped = await withTenantContext(rule.tenantId, () =>
+          handleCatchUp(rule, originalScheduledAt, now),
+        );
+        skipped += ruleSkipped;
+      } catch {
+        failed++; // handleCatchUp logs the failure; worker continues to next rule
+      }
     } else {
       try {
         await withTenantContext(rule.tenantId, () =>
@@ -356,6 +364,7 @@ async function schedulerTick(): Promise<void> {
       totalDue: dueRules.length,
       success,
       failed,
+      skipped,
       durationMs: Date.now() - tickStart,
     },
     "scheduler tick complete",
@@ -365,7 +374,10 @@ async function schedulerTick(): Promise<void> {
 // Claim a rule atomically: re-SELECT FOR UPDATE SKIP LOCKED + advance next_fire_at, all in one
 // transaction. The lock is held for the duration of the transaction (SELECT → UPDATE → COMMIT),
 // guaranteeing exactly-once execution even when two worker instances run concurrently.
-// Returns the rule row if claimed; null if another worker already holds the lock.
+// The inner WHERE includes lte(nextFireAt, tickTime) so a sequential worker that picks up the
+// same rule after Worker 1 has already advanced next_fire_at sees 0 rows and returns null —
+// closing the sequential double-fire race (SKIP LOCKED alone only guards concurrent workers).
+// Returns the rule row if claimed; null if another worker already holds the lock or already claimed it.
 async function claimRule(
   rule: ScheduleRule,
   tickTime: Date,
@@ -375,7 +387,11 @@ async function claimRule(
       .select()
       .from(scheduleRules)
       .where(
-        and(eq(scheduleRules.id, rule.id), eq(scheduleRules.status, "active")),
+        and(
+          eq(scheduleRules.id, rule.id),
+          eq(scheduleRules.status, "active"),
+          lte(scheduleRules.nextFireAt, tickTime), // re-check: guards sequential worker race
+        ),
       )
       .for("update", { skipLocked: true })
       .limit(1);
@@ -427,17 +443,18 @@ async function fireRule(
     // Re-validate template fields against current entity type schema (fire-time safety net).
     await validateTemplate(rule);
 
-    const instance = await createEntityInstance({
+    // createEntity signature: createEntity(db, tenantId, input) — engine.ts:226
+    // assignedTo is a top-level input field, not embedded in fields (entity engine strips
+    // unrecognised field keys silently — passing assignee_id inside fields would be lost).
+    const instance = await createEntity(db, rule.tenantId, {
       entityTypeId: rule.entityTypeId,
       workflowId: rule.workflowId ?? undefined,
+      assignedTo: rule.template.assigneeId, // top-level; NOT fields.assignee_id
       fields: {
         ...rule.template.fields,
         title,
         description,
         ...(rule.template.severity ? { severity: rule.template.severity } : {}),
-        ...(rule.template.assigneeId
-          ? { assignee_id: rule.template.assigneeId }
-          : {}),
         ...(rule.template.teamId ? { team_id: rule.template.teamId } : {}),
         ...(rule.template.serviceId
           ? { service_id: rule.template.serviceId }
@@ -571,11 +588,12 @@ const CATCH_UP_MAX = env.SCHEDULE_CATCH_UP_MAX;
 
 // originalScheduledAt: the rule's next_fire_at value at the time the tick picked it up
 //   (before claimRule advanced it). Used to enumerate all missed fire slots.
+// Returns the number of fires skipped in this catch-up run (for tick-level skipped counter).
 async function handleCatchUp(
   rule: ScheduleRule,
   originalScheduledAt: Date,
   now: Date,
-): Promise<void> {
+): Promise<number> {
   const missedFires = getMissedFires(
     rule.cronExpr,
     rule.timezone,
@@ -584,9 +602,12 @@ async function handleCatchUp(
   );
 
   if (!rule.catchUp) {
-    // catch_up: false — skip all missed fires; log each as skipped.
-    // next_fire_at already advanced by claimRule — no further schedule_rules update needed.
-    for (const scheduledAt of missedFires) {
+    // catch_up: false — skip all missed fires; log up to CATCH_UP_MAX individually to avoid
+    // unbounded DB writes when the worker was down for a long time (e.g. a daily rule missed
+    // for a year = 365 inserts). Fires beyond the cap are counted but not logged individually.
+    const toLog = missedFires.slice(-CATCH_UP_MAX);
+    const silentlyDropped = missedFires.length - toLog.length;
+    for (const scheduledAt of toLog) {
       await db.insert(scheduleExecutions).values({
         tenantId: rule.tenantId,
         ruleId: rule.id,
@@ -603,7 +624,13 @@ async function handleCatchUp(
         "catch-up fire skipped (catch_up: false)",
       );
     }
-    return;
+    if (silentlyDropped > 0) {
+      logger.info(
+        { tenantId: rule.tenantId, ruleId: rule.id, silentlyDropped },
+        "catch-up skip backlog over cap — oldest fires not individually logged",
+      );
+    }
+    return missedFires.length; // total skipped (including those not individually logged)
   }
 
   // catch_up: true — execute up to CATCH_UP_MAX; log the rest as skipped.
@@ -638,6 +665,8 @@ async function handleCatchUp(
       // fireRule logs the failure; continue to the next catch-up fire
     }
   }
+
+  return toSkip.length; // fires skipped due to over-cap
 }
 ```
 
@@ -659,7 +688,7 @@ async function handleCatchUp(
 | Concurrent worker execution (rolling deploy)  | Per-rule transaction: SELECT FOR UPDATE SKIP LOCKED + advance `next_fire_at` committed atomically; lock held until `next_fire_at` is advanced, preventing double-fire                                                  |
 | Execution error PII                           | `classifyScheduleError()` maps to stable codes; raw `err.message` never stored in `schedule_executions.error_code` or written to audit log                                                                             |
 | Admin-only writes                             | `requireRole("admin")` on all POST/PATCH/DELETE schedule rule routes                                                                                                                                                   |
-| Rate limiting on next-fires endpoint          | `GET /admin/schedule-rules/:id/next-fires` rate-limited per ADR-013's per-key tier (called frequently from the UI preview panel)                                                                                       |
+| Rate limiting on next-fires endpoint          | `GET /admin/schedule-rules/:id/next-fires` rate-limited per ADR-013's per-tenant tier (JWT-admin routes with no `api_keys` row fall under per-tenant tier per ADR-013, not per-key)                                    |
 
 ---
 
@@ -698,7 +727,7 @@ Worker tick (60s)    DB (schedule_rules)    Entity engine          DB (schedule_
      | renderTemplate()      |                    |                          |
      | validateTemplate()    |                    |                          |
      |                       |                    |                          |
-     | createEntityInstance()|                    |                          |
+     | createEntity()        |                    |                          |
      |-------------------------------------------->|                         |
      |                       |          [ticket created]                     |
      |<--------------------------------------------|                         |
@@ -717,7 +746,7 @@ Worker tick          DB (schedule_rules)    Entity engine          DB (schedule_
      |                      |                    |                          |
      | [same lock + advance]|                    |                          |
      |                       |                    |                          |
-     | createEntityInstance()|                    |                          |
+     | createEntity()        |                    |                          |
      |-------------------------------------------->|                         |
      |          [throws FIELD_VALIDATION_ERROR]   |                          |
      |<--------------------------------------------|                         |
@@ -739,11 +768,17 @@ Worker tick          DB (schedule_rules)    Entity engine          DB (schedule_
 
 ## 7. Migration Sequence
 
+> **Migration numbers are provisional.** Migrations 0090–0091 are already occupied by
+> `api_keys_rls_null_safe_tenant_guc` and `origin_tagging_columns`. The 3E on-call routing track
+> (`docs/oncall-routing-design.md`) needs 8 migrations; accounting for the two taken numbers its
+> actual range will be 0092–0099. 3F therefore starts at 0100. Final numbers must be verified
+> against `packages/db/migrations/` at implementation time.
+
 | Migration | Contents                                                                             |
 | --------- | ------------------------------------------------------------------------------------ |
-| `0098`    | `schedule_rules` table + RLS read/write policy pair + indexes + analytics annotation |
-| `0099`    | `schedule_executions` table + RLS + indexes + analytics annotation                   |
-| `0100`    | Extend `admin_audit_log` CHECK constraint for `schedule.*` action strings            |
+| `0100`    | `schedule_rules` table + RLS read/write policy pair + indexes + analytics annotation |
+| `0101`    | `schedule_executions` table + RLS + indexes + analytics annotation                   |
+| `0102`    | Extend `admin_audit_log` CHECK constraint for `schedule.*` action strings            |
 
 ---
 
@@ -804,7 +839,7 @@ Worker tick          DB (schedule_rules)    Entity engine          DB (schedule_
 | scenario                                  | expected outcome                                                              |
 | ----------------------------------------- | ----------------------------------------------------------------------------- |
 | Rule fires successfully                   | ticket created; execution logged `success`; next_fire_at advanced             |
-| `createEntityInstance` throws             | no ticket; execution logged `failed`; next_fire_at still advanced; no rethrow |
+| `createEntity` throws                     | no ticket; execution logged `failed`; next_fire_at still advanced; no rethrow |
 | Template re-validation fails at fire time | execution logged `failed` with `FIELD_VALIDATION_ERROR`                       |
 | Rule paused mid-tick (status changed)     | lock skips it (FOR UPDATE SKIP LOCKED); no execution                          |
 

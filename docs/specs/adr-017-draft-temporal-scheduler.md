@@ -35,8 +35,8 @@ ticket creation step.
 
 - BullMQ worker (`apps/worker`) — already runs SLA scheduler, notification worker, alert worker;
   temporal scheduler is a new tick added to the same process
-- Entity engine `createEntityInstance()` — creates tickets with arbitrary fields; temporal
-  scheduler calls this directly
+- Entity engine `createEntity(db, tenantId, input)` — creates tickets with arbitrary fields;
+  temporal scheduler calls this directly (`packages/entity-engine/src/engine.ts:226`)
 - `admin_audit_log` — append-only, tenant-scoped; already carries dot-notation action strings
 - On-call routing (ADR-016) — `teams` and `services` tables now exist; schedule rules can
   reference them in the ticket template for auto-assignment
@@ -88,9 +88,10 @@ sub-fields). Rejected because:
 - Many admins already know cron syntax; the raw input is a power-user escape hatch.
 - A single format in the DB means validation and `next_fire_at` computation have one code path.
 
-`cron-parser` (existing platform use for connector polling — see `apps/worker/src/sla-scheduler`)
-is used for validation and `next_fire_at` computation. `cronstrue` (new lightweight dep) is used
-for the human-readable cron description returned in the API response.
+`cron-parser` (new dependency — the existing SLA scheduler in `apps/worker/src/sla-scheduler.ts`
+uses plain `setInterval`, not cron-parser) is used for validation and `next_fire_at` computation.
+`cronstrue` (new lightweight dep) is used for the human-readable cron description returned in the
+API response.
 
 ### Decision 3 — Closed-whitelist `{{variable}}` title templating
 
@@ -212,4 +213,6 @@ to pause manually if the failure is persistent.
 1. This draft should be reviewed, adjusted, and committed to `docs/decisions/ADR-017-*.md`
    with `Status: Accepted` by a human (per this repo's ADR authorship rule).
 2. Create GitHub issues for the 4-phase task breakdown in `docs/specs/temporal-scheduler.md`.
-3. Begin Phase 1 (DB migrations 0098–0100) once the ADR is accepted.
+3. Begin Phase 1 (DB migrations 0100–0102) once the ADR is accepted.
+   (Migrations 0090–0091 are already occupied; 3E on-call routing takes 0092–0099;
+   3F therefore starts at 0100 — see `docs/temporal-scheduler-design.md` §7.)

@@ -134,7 +134,7 @@ Unknown `{{tokens}}` are left as-is (not an error).
 ✓ `GET /admin/schedule-rules/:id/next-fires?count=5` returns next 5 fire timestamps in the rule's timezone
 
 **R7** — Failed ticket creation does not crash the worker; next_fire_at is still advanced.
-✓ If `createEntityInstance()` throws, execution is logged as `failed`, `next_fire_at` advanced, worker continues to next rule
+✓ If `createEntity()` throws, execution is logged as `failed`, `next_fire_at` advanced, worker continues to next rule
 ✓ Worker tick completes even if all rules in the tick fail
 
 **R8** — `catch_up: false` (default): missed fires during worker downtime are skipped.
@@ -176,9 +176,9 @@ Unknown `{{tokens}}` are left as-is (not an error).
 
 | id  | task                                                                                                                            | phase | status | depends |
 | --- | ------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
-| T1  | Migration `0098`: `schedule_rules` table + RLS read/write pair + analytics annotation + soft-delete                             | 1     | todo   | —       |
-| T2  | Migration `0099`: `schedule_executions` table + RLS + analytics annotation (append-only, no soft-delete)                        | 1     | todo   | T1      |
-| T3  | Migration `0100`: extend `admin_audit_log` CHECK constraint for `schedule.*` action strings                                     | 1     | todo   | T2      |
+| T1  | Migration `0100`: `schedule_rules` table + RLS read/write pair + analytics annotation + soft-delete                             | 1     | todo   | —       |
+| T2  | Migration `0101`: `schedule_executions` table + RLS + analytics annotation (append-only, no soft-delete)                        | 1     | todo   | T1      |
+| T3  | Migration `0102`: extend `admin_audit_log` CHECK constraint for `schedule.*` action strings                                     | 1     | todo   | T2      |
 | T4  | `packages/scheduler` library: cron validation, timezone validation, `next_fire_at` calculator, template renderer, tenant guard  | 2     | todo   | T1,T2   |
 | T5  | `GET/POST/PATCH/DELETE /admin/schedule-rules` routes + Zod schemas + unit + integration tests                                   | 2     | todo   | T4      |
 | T6  | `GET /admin/schedule-rules/:id/executions` pagination endpoint + tests                                                          | 2     | todo   | T5      |
