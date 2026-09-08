@@ -31,6 +31,8 @@ CREATE TABLE schedule_rules (
   -- ticket template
   entity_type_id  uuid NOT NULL REFERENCES entity_types(id),
   -- Must resolve to an entity type with slug = 'ticket'.
+  -- App-layer ownership check required on POST/PATCH — entity_type_id must belong to the same
+  -- tenant AND slug = 'ticket'; FK validation bypasses RLS (same pattern as workflow_id below).
   -- Validated at write time; re-checked at fire time as safety net.
   workflow_id     uuid REFERENCES workflows(id) ON DELETE RESTRICT,
   -- nullable: null = use entity type's default workflow.
@@ -54,7 +56,7 @@ CREATE TABLE schedule_rules (
   updated_at      timestamptz NOT NULL DEFAULT now(),
   deleted_at      timestamptz,
 
-  -- analytics: included(id, tenant_id, status, next_fire_at, created_at, deleted_at)
+  -- analytics: included(id, tenant_id, name, status, next_fire_at, created_at, deleted_at)
 );
 
 CREATE UNIQUE INDEX schedule_rules_name_tenant_unique
@@ -66,11 +68,11 @@ CREATE INDEX schedule_rules_tenant_idx
   ON schedule_rules (tenant_id) WHERE deleted_at IS NULL;
 
 ALTER TABLE schedule_rules ENABLE ROW LEVEL SECURITY;
-CREATE POLICY schedule_rules_tenant_read ON schedule_rules FOR SELECT
-  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
-CREATE POLICY schedule_rules_tenant_write ON schedule_rules FOR ALL
+CREATE POLICY schedule_rules_tenant_rls ON schedule_rules FOR ALL
   USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+-- FOR ALL covers SELECT; a separate FOR SELECT policy is redundant (PostgreSQL ORs permissive
+-- policies for the same command). Single policy keeps the migration clean.
 ```
 
 ### 1.2 `schedule_executions`
@@ -101,9 +103,7 @@ CREATE INDEX schedule_executions_tenant_idx
   ON schedule_executions (tenant_id, created_at DESC);
 
 ALTER TABLE schedule_executions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY schedule_executions_tenant_read ON schedule_executions FOR SELECT
-  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
-CREATE POLICY schedule_executions_tenant_write ON schedule_executions FOR ALL
+CREATE POLICY schedule_executions_tenant_rls ON schedule_executions FOR ALL
   USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
@@ -115,8 +115,8 @@ at fire time. Zod schema:
 
 ```typescript
 const TemplateSchema = z.object({
-  title: z.string().min(1).max(500),
-  description: z.string().max(10000).optional(),
+  title: z.string().trim().min(1).max(500), // trim before min: "   " must fail validation
+  description: z.string().trim().max(10000).optional(),
   severity: z.enum(["critical", "high", "medium", "low"]).optional(),
   assignee_id: z.string().uuid().optional(),
   team_id: z.string().uuid().optional(),
@@ -296,12 +296,18 @@ by the existing SLA scheduler worker's job registration.
 ### 3.1 Tick algorithm
 
 ```typescript
+import { env } from "@platform/config";
+
+const TICK_INTERVAL_MS = env.SCHEDULE_TICK_INTERVAL_SECONDS * 1000;
+
 async function schedulerTick(): Promise<void> {
   const now = new Date();
+  const tickStart = Date.now();
+  let success = 0,
+    failed = 0;
 
-  // Poll all due active rules across all tenants.
-  // Advisory lock per rule prevents concurrent execution if two worker
-  // instances are running during a rolling deploy.
+  // system-level cross-tenant poll — intentionally no tenant_id filter;
+  // the worker legitimately processes rules for all tenants in one pass.
   const dueRules = await db
     .select()
     .from(scheduleRules)
@@ -311,23 +317,96 @@ async function schedulerTick(): Promise<void> {
         lte(scheduleRules.nextFireAt, now),
         isNull(scheduleRules.deletedAt),
       ),
-    )
-    .for("update", { skipLocked: true }); // advisory lock via SELECT FOR UPDATE SKIP LOCKED
+    );
 
   for (const rule of dueRules) {
-    await withTenantContext(rule.tenantId, () => processRule(rule, now));
+    const originalScheduledAt = rule.nextFireAt!;
+
+    // Atomically claim the rule: SELECT FOR UPDATE SKIP LOCKED + advance next_fire_at, all
+    // within one transaction. The row lock is held until next_fire_at is advanced and the
+    // transaction commits. A second worker that picked up the same row in its own batch SELECT
+    // will find the row locked and skip it (SKIP LOCKED), preventing double-fire.
+    const claimed = await claimRule(rule, now);
+    if (!claimed) continue; // another worker instance already claimed this rule
+
+    // Detect overdue: if originalScheduledAt is older than one tick interval, the rule missed
+    // at least one fire cycle — route to catch-up handling instead of a normal fire.
+    const isOverdue =
+      originalScheduledAt.getTime() < now.getTime() - TICK_INTERVAL_MS;
+
+    if (isOverdue) {
+      await withTenantContext(rule.tenantId, () =>
+        handleCatchUp(rule, originalScheduledAt, now),
+      );
+    } else {
+      try {
+        await withTenantContext(rule.tenantId, () =>
+          fireRule(rule, originalScheduledAt, now),
+        );
+        success++;
+      } catch {
+        failed++;
+        // fireRule logs the failure; worker continues to the next rule
+      }
+    }
   }
+
+  logger.info(
+    {
+      totalDue: dueRules.length,
+      success,
+      failed,
+      durationMs: Date.now() - tickStart,
+    },
+    "scheduler tick complete",
+  );
 }
 
-async function processRule(rule: ScheduleRule, tickTime: Date): Promise<void> {
-  const scheduledAt = rule.nextFireAt!;
-  const nextFireAt = computeNextFireAt(rule.cronExpr, rule.timezone);
+// Claim a rule atomically: re-SELECT FOR UPDATE SKIP LOCKED + advance next_fire_at, all in one
+// transaction. The lock is held for the duration of the transaction (SELECT → UPDATE → COMMIT),
+// guaranteeing exactly-once execution even when two worker instances run concurrently.
+// Returns the rule row if claimed; null if another worker already holds the lock.
+async function claimRule(
+  rule: ScheduleRule,
+  tickTime: Date,
+): Promise<ScheduleRule | null> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(scheduleRules)
+      .where(
+        and(eq(scheduleRules.id, rule.id), eq(scheduleRules.status, "active")),
+      )
+      .for("update", { skipLocked: true })
+      .limit(1);
 
-  // Advance next_fire_at immediately to prevent double-fire if ticket creation is slow.
-  await db
-    .update(scheduleRules)
-    .set({ nextFireAt, lastFiredAt: tickTime, updatedAt: tickTime })
-    .where(eq(scheduleRules.id, rule.id));
+    if (rows.length === 0) return null; // row is locked by another worker — skip
+
+    const nextFireAt = computeNextFireAt(rule.cronExpr, rule.timezone);
+    await tx
+      .update(scheduleRules)
+      .set({ nextFireAt, lastFiredAt: tickTime, updatedAt: tickTime })
+      .where(
+        // tenant_id filter as defence-in-depth — RLS + explicit filter (dual-layer isolation)
+        and(
+          eq(scheduleRules.id, rule.id),
+          eq(scheduleRules.tenantId, rule.tenantId),
+        ),
+      );
+
+    return rows[0];
+  });
+}
+
+// Create one ticket for a single scheduled fire. Does NOT modify schedule_rules — next_fire_at
+// was already advanced by claimRule (normal path) or is managed by handleCatchUp (catch-up path).
+// Always called from within withTenantContext(rule.tenantId, ...) — tenant GUC is set.
+async function fireRule(
+  rule: ScheduleRule,
+  scheduledAt: Date,
+  tickTime: Date,
+): Promise<void> {
+  const fireStart = Date.now();
 
   try {
     const title = renderTemplate(
@@ -345,7 +424,7 @@ async function processRule(rule: ScheduleRule, tickTime: Date): Promise<void> {
         )
       : undefined;
 
-    // Re-validate template fields against current entity type schema (safety net).
+    // Re-validate template fields against current entity type schema (fire-time safety net).
     await validateTemplate(rule);
 
     const instance = await createEntityInstance({
@@ -364,7 +443,7 @@ async function processRule(rule: ScheduleRule, tickTime: Date): Promise<void> {
           ? { service_id: rule.template.serviceId }
           : {}),
       },
-      createdBy: rule.createdBy, // ticket is attributed to rule's creator
+      createdBy: rule.createdBy, // ticket attributed to rule's creator (ADR-017 Decision 5)
     });
 
     await db.insert(scheduleExecutions).values({
@@ -383,11 +462,17 @@ async function processRule(rule: ScheduleRule, tickTime: Date): Promise<void> {
     });
 
     logger.info(
-      { tenantId: rule.tenantId, ruleId: rule.id, ticketId: instance.id },
+      {
+        tenantId: rule.tenantId,
+        ruleId: rule.id,
+        ticketId: instance.id,
+        scheduledAt,
+        durationMs: Date.now() - fireStart,
+      },
       "schedule rule fired",
     );
   } catch (err) {
-    const errorCode = classifyScheduleError(err); // maps known errors to stable codes
+    const errorCode = classifyScheduleError(err);
 
     await db.insert(scheduleExecutions).values({
       tenantId: rule.tenantId,
@@ -405,10 +490,10 @@ async function processRule(rule: ScheduleRule, tickTime: Date): Promise<void> {
     });
 
     logger.warn(
-      { tenantId: rule.tenantId, ruleId: rule.id, errorCode },
+      { tenantId: rule.tenantId, ruleId: rule.id, errorCode, scheduledAt },
       "schedule rule fire failed",
     );
-    // Do NOT rethrow — worker continues to next rule.
+    throw err; // re-throw so schedulerTick can count failures; outer loop does NOT rethrow
   }
 }
 ```
@@ -438,7 +523,7 @@ const TEMPLATE_VARS: Record<
   month: (d, tz) => formatInTimeZone(d, tz, "MMMM"),
   month_short: (d, tz) => formatInTimeZone(d, tz, "MMM"),
   year: (d, tz) => formatInTimeZone(d, tz, "yyyy"),
-  week: (d, tz) => formatInTimeZone(d, tz, "II"),
+  week: (d, tz) => formatInTimeZone(d, tz, "II"), // ISO 8601 week number (1–53), not relative-to-month
   rule_name: (_, __, name) => name,
 };
 
@@ -473,19 +558,34 @@ Maps known error types to stable `error_code` strings. Never stores raw `err.mes
 
 ### 3.5 Catch-up on resume / worker restart
 
-When a rule transitions from `paused → active`, or when the worker starts and finds a rule
-with `next_fire_at` in the past:
+Called by `schedulerTick` when a rule's `originalScheduledAt` is older than one tick interval
+(i.e. the rule was not fired in the previous tick cycle). `next_fire_at` has already been
+advanced to the next future time by `claimRule`. Always called from within
+`withTenantContext(rule.tenantId, ...)` — tenant GUC is set for all DB operations inside.
 
 ```typescript
-async function handleCatchUp(rule: ScheduleRule, now: Date): Promise<void> {
+import { env } from "@platform/config";
+
+// Read from @platform/config (add SCHEDULE_CATCH_UP_MAX: z.coerce.number().int().min(1).max(100).default(24))
+const CATCH_UP_MAX = env.SCHEDULE_CATCH_UP_MAX;
+
+// originalScheduledAt: the rule's next_fire_at value at the time the tick picked it up
+//   (before claimRule advanced it). Used to enumerate all missed fire slots.
+async function handleCatchUp(
+  rule: ScheduleRule,
+  originalScheduledAt: Date,
+  now: Date,
+): Promise<void> {
+  const missedFires = getMissedFires(
+    rule.cronExpr,
+    rule.timezone,
+    originalScheduledAt,
+    now,
+  );
+
   if (!rule.catchUp) {
-    // Skip: advance next_fire_at to next future time, log skipped executions.
-    const missedFires = getMissedFires(
-      rule.cronExpr,
-      rule.timezone,
-      rule.nextFireAt!,
-      now,
-    );
+    // catch_up: false — skip all missed fires; log each as skipped.
+    // next_fire_at already advanced by claimRule — no further schedule_rules update needed.
     for (const scheduledAt of missedFires) {
       await db.insert(scheduleExecutions).values({
         tenantId: rule.tenantId,
@@ -498,20 +598,19 @@ async function handleCatchUp(rule: ScheduleRule, now: Date): Promise<void> {
         ruleId: rule.id,
         scheduledAt,
       });
+      logger.info(
+        { tenantId: rule.tenantId, ruleId: rule.id, scheduledAt },
+        "catch-up fire skipped (catch_up: false)",
+      );
     }
     return;
   }
 
-  // catch_up: true — execute missed fires in order, up to CATCH_UP_MAX (24).
-  const missedFires = getMissedFires(
-    rule.cronExpr,
-    rule.timezone,
-    rule.nextFireAt!,
-    now,
-  );
+  // catch_up: true — execute up to CATCH_UP_MAX; log the rest as skipped.
   const toExecute = missedFires.slice(-CATCH_UP_MAX); // most recent N if > cap
-  const toSkip = missedFires.slice(0, -CATCH_UP_MAX);
+  const toSkip = missedFires.slice(0, missedFires.length - toExecute.length);
 
+  // Log over-cap fires as skipped (already inside withTenantContext — GUC is set).
   for (const scheduledAt of toSkip) {
     await db.insert(scheduleExecutions).values({
       tenantId: rule.tenantId,
@@ -520,49 +619,60 @@ async function handleCatchUp(rule: ScheduleRule, now: Date): Promise<void> {
       firedAt: now,
       status: "skipped",
     });
-  }
-
-  for (const scheduledAt of toExecute) {
-    await withTenantContext(rule.tenantId, () =>
-      processRule({ ...rule, nextFireAt: scheduledAt }, now),
+    await writeAuditLog("schedule.execution_skipped", {
+      ruleId: rule.id,
+      scheduledAt,
+    });
+    logger.info(
+      { tenantId: rule.tenantId, ruleId: rule.id, scheduledAt },
+      "catch-up fire skipped (over cap)",
     );
   }
-}
 
-const CATCH_UP_MAX = 24;
+  // Execute missed fires in chronological order using fireRule — not processRule.
+  // fireRule does NOT modify next_fire_at; claimRule already advanced it once.
+  for (const scheduledAt of toExecute) {
+    try {
+      await fireRule(rule, scheduledAt, now);
+    } catch {
+      // fireRule logs the failure; continue to the next catch-up fire
+    }
+  }
+}
 ```
 
 ---
 
 ## 4. Security Model
 
-| Concern                                       | Mechanism                                                                                                                                                                       |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cross-tenant rule access                      | RLS read/write policy pairs (nullif-guarded) on both tables; all queries inside `withTenantContext`                                                                             |
-| Cross-tenant template references (team, user) | `POST/PATCH` validates `assignee_id`, `team_id`, `service_id` belong to the same tenant before storage; app-layer check (same FK-bypass-RLS pattern as services/labels)         |
-| Cross-tenant `workflow_id`                    | App-layer ownership check on `POST/PATCH` — `workflow_id` must belong to the same tenant; no FK constraint (FK bypasses RLS — same documented pattern as notification_policies) |
-| Ticket creation in wrong tenant at fire time  | Worker sets `withTenantContext(rule.tenantId)` from the rule row itself — never from caller context; the ticket inherits the rule's tenant                                      |
-| Title template injection                      | Closed-whitelist `{{variable}}` substitution via regex replace; no eval, no Handlebars/Mustache; unknown tokens pass through as literals                                        |
-| Invalid cron expression DoS                   | `cron-parser` validation at write time; invalid expressions rejected with `422`; never stored                                                                                   |
-| Catch-up runaway (flood of tickets)           | Hard cap of 24 executions per catch-up run; excess fires logged as `skipped`                                                                                                    |
-| Concurrent worker execution (rolling deploy)  | `SELECT FOR UPDATE SKIP LOCKED` — a rule being processed by one worker instance is locked; second instance skips it                                                             |
-| Execution error PII                           | `classifyScheduleError()` maps to stable codes; raw `err.message` never stored in `schedule_executions.error_code` or written to audit log                                      |
-| Admin-only writes                             | `requireRole("admin")` on all POST/PATCH/DELETE schedule rule routes                                                                                                            |
-| Rate limiting on next-fires endpoint          | `GET /admin/schedule-rules/:id/next-fires` rate-limited per ADR-013's per-key tier (called frequently from the UI preview panel)                                                |
+| Concern                                       | Mechanism                                                                                                                                                                                                              |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cross-tenant rule access                      | RLS policy (nullif-guarded FOR ALL) on both tables; all API queries inside `withTenantContext`                                                                                                                         |
+| Cross-tenant template references (team, user) | `POST/PATCH` validates `assignee_id`, `team_id`, `service_id` belong to the same tenant before storage; app-layer check (same FK-bypass-RLS pattern as services/labels)                                                |
+| Cross-tenant `workflow_id`                    | App-layer ownership check on `POST/PATCH` — `workflow_id` must belong to the same tenant; no FK constraint (FK bypasses RLS — same documented pattern as notification_policies)                                        |
+| Cross-tenant `entity_type_id`                 | App-layer ownership check on `POST/PATCH` — `entity_type_id` must belong to the same tenant AND `slug = 'ticket'`; no FK constraint (FK validation bypasses RLS — same pattern as `workflow_id`; see §1.1 SQL comment) |
+| Worker cross-tenant SELECT (intentional)      | `schedulerTick` polls all tenants without a tenant filter — deliberate system-level exception; annotated in code; per-rule `claimRule()` UPDATE always includes `AND tenant_id = rule.tenantId` as defence-in-depth    |
+| Ticket creation in wrong tenant at fire time  | Worker sets `withTenantContext(rule.tenantId)` from the rule row itself — never from caller context; the ticket inherits the rule's tenant                                                                             |
+| Title template injection                      | Closed-whitelist `{{variable}}` substitution via regex replace; no eval, no Handlebars/Mustache; unknown tokens pass through as literals                                                                               |
+| Invalid cron expression DoS                   | `cron-parser` validation at write time; invalid expressions rejected with `422`; never stored                                                                                                                          |
+| Catch-up runaway (flood of tickets)           | Hard cap of `SCHEDULE_CATCH_UP_MAX` (default 24) executions per catch-up run; excess fires logged as `skipped`                                                                                                         |
+| Concurrent worker execution (rolling deploy)  | Per-rule transaction: SELECT FOR UPDATE SKIP LOCKED + advance `next_fire_at` committed atomically; lock held until `next_fire_at` is advanced, preventing double-fire                                                  |
+| Execution error PII                           | `classifyScheduleError()` maps to stable codes; raw `err.message` never stored in `schedule_executions.error_code` or written to audit log                                                                             |
+| Admin-only writes                             | `requireRole("admin")` on all POST/PATCH/DELETE schedule rule routes                                                                                                                                                   |
+| Rate limiting on next-fires endpoint          | `GET /admin/schedule-rules/:id/next-fires` rate-limited per ADR-013's per-key tier (called frequently from the UI preview panel)                                                                                       |
 
 ---
 
 ## 5. Environment Variables
 
 ```
-# No new env vars required for Phase 1–3.
-# The scheduler tick is registered in the existing worker job registry.
-# cron-parser and date-fns-tz are new package dependencies.
-#
-# Optional tuning:
-SCHEDULE_CATCH_UP_MAX=24           # default: 24; max missed fires to execute on catch-up
-SCHEDULE_TICK_INTERVAL_SECONDS=60  # default: 60; how often the worker polls
+# Add to packages/config/src/env.ts (Zod schema, required before Phase 3 worker work):
+SCHEDULE_CATCH_UP_MAX=24           # z.coerce.number().int().min(1).max(100).default(24)
+SCHEDULE_TICK_INTERVAL_SECONDS=60  # z.coerce.number().int().min(10).max(3600).default(60)
 ```
+
+Read via `import { env } from "@platform/config"` — never `process.env` directly (code-style.md).
+Both are optional with defaults; the scheduler works without them in `.env`.
 
 ---
 
@@ -658,6 +768,14 @@ Worker tick          DB (schedule_rules)    Entity engine          DB (schedule_
 | `0 9 * * 1`  | America/New_York | 2026-10-05T12:00Z | 2026-10-12T09:00-04:00 (next Mon) |
 | `0 0 1 * *`  | UTC              | 2026-10-31T23:00Z | 2026-11-01T00:00Z                 |
 
+**`TemplateSchema` validation:**
+
+| input                                  | expected outcome                               |
+| -------------------------------------- | ---------------------------------------------- |
+| `title: "   "` (whitespace-only)       | `422` — trim + min(1) rejects whitespace title |
+| `title: "  Monthly Review  "` (padded) | stored as `"Monthly Review"` after trim        |
+| `title: ""` (empty string)             | `422` — min(1) violation                       |
+
 **`classifyScheduleError()`:**
 
 | thrown error                    | expected error_code      |
@@ -715,13 +833,16 @@ Worker tick          DB (schedule_rules)    Entity engine          DB (schedule_
 
 ### 8.3 Isolation tests
 
-| table                 | scenario                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------ |
-| `schedule_rules`      | Tenant A cannot read Tenant B's rules                                                |
-| `schedule_rules`      | Tenant A's write cannot set `tenant_id` to Tenant B                                  |
-| `schedule_executions` | Tenant A cannot read Tenant B's executions                                           |
-| Worker                | Rule in Tenant A fires; ticket created in Tenant A's context; Tenant B unaffected    |
-| Template FK guard     | `POST` with Tenant B's `team_id` as Tenant A → `422` (app-layer check before insert) |
+| table                  | scenario                                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `schedule_rules`       | Tenant A cannot read Tenant B's rules                                                                                |
+| `schedule_rules`       | Tenant A's write cannot set `tenant_id` to Tenant B                                                                  |
+| `schedule_executions`  | Tenant A cannot read Tenant B's executions                                                                           |
+| Worker                 | Rule in Tenant A fires; ticket created in Tenant A's context; Tenant B unaffected                                    |
+| Template FK guard      | `POST` with Tenant B's `team_id` as Tenant A → `422` (app-layer check before insert)                                 |
+| `entity_type_id` guard | `POST` with Tenant B's `entity_type_id` as Tenant A → `422` (app-layer ownership check, FK bypasses RLS)             |
+| Concurrent workers     | Two `schedulerTick` instances race on same rule via `Promise.all`; assert exactly one `schedule_executions` row      |
+| Catch-up routing       | Rule with `next_fire_at` 2× intervals in the past; assert `schedulerTick` calls `handleCatchUp`, not just `fireRule` |
 
 ### 8.4 E2E scenarios
 
@@ -790,6 +911,11 @@ Object-first pino fields per context:
 5. Active rules by tenant — gauge
 6. Catch-up executions over cap (skipped due to > 24 cap) — should be near 0
 
+**Note on metric naming:** The platform uses `_ms` suffix for duration histograms (consistent with
+3D's existing metrics). OTel semconv prefers `_seconds` — this is a documented intentional deviation.
+`ScheduleTickDurationSLOBreach` alert PromQL references `openwind_schedule_tick_duration_ms` — ensure
+this matches the metric name registered in `packages/telemetry/src/metrics.ts`.
+
 **Alert rules (`prometheus/alerts/schedule.yml`):**
 
 | rule name                            | condition                                                                                                                       | severity |
@@ -797,3 +923,25 @@ Object-first pino fields per context:
 | `ScheduleExecutionFailureRateHigh`   | `rate(openwind_schedule_execution_total{status="failed"}[10m]) / rate(openwind_schedule_execution_total[10m]) > 0.10` for 5 min | warning  |
 | `ScheduleTickDurationSLOBreach`      | `histogram_quantile(0.99, openwind_schedule_tick_duration_ms) > 5000` for 5 min                                                 | warning  |
 | `ScheduleExecutionDurationSLOBreach` | `histogram_quantile(0.99, openwind_schedule_execution_duration_ms) > 10000` for 5 min                                           | warning  |
+
+---
+
+## 10. Tenant Purge Ordering
+
+`apps/worker/src/tenant-purge.ts` deletes tenant data in FK dependency order (per ADR-007). The two
+new tables must be inserted into the purge sequence **before** `tenants` is deleted:
+
+```
+schedule_executions   -- deleted first (references schedule_rules via RESTRICT FK)
+schedule_rules        -- deleted second (references tenants)
+tenants               -- deleted last
+```
+
+`schedule_executions.rule_id` uses `ON DELETE RESTRICT` — attempting to delete `schedule_rules`
+before `schedule_executions` will raise a FK violation at runtime, silently failing any tenant
+purge that touches these tables.
+
+**Action required:** Phase 1 migration tasks T1/T2 must include updating `tenant-purge.ts` to
+add `DELETE FROM schedule_executions WHERE tenant_id = $tenantId` (before schedule_rules) and
+`DELETE FROM schedule_rules WHERE tenant_id = $tenantId` in the correct order. Reference
+ADR-007 §Purge ordering for the full deletion sequence.

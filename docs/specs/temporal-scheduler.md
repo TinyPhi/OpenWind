@@ -23,20 +23,20 @@ logged. Missed fires during worker downtime are skipped by default (not doubled 
 
 ## §C Constraints
 
-| constraint           | value                                                                                  |
-| -------------------- | -------------------------------------------------------------------------------------- |
-| stack                | TypeScript · Hono · Drizzle · BullMQ (existing worker) · pino · Vitest · `cron-parser` |
-| auth                 | Zitadel JWT; admin role required for all schedule rule writes                          |
-| execution engine     | DB-polling approach (same as SLA scheduler); no new external scheduler dependency      |
-| schedule granularity | Minute-level (5-field cron); second-level not supported                                |
-| timezone             | IANA timezone per rule; stored and evaluated in UTC; display in user's timezone        |
-| missed fires         | Skipped by default (`catch_up: false`); `catch_up: true` available, capped at 24 fires |
-| ticket template      | Validated against entity type schema at rule creation **and** at fire time             |
-| title templating     | `{{variable}}` whitelist substitution only — no template engine (SSTI risk)            |
-| out of scope         | One-shot (non-recurring) scheduled tickets; external calendar sync; sub-minute cron    |
-| out of scope         | Auto-creation of any entity type other than ticket (entity_type.slug = 'ticket')       |
-| out of scope         | Scheduling workflow transitions or automation rules — only ticket creation             |
-| performance          | Scheduler tick ≤ 5 s for up to 500 concurrently due rules across all tenants           |
+| constraint           | value                                                                                                |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| stack                | TypeScript · Hono · Drizzle · BullMQ (existing worker) · pino · Vitest · `cron-parser` · `cronstrue` |
+| auth                 | Zitadel JWT; admin role required for all schedule rule writes                                        |
+| execution engine     | DB-polling approach (same as SLA scheduler); no new external scheduler dependency                    |
+| schedule granularity | Minute-level (5-field cron); second-level not supported                                              |
+| timezone             | IANA timezone per rule; stored and evaluated in UTC; display in user's timezone                      |
+| missed fires         | Skipped by default (`catch_up: false`); `catch_up: true` available, capped at 24 fires               |
+| ticket template      | Validated against entity type schema at rule creation **and** at fire time                           |
+| title templating     | `{{variable}}` whitelist substitution only — no template engine (SSTI risk)                          |
+| out of scope         | One-shot (non-recurring) scheduled tickets; external calendar sync; sub-minute cron                  |
+| out of scope         | Auto-creation of any entity type other than ticket (entity_type.slug = 'ticket')                     |
+| out of scope         | Scheduling workflow transitions or automation rules — only ticket creation                           |
+| performance          | Scheduler tick ≤ 5 s for up to 500 concurrently due rules across all tenants                         |
 
 ---
 
@@ -92,14 +92,14 @@ created_at       timestamptz NOT NULL DEFAULT now()
 
 ### Template variable substitution
 
-| variable          | resolves to                           |
-| ----------------- | ------------------------------------- |
-| `{{date}}`        | fire date ISO-8601 in rule's timezone |
-| `{{month}}`       | month name (e.g. "October")           |
-| `{{month_short}}` | abbreviated month (e.g. "Oct")        |
-| `{{year}}`        | 4-digit year                          |
-| `{{week}}`        | ISO week number                       |
-| `{{rule_name}}`   | the schedule rule's `name` field      |
+| variable          | resolves to                                                                        |
+| ----------------- | ---------------------------------------------------------------------------------- |
+| `{{date}}`        | fire date ISO-8601 in rule's timezone                                              |
+| `{{month}}`       | month name (e.g. "October")                                                        |
+| `{{month_short}}` | abbreviated month (e.g. "Oct")                                                     |
+| `{{year}}`        | 4-digit year                                                                       |
+| `{{week}}`        | ISO 8601 week number (1–53, e.g. 43 for late October) — not relative-to-month week |
+| `{{rule_name}}`   | the schedule rule's `name` field                                                   |
 
 Unknown `{{tokens}}` are left as-is (not an error).
 
