@@ -1,5 +1,5 @@
 import { inArray, eq, desc, sql, and } from "drizzle-orm";
-import { db, apiKeys } from "@platform/db";
+import { apiKeys, withTenantContext } from "@platform/db";
 import { getUserById } from "./zitadel-management.js";
 
 export type OriginDisplay = {
@@ -71,6 +71,15 @@ async function lookupPerformerDisplayName(
 // Zitadel application), so an unfiltered lookup could resolve to a
 // different tenant's application name if two tenants' client ids ever
 // collided.
+//
+// Also routed through withTenantContext (not the bare `db` client) — api_keys
+// has RLS gated on app.tenant_id, and requireAuth() always runs its own
+// withTenantContext block first on every authenticated request, which
+// "poisons" that backend connection's app.tenant_id GUC into the ''-then-NULL
+// reset state (migration 0091's own rationale) for any later bare query
+// reusing the same pooled connection. Without this, the explicit tenantId
+// filter above never even matters — RLS silently returns zero rows first,
+// so every lookup fell back to "Unknown application" regardless of tenant.
 async function lookupApplicationName(
   tenantId: string,
   oidcClientId: string,
@@ -82,17 +91,19 @@ async function lookupApplicationName(
   // most recently created row if every one has since been revoked (edge
   // case: the whole lineage was decommissioned but old tickets still
   // reference it).
-  const [key] = await db
-    .select({ applicationName: apiKeys.applicationName })
-    .from(apiKeys)
-    .where(
-      and(
-        eq(apiKeys.tenantId, tenantId),
-        eq(apiKeys.oidcClientId, oidcClientId),
-      ),
-    )
-    .orderBy(sql`${apiKeys.revokedAt} IS NULL DESC`, desc(apiKeys.createdAt))
-    .limit(1);
+  const [key] = await withTenantContext(tenantId, (tx) =>
+    tx
+      .select({ applicationName: apiKeys.applicationName })
+      .from(apiKeys)
+      .where(
+        and(
+          eq(apiKeys.tenantId, tenantId),
+          eq(apiKeys.oidcClientId, oidcClientId),
+        ),
+      )
+      .orderBy(sql`${apiKeys.revokedAt} IS NULL DESC`, desc(apiKeys.createdAt))
+      .limit(1),
+  );
   return key?.applicationName ?? "Unknown application";
 }
 
@@ -119,20 +130,23 @@ export async function batchLookupApplicationNames(
   // lookupApplicationName above — first-wins below only picks the "best"
   // row per client id because this order guarantees it arrives first.
   // PR #556 review (PrabhuVijit) — explicit tenantId filter, same reasoning
-  // as lookupApplicationName's single-row version above.
-  const keys = await db
-    .select({
-      oidcClientId: apiKeys.oidcClientId,
-      applicationName: apiKeys.applicationName,
-    })
-    .from(apiKeys)
-    .where(
-      and(
-        eq(apiKeys.tenantId, tenantId),
-        inArray(apiKeys.oidcClientId, clientIds),
-      ),
-    )
-    .orderBy(sql`${apiKeys.revokedAt} IS NULL DESC`, desc(apiKeys.createdAt));
+  // as lookupApplicationName's single-row version above. Also routed through
+  // withTenantContext for the same RLS-poisoning reason documented there.
+  const keys = await withTenantContext(tenantId, (tx) =>
+    tx
+      .select({
+        oidcClientId: apiKeys.oidcClientId,
+        applicationName: apiKeys.applicationName,
+      })
+      .from(apiKeys)
+      .where(
+        and(
+          eq(apiKeys.tenantId, tenantId),
+          inArray(apiKeys.oidcClientId, clientIds),
+        ),
+      )
+      .orderBy(sql`${apiKeys.revokedAt} IS NULL DESC`, desc(apiKeys.createdAt)),
+  );
 
   const nameByClientId = new Map<string, string>();
   for (const k of keys) {

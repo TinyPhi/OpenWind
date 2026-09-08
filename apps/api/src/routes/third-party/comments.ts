@@ -108,8 +108,10 @@ export const createThirdPartyCommentHandler = factory.createHandlers(
     // docs/specs/third-party-api-origin-tagging.md §V -- same fail-closed
     // rationale as tickets.ts's identical check (the key just authenticated
     // this request; a null here means it was revoked/deleted in between).
-    const originOidcClientId =
-      await resolveOriginOidcClientId(applicationActorId);
+    const originOidcClientId = await resolveOriginOidcClientId(
+      tenantId,
+      applicationActorId,
+    );
     if (!originOidcClientId) {
       return c.json({ error: "UNAUTHORIZED", message: "Invalid API key" }, 401);
     }

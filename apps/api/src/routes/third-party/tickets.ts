@@ -199,8 +199,10 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
     // ran), so a null here means it was revoked/deleted in the moment
     // between auth and this line -- treat as unauthorized, not a 500, since
     // the caller's credential is what actually became invalid.
-    const originOidcClientId =
-      await resolveOriginOidcClientId(applicationActorId);
+    const originOidcClientId = await resolveOriginOidcClientId(
+      tenantId,
+      applicationActorId,
+    );
     if (!originOidcClientId) {
       return c.json({ error: "UNAUTHORIZED", message: "Invalid API key" }, 401);
     }
