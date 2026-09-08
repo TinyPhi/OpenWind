@@ -2,6 +2,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { rateLimit } from "./rate-limit.js";
 
+let mockTrustProxy = "true";
+vi.mock("@platform/config", () => ({
+  env: {
+    get TRUST_PROXY() {
+      return mockTrustProxy;
+    },
+  },
+}));
+
+let mockRemoteAddress: string | undefined = undefined;
+vi.mock("@hono/node-server/conninfo", () => ({
+  getConnInfo: vi.fn(() => ({
+    remote: {
+      address: mockRemoteAddress,
+    },
+  })),
+}));
+
 const mockCheckRateLimit = vi.fn();
 
 vi.mock("@platform/redis", () => ({
@@ -30,6 +48,8 @@ function forgedBearer(org: string): string {
 }
 
 beforeEach(() => {
+  mockTrustProxy = "true";
+  mockRemoteAddress = undefined;
   mockCheckRateLimit.mockReset();
   mockCheckRateLimit.mockResolvedValue({
     allowed: true,
@@ -169,5 +189,60 @@ describe("rateLimit — pre-auth IP-only keying (#195)", () => {
     });
     expect(res.headers.get("x-ratelimit-limit")).toBe("500");
     expect(res.headers.get("x-ratelimit-remaining")).toBe("499");
+  });
+
+  it("ignores x-real-ip and x-forwarded-for when TRUST_PROXY is false, falling back to peer IP", async () => {
+    mockTrustProxy = "false";
+    mockRemoteAddress = "192.168.1.100";
+
+    await makeApp().request("/entities", {
+      headers: {
+        "x-real-ip": "1.2.3.4",
+        "x-forwarded-for": "5.6.7.8",
+      },
+    });
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      "rl:ip:192.168.1.100:api",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it("allows proxy headers when TRUST_PROXY matches connecting peer CIDR", async () => {
+    mockTrustProxy = "10.0.0.0/8";
+    mockRemoteAddress = "10.0.0.50";
+
+    await makeApp().request("/entities", {
+      headers: {
+        "x-real-ip": "1.2.3.4",
+      },
+    });
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      "rl:ip:1.2.3.4:api",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it("ignores proxy headers when TRUST_PROXY does not match connecting peer CIDR", async () => {
+    mockTrustProxy = "10.0.0.0/8";
+    mockRemoteAddress = "172.16.0.1";
+
+    await makeApp().request("/entities", {
+      headers: {
+        "x-real-ip": "1.2.3.4",
+      },
+    });
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      "rl:ip:172.16.0.1:api",
+      expect.any(Number),
+      expect.any(Number),
+    );
   });
 });

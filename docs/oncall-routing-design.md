@@ -96,13 +96,14 @@ CREATE POLICY labels_tenant_write ON labels FOR ALL
 
 ```sql
 CREATE TABLE ticket_labels (
-  -- ON DELETE RESTRICT guards against accidental hard deletes outside the soft-delete lifecycle.
-  -- Note on tenant purge (apps/worker/src/tenant-purge.ts): ticket_labels rows must be purged
-  -- prior to entity_instances rows to satisfy the RESTRICT constraint.
-  ticket_instance_id uuid NOT NULL REFERENCES entity_instances(id) ON DELETE RESTRICT,
+  -- Join table FKs: ON DELETE CASCADE on ticket_instance_id ensures label associations are
+  -- automatically cleaned up when an entity instance is hard deleted (e.g. during tenant purge).
+  -- assigned_by is ON DELETE SET NULL to allow user deletion/offboarding (e.g. GDPR erasure)
+  -- without blocking on label attribution, while audit history is preserved via workflow events.
+  ticket_instance_id uuid NOT NULL REFERENCES entity_instances(id) ON DELETE CASCADE,
   label_id           uuid NOT NULL REFERENCES labels(id) ON DELETE RESTRICT,
   tenant_id          uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-  assigned_by        uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  assigned_by        uuid REFERENCES users(id) ON DELETE SET NULL,
   assigned_at        timestamptz NOT NULL DEFAULT now(),
 
   PRIMARY KEY (ticket_instance_id, label_id)
@@ -133,9 +134,11 @@ CREATE TABLE on_call_schedules (
   label                       text NOT NULL,
   starts_at                   timestamptz NOT NULL,
   ends_at                     timestamptz NOT NULL,
+  -- primary_user_id and created_by are required (RESTRICT); nullable secondary roles use SET NULL
+  -- so user offboarding / deletion is permitted without leaving active schedules in a broken state.
   primary_user_id             uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  backup_user_id              uuid REFERENCES users(id) ON DELETE RESTRICT,            -- nullable
-  escalation_manager_user_id  uuid REFERENCES users(id) ON DELETE RESTRICT,            -- nullable
+  backup_user_id              uuid REFERENCES users(id) ON DELETE SET NULL,            -- nullable
+  escalation_manager_user_id  uuid REFERENCES users(id) ON DELETE SET NULL,            -- nullable
   created_by                  uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now(),
