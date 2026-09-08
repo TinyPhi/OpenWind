@@ -594,6 +594,10 @@ async function handleCatchUp(
   originalScheduledAt: Date,
   now: Date,
 ): Promise<number> {
+  // getMissedFires: uses cron-parser's parseExpression iterator starting AFTER
+  // originalScheduledAt (exclusive), collecting all fire times strictly before now
+  // (exclusive), returned in chronological order. If now falls exactly on a cron slot
+  // that slot is excluded — it belongs to the current tick's normal fire, not catch-up.
   const missedFires = getMissedFires(
     rule.cronExpr,
     rule.timezone,
@@ -834,14 +838,14 @@ Worker tick          DB (schedule_rules)    Entity engine          DB (schedule_
 | 30 missed fires, catch_up: true     | 6 `skipped` + 24 `success`; most recent 24 executed |
 | 1 missed fire fails, catch_up: true | 1 `failed` execution; next fire still attempted     |
 
-**`processRule()` — tick behavior:**
+**`claimRule()` + `fireRule()` — tick behavior:**
 
-| scenario                                  | expected outcome                                                              |
-| ----------------------------------------- | ----------------------------------------------------------------------------- |
-| Rule fires successfully                   | ticket created; execution logged `success`; next_fire_at advanced             |
-| `createEntity` throws                     | no ticket; execution logged `failed`; next_fire_at still advanced; no rethrow |
-| Template re-validation fails at fire time | execution logged `failed` with `FIELD_VALIDATION_ERROR`                       |
-| Rule paused mid-tick (status changed)     | lock skips it (FOR UPDATE SKIP LOCKED); no execution                          |
+| scenario                                  | function    | expected outcome                                                              |
+| ----------------------------------------- | ----------- | ----------------------------------------------------------------------------- |
+| Rule fires successfully                   | `fireRule`  | ticket created; execution logged `success`; next_fire_at advanced             |
+| `createEntity` throws                     | `fireRule`  | no ticket; execution logged `failed`; next_fire_at still advanced; no rethrow |
+| Template re-validation fails at fire time | `fireRule`  | execution logged `failed` with `FIELD_VALIDATION_ERROR`                       |
+| Rule paused mid-tick (status changed)     | `claimRule` | lock skips it (FOR UPDATE SKIP LOCKED); no execution                          |
 
 ### 8.2 Integration test scenarios
 
@@ -896,12 +900,12 @@ Worker tick          DB (schedule_rules)    Entity engine          DB (schedule_
 
 Object-first pino fields per context:
 
-| context                 | mandatory fields                                              | forbidden fields                     |
-| ----------------------- | ------------------------------------------------------------- | ------------------------------------ |
-| Rule fired successfully | `tenantId`, `ruleId`, `ticketId`, `scheduledAt`, `durationMs` | template field values, assignee name |
-| Rule fire failed        | `tenantId`, `ruleId`, `errorCode`, `scheduledAt`              | raw `err.message`, any PII           |
-| Catch-up fire skipped   | `tenantId`, `ruleId`, `scheduledAt`                           | —                                    |
-| Tick completed          | `totalDue`, `success`, `failed`, `skipped`, `durationMs`      | —                                    |
+| context                 | mandatory fields                                              | forbidden fields                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rule fired successfully | `tenantId`, `ruleId`, `ticketId`, `scheduledAt`, `durationMs` | template field values, assignee name                                                                                                                                  |
+| Rule fire failed        | `tenantId`, `ruleId`, `errorCode`, `scheduledAt`              | raw `err.message`, any PII                                                                                                                                            |
+| Catch-up fire skipped   | `tenantId`, `ruleId`, `scheduledAt`                           | —                                                                                                                                                                     |
+| Tick completed          | `totalDue`, `success`, `failed`, `skipped`, `durationMs`      | — (`success`/`failed` count only direct non-catch-up fires; catch-up fire outcomes are in `schedule_executions` rows and `openwind_schedule_execution_total` metrics) |
 
 ### 9.2 Prometheus metrics
 
