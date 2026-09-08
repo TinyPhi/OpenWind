@@ -74,8 +74,10 @@ export const createThirdPartyChildHandler = factory.createHandlers(
     // docs/specs/third-party-api-origin-tagging.md R4/§V -- sub-tickets follow
     // the exact same tagging rules as top-level tickets (see tickets.ts's
     // identical check for the full rationale).
-    const originOidcClientId =
-      await resolveOriginOidcClientId(applicationActorId);
+    const originOidcClientId = await resolveOriginOidcClientId(
+      tenantId,
+      applicationActorId,
+    );
     if (!originOidcClientId) {
       return c.json({ error: "UNAUTHORIZED", message: "Invalid API key" }, 401);
     }
