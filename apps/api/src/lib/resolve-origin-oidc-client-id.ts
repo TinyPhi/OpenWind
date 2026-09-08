@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { apiKeys, withTenantContext } from "@platform/db";
 
 /**
@@ -22,9 +22,16 @@ import { apiKeys, withTenantContext } from "@platform/db";
  * own documented rationale for the same bug class elsewhere) — this made
  * every third-party ticket/comment/sub-ticket create 401 with "Invalid API
  * key" even for a valid key, since a null here is treated as fail-closed
- * below. The caller already knows which tenant authenticated this exact
- * request, so this isn't a new cross-tenant enumeration risk — just the same
- * tenant-scoped lookup every other query in this codebase already does.
+ * below.
+ *
+ * PR #574 review (VijitP) — carries the explicit eq(apiKeys.tenantId, ...)
+ * filter alongside withTenantContext, matching db-conventions.md's
+ * defence-in-depth requirement (RLS and an explicit filter are both
+ * required, never alternatives). The caller already knows which tenant
+ * authenticated this exact request, so this isn't a new cross-tenant
+ * enumeration risk — but once tenantId is accepted as a parameter at all,
+ * skipping the app-layer filter would mean a misconfigured/suspended/
+ * regressed RLS policy silently resolves a different tenant's key.
  *
  * Returns null if the key row is somehow gone by the time this runs (should
  * be unreachable in practice — the key just authenticated this request) so
@@ -39,7 +46,9 @@ export async function resolveOriginOidcClientId(
     tx
       .select({ oidcClientId: apiKeys.oidcClientId })
       .from(apiKeys)
-      .where(eq(apiKeys.id, applicationActorId))
+      .where(
+        and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, applicationActorId)),
+      )
       .limit(1),
   );
   return row?.oidcClientId ?? null;

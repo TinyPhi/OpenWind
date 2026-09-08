@@ -38,7 +38,15 @@ export function buildZodSchema(
 function extractOptionValues(opts: unknown): string[] {
   if (!Array.isArray(opts)) return [];
   return opts
-    .map((o) => (typeof o === "string" ? o : (o as { value?: unknown }).value))
+    .map((o) =>
+      typeof o === "string"
+        ? o
+        : // PR #574 review (VijitP) -- o is `unknown` here (the string branch
+          // above is already exhausted), so TS can't infer a `.value` property
+          // exists without this assertion; the `.filter` below is what
+          // actually rejects anything where it doesn't resolve to a string.
+          (o as { value?: unknown }).value,
+    )
     .filter((v): v is string => typeof v === "string");
 }
 

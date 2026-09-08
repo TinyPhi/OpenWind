@@ -224,6 +224,40 @@ describe("buildZodSchema", () => {
         false,
       );
     });
+
+    // PR #574 review (VijitP, S2) -- extractOptionValues (shared with the
+    // select/enum fix above) also handles multi_enum's options; cover the
+    // plain string[] shape here too, not just {value,label}[].
+    it("accepts the plain string[] options shape", () => {
+      const schema = buildZodSchema(
+        [
+          makeField({
+            name: "tags",
+            fieldType: "multi_enum",
+            config: { options: ["bug", "feature"] },
+          }),
+        ],
+        "create",
+      );
+      expect(schema.safeParse({ tags: ["bug", "feature"] }).success).toBe(true);
+      expect(schema.safeParse({ tags: ["bug", "invalid"] }).success).toBe(
+        false,
+      );
+    });
+
+    it("falls back to an unconstrained string array when options is empty/invalid", () => {
+      const schema = buildZodSchema(
+        [
+          makeField({
+            name: "tags",
+            fieldType: "multi_enum",
+            config: { options: [] },
+          }),
+        ],
+        "create",
+      );
+      expect(schema.safeParse({ tags: ["anything"] }).success).toBe(true);
+    });
   });
 
   describe("boolean field", () => {

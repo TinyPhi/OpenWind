@@ -31,15 +31,27 @@ import { hashApiKey } from "@platform/auth";
 import { resolveOriginOidcClientId } from "../../src/lib/resolve-origin-oidc-client-id.js";
 
 const TENANT = "44444444-0000-4000-a000-000000000601";
+// PR #574 review (VijitP, S1) — a real, seeded second tenant (matching
+// resolve-origin-display.isolation.test.ts's TENANT_A/TENANT_B pattern),
+// so the "doesn't own the key" case exercises actual cross-tenant isolation
+// rather than merely "a tenant id nothing references returns null".
+const OTHER_TENANT = "44444444-0000-4000-a000-000000000602";
 const API_KEY_ID = "55555555-5555-5555-5555-555555555555";
 const OIDC_CLIENT_ID = "resolve-origin-oidc-client-id-test-client";
 
 beforeAll(async () => {
-  await db.insert(tenants).values({
-    id: TENANT,
-    name: "Resolve Origin OIDC Client ID Test Tenant",
-    slug: `resolve-origin-oidc-${TENANT}`,
-  });
+  await db.insert(tenants).values([
+    {
+      id: TENANT,
+      name: "Resolve Origin OIDC Client ID Test Tenant",
+      slug: `resolve-origin-oidc-${TENANT}`,
+    },
+    {
+      id: OTHER_TENANT,
+      name: "Resolve Origin OIDC Client ID Test Tenant — Other",
+      slug: `resolve-origin-oidc-other-${OTHER_TENANT}`,
+    },
+  ]);
   await db.insert(apiKeys).values({
     id: API_KEY_ID,
     tenantId: TENANT,
@@ -54,6 +66,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.delete(apiKeys).where(eq(apiKeys.id, API_KEY_ID));
   await db.delete(tenants).where(eq(tenants.id, TENANT));
+  await db.delete(tenants).where(eq(tenants.id, OTHER_TENANT));
 });
 
 describe("resolveOriginOidcClientId", () => {
@@ -75,8 +88,7 @@ describe("resolveOriginOidcClientId", () => {
   });
 
   it("returns null for a tenant that doesn't own the key (RLS still enforces isolation)", async () => {
-    const otherTenant = "44444444-0000-4000-a000-000000000602";
-    const result = await resolveOriginOidcClientId(otherTenant, API_KEY_ID);
+    const result = await resolveOriginOidcClientId(OTHER_TENANT, API_KEY_ID);
     expect(result).toBeNull();
   });
 
