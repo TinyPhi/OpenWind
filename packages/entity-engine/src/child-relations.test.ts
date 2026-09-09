@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ValidationError } from "./errors.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -188,6 +189,23 @@ describe("createChildRelation", () => {
     expect(result.relations).toHaveLength(2);
     expect(result.relations[0]?.relationType).toBe("parent_of");
     expect(result.relations[1]?.relationType).toBe("child_of");
+  });
+
+  it("rejects with ValidationError when childFields contains a reserved field name", async () => {
+    mockSelectSeq.push(() => [fakeParent]);
+
+    await expect(
+      createChildRelation(dbMock as never, TENANT, {
+        parentId: PARENT_ID,
+        childFields: {
+          title: "Sub-task",
+          __accessUsers: { "attacker-id": { level: "read_write" } },
+        },
+        entityTypeId: "et-aaa",
+      }),
+    ).rejects.toThrowError(ValidationError);
+
+    expect(dbMock.insert).not.toHaveBeenCalled();
   });
 
   it("inherits the parent's __accessUsers grants onto the child (ADR-012 Phase C, R9 bug fix)", async () => {

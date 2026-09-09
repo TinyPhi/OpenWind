@@ -105,14 +105,14 @@ function getClientIp(c: Context): string {
   }
 
   if (isTrusted) {
+    const realIp = c.req.header("x-real-ip")?.trim();
+    if (realIp && realIp.length > 0) return realIp;
+
     const forwardedFor = c.req.header("x-forwarded-for");
     const fromForwarded = forwardedFor
       ? forwardedFor.split(",")[0]?.trim()
       : null;
-    if (fromForwarded) return fromForwarded;
-
-    const realIp = c.req.header("x-real-ip")?.trim();
-    if (realIp) return realIp;
+    if (fromForwarded && fromForwarded.length > 0) return fromForwarded;
   }
 
   return peerIp;
