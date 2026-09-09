@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildZodSchema, transformZodErrors } from "./schema-builder.js";
+import {
+  buildZodSchema,
+  transformZodErrors,
+  isReservedFieldName,
+  validateReservedFieldNames,
+} from "./schema-builder.js";
+import { ValidationError } from "../errors.js";
 import type { EntityField } from "../types.js";
 
 function makeField(
@@ -545,6 +551,84 @@ describe("transformZodErrors", () => {
       const errors = transformZodErrors(result.error);
       expect(errors[0]?.code).toBe("INVALID_ENUM");
       expect(errors[0]?.meta?.options).toEqual(["low", "high"]);
+    }
+  });
+});
+
+describe("isReservedFieldName", () => {
+  it("returns true for internal engine keys prefixed with __", () => {
+    expect(isReservedFieldName("__accessUsers")).toBe(true);
+    expect(isReservedFieldName("__workflowState")).toBe(true);
+    expect(isReservedFieldName("__anything")).toBe(true);
+  });
+
+  it("returns true for prototype pollution keys prototype and constructor", () => {
+    expect(isReservedFieldName("prototype")).toBe(true);
+    expect(isReservedFieldName("constructor")).toBe(true);
+    expect(isReservedFieldName("__proto__")).toBe(true);
+  });
+
+  it("returns false for standard and single-underscore field names", () => {
+    expect(isReservedFieldName("title")).toBe(false);
+    expect(isReservedFieldName("custom_field")).toBe(false);
+    expect(isReservedFieldName("_private_field")).toBe(false);
+    expect(isReservedFieldName("accessUsers")).toBe(false);
+    expect(isReservedFieldName("Prototype")).toBe(false);
+    expect(isReservedFieldName("Constructor")).toBe(false);
+  });
+});
+
+describe("validateReservedFieldNames", () => {
+  it("does nothing for undefined, null, or objects without reserved keys", () => {
+    expect(() => validateReservedFieldNames(undefined)).not.toThrow();
+    expect(() => validateReservedFieldNames(null)).not.toThrow();
+    expect(() =>
+      validateReservedFieldNames({ title: "My Ticket", priority: "high" }),
+    ).not.toThrow();
+  });
+
+  it("throws ValidationError when fields contain __accessUsers", () => {
+    expect.assertions(3);
+    expect(() =>
+      validateReservedFieldNames({
+        title: "Test",
+        __accessUsers: { "attacker-id": { level: "read_write" } },
+      }),
+    ).toThrowError(ValidationError);
+
+    try {
+      validateReservedFieldNames({
+        __accessUsers: { "attacker-id": { level: "read_write" } },
+      });
+    } catch (err) {
+      expect(err).toBeInstanceOf(ValidationError);
+      const valErr = err as ValidationError;
+      expect(valErr.fields).toEqual([
+        {
+          field: "__accessUsers",
+          code: "RESERVED_FIELD",
+          message:
+            "Field '__accessUsers' is reserved for internal engine use and cannot be set directly",
+        },
+      ]);
+    }
+  });
+
+  it("identifies all reserved keys when multiple are supplied", () => {
+    expect.assertions(2);
+    try {
+      validateReservedFieldNames({
+        __accessUsers: {},
+        title: "Valid",
+        __internal_flag: true,
+      });
+    } catch (err) {
+      expect(err).toBeInstanceOf(ValidationError);
+      const valErr = err as ValidationError;
+      expect(valErr.fields.map((f) => f.field)).toEqual([
+        "__accessUsers",
+        "__internal_flag",
+      ]);
     }
   });
 });

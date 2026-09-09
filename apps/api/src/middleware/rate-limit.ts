@@ -3,6 +3,8 @@ import type { MiddlewareHandler } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { getRedis, checkRateLimit } from "@platform/redis";
 import { logger } from "@platform/logger";
+import { env } from "@platform/config";
+import { checkIpInAllowlist } from "@platform/auth";
 
 export interface RateLimitOptions {
   limit?: number;
@@ -46,25 +48,60 @@ function firstForwardedIp(header: string): string | null {
  * that misconfiguration should be fixed at the proxy, not papered over here.
  */
 function rateLimitKey(c: Parameters<MiddlewareHandler>[0]): string {
-  const forwardedFor = c.req.header("x-forwarded-for");
-  const fromForwardedFor = forwardedFor ? firstForwardedIp(forwardedFor) : null;
-  if (fromForwardedFor) return fromForwardedFor;
-
-  const realIp = c.req.header("x-real-ip")?.trim();
-  if (realIp) return realIp;
-
+  let peerIp = "unknown";
   try {
     const info = getConnInfo(c);
-    if (info.remote.address) return info.remote.address;
+    if (info.remote.address) {
+      peerIp = info.remote.address;
+    }
   } catch {
     // getConnInfo needs the underlying Node socket (c.env.incoming) —
     // unavailable under Hono's app.request() test harness and on non-node
-    // runtimes. Falls through to the shared bucket below.
+    // runtimes. Falls through to headers/fallback below.
+  }
+
+  const trustProxy = env.TRUST_PROXY;
+  let isTrusted = false;
+
+  if (trustProxy === "true") {
+    isTrusted = true;
+  } else if (trustProxy === "false") {
+    isTrusted = false;
+  } else {
+    // Parse as comma-separated IPs/CIDRs
+    const trustedProxies = trustProxy
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (peerIp !== "unknown") {
+      isTrusted = checkIpInAllowlist(peerIp, trustedProxies);
+    }
+  }
+
+  if (isTrusted) {
+    // Issue #540: Prefer X-Real-IP over X-Forwarded-For when proxy is trusted.
+    // If a reverse proxy is configured to append rather than overwrite X-Forwarded-For
+    // (the common nginx $proxy_add_x_forwarded_for idiom), a client can inject arbitrary
+    // prefixes into X-Forwarded-For and spoof its rate-limit identity if we trust the first hop.
+    // X-Real-IP is single-valued and set directly to $remote_addr by the proxy,
+    // making it unforgeable against header-appending attacks.
+    const realIp = c.req.header("x-real-ip")?.trim();
+    if (realIp && realIp.length > 0) return realIp;
+
+    const forwardedFor = c.req.header("x-forwarded-for");
+    const fromForwardedFor = forwardedFor
+      ? firstForwardedIp(forwardedFor)
+      : null;
+    if (fromForwardedFor) return fromForwardedFor;
+  }
+
+  if (peerIp !== "unknown") {
+    return peerIp;
   }
 
   logger.warn(
     {},
-    "rate-limit: no x-forwarded-for/x-real-ip header and no connection info available — using shared fallback bucket",
+    "rate-limit: no x-real-ip/x-forwarded-for header and no connection info available — using shared fallback bucket",
   );
   return "unknown";
 }

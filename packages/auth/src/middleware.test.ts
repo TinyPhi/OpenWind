@@ -1194,5 +1194,35 @@ describe("fetchUserInfo caching", () => {
       const res = await getWithIp(app, "", "1.2.3.4");
       expect(res.status).toBe(403);
     });
+
+    it("prioritizes x-real-ip over x-forwarded-for when proxy is trusted", async () => {
+      mockTenantRow = {
+        status: "active",
+        plan: "standard",
+        config: { ip_allowlist: ["1.2.3.4"] },
+        zitadelOrgId: "org-ccc",
+      };
+      mockTrustProxy = "true";
+
+      const app = makeApp([requireAuth()]);
+      const resAllowed = await app.request("/test", {
+        headers: {
+          Authorization: "Bearer token-a",
+          "x-real-ip": "1.2.3.4",
+          "x-forwarded-for": "9.9.9.9, 10.0.0.1",
+        },
+      });
+      expect(resAllowed.status).toBe(200);
+
+      invalidateTenantStatusCache(tenantId);
+      const resBlocked = await app.request("/test", {
+        headers: {
+          Authorization: "Bearer token-a",
+          "x-real-ip": "9.9.9.9",
+          "x-forwarded-for": "1.2.3.4, 10.0.0.1",
+        },
+      });
+      expect(resBlocked.status).toBe(403);
+    });
   });
 });

@@ -11,6 +11,7 @@ export {
   billingGate,
   resolveTenantPlan,
   resolveTenantIpAllowlist,
+  checkIpInAllowlist,
 } from "./middleware.js";
 export {
   invalidateTenantStatusCache,
