@@ -48,11 +48,16 @@ export async function resolveOrgMemberUserId(
 ): Promise<OrgMemberResolution> {
   if (!orgId) return { ok: false };
   const users = await listOrgUsers(orgId);
+  // PR #576 review (PrabhuVijit, M1) -- loginName/email both compared
+  // case-insensitively (matching resolveIdentifier's identical fix in
+  // mention-resolution-worker.ts); userId stays exact since it's an opaque
+  // Zitadel id, never something a human would retype in a different case.
+  const lowerValue = value.toLowerCase();
   const match = users.find(
     (u) =>
       u.userId === value ||
-      u.loginName === value ||
-      (opts?.matchEmail && u.email === value),
+      u.loginName.toLowerCase() === lowerValue ||
+      (opts?.matchEmail && u.email.toLowerCase() === lowerValue),
   );
   return match ? { ok: true, userId: match.userId } : { ok: false };
 }

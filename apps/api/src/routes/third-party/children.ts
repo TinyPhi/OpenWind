@@ -22,7 +22,9 @@ import { postSystemComment } from "../../lib/post-system-comment.js";
 const CreateThirdPartyChildSchema = z.object({
   entityTypeId: z.string().uuid(),
   fields: z.record(z.unknown()).default({}),
-  assignedTo: z.string().optional(),
+  // PR #576 review (PrabhuVijit, F2/M4) -- bounded + trimmed, same rationale
+  // as tickets.ts's identical schema field.
+  assignedTo: z.string().trim().max(256).optional(),
   // No state/currentState field, same rationale as Phase B's ticket-create
   // schema (spec R6 pattern) — a sub-ticket is always created into its own
   // "open" child_status, never a caller-supplied value.
@@ -159,14 +161,26 @@ export const createThirdPartyChildHandler = factory.createHandlers(
     let resolvedAssignedTo: string | undefined;
     let assignedToUnresolved = false;
     if (input.assignedTo) {
-      const assignedToResolution = await resolveOrgMemberUserId(
-        orgId,
-        input.assignedTo,
-      );
-      if (assignedToResolution.ok) {
-        resolvedAssignedTo = assignedToResolution.userId;
+      // PR #576 review (PrabhuVijit, F3) -- same guard as tickets.ts's
+      // identical check: orgId is optional on AuthContext, and without this
+      // guard an absent orgId would silently treat every assignedTo as
+      // unresolved rather than skipping resolution outright.
+      if (!orgId) {
+        logger.warn(
+          { tenantId },
+          "third-party sub-ticket create: assignedTo resolution skipped -- orgId absent from auth context",
+        );
+        resolvedAssignedTo = input.assignedTo;
       } else {
-        assignedToUnresolved = true;
+        const assignedToResolution = await resolveOrgMemberUserId(
+          orgId,
+          input.assignedTo,
+        );
+        if (assignedToResolution.ok) {
+          resolvedAssignedTo = assignedToResolution.userId;
+        } else {
+          assignedToUnresolved = true;
+        }
       }
     }
 
@@ -209,35 +223,52 @@ export const createThirdPartyChildHandler = factory.createHandlers(
               action: "child.created",
               metadata: { parentId },
             });
-            // See resolveOrgMemberUserId call above and post-system-comment.ts
-            // -- notify the creator that assignedTo didn't resolve via a
-            // system comment, never via the API response itself. Top-level
-            // (no replyTo) since this tree's schema has no remark field to
-            // seed a host comment from. Best-effort: must never fail
-            // sub-ticket creation itself.
-            if (assignedToUnresolved && created.instance.workflowId) {
-              try {
-                await postSystemComment(tx, {
-                  tenantId,
-                  instanceId: created.instance.id,
-                  workflowId: created.instance.workflowId,
-                  currentState: created.instance.currentState,
-                  text: `assignedTo "${input.assignedTo}" could not be resolved to an org member -- this sub-ticket was created unassigned.`,
-                  notifyUserId: actingPersonId,
-                });
-              } catch (systemCommentErr) {
-                logger.error(
-                  {
-                    systemCommentErr,
-                    tenantId,
-                    instanceId: created.instance.id,
-                  },
-                  "third-party sub-ticket create: failed to post assignedTo-unresolved system comment",
-                );
-              }
-            }
             return created;
           });
+
+          // PR #576 review (PrabhuVijit, F1) -- deliberately OUTSIDE the
+          // transaction above, in its own withTenantContext call. See
+          // tickets.ts's identical fix for the full rationale: running this
+          // inside the main transaction meant any failure in
+          // postSystemComment's inserts left Postgres in an aborted-
+          // transaction state that the try/catch could not undo, so the
+          // subsequent COMMIT would fail and roll back the sub-ticket
+          // creation too. See resolveOrgMemberUserId call above and
+          // post-system-comment.ts -- notify the creator that assignedTo
+          // didn't resolve via a system comment, never via the API response
+          // itself. Top-level (no replyTo) since this tree's schema has no
+          // remark field to seed a host comment from.
+          if (assignedToUnresolved && result.instance.workflowId) {
+            try {
+              await withTenantContext(tenantId, (tx) =>
+                postSystemComment(tx, {
+                  tenantId,
+                  instanceId: result.instance.id,
+                  // TS discards the outer `if` guard's narrowing of
+                  // result.instance.workflowId once it's read inside this
+                  // nested arrow function -- the guard above already
+                  // ensures it's truthy here.
+                  workflowId: result.instance.workflowId as string,
+                  currentState: result.instance.currentState,
+                  // PR #576 review (PrabhuVijit, F2) -- same rationale as
+                  // tickets.ts's identical fix: never echo the caller-
+                  // supplied assignedTo value into a System-attributed
+                  // record.
+                  text: "The assignedTo value you provided could not be resolved to an org member -- this sub-ticket was created unassigned.",
+                  notifyUserId: actingPersonId,
+                }),
+              );
+            } catch (systemCommentErr) {
+              logger.error(
+                {
+                  systemCommentErr,
+                  tenantId,
+                  instanceId: result.instance.id,
+                },
+                "third-party sub-ticket create: failed to post assignedTo-unresolved system comment",
+              );
+            }
+          }
           return { status: 201, body: { data: result.instance } };
         } catch (err) {
           if (

@@ -85,12 +85,15 @@ async function resolveIdentifier(
   // never an opaque userId or necessarily an email. Matches
   // resolveOrgMemberUserId's identical three-way match used for assignedTo
   // resolution.
+  // PR #576 review (PrabhuVijit, M1) -- loginName compared case-
+  // insensitively too, matching email's treatment (userId stays exact --
+  // an opaque id, never something a human retypes in a different case).
   const lowerIdentifier = identifier.toLowerCase();
   const match = zitadelUsers.find(
     (u: OrgUser) =>
       u.userId === identifier ||
       u.email.toLowerCase() === lowerIdentifier ||
-      u.loginName === identifier,
+      u.loginName.toLowerCase() === lowerIdentifier,
   );
   if (!match) return null;
 
@@ -230,7 +233,15 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
               comment: null,
               metadata: {
                 type: "comment",
-                text: `The mention "${mentionIdentifier}" could not be resolved to an org member.`,
+                // PR #576 review (PrabhuVijit, F2) -- deliberately does NOT
+                // echo the caller-supplied mentionIdentifier back into a
+                // System-attributed record, same rationale as
+                // post-system-comment.ts's identical fix: it's unvalidated,
+                // unbounded third-party input (mentions[] has a max(20)
+                // array-length cap but no per-string length cap), and the
+                // comment's own author already knows which identifier they
+                // typed.
+                text: "One of the mentions in this comment could not be resolved to an org member.",
                 // "System" not "System Agent"/"system" -- ported from the
                 // sibling AuthNexus fork's same-day fix: list-workflow-events.ts's
                 // dedup guard discards metadata.actorName whenever it exactly

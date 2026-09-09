@@ -52,7 +52,9 @@ const CreateThirdPartyCommentSchema = z.object({
   // Agent" reply comment notifying the original commenter, so the failure
   // is only ever visible to the one person who submitted it, through a real
   // notification, never through the API response itself.
-  mentions: z.array(z.string().min(1)).max(20).default([]),
+  // PR #576 review (PrabhuVijit, F2/M4) -- per-item length bound, same
+  // rationale as tickets.ts/children.ts's assignedTo field.
+  mentions: z.array(z.string().trim().min(1).max(256)).max(20).default([]),
   // ADR-012 Phase D, spec R3 -- references completed attachment uploads;
   // never file content itself (spec R2, see attachments-presign.ts).
   attachmentIds: z

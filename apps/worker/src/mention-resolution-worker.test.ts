@@ -318,7 +318,10 @@ describe("mention-resolution-worker", () => {
       }
     ).metadata;
     expect(commentMeta.actorName).toBe("System");
-    expect(commentMeta.text).toContain("nobody@example.com");
+    // PR #576 review (PrabhuVijit, F2) -- the message deliberately no
+    // longer echoes the raw identifier back (unvalidated third-party
+    // input embedded in a System-attributed record); it must not appear.
+    expect(commentMeta.text).not.toContain("nobody@example.com");
     expect(commentMeta.replyTo).toBe(COMMENT_ID);
 
     const replyOutbox = insertCalls.find(
