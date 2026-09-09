@@ -47,6 +47,9 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "workflow_fields.listed": true,
   "attachment.downloaded": true,
   "attachment.download_denied": true,
+  "oncall.auto_assigned": true,
+  "oncall.no_schedule": true,
+  "oncall.skipped_explicit_assignee": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -82,6 +85,13 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "child.access_denied",
   "attachment.referenced",
   "attachment.reference_denied",
+  // oncall.auto_assigned mutates the ticket's assignee; the other two are
+  // written at the same decision point (a team_id-change event) even though
+  // no assignee mutation happens on that particular outcome -- classified
+  // "write" for consistency with where they appear in the automation flow.
+  "oncall.auto_assigned",
+  "oncall.no_schedule",
+  "oncall.skipped_explicit_assignee",
 ]);
 
 /**
