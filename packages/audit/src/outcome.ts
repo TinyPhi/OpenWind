@@ -68,6 +68,17 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // never audited as a distinct label.* action.
   "label.assigned": true,
   "label.removed": true,
+  // notification.* and schedule.* are all system/worker outcomes, not a
+  // third-party caller's request being denied -- same reasoning as
+  // attachment.quarantined/scan_failed above.
+  "notification.dispatched": true,
+  "notification.channel_failed": true,
+  "schedule.ticket_created": true,
+  "schedule.execution_failed": true,
+  "schedule.execution_skipped": true,
+  "schedule.rule_paused": true,
+  "schedule.rule_resumed": true,
+  "schedule.rule_archived": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since
