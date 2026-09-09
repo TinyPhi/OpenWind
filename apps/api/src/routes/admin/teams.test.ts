@@ -193,6 +193,16 @@ describe("PATCH /admin/teams/:id", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("returns 409 when renaming to a name that already exists in this tenant (R3)", async () => {
+    updateShouldConflict = true;
+    const res = await makeApp().request(`/admin/teams/${mockTeamRow.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Platform Engineering" }),
+    });
+    expect(res.status).toBe(409);
+  });
 });
 
 describe("DELETE /admin/teams/:id", () => {
