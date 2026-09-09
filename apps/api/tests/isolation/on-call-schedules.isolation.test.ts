@@ -41,11 +41,11 @@ beforeAll(async () => {
   ]);
   const [teamA] = await db
     .insert(teams)
-    .values({ tenantId: TENANT_A, name: "On-Call Team A" })
+    .values({ tenantId: TENANT_A, name: "On-Call Team A", createdBy: USER_A })
     .returning({ id: teams.id });
   const [teamB] = await db
     .insert(teams)
-    .values({ tenantId: TENANT_B, name: "On-Call Team B" })
+    .values({ tenantId: TENANT_B, name: "On-Call Team B", createdBy: USER_B })
     .returning({ id: teams.id });
   teamAId = teamA!.id;
   teamBId = teamB!.id;
@@ -166,7 +166,7 @@ describe("on_call_schedules — overlap constraint (R5)", () => {
   it("allows the identical window for a different team in the same tenant", async () => {
     const [otherTeam] = await db
       .insert(teams)
-      .values({ tenantId: TENANT_A, name: "Another Team A" })
+      .values({ tenantId: TENANT_A, name: "Another Team A", createdBy: USER_A })
       .returning({ id: teams.id });
     const [row] = await db
       .insert(onCallSchedules)
@@ -181,5 +181,27 @@ describe("on_call_schedules — overlap constraint (R5)", () => {
       })
       .returning({ id: onCallSchedules.id });
     expect(row?.id).toBeTruthy();
+  });
+});
+
+describe("on_call_schedules — cross-tenant WRITE isolation", () => {
+  it("RLS blocks inserting a row tagged with a different tenant_id under app_user role", async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE app_user`);
+        await tx.execute(
+          sql`SELECT set_config('app.tenant_id', ${TENANT_A}, true)`,
+        );
+        await tx.insert(onCallSchedules).values({
+          tenantId: TENANT_B,
+          teamId: teamBId,
+          label: "Smuggled Week",
+          startsAt: new Date("2026-11-01T00:00:00Z"),
+          endsAt: new Date("2026-11-08T00:00:00Z"),
+          primaryUserId: USER_A,
+          createdBy: USER_A,
+        });
+      }),
+    ).rejects.toBeTruthy();
   });
 });

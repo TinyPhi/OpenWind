@@ -14,23 +14,36 @@
 --
 -- analytics: included (id, tenant_id, name, team_id, created_at)
 --
--- team_id has NO foreign key constraint to teams(id) here -- cross-tenant
+-- created_by NOT NULL (PR #583 review, G1) -- same rationale as
+-- teams.created_by, see migration 0092's comment.
+--
+-- team_id has NO foreign key constraint to teams(id) -- cross-tenant
 -- ownership of team_id is validated at the application layer (R1d/T44,
 -- packages/teams' shared validateCrossTenantRefs helper), not via a DB FK,
 -- because a plain FK would only guarantee the team exists somewhere, not
 -- that it belongs to the same tenant as this service (Postgres FK checks
 -- bypass RLS -- see docs/specs/oncall-routing.md's "cross-tenant FK" row
--- in §C). ON DELETE RESTRICT is still meaningful once the app-layer check
--- passes: it blocks hard-deleting a team row while services still
--- reference it (teams are soft-deleted in practice -- R3 -- so this is a
--- defense-in-depth backstop, not the primary deletion guard).
+-- in §C). A DB FK here would also let a soft-deleted team keep being
+-- "validly" referenced by Postgres's own integrity check even after the
+-- app-layer helper is fixed to exclude soft-deleted rows (see the
+-- companion fix in packages/teams/src/cross-tenant-ref-validator.ts) --
+-- the app-layer check is the SOLE guard here, deliberately, matching
+-- on_call_schedules.team_id's identical no-FK treatment (migration 0094).
+--
+-- (PR #583 review, blocker 1: an earlier revision of this migration had
+-- `REFERENCES teams(id) ON DELETE RESTRICT` on this column, contradicting
+-- this very comment and creating Drizzle schema drift since
+-- packages/db/src/schema/teams.ts's teamId column never declared a
+-- `.references()` call. Removed -- the comment's stated intent was always
+-- correct, the DDL was the bug.)
 
 CREATE TABLE "services" (
   "id"          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "tenant_id"   uuid NOT NULL REFERENCES tenants(id),
   "name"        text NOT NULL,
   "description" text,
-  "team_id"     uuid REFERENCES teams(id) ON DELETE RESTRICT,
+  "team_id"     uuid,
+  "created_by"  uuid NOT NULL,
   "created_at"  timestamptz NOT NULL DEFAULT now(),
   "updated_at"  timestamptz NOT NULL DEFAULT now(),
   "deleted_at"  timestamptz

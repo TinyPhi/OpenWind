@@ -83,4 +83,20 @@ describe("validateCrossTenantRefs", () => {
     expect(callCount).toBe(1);
     expect(receivedIds).toEqual(["id-1", "id-2"]);
   });
+
+  it("deduplicates refIds before the batch lookup when two fields reference the same id (PR #583 review, S1)", async () => {
+    let receivedIds: string[] = [];
+    const errors = await validateCrossTenantRefs(
+      [
+        { fieldName: "primaryUserId", refId: "user-1" },
+        { fieldName: "backupUserId", refId: "user-1" },
+      ],
+      async (refIds) => {
+        receivedIds = refIds;
+        return new Set(refIds);
+      },
+    );
+    expect(receivedIds).toEqual(["user-1"]);
+    expect(errors).toEqual([]);
+  });
 });

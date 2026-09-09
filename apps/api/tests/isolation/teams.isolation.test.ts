@@ -11,6 +11,8 @@ import { db, withTenantContext, teams, tenants } from "@platform/db";
 
 const TENANT_A = "aaaaaaaa-3333-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-3333-4000-b000-000000000002";
+const USER_A = "aaaaaaaa-3333-4000-a000-000000000900";
+const USER_B = "bbbbbbbb-3333-4000-b000-000000000900";
 
 let teamAId: string;
 let teamBId: string;
@@ -31,11 +33,19 @@ beforeAll(async () => {
   ]);
   const [teamA] = await db
     .insert(teams)
-    .values({ tenantId: TENANT_A, name: "Platform Engineering" })
+    .values({
+      tenantId: TENANT_A,
+      name: "Platform Engineering",
+      createdBy: USER_A,
+    })
     .returning({ id: teams.id });
   const [teamB] = await db
     .insert(teams)
-    .values({ tenantId: TENANT_B, name: "Platform Engineering" })
+    .values({
+      tenantId: TENANT_B,
+      name: "Platform Engineering",
+      createdBy: USER_B,
+    })
     .returning({ id: teams.id });
   teamAId = teamA!.id;
   teamBId = teamB!.id;
@@ -91,9 +101,11 @@ describe("teams — cross-tenant WRITE isolation", () => {
         await tx.execute(
           sql`SELECT set_config('app.tenant_id', ${TENANT_A}, true)`,
         );
-        await tx
-          .insert(teams)
-          .values({ tenantId: TENANT_B, name: "Smuggled Team" });
+        await tx.insert(teams).values({
+          tenantId: TENANT_B,
+          name: "Smuggled Team",
+          createdBy: USER_A,
+        });
       }),
     ).rejects.toBeTruthy();
   });

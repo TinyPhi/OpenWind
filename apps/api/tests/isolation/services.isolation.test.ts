@@ -11,6 +11,8 @@ import { db, withTenantContext, services, tenants } from "@platform/db";
 
 const TENANT_A = "aaaaaaaa-4444-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-4444-4000-b000-000000000002";
+const USER_A = "aaaaaaaa-4444-4000-a000-000000000900";
+const USER_B = "bbbbbbbb-4444-4000-b000-000000000900";
 
 let serviceAId: string;
 let serviceBId: string;
@@ -31,11 +33,11 @@ beforeAll(async () => {
   ]);
   const [serviceA] = await db
     .insert(services)
-    .values({ tenantId: TENANT_A, name: "Payments API" })
+    .values({ tenantId: TENANT_A, name: "Payments API", createdBy: USER_A })
     .returning({ id: services.id });
   const [serviceB] = await db
     .insert(services)
-    .values({ tenantId: TENANT_B, name: "Payments API" })
+    .values({ tenantId: TENANT_B, name: "Payments API", createdBy: USER_B })
     .returning({ id: services.id });
   serviceAId = serviceA!.id;
   serviceBId = serviceB!.id;
@@ -93,9 +95,11 @@ describe("services — cross-tenant WRITE isolation", () => {
         await tx.execute(
           sql`SELECT set_config('app.tenant_id', ${TENANT_A}, true)`,
         );
-        await tx
-          .insert(services)
-          .values({ tenantId: TENANT_B, name: "Smuggled Service" });
+        await tx.insert(services).values({
+          tenantId: TENANT_B,
+          name: "Smuggled Service",
+          createdBy: USER_A,
+        });
       }),
     ).rejects.toBeTruthy();
   });

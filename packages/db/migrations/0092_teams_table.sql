@@ -12,12 +12,19 @@
 -- DROP TABLE IF EXISTS "teams";
 --
 -- analytics: included (id, tenant_id, name, created_at)
+--
+-- created_by NOT NULL (PR #583 review, G1): every other admin-managed
+-- resource in the platform (entity_instances, view_configs, saved_views,
+-- and this same feature's on_call_schedules) records who created it --
+-- teams/services were the odd ones out. Lets "all teams created by this
+-- admin" be queried directly without going through the audit log.
 
 CREATE TABLE "teams" (
   "id"          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "tenant_id"   uuid NOT NULL REFERENCES tenants(id),
   "name"        text NOT NULL,
   "description" text,
+  "created_by"  uuid NOT NULL,
   "created_at"  timestamptz NOT NULL DEFAULT now(),
   "updated_at"  timestamptz NOT NULL DEFAULT now(),
   "deleted_at"  timestamptz

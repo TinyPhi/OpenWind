@@ -20,6 +20,7 @@ export const teams = pgTable(
     tenantId: uuid("tenant_id").notNull(),
     name: text("name").notNull(),
     description: text("description"),
+    createdBy: uuid("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -47,6 +48,7 @@ export const services = pgTable(
     // Optional default owner team (R4) -- nullable, no ON DELETE CASCADE:
     // deleting a team must not cascade-delete its services (R4 invariant).
     teamId: uuid("team_id"),
+    createdBy: uuid("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

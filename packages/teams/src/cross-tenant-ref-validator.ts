@@ -23,8 +23,8 @@
  * query) -- see `lookupValidIdsInTable` below for the common case.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
-import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import type { AnyPgColumn, AnyPgTable } from "drizzle-orm/pg-core";
 import type { DbOrTx } from "@platform/db";
 
 export type FieldError = {
@@ -62,7 +62,10 @@ export async function validateCrossTenantRefs(
 ): Promise<FieldError[]> {
   if (refs.length === 0) return [];
 
-  const refIds = refs.map((r) => r.refId);
+  // Dedupe before the batch lookup -- two refs (different fieldNames) can
+  // legitimately point at the same resource, and there's no reason to ask
+  // the lookup to check the same id twice (PR #583 review, S1).
+  const refIds = [...new Set(refs.map((r) => r.refId))];
   const validIdSet = await lookupValidIds(refIds);
 
   const errors: FieldError[] = [];
@@ -85,8 +88,18 @@ export async function validateCrossTenantRefs(
  * `lookupValidIds` function suitable for passing straight into
  * `validateCrossTenantRefs`.
  *
+ * IMPORTANT (PR #583 review, blocker 3): pass `softDeleteColumn` whenever the
+ * referenced table has soft-delete semantics -- which is every table in this
+ * repo. Without it, a soft-deleted row (still present, still tenant-matched)
+ * is indistinguishable from a live one and will validate as "valid,"
+ * silently letting new writes reference an archived resource (e.g. a new
+ * on_call_schedule pointing at a soft-deleted team). Omit it only for a
+ * table you've confirmed has no `deleted_at`-style column at all.
+ *
  * Example (validating services.team_id against teams):
- *   const lookup = lookupValidIdsInTable(db, teams, teams.id, teams.tenantId, tenantId);
+ *   const lookup = lookupValidIdsInTable(
+ *     db, teams, teams.id, teams.tenantId, teams.deletedAt, tenantId,
+ *   );
  *   const errors = await validateCrossTenantRefs(
  *     [{ fieldName: "teamId", refId: input.teamId }],
  *     lookup,
@@ -94,23 +107,21 @@ export async function validateCrossTenantRefs(
  */
 export function lookupValidIdsInTable(
   db: DbOrTx,
-  // Drizzle's typed `.from()` can't be expressed generically over an
-  // arbitrary pgTable without a much heavier generic signature; this helper
-  // trades a small amount of type safety at the call site for genuine
-  // table-agnosticism -- the whole point of "generalize this helper" per
-  // R1d/T44 (see this file's header comment). Callers pass a concrete
-  // Drizzle table object.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  table: any,
+  table: AnyPgTable,
   idColumn: AnyPgColumn,
   tenantColumn: AnyPgColumn,
+  softDeleteColumn: AnyPgColumn | undefined,
   tenantId: string,
 ): (refIds: string[]) => Promise<Set<string>> {
   return async (refIds: string[]): Promise<Set<string>> => {
+    const conditions = [inArray(idColumn, refIds), eq(tenantColumn, tenantId)];
+    if (softDeleteColumn) {
+      conditions.push(isNull(softDeleteColumn));
+    }
     const rows = await db
       .select({ id: idColumn })
       .from(table)
-      .where(and(inArray(idColumn, refIds), eq(tenantColumn, tenantId)));
+      .where(and(...conditions));
     return new Set(rows.map((r) => r.id as string));
   };
 }
