@@ -43,7 +43,7 @@ CREATE TABLE "services" (
   "name"        text NOT NULL,
   "description" text,
   "team_id"     uuid,
-  "created_by"  uuid NOT NULL,
+  "created_by"  text NOT NULL, -- Zitadel JWT sub claim, not a local uuid PK
   "created_at"  timestamptz NOT NULL DEFAULT now(),
   "updated_at"  timestamptz NOT NULL DEFAULT now(),
   "deleted_at"  timestamptz

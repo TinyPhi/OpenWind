@@ -24,7 +24,7 @@ CREATE TABLE "teams" (
   "tenant_id"   uuid NOT NULL REFERENCES tenants(id),
   "name"        text NOT NULL,
   "description" text,
-  "created_by"  uuid NOT NULL,
+  "created_by"  text NOT NULL, -- Zitadel JWT sub claim, not a local uuid PK
   "created_at"  timestamptz NOT NULL DEFAULT now(),
   "updated_at"  timestamptz NOT NULL DEFAULT now(),
   "deleted_at"  timestamptz

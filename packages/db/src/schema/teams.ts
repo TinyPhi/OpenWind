@@ -20,7 +20,11 @@ export const teams = pgTable(
     tenantId: uuid("tenant_id").notNull(),
     name: text("name").notNull(),
     description: text("description"),
-    createdBy: uuid("created_by").notNull(),
+    // Zitadel JWT sub claim, not a local uuid PK -- matches every other
+    // user-reference column in this schema (entityInstances.createdBy,
+    // tenantUsers.userId, etc.) -- self-caught after PR #583 review, not a
+    // reviewer finding.
+    createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -48,7 +52,11 @@ export const services = pgTable(
     // Optional default owner team (R4) -- nullable, no ON DELETE CASCADE:
     // deleting a team must not cascade-delete its services (R4 invariant).
     teamId: uuid("team_id"),
-    createdBy: uuid("created_by").notNull(),
+    // Zitadel JWT sub claim, not a local uuid PK -- matches every other
+    // user-reference column in this schema (entityInstances.createdBy,
+    // tenantUsers.userId, etc.) -- self-caught after PR #583 review, not a
+    // reviewer finding.
+    createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -75,10 +83,15 @@ export const onCallSchedules = pgTable(
     label: text("label").notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
-    primaryUserId: uuid("primary_user_id").notNull(),
-    backupUserId: uuid("backup_user_id"),
-    escalationManagerUserId: uuid("escalation_manager_user_id"),
-    createdBy: uuid("created_by").notNull(),
+    // All three are Zitadel JWT sub claims, same reasoning as createdBy below.
+    primaryUserId: text("primary_user_id").notNull(),
+    backupUserId: text("backup_user_id"),
+    escalationManagerUserId: text("escalation_manager_user_id"),
+    // Zitadel JWT sub claim, not a local uuid PK -- matches every other
+    // user-reference column in this schema (entityInstances.createdBy,
+    // tenantUsers.userId, etc.) -- self-caught after PR #583 review, not a
+    // reviewer finding.
+    createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
