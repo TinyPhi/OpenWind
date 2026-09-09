@@ -16,11 +16,15 @@ import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 import { resolveOriginOidcClientId } from "../../lib/resolve-origin-oidc-client-id.js";
+import { resolveOrgMemberUserId } from "../../lib/resolve-org-member.js";
+import { postSystemComment } from "../../lib/post-system-comment.js";
 
 const CreateThirdPartyChildSchema = z.object({
   entityTypeId: z.string().uuid(),
   fields: z.record(z.unknown()).default({}),
-  assignedTo: z.string().optional(),
+  // PR #576 review (PrabhuVijit, F2/M4) -- bounded + trimmed, same rationale
+  // as tickets.ts's identical schema field.
+  assignedTo: z.string().trim().max(256).optional(),
   // No state/currentState field, same rationale as Phase B's ticket-create
   // schema (spec R6 pattern) — a sub-ticket is always created into its own
   // "open" child_status, never a caller-supplied value.
@@ -53,7 +57,7 @@ export const createThirdPartyChildHandler = factory.createHandlers(
   zValidator("json", CreateThirdPartyChildSchema),
   async (c) => {
     const parentId = c.req.param("id") ?? "";
-    const { tenantId, userId: authUserId } = c.get("auth");
+    const { tenantId, orgId, userId: authUserId } = c.get("auth");
     const { userId: actingPersonId } = c.get("actingPerson");
     const input = c.req.valid("json");
     const applicationActorId = applicationActorIdFromUserId(authUserId);
@@ -141,6 +145,45 @@ export const createThirdPartyChildHandler = factory.createHandlers(
       return notFound(c);
     }
 
+    // assignedTo resolution -- same rationale/behavior as tickets.ts's
+    // identical check (accepts either a raw user id or a username). Runs
+    // only after the parent-access check above -- ported alongside the
+    // sibling AuthNexus fork's own security-review fix, which moved this
+    // here specifically so the org-lookup (and the accepted real-org-member
+    // oracle it exposes) can't be probed via a nonexistent or inaccessible
+    // parent ticket id.
+    // Policy (ported from the sibling AuthNexus fork, revised from an
+    // earlier 422-on-failure design tried the same day): an unresolvable
+    // assignedTo no longer blocks sub-ticket creation. The sub-ticket is
+    // always created (unassigned if resolution failed), and the caller
+    // learns about the failure only via a system-generated comment
+    // notification below, never via a synchronous 422.
+    let resolvedAssignedTo: string | undefined;
+    let assignedToUnresolved = false;
+    if (input.assignedTo) {
+      // PR #576 review (PrabhuVijit, F3) -- same guard as tickets.ts's
+      // identical check: orgId is optional on AuthContext, and without this
+      // guard an absent orgId would silently treat every assignedTo as
+      // unresolved rather than skipping resolution outright.
+      if (!orgId) {
+        logger.warn(
+          { tenantId },
+          "third-party sub-ticket create: assignedTo resolution skipped -- orgId absent from auth context",
+        );
+        resolvedAssignedTo = input.assignedTo;
+      } else {
+        const assignedToResolution = await resolveOrgMemberUserId(
+          orgId,
+          input.assignedTo,
+        );
+        if (assignedToResolution.ok) {
+          resolvedAssignedTo = assignedToResolution.userId;
+        } else {
+          assignedToUnresolved = true;
+        }
+      }
+    }
+
     const response = await withIdempotency(
       {
         tenantId,
@@ -152,7 +195,7 @@ export const createThirdPartyChildHandler = factory.createHandlers(
         parentId,
         entityTypeId: input.entityTypeId,
         fields: input.fields,
-        assignedTo: input.assignedTo ?? null,
+        assignedTo: resolvedAssignedTo ?? null,
       },
       async () => {
         try {
@@ -161,7 +204,7 @@ export const createThirdPartyChildHandler = factory.createHandlers(
               parentId,
               entityTypeId: input.entityTypeId,
               childFields: input.fields,
-              assignedTo: input.assignedTo,
+              assignedTo: resolvedAssignedTo,
               createdBy: actingPersonId,
               actorType: "api_key",
               actingPersonId,
@@ -182,6 +225,50 @@ export const createThirdPartyChildHandler = factory.createHandlers(
             });
             return created;
           });
+
+          // PR #576 review (PrabhuVijit, F1) -- deliberately OUTSIDE the
+          // transaction above, in its own withTenantContext call. See
+          // tickets.ts's identical fix for the full rationale: running this
+          // inside the main transaction meant any failure in
+          // postSystemComment's inserts left Postgres in an aborted-
+          // transaction state that the try/catch could not undo, so the
+          // subsequent COMMIT would fail and roll back the sub-ticket
+          // creation too. See resolveOrgMemberUserId call above and
+          // post-system-comment.ts -- notify the creator that assignedTo
+          // didn't resolve via a system comment, never via the API response
+          // itself. Top-level (no replyTo) since this tree's schema has no
+          // remark field to seed a host comment from.
+          if (assignedToUnresolved && result.instance.workflowId) {
+            try {
+              await withTenantContext(tenantId, (tx) =>
+                postSystemComment(tx, {
+                  tenantId,
+                  instanceId: result.instance.id,
+                  // TS discards the outer `if` guard's narrowing of
+                  // result.instance.workflowId once it's read inside this
+                  // nested arrow function -- the guard above already
+                  // ensures it's truthy here.
+                  workflowId: result.instance.workflowId as string,
+                  currentState: result.instance.currentState,
+                  // PR #576 review (PrabhuVijit, F2) -- same rationale as
+                  // tickets.ts's identical fix: never echo the caller-
+                  // supplied assignedTo value into a System-attributed
+                  // record.
+                  text: "The assignedTo value you provided could not be resolved to an org member -- this sub-ticket was created unassigned.",
+                  notifyUserId: actingPersonId,
+                }),
+              );
+            } catch (systemCommentErr) {
+              logger.error(
+                {
+                  systemCommentErr,
+                  tenantId,
+                  instanceId: result.instance.id,
+                },
+                "third-party sub-ticket create: failed to post assignedTo-unresolved system comment",
+              );
+            }
+          }
           return { status: 201, body: { data: result.instance } };
         } catch (err) {
           if (
