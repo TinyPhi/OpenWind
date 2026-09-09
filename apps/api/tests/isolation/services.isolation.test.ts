@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq, and, sql } from "drizzle-orm";
-import { db, withTenantContext, services } from "@platform/db";
+import { eq, and, inArray, sql } from "drizzle-orm";
+import { db, withTenantContext, services, tenants } from "@platform/db";
 
 const TENANT_A = "aaaaaaaa-4444-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-4444-4000-b000-000000000002";
@@ -16,6 +16,19 @@ let serviceAId: string;
 let serviceBId: string;
 
 beforeAll(async () => {
+  // services.tenant_id REFERENCES tenants(id) -- real tenant rows required.
+  await db.insert(tenants).values([
+    {
+      id: TENANT_A,
+      name: "Services Isolation Test A",
+      slug: `services-isolation-a-${TENANT_A}`,
+    },
+    {
+      id: TENANT_B,
+      name: "Services Isolation Test B",
+      slug: `services-isolation-b-${TENANT_B}`,
+    },
+  ]);
   const [serviceA] = await db
     .insert(services)
     .values({ tenantId: TENANT_A, name: "Payments API" })
@@ -31,6 +44,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.delete(services).where(eq(services.tenantId, TENANT_A));
   await db.delete(services).where(eq(services.tenantId, TENANT_B));
+  await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
 });
 
 describe("services — cross-tenant READ isolation", () => {

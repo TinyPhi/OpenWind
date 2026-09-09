@@ -6,8 +6,14 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq, and, sql } from "drizzle-orm";
-import { db, withTenantContext, onCallSchedules, teams } from "@platform/db";
+import { eq, and, inArray, sql } from "drizzle-orm";
+import {
+  db,
+  withTenantContext,
+  onCallSchedules,
+  teams,
+  tenants,
+} from "@platform/db";
 
 const TENANT_A = "aaaaaaaa-5555-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-5555-4000-b000-000000000002";
@@ -20,6 +26,19 @@ let scheduleAId: string;
 let scheduleBId: string;
 
 beforeAll(async () => {
+  // teams.tenant_id / on_call_schedules.tenant_id REFERENCES tenants(id).
+  await db.insert(tenants).values([
+    {
+      id: TENANT_A,
+      name: "On-Call Isolation Test A",
+      slug: `oncall-isolation-a-${TENANT_A}`,
+    },
+    {
+      id: TENANT_B,
+      name: "On-Call Isolation Test B",
+      slug: `oncall-isolation-b-${TENANT_B}`,
+    },
+  ]);
   const [teamA] = await db
     .insert(teams)
     .values({ tenantId: TENANT_A, name: "On-Call Team A" })
@@ -68,6 +87,7 @@ afterAll(async () => {
     .where(eq(onCallSchedules.tenantId, TENANT_B));
   await db.delete(teams).where(eq(teams.tenantId, TENANT_A));
   await db.delete(teams).where(eq(teams.tenantId, TENANT_B));
+  await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
 });
 
 describe("on_call_schedules — cross-tenant READ isolation", () => {
