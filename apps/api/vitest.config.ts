@@ -35,6 +35,10 @@ export default defineConfig({
         packages,
         "notifications/src/index.ts",
       ),
+      // Not yet imported by any apps/api test (Phase 2 routes land later,
+      // per docs/specs/oncall-routing.md) -- added ahead of need per PR #583
+      // review G4, so it's in place before those imports start appearing.
+      "@platform/teams": path.join(packages, "teams/src/index.ts"),
     },
   },
   test: {

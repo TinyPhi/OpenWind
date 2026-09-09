@@ -54,6 +54,14 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "workflow_fields.listed": true,
   "attachment.downloaded": true,
   "attachment.download_denied": true,
+  // docs/specs/oncall-routing.md T4/T12-T14 -- resolve_oncall outcomes.
+  // None represent a third-party caller's request being denied: no_schedule
+  // is a fail-open lookup miss (R9) and skipped_explicit_assignee is an
+  // intentional precedence rule (R10), not an access refusal -- same
+  // reasoning as tag.fallback/tag.resolution_failed above.
+  "oncall.auto_assigned": true,
+  "oncall.no_schedule": true,
+  "oncall.skipped_explicit_assignee": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since

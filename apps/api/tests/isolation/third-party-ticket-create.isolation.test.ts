@@ -419,4 +419,28 @@ describe("POST /api/v1/tickets", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("rejects ticket creation with 422 VALIDATION_ERROR when fields contain reserved keys like __accessUsers (#524)", async () => {
+    const app = makeApp(apiKeyAuth(), ACTING_PERSON);
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflowId,
+        fields: {
+          title: "Injected ACL attempt",
+          __accessUsers: {
+            "attacker-id": { level: "read_write" },
+          },
+        },
+      }),
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      error: string;
+      fields?: Array<{ field: string; code: string }>;
+    };
+    expect(body.error).toBe("VALIDATION_ERROR");
+    expect(body.fields?.some((f) => f.field === "__accessUsers")).toBe(true);
+  });
 });

@@ -645,6 +645,34 @@
       "when": 1788356659836,
       "tag": "0091_origin_tagging_columns",
       "breakpoints": false
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1788356659837,
+      "tag": "0092_teams_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1788356659838,
+      "tag": "0093_services_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1788356659839,
+      "tag": "0094_on_call_schedules_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1788356659840,
+      "tag": "0095_admin_audit_log_oncall_actions",
+      "breakpoints": false
     }
   ]
 }

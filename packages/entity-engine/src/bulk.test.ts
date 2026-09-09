@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { inArray } from "drizzle-orm";
 import { entityInstances } from "@platform/db";
+import { ValidationError } from "./errors.js";
 
 // ── Mock @platform/db ─────────────────────────────────────────────────────────
 
@@ -76,6 +77,24 @@ vi.mock("./validation/index.js", () => ({
   applyFormulaFields: (...args: unknown[]) => mockApplyFormulaFields(...args),
   buildZodSchema: vi.fn(),
   evaluateFormula: vi.fn(),
+  isReservedFieldName: vi.fn((name: string) => name.startsWith("__")),
+  validateReservedFieldNames: vi.fn(
+    (fields: Record<string, unknown> | undefined | null) => {
+      if (!fields || typeof fields !== "object") return;
+      const reservedKeys = Object.keys(fields).filter((k) =>
+        k.startsWith("__"),
+      );
+      if (reservedKeys.length > 0) {
+        throw new ValidationError(
+          reservedKeys.map((key) => ({
+            field: key,
+            code: "RESERVED_FIELD",
+            message: `Field '${key}' is reserved for internal engine use and cannot be set directly`,
+          })),
+        );
+      }
+    },
+  ),
   validateEntityRefs: (...args: unknown[]) => mockValidateEntityRefs(...args),
   validateUserRefs: (...args: unknown[]) => mockValidateUserRefs(...args),
 }));
@@ -213,6 +232,29 @@ describe("bulkCreateEntities", () => {
     expect(result.created).toHaveLength(1);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.index).toBe(0);
+  });
+
+  it("skips items containing reserved fields and records VALIDATION_ERROR while processing valid items", async () => {
+    mockGetValidationSchema.mockResolvedValue(passingSchema());
+    mockSelectResult.mockReturnValue([fakeEntityType]);
+    mockInsertReturning.mockResolvedValue([makeRow("inst-2")]);
+
+    const inputs = [
+      {
+        entityTypeId: TYPE_ID,
+        fields: { subject: "A", __accessUsers: { user1: { level: "read" } } },
+      },
+      { entityTypeId: TYPE_ID, fields: { subject: "B" } },
+    ];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await bulkCreateEntities(dbMock as any, TENANT, inputs);
+
+    expect(result.created).toHaveLength(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.index).toBe(0);
+    expect(result.errors[0]?.fields[0]?.code).toBe("RESERVED_FIELD");
+    expect(result.errors[0]?.fields[0]?.field).toBe("__accessUsers");
   });
 
   it("returns empty created and collects all errors when every item fails", async () => {
@@ -373,6 +415,30 @@ describe("bulkUpdateEntities", () => {
       entityInstances.id,
       expect.arrayContaining(["inst-1", "inst-2"]),
     );
+  });
+
+  it("skips items containing reserved fields and records VALIDATION_ERROR while processing valid updates", async () => {
+    mockSelectResult.mockReturnValue([makeRow("inst-1"), makeRow("inst-2")]);
+    mockGetValidationSchema.mockResolvedValue(passingSchema());
+    mockUpdateReturning.mockResolvedValue([makeRow("inst-2")]);
+
+    const updates = [
+      {
+        id: "inst-1",
+        input: {
+          fields: { subject: "a", __accessUsers: { user1: { level: "read" } } },
+        },
+      },
+      { id: "inst-2", input: { fields: { subject: "b" } } },
+    ];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await bulkUpdateEntities(dbMock as any, TENANT, updates);
+
+    expect(result.updated).toHaveLength(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.id).toBe("inst-1");
+    expect(result.errors[0]?.code).toBe("VALIDATION_ERROR");
   });
 });
 

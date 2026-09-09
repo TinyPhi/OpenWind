@@ -1,6 +1,33 @@
 import { z } from "zod";
 import type { EntityField } from "../types.js";
-import type { FieldError } from "../errors.js";
+import { ValidationError, type FieldError } from "../errors.js";
+
+/**
+ * Internal engine keys (e.g. __accessUsers, __workflowState) are reserved
+ * for platform-internal ACL and state management and must not be written
+ * directly by callers.
+ */
+export function isReservedFieldName(name: string): boolean {
+  return (
+    name.startsWith("__") || name === "prototype" || name === "constructor"
+  );
+}
+
+export function validateReservedFieldNames(
+  fields: Record<string, unknown> | undefined | null,
+): void {
+  if (!fields || typeof fields !== "object") return;
+  const reservedKeys = Object.keys(fields).filter(isReservedFieldName);
+  if (reservedKeys.length > 0) {
+    throw new ValidationError(
+      reservedKeys.map((key) => ({
+        field: key,
+        code: "RESERVED_FIELD",
+        message: `Field '${key}' is reserved for internal engine use and cannot be set directly`,
+      })),
+    );
+  }
+}
 
 export function buildZodSchema(
   fields: EntityField[],
