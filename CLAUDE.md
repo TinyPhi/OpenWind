@@ -135,6 +135,8 @@ packages/
   plugin-sdk/   Plugin extension points (Phase 3)
   ui/           Shared design system (shadcn/ui + tokens)
   ai/           Anthropic SDK wrapper + RAG helpers
+  teams/        Teams/services/on-call-schedule primitives + the shared cross-tenant FK
+                validation helper reused by 3E (on-call routing) and 3F (temporal scheduler)
 modules/        Seed SQL + one-line stub index.ts per module (no domain logic TypeScript)
 tests/
   integration/  Cross-package integration tests
@@ -152,6 +154,8 @@ modules/*          → packages/*   (no cross-module imports ever)
 entity-engine      → db only
 workflow-engine    → db, entity-engine
 automation-engine  → db, workflow-engine, entity-engine
+teams              → db only     (3E on-call routing + 3F temporal scheduler shared
+                                   cross-tenant FK helper — docs/specs/oncall-routing.md T44)
 ```
 
 Cross-module communication: event bus, entity engine relations API, or tRPC only.

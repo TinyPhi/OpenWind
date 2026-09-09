@@ -1041,6 +1041,37 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  packages/teams:
+    dependencies:
+      '@platform/config':
+        specifier: workspace:*
+        version: link:../config
+      '@platform/db':
+        specifier: workspace:*
+        version: link:../db
+      '@platform/logger':
+        specifier: workspace:*
+        version: link:../logger
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(postgres@3.4.9)
+    devDependencies:
+      '@platform/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: ^25.7.0
+        version: 25.7.0
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@25.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@25.7.0)(jiti@2.6.1)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/telemetry:
     dependencies:
       '@opentelemetry/api':
