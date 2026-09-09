@@ -13,7 +13,7 @@
 ```sql
 CREATE TABLE teams (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id   uuid NOT NULL REFERENCES tenants(id),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   name        text NOT NULL,
   description text,
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -40,7 +40,7 @@ CREATE POLICY teams_tenant_write ON teams FOR ALL
 ```sql
 CREATE TABLE services (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id   uuid NOT NULL REFERENCES tenants(id),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   team_id     uuid REFERENCES teams(id) ON DELETE RESTRICT,  -- nullable: service without owning team
   name        text NOT NULL,
   description text,
@@ -69,7 +69,7 @@ CREATE POLICY services_tenant_write ON services FOR ALL
 ```sql
 CREATE TABLE labels (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id   uuid NOT NULL REFERENCES tenants(id),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   name        text NOT NULL,
   color       text NOT NULL CHECK (color ~ '^#[0-9a-fA-F]{6}$'),
   description text,
@@ -96,10 +96,14 @@ CREATE POLICY labels_tenant_write ON labels FOR ALL
 
 ```sql
 CREATE TABLE ticket_labels (
-  ticket_instance_id uuid NOT NULL REFERENCES entity_instances(id),
+  -- Join table FKs: ON DELETE CASCADE on ticket_instance_id ensures label associations are
+  -- automatically cleaned up when an entity instance is hard deleted (e.g. during tenant purge).
+  -- assigned_by is ON DELETE SET NULL to allow user deletion/offboarding (e.g. GDPR erasure)
+  -- without blocking on label attribution, while audit history is preserved via workflow events.
+  ticket_instance_id uuid NOT NULL REFERENCES entity_instances(id) ON DELETE CASCADE,
   label_id           uuid NOT NULL REFERENCES labels(id) ON DELETE RESTRICT,
-  tenant_id          uuid NOT NULL REFERENCES tenants(id),
-  assigned_by        uuid NOT NULL REFERENCES users(id),
+  tenant_id          uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  assigned_by        uuid REFERENCES users(id) ON DELETE SET NULL,
   assigned_at        timestamptz NOT NULL DEFAULT now(),
 
   PRIMARY KEY (ticket_instance_id, label_id)
@@ -125,15 +129,17 @@ CREATE POLICY ticket_labels_tenant_write ON ticket_labels FOR ALL
 -- CREATE EXTENSION IF NOT EXISTS btree_gist before this table DDL.
 CREATE TABLE on_call_schedules (
   id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id                   uuid NOT NULL REFERENCES tenants(id),
+  tenant_id                   uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   team_id                     uuid NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
   label                       text NOT NULL,
   starts_at                   timestamptz NOT NULL,
   ends_at                     timestamptz NOT NULL,
-  primary_user_id             uuid NOT NULL REFERENCES users(id),
-  backup_user_id              uuid REFERENCES users(id),            -- nullable
-  escalation_manager_user_id  uuid REFERENCES users(id),            -- nullable
-  created_by                  uuid NOT NULL REFERENCES users(id),
+  -- primary_user_id and created_by are required (RESTRICT); nullable secondary roles use SET NULL
+  -- so user offboarding / deletion is permitted without leaving active schedules in a broken state.
+  primary_user_id             uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  backup_user_id              uuid REFERENCES users(id) ON DELETE SET NULL,            -- nullable
+  escalation_manager_user_id  uuid REFERENCES users(id) ON DELETE SET NULL,            -- nullable
+  created_by                  uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now(),
   deleted_at                  timestamptz,   -- soft-delete; preserves audit trail history
@@ -166,7 +172,7 @@ CREATE POLICY on_call_schedules_tenant_write ON on_call_schedules FOR ALL
 ```sql
 CREATE TABLE notification_policies (
   id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id                 uuid NOT NULL REFERENCES tenants(id),
+  tenant_id                 uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   -- scope dimensions (all nullable; null = "any")
   team_id                   uuid REFERENCES teams(id) ON DELETE RESTRICT,
   -- workflow_type_id references workflows(id) but no FK constraint is declared here:
@@ -179,7 +185,7 @@ CREATE TABLE notification_policies (
   channels                  text[] NOT NULL,   -- non-empty subset of known channel names
   notify_backup             boolean NOT NULL DEFAULT true,
   notify_escalation_manager boolean NOT NULL DEFAULT false,
-  created_by                uuid NOT NULL REFERENCES users(id),
+  created_by                uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   created_at                timestamptz NOT NULL DEFAULT now(),
   updated_at                timestamptz NOT NULL DEFAULT now(),
   deleted_at                timestamptz,   -- soft-delete; preserves audit trail history
@@ -501,6 +507,15 @@ Body: same fields, all optional. Response `200`: `{ "data": { ...label } }`
 Soft-delete — `deleted_at` set; existing `ticket_labels` rows are kept for history.
 Response `204`. Errors: `404` not found.
 
+**Rate Limiting (ADR-013)**:
+
+- Interactive admin/agent traffic: Gated by per-tenant aggregate rate limit (`RATE_LIMIT_TENANT_PER_MIN` = 600 req/min).
+- Third-party API key traffic (`scopes_format = 'action'`):
+  - Tier 1 (Per-Key-and-Person): 20 req/min (`RATE_LIMIT_API_KEY_PERSON_PER_MIN`)
+  - Tier 2 (Per-Key Aggregate): 200 req/min (`RATE_LIMIT_API_KEY_PER_MIN`)
+  - Tier 3 (Per-Tenant Aggregate): 600 req/min (`RATE_LIMIT_TENANT_PER_MIN`)
+- Pre-auth IP flood limit: 500 req/min per IP (`rateLimit()` middleware).
+
 ### 2.6 Ticket Label Assignment
 
 #### `GET /tickets/:id/labels`
@@ -544,6 +559,16 @@ Removes one label.
 Response `204`. Errors: `404` label not on this ticket.
 
 Writes audit entry: `label.removed { labelId, labelName, ticketId, actorId }`.
+
+**Rate Limiting (ADR-013)**:
+All ticket label endpoints (`GET /tickets/:id/labels`, `PUT /tickets/:id/labels`, `POST /tickets/:id/labels/:labelId`, `DELETE /tickets/:id/labels/:labelId`) are agent-accessible and annotated under ADR-013's 3-tier rate limiting model:
+
+- Interactive agent/user traffic: Gated by per-tenant aggregate rate limit (`RATE_LIMIT_TENANT_PER_MIN` = 600 req/min).
+- Third-party API traffic (`scopes_format = 'action'`):
+  - Tier 1 (Per-Key-and-Person): 20 req/min (`RATE_LIMIT_API_KEY_PERSON_PER_MIN`, checked via `enforceKeyPersonRateLimit`).
+  - Tier 2 (Per-Key Aggregate): 200 req/min (`RATE_LIMIT_API_KEY_PER_MIN`, checked via `enforceApiKeyRateLimit`).
+  - Tier 3 (Per-Tenant Aggregate): 600 req/min (`RATE_LIMIT_TENANT_PER_MIN`, checked via `enforceTenantRateLimit`).
+- Pre-auth flood limit: 500 req/min per client IP (`rateLimit()` middleware).
 
 ### 2.7 Ticket list label filter (extension to existing `GET /tickets`)
 
