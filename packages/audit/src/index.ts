@@ -111,7 +111,13 @@ export type AuditAction =
   | "workflow.listed"
   | "workflow_fields.listed"
   | "attachment.downloaded"
-  | "attachment.download_denied";
+  | "attachment.download_denied"
+  // docs/specs/oncall-routing.md T4/T12-T14 — resolve_oncall automation
+  // action outcomes. Migration 0095_admin_audit_log_oncall_actions.sql
+  // extends the DB CHECK constraint in the same commit.
+  | "oncall.auto_assigned"
+  | "oncall.no_schedule"
+  | "oncall.skipped_explicit_assignee";
 
 export type AuditEntryInput = {
   tenantId: string;

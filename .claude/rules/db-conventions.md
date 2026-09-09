@@ -66,6 +66,43 @@ Migration PR checklist:
 
 ---
 
+## Cross-table FK references need an app-layer ownership check, not just a DB FK
+
+A plain Postgres `FOREIGN KEY` constraint only guarantees the referenced row exists
+_somewhere_ — it does not guarantee that row belongs to the same tenant as the row holding
+the reference. Two compounding reasons this matters:
+
+1. **FK constraint checks bypass RLS.** Postgres evaluates FK integrity as the table owner,
+   not as the querying role — RLS policies never run during that check, so a same-shaped
+   FK alone cannot enforce "must belong to this tenant."
+2. **Some references have no table to point an FK at.** A `*_user_id` column referencing a
+   Zitadel-managed identity (no local `users` table — see `packages/entity-engine`'s
+   `validateUserRefs` against the `tenant_users` shadow table) or a deliberately
+   FK-less column (e.g. `notification_policies.workflow_type_id`, per ADR-016) can't use a
+   DB FK at all.
+
+**The pattern**: any column that references another tenant-scoped table (or a
+Zitadel-managed identity) — where that column is not itself the row's own `tenant_id` — is
+validated in the application layer, before the write is issued, against the requesting
+tenant. Two established implementations of this pattern exist and should be reused rather
+than re-implemented per feature:
+
+- `packages/entity-engine/src/validation/ref-validator.ts` — `validateEntityRefs`/
+  `validateUserRefs`, specific to the entity engine's `entity_ref`/`user_ref` field types.
+- `packages/teams/src/cross-tenant-ref-validator.ts` — `validateCrossTenantRefs` +
+  `lookupValidIdsInTable`, the **generic, table-agnostic** version (docs/specs/
+  oncall-routing.md R1d/T44). Prefer this one for any new cross-table reference outside the
+  entity engine's own field types — e.g. `services.team_id`, `on_call_schedules.*_user_id`,
+  `notification_policies.team_id`/`.workflow_type_id`, and the temporal-scheduler track's
+  `schedule_rules.workflow_id` and template `team_id`/`assignee_id`/`service_id` (R10b) all
+  reuse this same helper rather than each shipping their own validation function.
+
+A rejected cross-tenant reference returns `422` (a field-level validation error), never a
+raw FK-violation `500` and never a `403` (which would leak that the referenced row exists —
+see `security.md`'s 404-not-403 rule, applied here as "422, not an existence leak").
+
+---
+
 ## Isolation tests travel with every new table
 
 Adding a new tenant-scoped table? Add isolation tests in `tests/isolation/` in the
