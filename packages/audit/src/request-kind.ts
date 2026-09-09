@@ -50,6 +50,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "oncall.auto_assigned": true,
   "oncall.no_schedule": true,
   "oncall.skipped_explicit_assignee": true,
+  "label.assigned": true,
+  "label.removed": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -92,6 +94,8 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "oncall.auto_assigned",
   "oncall.no_schedule",
   "oncall.skipped_explicit_assignee",
+  "label.assigned",
+  "label.removed",
 ]);
 
 /**

@@ -62,6 +62,12 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "oncall.auto_assigned": true,
   "oncall.no_schedule": true,
   "oncall.skipped_explicit_assignee": true,
+  // Neither represents a denied caller request -- both are ordinary
+  // successful mutations (assign/remove a label the caller had access to
+  // make); denial for these paths is a plain 403/422 at the route layer,
+  // never audited as a distinct label.* action.
+  "label.assigned": true,
+  "label.removed": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since
