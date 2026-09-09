@@ -382,6 +382,13 @@ export async function createChildRelation(
       ...(actorType && { actorType }),
       ...(actingPersonId && { actingPersonId }),
     },
+    // Mirrors the identical fields written to entity_instances above --
+    // ported from the sibling AuthNexus fork's same-day fix: previously
+    // omitted here entirely, so a sub-ticket's own creation event carried no
+    // app/person attribution even though the sub-ticket row itself did.
+    originMechanism: originMechanism ?? null,
+    originOidcClientId: originOidcClientId ?? null,
+    originPerformerUserId: originPerformerUserId ?? null,
   });
 
   // Outbox events for entity.created/entity.assigned automations (#126) —

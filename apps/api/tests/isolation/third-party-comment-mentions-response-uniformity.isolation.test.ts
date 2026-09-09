@@ -7,6 +7,11 @@
  * mention-resolution-worker.ts) — these tests prove that decoupling holds in
  * practice, not just architecturally.
  *
+ * A same-day synchronous 422-on-unresolved-mention design was tried and
+ * reverted once security review flagged it as a fast, scriptable "does this
+ * identifier exist" oracle. This test restores/proves the original
+ * async-only contract this route always had before that detour.
+ *
  * Real Postgres + real Redis (mentionResolutionQueue.add is a genuine BullMQ
  * enqueue here, not mocked) — no resolution worker is running in this test
  * process, so jobs simply sit in the queue; only the synchronous HTTP
