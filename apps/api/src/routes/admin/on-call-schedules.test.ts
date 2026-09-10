@@ -3,13 +3,14 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
-const { mockAuth } = vi.hoisted(() => ({
+const { mockAuth, mockWriteAuditEntry } = vi.hoisted(() => ({
   mockAuth: {
     tenantId: "t-aaa",
     userId: "u-bbb",
     roles: ["admin"] as string[],
     email: "test@example.com",
   },
+  mockWriteAuditEntry: vi.fn(),
 }));
 
 vi.mock("@platform/auth", () => ({
@@ -50,6 +51,7 @@ const mockScheduleRow = {
 };
 
 let overlapConflict = false;
+let getReturnsRow = true;
 
 vi.mock("@platform/teams", () => ({
   validateCrossTenantRefs: async (
@@ -66,8 +68,15 @@ vi.mock("@platform/teams", () => ({
         meta: { refId: r.refId },
       }));
   },
-  lookupValidIdsInTable: () => async () =>
-    new Set(["11111111-1111-4111-8111-111111111111"]),
+  // Distinguishes the team_id lookup (idColumn "id") from the user-ref
+  // lookup (idColumn "userId", used by validateScheduleRefs' B4 fix) -- both
+  // now go through this same mocked helper, so a single fixed Set would
+  // wrongly reject "u-bbb" against the team_id's valid-id set.
+  lookupValidIdsInTable:
+    (_tx: unknown, _table: unknown, idColumn: string) => async () =>
+      idColumn === "userId"
+        ? new Set(["u-bbb"])
+        : new Set(["11111111-1111-4111-8111-111111111111"]),
 }));
 
 vi.mock("@platform/db", () => ({
@@ -96,7 +105,7 @@ vi.mock("@platform/db", () => ({
       from: () => tx,
       where: () => tx,
       orderBy: () => tx,
-      limit: () => Promise.resolve([mockScheduleRow]),
+      limit: () => Promise.resolve(getReturnsRow ? [mockScheduleRow] : []),
       insert: () => tx,
       values: () => tx,
       update: () => tx,
@@ -128,12 +137,21 @@ vi.mock("@platform/logger", () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => {
+    mockWriteAuditEntry(...args);
+    return Promise.resolve();
+  },
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   gt: (...args: unknown[]) => ({ op: "gt", args }),
   gte: (...args: unknown[]) => ({ op: "gte", args }),
   lte: (...args: unknown[]) => ({ op: "lte", args }),
+  or: (...args: unknown[]) => ({ op: "or", args }),
+  inArray: (...args: unknown[]) => ({ op: "inArray", args }),
   asc: (...args: unknown[]) => ({ op: "asc", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
 }));
@@ -159,6 +177,7 @@ const validCreateBody = {
 beforeEach(() => {
   mockAuth.roles = ["admin"];
   overlapConflict = false;
+  getReturnsRow = true;
 });
 
 describe("GET /admin/on-call-schedules — role enforcement", () => {
@@ -171,6 +190,25 @@ describe("GET /admin/on-call-schedules — role enforcement", () => {
     mockAuth.roles = ["user"];
     const res = await makeApp().request("/admin/on-call-schedules");
     expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /admin/on-call-schedules/:id", () => {
+  it("returns 200 with the schedule when it exists", async () => {
+    const res = await makeApp().request(
+      `/admin/on-call-schedules/${mockScheduleRow.id}`,
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.id).toBe(mockScheduleRow.id);
+  });
+
+  it("returns 404 when the schedule does not exist (or belongs to another tenant)", async () => {
+    getReturnsRow = false;
+    const res = await makeApp().request(
+      `/admin/on-call-schedules/${mockScheduleRow.id}`,
+    );
+    expect(res.status).toBe(404);
   });
 });
 

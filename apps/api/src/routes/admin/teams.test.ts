@@ -3,13 +3,14 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
-const { mockAuth } = vi.hoisted(() => ({
+const { mockAuth, mockWriteAuditEntry } = vi.hoisted(() => ({
   mockAuth: {
     tenantId: "t-aaa",
     userId: "u-bbb",
     roles: ["admin"] as string[],
     email: "test@example.com",
   },
+  mockWriteAuditEntry: vi.fn(),
 }));
 
 vi.mock("@platform/auth", () => ({
@@ -45,6 +46,7 @@ let insertShouldConflict = false;
 let updateShouldConflict = false;
 let updateReturnsRow = true;
 let deleteReturnsRow = true;
+let getReturnsRow = true;
 
 vi.mock("@platform/db", () => ({
   db: {},
@@ -61,7 +63,7 @@ vi.mock("@platform/db", () => ({
       from: () => tx,
       where: () => tx,
       orderBy: () => tx,
-      limit: () => Promise.resolve([mockTeamRow]),
+      limit: () => Promise.resolve(getReturnsRow ? [mockTeamRow] : []),
       insert: () => tx,
       values: () => tx,
       update: () => tx,
@@ -86,10 +88,18 @@ vi.mock("@platform/logger", () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => {
+    mockWriteAuditEntry(...args);
+    return Promise.resolve();
+  },
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   gt: (...args: unknown[]) => ({ op: "gt", args }),
+  or: (...args: unknown[]) => ({ op: "or", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
 }));
 
@@ -111,6 +121,7 @@ beforeEach(() => {
   updateShouldConflict = false;
   updateReturnsRow = true;
   deleteReturnsRow = true;
+  getReturnsRow = true;
 });
 
 describe("GET /admin/teams — role enforcement", () => {
@@ -131,6 +142,21 @@ describe("GET /admin/teams — role enforcement", () => {
     mockAuth.roles = ["user"];
     const res = await makeApp().request("/admin/teams");
     expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /admin/teams/:id", () => {
+  it("returns 200 with the team when it exists", async () => {
+    const res = await makeApp().request(`/admin/teams/${mockTeamRow.id}`);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.id).toBe(mockTeamRow.id);
+  });
+
+  it("returns 404 when the team does not exist (or belongs to another tenant)", async () => {
+    getReturnsRow = false;
+    const res = await makeApp().request(`/admin/teams/${mockTeamRow.id}`);
+    expect(res.status).toBe(404);
   });
 });
 

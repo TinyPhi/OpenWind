@@ -17,7 +17,7 @@
 import { Hono } from "hono";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { and, eq, gt, isNull, lte, gte, asc } from "drizzle-orm";
+import { and, eq, gt, or, inArray, isNull, lte, gte, asc } from "drizzle-orm";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";
 import {
@@ -34,6 +34,7 @@ import {
   type FieldError,
   type CrossTenantRefCheck,
 } from "@platform/teams";
+import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 
 type Vars = { Variables: { auth: AuthContext } };
@@ -145,14 +146,17 @@ async function validateScheduleRefs(
     });
   }
   if (userRefs.length > 0) {
-    const rows = await tx
-      .select({ userId: tenantUsers.userId })
-      .from(tenantUsers)
-      .where(eq(tenantUsers.tenantId, tenantId));
-    const validUserIds = new Set(rows.map((r) => r.userId));
-    const userErrors = await validateCrossTenantRefs(userRefs, () =>
-      Promise.resolve(validUserIds),
+    // Scoped to the 1-3 specific user ids being validated, not a full
+    // tenant_users table scan (PR #590 review, B4).
+    const userLookup = lookupValidIdsInTable(
+      tx,
+      tenantUsers,
+      tenantUsers.userId,
+      tenantUsers.tenantId,
+      undefined, // tenant_users has no soft-delete column
+      tenantId,
     );
+    const userErrors = await validateCrossTenantRefs(userRefs, userLookup);
     errors.push(
       ...userErrors.map((e: FieldError) => ({
         field: e.field,
@@ -184,7 +188,10 @@ router.get(
         if (to) conditions.push(lte(onCallSchedules.endsAt, to));
         if (cursor) {
           const [cursorRow] = await tx
-            .select({ startsAt: onCallSchedules.startsAt })
+            .select({
+              startsAt: onCallSchedules.startsAt,
+              id: onCallSchedules.id,
+            })
             .from(onCallSchedules)
             .where(
               and(
@@ -194,14 +201,23 @@ router.get(
             )
             .limit(1);
           if (cursorRow) {
-            conditions.push(gt(onCallSchedules.startsAt, cursorRow.startsAt));
+            // id as tiebreaker (PR #590 review, B3) -- two schedules for
+            // different teams can share an identical startsAt.
+            const cursorCondition = or(
+              gt(onCallSchedules.startsAt, cursorRow.startsAt),
+              and(
+                eq(onCallSchedules.startsAt, cursorRow.startsAt),
+                gt(onCallSchedules.id, cursorRow.id),
+              ),
+            );
+            if (cursorCondition) conditions.push(cursorCondition);
           }
         }
         const rows = await tx
           .select()
           .from(onCallSchedules)
           .where(and(...conditions))
-          .orderBy(asc(onCallSchedules.startsAt))
+          .orderBy(asc(onCallSchedules.startsAt), asc(onCallSchedules.id))
           .limit(limit + 1);
 
         const hasMore = rows.length > limit;
@@ -267,6 +283,8 @@ router.get("/current", requireRole("agent", "admin"), async (c) => {
         if (s.escalationManagerUserId)
           allUserIds.add(s.escalationManagerUserId);
       }
+      // Scoped to the handful of user ids referenced by active schedules,
+      // not a full tenant_users table scan (PR #590 review, G2).
       const userRows =
         allUserIds.size > 0
           ? await tx
@@ -276,7 +294,12 @@ router.get("/current", requireRole("agent", "admin"), async (c) => {
                 email: tenantUsers.email,
               })
               .from(tenantUsers)
-              .where(eq(tenantUsers.tenantId, auth.tenantId))
+              .where(
+                and(
+                  eq(tenantUsers.tenantId, auth.tenantId),
+                  inArray(tenantUsers.userId, [...allUserIds]),
+                ),
+              )
           : [];
       const userDisplayById = new Map(
         userRows.map((u) => [u.userId, u.displayName ?? u.email ?? u.userId]),
@@ -333,6 +356,50 @@ router.get("/current", requireRole("agent", "admin"), async (c) => {
   }
 });
 
+// GET /admin/on-call-schedules/:id
+router.get(
+  "/:id",
+  requireRole("agent", "admin"),
+  zValidator("param", ScheduleIdParamSchema),
+  async (c) => {
+    const auth = c.get("auth");
+    const { id } = c.req.valid("param");
+
+    try {
+      const [row] = await withTenantContext(auth.tenantId, (tx) =>
+        tx
+          .select()
+          .from(onCallSchedules)
+          .where(
+            and(
+              eq(onCallSchedules.id, id),
+              eq(onCallSchedules.tenantId, auth.tenantId),
+              isNull(onCallSchedules.deletedAt),
+            ),
+          )
+          .limit(1),
+      );
+
+      if (!row) {
+        return c.json(
+          { error: "NOT_FOUND", message: "Schedule not found" },
+          404,
+        );
+      }
+      return c.json({ data: row });
+    } catch (err: unknown) {
+      logger.error(
+        { err, tenantId: auth.tenantId, scheduleId: id },
+        "getOnCallSchedule failed",
+      );
+      return c.json(
+        { error: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+        500,
+      );
+    }
+  },
+);
+
 // POST /admin/on-call-schedules
 router.post(
   "/",
@@ -362,6 +429,25 @@ router.post(
             createdBy: auth.userId,
           })
           .returning();
+        if (row) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "on_call_schedule",
+            resourceId: row.id,
+            action: "created",
+            afterSnapshot: {
+              teamId: row.teamId,
+              label: row.label,
+              startsAt: row.startsAt,
+              endsAt: row.endsAt,
+              primaryUserId: row.primaryUserId,
+              backupUserId: row.backupUserId,
+              escalationManagerUserId: row.escalationManagerUserId,
+            },
+          });
+        }
         return { status: "created" as const, row };
       });
 
@@ -440,6 +526,32 @@ router.patch(
           .set({ ...input, updatedAt: new Date() })
           .where(eq(onCallSchedules.id, id))
           .returning();
+        if (row) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "on_call_schedule",
+            resourceId: row.id,
+            action: "updated",
+            beforeSnapshot: {
+              label: existing.label,
+              startsAt: existing.startsAt,
+              endsAt: existing.endsAt,
+              primaryUserId: existing.primaryUserId,
+              backupUserId: existing.backupUserId,
+              escalationManagerUserId: existing.escalationManagerUserId,
+            },
+            afterSnapshot: {
+              label: row.label,
+              startsAt: row.startsAt,
+              endsAt: row.endsAt,
+              primaryUserId: row.primaryUserId,
+              backupUserId: row.backupUserId,
+              escalationManagerUserId: row.escalationManagerUserId,
+            },
+          });
+        }
         return { status: "updated" as const, row };
       });
 
@@ -502,8 +614,18 @@ router.delete(
     const { id } = c.req.valid("param");
 
     try {
-      const [row] = await withTenantContext(auth.tenantId, (tx) =>
-        tx
+      const [row] = await withTenantContext(auth.tenantId, async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(onCallSchedules)
+          .where(
+            and(
+              eq(onCallSchedules.id, id),
+              eq(onCallSchedules.tenantId, auth.tenantId),
+            ),
+          )
+          .limit(1);
+        const [deleted] = await tx
           .update(onCallSchedules)
           .set({ deletedAt: new Date() })
           .where(
@@ -513,8 +635,27 @@ router.delete(
               isNull(onCallSchedules.deletedAt),
             ),
           )
-          .returning({ id: onCallSchedules.id }),
-      );
+          .returning({ id: onCallSchedules.id });
+        if (deleted) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "on_call_schedule",
+            resourceId: deleted.id,
+            action: "deleted",
+            beforeSnapshot: before
+              ? {
+                  teamId: before.teamId,
+                  label: before.label,
+                  startsAt: before.startsAt,
+                  endsAt: before.endsAt,
+                }
+              : null,
+          });
+        }
+        return [deleted] as const;
+      });
 
       if (!row) {
         return c.json(

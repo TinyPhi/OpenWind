@@ -9,7 +9,7 @@
 import { Hono } from "hono";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, or, isNull } from "drizzle-orm";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";
 import { db, withTenantContext, services, teams } from "@platform/db";
@@ -19,6 +19,7 @@ import {
   lookupValidIdsInTable,
   type FieldError,
 } from "@platform/teams";
+import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 
 type Vars = { Variables: { auth: AuthContext } };
@@ -88,7 +89,7 @@ router.get(
         ];
         if (cursor) {
           const [cursorRow] = await tx
-            .select({ createdAt: services.createdAt })
+            .select({ createdAt: services.createdAt, id: services.id })
             .from(services)
             .where(
               and(
@@ -98,14 +99,23 @@ router.get(
             )
             .limit(1);
           if (cursorRow) {
-            conditions.push(gt(services.createdAt, cursorRow.createdAt));
+            // id as tiebreaker (PR #590 review, B3) -- see teams.ts's GET /
+            // for why createdAt alone is not a safe sort/cursor key.
+            const cursorCondition = or(
+              gt(services.createdAt, cursorRow.createdAt),
+              and(
+                eq(services.createdAt, cursorRow.createdAt),
+                gt(services.id, cursorRow.id),
+              ),
+            );
+            if (cursorCondition) conditions.push(cursorCondition);
           }
         }
         const rows = await tx
           .select()
           .from(services)
           .where(and(...conditions))
-          .orderBy(services.createdAt)
+          .orderBy(services.createdAt, services.id)
           .limit(limit + 1);
 
         const hasMore = rows.length > limit;
@@ -126,6 +136,50 @@ router.get(
       });
     } catch (err: unknown) {
       logger.error({ err, tenantId: auth.tenantId }, "listServices failed");
+      return c.json(
+        { error: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+        500,
+      );
+    }
+  },
+);
+
+// GET /admin/services/:id
+router.get(
+  "/:id",
+  requireRole("agent", "admin"),
+  zValidator("param", ServiceIdParamSchema),
+  async (c) => {
+    const auth = c.get("auth");
+    const { id } = c.req.valid("param");
+
+    try {
+      const [row] = await withTenantContext(auth.tenantId, (tx) =>
+        tx
+          .select()
+          .from(services)
+          .where(
+            and(
+              eq(services.id, id),
+              eq(services.tenantId, auth.tenantId),
+              isNull(services.deletedAt),
+            ),
+          )
+          .limit(1),
+      );
+
+      if (!row) {
+        return c.json(
+          { error: "NOT_FOUND", message: "Service not found" },
+          404,
+        );
+      }
+      return c.json({ data: row });
+    } catch (err: unknown) {
+      logger.error(
+        { err, tenantId: auth.tenantId, serviceId: id },
+        "getService failed",
+      );
       return c.json(
         { error: "INTERNAL_ERROR", message: "An unexpected error occurred" },
         500,
@@ -163,6 +217,21 @@ router.post(
             createdBy: auth.userId,
           })
           .returning();
+        if (row) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "service",
+            resourceId: row.id,
+            action: "created",
+            afterSnapshot: {
+              name: row.name,
+              description: row.description,
+              teamId: row.teamId,
+            },
+          });
+        }
         return { status: "created" as const, row };
       });
 
@@ -225,6 +294,11 @@ router.patch(
         if (refErrors.length > 0) {
           return { status: "invalid" as const, refErrors };
         }
+        const [before] = await tx
+          .select()
+          .from(services)
+          .where(and(eq(services.id, id), eq(services.tenantId, auth.tenantId)))
+          .limit(1);
         const [row] = await tx
           .update(services)
           .set({ ...input, updatedAt: new Date() })
@@ -236,6 +310,28 @@ router.patch(
             ),
           )
           .returning();
+        if (row) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "service",
+            resourceId: row.id,
+            action: "updated",
+            beforeSnapshot: before
+              ? {
+                  name: before.name,
+                  description: before.description,
+                  teamId: before.teamId,
+                }
+              : null,
+            afterSnapshot: {
+              name: row.name,
+              description: row.description,
+              teamId: row.teamId,
+            },
+          });
+        }
         return {
           status: row ? ("updated" as const) : ("not_found" as const),
           row,
@@ -299,8 +395,13 @@ router.delete(
     const { id } = c.req.valid("param");
 
     try {
-      const [row] = await withTenantContext(auth.tenantId, (tx) =>
-        tx
+      const [row] = await withTenantContext(auth.tenantId, async (tx) => {
+        const [before] = await tx
+          .select({ name: services.name })
+          .from(services)
+          .where(and(eq(services.id, id), eq(services.tenantId, auth.tenantId)))
+          .limit(1);
+        const [deleted] = await tx
           .update(services)
           .set({ deletedAt: new Date() })
           .where(
@@ -310,8 +411,20 @@ router.delete(
               isNull(services.deletedAt),
             ),
           )
-          .returning({ id: services.id }),
-      );
+          .returning({ id: services.id });
+        if (deleted) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "service",
+            resourceId: deleted.id,
+            action: "deleted",
+            beforeSnapshot: before ? { name: before.name } : null,
+          });
+        }
+        return [deleted] as const;
+      });
 
       if (!row) {
         return c.json(

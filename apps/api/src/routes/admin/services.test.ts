@@ -3,13 +3,14 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 
-const { mockAuth } = vi.hoisted(() => ({
+const { mockAuth, mockWriteAuditEntry } = vi.hoisted(() => ({
   mockAuth: {
     tenantId: "t-aaa",
     userId: "u-bbb",
     roles: ["admin"] as string[],
     email: "test@example.com",
   },
+  mockWriteAuditEntry: vi.fn(),
 }));
 
 vi.mock("@platform/auth", () => ({
@@ -43,6 +44,7 @@ const mockServiceRow = {
 };
 
 let teamRefValid = true;
+let getReturnsRow = true;
 
 vi.mock("@platform/teams", () => ({
   validateCrossTenantRefs: async (
@@ -81,7 +83,7 @@ vi.mock("@platform/db", () => ({
       from: () => tx,
       where: () => tx,
       orderBy: () => tx,
-      limit: () => Promise.resolve([mockServiceRow]),
+      limit: () => Promise.resolve(getReturnsRow ? [mockServiceRow] : []),
       insert: () => tx,
       values: () => tx,
       update: () => tx,
@@ -96,10 +98,18 @@ vi.mock("@platform/logger", () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => {
+    mockWriteAuditEntry(...args);
+    return Promise.resolve();
+  },
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   gt: (...args: unknown[]) => ({ op: "gt", args }),
+  or: (...args: unknown[]) => ({ op: "or", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
 }));
 
@@ -116,6 +126,7 @@ function makeApp() {
 beforeEach(() => {
   mockAuth.roles = ["admin"];
   teamRefValid = true;
+  getReturnsRow = true;
 });
 
 describe("GET /admin/services — role enforcement", () => {
@@ -128,6 +139,21 @@ describe("GET /admin/services — role enforcement", () => {
     mockAuth.roles = ["user"];
     const res = await makeApp().request("/admin/services");
     expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /admin/services/:id", () => {
+  it("returns 200 with the service when it exists", async () => {
+    const res = await makeApp().request(`/admin/services/${mockServiceRow.id}`);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.id).toBe(mockServiceRow.id);
+  });
+
+  it("returns 404 when the service does not exist (or belongs to another tenant)", async () => {
+    getReturnsRow = false;
+    const res = await makeApp().request(`/admin/services/${mockServiceRow.id}`);
+    expect(res.status).toBe(404);
   });
 });
 

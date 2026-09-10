@@ -8,10 +8,11 @@
 import { Hono } from "hono";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, or, isNull } from "drizzle-orm";
 import type { AuthContext } from "@platform/auth";
 import { requireAuth, requireRole } from "@platform/auth";
 import { db, withTenantContext, teams } from "@platform/db";
+import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 
 type Vars = { Variables: { auth: AuthContext } };
@@ -51,20 +52,30 @@ router.get(
         ];
         if (cursor) {
           const [cursorRow] = await tx
-            .select({ createdAt: teams.createdAt })
+            .select({ createdAt: teams.createdAt, id: teams.id })
             .from(teams)
             .where(and(eq(teams.id, cursor), eq(teams.tenantId, auth.tenantId)))
             .limit(1);
           if (cursorRow) {
-            // Strictly-after cursor's createdAt, consistent with ORDER BY createdAt ASC.
-            conditions.push(gt(teams.createdAt, cursorRow.createdAt));
+            // id as tiebreaker (PR #590 review, B3): createdAt alone is not
+            // unique -- two rows inserted in the same millisecond share an
+            // identical createdAt, and a plain `gt(createdAt, cursor)` would
+            // silently skip both on a burst insert.
+            const cursorCondition = or(
+              gt(teams.createdAt, cursorRow.createdAt),
+              and(
+                eq(teams.createdAt, cursorRow.createdAt),
+                gt(teams.id, cursorRow.id),
+              ),
+            );
+            if (cursorCondition) conditions.push(cursorCondition);
           }
         }
         const rows = await tx
           .select()
           .from(teams)
           .where(and(...conditions))
-          .orderBy(teams.createdAt)
+          .orderBy(teams.createdAt, teams.id)
           .limit(limit + 1);
 
         const hasMore = rows.length > limit;
@@ -93,6 +104,47 @@ router.get(
   },
 );
 
+// GET /admin/teams/:id
+router.get(
+  "/:id",
+  requireRole("agent", "admin"),
+  zValidator("param", TeamIdParamSchema),
+  async (c) => {
+    const auth = c.get("auth");
+    const { id } = c.req.valid("param");
+
+    try {
+      const [row] = await withTenantContext(auth.tenantId, (tx) =>
+        tx
+          .select()
+          .from(teams)
+          .where(
+            and(
+              eq(teams.id, id),
+              eq(teams.tenantId, auth.tenantId),
+              isNull(teams.deletedAt),
+            ),
+          )
+          .limit(1),
+      );
+
+      if (!row) {
+        return c.json({ error: "NOT_FOUND", message: "Team not found" }, 404);
+      }
+      return c.json({ data: row });
+    } catch (err: unknown) {
+      logger.error(
+        { err, tenantId: auth.tenantId, teamId: id },
+        "getTeam failed",
+      );
+      return c.json(
+        { error: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+        500,
+      );
+    }
+  },
+);
+
 // POST /admin/teams
 router.post(
   "/",
@@ -103,8 +155,8 @@ router.post(
     const input = c.req.valid("json");
 
     try {
-      const [row] = await withTenantContext(auth.tenantId, (tx) =>
-        tx
+      const [row] = await withTenantContext(auth.tenantId, async (tx) => {
+        const [inserted] = await tx
           .insert(teams)
           .values({
             tenantId: auth.tenantId,
@@ -112,8 +164,31 @@ router.post(
             description: input.description,
             createdBy: auth.userId,
           })
-          .returning(),
-      );
+          .returning();
+        if (inserted) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "team",
+            resourceId: inserted.id,
+            action: "created",
+            afterSnapshot: {
+              name: inserted.name,
+              description: inserted.description,
+            },
+          });
+        }
+        return [inserted] as const;
+      });
+
+      if (!row) {
+        logger.error({ tenantId: auth.tenantId }, "createTeam returned no row");
+        return c.json(
+          { error: "INTERNAL_ERROR", message: "An unexpected error occurred" },
+          500,
+        );
+      }
       return c.json({ data: row }, 201);
     } catch (err: unknown) {
       // Postgres unique_violation on teams_tenant_name_unique (R3: duplicate
@@ -156,8 +231,13 @@ router.patch(
     const input = c.req.valid("json");
 
     try {
-      const [row] = await withTenantContext(auth.tenantId, (tx) =>
-        tx
+      const [row] = await withTenantContext(auth.tenantId, async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(teams)
+          .where(and(eq(teams.id, id), eq(teams.tenantId, auth.tenantId)))
+          .limit(1);
+        const [updated] = await tx
           .update(teams)
           .set({ ...input, updatedAt: new Date() })
           .where(
@@ -167,8 +247,26 @@ router.patch(
               isNull(teams.deletedAt),
             ),
           )
-          .returning(),
-      );
+          .returning();
+        if (updated) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "team",
+            resourceId: updated.id,
+            action: "updated",
+            beforeSnapshot: before
+              ? { name: before.name, description: before.description }
+              : null,
+            afterSnapshot: {
+              name: updated.name,
+              description: updated.description,
+            },
+          });
+        }
+        return [updated] as const;
+      });
 
       if (!row) {
         return c.json({ error: "NOT_FOUND", message: "Team not found" }, 404);
@@ -215,8 +313,13 @@ router.delete(
     const { id } = c.req.valid("param");
 
     try {
-      const [row] = await withTenantContext(auth.tenantId, (tx) =>
-        tx
+      const [row] = await withTenantContext(auth.tenantId, async (tx) => {
+        const [before] = await tx
+          .select({ name: teams.name })
+          .from(teams)
+          .where(and(eq(teams.id, id), eq(teams.tenantId, auth.tenantId)))
+          .limit(1);
+        const [deleted] = await tx
           .update(teams)
           .set({ deletedAt: new Date() })
           .where(
@@ -226,8 +329,20 @@ router.delete(
               isNull(teams.deletedAt),
             ),
           )
-          .returning({ id: teams.id }),
-      );
+          .returning({ id: teams.id });
+        if (deleted) {
+          await writeAuditEntry(tx, {
+            tenantId: auth.tenantId,
+            actorId: auth.userId,
+            actorType: "user",
+            resourceType: "team",
+            resourceId: deleted.id,
+            action: "deleted",
+            beforeSnapshot: before ? { name: before.name } : null,
+          });
+        }
+        return [deleted] as const;
+      });
 
       if (!row) {
         return c.json({ error: "NOT_FOUND", message: "Team not found" }, 404);
