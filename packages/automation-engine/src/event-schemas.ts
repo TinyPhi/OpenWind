@@ -147,6 +147,22 @@ export const CommentCreatedV1Schema = baseEvent.extend({
   commentId: z.string().uuid(),
 });
 
+// docs/specs/oncall-routing.md T13/T28 — resolve_oncall and
+// dispatch_severity_notification both trigger on this event, checking
+// `changed.team_id`/`changed.severity` for presence rather than a
+// condition-tree operator (evaluateConditionTree only supports flat
+// fields[cond.field] lookups, not old/new diffing — see
+// packages/workflow-engine/src/condition-evaluator.ts). `changed` mirrors
+// the map packages/entity-engine/src/engine.ts already computes in-memory
+// before writing this outbox row.
+export const EntityUpdatedV1Schema = baseEvent.extend({
+  eventType: z.literal("entity.updated"),
+  instanceId: z.string().uuid(),
+  entityTypeId: z.string().uuid(),
+  actorId: userIdField.nullable(),
+  changed: z.record(z.object({ old: z.unknown(), new: z.unknown() })),
+});
+
 export const AccessRequestCreatedV1Schema = baseEvent.extend({
   eventType: z.literal("access_request.created"),
   instanceId: z.string().uuid(),
@@ -168,6 +184,7 @@ export const TriggerEventSchema = z.discriminatedUnion("eventType", [
   EntityCreatedV1Schema,
   EntityAssignedV1Schema,
   EntityUnassignedV1Schema,
+  EntityUpdatedV1Schema,
   EntityDueDateOverdueV1Schema,
   CommentMentionedV1Schema,
   CommentMentionAccessGrantedV1Schema,
@@ -207,6 +224,7 @@ export type WorkflowSlaBreachedV1 = z.infer<typeof WorkflowSlaBreachedV1Schema>;
 export type EntityCreatedV1 = z.infer<typeof EntityCreatedV1Schema>;
 export type EntityAssignedV1 = z.infer<typeof EntityAssignedV1Schema>;
 export type EntityUnassignedV1 = z.infer<typeof EntityUnassignedV1Schema>;
+export type EntityUpdatedV1 = z.infer<typeof EntityUpdatedV1Schema>;
 export type EntityDueDateOverdueV1 = z.infer<
   typeof EntityDueDateOverdueV1Schema
 >;

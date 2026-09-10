@@ -850,7 +850,14 @@ export async function updateEntity(
             version: 1,
             tenantId,
             instanceId,
+            entityTypeId: existing.entityTypeId,
             actorId: input.actorId ?? null,
+            // docs/specs/oncall-routing.md T13/T28 — resolve_oncall and
+            // dispatch_severity_notification need to know WHICH fields
+            // changed (and their old/new values), not just that something
+            // did. `changed` is already computed above for the
+            // workflowEvents "Record updated" entry -- reused as-is here.
+            changed,
           },
         });
       }
