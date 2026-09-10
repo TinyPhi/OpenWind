@@ -17,6 +17,7 @@ import {
   onCallSchedules,
   teams,
   tenants,
+  tenantUsers,
   adminAuditLog,
 } from "@platform/db";
 import { env } from "@platform/config";
@@ -68,6 +69,15 @@ beforeAll(async () => {
     .returning({ id: teams.id });
   teamAId = teamA!.id;
   teamBId = teamB!.id;
+
+  // A user is "resolvable" (isUserResolvable/resolveOncallCascade in
+  // @platform/teams) only if a tenant_users row exists for them -- without
+  // this, the cascade would find every tier unresolvable and treat it as an
+  // exhausted cascade (R8b fail-open), never actually assigning.
+  await db.insert(tenantUsers).values([
+    { tenantId: TENANT_A, userId: USER_A },
+    { tenantId: TENANT_B, userId: USER_B },
+  ]);
 
   await db.insert(onCallSchedules).values([
     {
@@ -132,6 +142,9 @@ afterAll(async () => {
   await db
     .delete(adminAuditLog)
     .where(inArray(adminAuditLog.tenantId, [TENANT_A, TENANT_B]));
+  await db
+    .delete(tenantUsers)
+    .where(inArray(tenantUsers.tenantId, [TENANT_A, TENANT_B]));
   await db
     .delete(onCallSchedules)
     .where(inArray(onCallSchedules.tenantId, [TENANT_A, TENANT_B]));
