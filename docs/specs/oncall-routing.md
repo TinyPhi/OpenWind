@@ -287,6 +287,21 @@ R9: No active schedule for the team → ticket left unchanged, warning surfaced.
 ✓ Audit log records `oncall.no_schedule` for the team at that timestamp
 ✓ Admin UI surfaces affected tickets (has `team_id`, no `assignee`) with a coverage-gap badge
 
+R8b: On-call resolution cascades primary → backup → escalation manager, skipping any tier whose
+user is deactivated/deleted; if all three tiers are unavailable, the same fail-open coverage-gap
+behavior as R9 applies (ticket left unchanged, `oncall.no_schedule` audited) rather than a
+distinct failure path.
+✓ Primary on-call user is deactivated → backup on-call is assigned instead; audit records which
+tier the assignment actually resolved at (`oncall.auto_assigned` with `assignedTier: "backup"`)
+✓ Primary and backup both deactivated → escalation manager is assigned (`assignedTier: "escalation"`)
+✓ All three tiers deactivated or the schedule entry itself is missing them → same R9 fail-open path:
+`assignee` unchanged, `oncall.no_schedule` audited (not a new/different action string) — the
+spec makes no behavioral distinction between "no schedule exists" and "schedule exists but every
+tier is unavailable"; both are coverage gaps
+✓ "Deactivated/deleted user" reuses the same active-user check used by the temporal-scheduler's
+stale-owner detection (see `temporal-scheduler.md` R-stale-owner) — factored as one shared
+helper rather than duplicated per track, same spirit as the T44 cross-tenant FK helper
+
 R10: Explicit `assignee` on the same request as `team_id` wins; auto-resolution is skipped.
 ✓ Ticket with both `team_id` and explicit `assignee` in same payload → explicit assignee is used
 ✓ Audit log records `oncall.skipped_explicit_assignee` (not `oncall.auto_assigned`)
@@ -359,7 +374,8 @@ R20: The dry-run resolver endpoint returns the effective policy without side eff
 - Policy specificity is computed at dispatch time from live DB state, never cached — a policy change takes effect on the next severity-change event, not the next cache refresh
 - A `notification.dispatched` audit entry is written per dispatch attempt, one `notification.channel_failed` per failed channel — never swallowed silently
 - No policy at any specificity level = email-only; no severity on the ticket = no notification dispatch at all
-- The assignee set by `resolve_oncall` reflects the primary on-call at schedule-lookup time, not guaranteed-current at commit time — accepted TOCTOU trade-off; schedule changes are infrequent admin operations
+- The assignee set by `resolve_oncall` reflects the primary/backup/escalation user resolved by the cascade at schedule-lookup time, not guaranteed-current at commit time — accepted TOCTOU trade-off; schedule changes are infrequent admin operations
+- The primary→backup→escalation cascade (R8b) and the exhausted-cascade fail-open path share the identical `oncall.no_schedule` audit action and coverage-gap UI treatment as the no-schedule-at-all case (R9) — there is deliberately no separate "cascade exhausted" action string
 - Provider error messages written to `admin_audit_log` or logs must be sanitized: raw `err.message` is never stored; only error code + masked, truncated provider message (E.164 numbers masked) is written
 - On-call schedule entries are soft-deleted (`deleted_at`), never hard-deleted — audit entries referencing a `scheduleId` remain resolvable after admin deletion
 - A schedule entry whose window has already started (`starts_at <= now()`) cannot be modified via PATCH — returns `422`; only future-window entries are editable
@@ -368,51 +384,52 @@ R20: The dry-run resolver endpoint returns the effective policy without side eff
 
 ## §T Tasks
 
-| id  | task                                                                                                                                     | phase | status | depends  |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | -------- |
-| T1  | Migration: `teams` table + RLS policy + analytics annotation                                                                             | 1     | todo   | —        |
-| T2  | Migration: `services` table + RLS policy + analytics annotation                                                                          | 1     | todo   | T1       |
-| T3  | Migration: `on_call_schedules` table + GIST exclusion + RLS + analytics annotation                                                       | 1     | todo   | T1       |
-| T4  | Migration: extend `admin_audit_log` CHECK constraint for `oncall.*` action strings                                                       | 1     | todo   | T3       |
-| T5  | Seed SQL: add `severity`, `team_id`, `service_id` system fields to ticket entity type                                                    | 1     | todo   | T1,T2    |
-| T34 | Migration: `labels` table + RLS policy + analytics annotation                                                                            | 1     | todo   | —        |
-| T35 | Migration: `ticket_labels` junction table + RLS + analytics annotation                                                                   | 1     | todo   | T34      |
-| T36 | Migration: extend `admin_audit_log` CHECK for `label.*` action strings                                                                   | 1     | todo   | T35      |
-| T6  | `packages/teams` (or inline in packages/db): CRUD + on-call lookup + tenant guard                                                        | 2     | todo   | T1,T2,T3 |
-| T7  | `GET/POST/PATCH/DELETE /admin/teams` routes + Zod schemas + unit + integration tests                                                     | 2     | todo   | T6       |
-| T8  | `GET/POST/PATCH/DELETE /admin/services` routes + tests                                                                                   | 2     | todo   | T6       |
-| T9  | `GET/POST/PATCH/DELETE /admin/on-call-schedules` routes + overlap validation + tests                                                     | 2     | todo   | T6       |
-| T10 | `GET /admin/on-call-schedules/current` snapshot endpoint + tests                                                                         | 2     | todo   | T9       |
-| T11 | Isolation tests: cross-tenant schedule / team / service isolation                                                                        | 2     | todo   | T7,T8,T9 |
-| T12 | `resolve_oncall` action type in `packages/automation-engine`                                                                             | 3     | todo   | T6,T9    |
-| T13 | Automation rule seed: trigger on `entity.updated` where `team_id` changed → `resolve_oncall`                                             | 3     | todo   | T12      |
-| T14 | Explicit-assignee-wins guard (R10) + idempotency guard (R11)                                                                             | 3     | todo   | T12      |
-| T15 | Backup on-call notification via `@platform/notifications`                                                                                | 3     | todo   | T12      |
-| T16 | Isolation tests: auto-assignment cross-tenant isolation                                                                                  | 3     | todo   | T12,T13  |
-| T17 | Admin UI: Teams & Services management pages                                                                                              | 4     | todo   | T7,T8    |
-| T18 | Admin UI: Roster calendar / schedule builder per team                                                                                    | 4     | todo   | T9,T10   |
-| T19 | Admin UI: coverage-gap badge on tickets (R9 surface)                                                                                     | 4     | todo   | T13      |
-| T20 | Admin UI: ticket form — severity dropdown, team/service pickers, label chip selector                                                     | 4     | todo   | T5,T37   |
-| T37 | `GET/POST/PATCH/DELETE /admin/labels` routes + Zod schemas + unit + integration tests                                                    | 2     | todo   | T34      |
-| T38 | `GET/PUT/POST/DELETE /tickets/:id/labels` endpoints + cross-tenant guard + audit + isolation tests                                       | 2     | todo   | T35,T37  |
-| T39 | Prometheus metrics: register `openwind_oncall_*` + `openwind_notification_*` + `openwind_label_*` in `packages/telemetry/src/metrics.ts` | 3     | todo   | T12,T27  |
-| T40 | OTel spans: `oncall.resolve` + `notification.dispatch_severity` spans with attributes from design §9.3                                   | 3     | todo   | T12,T27  |
-| T41 | `openwind_oncall_coverage_gap_teams` gauge refresh in SLA scheduler worker (1-min cadence)                                               | 3     | todo   | T39      |
-| T42 | Grafana dashboard JSON for On-Call Routing row (6 panels — design §9.4)                                                                  | 4     | todo   | T39      |
-| T43 | Prometheus alert rules YAML `prometheus/alerts/oncall.yml` (3 rules — design §9.4)                                                       | 4     | todo   | T39      |
-| T21 | Migration: `notification_policies` table + partial unique indexes + RLS + analytics annotation                                           | 1     | todo   | —        |
-| T22 | Migration: extend `admin_audit_log` CHECK for `notification.*` action strings                                                            | 1     | todo   | T21      |
-| T23 | Notification policy CRUD library (resolve query with specificity scoring, tenant guard)                                                  | 2     | todo   | T21      |
-| T24 | `GET/POST/PATCH/DELETE /admin/notification-policies` routes + Zod schemas + tests                                                        | 2     | todo   | T23      |
-| T25 | `GET /admin/notification-policies/resolve` dry-run endpoint + tests                                                                      | 2     | todo   | T23      |
-| T26 | Isolation tests: cross-tenant policy isolation                                                                                           | 2     | todo   | T24      |
-| T27 | `dispatch_severity_notification` action type in `packages/automation-engine`                                                             | 3     | todo   | T23,T15  |
-| T28 | Automation rule seed: trigger on `entity.updated` where `severity` changed → `dispatch_severity_notification`                            | 3     | todo   | T27      |
-| T29 | Novu channel wiring: SMS + WhatsApp + call channel configs + provider env vars documented in `docs/local-setup.md`                       | 3     | todo   | T27      |
-| T30 | Severity-change idempotency guard (R16 — no re-dispatch on unchanged severity)                                                           | 3     | todo   | T27      |
-| T31 | Isolation tests: cross-tenant notification dispatch isolation                                                                            | 3     | todo   | T27,T28  |
-| T32 | Admin UI: Notification Policy builder (severity × team/workflow matrix, channel toggles, preview via /resolve)                           | 4     | todo   | T24,T25  |
-| T33 | Admin UI: per-ticket notification failure badge (R18 surface, last-24h channel_failed entries)                                           | 4     | todo   | T28      |
+| id   | task                                                                                                                                                      | phase | status | depends  |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | -------- |
+| T1   | Migration: `teams` table + RLS policy + analytics annotation                                                                                              | 1     | todo   | —        |
+| T2   | Migration: `services` table + RLS policy + analytics annotation                                                                                           | 1     | todo   | T1       |
+| T3   | Migration: `on_call_schedules` table + GIST exclusion + RLS + analytics annotation                                                                        | 1     | todo   | T1       |
+| T4   | Migration: extend `admin_audit_log` CHECK constraint for `oncall.*` action strings                                                                        | 1     | todo   | T3       |
+| T5   | Seed SQL: add `severity`, `team_id`, `service_id` system fields to ticket entity type                                                                     | 1     | todo   | T1,T2    |
+| T34  | Migration: `labels` table + RLS policy + analytics annotation                                                                                             | 1     | todo   | —        |
+| T35  | Migration: `ticket_labels` junction table + RLS + analytics annotation                                                                                    | 1     | todo   | T34      |
+| T36  | Migration: extend `admin_audit_log` CHECK for `label.*` action strings                                                                                    | 1     | todo   | T35      |
+| T6   | `packages/teams` (or inline in packages/db): CRUD + on-call lookup + tenant guard                                                                         | 2     | todo   | T1,T2,T3 |
+| T7   | `GET/POST/PATCH/DELETE /admin/teams` routes + Zod schemas + unit + integration tests                                                                      | 2     | todo   | T6       |
+| T8   | `GET/POST/PATCH/DELETE /admin/services` routes + tests                                                                                                    | 2     | todo   | T6       |
+| T9   | `GET/POST/PATCH/DELETE /admin/on-call-schedules` routes + overlap validation + tests                                                                      | 2     | todo   | T6       |
+| T10  | `GET /admin/on-call-schedules/current` snapshot endpoint + tests                                                                                          | 2     | todo   | T9       |
+| T11  | Isolation tests: cross-tenant schedule / team / service isolation                                                                                         | 2     | todo   | T7,T8,T9 |
+| T12  | `resolve_oncall` action type in `packages/automation-engine` — resolves the primary→backup→escalation cascade (R8b), not unconditional primary assignment | 3     | todo   | T6,T9    |
+| T13  | Automation rule seed: trigger on `entity.updated` where `team_id` changed → `resolve_oncall`                                                              | 3     | todo   | T12      |
+| T14  | Explicit-assignee-wins guard (R10) + idempotency guard (R11) + cascade-tier audit metadata (`assignedTier`, R8b)                                          | 3     | todo   | T12      |
+| T14b | Shared "is this user active" helper reused by R8b's cascade and the temporal-scheduler's stale-owner check (`packages/teams` or similar)                  | 3     | todo   | T12      |
+| T15  | Backup on-call notification via `@platform/notifications`                                                                                                 | 3     | todo   | T12      |
+| T16  | Isolation tests: auto-assignment cross-tenant isolation                                                                                                   | 3     | todo   | T12,T13  |
+| T17  | Admin UI: Teams & Services management pages                                                                                                               | 4     | todo   | T7,T8    |
+| T18  | Admin UI: Roster calendar / schedule builder per team                                                                                                     | 4     | todo   | T9,T10   |
+| T19  | Admin UI: coverage-gap badge on tickets (R9 surface)                                                                                                      | 4     | todo   | T13      |
+| T20  | Admin UI: ticket form — severity dropdown, team/service pickers, label chip selector                                                                      | 4     | todo   | T5,T37   |
+| T37  | `GET/POST/PATCH/DELETE /admin/labels` routes + Zod schemas + unit + integration tests                                                                     | 2     | todo   | T34      |
+| T38  | `GET/PUT/POST/DELETE /tickets/:id/labels` endpoints + cross-tenant guard + audit + isolation tests                                                        | 2     | todo   | T35,T37  |
+| T39  | Prometheus metrics: register `openwind_oncall_*` + `openwind_notification_*` + `openwind_label_*` in `packages/telemetry/src/metrics.ts`                  | 3     | todo   | T12,T27  |
+| T40  | OTel spans: `oncall.resolve` + `notification.dispatch_severity` spans with attributes from design §9.3                                                    | 3     | todo   | T12,T27  |
+| T41  | `openwind_oncall_coverage_gap_teams` gauge refresh in SLA scheduler worker (1-min cadence)                                                                | 3     | todo   | T39      |
+| T42  | Grafana dashboard JSON for On-Call Routing row (6 panels — design §9.4)                                                                                   | 4     | todo   | T39      |
+| T43  | Prometheus alert rules YAML `prometheus/alerts/oncall.yml` (3 rules — design §9.4)                                                                        | 4     | todo   | T39      |
+| T21  | Migration: `notification_policies` table + partial unique indexes + RLS + analytics annotation                                                            | 1     | todo   | —        |
+| T22  | Migration: extend `admin_audit_log` CHECK for `notification.*` action strings                                                                             | 1     | todo   | T21      |
+| T23  | Notification policy CRUD library (resolve query with specificity scoring, tenant guard)                                                                   | 2     | todo   | T21      |
+| T24  | `GET/POST/PATCH/DELETE /admin/notification-policies` routes + Zod schemas + tests                                                                         | 2     | todo   | T23      |
+| T25  | `GET /admin/notification-policies/resolve` dry-run endpoint + tests                                                                                       | 2     | todo   | T23      |
+| T26  | Isolation tests: cross-tenant policy isolation                                                                                                            | 2     | todo   | T24      |
+| T27  | `dispatch_severity_notification` action type in `packages/automation-engine`                                                                              | 3     | todo   | T23,T15  |
+| T28  | Automation rule seed: trigger on `entity.updated` where `severity` changed → `dispatch_severity_notification`                                             | 3     | todo   | T27      |
+| T29  | Novu channel wiring: SMS + WhatsApp + call channel configs + provider env vars documented in `docs/local-setup.md`                                        | 3     | todo   | T27      |
+| T30  | Severity-change idempotency guard (R16 — no re-dispatch on unchanged severity)                                                                            | 3     | todo   | T27      |
+| T31  | Isolation tests: cross-tenant notification dispatch isolation                                                                                             | 3     | todo   | T27,T28  |
+| T32  | Admin UI: Notification Policy builder (severity × team/workflow matrix, channel toggles, preview via /resolve)                                            | 4     | todo   | T24,T25  |
+| T33  | Admin UI: per-ticket notification failure badge (R18 surface, last-24h channel_failed entries)                                                            | 4     | todo   | T28      |
 
 phase gate: all unit + integration + isolation tests pass before advancing to next phase
 
