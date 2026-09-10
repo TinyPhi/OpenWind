@@ -19,6 +19,7 @@ import { apiKeysRouter } from "./routes/api-keys/index.js";
 import { modulesRouter } from "./routes/modules/index.js";
 import { pluginsRouter } from "./routes/plugins/index.js";
 import { viewConfigsRouter } from "./routes/view-configs/index.js";
+import { scheduleRulesRouter } from "./routes/admin/schedule-rules.js";
 import { rolesRouter } from "./routes/platform/roles.js";
 import { usersRouter } from "./routes/platform/users.js";
 import { filesRouter } from "./routes/files/index.js";
@@ -146,6 +147,7 @@ export function createApp(): Hono<AppVars> {
   app.route("/modules", modulesRouter);
   app.route("/plugins", pluginsRouter);
   app.route("/admin/view-configs", viewConfigsRouter);
+  app.route("/admin/schedule-rules", scheduleRulesRouter);
   app.route("/roles", rolesRouter);
   app.route("/users", usersRouter);
   app.route("/files", filesRouter);
