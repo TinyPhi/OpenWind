@@ -36,8 +36,9 @@ Blocked on Stage 1's isolation ADR.
 | D5  | fixed dashboards in Stage 1 — no chart authoring, no user-written SQL                                                                                                                            |
 
 Also decided: live database read-only with no replica (revisited in Stage 2); 60s pass lifetime,
-chosen so revocation is prompt; per-user scope uses the platform's existing "involved" predicate
-(assigned **or** created **or** granted) so figures reconcile with the personal dashboard.
+chosen so revocation is prompt; per-user scope uses assigned **or** created only — narrower than
+the platform's full "my work" definition, by design ("or granted" removed: `__accessUsers` lives
+in `fields` JSONB, which §C forbids any tile from reading).
 
 ### Findings that changed the design
 
