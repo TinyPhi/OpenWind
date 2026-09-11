@@ -245,7 +245,13 @@ router.patch(
         const [before] = await tx
           .select()
           .from(labels)
-          .where(and(eq(labels.id, id), eq(labels.tenantId, auth.tenantId)))
+          .where(
+            and(
+              eq(labels.id, id),
+              eq(labels.tenantId, auth.tenantId),
+              isNull(labels.deletedAt),
+            ),
+          )
           .limit(1);
         const [updated] = await tx
           .update(labels)
@@ -324,7 +330,13 @@ router.delete(
         const [before] = await tx
           .select({ name: labels.name })
           .from(labels)
-          .where(and(eq(labels.id, id), eq(labels.tenantId, auth.tenantId)))
+          .where(
+            and(
+              eq(labels.id, id),
+              eq(labels.tenantId, auth.tenantId),
+              isNull(labels.deletedAt),
+            ),
+          )
           .limit(1);
         const [deleted] = await tx
           .update(labels)

@@ -60,7 +60,12 @@ const CreatePolicySchema = z.object({
   teamId: z.string().uuid().optional(),
   workflowTypeId: z.string().uuid().optional(),
   severity: z.enum(SEVERITIES),
-  channels: z.array(z.enum(CHANNELS)).min(1),
+  channels: z
+    .array(z.enum(CHANNELS))
+    .min(1)
+    .refine((arr) => new Set(arr).size === arr.length, {
+      message: "channels must not contain duplicates",
+    }),
   notifyBackup: z.boolean().default(true),
   notifyEscalationManager: z.boolean().default(false),
 });
@@ -249,6 +254,18 @@ router.get(
 
     try {
       const result = await withTenantContext(auth.tenantId, async (tx) => {
+        // B2 (PR #594 review): without this, a stale/typo'd/cross-tenant
+        // teamId silently resolves to "no policies match" -- indistinguishable
+        // from a genuinely valid team with no active schedule. Same guard
+        // POST/PATCH already apply, now applied here too.
+        const refErrors = await validatePolicyRefs(tx, auth.tenantId, {
+          teamId,
+          workflowTypeId,
+        });
+        if (refErrors.length > 0) {
+          return { status: "invalid" as const, refErrors };
+        }
+
         const teamCondition = teamId
           ? (or(
               isNull(notificationPolicies.teamId),
@@ -287,6 +304,7 @@ router.get(
 
         if (!best) {
           return {
+            status: "ok" as const,
             policyId: null,
             matchedAt: "hardcoded-default" as const,
             channels: ["email"] as const,
@@ -387,6 +405,7 @@ router.get(
         }
 
         return {
+          status: "ok" as const,
           policyId: best.policy.id,
           matchedAt,
           channels: best.policy.channels,
@@ -396,7 +415,19 @@ router.get(
         };
       });
 
-      return c.json({ data: result });
+      if (result.status === "invalid") {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "Validation failed",
+            fields: result.refErrors,
+          },
+          422,
+        );
+      }
+
+      const { status: _status, ...data } = result;
+      return c.json({ data });
     } catch (err: unknown) {
       logger.error(
         { err, tenantId: auth.tenantId },
@@ -562,6 +593,7 @@ router.patch(
             and(
               eq(notificationPolicies.id, id),
               eq(notificationPolicies.tenantId, auth.tenantId),
+              isNull(notificationPolicies.deletedAt),
             ),
           )
           .limit(1);
@@ -669,6 +701,7 @@ router.delete(
             and(
               eq(notificationPolicies.id, id),
               eq(notificationPolicies.tenantId, auth.tenantId),
+              isNull(notificationPolicies.deletedAt),
             ),
           )
           .limit(1);

@@ -304,6 +304,20 @@ describe("POST /admin/notification-policies", () => {
     expect(res.status).toBe(400);
   });
 
+  // G1 (PR #594 review): a duplicate channel would dispatch the same
+  // channel twice per notification.
+  it("returns 400 for a duplicate channel", async () => {
+    const res = await makeApp().request("/admin/notification-policies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        severity: "high",
+        channels: ["email", "email"],
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("returns 409 when the specificity slot is already taken", async () => {
     insertShouldConflict = true;
     const res = await makeApp().request("/admin/notification-policies", {
@@ -475,5 +489,26 @@ describe("GET /admin/notification-policies/resolve", () => {
   it("returns 400 when severity is missing", async () => {
     const res = await makeApp().request("/admin/notification-policies/resolve");
     expect(res.status).toBe(400);
+  });
+
+  // B2 (PR #594 review): a stale/typo'd/cross-tenant teamId must not
+  // silently resolve to "no policies match" -- indistinguishable from a
+  // genuinely valid team with no active schedule.
+  it("returns 422 when teamId does not resolve within the tenant", async () => {
+    teamRefValid = false;
+    const res = await makeApp().request(
+      `/admin/notification-policies/resolve?severity=high&teamId=${TEAM_ID}`,
+    );
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 422 when workflowTypeId does not resolve within the tenant", async () => {
+    workflowRefValid = false;
+    const res = await makeApp().request(
+      "/admin/notification-policies/resolve?severity=high&workflowTypeId=33333333-3333-4333-8333-333333333333",
+    );
+    expect(res.status).toBe(422);
   });
 });
