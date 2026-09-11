@@ -209,6 +209,9 @@ importers:
       '@platform/secrets':
         specifier: workspace:*
         version: link:../../packages/secrets
+      '@platform/teams':
+        specifier: workspace:*
+        version: link:../../packages/teams
       '@platform/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry

@@ -20,6 +20,8 @@ import { modulesRouter } from "./routes/modules/index.js";
 import { pluginsRouter } from "./routes/plugins/index.js";
 import { viewConfigsRouter } from "./routes/view-configs/index.js";
 import { scheduleRulesRouter } from "./routes/admin/schedule-rules.js";
+import { labelsRouter } from "./routes/admin/labels.js";
+import { notificationPoliciesRouter } from "./routes/admin/notification-policies.js";
 import { rolesRouter } from "./routes/platform/roles.js";
 import { usersRouter } from "./routes/platform/users.js";
 import { filesRouter } from "./routes/files/index.js";
@@ -148,6 +150,8 @@ export function createApp(): Hono<AppVars> {
   app.route("/plugins", pluginsRouter);
   app.route("/admin/view-configs", viewConfigsRouter);
   app.route("/admin/schedule-rules", scheduleRulesRouter);
+  app.route("/admin/labels", labelsRouter);
+  app.route("/admin/notification-policies", notificationPoliciesRouter);
   app.route("/roles", rolesRouter);
   app.route("/users", usersRouter);
   app.route("/files", filesRouter);

@@ -32,6 +32,7 @@
     "@platform/redis": "workspace:*",
     "@platform/scheduler": "workspace:*",
     "@platform/secrets": "workspace:*",
+    "@platform/teams": "workspace:*",
     "@platform/telemetry": "workspace:*",
     "@platform/workflow-engine": "workspace:*",
     "@types/pdfkit": "^0.17.6",
