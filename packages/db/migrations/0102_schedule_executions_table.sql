@@ -19,6 +19,11 @@
 CREATE TABLE "schedule_executions" (
   "id"                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "tenant_id"           uuid NOT NULL REFERENCES tenants(id),
+  -- PR #586 review, S2: RESTRICT (not CASCADE/SET NULL) is deliberate --
+  -- schedule_rules are soft-deleted only (migration 0101's deleted_at), so
+  -- this FK is never expected to face an actual row deletion. If a future
+  -- hard-delete/cleanup path for schedule_rules is added, it must account
+  -- for this FK blocking it rather than silently switching the constraint.
   "rule_id"             uuid NOT NULL REFERENCES schedule_rules(id) ON DELETE RESTRICT,
   "scheduled_at"        timestamptz NOT NULL,
   "fired_at"            timestamptz NOT NULL DEFAULT now(),

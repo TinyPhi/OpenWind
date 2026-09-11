@@ -24,6 +24,15 @@
 -- helper) at the route layer in Phase 2 -- this table is not an
 -- entity-engine entity type, so the ticket-fields entity_ref gap
 -- (open-questions.md) does not apply here.
+--
+-- PR #586 review, B2: `cron_expr` has no full syntax validation at the DB
+-- layer -- the Phase 2 route layer validates it with `cron-parser`
+-- (docs/temporal-scheduler-design.md §"Validated via cron-parser before
+-- storage; invalid expressions never reach DB") before insert/update, which
+-- is where full 5-field semantic validation belongs (a complete cron parser
+-- in SQL is impractical). This CHECK is a cheap DB-layer backstop that
+-- rejects the single most common malformed shape (wrong field count) even
+-- if a future write path bypasses the route-layer Zod/cron-parser check.
 
 CREATE TABLE "schedule_rules" (
   "id"              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -34,6 +43,11 @@ CREATE TABLE "schedule_rules" (
   "cron_expr"       text NOT NULL,
   "timezone"        text NOT NULL DEFAULT 'UTC',
 
+  -- PR #586 review, G1: this FK only guarantees the entity_type row exists
+  -- globally (entity_types is platform-wide, not tenant-scoped) -- it does
+  -- NOT guarantee the requesting tenant has the owning module provisioned.
+  -- Phase 2's route layer must additionally check tenant-module access
+  -- before accepting this reference (tracked in #593).
   "entity_type_id"  uuid NOT NULL REFERENCES entity_types(id),
   "workflow_id"     uuid REFERENCES workflows(id) ON DELETE RESTRICT,
   "template"        jsonb NOT NULL,
@@ -47,7 +61,16 @@ CREATE TABLE "schedule_rules" (
   "created_by"      text NOT NULL, -- Zitadel JWT sub claim, not a local uuid PK
   "created_at"      timestamptz NOT NULL DEFAULT now(),
   "updated_at"      timestamptz NOT NULL DEFAULT now(),
-  "deleted_at"      timestamptz
+  "deleted_at"      timestamptz,
+
+  CONSTRAINT "schedule_rules_cron_expr_five_fields"
+    CHECK (cardinality(string_to_array(trim("cron_expr"), ' ')) = 5),
+  -- PR #586 review, G2: catches the most common template error (missing
+  -- `title`) before the worker tries to create a ticket from it -- full
+  -- structural validation of the template happens at the route layer (Zod,
+  -- docs/temporal-scheduler-design.md's template schema).
+  CONSTRAINT "schedule_rules_template_has_title"
+    CHECK (jsonb_typeof("template") = 'object' AND ("template" ? 'title'))
 );
 
 CREATE UNIQUE INDEX "schedule_rules_name_tenant_unique"
