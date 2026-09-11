@@ -154,7 +154,16 @@ apps/*             → packages/*
 modules/*          → packages/*   (no cross-module imports ever)
 entity-engine      → db only
 workflow-engine    → db, entity-engine
-automation-engine  → db, workflow-engine, entity-engine
+automation-engine  → db, workflow-engine, entity-engine, teams, audit
+                                  (teams added for resolve_oncall's on-call cascade lookup,
+                                   audit added so resolve_oncall can call writeAuditEntry
+                                   directly for its oncall.* actions — same direct-call
+                                   pattern apps/api/apps/worker already use, not the hook
+                                   indirection entity-engine uses (that pattern exists
+                                   because entity-engine is held to a stricter "db only"
+                                   boundary). docs/specs/oncall-routing.md T12 — both teams
+                                   and audit depend only on db, so this is a DAG extension,
+                                   not a cycle)
 teams              → db only     (3E on-call routing + 3F temporal scheduler shared
                                    cross-tenant FK helper — docs/specs/oncall-routing.md T44)
 ```

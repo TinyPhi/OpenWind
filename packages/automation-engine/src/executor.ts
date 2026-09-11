@@ -17,6 +17,7 @@ import { executeWebhookAction } from "./actions/webhook.js";
 import { executeAssignAction } from "./actions/assign.js";
 import { executeCreateEntityAction } from "./actions/create-entity.js";
 import { executeCreateChildAction } from "./actions/create-child.js";
+import { executeResolveOncallAction } from "./actions/resolve-oncall.js";
 import { isOpen, recordFailure, reset } from "./circuit-breaker.js";
 
 const MAX_DEPTH = 10;
@@ -338,6 +339,19 @@ async function runAction(
         await executeWebhookAction(tenantId, ruleId, event, action.config, {
           extraBlockCidrs: env.SSRF_BLOCK_CIDRS,
         });
+        break;
+      case "resolve_oncall":
+        await executeResolveOncallAction(
+          db,
+          tenantId,
+          ruleId,
+          execId,
+          event,
+          action.config,
+          depth,
+          redis,
+          outboxEventId,
+        );
         break;
       case "connector.action":
         // Phase 3 stub — the type is valid and may be stored in automation_rules,

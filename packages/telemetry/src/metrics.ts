@@ -147,6 +147,47 @@ tenantUsageGauge.addCallback(async (observableResult) => {
   }
 });
 
+// docs/specs/oncall-routing.md T39-T41 — on-call routing observability.
+// openwind_oncall_resolutions_total is incremented directly by
+// packages/automation-engine/src/actions/resolve-oncall.ts at each outcome.
+export const oncallResolutionsTotal = meter.createCounter(
+  "openwind_oncall_resolutions_total",
+  {
+    description:
+      "Outcomes of resolve_oncall action executions, by outcome and assigned tier",
+  },
+);
+
+// Coverage-gap gauge: resolve-oncall.ts maintains a per-tenant Redis SET of
+// team ids currently in a coverage-gap state (oncall.no_schedule, including
+// R8b's exhausted-cascade case) — added when a gap is detected, removed on
+// the next successful auto-assign for that team. Same idiom as
+// billing_degraded_tenants/billing_tenant_usage above (scrape-time
+// redis.keys() scan — the redis.keys() perf fix tracked in issue #4 covers
+// all of these together, not just this one).
+const oncallCoverageGapGauge = meter.createObservableGauge(
+  "openwind_oncall_coverage_gap_teams",
+  {
+    description:
+      "Number of teams currently in an on-call coverage gap, per tenant",
+  },
+);
+
+oncallCoverageGapGauge.addCallback(async (observableResult) => {
+  try {
+    const redis = getRedis();
+    const keys = await redis.keys("oncall:coverage_gap:*");
+    for (const key of keys) {
+      const tenantId = key.split(":")[2];
+      if (!tenantId) continue;
+      const count = await redis.scard(key);
+      observableResult.observe(count, { tenant_id: tenantId });
+    }
+  } catch {
+    // Ignore redis/telemetry errors during scrape callbacks
+  }
+});
+
 const serializer = new PrometheusSerializer();
 
 /** Retrieves current metrics in Prometheus exposition format. */

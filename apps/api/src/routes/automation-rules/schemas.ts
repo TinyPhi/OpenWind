@@ -14,6 +14,7 @@ export const TRIGGER_TYPES = [
   "field.changed",
   "entity.created",
   "entity.assigned",
+  "entity.updated",
   "schedule.cron",
   "connector.event",
 ] as const;
@@ -100,6 +101,10 @@ const CreateChildConfigSchema = z.object({
   writeBackField: z.string().min(1).optional(),
 });
 
+const ResolveOncallConfigSchema = z.object({
+  instanceId: z.string().uuid().optional(),
+});
+
 export const ActionConfigSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("notify"), config: NotifyConfigSchema }),
   z.object({ type: z.literal("set_field"), config: SetFieldConfigSchema }),
@@ -117,6 +122,10 @@ export const ActionConfigSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("connector.action"),
     config: z.record(z.unknown()),
+  }),
+  z.object({
+    type: z.literal("resolve_oncall"),
+    config: ResolveOncallConfigSchema,
   }),
 ]);
 
@@ -148,6 +157,9 @@ export const TRIGGER_CONFIG_SCHEMAS = {
     entityTypeId: z.string().uuid().optional(),
   }),
   "entity.assigned": z.object({
+    entityTypeId: z.string().uuid().optional(),
+  }),
+  "entity.updated": z.object({
     entityTypeId: z.string().uuid().optional(),
   }),
   "schedule.cron": z.object({ cron: z.string().min(1) }),
