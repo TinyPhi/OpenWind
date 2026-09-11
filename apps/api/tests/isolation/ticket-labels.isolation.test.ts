@@ -166,4 +166,41 @@ describe("ticket_labels — cross-tenant WRITE isolation", () => {
       }),
     ).rejects.toBeTruthy();
   });
+
+  // Documents a known architectural risk boundary (PR #585 review, B1):
+  // label_id has NO foreign key to labels(id) (migration 0097's comment) --
+  // cross-tenant ownership is validated at the app layer only (R1d/T44).
+  // RLS on this table only checks tenant_id, so a row tagged with the
+  // caller's own tenant_id but referencing another tenant's label_id
+  // passes RLS. Phase 2's route layer MUST call validateCrossTenantRefs
+  // against `labels` before inserting -- see tracked follow-up issue.
+  it("RLS alone does NOT catch a cross-tenant label_id smuggled under the correct tenant_id -- app-layer validation is the only guard", async () => {
+    await withTenantContext(TENANT_A, async (tx) => {
+      await tx.insert(ticketLabels).values({
+        ticketInstanceId: ticketAId,
+        labelId: labelBId, // Tenant B's label, referenced from Tenant A's row
+        tenantId: TENANT_A,
+        assignedBy: USER_A,
+      });
+      const [row] = await tx
+        .select({ labelId: ticketLabels.labelId })
+        .from(ticketLabels)
+        .where(
+          and(
+            eq(ticketLabels.ticketInstanceId, ticketAId),
+            eq(ticketLabels.labelId, labelBId),
+          ),
+        );
+      expect(row?.labelId).toBe(labelBId);
+    });
+
+    await db
+      .delete(ticketLabels)
+      .where(
+        and(
+          eq(ticketLabels.ticketInstanceId, ticketAId),
+          eq(ticketLabels.labelId, labelBId),
+        ),
+      );
+  });
 });
