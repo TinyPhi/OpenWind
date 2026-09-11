@@ -25,6 +25,16 @@ WHERE NOT EXISTS (
 -- on-call routing. OPTIONAL (is_required false): a ticket without it
 -- behaves exactly as before (R1's no-regression requirement).
 --
+-- severity vs priority (PR #585 review, G2 -- ADR-016 Decision 2): these
+-- look interchangeable (both are select fields agents see on the same
+-- ticket) but answer different questions. `priority` is workflow-facing --
+-- how urgently should an agent work this ticket, set/changed by agents
+-- during triage. `severity` is customer/business-impact-facing -- how
+-- badly is this affecting the customer, and is the sole input to 3E's
+-- on-call notification routing (a high-severity ticket pages on-call
+-- regardless of its priority in the agent's queue). Do not conflate the
+-- two or drop one in favor of the other when touching this field.
+--
 -- team_id/service_id are DELIBERATELY NOT seeded here yet. They were
 -- originally planned for this same PR, but seeding them as field_type
 -- 'entity_ref' would be actively broken: packages/entity-engine's
