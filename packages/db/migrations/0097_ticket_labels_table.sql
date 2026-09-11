@@ -28,8 +28,7 @@
 -- (migration 0093) and on_call_schedules' user columns (migration 0094).
 -- ticket_instance_id DOES have a FK to entity_instances(id) -- that table
 -- IS the tenant-scoped entity store the entity engine already guards via
--- its own existing validation path, unlike labels/teams/services.
---
+-- its own existing validation path, unlike labels/teams/services.--
 -- PR #585 review, S1: the composite PK (ticket_instance_id, label_id) does
 -- not itself guarantee tenant_id matches ticket_instance_id's real tenant --
 -- there is no DB-layer guard for that beyond the RLS policies below (which

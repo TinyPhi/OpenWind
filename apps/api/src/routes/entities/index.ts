@@ -43,6 +43,9 @@ import { createAlertHandler } from "./create-alert.js";
 import { listAlertsHandler } from "./list-alerts.js";
 import { updateAlertHandler } from "./update-alert.js";
 import { deleteAlertHandler } from "./delete-alert.js";
+import { createLabelHandler } from "./create-label.js";
+import { listLabelsHandler } from "./list-labels.js";
+import { deleteLabelHandler } from "./delete-label.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -101,6 +104,10 @@ router.post("/:id/alerts", ...createAlertHandler);
 router.get("/:id/alerts", ...listAlertsHandler);
 router.patch("/:id/alerts/:alertId", ...updateAlertHandler);
 router.delete("/:id/alerts/:alertId", ...deleteAlertHandler);
+
+router.post("/:id/labels", ...createLabelHandler);
+router.get("/:id/labels", ...listLabelsHandler);
+router.delete("/:id/labels/:labelId", ...deleteLabelHandler);
 
 router.post(
   "/:id/comments/:eventId/attachments",
