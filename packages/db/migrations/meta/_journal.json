@@ -694,6 +694,41 @@
       "when": 1788356659843,
       "tag": "0098_admin_audit_log_label_actions",
       "breakpoints": false
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1788356659844,
+      "tag": "0099_notification_policies_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1788356659845,
+      "tag": "0100_admin_audit_log_notification_actions",
+      "breakpoints": false
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1788356659846,
+      "tag": "0101_schedule_rules_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1788356659847,
+      "tag": "0102_schedule_executions_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1788356659848,
+      "tag": "0103_admin_audit_log_schedule_actions",
+      "breakpoints": false
     }
   ]
 }
