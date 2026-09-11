@@ -673,6 +673,27 @@
       "when": 1788356659840,
       "tag": "0095_admin_audit_log_oncall_actions",
       "breakpoints": false
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1788356659841,
+      "tag": "0096_labels_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1788356659842,
+      "tag": "0097_ticket_labels_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1788356659843,
+      "tag": "0098_admin_audit_log_label_actions",
+      "breakpoints": false
     }
   ]
 }

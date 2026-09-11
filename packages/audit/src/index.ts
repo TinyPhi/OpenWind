@@ -117,7 +117,12 @@ export type AuditAction =
   // extends the DB CHECK constraint in the same commit.
   | "oncall.auto_assigned"
   | "oncall.no_schedule"
-  | "oncall.skipped_explicit_assignee";
+  | "oncall.skipped_explicit_assignee"
+  // docs/specs/oncall-routing.md T36/R1c — label assignment/removal.
+  // Migration 0098_admin_audit_log_label_actions.sql extends the DB CHECK
+  // constraint in the same commit.
+  | "label.assigned"
+  | "label.removed";
 
 export type AuditEntryInput = {
   tenantId: string;
