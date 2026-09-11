@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — MIS reporting dashboards (spec only)]
+
+### Added
+
+- **Reporting dashboard specs (Apache Superset)** — Two specs replacing the Metabase-era reporting
+  design: `docs/specs/superset-embedded-dashboarding.md` (Stage 1 — fixed dashboards embedded in
+  admin-ui, tenant overview for admin/agent and my-performance for all roles) and
+  `docs/specs/superset-standalone-with-zitadel.md` (Stage 2 — Superset on its own URL with Zitadel SSO
+  for analysts). Design only; no runtime behaviour changes. Roadmap track **3G** added, with
+  reporting moved out of the 2D row. Implementation is gated on an ADR for the reporting
+  tenant-isolation boundary (#102–#106).
+
+---
+
 ## [Unreleased — dashboards and alerting (Stage 4)]
 
 ### Added
