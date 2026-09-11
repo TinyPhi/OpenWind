@@ -91,29 +91,19 @@ export async function executeResolveOncallAction(
 
   if (!teamId) return;
 
-  if (explicitAssigneeInThisRequest) {
-    await writeAuditEntry(db, {
-      tenantId,
-      actorId: "system",
-      actorType: "system",
-      resourceType: "ticket",
-      resourceId: instanceId,
-      action: "oncall.skipped_explicit_assignee",
-      metadata: { teamId },
-    });
-    oncallResolutionsTotal.add(1, { outcome: "skipped_explicit_assignee" });
-    return;
-  }
-
   // R11 idempotency — re-delivering the same event (BullMQ retry, worker
   // restart replay) for an unchanged (instanceId, teamId) pair must not
-  // duplicate the assignment or audit row. Keyed exactly as the design doc
-  // prescribes (docs/oncall-routing-design.md §3.1) — a SUBSEQUENT change to
-  // a different team_id produces a new key and legitimately re-fires.
-  // Not tenant-prefixed like the coverage-gap key below: instanceId is a
-  // globally-unique entity_instances.id (UUID PK, never tenant-scoped or
-  // sequential), so a cross-tenant collision is cryptographically
-  // negligible, not a real attack surface (security review, informational).
+  // duplicate ANY of this action's outcomes, including the early-return
+  // explicit-assignee-wins and no-schedule paths below (PR #597 review,
+  // B1 — claiming this key only on the happy path let a retry write a
+  // second oncall.skipped_explicit_assignee row). Keyed exactly as the
+  // design doc prescribes (docs/oncall-routing-design.md §3.1) — a
+  // SUBSEQUENT change to a different team_id produces a new key and
+  // legitimately re-fires. Not tenant-prefixed like the coverage-gap key
+  // below: instanceId is a globally-unique entity_instances.id (UUID PK,
+  // never tenant-scoped or sequential), so a cross-tenant collision is
+  // cryptographically negligible, not a real attack surface (security
+  // review, informational).
   const idempotencyKey = `oncall_resolve:${instanceId}:${teamId}`;
   if (redis) {
     const claimed = await redis.set(idempotencyKey, "1", "EX", 86400, "NX");
@@ -129,6 +119,20 @@ export async function executeResolveOncallAction(
       { tenantId, instanceId },
       "Automation: resolve_oncall running without redis — idempotency guard disabled",
     );
+  }
+
+  if (explicitAssigneeInThisRequest) {
+    await writeAuditEntry(db, {
+      tenantId,
+      actorId: "system",
+      actorType: "system",
+      resourceType: "ticket",
+      resourceId: instanceId,
+      action: "oncall.skipped_explicit_assignee",
+      metadata: { teamId },
+    });
+    oncallResolutionsTotal.add(1, { outcome: "skipped_explicit_assignee" });
+    return;
   }
 
   const schedule = await getActiveScheduleForTeam(

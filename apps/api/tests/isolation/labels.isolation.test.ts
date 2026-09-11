@@ -113,3 +113,39 @@ describe("labels — cross-tenant WRITE isolation", () => {
     ).rejects.toBeTruthy();
   });
 });
+
+describe("labels — soft-deleted name reuse (PR #585 review, G1)", () => {
+  it("allows creating a new label with the same name after the original is soft-deleted", async () => {
+    const [reusable] = await db
+      .insert(labels)
+      .values({
+        tenantId: TENANT_A,
+        name: "reusable-name",
+        color: "#111111",
+        createdBy: USER_A,
+      })
+      .returning({ id: labels.id });
+
+    await db
+      .update(labels)
+      .set({ deletedAt: new Date() })
+      .where(eq(labels.id, reusable!.id));
+
+    const [recreated] = await db
+      .insert(labels)
+      .values({
+        tenantId: TENANT_A,
+        name: "reusable-name",
+        color: "#222222",
+        createdBy: USER_A,
+      })
+      .returning({ id: labels.id });
+
+    expect(recreated?.id).toBeTruthy();
+    expect(recreated?.id).not.toBe(reusable!.id);
+
+    await db
+      .delete(labels)
+      .where(inArray(labels.id, [reusable!.id, recreated!.id]));
+  });
+});

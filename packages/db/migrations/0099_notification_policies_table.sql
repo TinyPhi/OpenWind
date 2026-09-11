@@ -16,6 +16,14 @@
 --
 -- analytics: included (id, tenant_id, team_id, severity, channels, created_at, deleted_at)
 --
+-- PR #586 review, B1: `channels` is validated against the canonical channel
+-- set from docs/specs/oncall-routing.md R14/R15 (`email`, `sms`, `whatsapp`,
+-- `call`) via a DB CHECK, not just non-empty -- an unrecognized channel
+-- string must never reach the row, since the notification worker's per-
+-- channel dispatch map (docs/oncall-routing-design.md's channel dispatch
+-- section) has no fallback for an unknown key and would fail silently or
+-- crash at dispatch time, long after the policy was created.
+--
 -- team_id/workflow_type_id have NO foreign key constraints -- app-layer
 -- cross-tenant validation only (R1d/T44, packages/teams' shared
 -- validateCrossTenantRefs helper), matching services.team_id's treatment
@@ -43,7 +51,9 @@ CREATE TABLE "notification_policies" (
   "created_at"                  timestamptz NOT NULL DEFAULT now(),
   "updated_at"                  timestamptz NOT NULL DEFAULT now(),
   "deleted_at"                  timestamptz,
-  CONSTRAINT "notification_policies_channels_not_empty" CHECK (cardinality("channels") > 0)
+  CONSTRAINT "notification_policies_channels_not_empty" CHECK (cardinality("channels") > 0),
+  CONSTRAINT "notification_policies_channels_valid"
+    CHECK ("channels" <@ ARRAY['email', 'sms', 'whatsapp', 'call']::text[])
 );
 
 CREATE INDEX "notification_policies_tenant_idx" ON "notification_policies" ("tenant_id");

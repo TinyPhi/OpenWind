@@ -242,4 +242,60 @@ describe("resolve_oncall action — tenant isolation", () => {
       );
     expect(auditRows.some((r) => r.action === "oncall.no_schedule")).toBe(true);
   });
+
+  // PR #597 review, B2: the entity.created path above is covered, but the
+  // entity.updated path extracts teamId from event.changed["team_id"].new
+  // rather than a DB column -- the only guards are getActiveScheduleForTeam's
+  // tenant filter and RLS on on_call_schedules. Those guards are correct in
+  // code (same function, same tenant-scoped query, as the entity.created
+  // path); this proves it end-to-end for the update entry point too, not
+  // just by code inspection.
+  it("entity.updated: never assigns a Tenant A ticket to Tenant B's primary via a cross-tenant team_id change", async () => {
+    const instance = await withTenantContext(TENANT_A, (tx) =>
+      createEntity(tx, TENANT_A, {
+        entityTypeId: entityTypeA.id,
+        fields: {},
+      }),
+    );
+
+    await createAutomationRule(db, TENANT_A, {
+      name: "Resolve on-call on update (cross-tenant team_id)",
+      triggerType: "entity.updated",
+      triggerConfig: {},
+      actions: [{ type: "resolve_oncall", config: {} }],
+    });
+
+    await executeAutomationRules(
+      db,
+      TENANT_A,
+      {
+        version: 1,
+        tenantId: TENANT_A,
+        eventType: "entity.updated",
+        instanceId: instance.id,
+        entityTypeId: entityTypeA.id,
+        actorId: USER_A,
+        changed: { team_id: { old: null, new: teamBId } },
+      },
+      0,
+      redis,
+    );
+
+    const updated = await withTenantContext(TENANT_A, (tx) =>
+      getEntity(tx, TENANT_A, instance.id),
+    );
+    expect(updated?.assignedTo).not.toBe(USER_B);
+    expect(updated?.assignedTo).toBeNull();
+
+    const auditRows = await db
+      .select()
+      .from(adminAuditLog)
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT_A),
+          eq(adminAuditLog.resourceId, instance.id),
+        ),
+      );
+    expect(auditRows.some((r) => r.action === "oncall.no_schedule")).toBe(true);
+  });
 });

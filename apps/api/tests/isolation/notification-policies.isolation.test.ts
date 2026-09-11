@@ -125,6 +125,33 @@ describe("notification_policies — cross-tenant WRITE isolation", () => {
       }),
     ).rejects.toBeTruthy();
   });
+
+  // Documents a known architectural risk boundary (PR #586 review, B3):
+  // team_id has NO foreign key to teams(id) (migration 0099's comment) --
+  // cross-tenant ownership is validated at the app layer only (R1d/T44).
+  // RLS on this table only checks tenant_id, so a policy tagged with the
+  // caller's own tenant_id but referencing another tenant's team_id passes
+  // RLS. Phase 2's route layer MUST call validateCrossTenantRefs against
+  // `teams` before insert/update -- see tracked follow-up issue #592.
+  it("RLS alone does NOT catch a cross-tenant team_id smuggled under the correct tenant_id -- app-layer validation is the only guard", async () => {
+    const foreignTeamId = "dddddddd-8888-4000-b000-000000000099";
+    await withTenantContext(TENANT_A, async (tx) => {
+      const [row] = await tx
+        .insert(notificationPolicies)
+        .values({
+          tenantId: TENANT_A,
+          teamId: foreignTeamId, // not a real team of any tenant
+          severity: "medium",
+          channels: ["email"],
+          createdBy: USER_A,
+        })
+        .returning({
+          id: notificationPolicies.id,
+          teamId: notificationPolicies.teamId,
+        });
+      expect(row?.teamId).toBe(foreignTeamId);
+    });
+  });
 });
 
 describe("notification_policies — specificity uniqueness (R14)", () => {

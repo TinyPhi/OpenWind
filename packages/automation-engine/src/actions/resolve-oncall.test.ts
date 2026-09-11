@@ -193,6 +193,7 @@ describe("executeResolveOncallAction", () => {
       },
     } as unknown as TriggerEvent;
 
+    const redis = redisMock();
     await executeResolveOncallAction(
       dbMock as never,
       "t-1",
@@ -201,7 +202,7 @@ describe("executeResolveOncallAction", () => {
       event,
       {},
       0,
-      redisMock(),
+      redis,
     );
 
     expect(mockGetActiveScheduleForTeam).not.toHaveBeenCalled();
@@ -209,6 +210,44 @@ describe("executeResolveOncallAction", () => {
       dbMock,
       expect.objectContaining({ action: "oncall.skipped_explicit_assignee" }),
     );
+    expect(mockUpdateEntity).not.toHaveBeenCalled();
+    // PR #597 review, B1: the idempotency key must be claimed even on this
+    // early-return path -- a BullMQ retry that re-queries the same
+    // still-non-null assignedTo must not write a second audit row.
+    expect(redis.set).toHaveBeenCalledWith(
+      "oncall_resolve:inst-1:team-1",
+      "1",
+      "EX",
+      86400,
+      "NX",
+    );
+  });
+
+  it("is idempotent on the explicit-assignee-wins path — a second delivery is a no-op (R11/B1)", async () => {
+    const event = {
+      eventType: "entity.updated",
+      instanceId: "inst-1",
+      entityTypeId: "et-1",
+      actorId: "u-actor",
+      changed: {
+        team_id: { old: null, new: "team-1" },
+        assignedTo: { old: null, new: "u-explicit" },
+      },
+    } as unknown as TriggerEvent;
+
+    const redis = redisMock(null); // NX claim fails: already processed
+    await executeResolveOncallAction(
+      dbMock as never,
+      "t-1",
+      RULE_ID,
+      EXEC_ID,
+      event,
+      {},
+      0,
+      redis,
+    );
+
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
     expect(mockUpdateEntity).not.toHaveBeenCalled();
   });
 
