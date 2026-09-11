@@ -634,6 +634,14 @@ router.get(
 
     try {
       const result = await withTenantContext(auth.tenantId, async (tx) => {
+        // Deliberately NOT filtered by isNull(scheduleRules.deletedAt), unlike
+        // every other :id-scoped endpoint on this router (PR #595 review, B1).
+        // Execution history must stay retrievable after a rule is archived/
+        // soft-deleted -- same reasoning as schedule_executions being
+        // append-only and on_call_schedules' audit entries remaining
+        // resolvable after admin deletion (docs/specs/oncall-routing.md §V).
+        // A soft-deleted rule's past runs are real history, not orphaned
+        // data; only the rule ITSELF becomes invisible via GET /:id.
         const [rule] = await tx
           .select({ id: scheduleRules.id })
           .from(scheduleRules)

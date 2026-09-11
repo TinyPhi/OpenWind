@@ -413,6 +413,17 @@ describe("GET /admin/schedule-rules/:id/executions", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  // PR #595 review, B1: deliberately NOT filtered by isNull(deletedAt) --
+  // execution history must remain retrievable after a rule is soft-deleted,
+  // unlike every other :id-scoped endpoint on this router.
+  it("returns 200 for a soft-deleted rule's execution history", async () => {
+    existingRuleOverride = { ...mockRuleRow, deletedAt: new Date() };
+    const res = await makeApp().request(
+      `/admin/schedule-rules/${mockRuleRow.id}/executions`,
+    );
+    expect(res.status).toBe(200);
+  });
 });
 
 describe("GET /admin/schedule-rules/:id/next-fires", () => {
