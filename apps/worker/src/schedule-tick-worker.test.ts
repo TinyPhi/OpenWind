@@ -1,0 +1,287 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("@platform/config", () => ({
+  env: {
+    SCHEDULE_TICK_INTERVAL_SECONDS: 60,
+    SCHEDULE_CATCH_UP_MAX: 24,
+  },
+}));
+
+vi.mock("@platform/logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+const mockWriteAuditEntry = vi.fn().mockResolvedValue(undefined);
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
+}));
+
+const mockScheduleTickAdd = vi.fn();
+const mockScheduleExecutionAdd = vi.fn();
+const mockScheduleCatchUpAdd = vi.fn();
+vi.mock("@platform/telemetry", () => ({
+  scheduleTickTotal: { add: (...a: unknown[]) => mockScheduleTickAdd(...a) },
+  scheduleExecutionTotal: {
+    add: (...a: unknown[]) => mockScheduleExecutionAdd(...a),
+  },
+  scheduleCatchUpTotal: {
+    add: (...a: unknown[]) => mockScheduleCatchUpAdd(...a),
+  },
+}));
+
+const mockCreateEntity = vi.fn();
+vi.mock("@platform/entity-engine", () => ({
+  createEntity: (...args: unknown[]) => mockCreateEntity(...args),
+}));
+
+const mockValidateScheduleRuleRefs = vi.fn().mockResolvedValue([]);
+// computeNextFireAt: fixed 1-hour-ahead stub — the tests never depend on the
+// real cron math, only on the claim/catch-up/fire control flow it feeds into.
+const mockComputeNextFireAt = vi.fn(
+  (_cronExpr: string, _tz: string, from: Date) =>
+    new Date(from.getTime() + 3_600_000),
+);
+vi.mock("@platform/scheduler", () => ({
+  computeNextFireAt: (...args: [string, string, Date]) =>
+    mockComputeNextFireAt(...args),
+  buildTemplateVariables: () => ({}),
+  renderTemplate: (template: unknown) => template,
+  validateScheduleRuleRefs: (...args: unknown[]) =>
+    mockValidateScheduleRuleRefs(...args),
+}));
+
+let dueRules: unknown[] = [];
+let claimRows: unknown[] = [];
+
+const insertedExecutions: unknown[] = [];
+
+const withTenantTx = {
+  insert: (_table: unknown) => ({
+    values: (values: unknown) => {
+      insertedExecutions.push(values);
+      return Promise.resolve(undefined);
+    },
+  }),
+};
+
+const mockWithTenantContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => Promise<unknown>) =>
+    fn(withTenantTx),
+);
+
+const claimTx = {
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        for: () => ({
+          limit: () => Promise.resolve(claimRows),
+        }),
+      }),
+    }),
+  }),
+  update: () => ({
+    set: () => ({
+      where: () => Promise.resolve(undefined),
+    }),
+  }),
+};
+
+vi.mock("@platform/db", () => ({
+  db: {
+    select: () => ({
+      from: () => ({
+        where: () => Promise.resolve(dueRules),
+      }),
+    }),
+    transaction: (fn: (tx: unknown) => Promise<unknown>) => fn(claimTx),
+  },
+  withTenantContext: (...args: [string, (tx: unknown) => Promise<unknown>]) =>
+    mockWithTenantContext(...args),
+  scheduleRules: "schedule_rules_table",
+  scheduleExecutions: "schedule_executions_table",
+}));
+
+const { schedulerTick } = await import("./schedule-tick-worker.js");
+
+function makeRule(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "rule-1",
+    tenantId: "tenant-1",
+    name: "Weekly review",
+    cronExpr: "0 9 * * 1",
+    timezone: "UTC",
+    entityTypeId: "et-1",
+    workflowId: null,
+    template: { title: "Weekly review" },
+    status: "active",
+    nextFireAt: new Date(Date.now() - 1000),
+    lastFiredAt: null,
+    catchUp: false,
+    createdBy: "u-creator",
+    ...overrides,
+  };
+}
+
+describe("schedulerTick", () => {
+  beforeEach(() => {
+    dueRules = [];
+    claimRows = [];
+    insertedExecutions.length = 0;
+    mockWriteAuditEntry.mockClear();
+    mockScheduleTickAdd.mockClear();
+    mockScheduleExecutionAdd.mockClear();
+    mockScheduleCatchUpAdd.mockClear();
+    mockCreateEntity.mockReset();
+    mockValidateScheduleRuleRefs.mockReset().mockResolvedValue([]);
+    mockWithTenantContext.mockClear();
+  });
+
+  it("fires a due rule, creates a ticket, and records a success execution", async () => {
+    const rule = makeRule();
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockResolvedValue({ id: "ticket-1" });
+
+    await schedulerTick();
+
+    expect(mockCreateEntity).toHaveBeenCalledTimes(1);
+    expect(insertedExecutions).toHaveLength(1);
+    expect((insertedExecutions[0] as { status: string }).status).toBe(
+      "success",
+    );
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "schedule.ticket_created" }),
+    );
+    expect(mockScheduleExecutionAdd).toHaveBeenCalledWith(1, {
+      status: "success",
+    });
+    expect(mockScheduleTickAdd).toHaveBeenCalledWith(1, {
+      outcome: "completed",
+    });
+  });
+
+  it("skips a rule already claimed by another worker instance", async () => {
+    const rule = makeRule();
+    dueRules = [rule];
+    claimRows = []; // simulates SELECT FOR UPDATE SKIP LOCKED finding nothing
+
+    await schedulerTick();
+
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+    expect(insertedExecutions).toHaveLength(0);
+  });
+
+  it("records a failed execution when createEntity throws, and continues the tick", async () => {
+    const rule = makeRule();
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockRejectedValue(
+      Object.assign(new Error("boom"), {
+        name: "EntityError",
+        code: "ENTITY_TYPE_NOT_FOUND",
+      }),
+    );
+
+    await schedulerTick();
+
+    expect(insertedExecutions).toHaveLength(1);
+    expect(
+      (insertedExecutions[0] as { status: string; errorCode?: string }).status,
+    ).toBe("failed");
+    expect((insertedExecutions[0] as { errorCode?: string }).errorCode).toBe(
+      "ENTITY_TYPE_NOT_FOUND",
+    );
+    expect(mockScheduleExecutionAdd).toHaveBeenCalledWith(1, {
+      status: "failed",
+      errorCode: "ENTITY_TYPE_NOT_FOUND",
+    });
+  });
+
+  it("catch_up: false skips all missed fires without creating any tickets", async () => {
+    // originalScheduledAt far enough in the past to be classified overdue
+    // (> 2x the 60s tick interval) and to produce missed fires via the
+    // stubbed computeNextFireAt (1 hour per step).
+    const rule = makeRule({
+      nextFireAt: new Date(Date.now() - 3 * 3_600_000),
+      catchUp: false,
+    });
+    dueRules = [rule];
+    claimRows = [rule];
+
+    await schedulerTick();
+
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+    expect(
+      insertedExecutions.every(
+        (e) => (e as { status: string }).status === "skipped",
+      ),
+    ).toBe(true);
+    expect(insertedExecutions.length).toBeGreaterThan(0);
+    expect(mockScheduleCatchUpAdd).toHaveBeenCalledWith(1, {
+      action: "skipped",
+    });
+  });
+
+  it("catch_up: true executes missed fires up to the cap in chronological order", async () => {
+    const rule = makeRule({
+      nextFireAt: new Date(Date.now() - 3 * 3_600_000),
+      catchUp: true,
+    });
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockResolvedValue({ id: "ticket-catchup" });
+
+    await schedulerTick();
+
+    expect(mockCreateEntity).toHaveBeenCalled();
+    expect(mockScheduleCatchUpAdd).toHaveBeenCalledWith(1, {
+      action: "executed",
+    });
+  });
+
+  it("includes the fire that made the rule overdue as the FIRST catch-up fire, not just fires strictly after it", async () => {
+    // Regression test: handleCatchUp's missed-fires enumeration must include
+    // originalScheduledAt itself — it's the fire that made the rule overdue
+    // in the first place, not merely a boundary marker for later fires.
+    const originalScheduledAt = new Date(Date.now() - 3 * 3_600_000);
+    const rule = makeRule({ nextFireAt: originalScheduledAt, catchUp: true });
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockResolvedValue({ id: "ticket-catchup" });
+
+    await schedulerTick();
+
+    const scheduledAts = insertedExecutions.map((e) =>
+      (e as { scheduledAt: Date }).scheduledAt.getTime(),
+    );
+    expect(scheduledAts).toContain(originalScheduledAt.getTime());
+  });
+
+  it("aggregates catch-up execution failures into the tick's failed count via schedule_execution_total", async () => {
+    const rule = makeRule({
+      nextFireAt: new Date(Date.now() - 3 * 3_600_000),
+      catchUp: true,
+    });
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockRejectedValue(
+      Object.assign(new Error("boom"), {
+        name: "EntityError",
+        code: "ENTITY_TYPE_NOT_FOUND",
+      }),
+    );
+
+    await schedulerTick();
+
+    expect(mockScheduleExecutionAdd).toHaveBeenCalledWith(1, {
+      status: "failed",
+      errorCode: "ENTITY_TYPE_NOT_FOUND",
+    });
+    expect(
+      insertedExecutions.some(
+        (e) => (e as { status: string }).status === "failed",
+      ),
+    ).toBe(true);
+  });
+});
