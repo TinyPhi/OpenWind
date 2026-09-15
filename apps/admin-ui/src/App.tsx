@@ -36,6 +36,8 @@ import { SystemLogsPage } from "./pages/system-logs.js";
 import { ThirdPartyAccessLogsPage } from "./pages/third-party-access-logs.js";
 import { ApiKeysPage } from "./pages/api-keys/page.js";
 import { ApiKeyApplicationDetail } from "./pages/api-keys/detail.js";
+import { ScheduleRulesPage } from "./pages/schedule-rules/index.js";
+import { ScheduleRuleDetailPage } from "./pages/schedule-rules/detail.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
@@ -184,6 +186,14 @@ export function App(): React.ReactElement {
               <Route
                 path="/admin/api-keys/:slug"
                 element={<ApiKeyApplicationDetail />}
+              />
+              <Route
+                path="/admin/schedule-rules"
+                element={<ScheduleRulesPage />}
+              />
+              <Route
+                path="/admin/schedule-rules/:id"
+                element={<ScheduleRuleDetailPage />}
               />
             </Route>
 
