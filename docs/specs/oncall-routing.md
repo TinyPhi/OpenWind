@@ -287,6 +287,21 @@ R9: No active schedule for the team → ticket left unchanged, warning surfaced.
 ✓ Audit log records `oncall.no_schedule` for the team at that timestamp
 ✓ Admin UI surfaces affected tickets (has `team_id`, no `assignee`) with a coverage-gap badge
 
+R8b: On-call resolution cascades primary → backup → escalation manager, skipping any tier whose
+user is deactivated/deleted; if all three tiers are unavailable, the same fail-open coverage-gap
+behavior as R9 applies (ticket left unchanged, `oncall.no_schedule` audited) rather than a
+distinct failure path.
+✓ Primary on-call user is deactivated → backup on-call is assigned instead; audit records which
+tier the assignment actually resolved at (`oncall.auto_assigned` with `assignedTier: "backup"`)
+✓ Primary and backup both deactivated → escalation manager is assigned (`assignedTier: "escalation"`)
+✓ All three tiers deactivated or the schedule entry itself is missing them → same R9 fail-open path:
+`assignee` unchanged, `oncall.no_schedule` audited (not a new/different action string) — the
+spec makes no behavioral distinction between "no schedule exists" and "schedule exists but every
+tier is unavailable"; both are coverage gaps
+✓ "Deactivated/deleted user" reuses the same active-user check used by the temporal-scheduler's
+stale-owner detection (see `temporal-scheduler.md` R-stale-owner) — factored as one shared
+helper rather than duplicated per track, same spirit as the T44 cross-tenant FK helper
+
 R10: Explicit `assignee` on the same request as `team_id` wins; auto-resolution is skipped.
 ✓ Ticket with both `team_id` and explicit `assignee` in same payload → explicit assignee is used
 ✓ Audit log records `oncall.skipped_explicit_assignee` (not `oncall.auto_assigned`)
@@ -359,7 +374,8 @@ R20: The dry-run resolver endpoint returns the effective policy without side eff
 - Policy specificity is computed at dispatch time from live DB state, never cached — a policy change takes effect on the next severity-change event, not the next cache refresh
 - A `notification.dispatched` audit entry is written per dispatch attempt, one `notification.channel_failed` per failed channel — never swallowed silently
 - No policy at any specificity level = email-only; no severity on the ticket = no notification dispatch at all
-- The assignee set by `resolve_oncall` reflects the primary on-call at schedule-lookup time, not guaranteed-current at commit time — accepted TOCTOU trade-off; schedule changes are infrequent admin operations
+- The assignee set by `resolve_oncall` reflects the primary/backup/escalation user resolved by the cascade at schedule-lookup time, not guaranteed-current at commit time — accepted TOCTOU trade-off; schedule changes are infrequent admin operations
+- The primary→backup→escalation cascade (R8b) and the exhausted-cascade fail-open path share the identical `oncall.no_schedule` audit action and coverage-gap UI treatment as the no-schedule-at-all case (R9) — there is deliberately no separate "cascade exhausted" action string
 - Provider error messages written to `admin_audit_log` or logs must be sanitized: raw `err.message` is never stored; only error code + masked, truncated provider message (E.164 numbers masked) is written
 - On-call schedule entries are soft-deleted (`deleted_at`), never hard-deleted — audit entries referencing a `scheduleId` remain resolvable after admin deletion
 - A schedule entry whose window has already started (`starts_at <= now()`) cannot be modified via PATCH — returns `422`; only future-window entries are editable
