@@ -38,6 +38,9 @@ import { ApiKeysPage } from "./pages/api-keys/page.js";
 import { ApiKeyApplicationDetail } from "./pages/api-keys/detail.js";
 import { ScheduleRulesPage } from "./pages/schedule-rules/index.js";
 import { ScheduleRuleDetailPage } from "./pages/schedule-rules/detail.js";
+import { TeamsPage } from "./pages/teams/index.js";
+import { ServicesPage } from "./pages/services/index.js";
+import { RosterPage } from "./pages/roster/index.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
@@ -195,6 +198,9 @@ export function App(): React.ReactElement {
                 path="/admin/schedule-rules/:id"
                 element={<ScheduleRuleDetailPage />}
               />
+              <Route path="/admin/teams" element={<TeamsPage />} />
+              <Route path="/admin/services" element={<ServicesPage />} />
+              <Route path="/admin/roster" element={<RosterPage />} />
             </Route>
 
             <Route path="/home" element={<Navigate to="/records" replace />} />
