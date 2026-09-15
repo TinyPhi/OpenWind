@@ -81,6 +81,13 @@ describe("Observability Configuration Validation", () => {
     expect(alerts).toContain("HttpErrorRateHigh");
     expect(alerts).toContain("HttpLatencyHigh");
 
+    // docs/oncall-routing-design.md §9.4 -- On-Call Routing alerts (PR 13).
+    // OncallResolutionSLOBreached is deliberately not asserted here: it needs
+    // openwind_oncall_resolution_duration_seconds, a histogram not yet
+    // registered on any branch (T39 partially done).
+    expect(alerts).toContain("OncallCoverageGapsDetected");
+    expect(alerts).toContain("NotificationChannelHighFailureRate");
+
     // Finding 5: Ensure team label is set for routing
     for (const rule of rules) {
       expect(rule.labels?.team).toBe("platform");
@@ -213,5 +220,13 @@ describe("Observability Configuration Validation", () => {
     expect(panelTitles).toContain("Degraded Tenants by Reason");
     expect(panelTitles).toContain("Billing Rejections (422)");
     expect(panelTitles).toContain("Tenant Quota Usage");
+
+    // docs/oncall-routing-design.md §9.4's On-Call Routing row (PR 13),
+    // scoped to metrics that are actually registered today -- the other 3
+    // design-doc panels (2 histograms + policy match distribution) are
+    // deferred since their backing metrics don't exist on any branch yet.
+    expect(panelTitles).toContain("On-Call Resolution Rate");
+    expect(panelTitles).toContain("Notification Channel Success Rate");
+    expect(panelTitles).toContain("Coverage Gaps (live)");
   });
 });

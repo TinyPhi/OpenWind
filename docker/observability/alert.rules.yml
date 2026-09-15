@@ -40,3 +40,28 @@ groups:
         annotations:
           summary: "HTTP request latency is high on route {{ $labels.route }}"
           description: 'P95 request latency on route {{ $labels.route }} is {{ $value | printf "%.2f" }}s over the last 5 minutes.'
+
+      # docs/oncall-routing-design.md §9.4 -- the third design-doc alert,
+      # OncallResolutionSLOBreached, is deferred: it needs
+      # openwind_oncall_resolution_duration_seconds, a histogram that isn't
+      # registered on any branch yet (T39 partially done, see
+      # docs/sup-docs/week-log/2026-09-15-grafana-oncall-dashboards.md).
+      - alert: OncallCoverageGapsDetected
+        expr: openwind_oncall_coverage_gap_teams > 0
+        for: 10m
+        labels:
+          severity: info
+          team: platform
+        annotations:
+          summary: "{{ $value }} team(s) have no active on-call schedule for tenant {{ $labels.tenant_hash }}"
+
+      - alert: NotificationChannelHighFailureRate
+        expr:
+          sum by (channel) (rate(openwind_notification_dispatch_total{result="failed"}[5m]))
+          / sum by (channel) (rate(openwind_notification_dispatch_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Notification channel {{ $labels.channel }} failure rate > 10%"
