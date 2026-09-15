@@ -432,6 +432,8 @@ refuses to start if any required variable is missing or malformed.
 | `TELEMETRY_ENABLED`                   | `.env.example`    | Flag to enable/disable OpenTelemetry and Prometheus collection                  |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`         | `.env.example`    | HTTP endpoint for trace export (e.g., http://localhost:4318/v1/traces)          |
 | `OTEL_SERVICE_NAME`                   | `.env.example`    | Service name for distributed trace grouping                                     |
+| `SCHEDULE_TICK_INTERVAL_SECONDS`      | `.env.example`    | Temporal scheduler tick poll interval, seconds. Optional — defaults to 60.      |
+| `SCHEDULE_CATCH_UP_MAX`               | `.env.example`    | Cap on missed fires executed in one catch-up run. Optional — defaults to 24.    |
 
 **Why two database URLs?**
 `app_user` connects via PgBouncer in transaction mode, which is required for
