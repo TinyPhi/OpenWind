@@ -36,8 +36,12 @@ Blocked on Stage 1's isolation ADR.
 | D5  | fixed dashboards in Stage 1 — no chart authoring, no user-written SQL                                                                                                                            |
 
 Also decided: live database read-only with no replica (revisited in Stage 2); 60s pass lifetime,
-chosen so revocation is prompt; per-user scope uses the platform's existing "involved" predicate
-(assigned **or** created **or** granted) so figures reconcile with the personal dashboard.
+chosen so revocation is prompt — _corrected 2026-09-11: 60s is the target, not the current
+behaviour; `GUEST_TOKEN_JWT_EXP_SECONDS` is unset, so Superset's 300s default applies until T16
+sets it (spec OQ-10)_; per-user scope is **assigned or created only** — _corrected 2026-09-11: an
+earlier draft of this entry said "or granted" as well, matching the platform's full "my work"
+predicate, but `__accessUsers` lives in `fields` JSONB, which §C forbids any tile from reading, so
+that leg is architecturally unreachable and was permanently dropped for reporting (spec OQ-8)_.
 
 ### Findings that changed the design
 
