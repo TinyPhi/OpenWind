@@ -736,6 +736,13 @@
       "when": 1789032600000,
       "tag": "0104_notifications_oncall_backup_tagged_type",
       "breakpoints": false
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1789032700000,
+      "tag": "0105_notifications_severity_channel",
+      "breakpoints": false
     }
   ]
 }

@@ -105,6 +105,10 @@ const ResolveOncallConfigSchema = z.object({
   instanceId: z.string().uuid().optional(),
 });
 
+const DispatchSeverityNotificationConfigSchema = z.object({
+  instanceId: z.string().uuid().optional(),
+});
+
 export const ActionConfigSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("notify"), config: NotifyConfigSchema }),
   z.object({ type: z.literal("set_field"), config: SetFieldConfigSchema }),
@@ -126,6 +130,10 @@ export const ActionConfigSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("resolve_oncall"),
     config: ResolveOncallConfigSchema,
+  }),
+  z.object({
+    type: z.literal("dispatch_severity_notification"),
+    config: DispatchSeverityNotificationConfigSchema,
   }),
 ]);
 
