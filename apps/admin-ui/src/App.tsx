@@ -36,6 +36,7 @@ import { SystemLogsPage } from "./pages/system-logs.js";
 import { ThirdPartyAccessLogsPage } from "./pages/third-party-access-logs.js";
 import { ApiKeysPage } from "./pages/api-keys/page.js";
 import { ApiKeyApplicationDetail } from "./pages/api-keys/detail.js";
+import { NotificationPoliciesPage } from "./pages/notification-policies/index.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
@@ -184,6 +185,10 @@ export function App(): React.ReactElement {
               <Route
                 path="/admin/api-keys/:slug"
                 element={<ApiKeyApplicationDetail />}
+              />
+              <Route
+                path="/admin/notification-policies"
+                element={<NotificationPoliciesPage />}
               />
             </Route>
 
