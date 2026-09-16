@@ -54,10 +54,12 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
         setRule((ruleRes as { data: ScheduleRule }).data);
         setExecutions((execRes as { data: Execution[] }).data);
         const fireData = (
-          fireRes as { data: { timezone: string; fires: string[] } }
+          fireRes as {
+            data: { timezone: string; fires: { utc: string; local: string }[] };
+          }
         ).data;
         setTimezone(fireData.timezone);
-        setNextFires(fireData.fires.map((f) => ({ fireAt: f })));
+        setNextFires(fireData.fires.map((f) => ({ fireAt: f.utc })));
       })
       .catch(() => showAlert("Failed to load schedule rule."))
       .finally(() => setLoading(false));
