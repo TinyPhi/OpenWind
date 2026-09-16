@@ -123,4 +123,38 @@ describe("schedule-rules router — tenant isolation", () => {
     };
     expect(listB.some((r) => r.id === created.id)).toBe(false);
   });
+
+  it("PATCH on an already-soft-deleted rule returns 404 instead of resurrect-editing it", async () => {
+    const app = makeApp(TENANT_A, ["admin"]);
+    const createRes = await app.request("/admin/schedule-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Soft-Delete Race Rule",
+        cronExpr: "0 9 1 * *",
+        entityTypeId,
+        template: { title: "Monthly Review" },
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const { data: created } = (await createRes.json()) as {
+      data: { id: string };
+    };
+
+    const deleteRes = await app.request(`/admin/schedule-rules/${created.id}`, {
+      method: "DELETE",
+    });
+    expect(deleteRes.status).toBe(204);
+
+    // Regression guard: the PATCH UPDATE's WHERE clause must include
+    // isNull(deletedAt) alongside the pre-fetch SELECT's check, or a
+    // concurrent soft-delete between the two statements lets this PATCH
+    // silently mutate an already-deleted row (Vijit review, PR #595 round 3).
+    const patchRes = await app.request(`/admin/schedule-rules/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Renamed after delete" }),
+    });
+    expect(patchRes.status).toBe(404);
+  });
 });
