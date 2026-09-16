@@ -30,6 +30,7 @@
     "@platform/notifications": "workspace:*",
     "@platform/plugin-sdk": "workspace:*",
     "@platform/redis": "workspace:*",
+    "@platform/scheduler": "workspace:*",
     "@platform/secrets": "workspace:*",
     "@platform/teams": "workspace:*",
     "@platform/telemetry": "workspace:*",
