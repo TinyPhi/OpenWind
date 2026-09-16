@@ -62,6 +62,23 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "oncall.auto_assigned": true,
   "oncall.no_schedule": true,
   "oncall.skipped_explicit_assignee": true,
+  // Neither represents a denied caller request -- both are ordinary
+  // successful mutations (assign/remove a label the caller had access to
+  // make); denial for these paths is a plain 403/422 at the route layer,
+  // never audited as a distinct label.* action.
+  "label.assigned": true,
+  "label.removed": true,
+  // notification.* and schedule.* are all system/worker outcomes, not a
+  // third-party caller's request being denied -- same reasoning as
+  // attachment.quarantined/scan_failed above.
+  "notification.dispatched": true,
+  "notification.channel_failed": true,
+  "schedule.ticket_created": true,
+  "schedule.execution_failed": true,
+  "schedule.execution_skipped": true,
+  "schedule.rule_paused": true,
+  "schedule.rule_resumed": true,
+  "schedule.rule_archived": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since
