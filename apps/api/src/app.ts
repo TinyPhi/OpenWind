@@ -22,6 +22,7 @@ import { viewConfigsRouter } from "./routes/view-configs/index.js";
 import { teamsRouter } from "./routes/admin/teams.js";
 import { servicesRouter } from "./routes/admin/services.js";
 import { onCallSchedulesRouter } from "./routes/admin/on-call-schedules.js";
+import { scheduleRulesRouter } from "./routes/admin/schedule-rules.js";
 import { labelsRouter } from "./routes/admin/labels.js";
 import { notificationPoliciesRouter } from "./routes/admin/notification-policies.js";
 import { membersRouter } from "./routes/admin/members.js";
@@ -155,6 +156,7 @@ export function createApp(): Hono<AppVars> {
   app.route("/admin/teams", teamsRouter);
   app.route("/admin/services", servicesRouter);
   app.route("/admin/on-call-schedules", onCallSchedulesRouter);
+  app.route("/admin/schedule-rules", scheduleRulesRouter);
   app.route("/admin/labels", labelsRouter);
   app.route("/admin/notification-policies", notificationPoliciesRouter);
   app.route("/admin/members", membersRouter);
