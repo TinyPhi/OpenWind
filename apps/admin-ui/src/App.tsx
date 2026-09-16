@@ -42,6 +42,7 @@ import { TeamsPage } from "./pages/teams/index.js";
 import { ServicesPage } from "./pages/services/index.js";
 import { RosterPage } from "./pages/roster/index.js";
 import { NotificationPoliciesPage } from "./pages/notification-policies/index.js";
+import { OnCallAdminPage } from "./pages/admin-oncall/index.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
@@ -199,6 +200,11 @@ export function App(): React.ReactElement {
                 path="/admin/schedule-rules/:id"
                 element={<ScheduleRuleDetailPage />}
               />
+              {/* Combined tabbed hub (Teams | Services | Roster | Notification
+                  Policies) — the sidebar links here now. The 4 individual
+                  routes below stay mounted so existing bookmarks/direct
+                  links to e.g. /admin/teams keep working. */}
+              <Route path="/admin/on-call" element={<OnCallAdminPage />} />
               <Route path="/admin/teams" element={<TeamsPage />} />
               <Route path="/admin/services" element={<ServicesPage />} />
               <Route path="/admin/roster" element={<RosterPage />} />

@@ -65,7 +65,7 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     expect(screen.getByText("Users")).not.toBeNull();
     expect(screen.getByText("System Logs")).not.toBeNull();
     expect(screen.getByText("API Keys")).not.toBeNull();
-    expect(screen.getByText("API Access Logs")).not.toBeNull();
+    expect(screen.getByText("On-Call")).not.toBeNull();
   });
 
   it("hides the 'Admin' section entirely for an agent (no admin role)", async () => {
@@ -80,6 +80,6 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     expect(screen.queryByText("Users")).toBeNull();
     expect(screen.queryByText("System Logs")).toBeNull();
     expect(screen.queryByText("API Keys")).toBeNull();
-    expect(screen.queryByText("API Access Logs")).toBeNull();
+    expect(screen.queryByText("On-Call")).toBeNull();
   });
 });
