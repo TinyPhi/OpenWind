@@ -1,4 +1,8 @@
-# 2026-09-09 — 3E Phase 1 DB layer merged (PR #583)
+## 2026-09-09 — 3E Phase 1 DB layer merged (PR #583)
+
+**Session type:** Feature implementation — 3E on-call routing, Phase 1 (DB layer)
+**PR:** #583
+**Branch:** `feat/PLAT-601-tagsev-3e-shared-fk-helper-and-teams-schema` (fork: TusharSharma991)
 
 ## Done
 
