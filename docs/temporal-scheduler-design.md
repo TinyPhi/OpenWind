@@ -1,7 +1,7 @@
 # Temporal Scheduler — Design Reference
 
 > Behavioral specification for implementation. Read alongside `docs/specs/temporal-scheduler.md`
-> (requirements) and `docs/specs/adr-017-draft-temporal-scheduler.md` (decisions). This doc covers
+> (requirements) and `docs/decisions/ADR-017-temporal-scheduler.md` (decisions). This doc covers
 > data shapes, API contracts, worker algorithm, and sequence flows.
 
 ---
