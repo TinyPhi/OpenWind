@@ -87,6 +87,11 @@ export function RosterPage(): React.ReactElement {
   );
   const [schedules, setSchedules] = useState<OnCallSchedule[]>([]);
   const [loading, setLoading] = useState(true);
+  // The list route has no total count in its response, so an exact-limit
+  // result is the only signal available that more rows may exist beyond the
+  // page (PR #602 review, M3) -- not a precise "there are N more", just a
+  // heuristic warning rather than silently showing an incomplete week.
+  const [possiblyTruncated, setPossiblyTruncated] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<OnCallSchedule | null>(null);
   const [deleting, setDeleting] = useState<OnCallSchedule | null>(null);
@@ -94,7 +99,9 @@ export function RosterPage(): React.ReactElement {
   useEffect(() => {
     Promise.all([
       fetchWithAuth(`${API_URL}/admin/teams`),
-      fetchWithAuth(`${API_URL}/users`),
+      // Admin-only endpoint returning agents+admins (never customers) --
+      // GET /users deliberately excludes them (PR #602 review, BLOCKER-1).
+      fetchWithAuth(`${API_URL}/admin/members`),
     ])
       .then(([teamsRes, usersRes]) => {
         const teamRows = (teamsRes as { data: Team[] }).data;
@@ -140,7 +147,9 @@ export function RosterPage(): React.ReactElement {
     fetchWithAuth(`${API_URL}/admin/on-call-schedules?${params.toString()}`)
       .then((res) => {
         if (requestId !== requestIdRef.current) return; // a newer request already resolved
-        setSchedules((res as { data: OnCallSchedule[] }).data);
+        const rows = (res as { data: OnCallSchedule[] }).data;
+        setSchedules(rows);
+        setPossiblyTruncated(rows.length >= 100);
       })
       .catch(() => {
         if (requestId !== requestIdRef.current) return;
@@ -191,6 +200,13 @@ export function RosterPage(): React.ReactElement {
           </Button>
         </div>
       </div>
+
+      {possiblyTruncated && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>
+          ⚠ This team has 100+ overlapping schedules in this week's view — some
+          may not be shown.
+        </div>
+      )}
 
       <div
         style={{
@@ -506,9 +522,16 @@ function ScheduleFormModal({
       });
       onSaved();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to save on-call schedule",
-      );
+      // 5xx already surfaced via the global error banner (lib/api.ts) --
+      // avoid showing the same failure twice (PR #602 review, M2).
+      const status = (err as { status?: number }).status;
+      if (!status || status < 500) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to save on-call schedule",
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -568,6 +591,7 @@ function ScheduleFormModal({
               autoFocus
               onChange={(e) => setLabel(e.target.value)}
               required
+              maxLength={200}
             />
           </div>
           <div style={{ display: "flex", gap: 12 }}>

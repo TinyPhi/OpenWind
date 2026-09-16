@@ -222,7 +222,12 @@ function TeamFormModal({
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save team");
+      // 5xx already surfaced via the global error banner (lib/api.ts) --
+      // avoid showing the same failure twice (PR #602 review, M2).
+      const status = (err as { status?: number }).status;
+      if (!status || status < 500) {
+        setError(err instanceof Error ? err.message : "Failed to save team");
+      }
     } finally {
       setSaving(false);
     }
@@ -280,6 +285,7 @@ function TeamFormModal({
               autoFocus
               onChange={(e) => setName(e.target.value)}
               required
+              maxLength={200}
             />
           </div>
           <div className="form-group">
@@ -289,6 +295,7 @@ function TeamFormModal({
               placeholder="What this team covers"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              maxLength={2000}
             />
           </div>
           <Button

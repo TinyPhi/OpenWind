@@ -241,7 +241,12 @@ function ServiceFormModal({
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save service");
+      // 5xx already surfaced via the global error banner (lib/api.ts) --
+      // avoid showing the same failure twice (PR #602 review, M2).
+      const status = (err as { status?: number }).status;
+      if (!status || status < 500) {
+        setError(err instanceof Error ? err.message : "Failed to save service");
+      }
     } finally {
       setSaving(false);
     }
@@ -301,6 +306,7 @@ function ServiceFormModal({
               autoFocus
               onChange={(e) => setName(e.target.value)}
               required
+              maxLength={200}
             />
           </div>
           <div className="form-group">
@@ -310,6 +316,7 @@ function ServiceFormModal({
               placeholder="What this service does"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              maxLength={2000}
             />
           </div>
           <div className="form-group">
