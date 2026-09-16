@@ -241,9 +241,9 @@ export async function executeResolveOncallAction(
       })
       .onConflictDoNothing();
 
-    if (redis) {
-      if (await isOutboundNotificationsEnabled()) {
-        const queue = new Queue("notify-outbound", { connection: redis });
+    if (redis && (await isOutboundNotificationsEnabled())) {
+      const queue = new Queue("notify-outbound", { connection: redis });
+      try {
         await queue
           .add(
             "dispatch",
@@ -256,6 +256,8 @@ export async function executeResolveOncallAction(
               "Automation: failed to enqueue backup on-call notification outbound handoff",
             );
           });
+      } finally {
+        await queue.close();
       }
     }
   }

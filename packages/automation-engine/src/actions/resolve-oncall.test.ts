@@ -47,11 +47,15 @@ vi.mock("@platform/audit", () => ({
 }));
 
 const mockQueueAdd = vi.fn().mockResolvedValue(undefined);
+const mockQueueClose = vi.fn().mockResolvedValue(undefined);
 const mockCounterAdd = vi.fn();
 vi.mock("@platform/telemetry", () => ({
   Queue: class {
     add(...args: unknown[]) {
       return mockQueueAdd(...args);
+    }
+    close(...args: unknown[]) {
+      return mockQueueClose(...args);
     }
   },
   oncallResolutionsTotal: {
@@ -93,6 +97,7 @@ describe("executeResolveOncallAction", () => {
     mockResolveOncallCascade.mockReset();
     mockWriteAuditEntry.mockClear();
     mockQueueAdd.mockClear();
+    mockQueueClose.mockClear();
     mockCounterAdd.mockClear();
   });
 
@@ -143,6 +148,11 @@ describe("executeResolveOncallAction", () => {
     // Backup notification: backup exists and resolved tier isn't backup.
     expect(insertedRows).toHaveLength(2);
     expect(insertedRows[0]?.table).toBe("notifications_table");
+    // PR #600 review (Vijit, B1) -- the outbound-handoff Queue instance must
+    // be closed after use, not just constructed/added-to. Asserting this
+    // here is what catches a regression to the un-closed version.
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    expect(mockQueueClose).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to backup tier (R8b) and skips the backup notification (already the assignee)", async () => {
