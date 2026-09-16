@@ -117,7 +117,29 @@ export type AuditAction =
   // extends the DB CHECK constraint in the same commit.
   | "oncall.auto_assigned"
   | "oncall.no_schedule"
-  | "oncall.skipped_explicit_assignee";
+  | "oncall.skipped_explicit_assignee"
+  // docs/specs/oncall-routing.md T36/R1c — label assignment/removal.
+  // Migration 0098_admin_audit_log_label_actions.sql extends the DB CHECK
+  // constraint in the same commit.
+  | "label.assigned"
+  | "label.removed"
+  // docs/specs/oncall-routing.md T22/R16-R18 — dispatch_severity_notification
+  // outcomes. Migration 0100_admin_audit_log_notification_actions.sql
+  // extends the DB CHECK constraint in the same commit.
+  | "notification.dispatched"
+  | "notification.channel_failed"
+  // docs/specs/temporal-scheduler.md T3, docs/temporal-scheduler-design.md
+  // §1.4 — schedule rule execution outcomes. Migration
+  // 0103_admin_audit_log_schedule_actions.sql extends the DB CHECK
+  // constraint in the same commit. rule_paused covers both a manual admin
+  // pause and the auto-pause-on-stale-owner/repeated-failure mechanism
+  // (distinguished by a metadata reason field, not a separate action).
+  | "schedule.ticket_created"
+  | "schedule.execution_failed"
+  | "schedule.execution_skipped"
+  | "schedule.rule_paused"
+  | "schedule.rule_resumed"
+  | "schedule.rule_archived";
 
 export type AuditEntryInput = {
   tenantId: string;

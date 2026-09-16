@@ -50,6 +50,16 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "oncall.auto_assigned": true,
   "oncall.no_schedule": true,
   "oncall.skipped_explicit_assignee": true,
+  "label.assigned": true,
+  "label.removed": true,
+  "notification.dispatched": true,
+  "notification.channel_failed": true,
+  "schedule.ticket_created": true,
+  "schedule.execution_failed": true,
+  "schedule.execution_skipped": true,
+  "schedule.rule_paused": true,
+  "schedule.rule_resumed": true,
+  "schedule.rule_archived": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -92,6 +102,16 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "oncall.auto_assigned",
   "oncall.no_schedule",
   "oncall.skipped_explicit_assignee",
+  "label.assigned",
+  "label.removed",
+  "notification.dispatched",
+  "notification.channel_failed",
+  "schedule.ticket_created",
+  "schedule.execution_failed",
+  "schedule.execution_skipped",
+  "schedule.rule_paused",
+  "schedule.rule_resumed",
+  "schedule.rule_archived",
 ]);
 
 /**
