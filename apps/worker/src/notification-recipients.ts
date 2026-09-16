@@ -74,6 +74,13 @@ const DueDateApproachingSchema = z.object({
   instanceId: z.string(),
 });
 
+const SeverityChangedSchema = z.object({
+  actorId: z.string().nullable().optional(),
+  instanceId: z.string(),
+  previousSeverity: z.string().nullable().optional(),
+  severity: z.string(),
+});
+
 const SystemErrorSchema = z.object({
   reason: z.string().optional(),
 });
@@ -517,6 +524,76 @@ export async function resolveRecipients(
         actorId: null,
         instanceId: data.instanceId,
         reason: undefined,
+      };
+    }
+
+    // docs/specs/ticket-severity-and-tags.md R3 — deliberately the FULL
+    // access list (creator + assignedTo + every __accessUsers entry), same
+    // scoping as entity.due_date_approaching above, not the narrower
+    // creator+assignedTo-only scoping workflow.transitioned/entity.updated
+    // use — the spec explicitly wants everyone with a stake in the ticket
+    // notified of a severity change, not just its owners.
+    case "ticket.severity_changed": {
+      const parsed = SeverityChangedSchema.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn(
+          { eventType, payload, error: parsed.error },
+          "Malformed payload for ticket.severity_changed",
+        );
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+      }
+      const data = parsed.data;
+      const actorId = data.actorId ?? null;
+
+      const [instance] = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({
+            createdBy: entityInstances.createdBy,
+            assignedTo: entityInstances.assignedTo,
+            fields: entityInstances.fields,
+          })
+          .from(entityInstances)
+          .where(
+            and(
+              eq(entityInstances.id, data.instanceId),
+              eq(entityInstances.tenantId, tenantId),
+            ),
+          )
+          .limit(1),
+      );
+      if (!instance)
+        return {
+          recipients: [],
+          actorId: null,
+          instanceId: undefined,
+          reason: undefined,
+        };
+
+      const ids = new Set<string>();
+      if (instance.createdBy) ids.add(instance.createdBy);
+      if (instance.assignedTo) ids.add(instance.assignedTo);
+      const accessUsers =
+        (instance.fields as Record<string, unknown> | null)?.[
+          "__accessUsers"
+        ] ?? {};
+      if (Array.isArray(accessUsers)) {
+        for (const uid of accessUsers as string[]) ids.add(uid);
+      } else if (typeof accessUsers === "object") {
+        for (const uid of Object.keys(accessUsers as Record<string, unknown>)) {
+          ids.add(uid);
+        }
+      }
+
+      return {
+        recipients: finalize(Array.from(ids), actorId),
+        actorId,
+        instanceId: data.instanceId,
+        reason: data.severity,
       };
     }
 

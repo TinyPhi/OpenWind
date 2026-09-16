@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db } from "@platform/db";
-import { getEntity, createEntity } from "@platform/entity-engine";
+import {
+  getEntity,
+  createEntity,
+  DEFAULT_TICKET_SEVERITY,
+} from "@platform/entity-engine";
 import { getWorkflow } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
@@ -17,6 +21,7 @@ import {
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
+import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 import { withIdempotency, isIdempotencyStatus } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 import { resolveOriginOidcClientId } from "../../lib/resolve-origin-oidc-client-id.js";
@@ -128,7 +133,12 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
         );
       }
 
-      return c.json({ data: { ...instance, fields: redactedFields } });
+      return c.json({
+        data: {
+          ...instance,
+          fields: stripInternalFields(redactedFields),
+        },
+      });
     } catch (err) {
       if (isEntityNotFound(err)) {
         return notFound(c);
@@ -295,6 +305,10 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               originMechanism: "api",
               originOidcClientId,
               originPerformerUserId: actingPersonId,
+              // docs/specs/ticket-severity-and-tags.md R1 — the third-party
+              // API always creates at Medium, unconditionally; no request
+              // param can set this (out of scope for this feature's v1).
+              severity: DEFAULT_TICKET_SEVERITY,
             });
             // Same transaction as the create above -- a rejected attachment
             // reference rolls back the whole ticket creation, never leaving a
@@ -307,8 +321,22 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               actingPersonId,
               applicationActorId,
             );
+            // ADR-012 Phase G, spec R7 -- same redact-then-strip pass every
+            // read endpoint applies, so a create response (which echoes the
+            // stored entity straight back) is never a second, unfiltered
+            // path to pii/financial values or the internal __accessUsers
+            // ACL object.
+            const redactedFields = await redactEntityFieldsForThirdParty(
+              tx,
+              tenantId,
+              created.entityTypeId,
+              created.fields,
+            );
             return {
-              created,
+              created: {
+                ...created,
+                fields: stripInternalFields(redactedFields),
+              },
               workflowId: workflow.id,
             };
           });

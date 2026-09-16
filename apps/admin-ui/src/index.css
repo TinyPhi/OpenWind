@@ -4812,6 +4812,46 @@ select.form-input {
   white-space: nowrap;
 }
 .rcd-parent-chip:hover { background: hsla(250,84%,60%,.15); border-color: var(--accent-primary); }
+
+/* docs/specs/ticket-severity-and-tags.md R4 — real "price tag" shape: a
+   pointed left edge (clip-path) plus a small punched-hole dot near the
+   point, distinct from .rcd-parent-chip's plain rounded pill. */
+.rcd-tag-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  clip-path: polygon(10px 0%, 100% 0%, 100% 100%, 10px 100%, 0% 50%);
+}
+.rcd-tag-chip::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+.rcd-tag-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 0 0 2px;
+  opacity: 0.75;
+}
+.rcd-tag-remove-btn:hover { opacity: 1; }
 .rcd-detach-btn {
   margin-left: auto;
   width: 18px; height: 18px;

@@ -46,6 +46,10 @@ import { deleteAlertHandler } from "./delete-alert.js";
 import { createLabelHandler } from "./create-label.js";
 import { listLabelsHandler } from "./list-labels.js";
 import { deleteLabelHandler } from "./delete-label.js";
+import { updateSeverityHandler } from "./update-severity.js";
+import { addTagHandler } from "./add-tag.js";
+import { listTagsHandler } from "./list-tags.js";
+import { removeTagHandler } from "./remove-tag.js";
 
 const router = new Hono<{ Variables: { auth: AuthContext } }>();
 
@@ -117,5 +121,10 @@ router.delete(
   "/:id/comments/:eventId/attachments/:fileId",
   ...deleteCommentAttachmentHandler,
 );
+
+router.patch("/:id/severity", ...updateSeverityHandler);
+router.post("/:id/tags", ...addTagHandler);
+router.get("/:id/tags", ...listTagsHandler);
+router.delete("/:id/tags/:tagId", ...removeTagHandler);
 
 export { router as entitiesRouter };

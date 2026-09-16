@@ -1,5 +1,6 @@
 import type { FieldType } from "./field-types.js";
 import type { FieldError } from "./errors.js";
+import type { TicketSeverity } from "./severity-and-tags.js";
 
 /** PII classification for a field — controls redaction in workflow_events.metadata. */
 export type FieldSensitivity = "public" | "internal" | "pii" | "financial";
@@ -54,6 +55,11 @@ export interface EntityInstance {
   originMechanism: "api" | "handoff" | null;
   originOidcClientId: string | null;
   originPerformerUserId: string | null;
+  /**
+   * docs/specs/ticket-severity-and-tags.md. NULL only on rows created before this
+   * feature shipped (§V) — every creation path since writes a real value.
+   */
+  severity: TicketSeverity | null;
 }
 
 export interface EntityRelation {
@@ -143,6 +149,14 @@ export type CreateEntityInput = {
   originMechanism?: "api" | "handoff" | undefined;
   originOidcClientId?: string | undefined;
   originPerformerUserId?: string | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md R1 — required at the route layer
+   * (defaulted to "medium" there if the caller omitted it); createEntity
+   * itself does not default this, so a root caller must always resolve a
+   * value before calling in, matching the spec's "never a code path that
+   * writes NULL after this feature ships" invariant.
+   */
+  severity?: TicketSeverity | undefined;
 };
 
 export type UpdateEntityInput = {
@@ -181,6 +195,23 @@ export type ListEntitiesInput = {
    */
   scopeToUserId?: string | undefined;
   fieldFilters?: Record<string, unknown> | undefined;
+  /** docs/specs/ticket-severity-and-tags.md R6 — one or more severity levels (OR'd). */
+  severity?: TicketSeverity[] | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md R6 — a single already-normalized
+   * (trim+lowercase) tag substring, matched via ILIKE (revised from exact
+   * match for a live type-ahead UX). Callers must normalize before passing
+   * this in — see normalizeTagText. escapeLikePattern is applied downstream
+   * (in engine.ts), not by the caller.
+   */
+  tag?: string | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md T16 (records-page Source filter,
+   * converted from client-side to server-side) — "internal" means
+   * originMechanism IS NULL (normal human creation), "external" means "api",
+   * "redirected" means "handoff". See docs/specs/third-party-api-origin-tagging.md.
+   */
+  origin?: "internal" | "external" | "redirected" | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
   includeDeleted?: boolean | undefined;

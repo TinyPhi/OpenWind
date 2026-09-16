@@ -1,11 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  cleanup,
+  fireEvent,
+} from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import "../../i18n.js";
 
-const fetchWithAuth = vi.fn();
+const fetchWithAuth =
+  vi.fn<(url: string, opts?: RequestInit | undefined) => Promise<unknown>>();
 vi.mock("../../lib/api.js", () => ({
-  fetchWithAuth: (...args: unknown[]): unknown => fetchWithAuth(...args),
+  fetchWithAuth: (url: string, opts?: RequestInit): unknown =>
+    fetchWithAuth(url, opts),
   API_URL: "/api",
 }));
 
@@ -142,5 +150,89 @@ describe("CustomerRecordCreate — hosted ticket-create handoff prefill", () => 
       expect(screen.getByText("Title")).toBeDefined();
     });
     expect(titleInput().value).toBe("");
+  });
+});
+
+// docs/specs/ticket-severity-and-tags.md R1/T12
+describe("CustomerRecordCreate — severity field", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("defaults to Medium and submits it unconditionally on create", async () => {
+    renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Medium")).toBeDefined();
+    });
+
+    fetchWithAuth.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url.includes("/fields")) return Promise.resolve({ data: FIELDS });
+      if (url.includes("/workflows")) return Promise.resolve({ data: [] });
+      if (url.includes("/users")) return Promise.resolve({ data: [] });
+      if (url === "/api/entities" && opts?.method === "POST") {
+        return Promise.resolve({ data: { id: "new-ticket-1" } });
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    fireEvent.change(titleInput(), { target: { value: "Some ticket" } });
+    fireEvent.click(screen.getByText("Create Ticket"));
+
+    await waitFor(() => {
+      const call = fetchWithAuth.mock.calls.find(
+        ([url, opts]) => url === "/api/entities" && opts?.method === "POST",
+      );
+      expect(call).toBeDefined();
+      const body = JSON.parse(String(call?.[1]?.body)) as {
+        severity?: string;
+      };
+      expect(body.severity).toBe("medium");
+    });
+  });
+
+  it("submits the changed severity when a different level is selected", async () => {
+    renderAt({ entityTypeId: "et-1", workflowId: "wf-1" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Medium")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText("Medium"));
+    const criticalOption = await screen.findByRole("button", {
+      name: "Critical",
+    });
+    fireEvent.click(criticalOption);
+    await waitFor(() => {
+      expect(screen.getByText("Critical")).toBeDefined();
+    });
+
+    fetchWithAuth.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url.includes("/fields")) return Promise.resolve({ data: FIELDS });
+      if (url.includes("/workflows")) return Promise.resolve({ data: [] });
+      if (url.includes("/users")) return Promise.resolve({ data: [] });
+      if (url === "/api/entities" && opts?.method === "POST") {
+        return Promise.resolve({ data: { id: "new-ticket-1" } });
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    fireEvent.change(titleInput(), { target: { value: "Some ticket" } });
+    fireEvent.click(screen.getByText("Create Ticket"));
+
+    await waitFor(() => {
+      const call = fetchWithAuth.mock.calls.find(
+        ([url, opts]) => url === "/api/entities" && opts?.method === "POST",
+      );
+      expect(call).toBeDefined();
+      const body = JSON.parse(String(call?.[1]?.body)) as {
+        severity?: string;
+      };
+      expect(body.severity).toBe("critical");
+    });
   });
 });
