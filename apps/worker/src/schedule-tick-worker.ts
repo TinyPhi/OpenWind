@@ -29,6 +29,7 @@ import {
   buildTemplateVariables,
   renderTemplate,
   validateScheduleRuleRefs,
+  TemplateSchema,
   type Template,
 } from "@platform/scheduler";
 import { writeAuditEntry } from "@platform/audit";
@@ -82,12 +83,29 @@ function classifyScheduleError(err: unknown): string {
  * been deleted or moved tenants since — createEntity's own field validation
  * catches entity-type-schema drift, but not cross-tenant reference rot,
  * which is what packages/scheduler's validateScheduleRuleRefs re-checks.
+ *
+ * Also re-parses the stored template against TemplateSchema (Vijit review,
+ * G3): the tick path previously only ever went through `as Template`, a
+ * type assertion with no runtime check, so a row written by a migration,
+ * a direct DB write, or a row created before a schema tightening (e.g.
+ * M3's assignee_id .uuid()) reached renderTemplate/createEntity with no
+ * shape validation at all. Returns the parsed template so callers use the
+ * validated shape rather than re-asserting it themselves.
  */
 async function validateTemplate(
   tx: DbOrTx,
   rule: ScheduleRuleRow,
-): Promise<void> {
-  const template = rule.template as Template;
+): Promise<Template> {
+  const parsed = TemplateSchema.safeParse(rule.template);
+  if (!parsed.success) {
+    throw new ScheduleTemplateValidationError(
+      parsed.error.issues.map((issue) => ({
+        field: issue.path.join("."),
+        message: issue.message,
+      })),
+    );
+  }
+  const template = parsed.data;
   const errors = await validateScheduleRuleRefs(tx, rule.tenantId, {
     entityTypeId: rule.entityTypeId,
     workflowId: rule.workflowId ?? undefined,
@@ -100,30 +118,48 @@ async function validateTemplate(
   if (errors.length > 0) {
     throw new ScheduleTemplateValidationError(errors);
   }
+  return template;
 }
 
 /**
- * Enumerates every missed cron fire strictly after `afterExclusive` and
- * strictly before `beforeExclusive`, in chronological order. If `now` falls
- * exactly on a cron slot that slot belongs to the tick's normal fire, not
- * catch-up (design §3.5's comment) — computeNextFireAt's "strictly after"
- * semantics naturally exclude it since `before` is passed as `now` here.
+ * Enumerates missed cron fires strictly after `afterExclusive` and strictly
+ * before `beforeExclusive`, in chronological order. If `now` falls exactly
+ * on a cron slot that slot belongs to the tick's normal fire, not catch-up
+ * (design §3.5's comment) — computeNextFireAt's "strictly after" semantics
+ * naturally exclude it since `before` is passed as `now` here.
+ *
+ * Bounded to a sliding window of the last `maxFires` entries (Vijit review,
+ * G1): without this, a per-minute rule left unfired for e.g. a 30-day
+ * outage would build a ~43,200-element array just to have the caller slice
+ * it down to CATCH_UP_MAX afterward. A window (drop the oldest as new fires
+ * are found), not an early break, is required here — the caller always
+ * wants the MOST RECENT `maxFires` fires (both `catch_up: true`'s execute
+ * set and `catch_up: false`'s individually-logged set take the tail via
+ * `.slice(-CATCH_UP_MAX)`); breaking out as soon as `maxFires` is reached
+ * would instead keep the EARLIEST ones, silently reversing which fires get
+ * executed/logged vs. dropped. `totalCount` is tracked separately so the
+ * true total (for `skipped`/`silentlyDropped` accounting) survives even
+ * though old entries are evicted from the window.
  */
 function getMissedFires(
   cronExpr: string,
   timezone: string,
   afterExclusive: Date,
   beforeExclusive: Date,
-): Date[] {
-  const fires: Date[] = [];
+  maxFires: number,
+): { recentFires: Date[]; totalCount: number } {
+  const recentFires: Date[] = [];
+  let totalCount = 0;
   let cursor = afterExclusive;
   for (;;) {
     const next = computeNextFireAt(cronExpr, timezone, cursor);
     if (next.getTime() >= beforeExclusive.getTime()) break;
-    fires.push(next);
+    totalCount++;
+    recentFires.push(next);
+    if (recentFires.length > maxFires) recentFires.shift();
     cursor = next;
   }
-  return fires;
+  return { recentFires, totalCount };
 }
 
 /**
@@ -143,6 +179,12 @@ async function claimRule(
       .where(
         and(
           eq(scheduleRules.id, rule.id),
+          // Explicit tenant filter (Vijit review, G2): this transaction
+          // isn't wrapped in withTenantContext (RLS is inactive here), and
+          // the UPDATE below already carries this filter -- the asymmetry
+          // was a future-reader trap even though UUID uniqueness makes an
+          // actual cross-tenant collision effectively impossible.
+          eq(scheduleRules.tenantId, rule.tenantId),
           eq(scheduleRules.status, "active"),
           lte(scheduleRules.nextFireAt, tickTime),
           // Belt-and-suspenders (Vijit review, M1): the outer poll already
@@ -190,14 +232,14 @@ async function fireRule(
 ): Promise<void> {
   try {
     await withTenantContext(rule.tenantId, async (tx) => {
-      await validateTemplate(tx, rule);
+      const template = await validateTemplate(tx, rule);
 
       const vars = buildTemplateVariables(
         scheduledAt,
         rule.timezone,
         rule.name,
       );
-      const rendered = renderTemplate(rule.template as Template, vars);
+      const rendered = renderTemplate(template, vars);
 
       const instance = await createEntity(tx, rule.tenantId, {
         entityTypeId: rule.entityTypeId,
@@ -302,13 +344,20 @@ async function handleCatchUp(
   originalScheduledAt: Date,
   now: Date,
 ): Promise<{ skipped: number; failed: number }> {
-  const laterMissedFires = getMissedFires(
+  const { recentFires, totalCount: laterCount } = getMissedFires(
     rule.cronExpr,
     rule.timezone,
     originalScheduledAt,
     now,
+    CATCH_UP_MAX,
   );
-  const missedFires = [originalScheduledAt, ...laterMissedFires];
+  // recentFires is already windowed to the last CATCH_UP_MAX later fires;
+  // prepending originalScheduledAt can push this to CATCH_UP_MAX + 1, so the
+  // final .slice(-CATCH_UP_MAX) below still trims to exactly the cap.
+  const missedFires = [originalScheduledAt, ...recentFires].slice(
+    -CATCH_UP_MAX,
+  );
+  const totalMissed = laterCount + 1;
 
   const skipRecorded = async (scheduledAt: Date): Promise<void> => {
     await withTenantContext(rule.tenantId, async (tx) => {
@@ -334,10 +383,11 @@ async function handleCatchUp(
 
   if (!rule.catchUp) {
     // catch_up: false — skip everything; only log the most recent CATCH_UP_MAX
-    // individually to bound DB writes on a long-down worker.
-    const toLog = missedFires.slice(-CATCH_UP_MAX);
-    const silentlyDropped = missedFires.length - toLog.length;
-    for (const scheduledAt of toLog) {
+    // individually to bound DB writes on a long-down worker. missedFires is
+    // already windowed to at most CATCH_UP_MAX entries (see getMissedFires),
+    // so silentlyDropped is computed against totalMissed, the true count.
+    const silentlyDropped = totalMissed - missedFires.length;
+    for (const scheduledAt of missedFires) {
       await skipRecorded(scheduledAt);
       logger.info(
         { tenantId: rule.tenantId, ruleId: rule.id, scheduledAt },
@@ -350,24 +400,24 @@ async function handleCatchUp(
         "catch-up skip backlog over cap — oldest fires not individually logged",
       );
     }
-    return { skipped: missedFires.length, failed: 0 };
+    return { skipped: totalMissed, failed: 0 };
   }
 
   // catch_up: true — execute the most recent CATCH_UP_MAX fires in
-  // chronological order; anything older than the cap is logged as skipped.
-  const toExecute = missedFires.slice(-CATCH_UP_MAX);
-  const toSkip = missedFires.slice(0, missedFires.length - toExecute.length);
-
-  for (const scheduledAt of toSkip) {
-    await skipRecorded(scheduledAt);
+  // chronological order. Anything older than the cap was never retained by
+  // getMissedFires's bounded window (G1), so it can't be individually
+  // recorded per-date here; logged as a single aggregate count instead of
+  // per-date skip rows, same convention as the catch_up: false branch above.
+  const skippedOverCap = totalMissed - missedFires.length;
+  if (skippedOverCap > 0) {
     logger.info(
-      { tenantId: rule.tenantId, ruleId: rule.id, scheduledAt },
-      "catch-up fire skipped (over cap)",
+      { tenantId: rule.tenantId, ruleId: rule.id, skippedOverCap },
+      "catch-up execute backlog over cap — oldest fires skipped without individual audit rows",
     );
   }
 
   let executedFailed = 0;
-  for (const scheduledAt of toExecute) {
+  for (const scheduledAt of missedFires) {
     try {
       await fireRule(rule, scheduledAt, now);
       scheduleCatchUpTotal.add(1, { action: "executed" });
@@ -380,7 +430,7 @@ async function handleCatchUp(
     }
   }
 
-  return { skipped: toSkip.length, failed: executedFailed };
+  return { skipped: skippedOverCap, failed: executedFailed };
 }
 
 export async function schedulerTick(
