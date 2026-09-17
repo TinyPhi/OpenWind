@@ -4,6 +4,7 @@ import {
   EntityCreatedV1Schema,
   EntityAssignedV1Schema,
   EntityUnassignedV1Schema,
+  EntityUpdatedV1Schema,
 } from "./event-schemas.js";
 
 // docs/specs/port-nexus-ow-fixes.md R2 -- assigneeId/assignedBy/previousAssigneeId/
@@ -170,5 +171,31 @@ describe("EntityUnassignedV1Schema.previousAssigneeId / actorId", () => {
     expect(
       EntityUnassignedV1Schema.safeParse(build(NON_UUID_ID, OVER_255)).success,
     ).toBe(false);
+  });
+});
+
+describe("EntityUpdatedV1Schema.entityTypeId / changed (Vijit review, PR #597 B1)", () => {
+  // Outbox rows written before entity.updated was added to the poller's
+  // allowlist never populated entityTypeId/changed -- those stale rows must
+  // still parse instead of dead-lettering into BullMQ retries/DLQ on deploy.
+  const staleRow = {
+    ...baseFields(),
+    eventType: "entity.updated" as const,
+    instanceId: VALID_UUID,
+    actorId: null,
+  };
+
+  it("accepts a stale row with neither entityTypeId nor changed", () => {
+    expect(EntityUpdatedV1Schema.safeParse(staleRow).success).toBe(true);
+  });
+
+  it("still accepts a well-formed row with both fields present", () => {
+    expect(
+      EntityUpdatedV1Schema.safeParse({
+        ...staleRow,
+        entityTypeId: VALID_UUID,
+        changed: { team_id: { old: null, new: "team-1" } },
+      }).success,
+    ).toBe(true);
   });
 });
