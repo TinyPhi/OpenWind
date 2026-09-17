@@ -54,7 +54,7 @@ plan-lock all of this as one unit.
 
 ### Stage 0 — cheap prep, no ADR blocking
 
-Full detail for everything below: `docs/sup-docs/week-log.md`'s 2026-08-09/2026-08-12 entries.
+Full detail for everything below: `docs/tracker/week-log.md`'s 2026-08-09/2026-08-12 entries.
 
 - [x] #143 both phases done (PR #372, #380, 2026-08-12) — outbox writes unconditionally per
       `triggeredBy`, dedup on `(ruleId, transitionEventId)` via advisory lock. Unblocked
@@ -67,7 +67,7 @@ Full detail for everything below: `docs/sup-docs/week-log.md`'s 2026-08-09/2026-
 
 ### Stage 1 — ADR-008 core hardening (independent of connector runtime)
 
-Full detail: `docs/sup-docs/week-log.md`'s 2026-08-09 "Phase 3A Stage 1" entry.
+Full detail: `docs/tracker/week-log.md`'s 2026-08-09 "Phase 3A Stage 1" entry.
 
 - [x] `api_keys.created_by` + audit-log entry on mint/delete (Decision #2) — done 2026-08-09,
       migration 0053.
@@ -77,7 +77,7 @@ Full detail: `docs/sup-docs/week-log.md`'s 2026-08-09 "Phase 3A Stage 1" entry.
       hard-delete/GDPR-purge action.
 - [x] Isolation tests for both — done 2026-08-09.
 - [x] Doc-only: Decision #5's agent/delegation deferral gate recorded in
-      `docs/sup-docs/roadmap-tracker.md`'s 3C row — done 2026-08-09.
+      `docs/tracker/roadmap-tracker.md`'s 3C row — done 2026-08-09.
 
 ### Stage 2 — ADR-009 connector runtime + ADR-008 Decision #6 (parallel-capable)
 
@@ -85,7 +85,7 @@ Filed as granular, PR-sized GitHub issues 2026-08-10 (previously only lived as c
 see issue #16's pinned comment for why the umbrella issue itself is stale and these are the
 trackable replacement).
 
-Runtime track — full detail for all done items: `docs/sup-docs/week-log.md`'s 2026-08-12/13 entries.
+Runtime track — full detail for all done items: `docs/tracker/week-log.md`'s 2026-08-12/13 entries.
 
 - [x] `ConnectorContext` + OpenBao credential decrypt — done 2026-08-12. Concrete
       `ConnectorAuthConfig` discriminated union (`bearer`/`basic`/`apiKey`) replacing the prior
@@ -172,7 +172,7 @@ Scopes track (can run in parallel with the runtime track, same stage):
 
 - [x] Update this primer's ADR references from `docs/specs/` to `docs/decisions/ADR-00N-*.md` —
       done 2026-08-06, all three accepted at their originally-proposed numbers.
-- [x] Flip `docs/sup-docs/roadmap-tracker.md`'s 3A row from 🔴 Not started as stages land — done;
+- [x] Flip `docs/tracker/roadmap-tracker.md`'s 3A row from 🔴 Not started as stages land — done;
       currently 🟡 ~30%, kept current there each session, not duplicated here or in `CLAUDE.md`
       (both of those went stale for this exact reason once before — see 2026-08-13 cleanup).
 

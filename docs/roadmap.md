@@ -6,7 +6,7 @@
 
 **Phase 3 lettering note (found during ADR-009 review, 2026-08):** this doc's own 3D/3E split
 (§3D "Advanced Workflow Builder", §3E "Observability & Compliance") has drifted from
-`CLAUDE.md`/`docs/sup-docs/roadmap-tracker.md`, which are updated every session and call the
+`CLAUDE.md`/`docs/tracker/roadmap-tracker.md`, which are updated every session and call the
 observability/compliance track "3D" with no separate lettered "Advanced Workflow Builder" track
 (its Core content — the drag-and-drop visual workflow builder — shipped as part of Phase 2D,
 2026-07-22). Treat `CLAUDE.md`/`roadmap-tracker.md` as authoritative for phase IDs; this doc's

@@ -11,7 +11,7 @@ Phase 0–6 long-range roadmap (still the aspirational end-state). It reprioriti
 next and why_, in light of a specific pivot decision: OpenWind is being positioned as a
 cross-functional **leadership cockpit** — org-wide operational visibility plus one-click
 action — not a single-department point tool. `CLAUDE.md`'s Current Focus table and
-`docs/sup-docs/roadmap-tracker.md` remain the ground truth for live phase/track status; this
+`docs/tracker/roadmap-tracker.md` remain the ground truth for live phase/track status; this
 doc only reorders and reframes what to build within and after those tracks.
 **Companion doc:** [`management-os-implementation-timeline.md`](sup-docs/management-os-implementation-timeline.md)
 (when things happen).
