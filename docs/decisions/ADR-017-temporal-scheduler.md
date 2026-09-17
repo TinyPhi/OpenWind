@@ -1,15 +1,11 @@
-# ADR-017 DRAFT: Temporal Scheduler — Automatic Ticket Creation on Schedule
+# ADR-017: Temporal Scheduler — Automatic Ticket Creation on Schedule
 
-> **DRAFT — for human review before committing to `docs/decisions/ADR-017-*.md`.**
-> Per this repo's rules, ADR files in `docs/decisions/` are human-authored. Review this draft,
-> adjust as needed, and commit it there with `Status: Accepted` once the team agrees.
-
-**Status:** Draft
-**Date:** 2026-09-07
-**Deciders:** Engineering Lead
+**Status:** Accepted.  
+**Date:** 2026-09-16.  
+**Deciders:** Engineering Lead.  
 **Related to:** ADR-002 (workflow engine), ADR-003 (field validation), ADR-004 (config-first module design),
-ADR-014 (notification SLA/retry), ADR-016 (on-call routing — teams/services/severity)
-**Supersedes:** —
+ADR-014 (notification SLA/retry), ADR-016 (on-call routing — teams/services/severity).  
+**Supersedes:** —  
 **Superseded by:** —
 
 ---
@@ -210,9 +206,7 @@ to pause manually if the failure is persistent.
 
 ## Implementation Next Steps
 
-1. This draft should be reviewed, adjusted, and committed to `docs/decisions/ADR-017-*.md`
-   with `Status: Accepted` by a human (per this repo's ADR authorship rule).
-2. Create GitHub issues for the 4-phase task breakdown in `docs/specs/temporal-scheduler.md`.
-3. Begin Phase 1 (DB migrations 0100–0102) once the ADR is accepted.
+1. Create GitHub issues for the 4-phase task breakdown in `docs/specs/temporal-scheduler.md`.
+2. Begin Phase 1 (DB migrations 0100–0102) once the ADR is accepted.
    (Migrations 0090–0091 are already occupied; 3E on-call routing takes 0092–0099;
    3F therefore starts at 0100 — see `docs/temporal-scheduler-design.md` §7.)

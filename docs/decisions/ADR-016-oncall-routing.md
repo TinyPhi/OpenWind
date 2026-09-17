@@ -1,15 +1,11 @@
-# ADR-016 DRAFT: On-Call Routing & Severity-Based Notification Dispatch
+# ADR-016: On-Call Routing & Severity-Based Notification Dispatch
 
-> **DRAFT — for human review before committing to `docs/decisions/ADR-016-*.md`.**
-> Per this repo's rules, ADR files in `docs/decisions/` are human-authored. Review this draft,
-> adjust as needed, and commit it there with `Status: Accepted` once the team agrees.
-
-**Status:** Draft
-**Date:** 2026-09-06
-**Deciders:** Engineering Lead
+**Status:** Accepted.  
+**Date:** 2026-09-16.  
+**Deciders:** Engineering Lead  
 **Related to:** ADR-012 (third-party API access), ADR-013 (rate limiting), ADR-014 (notification
-SLA/retry), issue #16 (3A tracker), issue #12 (2A — Novu wire-up)
-**Supersedes:** —
+SLA/retry), issue #16 (3A tracker), issue #12 (2A — Novu wire-up).  
+**Supersedes:** —  
 **Superseded by:** —
 
 ---
@@ -215,8 +211,6 @@ ends_at`) on a GIST-indexed column; p99 target ≤ 100 ms enforced by an integra
 
 ## Implementation next steps
 
-1. This draft should be reviewed, adjusted, and committed to `docs/decisions/ADR-016-*.md`
-   with `Status: Accepted` by a human (per this repo's ADR authorship rule).
-2. Create GitHub issues linking to this ADR for the 4-phase task breakdown in
+1. Create GitHub issues linking to this ADR for the 4-phase task breakdown in
    `docs/specs/oncall-routing.md`.
-3. Begin Phase 1 (DB migrations) once the ADR is accepted — see `§T` in the spec.
+2. Begin Phase 1 (DB migrations) once the ADR is accepted — see `§T` in the spec.
