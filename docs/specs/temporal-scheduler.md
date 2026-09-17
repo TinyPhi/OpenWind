@@ -156,6 +156,28 @@ Unknown `{{tokens}}` are left as-is (not an error).
 ✓ `schedule.ticket_created { ruleId, ticketId, scheduledAt }` on success
 ✓ `schedule.execution_failed { ruleId, errorCode, scheduledAt }` on failure
 
+**R-stale-owner** — A rule is auto-paused after 3 consecutive failed executions ("stale owner /
+repeated failure" — e.g. the rule's `created_by` user was deactivated, or the template's
+`assignee_id`/`team_id` no longer resolves), and a single notification is sent; the rule does not
+refire until an admin reassigns/fixes it and resumes.
+✓ 3rd consecutive `failed` execution for a rule → rule transitions to `status: 'paused'`,
+`next_fire_at` set to null, in the same transaction as the 3rd execution record
+✓ Exactly one notification is sent to the rule's `created_by` (or a configured owner) on the
+transition into auto-paused state — `schedule.rule_auto_paused` audited once, not once per tick
+(a new, distinct action string from admin-initiated `schedule.rule_paused` — auto-pause must be
+distinguishable from a deliberate admin pause in the audit log)
+✓ While paused, the rule is excluded from the worker's due-rule polling query — no further
+execution attempts, no further notifications, until an admin acts
+✓ A successful execution resets the consecutive-failure counter to 0 — 2 failures followed by a
+success does not trigger auto-pause on a 3rd, unrelated failure later
+✓ Resuming an auto-paused rule gets one free retry: the next fire is attempted normally; only a
+_second_ consecutive failure after resume re-triggers auto-pause-and-notify (the failure counter
+is reset to 0 on resume, not left at 3) — resuming does not immediately re-pause without giving
+the fix a chance to work
+✓ Resuming an auto-paused rule uses the existing `schedule.rule_resumed` action — no separate
+resume-specific action string needed since the resume itself isn't distinct from an admin
+resuming a manually-paused rule; only the pause side needs the new `rule_auto_paused` string
+
 ---
 
 ## §V Invariants
@@ -169,30 +191,38 @@ Unknown `{{tokens}}` are left as-is (not an error).
 - Title template substitution uses a closed whitelist — unknown tokens pass through as literals; no eval, no Handlebars, no Mustache
 - `catch_up` execution cap is enforced at 24 — no rule ever creates more than 24 tickets in a single catch-up run
 - Worker advisory lock prevents two worker instances from processing the same rule concurrently
+- A rule's consecutive-failure counter resets to 0 on any successful execution and on resume from
+  auto-pause — it is never left at the auto-pause threshold across a resume, so a fixed rule gets
+  a genuine free retry rather than re-pausing on its next tick regardless of outcome
+- Auto-pause (`schedule.rule_auto_paused`) fires exactly once per transition into the paused state
+  — the worker's due-rule polling query excludes paused rules, so there is no path to a duplicate
+  auto-pause notification for the same pause episode
 
 ---
 
 ## §T Tasks
 
-| id  | task                                                                                                                            | phase | status | depends |
-| --- | ------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
-| T1  | Migration `0100`: `schedule_rules` table + RLS read/write pair + analytics annotation + soft-delete                             | 1     | todo   | —       |
-| T2  | Migration `0101`: `schedule_executions` table + RLS + analytics annotation (append-only, no soft-delete)                        | 1     | todo   | T1      |
-| T3  | Migration `0102`: extend `admin_audit_log` CHECK constraint for `schedule.*` action strings                                     | 1     | todo   | T2      |
-| T4  | `packages/scheduler` library: cron validation, timezone validation, `next_fire_at` calculator, template renderer, tenant guard  | 2     | todo   | T1,T2   |
-| T5  | `GET/POST/PATCH/DELETE /admin/schedule-rules` routes + Zod schemas + unit + integration tests                                   | 2     | todo   | T4      |
-| T6  | `GET /admin/schedule-rules/:id/executions` pagination endpoint + tests                                                          | 2     | todo   | T5      |
-| T7  | `GET /admin/schedule-rules/:id/next-fires?count=N` dry-run endpoint + tests                                                     | 2     | todo   | T4      |
-| T8  | Isolation tests: cross-tenant schedule rule isolation (reads, write blocks, template FK guards)                                 | 2     | todo   | T5,T6   |
-| T9  | Scheduler tick in `apps/worker`: poll due rules, advisory lock, create tickets, advance `next_fire_at`, write execution records | 3     | todo   | T4      |
-| T10 | catch_up logic: detect missed fires on resume/restart, create in chronological order up to 24, log extras as `skipped`          | 3     | todo   | T9      |
-| T11 | Prometheus metrics: register `openwind_schedule_*` counters + histograms + gauge in `packages/telemetry/src/metrics.ts`         | 3     | todo   | T9      |
-| T12 | OTel spans: `schedule.tick` + `schedule.create_ticket` spans with full attribute sets                                           | 3     | todo   | T9      |
-| T13 | Worker integration tests: tick fires due rule, idempotency, catch-up, failed creation continues worker                          | 3     | todo   | T9,T10  |
-| T14 | Isolation tests: cross-tenant execution isolation (worker only creates tickets in correct tenant)                               | 3     | todo   | T9      |
-| T15 | Admin UI: Schedule Rules list + create/edit form (cron picker with friendly presets, template fields, timezone selector)        | 4     | todo   | T5,T7   |
-| T16 | Admin UI: execution history table per rule — status chips, ticket link, error badge, timestamps in user timezone                | 4     | todo   | T6      |
-| T17 | Admin UI: next-fires preview panel in the rule form — shows next 5 scheduled fires in rule's timezone                           | 4     | todo   | T7      |
+| id   | task                                                                                                                                                              | phase | status | depends |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------- |
+| T1   | Migration `0100`: `schedule_rules` table + RLS read/write pair + analytics annotation + soft-delete                                                               | 1     | todo   | —       |
+| T2   | Migration `0101`: `schedule_executions` table + RLS + analytics annotation (append-only, no soft-delete)                                                          | 1     | todo   | T1      |
+| T3   | Migration `0102`: extend `admin_audit_log` CHECK constraint for `schedule.*` action strings                                                                       | 1     | todo   | T2      |
+| T3b  | Migration/schema: extend `schedule.*` CHECK + `AuditAction` union with `schedule.rule_auto_paused`; add `consecutive_failures` counter column to `schedule_rules` | 1     | todo   | T3      |
+| T4   | `packages/scheduler` library: cron validation, timezone validation, `next_fire_at` calculator, template renderer, tenant guard                                    | 2     | todo   | T1,T2   |
+| T5   | `GET/POST/PATCH/DELETE /admin/schedule-rules` routes + Zod schemas + unit + integration tests                                                                     | 2     | todo   | T4      |
+| T6   | `GET /admin/schedule-rules/:id/executions` pagination endpoint + tests                                                                                            | 2     | todo   | T5      |
+| T7   | `GET /admin/schedule-rules/:id/next-fires?count=N` dry-run endpoint + tests                                                                                       | 2     | todo   | T4      |
+| T8   | Isolation tests: cross-tenant schedule rule isolation (reads, write blocks, template FK guards)                                                                   | 2     | todo   | T5,T6   |
+| T9   | Scheduler tick in `apps/worker`: poll due rules, advisory lock, create tickets, advance `next_fire_at`, write execution records                                   | 3     | todo   | T4      |
+| T10  | catch_up logic: detect missed fires on resume/restart, create in chronological order up to 24, log extras as `skipped`                                            | 3     | todo   | T9      |
+| T10b | Auto-pause-and-notify (R-stale-owner): track consecutive failures per rule, transition to paused + single notification at 3, reset counter on success/resume      | 3     | todo   | T9,T3b  |
+| T11  | Prometheus metrics: register `openwind_schedule_*` counters + histograms + gauge in `packages/telemetry/src/metrics.ts`                                           | 3     | todo   | T9      |
+| T12  | OTel spans: `schedule.tick` + `schedule.create_ticket` spans with full attribute sets                                                                             | 3     | todo   | T9      |
+| T13  | Worker integration tests: tick fires due rule, idempotency, catch-up, failed creation continues worker                                                            | 3     | todo   | T9,T10  |
+| T14  | Isolation tests: cross-tenant execution isolation (worker only creates tickets in correct tenant)                                                                 | 3     | todo   | T9      |
+| T15  | Admin UI: Schedule Rules list + create/edit form (cron picker with friendly presets, template fields, timezone selector)                                          | 4     | todo   | T5,T7   |
+| T16  | Admin UI: execution history table per rule — status chips, ticket link, error badge, timestamps in user timezone                                                  | 4     | todo   | T6      |
+| T17  | Admin UI: next-fires preview panel in the rule form — shows next 5 scheduled fires in rule's timezone                                                             | 4     | todo   | T7      |
 
 phase gate: all unit + integration + isolation tests pass before advancing to next phase
 

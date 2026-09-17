@@ -1,7 +1,7 @@
 # On-Call Routing & Severity-Based Notification Dispatch — Design Reference
 
 > Behavioral specification for implementation. Read alongside `docs/specs/oncall-routing.md`
-> (requirements) and `docs/specs/adr-016-draft-oncall-routing.md` (decisions). This doc covers
+> (requirements) and `docs/decisions/ADR-016-oncall-routing.md` (decisions). This doc covers
 > data shapes, API contracts, algorithm details, and sequence flows.
 
 ---
