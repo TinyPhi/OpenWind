@@ -340,8 +340,8 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(openwind_oncall_resolutions_total[5m])) by (result)",
-          "legendFormat": "{{result}}",
+          "expr": "sum(rate(openwind_oncall_resolutions_total[5m])) by (outcome)",
+          "legendFormat": "{{outcome}}",
           "range": true,
           "refId": "A"
         }
@@ -378,7 +378,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(openwind_notification_dispatch_total{result=\"success\"}[5m])) by (channel) / sum(rate(openwind_notification_dispatch_total[5m])) by (channel)",
+          "expr": "sum(rate(openwind_notification_dispatch_total{outcome=\"ok\"}[5m])) by (channel) / sum(rate(openwind_notification_dispatch_total[5m])) by (channel)",
           "legendFormat": "{{channel}}",
           "range": true,
           "refId": "A"
@@ -418,7 +418,7 @@
           },
           "editorMode": "code",
           "expr": "openwind_oncall_coverage_gap_teams",
-          "legendFormat": "{{tenant_hash}}",
+          "legendFormat": "{{tenant_id}}",
           "range": true,
           "refId": "A"
         }
