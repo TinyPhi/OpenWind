@@ -2,6 +2,9 @@ export { prometheusExporter } from "./instrumentation.js";
 export {
   httpRequestDuration,
   httpRequestsTotal,
+  scheduleTickTotal,
+  scheduleExecutionTotal,
+  scheduleCatchUpTotal,
   oncallResolutionsTotal,
   notificationDispatchTotal,
   getSerializedMetrics,
