@@ -145,6 +145,11 @@ async function claimRule(
           eq(scheduleRules.id, rule.id),
           eq(scheduleRules.status, "active"),
           lte(scheduleRules.nextFireAt, tickTime),
+          // Belt-and-suspenders (Vijit review, M1): the outer poll already
+          // filters isNull(deletedAt), and today's only soft-delete path
+          // also sets status: "paused" -- but that's a load-bearing
+          // invariant, not something this claim query should trust blindly.
+          isNull(scheduleRules.deletedAt),
         ),
       )
       .for("update", { skipLocked: true })

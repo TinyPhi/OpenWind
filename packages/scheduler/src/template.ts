@@ -18,7 +18,7 @@ export const TemplateSchema = z.object({
   title: z.string().trim().min(1).max(500), // trim before min: "   " must fail validation
   description: z.string().trim().max(10000).optional(),
   severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-  assignee_id: z.string().min(1).optional(),
+  assignee_id: z.string().uuid().optional(),
   team_id: z.string().uuid().optional(),
   service_id: z.string().uuid().optional(),
   fields: z.record(z.string(), z.unknown()).optional(),

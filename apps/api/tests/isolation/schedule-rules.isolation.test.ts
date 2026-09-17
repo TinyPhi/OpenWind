@@ -16,6 +16,7 @@ import {
   workflows,
   tenants,
 } from "@platform/db";
+import { validateScheduleRuleRefs } from "@platform/scheduler";
 
 const TENANT_A = "aaaaaaaa-9999-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-9999-4000-b000-000000000002";
@@ -283,5 +284,59 @@ describe("schedule_executions — cross-tenant isolation (append-only)", () => {
           .where(eq(scheduleExecutions.id, executionAId));
       }),
     ).rejects.toMatchObject({ cause: { code: "42501" } });
+  });
+});
+
+describe("validateScheduleRuleRefs — inactive workflow rejected (Vijit review, M2)", () => {
+  // workflows has a UNIQUE(tenant_id, entity_type_id) constraint, so this
+  // suite reuses one row (flipping isActive) rather than inserting a second
+  // workflow for the same tenant + entity type.
+  let workflowId: string;
+
+  beforeAll(async () => {
+    const [workflow] = await db
+      .insert(workflows)
+      .values({
+        tenantId: TENANT_A,
+        entityTypeId,
+        name: `M2 test workflow ${TENANT_A}`,
+        initialState: "open",
+        isActive: false,
+      })
+      .returning({ id: workflows.id });
+    workflowId = workflow!.id;
+  });
+
+  afterAll(async () => {
+    await db.delete(workflows).where(eq(workflows.id, workflowId));
+  });
+
+  it("rejects a schedule rule referencing a deactivated workflow", async () => {
+    const errors = await withTenantContext(TENANT_A, (tx) =>
+      validateScheduleRuleRefs(tx, TENANT_A, {
+        entityTypeId,
+        workflowId,
+        template: {},
+      }),
+    );
+    expect(errors).toContainEqual(
+      expect.objectContaining({ field: "workflowId" }),
+    );
+  });
+
+  it("accepts a schedule rule referencing an active workflow in the same tenant (control)", async () => {
+    await db
+      .update(workflows)
+      .set({ isActive: true })
+      .where(eq(workflows.id, workflowId));
+
+    const errors = await withTenantContext(TENANT_A, (tx) =>
+      validateScheduleRuleRefs(tx, TENANT_A, {
+        entityTypeId,
+        workflowId,
+        template: {},
+      }),
+    );
+    expect(errors.some((e) => e.field === "workflowId")).toBe(false);
   });
 });
