@@ -76,3 +76,46 @@ WHERE NOT EXISTS (
   SELECT 1 FROM automation_rules
   WHERE name = 'Auto-assign on-call user when ticket team changes' AND tenant_id = '{TENANT_ID}'
 );
+
+-- docs/specs/oncall-routing.md T28/R16 — dispatch_severity_notification
+-- fires on BOTH entity.created (severity set at creation) and entity.updated
+-- (severity changed later), same two-rows-per-event-type convention as
+-- resolve_oncall above (conditions NULL, the action self-guards by checking
+-- event.fields.severity / event.changed.severity — the condition-tree
+-- evaluator can't see old/new diffs, see resolve-oncall's comment above).
+--
+-- KNOWN PREREQUISITE GAP: severity is not yet a seeded entity field on
+-- 'ticket' (see 001_entity_types.sql's header comment for the same gap on
+-- team_id/service_id) -- this rule is a no-op until that lands, by design
+-- (the action returns early when severity is absent).
+INSERT INTO automation_rules (id, tenant_id, name, is_enabled, trigger_type, trigger_config, conditions, actions, priority)
+SELECT
+  gen_random_uuid(),
+  '{TENANT_ID}',
+  'Dispatch severity notification on ticket creation',
+  true,
+  'entity.created',
+  '{"entityType": "ticket"}'::jsonb,
+  NULL,
+  '[{"type": "dispatch_severity_notification", "config": {}}]'::jsonb,
+  0
+WHERE NOT EXISTS (
+  SELECT 1 FROM automation_rules
+  WHERE name = 'Dispatch severity notification on ticket creation' AND tenant_id = '{TENANT_ID}'
+);
+
+INSERT INTO automation_rules (id, tenant_id, name, is_enabled, trigger_type, trigger_config, conditions, actions, priority)
+SELECT
+  gen_random_uuid(),
+  '{TENANT_ID}',
+  'Dispatch severity notification when ticket severity changes',
+  true,
+  'entity.updated',
+  '{"entityType": "ticket"}'::jsonb,
+  NULL,
+  '[{"type": "dispatch_severity_notification", "config": {}}]'::jsonb,
+  0
+WHERE NOT EXISTS (
+  SELECT 1 FROM automation_rules
+  WHERE name = 'Dispatch severity notification when ticket severity changes' AND tenant_id = '{TENANT_ID}'
+);

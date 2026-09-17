@@ -27,7 +27,8 @@ export type ActionType =
   | "create_child"
   | "webhook"
   | "connector.action"
-  | "resolve_oncall";
+  | "resolve_oncall"
+  | "dispatch_severity_notification";
 
 export interface AutomationRule {
   id: string;
@@ -108,6 +109,12 @@ export interface ResolveOncallConfig {
   instanceId?: string; // UUID, per apps/api's ResolveOncallConfigSchema
 }
 
+// R16-R20/T27-T31: same `instanceId` convention as ResolveOncallConfig above
+// (manual/isolation-test invocation without a live trigger event).
+export interface DispatchSeverityNotificationConfig {
+  instanceId?: string;
+}
+
 export type ActionConfig =
   | { type: "notify"; config: NotifyConfig }
   | { type: "set_field"; config: SetFieldConfig }
@@ -117,7 +124,11 @@ export type ActionConfig =
   | { type: "create_entity"; config: CreateEntityConfig }
   | { type: "create_child"; config: CreateChildConfig }
   | { type: "connector.action"; config: Record<string, unknown> }
-  | { type: "resolve_oncall"; config: ResolveOncallConfig };
+  | { type: "resolve_oncall"; config: ResolveOncallConfig }
+  | {
+      type: "dispatch_severity_notification";
+      config: DispatchSeverityNotificationConfig;
+    };
 
 export type CreateAutomationRuleInput = {
   name: string;

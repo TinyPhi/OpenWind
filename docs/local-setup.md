@@ -406,6 +406,32 @@ are not on a matched release line upstream — `novu-api`/`novu-worker`'s `:late
 what was actually running rather than forcing an artificial sync; if Novu compatibility issues
 ever surface, this is the first place to look.
 
+### Novu channel wiring (docs/specs/oncall-routing.md T29)
+
+`dispatch_severity_notification` (packages/automation-engine) writes one in-app `notifications`
+row per (channel, recipient) pair, tagged with `channel` — `email`, `sms`, `whatsapp`, or `call`
+(migration `0105_notifications_severity_channel.sql`). Today only `email` has a working delivery
+path: `apps/worker/src/notification-outbound-worker.ts`'s own header comment notes `sms`/
+`whatsapp` are hardcoded `false` in its outbound payload pending the external provider contract
+being settled — `call` has no delivery path at all yet. This is a known, tracked gap, not an
+oversight: the per-channel `channel` column exists specifically so the outbound worker can branch
+per-channel once each provider is wired, without another schema change.
+
+When wiring a real provider, each channel needs its own Novu workflow (one Novu "workflow" =
+templateId per channel, not one multi-step workflow covering all four — see
+`packages/notifications/src/index.ts`'s header comment on why templates live in Novu, not
+TypeScript) plus the provider's own credentials, configured as Novu integrations (Novu Web UI,
+`http://localhost:2022` when the `notifications` profile is running) rather than platform env
+vars for the credentials themselves. The platform-side env vars this repo owns are:
+
+| Variable       | Purpose                                                                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `NOVU_API_KEY` | Already required (`packages/config/src/env.ts`) — the Novu SDK client authenticates with this for every channel, not one key per channel. |
+
+No new platform env var is needed per-channel — SMS/WhatsApp/voice provider credentials (Twilio
+Account SID/Auth Token, WhatsApp Business API token, etc.) are entered directly into Novu's own
+integration store, not `.env`, so they're never in this repo's environment surface at all.
+
 ---
 
 ## Environment variables reference

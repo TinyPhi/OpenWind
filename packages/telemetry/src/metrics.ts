@@ -158,6 +158,19 @@ export const oncallResolutionsTotal = meter.createCounter(
   },
 );
 
+// docs/specs/oncall-routing.md T27-T31/T39 — severity-based notification
+// dispatch observability. Incremented directly by
+// packages/automation-engine/src/actions/dispatch-severity-notification.ts:
+// one increment per (channel, outcome) pair per action execution, so a
+// partial-failure run (one channel ok, one channel_failed) reports both.
+export const notificationDispatchTotal = meter.createCounter(
+  "openwind_notification_dispatch_total",
+  {
+    description:
+      "Per-channel outcomes of dispatch_severity_notification action executions",
+  },
+);
+
 // Coverage-gap gauge: resolve-oncall.ts maintains a per-tenant Redis SET of
 // team ids currently in a coverage-gap state (oncall.no_schedule, including
 // R8b's exhausted-cascade case) — added when a gap is detected, removed on

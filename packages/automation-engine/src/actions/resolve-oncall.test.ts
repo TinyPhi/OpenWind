@@ -97,6 +97,7 @@ describe("executeResolveOncallAction", () => {
     mockResolveOncallCascade.mockReset();
     mockWriteAuditEntry.mockClear();
     mockQueueAdd.mockClear();
+    mockQueueClose.mockClear();
     mockCounterAdd.mockClear();
   });
 
