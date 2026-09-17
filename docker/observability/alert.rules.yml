@@ -53,11 +53,11 @@ groups:
           severity: info
           team: platform
         annotations:
-          summary: "{{ $value }} team(s) have no active on-call schedule for tenant {{ $labels.tenant_hash }}"
+          summary: "{{ $value }} team(s) have no active on-call schedule for tenant {{ $labels.tenant_id }}"
 
       - alert: NotificationChannelHighFailureRate
         expr:
-          sum by (channel) (rate(openwind_notification_dispatch_total{result="failed"}[5m]))
+          sum by (channel) (rate(openwind_notification_dispatch_total{outcome="channel_failed"}[5m]))
           / sum by (channel) (rate(openwind_notification_dispatch_total[5m])) > 0.1
         for: 5m
         labels:
