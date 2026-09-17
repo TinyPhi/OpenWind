@@ -36,8 +36,8 @@ A change is **done** only when every applicable box is true:
 ## Integration & docs
 
 - [ ] Works with the whole system; migrations/config/flags accounted for; backward-compat considered.
-- [ ] A new dated file added under `docs/sup-docs/week-log/` (never edit `week-log.md` itself —
-      frozen history) and `docs/sup-docs/roadmap-tracker.md`'s **own track row** updated (leave
+- [ ] A new dated file added under `docs/tracker/week-log/` (never edit `week-log.md` itself —
+      frozen history) and `docs/tracker/roadmap-tracker.md`'s **own track row** updated (leave
       the Summary scorecard for reconciliation — see that doc's header).
 - [ ] `CHANGELOG.md` entry for user-facing changes.
 - [ ] If an architectural decision was made: an ADR is **flagged as needed** (ADRs are human-written — do not author one).

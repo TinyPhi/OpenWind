@@ -304,7 +304,7 @@ AI-assisted workflow creation.
 Vertical sector packages (healthcare, manufacturing, education, etc.),
 white-label support, advanced analytics.
 
-See [`docs/roadmap.md`](docs/roadmap.md) for the detailed phase breakdown with
+See [`docs/tracker/roadmap-tracker.md`](docs/tracker/roadmap-tracker.md) for the detailed phase breakdown with
 milestones and exit criteria.
 
 ---

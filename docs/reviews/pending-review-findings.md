@@ -14,7 +14,7 @@ reconciliation (2026-08-03): #194, #196, #197, and #201 closed
 (rows removed); #192 and #198 still open by deliberate scope decision, not neglect; #200 has
 scaffolding merged (PR #272) but was still marked "untouched" — corrected. The July-2026
 internal security audit (issues #221–#267, tracked in
-[roadmap-tracker.md](../sup-docs/roadmap-tracker.md)) is a separate, later audit round and isn't
+[roadmap-tracker.md](../tracker/roadmap-tracker.md)) is a separate, later audit round and isn't
 folded into this doc.
 
 **Consolidated:** 2026-07-24, from a full audit of `docs/reviews/2026-06-29-consulting-review.md`,
@@ -34,7 +34,7 @@ that's the difference between the two halves of this list.
 ## Already has a tracked issue — just needs a person
 
 **Reconciled 2026-08-19:** #143 (automation-triggered transitions absent from outbox) closed —
-both phases done per `docs/sup-docs/week-log.md`'s 2026-08-12 entries (PR #372, #380); row
+both phases done per `docs/tracker/week-log.md`'s 2026-08-12 entries (PR #372, #380); row
 removed per this doc's own rule below.
 
 **Added 2026-08-31:** #540 (rate-limit.ts trusts first X-Forwarded-For hop, spoofable if a

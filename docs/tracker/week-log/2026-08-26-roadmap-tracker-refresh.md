@@ -1,6 +1,6 @@
 # 2026-08-26 — roadmap-tracker.md refresh + ADR-015 accepted
 
-Regenerated `docs/sup-docs/roadmap-tracker.md`'s Open Tickets by Creator table against live
+Regenerated `docs/tracker/roadmap-tracker.md`'s Open Tickets by Creator table against live
 `gh issue list --state open --json number,title,author,createdAt --repo TinyPhi/OpenWind`, and
 recorded that ADR-015 (3D — observability + compliance) was accepted.
 

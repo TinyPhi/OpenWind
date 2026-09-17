@@ -39,7 +39,7 @@ docs this consolidates were removed 2026-07-24; their resolved findings aren't r
 - [x] **#125** `notify` action wired end-to-end — outbox-pattern delivery worker, in-app inbox,
       WebSocket live push, pluggable outbound seam — PR #211 (2026-07-29).
 
-See [docs/sup-docs/roadmap-tracker.md](../roadmap-tracker.md) for the fuller,
+See [docs/tracker/roadmap-tracker.md](../roadmap-tracker.md) for the fuller,
 actively-maintained backlog table (includes #143, #160–#171 follow-ons, and PR-in-review status).
 
 **Note as of 2026-08-19 (archival time):** by the time this was archived, #125 (the item marked
@@ -53,7 +53,7 @@ above says "idempotency follow-up PR #188" — that's wrong, inherited from the 
 CLAUDE.md text rather than introduced here. `gh pr view 178` confirms PR #178
 ("fix(dx): make openbao-init idempotent across compose restarts", merged 2026-07-24) is the
 actual idempotency follow-up; PR #188 is an unrelated bundle of 5 nit-fixes merged 2026-07-25
-(`docs/sup-docs/roadmap-tracker.md`'s own Pre-Phase-3 hardening table already had #178 right —
+(`docs/tracker/roadmap-tracker.md`'s own Pre-Phase-3 hardening table already had #178 right —
 only this file's verbatim-archived block had the wrong number). Left the verbatim text above
 unchanged rather than silently edit "history" — this note is the correction.
 
