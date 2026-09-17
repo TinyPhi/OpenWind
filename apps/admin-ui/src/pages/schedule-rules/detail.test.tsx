@@ -70,7 +70,14 @@ describe("ScheduleRuleDetailPage", () => {
     mockFetchWithAuth.mockResolvedValueOnce({
       data: {
         timezone: "America/New_York",
-        fires: ["2026-09-22T09:00:00Z", "2026-09-29T09:00:00Z"],
+        // Real shape from packages/scheduler/src/cron.ts's getNextFires():
+        // { utc, local }[], not a bare string[] -- a mock of the wrong shape
+        // here previously let an "Invalid Date" regression pass CI (PR #604
+        // review, B1).
+        fires: [
+          { utc: "2026-09-22T09:00:00.000Z", local: "2026-09-22T05:00:00" },
+          { utc: "2026-09-29T09:00:00.000Z", local: "2026-09-29T05:00:00" },
+        ],
       },
     });
     renderPage();
@@ -82,6 +89,14 @@ describe("ScheduleRuleDetailPage", () => {
       "/api/admin/schedule-rules/rule-1/next-fires",
     );
     expect(screen.getByText("Weekly Standup — 2026-09-15")).toBeTruthy();
+    // Regression guard: a wrong-shape `fires` payload renders "Invalid Date"
+    // instead of a real date string.
+    expect(screen.queryByText(/Invalid Date/)).toBeNull();
+    expect(
+      screen.getByText(new Date("2026-09-22T09:00:00.000Z").toLocaleString(), {
+        exact: false,
+      }),
+    ).toBeTruthy();
   });
 
   it("shows an empty-state message when there are no upcoming fires", async () => {

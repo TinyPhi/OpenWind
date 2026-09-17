@@ -149,7 +149,9 @@ describe("schedule-rules router — tenant isolation", () => {
     // Regression guard: the PATCH UPDATE's WHERE clause must include
     // isNull(deletedAt) alongside the pre-fetch SELECT's check, or a
     // concurrent soft-delete between the two statements lets this PATCH
-    // silently mutate an already-deleted row (Vijit review, PR #595 round 3).
+    // silently mutate an already-deleted row (Vijit review, PR #604 G1 /
+    // PR #595 round 3 -- same underlying bug, both PRs carry a copy of
+    // this route file).
     const patchRes = await app.request(`/admin/schedule-rules/${created.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
