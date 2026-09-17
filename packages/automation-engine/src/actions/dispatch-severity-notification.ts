@@ -173,6 +173,10 @@ export async function executeDispatchSeverityNotificationAction(
   let severity: string | undefined;
 
   if (event.eventType === "entity.updated") {
+    // event.changed is optional (PR #597 review, B1) -- a pre-existing
+    // outbox row written before entity.updated carried this field never has
+    // it, same as severity genuinely not changing.
+    if (!event.changed) return;
     const severityChange = event.changed["severity"];
     if (
       !severityChange ||
