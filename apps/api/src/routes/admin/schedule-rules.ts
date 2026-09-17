@@ -487,6 +487,7 @@ router.patch(
             and(
               eq(scheduleRules.id, id),
               eq(scheduleRules.tenantId, auth.tenantId),
+              isNull(scheduleRules.deletedAt),
             ),
           )
           .returning();
