@@ -687,6 +687,9 @@ importers:
 
   packages/automation-engine:
     dependencies:
+      '@platform/audit':
+        specifier: workspace:*
+        version: link:../audit
       '@platform/config':
         specifier: workspace:*
         version: link:../config
@@ -699,6 +702,9 @@ importers:
       '@platform/logger':
         specifier: workspace:*
         version: link:../logger
+      '@platform/teams':
+        specifier: workspace:*
+        version: link:../teams
       '@platform/telemetry':
         specifier: workspace:*
         version: link:../telemetry
