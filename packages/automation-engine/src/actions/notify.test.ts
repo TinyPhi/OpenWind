@@ -25,10 +25,14 @@ vi.mock("@platform/logger", () => ({
 }));
 
 const mockQueueAdd = vi.fn().mockResolvedValue(undefined);
+const mockQueueClose = vi.fn().mockResolvedValue(undefined);
 vi.mock("bullmq", () => ({
   Queue: class {
     add(...args: unknown[]) {
       return mockQueueAdd(...args);
+    }
+    close(...args: unknown[]) {
+      return mockQueueClose(...args);
     }
   },
   Worker: class {},
@@ -198,6 +202,9 @@ describe("executeNotifyAction", () => {
       expect.objectContaining({ tenantId: "t-1" }),
       expect.objectContaining({ jobId: expect.any(String) }),
     );
+    // Vijit review, PR #597 G1: same Queue-leak fix applied to notify.ts as
+    // resolve-oncall.ts's backup notification path.
+    expect(mockQueueClose).toHaveBeenCalledTimes(1);
   });
 
   it("does not enqueue an outbound job when no redis connection is provided", async () => {
