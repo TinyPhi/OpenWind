@@ -15,10 +15,12 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@platform/audit": "workspace:*",
     "@platform/config": "workspace:*",
     "@platform/db": "workspace:*",
     "@platform/entity-engine": "workspace:*",
     "@platform/logger": "workspace:*",
+    "@platform/teams": "workspace:*",
     "@platform/telemetry": "workspace:*",
     "@platform/workflow-engine": "workspace:*",
     "bullmq": "^5.0.0",
