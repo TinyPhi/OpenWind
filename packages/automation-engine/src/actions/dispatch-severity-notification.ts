@@ -173,6 +173,10 @@ export async function executeDispatchSeverityNotificationAction(
   let severity: string | undefined;
 
   if (event.eventType === "entity.updated") {
+    // event.changed is optional (PR #597 review, B1) -- a pre-existing
+    // outbox row written before entity.updated carried this field never has
+    // it, same as severity genuinely not changing.
+    if (!event.changed) return;
     const severityChange = event.changed["severity"];
     if (
       !severityChange ||
@@ -291,6 +295,12 @@ export async function executeDispatchSeverityNotificationAction(
       ? new Queue("notify-outbound", { connection: redis })
       : null;
 
+  // PR #600 review (Vijit, M1) -- per-channel outcome, so the
+  // notification.dispatched audit entry below can distinguish a fully
+  // successful dispatch from one where every channel failed, instead of
+  // writing the same "dispatched" entry either way.
+  const channelResults: Record<string, "ok" | "failed"> = {};
+
   try {
     // Channel dispatch is independent per channel (R18) — one channel's
     // insert/enqueue failure never suppresses the others, and this action
@@ -359,6 +369,7 @@ export async function executeDispatchSeverityNotificationAction(
       }
 
       if (channelFailure) {
+        channelResults[channel] = "failed";
         await writeAuditEntry(db, {
           tenantId,
           actorId: "system",
@@ -373,6 +384,7 @@ export async function executeDispatchSeverityNotificationAction(
           outcome: "channel_failed",
         });
       } else {
+        channelResults[channel] = "ok";
         notificationDispatchTotal.add(1, { channel, outcome: "ok" });
       }
     }
@@ -380,6 +392,15 @@ export async function executeDispatchSeverityNotificationAction(
     await outboundQueue?.close();
   }
 
+  // PR #600 review (Vijit, M1) -- record channel outcomes so an operator
+  // reading notification.dispatched entries can tell a fully successful
+  // dispatch apart from a partial or total failure (previously written
+  // unconditionally with no distinguishing signal).
+  const results = Object.values(channelResults);
+  const allChannelsFailed =
+    results.length > 0 && results.every((r) => r === "failed");
+  const partialFailure =
+    results.some((r) => r === "failed") && !allChannelsFailed;
   await writeAuditEntry(db, {
     tenantId,
     actorId: "system",
@@ -393,6 +414,9 @@ export async function executeDispatchSeverityNotificationAction(
       matchedAt: policy.matchedAt,
       channels: policy.channels,
       recipientCount: recipients.length,
+      channelResults,
+      partialFailure,
+      allChannelsFailed,
     },
   });
 

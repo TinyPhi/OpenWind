@@ -97,6 +97,7 @@ describe("executeResolveOncallAction", () => {
     mockResolveOncallCascade.mockReset();
     mockWriteAuditEntry.mockClear();
     mockQueueAdd.mockClear();
+    mockQueueClose.mockClear();
     mockCounterAdd.mockClear();
   });
 
@@ -148,9 +149,9 @@ describe("executeResolveOncallAction", () => {
     // Backup notification: backup exists and resolved tier isn't backup.
     expect(insertedRows).toHaveLength(2);
     expect(insertedRows[0]?.table).toBe("notifications_table");
-    // Vijit review, PR #597 G1: the BullMQ Queue created for the outbound
-    // handoff must be closed, or every execution reaching this path leaks
-    // its subscriber/publisher IORedis clients.
+    // Vijit review, PR #597 G1 / PR #600 B1: the BullMQ Queue created for
+    // the outbound handoff must be closed, or every execution reaching this
+    // path leaks its subscriber/publisher IORedis clients.
     expect(mockQueueAdd).toHaveBeenCalledTimes(1);
     expect(mockQueueClose).toHaveBeenCalledTimes(1);
   });
