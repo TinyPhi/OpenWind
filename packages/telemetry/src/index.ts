@@ -3,6 +3,7 @@ export {
   httpRequestDuration,
   httpRequestsTotal,
   oncallResolutionsTotal,
+  notificationDispatchTotal,
   getSerializedMetrics,
 } from "./metrics.js";
 export { Queue, Worker } from "./bullmq.js";

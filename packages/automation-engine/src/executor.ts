@@ -18,6 +18,7 @@ import { executeAssignAction } from "./actions/assign.js";
 import { executeCreateEntityAction } from "./actions/create-entity.js";
 import { executeCreateChildAction } from "./actions/create-child.js";
 import { executeResolveOncallAction } from "./actions/resolve-oncall.js";
+import { executeDispatchSeverityNotificationAction } from "./actions/dispatch-severity-notification.js";
 import { isOpen, recordFailure, reset } from "./circuit-breaker.js";
 
 const MAX_DEPTH = 10;
@@ -351,6 +352,15 @@ async function runAction(
           depth,
           redis,
           outboxEventId,
+        );
+        break;
+      case "dispatch_severity_notification":
+        await executeDispatchSeverityNotificationAction(
+          db,
+          tenantId,
+          event,
+          action.config,
+          redis,
         );
         break;
       case "connector.action":
