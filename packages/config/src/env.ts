@@ -62,6 +62,16 @@ const EnvSchema = z
     // per-user; 100/min collapsed under completely normal 2-user concurrent
     // browsing, not abuse. See security.md for the current documented value.
     RATE_LIMIT_TENANT_PER_MIN: z.coerce.number().int().positive().default(600),
+    // docs/temporal-scheduler-design.md §3.1/§3.5 — the scheduler tick's poll
+    // interval and its cap on missed fires executed in one catch-up run
+    // (SCHEDULE_CATCH_UP_MAX exists specifically so a long worker outage on a
+    // frequent rule can't flood the tenant with hundreds of retroactive tickets).
+    SCHEDULE_TICK_INTERVAL_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60),
+    SCHEDULE_CATCH_UP_MAX: z.coerce.number().int().min(1).max(100).default(24),
     // ADR-012 Phase G, ADR-013 — two more tiers on top of the tenant one
     // above, specific to third-party API-key traffic: aggregate per-key
     // (this key's total request volume, regardless of which acting person)

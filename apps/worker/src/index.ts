@@ -49,6 +49,10 @@ import {
   scheduleRetentionArchival,
   stopRetentionArchivalWorker,
 } from "./retention-archival.js";
+import {
+  startScheduleTickWorker,
+  stopScheduleTickWorker,
+} from "./schedule-tick-worker.js";
 
 logger.info({}, "Worker process starting");
 
@@ -60,6 +64,7 @@ startHealthServer();
 startDueDateScheduler();
 startNotificationPoller();
 startConnectorPollScheduler();
+startScheduleTickWorker();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
 void scheduleFileCleanup();
@@ -100,6 +105,7 @@ async function shutdown(): Promise<void> {
     stopAccessLogRetentionWorker(),
     stopUsageMeteringWorker(),
     stopRetentionArchivalWorker(),
+    stopScheduleTickWorker(),
     closeRedis(),
   ]);
   process.exit(0);
