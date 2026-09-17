@@ -174,6 +174,29 @@ describe("executeDispatchSeverityNotificationAction", () => {
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 
+  it("no-ops on a stale entity.updated event with no `changed` field (PR #597 review, B1)", async () => {
+    const event = {
+      version: 1,
+      tenantId: TENANT_ID,
+      eventType: "entity.updated",
+      instanceId: INSTANCE_ID,
+      actorId: "u-actor",
+      // entityTypeId/changed both absent -- a pre-existing outbox row from
+      // before entity.updated was added to the poller's allowlist.
+    } as unknown as TriggerEvent;
+
+    await executeDispatchSeverityNotificationAction(
+      dbMock as never,
+      TENANT_ID,
+      event,
+      {},
+      redisMock(),
+    );
+
+    expect(insertedRows).toHaveLength(0);
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
   it("dispatches on entity.updated when severity changed, including backup and escalation manager per policy flags", async () => {
     entityRow = {
       assignedTo: "u-assignee",
