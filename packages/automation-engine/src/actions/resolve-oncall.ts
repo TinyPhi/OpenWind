@@ -59,6 +59,10 @@ export async function executeResolveOncallAction(
   let explicitAssigneeInThisRequest = false;
 
   if (event.eventType === "entity.updated") {
+    // event.changed is optional (Vijit review, PR #597 B1) -- a pre-existing
+    // outbox row written before entity.updated carried this field never has
+    // it, and that's not our concern, same as team_id genuinely not changing.
+    if (!event.changed) return;
     const teamChange = event.changed["team_id"];
     if (!teamChange || typeof teamChange.new !== "string" || !teamChange.new) {
       return; // team_id didn't change in this event — not our concern
@@ -131,7 +135,11 @@ export async function executeResolveOncallAction(
       action: "oncall.skipped_explicit_assignee",
       metadata: { teamId },
     });
-    oncallResolutionsTotal.add(1, { outcome: "skipped_explicit_assignee" });
+    oncallResolutionsTotal.add(1, {
+      outcome: "skipped_explicit_assignee",
+      assigned_tier: "none",
+      cascade_exhausted: "false",
+    });
     return;
   }
 
@@ -152,7 +160,11 @@ export async function executeResolveOncallAction(
       action: "oncall.no_schedule",
       metadata: { teamId },
     });
-    oncallResolutionsTotal.add(1, { outcome: "no_schedule" });
+    oncallResolutionsTotal.add(1, {
+      outcome: "no_schedule",
+      assigned_tier: "none",
+      cascade_exhausted: "false",
+    });
     if (redis) await redis.sadd(`oncall:coverage_gap:${tenantId}`, teamId);
     return;
   }
@@ -174,6 +186,7 @@ export async function executeResolveOncallAction(
     });
     oncallResolutionsTotal.add(1, {
       outcome: "no_schedule",
+      assigned_tier: "none",
       cascade_exhausted: "true",
     });
     if (redis) await redis.sadd(`oncall:coverage_gap:${tenantId}`, teamId);
@@ -204,6 +217,7 @@ export async function executeResolveOncallAction(
   oncallResolutionsTotal.add(1, {
     outcome: "auto_assigned",
     assigned_tier: resolved.tier,
+    cascade_exhausted: "false",
   });
   if (redis) await redis.srem(`oncall:coverage_gap:${tenantId}`, teamId);
 
@@ -244,18 +258,22 @@ export async function executeResolveOncallAction(
     if (redis) {
       if (await isOutboundNotificationsEnabled()) {
         const queue = new Queue("notify-outbound", { connection: redis });
-        await queue
-          .add(
-            "dispatch",
-            { notificationId, tenantId },
-            { jobId: notificationId },
-          )
-          .catch((err: unknown) => {
-            logger.error(
-              { err, tenantId, notificationId },
-              "Automation: failed to enqueue backup on-call notification outbound handoff",
-            );
-          });
+        try {
+          await queue
+            .add(
+              "dispatch",
+              { notificationId, tenantId },
+              { jobId: notificationId },
+            )
+            .catch((err: unknown) => {
+              logger.error(
+                { err, tenantId, notificationId },
+                "Automation: failed to enqueue backup on-call notification outbound handoff",
+              );
+            });
+        } finally {
+          await queue.close();
+        }
       }
     }
   }
