@@ -215,4 +215,29 @@ export async function getSerializedMetrics(): Promise<string> {
     return "# Metrics not bound yet\n";
   }
 }
+
+// docs/specs/temporal-scheduler.md T9-T14 — scheduler-tick observability,
+// incremented directly by apps/worker/src/schedule-tick-worker.ts.
+export const scheduleTickTotal = meter.createCounter(
+  "openwind_schedule_tick_total",
+  {
+    description:
+      "Outcomes of the temporal scheduler tick (completed vs. failed)",
+  },
+);
+export const scheduleExecutionTotal = meter.createCounter(
+  "openwind_schedule_execution_total",
+  {
+    description:
+      "Outcomes of individual schedule_rule fires (success/failed, with error_code)",
+  },
+);
+export const scheduleCatchUpTotal = meter.createCounter(
+  "openwind_schedule_catch_up_total",
+  {
+    description:
+      "Catch-up fires executed vs. skipped on an overdue schedule_rule",
+  },
+);
+
 export { meter };

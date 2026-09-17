@@ -213,6 +213,7 @@ export function FieldInput({
         />
       );
 
+    case "select":
     case "enum":
     case "multi_enum": {
       const opts = (field.config.options ?? []).map((o) =>

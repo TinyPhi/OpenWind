@@ -318,6 +318,9 @@ importers:
       '@platform/redis':
         specifier: workspace:*
         version: link:../../packages/redis
+      '@platform/scheduler':
+        specifier: workspace:*
+        version: link:../../packages/scheduler
       '@platform/secrets':
         specifier: workspace:*
         version: link:../../packages/secrets

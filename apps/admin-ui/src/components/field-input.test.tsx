@@ -178,6 +178,27 @@ describe("FieldInput", () => {
     );
   });
 
+  it("renders a dropdown built from config.options for select fields", () => {
+    const onChange = vi.fn();
+    render(
+      <FieldInput
+        moduleSlug="helpdesk"
+        entityId={undefined}
+        field={{
+          ...baseField,
+          fieldType: "select",
+          config: { options: ["critical", "high", "medium", "low"] },
+        }}
+        value="high"
+        onChange={onChange}
+      />,
+    );
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    expect(select.value).toBe("high");
+    fireEvent.change(select, { target: { value: "critical" } });
+    expect(onChange).toHaveBeenCalledWith("critical");
+  });
+
   it("marks the control required when the required prop is set", () => {
     render(
       <FieldInput
