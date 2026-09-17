@@ -21,6 +21,14 @@ export const notifications = pgTable(
     title: text("title").notNull(),
     body: text("body").notNull(),
     link: text("link"),
+    /**
+     * NULL for every notification type with no per-channel concept.
+     * `dispatch_severity_notification` (docs/specs/oncall-routing.md R18)
+     * sets this to give per-channel dispatch failures a real, queryable
+     * identity — one row per (channel, recipient) rather than one row per
+     * recipient covering every channel opaquely.
+     */
+    channel: text("channel"),
     /** De-dupe marker for the outbound handoff (R16) — not a delivery guarantee. */
     outboundStatus: text("outbound_status").default("pending").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })

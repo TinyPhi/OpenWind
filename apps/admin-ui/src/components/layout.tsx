@@ -98,11 +98,35 @@ const API_KEYS_NAV = {
   ),
 };
 
+// Backend requires the "admin" role (requireRole("admin") in
+// apps/api/src/routes/admin/notification-policies.ts's GET / and write
+// routes) -- docs/specs/oncall-routing.md T32.
+const NOTIFICATION_POLICIES_NAV = {
+  route: "/admin/notification-policies",
+  label: "Notification Policies",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
+      />
+    </svg>
+  ),
+};
+
 const SUPER_ADMIN_NAV_EXTRA = [
   USERS_NAV,
   SYSTEM_LOGS_NAV,
   API_KEYS_NAV,
   THIRD_PARTY_ACCESS_LOGS_NAV,
+  NOTIFICATION_POLICIES_NAV,
 ];
 
 const ADMIN_NAV = [

@@ -17,3 +17,15 @@ export {
   type CrossTenantRefCheck,
   type FieldError,
 } from "./cross-tenant-ref-validator.js";
+
+export {
+  getActiveScheduleForTeam,
+  getUsersResolvableSet,
+  isUserResolvable,
+  classifyOncallUser,
+  resolveOncallCascade,
+  type OnCallScheduleRow,
+  type ResolvedOncallUser,
+  type OncallTier,
+  type CascadeResult,
+} from "./oncall-resolver.js";

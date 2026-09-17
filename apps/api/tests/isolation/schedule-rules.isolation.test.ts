@@ -13,8 +13,10 @@ import {
   scheduleRules,
   scheduleExecutions,
   entityTypes,
+  workflows,
   tenants,
 } from "@platform/db";
+import { validateScheduleRuleRefs } from "@platform/scheduler";
 
 const TENANT_A = "aaaaaaaa-9999-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-9999-4000-b000-000000000002";
@@ -26,6 +28,7 @@ let ruleAId: string;
 let ruleBId: string;
 let executionAId: string;
 let executionBId: string;
+let workflowBId: string;
 
 beforeAll(async () => {
   await db.insert(tenants).values([
@@ -46,6 +49,20 @@ beforeAll(async () => {
     .values({ name: `schedule-rules-test-${TENANT_A}`, plural: "Tickets" })
     .returning({ id: entityTypes.id });
   entityTypeId = entityType!.id;
+
+  // A real workflow owned by Tenant B -- used to prove Tenant A's rule can
+  // reference it via a plain FK (existence-only) despite belonging to a
+  // different tenant; see the cross-tenant WRITE isolation describe block.
+  const [workflowB] = await db
+    .insert(workflows)
+    .values({
+      tenantId: TENANT_B,
+      entityTypeId,
+      name: `Tenant B workflow ${TENANT_B}`,
+      initialState: "open",
+    })
+    .returning({ id: workflows.id });
+  workflowBId = workflowB!.id;
 
   const [ruleA] = await db
     .insert(scheduleRules)
@@ -101,6 +118,7 @@ afterAll(async () => {
   await db
     .delete(scheduleRules)
     .where(inArray(scheduleRules.id, [ruleAId, ruleBId]));
+  await db.delete(workflows).where(eq(workflows.id, workflowBId));
   await db.delete(entityTypes).where(eq(entityTypes.id, entityTypeId));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
 });
@@ -165,6 +183,45 @@ describe("schedule_rules — cross-tenant WRITE isolation", () => {
       }),
     ).rejects.toBeTruthy();
   });
+
+  // Documents a known architectural risk boundary (same pattern established
+  // by PR #585's B1 and PR #586's B3): workflow_id has no FK-level tenant
+  // guard beyond existence (migration 0101's comment), and template's
+  // team_id/service_id/assignee_id live inside the JSONB column, which
+  // can't carry a FK at all. RLS on this table only checks tenant_id, so a
+  // rule tagged with the caller's own tenant_id but referencing another
+  // tenant's workflow_id/template refs passes RLS. The route layer's
+  // validateScheduleRuleRefs (packages/scheduler) is the only guard.
+  it("RLS alone does NOT catch a cross-tenant workflow_id or template team_id smuggled under the correct tenant_id -- app-layer validation is the only guard", async () => {
+    // workflowBId is a REAL row (belongs to Tenant B) -- the FK on
+    // workflow_id is satisfied, so only tenant-ownership is being tested
+    // here, not mere existence.
+    const foreignTeamId = "77777777-7777-4777-8777-777777777799";
+    let smuggledId: string | undefined;
+    await withTenantContext(TENANT_A, async (tx) => {
+      const [row] = await tx
+        .insert(scheduleRules)
+        .values({
+          tenantId: TENANT_A,
+          name: `Smuggled Refs ${TENANT_A}`,
+          cronExpr: "0 9 1 * *",
+          entityTypeId,
+          workflowId: workflowBId,
+          template: { title: "Smuggled", team_id: foreignTeamId },
+          createdBy: USER_A,
+        })
+        .returning({
+          id: scheduleRules.id,
+          workflowId: scheduleRules.workflowId,
+        });
+      expect(row?.workflowId).toBe(workflowBId);
+      smuggledId = row?.id;
+    });
+
+    if (smuggledId) {
+      await db.delete(scheduleRules).where(eq(scheduleRules.id, smuggledId));
+    }
+  });
 });
 
 describe("schedule_executions — cross-tenant isolation (append-only)", () => {
@@ -227,5 +284,59 @@ describe("schedule_executions — cross-tenant isolation (append-only)", () => {
           .where(eq(scheduleExecutions.id, executionAId));
       }),
     ).rejects.toMatchObject({ cause: { code: "42501" } });
+  });
+});
+
+describe("validateScheduleRuleRefs — inactive workflow rejected (Vijit review, M2)", () => {
+  // workflows has a UNIQUE(tenant_id, entity_type_id) constraint, so this
+  // suite reuses one row (flipping isActive) rather than inserting a second
+  // workflow for the same tenant + entity type.
+  let workflowId: string;
+
+  beforeAll(async () => {
+    const [workflow] = await db
+      .insert(workflows)
+      .values({
+        tenantId: TENANT_A,
+        entityTypeId,
+        name: `M2 test workflow ${TENANT_A}`,
+        initialState: "open",
+        isActive: false,
+      })
+      .returning({ id: workflows.id });
+    workflowId = workflow!.id;
+  });
+
+  afterAll(async () => {
+    await db.delete(workflows).where(eq(workflows.id, workflowId));
+  });
+
+  it("rejects a schedule rule referencing a deactivated workflow", async () => {
+    const errors = await withTenantContext(TENANT_A, (tx) =>
+      validateScheduleRuleRefs(tx, TENANT_A, {
+        entityTypeId,
+        workflowId,
+        template: {},
+      }),
+    );
+    expect(errors).toContainEqual(
+      expect.objectContaining({ field: "workflowId" }),
+    );
+  });
+
+  it("accepts a schedule rule referencing an active workflow in the same tenant (control)", async () => {
+    await db
+      .update(workflows)
+      .set({ isActive: true })
+      .where(eq(workflows.id, workflowId));
+
+    const errors = await withTenantContext(TENANT_A, (tx) =>
+      validateScheduleRuleRefs(tx, TENANT_A, {
+        entityTypeId,
+        workflowId,
+        template: {},
+      }),
+    );
+    expect(errors.some((e) => e.field === "workflowId")).toBe(false);
   });
 });
