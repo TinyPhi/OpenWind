@@ -19,6 +19,7 @@ vi.mock("@platform/redis", () => ({
     quit: vi.fn(),
     keys: vi.fn().mockResolvedValue([]),
     smembers: vi.fn().mockResolvedValue([]),
+    scard: vi.fn().mockResolvedValue(0),
     get: vi.fn().mockResolvedValue(null),
   }),
 }));
@@ -52,8 +53,12 @@ vi.mock("bullmq", () => {
 
 // Import instrumentation first so SDK starts and binds the reader
 await import("./instrumentation.js");
-const { getSerializedMetrics, httpRequestsTotal, httpRequestDuration } =
-  await import("./metrics.js");
+const {
+  getSerializedMetrics,
+  httpRequestsTotal,
+  httpRequestDuration,
+  oncallResolutionsTotal,
+} = await import("./metrics.js");
 
 describe("Metrics serialization", () => {
   it("generates Prometheus format string containing metric metadata", async () => {
@@ -88,6 +93,20 @@ describe("Metrics serialization", () => {
 
     const metrics = await getSerializedMetrics();
     expect(metrics).toBe("# Telemetry is disabled\n");
+  });
+});
+
+describe("openwind_oncall_* metrics (docs/specs/oncall-routing.md T39-T41)", () => {
+  it("registers and serializes openwind_oncall_resolutions_total", async () => {
+    mockEnv.TELEMETRY_ENABLED = true;
+    oncallResolutionsTotal.add(1, {
+      outcome: "auto_assigned",
+      assigned_tier: "primary",
+    });
+
+    const metrics = await getSerializedMetrics();
+    expect(metrics).toContain("# HELP openwind_oncall_resolutions_total");
+    expect(metrics).toContain("# TYPE openwind_oncall_resolutions_total");
   });
 });
 
