@@ -155,12 +155,20 @@ export const CommentCreatedV1Schema = baseEvent.extend({
 // packages/workflow-engine/src/condition-evaluator.ts). `changed` mirrors
 // the map packages/entity-engine/src/engine.ts already computes in-memory
 // before writing this outbox row.
+// entityTypeId/changed are optional (Vijit review, PR #597 B1): pre-existing
+// outbox rows written before entity.updated was added to the poller's
+// allowlist never populated these fields, so a stale row that slips past PR
+// #600's migration 0106 backfill must still parse instead of dead-lettering
+// — resolve-oncall.ts's changed.team_id check already treats a missing
+// `changed` as "nothing relevant changed".
 export const EntityUpdatedV1Schema = baseEvent.extend({
   eventType: z.literal("entity.updated"),
   instanceId: z.string().uuid(),
-  entityTypeId: z.string().uuid(),
+  entityTypeId: z.string().uuid().optional(),
   actorId: userIdField.nullable(),
-  changed: z.record(z.object({ old: z.unknown(), new: z.unknown() })),
+  changed: z
+    .record(z.object({ old: z.unknown(), new: z.unknown() }))
+    .optional(),
 });
 
 export const AccessRequestCreatedV1Schema = baseEvent.extend({
