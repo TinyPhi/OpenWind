@@ -7,6 +7,7 @@ export type TriggerType =
   | "field.changed"
   | "entity.created"
   | "entity.assigned"
+  | "entity.updated"
   | "entity.due_date_overdue"
   | "comment.mentioned"
   | "comment.mention_access_granted"
@@ -25,7 +26,8 @@ export type ActionType =
   | "create_entity"
   | "create_child"
   | "webhook"
-  | "connector.action";
+  | "connector.action"
+  | "resolve_oncall";
 
 export interface AutomationRule {
   id: string;
@@ -97,6 +99,15 @@ export interface CreateChildConfig {
   writeBackField?: string;
 }
 
+// R8b/T12: the cascade is resolved from the triggering ticket's team_id and
+// the schedule tables directly (packages/teams' resolveOncallCascade) --
+// nothing here overrides which team/schedule is looked up. `instanceId` lets
+// a direct/manual invocation (isolation tests) target a ticket without a
+// live trigger event, same convention as AssignConfig/SetFieldConfig above.
+export interface ResolveOncallConfig {
+  instanceId?: string; // UUID, per apps/api's ResolveOncallConfigSchema
+}
+
 export type ActionConfig =
   | { type: "notify"; config: NotifyConfig }
   | { type: "set_field"; config: SetFieldConfig }
@@ -105,7 +116,8 @@ export type ActionConfig =
   | { type: "assign"; config: AssignConfig }
   | { type: "create_entity"; config: CreateEntityConfig }
   | { type: "create_child"; config: CreateChildConfig }
-  | { type: "connector.action"; config: Record<string, unknown> };
+  | { type: "connector.action"; config: Record<string, unknown> }
+  | { type: "resolve_oncall"; config: ResolveOncallConfig };
 
 export type CreateAutomationRuleInput = {
   name: string;

@@ -31,6 +31,7 @@ import type { DbOrTx } from "@platform/db";
 import {
   validateCrossTenantRefs,
   lookupValidIdsInTable,
+  classifyOncallUser,
   type FieldError,
   type CrossTenantRefCheck,
 } from "@platform/teams";
@@ -305,25 +306,13 @@ router.get("/current", requireRole("agent", "admin"), async (c) => {
         userRows.map((u) => [u.userId, u.displayName ?? u.email ?? u.userId]),
       );
 
-      function resolveUser(userId: string | null): {
-        userId: string;
-        displayName: string | null;
-        reason?: string;
-      } | null {
-        if (!userId) return null;
-        const display = userDisplayById.get(userId);
-        if (!display) {
-          // No tenant_users row -- treated as an unresolvable reference,
-          // the closest available signal to "deactivated" in this schema
-          // (see this file's header comment).
-          return {
-            userId,
-            displayName: null,
-            reason: "referenced_user_deleted",
-          };
-        }
-        return { userId, displayName: display };
-      }
+      // Shared with packages/automation-engine's resolve_oncall action
+      // (@platform/teams' classifyOncallUser) -- one source of truth for
+      // what "unresolvable" means (T14b).
+      const resolveUser = (
+        userId: string | null,
+      ): ReturnType<typeof classifyOncallUser> =>
+        classifyOncallUser(userId, userDisplayById.get(userId ?? ""));
 
       return teamRows.map((team) => {
         const schedule = scheduleByTeam.get(team.id);
