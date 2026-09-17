@@ -12,7 +12,7 @@
  * workflowTypeId check.
  */
 
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
 import {
   entityTypes,
   workflows,
@@ -39,6 +39,12 @@ async function nullTenantAwareLookup(
   table: typeof entityTypes | typeof workflows,
   tenantId: string,
   refIds: string[],
+  // Vijit review, M2: entity_types has no isActive/deletedAt column to check
+  // (neither table is soft-deletable), but workflows does have `isActive` --
+  // the caller passes eq(workflows.isActive, true) for that lookup so a
+  // schedule rule can't reference a deactivated workflow, without forcing
+  // this shared helper to assume a column that doesn't exist on both tables.
+  extraCondition?: SQL,
 ): Promise<Set<string>> {
   const rows = await tx
     .select({ id: table.id })
@@ -47,6 +53,7 @@ async function nullTenantAwareLookup(
       and(
         inArray(table.id, refIds),
         or(eq(table.tenantId, tenantId), isNull(table.tenantId)),
+        ...(extraCondition ? [extraCondition] : []),
       ),
     );
   return new Set(rows.map((r) => r.id));
@@ -87,7 +94,14 @@ export async function validateScheduleRuleRefs(
   if (input.workflowId) {
     const workflowErrors = await validateCrossTenantRefs(
       [{ fieldName: "workflowId", refId: input.workflowId }],
-      (refIds) => nullTenantAwareLookup(tx, workflows, tenantId, refIds),
+      (refIds) =>
+        nullTenantAwareLookup(
+          tx,
+          workflows,
+          tenantId,
+          refIds,
+          eq(workflows.isActive, true),
+        ),
     );
     errors.push(
       ...workflowErrors.map((e: FieldError) => ({

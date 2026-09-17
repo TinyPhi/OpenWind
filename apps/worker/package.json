@@ -29,6 +29,7 @@
     "@platform/logger": "workspace:*",
     "@platform/notifications": "workspace:*",
     "@platform/redis": "workspace:*",
+    "@platform/scheduler": "workspace:*",
     "@platform/secrets": "workspace:*",
     "@platform/telemetry": "workspace:*",
     "@platform/workflow-engine": "workspace:*",
