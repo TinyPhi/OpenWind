@@ -193,9 +193,10 @@ Scopes track (can run in parallel with the runtime track, same stage):
   cross-mechanism outbound cap (ADR-010).
 - **Optional-tier: iPaaS bridge (Trigger.dev).** ADR-009 explicitly resolved this as Optional
   (lower priority than the Important items above), not Important as issue #16's body groups it —
-  the two source documents disagreed; ADR-009 sided with `docs/roadmap.md`'s classification.
-  Solves a different problem (long-running/human-in-the-loop orchestration) than the connector
-  marketplace ADR-009 covers — not folded in or dropped, just out of scope until picked up.
+  the two source documents disagreed at the time; ADR-009 sided with the (since-retired)
+  `docs/roadmap.md`'s classification. Solves a different problem (long-running/human-in-the-loop
+  orchestration) than the connector marketplace ADR-009 covers — not folded in or dropped, just
+  out of scope until picked up.
 
 ## Open confirmations still needed before specific PRs (not primer-blocking)
 
