@@ -47,11 +47,15 @@ vi.mock("@platform/audit", () => ({
 }));
 
 const mockQueueAdd = vi.fn().mockResolvedValue(undefined);
+const mockQueueClose = vi.fn().mockResolvedValue(undefined);
 const mockCounterAdd = vi.fn();
 vi.mock("@platform/telemetry", () => ({
   Queue: class {
     add(...args: unknown[]) {
       return mockQueueAdd(...args);
+    }
+    close(...args: unknown[]) {
+      return mockQueueClose(...args);
     }
   },
   oncallResolutionsTotal: {
@@ -139,10 +143,16 @@ describe("executeResolveOncallAction", () => {
     expect(mockCounterAdd).toHaveBeenCalledWith(1, {
       outcome: "auto_assigned",
       assigned_tier: "primary",
+      cascade_exhausted: "false",
     });
     // Backup notification: backup exists and resolved tier isn't backup.
     expect(insertedRows).toHaveLength(2);
     expect(insertedRows[0]?.table).toBe("notifications_table");
+    // Vijit review, PR #597 G1: the BullMQ Queue created for the outbound
+    // handoff must be closed, or every execution reaching this path leaks
+    // its subscriber/publisher IORedis clients.
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    expect(mockQueueClose).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to backup tier (R8b) and skips the backup notification (already the assignee)", async () => {
@@ -211,6 +221,15 @@ describe("executeResolveOncallAction", () => {
       expect.objectContaining({ action: "oncall.skipped_explicit_assignee" }),
     );
     expect(mockUpdateEntity).not.toHaveBeenCalled();
+    // Vijit review, PR #597 B2: all four outcome paths must emit the same
+    // label set (outcome/assigned_tier/cascade_exhausted) or Prometheus
+    // creates a distinct time series per unique combination, breaking
+    // `sum by (outcome)` aggregation in the PR #605 dashboard.
+    expect(mockCounterAdd).toHaveBeenCalledWith(1, {
+      outcome: "skipped_explicit_assignee",
+      assigned_tier: "none",
+      cascade_exhausted: "false",
+    });
     // PR #597 review, B1: the idempotency key must be claimed even on this
     // early-return path -- a BullMQ retry that re-queries the same
     // still-non-null assignedTo must not write a second audit row.
@@ -283,6 +302,11 @@ describe("executeResolveOncallAction", () => {
       "oncall:coverage_gap:t-1",
       "team-1",
     );
+    expect(mockCounterAdd).toHaveBeenCalledWith(1, {
+      outcome: "no_schedule",
+      assigned_tier: "none",
+      cascade_exhausted: "false",
+    });
   });
 
   it("audits the same oncall.no_schedule action when the cascade is exhausted (R8b/R9 fail-open parity)", async () => {
@@ -313,6 +337,11 @@ describe("executeResolveOncallAction", () => {
       (c) => c[1].action === "oncall.no_schedule",
     );
     expect(call?.[1].metadata).toMatchObject({ cascadeExhausted: true });
+    expect(mockCounterAdd).toHaveBeenCalledWith(1, {
+      outcome: "no_schedule",
+      assigned_tier: "none",
+      cascade_exhausted: "true",
+    });
   });
 
   it("is idempotent — a second delivery for the same (ticket, team) pair is a no-op (R11)", async () => {
@@ -348,6 +377,30 @@ describe("executeResolveOncallAction", () => {
       entityTypeId: "et-1",
       actorId: "u-actor",
       changed: { priority: { old: "low", new: "high" } },
+    } as unknown as TriggerEvent;
+
+    await executeResolveOncallAction(
+      dbMock as never,
+      "t-1",
+      RULE_ID,
+      EXEC_ID,
+      event,
+      {},
+      0,
+      redisMock(),
+    );
+
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    expect(mockGetActiveScheduleForTeam).not.toHaveBeenCalled();
+  });
+
+  it("no-ops on a stale entity.updated event with no `changed` field (Vijit review, PR #597 B1)", async () => {
+    const event = {
+      eventType: "entity.updated",
+      instanceId: "inst-1",
+      actorId: "u-actor",
+      // entityTypeId/changed both absent -- a pre-existing outbox row from
+      // before entity.updated was added to the poller's allowlist.
     } as unknown as TriggerEvent;
 
     await executeResolveOncallAction(
