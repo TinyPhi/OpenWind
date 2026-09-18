@@ -8,7 +8,7 @@ Thank you for your interest in contributing. OpenWind is in active early develop
 
 1. **Read [`CLAUDE.md`](CLAUDE.md)** — engineering conventions enforced by CI (naming, TypeScript strictness, security rules, testing requirements). Not optional reading.
 2. **Read the relevant ADR(s)** in [`docs/decisions/`](docs/decisions/) for the area you're working in. The ADRs explain _why_ things are the way they are — they prevent you from re-litigating settled decisions in a PR.
-3. **Check the [roadmap](docs/roadmap.md)** to understand which phase a component belongs to and what it depends on. Phase 2 components cannot be built without Phase 1 being solid.
+3. **Check the [roadmap tracker](docs/tracker/roadmap-tracker.md)** (and `CLAUDE.md`'s Current Focus) to understand which phase a component belongs to and what it depends on. Phase 2 components cannot be built without Phase 1 being solid.
 
 ---
 

@@ -26,7 +26,7 @@ There's no index file to keep in sync — an index would just reintroduce the sa
 problem this directory exists to avoid. List the directory sorted by name instead:
 
 ```bash
-ls docs/sup-docs/week-log/ | sort -r   # newest first
+ls docs/tracker/week-log/ | sort -r   # newest first
 ```
 
 ## Entry format

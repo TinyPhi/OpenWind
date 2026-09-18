@@ -1038,7 +1038,7 @@ A second principle governs how modules are built on top of the engine: **modules
 
 This is not a simplification — it is the architectural bet that makes the platform competitive. Every improvement to the engine benefits every module. Every new entity type gets a functional UI immediately because the UI is driven by field config. Customers modify their workflows and automation rules at runtime without deployments.
 
-The formal decision, consequences, escape hatches, and checklist are in [ADR-004 — Config-First Module Design](decisions/ADR-004-config-first-module-design.md). The detailed phased build plan with per-component classification is in [docs/roadmap.md](roadmap.md). The summary below covers deliverables and exit criteria per phase.
+The formal decision, consequences, escape hatches, and checklist are in [ADR-004 — Config-First Module Design](decisions/ADR-004-config-first-module-design.md). Live phase/track status and progress lives in [docs/tracker/roadmap-tracker.md](tracker/roadmap-tracker.md); per-component classification for each track lives in that track's own accepted ADR. The summary below covers deliverables and exit criteria per phase.
 
 ---
 
