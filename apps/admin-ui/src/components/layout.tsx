@@ -101,6 +101,8 @@ const API_KEYS_NAV = {
 // Backend requires the "admin" role for writes (requireRole("admin") in
 // apps/api/src/routes/admin/teams.ts) — grouped with the other admin-only
 // on-call routing management pages (docs/specs/oncall-routing.md T17/T18).
+// Ordered ahead of NOTIFICATION_POLICIES_NAV in SUPER_ADMIN_NAV_EXTRA below
+// so the on-call routing pages stay visually grouped together.
 const TEAMS_NAV = {
   route: "/admin/teams",
   label: "Teams",
