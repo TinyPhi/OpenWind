@@ -76,9 +76,14 @@ SLA enforcement — all from configuration, no code required.
 
 ### Core platform
 
-Auth and identity (Zitadel), notifications (Novu), file storage (S3-compatible),
-audit log, API gateway, background job queue (BullMQ), connector SDK, and plugin
-system. Shared by every module — no module reinvents these.
+Auth and identity (Zitadel), notifications (Novu), tenant-scoped local-disk file
+storage with async ClamAV malware scanning, an append-only audit log, secrets
+management (OpenBao), API gateway, background job queue (BullMQ), a connector
+runtime with an inbound webhook gateway and polling-connector framework, and a
+plugin system (Module Federation). Shared by every module — no module reinvents
+these. Observability (OpenTelemetry, Prometheus, Sentry) and GDPR-relevant
+controls (tenant/per-user erasure, configurable retention, IP allowlisting) are
+built in, not bolted on.
 
 ### Standard modules
 
@@ -101,16 +106,19 @@ Cross-cutting capabilities available to any entity-engine-backed module (helpdes
 
 - **Child tickets** — break a ticket into sub-tasks with their own workflow state, assignee, and due date. Depth and per-parent count are configurable per workflow (`max_child_depth` / `max_children_per_parent`); archiving a parent archives its children too.
 - **Access requests** — a non-privileged user can request read/comment/write access to a record they don't own; an admin, agent, or the record's owner can approve or reject the request, with a full history event either way.
-- **Attachments** — file uploads on tickets and comments, backed by presigned S3-compatible URLs (never a public bucket) and per-tenant storage quotas.
+- **Attachments** — file uploads on tickets and comments, backed by tenant-scoped local-disk storage with async ClamAV malware scanning and per-tenant storage quotas.
 - **My Tickets** — a user-scoped view combining a customer's own tickets, tickets they're mentioned/granted access on, and their children — with per-workflow counts.
 - **Multiple workflow admins** — a workflow can have more than one designated admin (`assigned_to` is a list, not a single user), each with settings access.
 
 ### Connectors
 
-First-party integrations: Slack, email (SMTP/IMAP), WhatsApp Business, Stripe,
-and more. Third-party connectors installable per tenant from the connector
-registry. The connector SDK makes building new integrations a single TypeScript
-file.
+A connector runtime (inbound webhook gateway with HMAC verification, plus a
+polling-connector framework for systems with no webhook support) and a
+tenant-scoped connector credential store, both built and merged. Slack
+notifications ship today; email (SMTP/IMAP), WhatsApp Business, and a
+connector marketplace UI are in progress — see
+[`docs/tracker/roadmap-tracker.md`](docs/tracker/roadmap-tracker.md) (track 3A)
+for current status before assuming a specific integration is ready to use.
 
 ---
 
@@ -131,7 +139,8 @@ file.
 │  Auth · Notifications · Files · Audit · API  │
 ├──────────────────────────────────────────────┤
 │               Infrastructure                 │
-│       Postgres · Redis · S3 · Search         │
+│  Postgres · PgBouncer · Redis · OpenBao ·    │
+│      local disk (files) · ClamAV             │
 └──────────────────────────────────────────────┘
 ```
 
@@ -145,17 +154,18 @@ Full architecture documentation: [`docs/architecture-brief.md`](docs/architectur
 
 ## Tech stack
 
-| Layer         | Technology                                                          | Why                                            |
-| ------------- | ------------------------------------------------------------------- | ---------------------------------------------- |
-| API framework | [Hono](https://hono.dev/)                                           | TypeScript-first, Web Standards, runs anywhere |
-| Database      | [PostgreSQL 16](https://www.postgresql.org/)                        | RLS multi-tenancy, JSONB, full-text search     |
-| ORM           | [Drizzle](https://orm.drizzle.team/)                                | SQL-transparent, type-safe, great migrations   |
-| Queue         | [BullMQ](https://bullmq.io/)                                        | Redis-backed, reliable, good observability     |
-| Auth          | [Zitadel](https://zitadel.com/)                                     | OIDC/SAML, org model maps to multi-tenancy     |
-| Notifications | [Novu](https://novu.co/)                                            | Multi-channel, templates, user preferences     |
-| Admin UI      | [Refine](https://refine.dev/) + [shadcn/ui](https://ui.shadcn.com/) | CRUD framework + polished components           |
-| Monorepo      | [Turborepo](https://turbo.build/) + [pnpm](https://pnpm.io/)        | Cached builds, clean workspace management      |
-| AI            | [Claude](https://www.anthropic.com/) (Anthropic)                    | Development tooling + platform AI features     |
+| Layer         | Technology                                                          | Why                                                                                                                                                    |
+| ------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| API framework | [Hono](https://hono.dev/)                                           | TypeScript-first, Web Standards, runs anywhere                                                                                                         |
+| Database      | [PostgreSQL 16](https://www.postgresql.org/)                        | RLS multi-tenancy, JSONB, full-text search                                                                                                             |
+| ORM           | [Drizzle](https://orm.drizzle.team/)                                | SQL-transparent, type-safe, great migrations                                                                                                           |
+| Queue         | [BullMQ](https://bullmq.io/)                                        | Redis-backed, reliable, good observability                                                                                                             |
+| Auth          | [Zitadel](https://zitadel.com/)                                     | OIDC/SAML, org model maps to multi-tenancy                                                                                                             |
+| Notifications | [Novu](https://novu.co/)                                            | Multi-channel, templates, user preferences                                                                                                             |
+| Admin UI      | [Refine](https://refine.dev/) + [shadcn/ui](https://ui.shadcn.com/) | CRUD framework + polished components                                                                                                                   |
+| Secrets       | [OpenBao](https://openbao.org/)                                     | Self-hosted secrets management (Vault fork)                                                                                                            |
+| Monorepo      | [Turborepo](https://turbo.build/) + [pnpm](https://pnpm.io/)        | Cached builds, clean workspace management                                                                                                              |
+| AI            | [Claude](https://www.anthropic.com/) (Anthropic)                    | Primary development tooling today; platform AI features (automation-rule generation, digests) are early/in-progress, not yet shipped — see the roadmap |
 
 ---
 
@@ -254,9 +264,12 @@ Full setup guide (local + production): [`SETUP.md`](SETUP.md)
 OpenWind/
 ├── apps/
 │   ├── api/          # Hono API server
-│   ├── worker/       # BullMQ background workers
-│   ├── admin-ui/     # Refine admin application
-│   └── portal/       # Customer-facing portal
+│   ├── worker/       # BullMQ background workers (outbox, automation,
+│   │                 #   SLA, notifications, file scanning, retention)
+│   └── admin-ui/     # Refine + shadcn/ui — single app serving admin,
+│                     #   agent, and customer views (RBAC-controlled)
+│                     #   (apps/portal was removed in PR #211; the
+│                     #   directory is a pnpm workspace stub only)
 ├── packages/
 │   ├── db/           # Drizzle schema + migrations
 │   ├── entity-engine/
@@ -264,12 +277,21 @@ OpenWind/
 │   ├── automation-engine/
 │   ├── connector-sdk/
 │   ├── plugin-sdk/
-│   ├── auth/
-│   ├── notifications/
-│   ├── ai/
+│   ├── auth/         # Zitadel JWT + RBAC
+│   ├── notifications/# Novu wrapper
+│   ├── files/        # Local-disk file storage + ClamAV scanning
+│   ├── audit/        # Append-only audit log
+│   ├── secrets/      # OpenBao client
+│   ├── redis/        # Shared client + rate limiting
+│   ├── config/       # Zod-validated env vars
+│   ├── logger/       # Structured pino logger
+│   ├── telemetry/    # OTel/Prometheus/Sentry, usage metering
+│   ├── teams/        # Teams/services/on-call-schedule primitives
+│   ├── scheduler/    # Temporal scheduler primitives
+│   ├── ai/           # Anthropic SDK wrapper (early — see roadmap)
 │   └── ui/           # Shared design system
-├── modules/
-│   ├── crm/
+├── modules/          # Seed SQL + a one-line stub index.ts per module —
+│   ├── crm/          #   no domain-logic TypeScript, ever (ADR-004)
 │   ├── helpdesk/
 │   ├── hrms/
 │   ├── reimbursements/
@@ -279,33 +301,37 @@ OpenWind/
 │   └── tender/
 └── docs/
     ├── architecture-brief.md
-    └── decisions/    # Architecture Decision Records
+    ├── decisions/     # Architecture Decision Records (ADR-001–017)
+    └── tracker/roadmap-tracker.md  # live phase/track status
 ```
 
 ---
 
 ## Roadmap
 
-OpenWind is in active early development. The build is phased:
+**Phase 1 — Foundation** ✅ done (2026-05-21)
+Multi-tenant Postgres/RLS, auth, entity engine, workflow engine, automation
+engine, API layer, admin shell.
 
-**Phase 1 — Foundation** _(current)_
-Multi-tenant Postgres, auth, entity engine, workflow engine, automation engine
-v1, API layer, admin shell.
+**Phase 2 — First customer-ready apps** ✅ done (2026-06-18)
+Helpdesk, reimbursements, CRM, HRMS, projects, invoicing, procurement, tender,
+admin UI + customer portal views, notification layer, no-code builders.
 
-**Phase 2 — First applications**
-Helpdesk, reimbursements, CRM, notification layer, connector v1 (email, Slack),
-embedded reporting.
+**Phase 3 — Scale & extensibility** 🟡 in progress
+Eight parallel tracks — connector runtime & marketplace (3A), plugin system
+(3B, ✅ done), AI layer (3C, not started), observability & GDPR compliance
+(3D, ✅ done), on-call routing & severity notifications (3E, in progress),
+temporal scheduler (3F, in progress), MIS/reporting dashboards (3G, spec in
+review), cross-functional workflow visibility (3H, in progress).
 
-**Phase 3 — Extensibility**
-Plugin system, HRMS module, connector marketplace, visual workflow builder,
-AI-assisted workflow creation.
+**Phase 4 — Sector depth** _(not started)_
+Vertical sector packages, white-label support, advanced analytics.
 
-**Phase 4 — Sector depth**
-Vertical sector packages (healthcare, manufacturing, education, etc.),
-white-label support, advanced analytics.
-
-See [`docs/tracker/roadmap-tracker.md`](docs/tracker/roadmap-tracker.md) for the detailed phase breakdown with
-milestones and exit criteria.
+This project moves fast — treat the summary above as a snapshot, not a
+commitment. See [`docs/tracker/roadmap-tracker.md`](docs/tracker/roadmap-tracker.md)
+for the live, per-track breakdown with owners and exit criteria, and
+`CLAUDE.md`'s "Current focus" section for the phase this repo is actively
+working on right now.
 
 ---
 
@@ -332,11 +358,29 @@ before writing code.
 
 ## Architecture decision records
 
-Key technical decisions are documented as ADRs in [`docs/decisions/`](docs/decisions/):
+Key technical decisions are documented as ADRs in [`docs/decisions/`](docs/decisions/) — 17 as of
+this writing, humans-only to write or modify:
 
 - [ADR-001: Multi-tenancy architecture](docs/decisions/ADR-001-multitenancy.md)
 - [ADR-002: Workflow engine state machine design](docs/decisions/ADR-002-workflow-engine.md)
 - [ADR-003: Entity field validation strategy](docs/decisions/ADR-003-field-validation.md)
+- [ADR-004: Config-first module design](docs/decisions/ADR-004-config-first-module-design.md)
+- [ADR-005: Module optionality & tender](docs/decisions/ADR-005-module-optionality-and-tender.md)
+- [ADR-006: Per-workflow ownership/admin model](docs/decisions/ADR-006-per-workflow-ownership-admin-model.md)
+- [ADR-007: RLS for workflow config tables](docs/decisions/ADR-007-rls-workflow-config-tables.md)
+- [ADR-008: API key credential lifecycle hardening](docs/decisions/ADR-008-api-key-credential-lifecycle-hardening.md)
+- [ADR-009: Connector runtime & webhook gateway architecture](docs/decisions/ADR-009-connector-runtime-webhook-gateway-architecture.md)
+- [ADR-010: Inbound partner API integration](docs/decisions/ADR-010-inbound-partner-api-integration.md)
+- [ADR-011: Plugin system](docs/decisions/ADR-011-plugin-system.md)
+- [ADR-012: Third-party API ticket access](docs/decisions/ADR-012-third-party-api-ticket-access.md)
+- [ADR-013: Unified rate-limiting strategy](docs/decisions/ADR-013-unified-rate-limiting-strategy.md)
+- [ADR-014: Notification SLA retry & escalation](docs/decisions/ADR-014-notification-sla-retry-escalation.md)
+- [ADR-015: Observability & compliance](docs/decisions/ADR-015-observability-compliance.md)
+- [ADR-016: On-call routing](docs/decisions/ADR-016-oncall-routing.md)
+- [ADR-017: Temporal scheduler](docs/decisions/ADR-017-temporal-scheduler.md)
+
+This list drifts — if it's missing a recent ADR, check [`docs/decisions/`](docs/decisions/)
+directly rather than trusting the count above.
 
 ---
 

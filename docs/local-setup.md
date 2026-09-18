@@ -38,7 +38,7 @@ no other tooling — the one-time setup itself runs entirely inside containers.
 | -------------- | --------------- | ---------------------------------- |
 | Docker Desktop | 24              | https://docs.docker.com/get-docker |
 
-(Node 22 / pnpm 9 are only needed if you want `pnpm dev` hot-reload outside
+(Node 22 / pnpm 11+ are only needed if you want `pnpm dev` hot-reload outside
 Docker — see [Day-to-day commands](#day-to-day-commands). The setup script
 itself doesn't need them.)
 
@@ -329,20 +329,28 @@ new ones.
 
 ### This repo's containers (`docker-compose.yml`)
 
-| Container       | Internal port | Host port  | URL                                                              |
-| --------------- | ------------- | ---------- | ---------------------------------------------------------------- |
-| ow-database     | 5432          | 5432       | `localhost:5432` (host-mode `pnpm db:migrate` only)              |
-| ow-pgbouncer    | 5432          | 6432       | `localhost:6432`                                                 |
-| ow-cache        | 6379          | 6379       | `redis://localhost:6379` (host-mode `pnpm test`/`pnpm dev` only) |
-| ow-backend      | 3000          | —          | Internal only (proxied)                                          |
-| ow-frontend     | 3001          | 3001       | `http://localhost:3001`                                          |
-| ow-bootstrap    | —             | —          | One-shot, `profile: bootstrap`                                   |
-| ow-secrets      | 8200          | 8200       | `http://localhost:8200`                                          |
-| ow-secrets-init | —             | —          | One-shot, initializes OpenBao (idempotent — see below)           |
-| ow-storage      | 9000, 9001    | 9000, 9001 | `http://localhost:9000` (API), `http://localhost:9001` (console) |
-| ow-storage-init | —             | —          | One-shot, creates the `platform-files` bucket (idempotent)       |
+| Container       | Internal port | Host port | URL                                                                                                                                             |
+| --------------- | ------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| ow-database     | 5432          | 5432      | `localhost:5432` (host-mode `pnpm db:migrate` only)                                                                                             |
+| ow-pgbouncer    | 5432          | 6432      | `localhost:6432`                                                                                                                                |
+| ow-cache        | 6379          | 6379      | `redis://localhost:6379` (host-mode `pnpm test`/`pnpm dev` only)                                                                                |
+| ow-backend      | 3000          | —         | Internal only (proxied)                                                                                                                         |
+| ow-frontend     | 3001          | 3001      | `http://localhost:3001`                                                                                                                         |
+| ow-worker       | —             | —         | No HTTP surface — outbox poller, automation execution, SLA/notification/retention jobs. Without it, BullMQ jobs queue but nothing consumes them |
+| ow-clamav       | —             | —         | No public port — file-attachment malware scanning, used by `ow-worker`/`ow-backend` internally                                                  |
+| ow-bootstrap    | —             | —         | One-shot, `profile: bootstrap`                                                                                                                  |
+| ow-secrets      | 8200          | 8200      | `http://localhost:8200`                                                                                                                         |
+| ow-secrets-init | —             | —         | One-shot, initializes OpenBao (idempotent — see below)                                                                                          |
 
-OpenBao and MinIO start automatically with `docker compose up -d` — no profile
+**Corrected (was previously wrong here): there is no MinIO/`ow-storage` container.**
+`packages/files` stores uploads on local disk (bind-mounted via
+`FILES_STORAGE_PATH_HOST`, default `../openwind-files` — see the Backup section
+below), not in an S3-compatible bucket. MinIO is present in `docker-compose.yml`
+only as a fully commented-out block kept for reference (PR #340 replaced the
+earlier S3/MinIO presigned-URL design with local-disk storage + async ClamAV
+scanning) — it never starts, with or without a profile.
+
+OpenBao starts automatically with `docker compose up -d` — no profile
 required, unlike the optional services below.
 
 **OpenBao** (`@platform/secrets` backing store) runs in `-dev` mode: an
@@ -358,12 +366,6 @@ run, so the command exits non-zero — the init script tolerates that specific
 failure and still exits `0` (idempotency fix, PR #178, follow-up to #128/#173).
 **If you see a "transit engine already enabled" message in
 `ow-secrets-init`'s logs, that's expected — not a failure to debug.**
-
-**MinIO** (`@platform/files` backing store) exposes the S3 API on `:9000` and
-a web console on `:9001`. Dev credentials (hardcoded in `docker-compose.yml`):
-`platform_access_key` / `platform_secret_key_dev_only`. `ow-storage-init` runs
-`mc mb --ignore-existing` to create the `platform-files` bucket, so it's
-already safe to re-run.
 
 ### The Zitadel compose project (`../zitadel/docker-compose.yml`)
 
