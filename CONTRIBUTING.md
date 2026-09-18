@@ -15,6 +15,7 @@ snapshot, not current truth.
 1. **Read [`CLAUDE.md`](CLAUDE.md)** — engineering conventions enforced by CI (naming, TypeScript strictness, security rules, testing requirements). Not optional reading.
 2. **Read the relevant ADR(s)** in [`docs/decisions/`](docs/decisions/) for the area you're working in. The ADRs explain _why_ things are the way they are — they prevent you from re-litigating settled decisions in a PR.
 3. **Check the [roadmap tracker](docs/tracker/roadmap-tracker.md)** (and `CLAUDE.md`'s Current Focus) to understand which phase a component belongs to and what it depends on. Phase 2 components cannot be built without Phase 1 being solid.
+4. **Know the [Contribution Terms](#contribution-terms) before your first PR** — submitting one means agreeing to them (or to [`CLA.md`](CLA.md) directly), so it's worth reading once up front rather than discovering it in the PR template.
 
 ---
 
@@ -305,6 +306,31 @@ already-open PR, push a commit or close/reopen the PR to get a fresh check run.
 
 ---
 
+## Contribution Terms
+
+**⚠️ Draft terms — not yet reviewed by a lawyer.** These are the default terms that apply to
+anyone submitting a pull request, unless you've signed [`CLA.md`](CLA.md) directly (the two cover
+the same ground — the PR template lets you check either box).
+
+By submitting a pull request (or other contribution) to this repository, you confirm:
+
+1. **The contribution is your own original work**, or you have sufficient rights to submit it, and
+   you've disclosed in the PR description if it includes or is based on someone else's work.
+2. **You irrevocably assign to Abhinav Mishra all copyright and patent rights in your
+   contribution**, in exchange for a license back to you to keep using your own contribution
+   however you like. This is an assignment of ownership, not just a license — see
+   [`CLA.md`](CLA.md) for the full terms.
+3. **If your employer has rights to intellectual property you create**, you confirm you have
+   permission to contribute on this basis, or your employer has waived that right for this
+   Project. If this applies to you, say so before contributing — a separate agreement covering
+   your employer may be needed.
+
+This is intentionally the lightweight, click-through version of [`CLA.md`](CLA.md) at the repo
+root, which has the full legal text (patent assignment, representations, disclaimer) if you want
+to read the complete terms or sign a standalone copy.
+
 ## License
 
-By contributing to OpenWind, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).
+OpenWind is released under the [GNU Affero General Public License v3.0](LICENSE). The assignment
+in "Contribution Terms" above is what lets the project also be offered under a separate commercial
+license to customers who don't want AGPL's obligations.
