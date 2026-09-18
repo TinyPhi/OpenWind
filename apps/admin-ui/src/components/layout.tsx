@@ -99,6 +99,29 @@ const API_KEYS_NAV = {
 };
 
 // Backend requires the "admin" role (requireRole("admin") in
+// apps/api/src/routes/admin/schedule-rules.ts -- all routes on this router,
+// including reads) -- docs/specs/temporal-scheduler.md T15.
+const SCHEDULE_RULES_NAV = {
+  route: "/admin/schedule-rules",
+  label: "Schedule Rules",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008z"
+      />
+    </svg>
+  ),
+};
+
+// Backend requires the "admin" role (requireRole("admin") in
 // apps/api/src/routes/admin/notification-policies.ts's GET / and write
 // routes) -- docs/specs/oncall-routing.md T32.
 const NOTIFICATION_POLICIES_NAV = {
@@ -126,6 +149,7 @@ const SUPER_ADMIN_NAV_EXTRA = [
   SYSTEM_LOGS_NAV,
   API_KEYS_NAV,
   THIRD_PARTY_ACCESS_LOGS_NAV,
+  SCHEDULE_RULES_NAV,
   NOTIFICATION_POLICIES_NAV,
 ];
 
