@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { z } from "zod";
 
 vi.mock("@platform/config", () => ({
   env: {
@@ -41,11 +42,28 @@ const mockComputeNextFireAt = vi.fn(
   (_cronExpr: string, _tz: string, from: Date) =>
     new Date(from.getTime() + 3_600_000),
 );
+// Real schema (not a stub) -- G3's TemplateSchema.safeParse call in
+// validateTemplate needs an actual zod object to parse against, not an
+// undefined export, or every fireRule call throws a TypeError that gets
+// misclassified as INTERNAL_ERROR before ever reaching the mocked
+// createEntity/validateScheduleRuleRefs this suite is actually testing.
+// Named with a "mock" prefix so vitest's hoisting of vi.mock() above this
+// file's other statements doesn't throw a temporal-dead-zone reference error.
+const mockTemplateSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+  description: z.string().trim().max(10000).optional(),
+  severity: z.enum(["critical", "high", "medium", "low"]).optional(),
+  assignee_id: z.string().uuid().optional(),
+  team_id: z.string().uuid().optional(),
+  service_id: z.string().uuid().optional(),
+  fields: z.record(z.string(), z.unknown()).optional(),
+});
 vi.mock("@platform/scheduler", () => ({
   computeNextFireAt: (...args: [string, string, Date]) =>
     mockComputeNextFireAt(...args),
   buildTemplateVariables: () => ({}),
   renderTemplate: (template: unknown) => template,
+  TemplateSchema: mockTemplateSchema,
   validateScheduleRuleRefs: (...args: unknown[]) =>
     mockValidateScheduleRuleRefs(...args),
 }));
@@ -283,5 +301,46 @@ describe("schedulerTick", () => {
         (e) => (e as { status: string }).status === "failed",
       ),
     ).toBe(true);
+  });
+
+  it("catch_up: true executes the MOST RECENT CATCH_UP_MAX fires, not the earliest ones (Vijit review, G1)", async () => {
+    // 30 hours of 1-hour-stepped backlog (via the stubbed computeNextFireAt)
+    // produces ~30 missed fires, well over CATCH_UP_MAX (24) -- the cap must
+    // keep the fires closest to `now`, dropping the oldest ones (including
+    // originalScheduledAt itself here), not the reverse.
+    const originalScheduledAt = new Date(Date.now() - 30 * 3_600_000);
+    const rule = makeRule({ nextFireAt: originalScheduledAt, catchUp: true });
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockResolvedValue({ id: "ticket-catchup" });
+
+    await schedulerTick();
+
+    expect(mockCreateEntity).toHaveBeenCalledTimes(24);
+    const scheduledAts = insertedExecutions.map((e) =>
+      (e as { scheduledAt: Date }).scheduledAt.getTime(),
+    );
+    expect(scheduledAts).not.toContain(originalScheduledAt.getTime());
+    // The most recent missed fire (closest to `now`) must survive the cap.
+    expect(Math.max(...scheduledAts)).toBeGreaterThan(
+      originalScheduledAt.getTime() + 25 * 3_600_000,
+    );
+  });
+
+  it("rejects a malformed stored template at fire time instead of reaching createEntity (Vijit review, G3)", async () => {
+    // Empty title fails TemplateSchema's .min(1) -- simulates a template
+    // row that predates a schema tightening, or was written outside the
+    // API's own create/update validation path.
+    const rule = makeRule({ template: { title: "" } });
+    dueRules = [rule];
+    claimRows = [rule];
+
+    await schedulerTick();
+
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+    expect(mockScheduleExecutionAdd).toHaveBeenCalledWith(1, {
+      status: "failed",
+      errorCode: "TEMPLATE_VALIDATION_FAILED",
+    });
   });
 });

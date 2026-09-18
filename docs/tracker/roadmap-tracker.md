@@ -138,6 +138,37 @@ call.
 
 ---
 
+## Reference: ongoing operating principles
+
+Consolidated from `docs/roadmap.md` (retired — its phase lettering had drifted from this doc and
+its per-component classification was either superseded by accepted ADRs or tied to already-shipped
+phases; these two tables are the parts still worth keeping as live reference).
+
+**Feature-request triage** (applies from Phase 3 onward, once the platform is customer-facing):
+
+| Request type                                                 | Response time | Engineering involvement                            |
+| ------------------------------------------------------------ | ------------- | -------------------------------------------------- |
+| New automation rule template                                 | Days          | Config-only. Seed SQL                              |
+| New workflow for existing entity type                        | Days          | Config-only. Seed SQL or builder UI                |
+| New custom field on existing entity type                     | Minutes       | Tenant does it themselves in field builder         |
+| New module (new entity types + workflow)                     | 1–2 weeks     | Seed SQL + optional UI views                       |
+| New action or trigger type                                   | 2–4 weeks     | Engine PR. ADR entry. Reviewed by core team        |
+| New engine primitive (new field type, new engine capability) | 4–8 weeks     | Engine PR. Full design review. All tenants benefit |
+
+**Capabilities deliberately deferred — build only on explicit trigger, not speculatively:**
+
+| Capability                                              | Trigger                                                |
+| ------------------------------------------------------- | ------------------------------------------------------ |
+| Typesense (faceted search, autocomplete)                | Tenant hits Postgres FTS limits                        |
+| LDAP / Active Directory connector                       | First enterprise customer with on-prem IdP             |
+| HIPAA / PCI compliance pack                             | First healthcare or fintech customer                   |
+| Multi-region data residency                             | First customer with a residency requirement            |
+| Mobile push notifications                               | First module with mobile-first UX                      |
+| Long-running saga coordination (Trigger.dev full embed) | When connector flows exceed what script action handles |
+| Custom analytics engine (replace Superset)              | When embedding limits are hit at scale                 |
+
+---
+
 ## How to update this doc
 
 1. When a GH issue closes → update `Status` to ✅ Done, log a new file under

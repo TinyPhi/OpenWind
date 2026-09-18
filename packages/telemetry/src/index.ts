@@ -2,11 +2,11 @@ export { prometheusExporter } from "./instrumentation.js";
 export {
   httpRequestDuration,
   httpRequestsTotal,
-  oncallResolutionsTotal,
-  notificationDispatchTotal,
   scheduleTickTotal,
   scheduleExecutionTotal,
   scheduleCatchUpTotal,
+  oncallResolutionsTotal,
+  notificationDispatchTotal,
   getSerializedMetrics,
 } from "./metrics.js";
 export { Queue, Worker } from "./bullmq.js";

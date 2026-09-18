@@ -60,9 +60,14 @@ Reference docs (read before starting work in a new area):
 - `docs/decisions/ADR-017-temporal-scheduler.md` — DB-polling scheduler, cron as canonical
   format, closed-whitelist title templating, skip-missed-fires default, creator attribution
   (3F); read before touching `schedule_rules`/`schedule_executions` or the worker tick.
-- `docs/sup-docs/roadmap-tracker.md` — phase progress and track status
-- `docs/sup-docs/week-log/` — running velocity log, one file per session (see its README —
+- `docs/tracker/roadmap-tracker.md` — phase progress and track status
+- `docs/tracker/week-log/` — running velocity log, one file per session (see its README —
   never edit `week-log.md` itself, it's frozen history as of 2026-08-13)
+- `docs/sup-docs/` — **gitignored, local-only.** Strategy/pricing/GTM/competitive-positioning
+  material the owner shares offline with a select few rather than via the repo. Never assume
+  content here is visible to the team or to a future contributor cloning the repo — do not
+  reference it from any tracked doc as if it were, and never move tracking content (roadmap,
+  phase timeline, week-log — those live in `docs/tracker/`) into this directory.
 
 ---
 
@@ -70,7 +75,7 @@ Reference docs (read before starting work in a new area):
 
 **Phase:** 3 — Scale & Extensibility (3A **in progress**, 3B **done** — ADR-008/009/010 accepted
 2026-08-06; 3A Stage 0 + Stage 1 done, Stage 2 runtime + scopes tracks landing; 3B shipped
-2026-08-13 via PR #397 (all 3 phases) — see `docs/sup-docs/roadmap-tracker.md` for the current %,
+2026-08-13 via PR #397 (all 3 phases) — see `docs/tracker/roadmap-tracker.md` for the current %,
 not repeated here since it drifts)
 **Phase 2 status:** ✅ Complete as of 2026-06-18 (all 4 tracks + pre-pilot hardening merged)
 
@@ -80,22 +85,22 @@ either is a human scope call — no ADR exists for either yet — consistent wit
 `agent-behaviour.md`'s general "no phase advance without explicit sign-off" rule, not a
 3C-specific one):
 
-| ID    | Track                                                                                      | Notes                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3A    | Integration layer — connector runtime, marketplace                                         | 🟡 In progress. Stage 0/1 done, Stage 2 runtime + scopes tracks landing. Detailed sequence + status in `.claude/context/phase-3-primer.md`; live % in `docs/sup-docs/roadmap-tracker.md` — update both there, not here.                                                                                                                                                                       |
-| 3B    | Plugin system — Module Federation, slot registry                                           | ✅ Done — PR #397 (2026-08-13), all 3 phases.                                                                                                                                                                                                                                                                                                                                                 |
-| 3C    | AI layer — automation gen, workflow suggestion, RAG                                        | Not yet started; no ADR yet — a human scope call, not a 3B-blocked dependency                                                                                                                                                                                                                                                                                                                 |
-| 3D    | Observability + compliance — OTel, Prometheus, GDPR                                        | ✅ Done — PR #503–507 (all stages). Live % in `docs/sup-docs/roadmap-tracker.md`.                                                                                                                                                                                                                                                                                                             |
-| 3E    | On-call routing & severity-based notification                                              | 🟡 Phases 1–2 merged. Phase 1 DB (PRs #583/#585/#586, migrations 0092–0100) and Phase 2 API routes (PRs #590/#594) landed 2026-09-09/09-11; #565 closed. Phases 3–4 (automation actions, UI, dashboards) in review: #597 #600 #602 #603 #605. ADR-016 accepted 2026-09-16 — the phases merged before it, so the ADR ratifies shipped behaviour. Live % in `docs/sup-docs/roadmap-tracker.md`. |
-| 3F    | Temporal scheduler — auto-create tickets on schedule                                       | 🟡 Phase 1 DB merged via PR #586 (`schedule_rules`, `schedule_executions`, migrations 0101–0103; next free 0104). GH issues #578–#582 opened. Phases 2–4 in review: #595 #601 #604. ADR-017 accepted 2026-09-16 — same note as 3E. Live % in `docs/sup-docs/roadmap-tracker.md`.                                                                                                              |
-| 3G    | MIS reporting dashboards — embedded Superset (Stage 1), standalone + Zitadel SSO (Stage 2) | 🔴 Spec in review (PR #584). Stage 1 = fixed dashboards embedded in admin-ui; Stage 2 = Superset on its own URL with Zitadel login for analysts. Isolation ADR resolved 2026-09-09 (owner: Bikash) — Superset's `DB_CONNECTION_MUTATOR` hook stamps the platform's existing `app.tenant_id` GUC per-connection, reusing existing RLS rather than new views. GH issues: #106, #102–#105.       |
-| 3-OPS | Deferred ops/infra concerns                                                                | See Phase 1 carry-overs in tracker                                                                                                                                                                                                                                                                                                                                                            |
+| ID    | Track                                                                                      | Notes                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3A    | Integration layer — connector runtime, marketplace                                         | 🟡 In progress. Stage 0/1 done, Stage 2 runtime + scopes tracks landing. Detailed sequence + status in `.claude/context/phase-3-primer.md`; live % in `docs/tracker/roadmap-tracker.md` — update both there, not here.                                                                                                                                                                       |
+| 3B    | Plugin system — Module Federation, slot registry                                           | ✅ Done — PR #397 (2026-08-13), all 3 phases.                                                                                                                                                                                                                                                                                                                                                |
+| 3C    | AI layer — automation gen, workflow suggestion, RAG                                        | Not yet started; no ADR yet — a human scope call, not a 3B-blocked dependency                                                                                                                                                                                                                                                                                                                |
+| 3D    | Observability + compliance — OTel, Prometheus, GDPR                                        | ✅ Done — PR #503–507 (all stages). Live % in `docs/tracker/roadmap-tracker.md`.                                                                                                                                                                                                                                                                                                             |
+| 3E    | On-call routing & severity-based notification                                              | 🟡 Phases 1–2 merged. Phase 1 DB (PRs #583/#585/#586, migrations 0092–0100) and Phase 2 API routes (PRs #590/#594) landed 2026-09-09/09-11; #565 closed. Phases 3–4 (automation actions, UI, dashboards) in review: #597 #600 #602 #603 #605. ADR-016 accepted 2026-09-16 — the phases merged before it, so the ADR ratifies shipped behaviour. Live % in `docs/tracker/roadmap-tracker.md`. |
+| 3F    | Temporal scheduler — auto-create tickets on schedule                                       | 🟡 Phase 1 DB merged via PR #586 (`schedule_rules`, `schedule_executions`, migrations 0101–0103; next free 0104). GH issues #578–#582 opened. Phases 2–4 in review: #595 #601 #604. ADR-017 accepted 2026-09-16 — same note as 3E. Live % in `docs/tracker/roadmap-tracker.md`.                                                                                                              |
+| 3G    | MIS reporting dashboards — embedded Superset (Stage 1), standalone + Zitadel SSO (Stage 2) | 🔴 Spec in review (PR #584). Stage 1 = fixed dashboards embedded in admin-ui; Stage 2 = Superset on its own URL with Zitadel login for analysts. Isolation ADR resolved 2026-09-09 (owner: Bikash) — Superset's `DB_CONNECTION_MUTATOR` hook stamps the platform's existing `app.tenant_id` GUC per-connection, reusing existing RLS rather than new views. GH issues: #106, #102–#105.      |
+| 3-OPS | Deferred ops/infra concerns                                                                | See Phase 1 carry-overs in tracker                                                                                                                                                                                                                                                                                                                                                           |
 
 New findings from any review go through
 [docs/reviews/pending-review-findings.md](docs/reviews/pending-review-findings.md) — file an
 issue before picking one up, not a standing checklist in this file. (The pre-Phase-3 hardening
 round and the 2026-07-16/21 reconciliation that used to be summarized here are both fully closed;
-see `docs/sup-docs/week-log/2026-08-19-claude-md-hardening-checklist-archive.md` for that history
+see `docs/tracker/week-log/2026-08-19-claude-md-hardening-checklist-archive.md` for that history
 verbatim, and ADR-005/ADR-006 above for the decisions that came out of it.)
 
 **Delivery has guardrails (Claude Code only; plain git + CI unaffected).** Every change runs
@@ -248,7 +253,7 @@ Full setup: `docs/local-setup.md`
    gives a transitive answer grep can't — but a stale `dist/` makes it silently
    under-report, so treat an empty result as inconclusive, not "nothing depends on this",
    and cross-check with grep before trusting it — see `.claude/context/dependency-graph.md`
-5. Check `docs/sup-docs/roadmap-tracker.md` — understand the phase context before changing scope
+5. Check `docs/tracker/roadmap-tracker.md` — understand the phase context before changing scope
 6. If a decision isn't covered by an ADR, write one before implementing
 
 ---

@@ -30,7 +30,7 @@ We are NOT building a generic CRUD framework, a no-code toy, or a mono-product S
 
 ### Phase 2 — ✅ Complete (2026-06-18)
 
-All four tracks merged. Full status in [roadmap-tracker.md](docs/sup-docs/roadmap-tracker.md).
+All four tracks merged. Full status in [roadmap-tracker.md](docs/tracker/roadmap-tracker.md).
 
 - 2A — Platform services (files, notifications, audit, view_configs, OpenAPI): ✅ Done
 - 2B — Module system + 7 module seeds: ✅ Done
