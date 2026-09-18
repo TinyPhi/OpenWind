@@ -750,6 +750,13 @@
       "when": 1789032900000,
       "tag": "0106_backfill_entity_updated_outbox_delivered",
       "breakpoints": false
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1789033000000,
+      "tag": "0107_schedule_sweeper_role",
+      "breakpoints": false
     }
   ]
 }

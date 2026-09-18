@@ -127,7 +127,9 @@ describe("ScheduleRulesPage", () => {
     fireEvent.change(screen.getByPlaceholderText("e.g. Weekly Standup"), {
       target: { value: "Monthly Review" },
     });
-    fireEvent.click(screen.getByText("Monthly 1st 9am"));
+    fireEvent.change(screen.getByLabelText("Repeats"), {
+      target: { value: "monthly" },
+    });
     fireEvent.change(
       screen.getByPlaceholderText("e.g. Weekly standup — {{date}}"),
       {

@@ -87,6 +87,21 @@ const mockWithTenantContext = vi.fn(
     fn(withTenantTx),
 );
 
+const mockSetScheduleSweeperRole = vi.fn(() => Promise.resolve(undefined));
+
+// schedulerTick's cross-tenant poll (schedule_sweeper role, see
+// 0107_schedule_sweeper_role.sql) runs inside its own db.transaction now,
+// with a plain select().from().where() chain -- distinct from claimRule's
+// transaction, which needs the fuller select().from().where().for().limit()
+// + update() chain below.
+const pollTx = {
+  select: () => ({
+    from: () => ({
+      where: () => Promise.resolve(dueRules),
+    }),
+  }),
+};
+
 const claimTx = {
   select: () => ({
     from: () => ({
@@ -104,19 +119,20 @@ const claimTx = {
   }),
 };
 
+let transactionCallCount = 0;
+
 vi.mock("@platform/db", () => ({
   db: {
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve(dueRules),
-      }),
-    }),
-    transaction: (fn: (tx: unknown) => Promise<unknown>) => fn(claimTx),
+    transaction: (fn: (tx: unknown) => Promise<unknown>) =>
+      fn(transactionCallCount++ === 0 ? pollTx : claimTx),
   },
   withTenantContext: (...args: [string, (tx: unknown) => Promise<unknown>]) =>
     mockWithTenantContext(...args),
+  setScheduleSweeperRole: (...args: unknown[]) =>
+    mockSetScheduleSweeperRole(...args),
   scheduleRules: "schedule_rules_table",
   scheduleExecutions: "schedule_executions_table",
+  workflowEvents: "workflow_events_table",
 }));
 
 const { schedulerTick } = await import("./schedule-tick-worker.js");
@@ -145,6 +161,7 @@ describe("schedulerTick", () => {
     dueRules = [];
     claimRows = [];
     insertedExecutions.length = 0;
+    transactionCallCount = 0;
     mockWriteAuditEntry.mockClear();
     mockScheduleTickAdd.mockClear();
     mockScheduleExecutionAdd.mockClear();
@@ -152,6 +169,7 @@ describe("schedulerTick", () => {
     mockCreateEntity.mockReset();
     mockValidateScheduleRuleRefs.mockReset().mockResolvedValue([]);
     mockWithTenantContext.mockClear();
+    mockSetScheduleSweeperRole.mockClear();
   });
 
   it("fires a due rule, creates a ticket, and records a success execution", async () => {
@@ -177,6 +195,81 @@ describe("schedulerTick", () => {
     expect(mockScheduleTickAdd).toHaveBeenCalledWith(1, {
       outcome: "completed",
     });
+  });
+
+  it("switches to schedule_sweeper (BYPASSRLS) for the cross-tenant poll and the claim transaction", async () => {
+    // Regression test for a real bug: schedule_rules has RLS requiring
+    // app.tenant_id, and this poll deliberately has no single tenant to
+    // scope it to -- without SET LOCAL ROLE schedule_sweeper here, RLS
+    // silently matches zero rows and no schedule rule ever fires (found via
+    // manual QA; see 0107_schedule_sweeper_role.sql).
+    const rule = makeRule();
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockResolvedValue({ id: "ticket-1" });
+
+    await schedulerTick();
+
+    // Once for the poll transaction, once for claimRule's transaction.
+    expect(mockSetScheduleSweeperRole).toHaveBeenCalledTimes(2);
+  });
+
+  it("posts the template's remark as the ticket's first comment, authored by the rule owner", async () => {
+    // User request: the schedule rule's "remark" (template.description)
+    // shows up as the first comment on the auto-created ticket, attributed
+    // to whoever created the rule -- not a silent system actor.
+    const rule = makeRule({
+      createdBy: "u-creator",
+      template: { title: "Weekly review", description: "Please review Q3." },
+    });
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockResolvedValue({
+      id: "ticket-1",
+      workflowId: "wf-1",
+      currentState: "open",
+    });
+
+    await schedulerTick();
+
+    const commentEvent = insertedExecutions.find(
+      (e) =>
+        (e as { metadata?: { type?: string } }).metadata?.type === "comment",
+    ) as
+      | {
+          instanceId: string;
+          workflowId: string;
+          actorId: string;
+          triggeredBy: string;
+          metadata: { type: string; text: string };
+        }
+      | undefined;
+
+    expect(commentEvent).toBeDefined();
+    expect(commentEvent?.instanceId).toBe("ticket-1");
+    expect(commentEvent?.workflowId).toBe("wf-1");
+    expect(commentEvent?.actorId).toBe("u-creator");
+    expect(commentEvent?.triggeredBy).toBe("user");
+    expect(commentEvent?.metadata.text).toBe("Please review Q3.");
+  });
+
+  it("does not post a comment when the template has no remark", async () => {
+    const rule = makeRule({ template: { title: "Weekly review" } });
+    dueRules = [rule];
+    claimRows = [rule];
+    mockCreateEntity.mockResolvedValue({
+      id: "ticket-1",
+      workflowId: "wf-1",
+      currentState: "open",
+    });
+
+    await schedulerTick();
+
+    const commentEvent = insertedExecutions.find(
+      (e) =>
+        (e as { metadata?: { type?: string } }).metadata?.type === "comment",
+    );
+    expect(commentEvent).toBeUndefined();
   });
 
   it("skips a rule already claimed by another worker instance", async () => {

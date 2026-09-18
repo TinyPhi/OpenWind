@@ -21,4 +21,16 @@ describe("isValidTimezone", () => {
     expect(isValidTimezone("Not/A_Timezone")).toBe(false);
     expect(isValidTimezone("")).toBe(false);
   });
+
+  it("accepts 'Asia/Kolkata' even on an ICU build that canonicalizes it to the 'Asia/Calcutta' alias", () => {
+    // Found via manual QA (temporal-scheduler admin UI defaults new rules to
+    // Asia/Kolkata): Intl.supportedValuesOf('timeZone') on this repo's
+    // container Node build lists only 'Asia/Calcutta', not 'Asia/Kolkata',
+    // even though both are valid IANA identifiers for the same zone and
+    // Intl.DateTimeFormat resolves 'Asia/Kolkata' fine. A Set-membership
+    // check against supportedValuesOf rejected it with a 422, even though
+    // the zone is entirely valid -- ICU's "supported" list is narrower than
+    // "constructible" (canonical names only, not every alias).
+    expect(isValidTimezone("Asia/Kolkata")).toBe(true);
+  });
 });
