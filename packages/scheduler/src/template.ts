@@ -21,6 +21,11 @@ export const TemplateSchema = z.object({
   assignee_id: z.string().uuid().optional(),
   team_id: z.string().uuid().optional(),
   service_id: z.string().uuid().optional(),
+  // Days after the fire time the created ticket's due_date should be set to
+  // (docs/specs/temporal-scheduler.md's template can't hold a fixed date --
+  // each fire creates a new ticket, so "due date" only makes sense as an
+  // offset from that fire's scheduledAt, applied in fireRule).
+  due_after_days: z.number().int().min(0).max(3650).optional(),
   fields: z.record(z.string(), z.unknown()).optional(),
 });
 

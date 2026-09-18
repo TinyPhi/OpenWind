@@ -50,17 +50,44 @@ export function EntityTypeProvider({
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+
+    // GET /entity-types is cursor-paginated (100/page) -- a single fetch
+    // silently truncated this context to page 1, so any tenant with 100+
+    // entity types (e.g. leftover e2e-test fixtures) could have a real
+    // entity type like "ticket" simply never show up here, anywhere it's
+    // looked up by name/slug, with no error at all. Page through every
+    // cursor so `entityTypes` is always the tenant's complete set.
+    async function loadAllEntityTypes(): Promise<EntityType[]> {
+      const all: EntityType[] = [];
+      let cursor: string | undefined;
+      for (;;) {
+        const res = (await fetchWithAuth(
+          `${API_URL}/entity-types${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+        )) as { data?: EntityType[]; nextCursor?: string | null };
+        all.push(...(res.data ?? []));
+        if (!res.nextCursor) break;
+        cursor = res.nextCursor;
+      }
+      return all;
+    }
+
     void Promise.allSettled([
-      fetchWithAuth(`${API_URL}/entity-types`),
+      loadAllEntityTypes(),
       fetchWithAuth(`${API_URL}/modules`),
     ]).then(([etRes, modRes]) => {
+      if (cancelled) return;
       if (etRes.status === "fulfilled") {
-        setEntityTypes((etRes.value as { data?: EntityType[] }).data ?? []);
+        setEntityTypes(etRes.value);
       }
       if (modRes.status === "fulfilled") {
         setModules((modRes.value as { data?: Module[] }).data ?? []);
       }
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [tick]);
 
   function getTypeBySlug(slug: string): EntityType | undefined {

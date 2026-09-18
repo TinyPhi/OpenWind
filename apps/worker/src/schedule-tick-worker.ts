@@ -19,8 +19,10 @@ import type { DbOrTx } from "@platform/db";
 import {
   db,
   withTenantContext,
+  setScheduleSweeperRole,
   scheduleRules,
   scheduleExecutions,
+  workflowEvents,
 } from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
 import type { EntityError, ValidationError } from "@platform/entity-engine";
@@ -45,6 +47,10 @@ type ScheduleRuleRow = typeof scheduleRules.$inferSelect;
 
 const TICK_INTERVAL_MS = env.SCHEDULE_TICK_INTERVAL_SECONDS * 1000;
 const CATCH_UP_MAX = env.SCHEDULE_CATCH_UP_MAX;
+
+// See the fields: {...} comment in fireRule for why these exist.
+const DEFAULT_SCHEDULED_TICKET_PRIORITY = "medium";
+const DEFAULT_SCHEDULED_TICKET_CATEGORY = "general";
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let activeTick: Promise<void> | null = null;
@@ -173,17 +179,24 @@ async function claimRule(
   tickTime: Date,
 ): Promise<ScheduleRuleRow | null> {
   return db.transaction(async (tx) => {
+    // schedule_sweeper (BYPASSRLS, see 0107_schedule_sweeper_role.sql):
+    // this transaction can't use withTenantContext -- claimRule is called
+    // from the cross-tenant poll in schedulerTick before any single tenant
+    // is known to scope app.tenant_id to. RLS on schedule_rules is very
+    // much active without this (that was the bug -- see 0107's migration
+    // comment); the explicit tenant filter below is a defense-in-depth
+    // belt-and-suspenders, not a substitute for it.
+    await setScheduleSweeperRole(tx);
     const rows = await tx
       .select()
       .from(scheduleRules)
       .where(
         and(
           eq(scheduleRules.id, rule.id),
-          // Explicit tenant filter (Vijit review, G2): this transaction
-          // isn't wrapped in withTenantContext (RLS is inactive here), and
-          // the UPDATE below already carries this filter -- the asymmetry
-          // was a future-reader trap even though UUID uniqueness makes an
-          // actual cross-tenant collision effectively impossible.
+          // Explicit tenant filter (Vijit review, G2): the UPDATE below
+          // already carries this filter -- the asymmetry was a
+          // future-reader trap even though UUID uniqueness makes an actual
+          // cross-tenant collision effectively impossible.
           eq(scheduleRules.tenantId, rule.tenantId),
           eq(scheduleRules.status, "active"),
           lte(scheduleRules.nextFireAt, tickTime),
@@ -241,12 +254,34 @@ async function fireRule(
       );
       const rendered = renderTemplate(template, vars);
 
+      const dueDate =
+        rendered.due_after_days !== undefined
+          ? new Date(
+              scheduledAt.getTime() + rendered.due_after_days * 86_400_000,
+            ).toISOString()
+          : undefined;
+
       const instance = await createEntity(tx, rule.tenantId, {
         entityTypeId: rule.entityTypeId,
         workflowId: rule.workflowId ?? undefined,
-        assignedTo: rendered.assignee_id,
+        // Defaults to the rule owner (user request) so an auto-created
+        // ticket always has a human on it -- template.assignee_id, when
+        // set, still overrides this (e.g. routing to a specific agent).
+        assignedTo: rendered.assignee_id ?? rule.createdBy,
         createdBy: rule.createdBy,
+        dueDate,
         fields: {
+          // Ticket's priority/category are required fields with no DB-level
+          // default (modules/helpdesk/seed/001_entity_types.sql) -- the
+          // schedule-rule admin form deliberately only exposes Title/Remark/
+          // Due-after-days/Severity (user request: match the fields agents
+          // actually care about on a ticket), so without a default here
+          // every auto-created ticket fails FIELD_VALIDATION_FAILED. These
+          // are placed before ...rendered.fields so an explicit
+          // template.fields.priority/category (set some other way, e.g.
+          // directly via the API) still overrides them.
+          priority: DEFAULT_SCHEDULED_TICKET_PRIORITY,
+          category: DEFAULT_SCHEDULED_TICKET_CATEGORY,
           ...rendered.fields,
           title: rendered.title,
           ...(rendered.description
@@ -257,6 +292,37 @@ async function fireRule(
           ...(rendered.service_id ? { service_id: rendered.service_id } : {}),
         },
       });
+
+      // Remark posted as the ticket's first comment, authored by the
+      // schedule owner (user request) -- comments are workflow_events rows
+      // with metadata.type "comment" (see apps/api/src/routes/entities/
+      // add-comment.ts), not a separate entity_instance despite the
+      // "comment" entity type existing; mirrored here rather than reusing
+      // add-comment.ts's handler since that handler also does HTTP-only
+      // concerns (mention/access-grant notifications) that don't apply to a
+      // system-authored first comment with no mentions.
+      // workflow_events.workflow_id is NOT NULL -- a ticket created with no
+      // workflow (rule.workflowId is optional in the admin form) has
+      // nothing to attach a comment to, same restriction add-comment.ts
+      // enforces for manually-posted comments.
+      if (rendered.description && instance.workflowId) {
+        await tx.insert(workflowEvents).values({
+          tenantId: rule.tenantId,
+          instanceId: instance.id,
+          workflowId: instance.workflowId,
+          fromState: instance.currentState,
+          toState: instance.currentState,
+          triggeredBy: "user",
+          actorId: rule.createdBy,
+          comment: null,
+          metadata: {
+            type: "comment",
+            text: rendered.description,
+            mentions: [],
+            replyTo: null,
+          },
+        });
+      }
 
       await tx.insert(scheduleExecutions).values({
         tenantId: rule.tenantId,
@@ -445,16 +511,24 @@ export async function schedulerTick(
   try {
     // System-level cross-tenant poll — intentionally no tenant_id filter;
     // the worker legitimately processes rules for every tenant in one pass.
-    const dueRules = await db
-      .select()
-      .from(scheduleRules)
-      .where(
-        and(
-          eq(scheduleRules.status, "active"),
-          lte(scheduleRules.nextFireAt, now),
-          isNull(scheduleRules.deletedAt),
-        ),
-      );
+    // Requires schedule_sweeper (BYPASSRLS, see
+    // 0107_schedule_sweeper_role.sql): schedule_rules has RLS requiring
+    // app.tenant_id, and there is no single tenant to scope it to here — the
+    // same situation setOutboxSweeperRole solves for outbox_events. Without
+    // this, every poll silently matched zero rows under RLS.
+    const dueRules = await db.transaction(async (tx) => {
+      await setScheduleSweeperRole(tx);
+      return tx
+        .select()
+        .from(scheduleRules)
+        .where(
+          and(
+            eq(scheduleRules.status, "active"),
+            lte(scheduleRules.nextFireAt, now),
+            isNull(scheduleRules.deletedAt),
+          ),
+        );
+    });
 
     for (const rule of dueRules) {
       const originalScheduledAt = rule.nextFireAt;

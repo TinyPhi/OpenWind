@@ -29,12 +29,121 @@ const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 type Severity = (typeof SEVERITIES)[number];
 type RuleStatus = "active" | "paused" | "archived";
 
-const CRON_PRESETS: { label: string; expr: string }[] = [
-  { label: "Daily 9am", expr: "0 9 * * *" },
-  { label: "Weekly Mon 9am", expr: "0 9 * * 1" },
-  { label: "Monthly 1st 9am", expr: "0 9 1 * *" },
-  { label: "Quarterly", expr: "0 9 1 1,4,7,10 *" },
+// Common timezones for recurring tickets -- Asia/Kolkata listed first and
+// used as the default since this platform's primary customer base is India
+// (user request: "time zone to be in indian times").
+const TIMEZONE_OPTIONS: { label: string; value: string }[] = [
+  { label: "India (Asia/Kolkata)", value: "Asia/Kolkata" },
+  { label: "UTC", value: "UTC" },
+  { label: "US Eastern (America/New_York)", value: "America/New_York" },
+  { label: "UK (Europe/London)", value: "Europe/London" },
+  { label: "UAE (Asia/Dubai)", value: "Asia/Dubai" },
+  { label: "Singapore (Asia/Singapore)", value: "Asia/Singapore" },
 ];
+
+type Frequency = "daily" | "weekly" | "monthly" | "quarterly";
+
+const DAYS_OF_WEEK: { label: string; value: string }[] = [
+  { label: "Sunday", value: "0" },
+  { label: "Monday", value: "1" },
+  { label: "Tuesday", value: "2" },
+  { label: "Wednesday", value: "3" },
+  { label: "Thursday", value: "4" },
+  { label: "Friday", value: "5" },
+  { label: "Saturday", value: "6" },
+];
+
+interface Recurrence {
+  frequency: Frequency;
+  hour: number;
+  minute: number;
+  dayOfWeek: string; // "0".."6", weekly only
+  dayOfMonth: string; // "1".."28", monthly/quarterly only
+}
+
+const DEFAULT_RECURRENCE: Recurrence = {
+  frequency: "weekly",
+  hour: 9,
+  minute: 0,
+  dayOfWeek: "1",
+  dayOfMonth: "1",
+};
+
+/** Builds a 5-field cron expression from the plain-language recurrence picker. */
+function recurrenceToCron(r: Recurrence): string {
+  const time = `${r.minute} ${r.hour}`;
+  switch (r.frequency) {
+    case "daily":
+      return `${time} * * *`;
+    case "weekly":
+      return `${time} * * ${r.dayOfWeek}`;
+    case "monthly":
+      return `${time} ${r.dayOfMonth} * *`;
+    case "quarterly":
+      return `${time} ${r.dayOfMonth} 1,4,7,10 *`;
+  }
+}
+
+/**
+ * Best-effort reverse of recurrenceToCron, for editing a rule created by
+ * this picker (or matching one of these 4 shapes). A cron expression that
+ * doesn't match any shape (e.g. hand-written by an earlier version of this
+ * UI, or multiple days-of-week) falls back to the weekly default rather
+ * than guessing -- the admin re-picks the schedule explicitly in that case.
+ */
+function cronToRecurrence(expr: string): Recurrence {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return DEFAULT_RECURRENCE;
+  const [minStr, hourStr, dom, month, dow] = parts as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  const minute = Number(minStr);
+  const hour = Number(hourStr);
+  if (!Number.isInteger(minute) || !Number.isInteger(hour)) {
+    return DEFAULT_RECURRENCE;
+  }
+  if (dom === "*" && month === "*" && /^[0-6]$/.test(dow)) {
+    return {
+      frequency: "weekly",
+      hour,
+      minute,
+      dayOfWeek: dow,
+      dayOfMonth: "1",
+    };
+  }
+  if (dom === "*" && month === "*" && dow === "*") {
+    return {
+      frequency: "daily",
+      hour,
+      minute,
+      dayOfWeek: "1",
+      dayOfMonth: "1",
+    };
+  }
+  if (/^\d{1,2}$/.test(dom) && month === "1,4,7,10" && dow === "*") {
+    return {
+      frequency: "quarterly",
+      hour,
+      minute,
+      dayOfWeek: "1",
+      dayOfMonth: dom,
+    };
+  }
+  if (/^\d{1,2}$/.test(dom) && month === "*" && dow === "*") {
+    return {
+      frequency: "monthly",
+      hour,
+      minute,
+      dayOfWeek: "1",
+      dayOfMonth: dom,
+    };
+  }
+  return DEFAULT_RECURRENCE;
+}
 
 interface WorkflowOption {
   id: string;
@@ -48,6 +157,7 @@ export interface ScheduleTemplate {
   assignee_id?: string | undefined;
   team_id?: string | undefined;
   service_id?: string | undefined;
+  due_after_days?: number | undefined;
 }
 
 export interface ScheduleRule {
@@ -282,18 +392,26 @@ function RuleFormModal({
   onSaved,
 }: RuleFormModalProps): React.ReactElement {
   const { entityTypes } = useEntityTypes();
+  // Schedule rules only ever create Tickets -- the entity type picker was
+  // confusing for non-technical admins who don't think in terms of "entity
+  // types" (user request), so it's resolved internally rather than shown.
+  const ticketEntityTypeId = entityTypes.find((et) => et.name === "ticket")?.id;
   const [name, setName] = useState(rule?.name ?? "");
   const [description, setDescription] = useState(rule?.description ?? "");
-  const [cronExpr, setCronExpr] = useState(rule?.cronExpr ?? "0 9 * * 1");
-  const [timezone, setTimezone] = useState(rule?.timezone ?? "UTC");
-  const [entityTypeId, setEntityTypeId] = useState(rule?.entityTypeId ?? "");
+  const [recurrence, setRecurrence] = useState<Recurrence>(() =>
+    rule ? cronToRecurrence(rule.cronExpr) : DEFAULT_RECURRENCE,
+  );
+  const [timezone, setTimezone] = useState(rule?.timezone ?? "Asia/Kolkata");
   const [workflowId, setWorkflowId] = useState(rule?.workflowId ?? "");
   const [catchUp, setCatchUp] = useState(rule?.catchUp ?? false);
   const [templateTitle, setTemplateTitle] = useState(
     rule?.template.title ?? "",
   );
-  const [templateDescription, setTemplateDescription] = useState(
+  const [templateRemark, setTemplateRemark] = useState(
     rule?.template.description ?? "",
+  );
+  const [templateDueAfterDays, setTemplateDueAfterDays] = useState(
+    rule?.template.due_after_days?.toString() ?? "",
   );
   const [templateSeverity, setTemplateSeverity] = useState(
     rule?.template.severity ?? "",
@@ -305,13 +423,15 @@ function RuleFormModal({
     if (open) {
       setName(rule?.name ?? "");
       setDescription(rule?.description ?? "");
-      setCronExpr(rule?.cronExpr ?? "0 9 * * 1");
-      setTimezone(rule?.timezone ?? "UTC");
-      setEntityTypeId(rule?.entityTypeId ?? entityTypes[0]?.id ?? "");
+      setRecurrence(
+        rule ? cronToRecurrence(rule.cronExpr) : DEFAULT_RECURRENCE,
+      );
+      setTimezone(rule?.timezone ?? "Asia/Kolkata");
       setWorkflowId(rule?.workflowId ?? "");
       setCatchUp(rule?.catchUp ?? false);
       setTemplateTitle(rule?.template.title ?? "");
-      setTemplateDescription(rule?.template.description ?? "");
+      setTemplateRemark(rule?.template.description ?? "");
+      setTemplateDueAfterDays(rule?.template.due_after_days?.toString() ?? "");
       setTemplateSeverity(rule?.template.severity ?? "");
       setError(null);
     }
@@ -319,17 +439,27 @@ function RuleFormModal({
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
+    if (!rule && !ticketEntityTypeId) {
+      setError(
+        "No Ticket entity type found for this tenant -- contact an admin.",
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       // Preserve fields this form has no control for (assignee_id/team_id/
       // service_id) from the existing rule -- rebuilding from scratch would
       // silently wipe them on every save (review finding).
+      const dueAfterDays = templateDueAfterDays.trim()
+        ? Number(templateDueAfterDays)
+        : undefined;
       const template: ScheduleTemplate = {
         ...rule?.template,
         title: templateTitle,
-        description: templateDescription || undefined,
+        description: templateRemark || undefined,
         severity: (templateSeverity || undefined) as Severity | undefined,
+        due_after_days: dueAfterDays,
       };
       const path = rule
         ? `${API_URL}/admin/schedule-rules/${rule.id}`
@@ -337,13 +467,13 @@ function RuleFormModal({
       const body: Record<string, unknown> = {
         name,
         description: description || undefined,
-        cronExpr,
+        cronExpr: recurrenceToCron(recurrence),
         timezone,
         workflowId: workflowId || undefined,
         catchUp,
         template,
       };
-      if (!rule) body["entityTypeId"] = entityTypeId;
+      if (!rule) body["entityTypeId"] = ticketEntityTypeId;
       await fetchWithAuth(path, {
         method: rule ? "PATCH" : "POST",
         body: JSON.stringify(body),
@@ -420,23 +550,6 @@ function RuleFormModal({
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
-          {!rule && (
-            <div className="form-group">
-              <label className="form-label">Entity Type *</label>
-              <select
-                className="form-input"
-                value={entityTypeId}
-                onChange={(e) => setEntityTypeId(e.target.value)}
-                required
-              >
-                {entityTypes.map((et) => (
-                  <option key={et.id} value={et.id}>
-                    {et.plural}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
           <div className="form-group">
             <label className="form-label">Workflow</label>
             <select
@@ -453,43 +566,92 @@ function RuleFormModal({
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Cron Expression *</label>
-            <input
+            <label className="form-label">Repeats *</label>
+            <select
               className="form-input"
-              value={cronExpr}
-              onChange={(e) => setCronExpr(e.target.value)}
+              aria-label="Repeats"
+              value={recurrence.frequency}
+              onChange={(e) =>
+                setRecurrence((r) => ({
+                  ...r,
+                  frequency: e.target.value as Frequency,
+                }))
+              }
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+            </select>
+          </div>
+          {recurrence.frequency === "weekly" && (
+            <div className="form-group">
+              <label className="form-label">On day</label>
+              <select
+                className="form-input"
+                value={recurrence.dayOfWeek}
+                onChange={(e) =>
+                  setRecurrence((r) => ({ ...r, dayOfWeek: e.target.value }))
+                }
+              >
+                {DAYS_OF_WEEK.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {(recurrence.frequency === "monthly" ||
+            recurrence.frequency === "quarterly") && (
+            <div className="form-group">
+              <label className="form-label">On day of month</label>
+              <select
+                className="form-input"
+                value={recurrence.dayOfMonth}
+                onChange={(e) =>
+                  setRecurrence((r) => ({ ...r, dayOfMonth: e.target.value }))
+                }
+              >
+                {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                  <option key={d} value={String(d)}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="form-group">
+            <label className="form-label">At time *</label>
+            <input
+              type="time"
+              className="form-input"
+              value={`${String(recurrence.hour).padStart(2, "0")}:${String(recurrence.minute).padStart(2, "0")}`}
+              onChange={(e) => {
+                const [h, m] = e.target.value.split(":").map(Number);
+                setRecurrence((r) => ({
+                  ...r,
+                  hour: h ?? r.hour,
+                  minute: m ?? r.minute,
+                }));
+              }}
               required
             />
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 6,
-                marginTop: 6,
-              }}
-            >
-              {CRON_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  className="portal-btn-secondary"
-                  style={{ padding: "3px 8px", fontSize: "11px" }}
-                  onClick={() => setCronExpr(preset.expr)}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
           </div>
           <div className="form-group">
             <label className="form-label">Timezone *</label>
-            <input
+            <select
               className="form-input"
-              placeholder="e.g. America/New_York"
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
               required
-            />
+            >
+              {TIMEZONE_OPTIONS.map((tz) => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="form-group">
             <label
@@ -523,11 +685,23 @@ function RuleFormModal({
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Description</label>
+            <label className="form-label">Remark</label>
             <input
               className="form-input"
-              value={templateDescription}
-              onChange={(e) => setTemplateDescription(e.target.value)}
+              value={templateRemark}
+              onChange={(e) => setTemplateRemark(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Due after (days)</label>
+            <input
+              type="number"
+              min={0}
+              max={3650}
+              className="form-input"
+              placeholder="e.g. 3"
+              value={templateDueAfterDays}
+              onChange={(e) => setTemplateDueAfterDays(e.target.value)}
             />
           </div>
           <div className="form-group">
