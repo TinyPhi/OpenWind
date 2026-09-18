@@ -1,6 +1,12 @@
 # Contributing to OpenWind
 
-Thank you for your interest in contributing. OpenWind is in active early development — Phase 1 (the engine layer) is being built now. This is the highest-leverage time to contribute: decisions made here have a blast radius of 100%.
+Thank you for your interest in contributing. Phase 1 (the engine layer) and Phase 2 (the first
+customer-ready apps) are both done — OpenWind is now in Phase 3 (scale & extensibility), with
+several tracks running in parallel: connector runtime, plugin system (done), AI layer,
+observability/compliance (done), on-call routing, a temporal scheduler, reporting dashboards, and
+cross-functional workflow visibility. See [`docs/tracker/roadmap-tracker.md`](docs/tracker/roadmap-tracker.md)
+for the live, per-track status — it changes often, so treat any phase description here as a
+snapshot, not current truth.
 
 ---
 
@@ -14,19 +20,20 @@ Thank you for your interest in contributing. OpenWind is in active early develop
 
 ## What to work on
 
-### Phase 1 issues (open now)
+### Currently open work
 
-The five Phase 1 component issues are the right place to start for new contributors. Each is self-contained, has clear scope, and links to the relevant ADRs:
+Phase 1's five foundational component issues (#7–#11) are long since closed — Phase 1 and Phase 2
+are both complete. For what's actually open right now, don't rely on a hardcoded list in this
+file (it will go stale exactly like the old Phase 1 list did) — instead:
 
-| Issue                                                                            | Component                                        | Depends on |
-| -------------------------------------------------------------------------------- | ------------------------------------------------ | ---------- |
-| [#7 — 1A Infrastructure & tenancy](https://github.com/TinyPhi/OpenWind/issues/7) | Postgres migrations, RLS, OpenBao, rate limiting | Nothing    |
-| [#8 — 1B Auth](https://github.com/TinyPhi/OpenWind/issues/8)                     | Zitadel JWT, RBAC, API keys                      | #7         |
-| [#9 — 1C Entity Engine](https://github.com/TinyPhi/OpenWind/issues/9)            | Entity types, fields, runtime Zod, Redis cache   | #7, #8     |
-| [#10 — 1D Workflow Engine](https://github.com/TinyPhi/OpenWind/issues/10)        | State machine, transitions, SLA timers           | #9         |
-| [#11 — 1E Automation Engine](https://github.com/TinyPhi/OpenWind/issues/11)      | Outbox, rule executor, trigger/action types      | #9, #10    |
-
-Each issue has a detailed scope table. Pick one, comment that you're working on it, and open a draft PR early.
+1. Check [`docs/tracker/roadmap-tracker.md`](docs/tracker/roadmap-tracker.md) for the current
+   Phase 3 track breakdown and each track's open issues.
+2. Browse [open issues](https://github.com/TinyPhi/OpenWind/issues) filtered by the `phase-3`
+   label, or by a specific track prefix in the title (`[3A]`, `[3C]`, `[3E]`, `[3F]`, `[3G]`,
+   `[3H]`).
+3. Read `CLAUDE.md`'s "Current focus" section for which tracks are actively being worked on
+   versus which are intentionally not started yet (starting a new track is a scope decision, not
+   something to pick up unprompted).
 
 ### Good first issues
 
@@ -43,10 +50,15 @@ For significant contributions — new engine capabilities, new module types, cha
 ### Prerequisites
 
 - Node.js 22+
-- pnpm 9+
-- Docker and Docker Compose
+- pnpm 11+ (`packageManager` in `package.json` pins the exact version)
+- Docker (OrbStack recommended on macOS, not Docker Desktop) and Docker Compose
 
 ### First-time setup
+
+The fastest path is the one-command bootstrap — see the root [`README.md`](README.md)'s
+"Quick start" section (`pnpm install --frozen-lockfile && pnpm bootstrap`), which handles
+`.env.local` creation, the full Docker stack, migrations, seed data, and Zitadel configuration
+automatically. Manual step-by-step, if you need more control:
 
 ```bash
 git clone https://github.com/TinyPhi/OpenWind.git
@@ -56,21 +68,27 @@ cp .env.example .env.local
 # Edit .env.local — defaults work for local dev, no changes needed unless noted
 
 docker compose up -d
-# Starts: Postgres, Redis, MinIO, Zitadel, Novu, MailHog, OpenBao
+# Starts the default stack: Postgres, PgBouncer, Redis, OpenBao, Zitadel,
+# ClamAV, ow-backend, ow-frontend, ow-worker.
+# Novu (email/in-app notifications) is opt-in: docker compose --profile notifications up -d
+# Observability (Prometheus/Grafana/Alertmanager) is opt-in: docker compose --profile observability up -d
+# There is no MinIO or MailHog in the current stack — file storage moved to
+# local disk + ClamAV scanning (PR #340), and there's no local SMTP sandbox today.
 
 pnpm install
 pnpm db:migrate
 pnpm db:seed
-pnpm dev
 ```
+
+Everything runs in containers — `pnpm dev` (Turborepo, host-mode hot reload) is available for a
+tight edit-test loop, but prefer `docker compose up -d` as your default; see `CLAUDE.md`'s
+Commands section for why (a missing container has caused a real production gap before).
 
 | Service         | URL                        | Default credentials               |
 | --------------- | -------------------------- | --------------------------------- |
 | Admin UI        | http://localhost:3001      | Zitadel login                     |
 | API + docs      | http://localhost:3000/docs | —                                 |
 | Zitadel console | http://localhost:8080      | admin@platform.local / Admin1234! |
-| MailHog         | http://localhost:8025      | —                                 |
-| MinIO console   | http://localhost:9001      | minioadmin / minioadmin           |
 | OpenBao UI      | http://localhost:8200      | Token: `dev-root-token`           |
 
 ### Running tests
@@ -176,12 +194,28 @@ If the PR makes a significant architectural decision:
 
 Before changing how something fundamental works, check whether an ADR already covers it:
 
-| ADR                                                             | Decision                                         |
-| --------------------------------------------------------------- | ------------------------------------------------ |
-| [ADR-001](docs/decisions/ADR-001-multitenancy.md)               | Multi-tenancy via Postgres RLS                   |
-| [ADR-002](docs/decisions/ADR-002-workflow-engine.md)            | DB-native workflow state machine                 |
-| [ADR-003](docs/decisions/ADR-003-field-validation.md)           | Runtime Zod schema generation from entity fields |
-| [ADR-004](docs/decisions/ADR-004-config-first-module-design.md) | Modules are config (seed SQL), not code          |
+| ADR                                                                                 | Decision                                         |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------ |
+| [ADR-001](docs/decisions/ADR-001-multitenancy.md)                                   | Multi-tenancy via Postgres RLS                   |
+| [ADR-002](docs/decisions/ADR-002-workflow-engine.md)                                | DB-native workflow state machine                 |
+| [ADR-003](docs/decisions/ADR-003-field-validation.md)                               | Runtime Zod schema generation from entity fields |
+| [ADR-004](docs/decisions/ADR-004-config-first-module-design.md)                     | Modules are config (seed SQL), not code          |
+| [ADR-005](docs/decisions/ADR-005-module-optionality-and-tender.md)                  | Module optionality/category, `tender` scope      |
+| [ADR-006](docs/decisions/ADR-006-per-workflow-ownership-admin-model.md)             | Per-workflow ownership/admin model               |
+| [ADR-007](docs/decisions/ADR-007-rls-workflow-config-tables.md)                     | RLS on workflow config tables                    |
+| [ADR-008](docs/decisions/ADR-008-api-key-credential-lifecycle-hardening.md)         | API key lifecycle hardening                      |
+| [ADR-009](docs/decisions/ADR-009-connector-runtime-webhook-gateway-architecture.md) | Connector runtime & webhook gateway              |
+| [ADR-010](docs/decisions/ADR-010-inbound-partner-api-integration.md)                | Inbound partner API (Tier 1)                     |
+| [ADR-011](docs/decisions/ADR-011-plugin-system.md)                                  | Plugin system (Module Federation)                |
+| [ADR-012](docs/decisions/ADR-012-third-party-api-ticket-access.md)                  | Third-party API ticket access                    |
+| [ADR-013](docs/decisions/ADR-013-unified-rate-limiting-strategy.md)                 | Unified rate-limiting strategy                   |
+| [ADR-014](docs/decisions/ADR-014-notification-sla-retry-escalation.md)              | Notification SLA retry/escalation                |
+| [ADR-015](docs/decisions/ADR-015-observability-compliance.md)                       | Observability & GDPR compliance                  |
+| [ADR-016](docs/decisions/ADR-016-oncall-routing.md)                                 | On-call routing                                  |
+| [ADR-017](docs/decisions/ADR-017-temporal-scheduler.md)                             | Temporal scheduler                               |
+
+This table drifts as new ADRs land — if it looks short, check
+[`docs/decisions/`](docs/decisions/) directly rather than trusting the count here.
 
 If your change contradicts an ADR, don't work around it — open a discussion to challenge the ADR first. ADRs can be superseded, but that requires explicit agreement, not a quiet bypass.
 
@@ -219,7 +253,7 @@ These rules are non-negotiable and reviewed in every PR:
 - **Validate all external input with Zod.** API inputs, webhook payloads, connector data — validated before use.
 - **No SQL string construction from user input.** Drizzle parameterized queries only.
 - **No secrets in code.** Not in tests, not in comments, not in config files.
-- **File access via presigned URLs only.** The S3 bucket is never publicly accessible.
+- **File access is tenant-scoped and never publicly accessible.** Files live on local disk (`packages/files`) with async ClamAV scanning — not a public bucket, and not S3 (that design was replaced in PR #340).
 - **Rate limit all public endpoints.** Default 100 req/min per tenant (10 for auth endpoints).
 
 If you discover a security vulnerability, do not open a public issue. Email [security@tinyphi.com](mailto:security@tinyphi.com) with a description.
