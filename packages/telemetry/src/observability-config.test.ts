@@ -13,8 +13,12 @@ interface PrometheusRuleGroup {
   groups: {
     rules: {
       alert: string;
+      expr?: string;
       labels?: {
         team?: string;
+      };
+      annotations?: {
+        summary?: string;
       };
     }[];
   }[];
@@ -48,6 +52,7 @@ interface GrafanaDashboardJson {
   title: string;
   panels: {
     title: string;
+    targets?: { expr?: string; legendFormat?: string }[];
   }[];
 }
 
@@ -81,10 +86,36 @@ describe("Observability Configuration Validation", () => {
     expect(alerts).toContain("HttpErrorRateHigh");
     expect(alerts).toContain("HttpLatencyHigh");
 
+    // docs/oncall-routing-design.md §9.4 -- On-Call Routing alerts (PR 13).
+    // OncallResolutionSLOBreached is deliberately not asserted here: it needs
+    // openwind_oncall_resolution_duration_seconds, a histogram not yet
+    // registered on any branch (T39 partially done).
+    expect(alerts).toContain("OncallCoverageGapsDetected");
+    expect(alerts).toContain("NotificationChannelHighFailureRate");
+
     // Finding 5: Ensure team label is set for routing
     for (const rule of rules) {
       expect(rule.labels?.team).toBe("platform");
     }
+
+    // Vijit review, PR #605 B1/G2: openwind_notification_dispatch_total and
+    // openwind_oncall_coverage_gap_teams emit an `outcome`/`tenant_id` label
+    // respectively (packages/telemetry/src/metrics.ts), never `result` or
+    // `tenant_hash` -- a selector on the wrong label name matches zero series
+    // and the alert can never fire.
+    const failureRateRule = rules.find(
+      (r) => r.alert === "NotificationChannelHighFailureRate",
+    );
+    expect(failureRateRule?.expr).toContain('outcome="channel_failed"');
+    expect(failureRateRule?.expr).not.toContain("result=");
+
+    const coverageGapRule = rules.find(
+      (r) => r.alert === "OncallCoverageGapsDetected",
+    );
+    expect(coverageGapRule?.annotations?.summary).toContain(
+      "{{ $labels.tenant_id }}",
+    );
+    expect(coverageGapRule?.annotations?.summary).not.toContain("tenant_hash");
   });
 
   it("validates alert.rules.yml with promtool check rules if docker is available", () => {
@@ -213,5 +244,34 @@ describe("Observability Configuration Validation", () => {
     expect(panelTitles).toContain("Degraded Tenants by Reason");
     expect(panelTitles).toContain("Billing Rejections (422)");
     expect(panelTitles).toContain("Tenant Quota Usage");
+
+    // docs/oncall-routing-design.md §9.4's On-Call Routing row (PR 13),
+    // scoped to metrics that are actually registered today -- the other 3
+    // design-doc panels (2 histograms + policy match distribution) are
+    // deferred since their backing metrics don't exist on any branch yet.
+    expect(panelTitles).toContain("On-Call Resolution Rate");
+    expect(panelTitles).toContain("Notification Channel Success Rate");
+    expect(panelTitles).toContain("Coverage Gaps (live)");
+
+    // Vijit review, PR #605 B2/G1/G2: these three panels queried a `result`/
+    // `tenant_hash` label that no metric ever emits (packages/telemetry/src/
+    // metrics.ts uses `outcome`/`tenant_id`), so the panels showed 0%/blank
+    // regardless of real data.
+    const successRatePanel = parsed.panels.find(
+      (p) => p.title === "Notification Channel Success Rate",
+    );
+    expect(successRatePanel?.targets?.[0]?.expr).toContain('outcome="ok"');
+    expect(successRatePanel?.targets?.[0]?.expr).not.toContain("result=");
+
+    const resolutionRatePanel = parsed.panels.find(
+      (p) => p.title === "On-Call Resolution Rate",
+    );
+    expect(resolutionRatePanel?.targets?.[0]?.expr).toContain("by (outcome)");
+    expect(resolutionRatePanel?.targets?.[0]?.legendFormat).toBe("{{outcome}}");
+
+    const coverageGapPanel = parsed.panels.find(
+      (p) => p.title === "Coverage Gaps (live)",
+    );
+    expect(coverageGapPanel?.targets?.[0]?.legendFormat).toBe("{{tenant_id}}");
   });
 });

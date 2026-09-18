@@ -1,7 +1,7 @@
 # Platform Vision — Architecture and Execution Roadmap
 
 **Status:** Living reference. Update as phases complete.  
-**Companion docs:** [architecture-brief.md](architecture-brief.md) · [sup-docs/roadmap-tracker.md](sup-docs/roadmap-tracker.md) · [sup-docs/phase-timeline.md](sup-docs/phase-timeline.md)
+**Companion docs:** [architecture-brief.md](architecture-brief.md) · [tracker/roadmap-tracker.md](tracker/roadmap-tracker.md) · [tracker/phase-timeline.md](tracker/phase-timeline.md)
 
 ---
 

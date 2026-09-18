@@ -38,6 +38,7 @@ import { ApiKeysPage } from "./pages/api-keys/page.js";
 import { ApiKeyApplicationDetail } from "./pages/api-keys/detail.js";
 import { ScheduleRulesPage } from "./pages/schedule-rules/index.js";
 import { ScheduleRuleDetailPage } from "./pages/schedule-rules/detail.js";
+import { NotificationPoliciesPage } from "./pages/notification-policies/index.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
@@ -194,6 +195,10 @@ export function App(): React.ReactElement {
               <Route
                 path="/admin/schedule-rules/:id"
                 element={<ScheduleRuleDetailPage />}
+              />
+              <Route
+                path="/admin/notification-policies"
+                element={<NotificationPoliciesPage />}
               />
             </Route>
 

@@ -41,6 +41,7 @@ import {
   OriginDetailLine,
   type Origin,
 } from "../../components/origin-tag.js";
+import { TicketLabelsPanel } from "../../components/ticket-labels-panel.js";
 
 type EntityField = {
   id: string;
@@ -3829,6 +3830,8 @@ export function CustomerRecordDetail(): React.ReactElement {
                       </p>
                     )}
                   </div>
+                  {/* ── Labels ─────────────────────────── */}
+                  {!isChildTicket && id && <TicketLabelsPanel ticketId={id} />}
                   {/* ── Attachments ─────────────────────────── */}
                   <div className="rcd-expand-attachments">
                     <div className="rcd-expand-attachments-hdr">

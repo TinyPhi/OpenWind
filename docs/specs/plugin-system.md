@@ -11,7 +11,7 @@ wired, no plugin backend-code loader yet — see issue #433) and the current Ope
 
 ## §C Context
 
-Issue #17 / `docs/roadmap.md` §3B scope the plugin system as the escape hatch for capabilities
+Issue #17 / ADR-011 scope the plugin system as the escape hatch for capabilities
 the three engines genuinely cannot express — new data models with custom backend logic, new API
 routes, new job types, complex frontend beyond what `view_configs`-driven generic views can
 render. It is explicitly **not** a way around ADR-004's config-first rule for anything the

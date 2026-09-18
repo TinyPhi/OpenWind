@@ -45,7 +45,7 @@ enqueued; toggle back on → confirm outbound enqueue resumes).
 | task                                                                                                                                                   | requirement | status |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ------ |
 | T7: Add toggle to `apps/admin-ui/src/pages/settings.tsx` (admin-only, optimistic update + revert-on-failure, same pattern as module-visibility toggle) | R6          | todo   |
-| T8: End-to-end manual verification per Gate above, update `docs/sup-docs/week-log.md`                                                                  | R1-R8       | todo   |
+| T8: End-to-end manual verification per Gate above, update `docs/tracker/week-log.md`                                                                   | R1-R8       | todo   |
 
 ---
 

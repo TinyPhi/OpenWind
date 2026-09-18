@@ -98,4 +98,4 @@ workspace stub with no source files.
 4. **2D** no-code builders (can ship after pilot onboarding)
 
 Pilot customer gate: penetration test (tenant isolation) must pass first.
-See `docs/sup-docs/roadmap-tracker.md` for current status.
+See `docs/tracker/roadmap-tracker.md` for current status.
