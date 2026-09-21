@@ -21,11 +21,14 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
+import { UserPicker } from "../../components/user-picker.js";
 import type { Team } from "../teams/index.js";
 
 interface TenantUser {
   userId: string;
   displayName: string;
+  email: string;
+  loginName?: string;
 }
 
 interface OnCallSchedule {
@@ -99,8 +102,10 @@ export function RosterPage(): React.ReactElement {
   useEffect(() => {
     Promise.all([
       fetchWithAuth(`${API_URL}/admin/teams`),
-      // Admin-only endpoint returning agents+admins (never customers) --
-      // GET /users deliberately excludes them (PR #602 review, BLOCKER-1).
+      // Admin-only endpoint for on-call assignee pickers (PR #602 review,
+      // BLOCKER-1) -- separate from GET /users, the customer-facing @mention
+      // picker. Returns all org members (admin + user roles, no "agent"
+      // role in this deployment).
       fetchWithAuth(`${API_URL}/admin/members`),
     ])
       .then(([teamsRes, usersRes]) => {
@@ -479,6 +484,13 @@ function ScheduleFormModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // UserPicker portals its dropdown here instead of document.body, so it
+  // stays inside DialogContent's DOM subtree -- Radix's Dialog focus trap
+  // otherwise forces focus back into that subtree the instant it escapes to
+  // an externally-portaled element (broke both search-input autofocus and
+  // row-click selection). A callback ref (not a plain useRef) is required
+  // here so the state update re-renders once the node first mounts.
+  const [contentNode, setContentNode] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -544,7 +556,11 @@ function ScheduleFormModal({
         if (!next) onClose();
       }}
     >
-      <DialogContent showCloseButton={false} style={{ maxWidth: 480 }}>
+      <DialogContent
+        ref={setContentNode}
+        showCloseButton={false}
+        style={{ maxWidth: 480 }}
+      >
         <div
           style={{
             display: "flex",
@@ -618,49 +634,33 @@ function ScheduleFormModal({
           </div>
           <div className="form-group">
             <label className="form-label">Primary on-call *</label>
-            <select
-              className="form-input"
-              value={primaryUserId}
-              onChange={(e) => setPrimaryUserId(e.target.value)}
-              required
-            >
-              <option value="">Select a user</option>
-              {users.map((u) => (
-                <option key={u.userId} value={u.userId}>
-                  {u.displayName}
-                </option>
-              ))}
-            </select>
+            <UserPicker
+              users={users}
+              value={primaryUserId || null}
+              onChange={(id) => setPrimaryUserId(id ?? "")}
+              placeholder="Select a user"
+              portalContainer={contentNode}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Backup on-call</label>
-            <select
-              className="form-input"
-              value={backupUserId}
-              onChange={(e) => setBackupUserId(e.target.value)}
-            >
-              <option value="">None</option>
-              {users.map((u) => (
-                <option key={u.userId} value={u.userId}>
-                  {u.displayName}
-                </option>
-              ))}
-            </select>
+            <UserPicker
+              users={users}
+              value={backupUserId || null}
+              onChange={(id) => setBackupUserId(id ?? "")}
+              placeholder="None"
+              portalContainer={contentNode}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Escalation manager</label>
-            <select
-              className="form-input"
-              value={escalationManagerUserId}
-              onChange={(e) => setEscalationManagerUserId(e.target.value)}
-            >
-              <option value="">None</option>
-              {users.map((u) => (
-                <option key={u.userId} value={u.userId}>
-                  {u.displayName}
-                </option>
-              ))}
-            </select>
+            <UserPicker
+              users={users}
+              value={escalationManagerUserId || null}
+              onChange={(id) => setEscalationManagerUserId(id ?? "")}
+              placeholder="None"
+              portalContainer={contentNode}
+            />
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <Button
