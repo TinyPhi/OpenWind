@@ -3908,7 +3908,7 @@ select.form-input {
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .asgn-avatar-empty { background: var(--bg-card); color: var(--text-muted); border: 1px dashed var(--border-color); }
-.asgn-name { font-size: 12.5px; font-weight: 500; }
+.asgn-name { font-size: 12.5px; font-weight: 500; flex: 1; }
 .asgn-unassigned { color: var(--text-muted); }
 .asgn-chevron { flex-shrink: 0; color: var(--text-muted); transition: transform .18s ease; }
 .asgn-trigger-open .asgn-chevron { transform: rotate(180deg); }

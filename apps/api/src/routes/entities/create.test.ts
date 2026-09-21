@@ -43,17 +43,25 @@ const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
 const mockUpdateSet = vi.fn(() => ({ where: mockUpdateWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockUpdateSet }));
 
+// Controls what any tx.select()...limit(1) chain resolves to — used both for
+// the pre-existing dbUser (actorName) lookup and the new teams lookup
+// (docs/specs/team-assign-oncall-fallback.md R1). Default [] matches prior
+// behavior (dbUser lookup finding nothing); tests that need a real team row
+// set this before the request.
+let mockSelectLimitResult: unknown[] = [];
+
 const mockTx = {
   select: () => mockTx,
   from: () => mockTx,
   where: () => mockTx,
-  limit: () => Promise.resolve([]),
+  limit: () => Promise.resolve(mockSelectLimitResult),
   update: mockUpdate,
 };
 
 vi.mock("@platform/db", () => ({
   db: {},
   tenantUsers: {},
+  teams: { id: "id", tenantId: "tenant_id", deletedAt: "deleted_at" },
   files: {
     id: "id",
     tenantId: "tenant_id",
@@ -104,6 +112,13 @@ function validBody(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     entityTypeId: TYPE_ID,
     fields: { subject: "hello" },
+    // assignedTo/dueDate are mandatory (platform-wide invariant, see
+    // SYNC-TO-CURRENT-FORMAT.md's "current format" definition) -- default
+    // to a valid pair here so tests unrelated to these two fields don't all
+    // need to supply them individually.
+    assignedTo: "u-target",
+    dueDate: "2026-01-01T00:00:00.000Z",
+    remark: "default test remark",
     ...overrides,
   });
 }
@@ -113,7 +128,55 @@ function validBody(overrides: Record<string, unknown> = {}) {
 describe("POST /entities", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListUserIdsWithRole.mockResolvedValue(new Set());
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
+    mockSelectLimitResult = [];
+  });
+
+  it("returns 400 when assignedTo is missing (mandatory field)", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId: TYPE_ID,
+        fields: { subject: "hello" },
+        dueDate: "2026-01-01T00:00:00.000Z",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when dueDate is missing (mandatory field)", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId: TYPE_ID,
+        fields: { subject: "hello" },
+        assignedTo: "u-target",
+        remark: "a remark",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when remark is missing (mandatory field)", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId: TYPE_ID,
+        fields: { subject: "hello" },
+        assignedTo: "u-target",
+        dueDate: "2026-01-01T00:00:00.000Z",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockCreateEntity).not.toHaveBeenCalled();
   });
 
   it("returns 201 with the created instance on success", async () => {
@@ -228,7 +291,10 @@ describe("POST /entities", () => {
 });
 
 describe("POST /entities — assignedTo validation (R3)", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSelectLimitResult = [];
+  });
 
   it("succeeds when assignedTo is a real tenant member holding the 'user' role", async () => {
     mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
@@ -289,7 +355,8 @@ describe("POST /entities — assignedTo validation (R3)", () => {
     expect(mockCreateEntity).not.toHaveBeenCalled();
   });
 
-  it("does not call listUserIdsWithRole when assignedTo is omitted", async () => {
+  it("always calls listUserIdsWithRole — assignedTo can no longer be omitted", async () => {
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
     mockCreateEntity.mockResolvedValue(fakeInstance);
 
     const res = await makeApp().request("/", {
@@ -299,7 +366,86 @@ describe("POST /entities — assignedTo validation (R3)", () => {
     });
 
     expect(res.status).toBe(201);
-    expect(mockListUserIdsWithRole).not.toHaveBeenCalled();
+    expect(mockListUserIdsWithRole).toHaveBeenCalledWith("org-ccc", "user");
+  });
+});
+
+describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-assign-oncall-fallback.md R1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
+    mockSelectLimitResult = [];
+  });
+
+  // Zod schema-level failures (including the superRefine exactly-one-of
+  // check) return 400 via lib/validator.ts's zValidator wrapper — same
+  // status as every other CreateEntitySchema violation (assignedTo/dueDate/
+  // remark missing, above). 422 is reserved for checks that run AFTER
+  // schema validation (e.g. teamId not resolving to a real team, below).
+  it("returns 400 when neither assignedTo nor teamId is set", async () => {
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ assignedTo: undefined }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when both assignedTo and teamId are set", async () => {
+    mockSelectLimitResult = [{ id: "team-1" }];
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ assignedTo: "u-target", teamId: "team-1" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 when teamId doesn't resolve to a real team in this tenant", async () => {
+    mockSelectLimitResult = [];
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({ assignedTo: undefined, teamId: "team-nonexistent" }),
+    });
+
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.fields.teamId).toBeDefined();
+    expect(mockCreateEntity).not.toHaveBeenCalled();
+  });
+
+  it("succeeds with teamId alone, writing it into fields.team_id (not assignedTo)", async () => {
+    mockSelectLimitResult = [{ id: "team-1" }];
+    mockCreateEntity.mockResolvedValue(fakeInstance);
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: validBody({
+        assignedTo: undefined,
+        teamId: "team-1",
+        fields: { subject: "hello" },
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockCreateEntity).toHaveBeenCalledWith(
+      expect.any(Object),
+      "t-aaa",
+      expect.objectContaining({
+        fields: { subject: "hello", team_id: "team-1" },
+      }),
+    );
+    expect(mockCreateEntity.mock.calls[0]?.[2]).not.toHaveProperty(
+      "assignedTo",
+    );
   });
 });
 
@@ -308,8 +454,9 @@ describe("POST /entities — linking file/files custom-field values (#289 follow
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListUserIdsWithRole.mockResolvedValue(new Set());
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
     mockCreateEntity.mockResolvedValue(fakeInstance);
+    mockSelectLimitResult = [];
   });
 
   it("links a file id from a single-value file field to the new entity", async () => {
@@ -365,7 +512,9 @@ describe("POST /entities — linking file/files custom-field values (#289 follow
 describe("POST /entities — wiring ensureUserRefsKnown (first-login-cache gap fix)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockListUserIdsWithRole.mockResolvedValue(new Set(["u-target"]));
     mockCreateEntity.mockResolvedValue(fakeInstance);
+    mockSelectLimitResult = [];
   });
 
   it("calls ensureUserRefsKnown before createEntity, with the entity type/fields/org", async () => {

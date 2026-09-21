@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import {
   entityInstances,
+  teams,
   notifications,
   notificationRecipients,
   isOutboundNotificationsEnabled,
@@ -13,13 +14,157 @@ import {
   getActiveScheduleForTeam,
   resolveOncallCascade,
 } from "@platform/teams";
+import { getWorkflowByEntityTypeId } from "@platform/workflow-engine";
 import { writeAuditEntry } from "@platform/audit";
 import { Queue, oncallResolutionsTotal } from "@platform/telemetry";
 import { logger } from "@platform/logger";
 import type { TriggerEvent } from "../event-schemas.js";
 import type { ResolveOncallConfig } from "../types.js";
+import { postOncallComment } from "./post-oncall-comment.js";
 
 export type { ResolveOncallConfig };
+
+type InstanceContext = {
+  entityTypeId: string;
+  workflowId: string | null;
+  currentState: string;
+};
+
+async function getInstanceContext(
+  db: DbOrTx,
+  tenantId: string,
+  instanceId: string,
+): Promise<InstanceContext | null> {
+  const [row] = await db
+    .select({
+      entityTypeId: entityInstances.entityTypeId,
+      workflowId: entityInstances.workflowId,
+      currentState: entityInstances.currentState,
+    })
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.id, instanceId),
+        eq(entityInstances.tenantId, tenantId),
+        isNull(entityInstances.deletedAt),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * docs/specs/team-assign-oncall-fallback.md R4 — the cascade's final,
+ * last-resort tier: the ticket's workflow admin (ADR-006 — `createdBy` is
+ * always the implicit admin; "first found" per the accepted design, no need
+ * to also consult `assignedTo[]`). `getWorkflowByEntityTypeId` already
+ * orders by `createdAt` (issue #168's fix), so this resolution is
+ * deterministic even if more than one workflow row ever governed the same
+ * entity type. Returns null (cascade fully exhausted) when the entity type
+ * has no governing workflow, or that workflow has no createdBy.
+ */
+async function resolveWorkflowAdminFallback(
+  db: DbOrTx,
+  tenantId: string,
+  entityTypeId: string,
+): Promise<string | null> {
+  const workflow = await getWorkflowByEntityTypeId(db, tenantId, entityTypeId);
+  return workflow?.createdBy ?? null;
+}
+
+/**
+ * Called from both of resolve_oncall's fail-open exits (no active schedule
+ * at all, and an exhausted schedule cascade) — docs/specs/
+ * team-assign-oncall-fallback.md R4 treats these as one "the cascade
+ * produced nobody" case, both now trying the workflow-admin fallback before
+ * truly failing open. Also posts the single R5 summary comment for
+ * whichever terminal outcome this call reaches (assigned via fallback, or
+ * genuinely fail-open) — the ONE place both fail-open paths convergently
+ * post through, so "exactly one comment" doesn't need separate proof at
+ * each call site.
+ */
+async function handleCascadeMiss(
+  db: DbOrTx,
+  tenantId: string,
+  instanceId: string,
+  teamId: string,
+  depth: number,
+  redis: Redis | undefined,
+  scheduleInfo: { scheduleId: string | undefined; cascadeExhausted: boolean },
+): Promise<void> {
+  const { scheduleId, cascadeExhausted } = scheduleInfo;
+  const instanceCtx = await getInstanceContext(db, tenantId, instanceId);
+  const adminUserId = instanceCtx
+    ? await resolveWorkflowAdminFallback(db, tenantId, instanceCtx.entityTypeId)
+    : null;
+
+  if (adminUserId) {
+    await updateEntity(db, tenantId, instanceId, {
+      assignedTo: adminUserId,
+      depth,
+    });
+    await writeAuditEntry(db, {
+      tenantId,
+      actorId: "system",
+      actorType: "system",
+      resourceType: "ticket",
+      resourceId: instanceId,
+      action: "oncall.auto_assigned",
+      metadata: {
+        teamId,
+        scheduleId,
+        cascadeExhausted,
+        assignedTier: "workflow_admin",
+        assignedUserId: adminUserId,
+      },
+    });
+    oncallResolutionsTotal.add(1, {
+      outcome: "auto_assigned",
+      assigned_tier: "workflow_admin",
+      cascade_exhausted: String(cascadeExhausted),
+    });
+    if (redis) await redis.srem(`oncall:coverage_gap:${tenantId}`, teamId);
+    if (instanceCtx) {
+      await postOncallComment(db, {
+        tenantId,
+        instanceId,
+        workflowId: instanceCtx.workflowId,
+        currentState: instanceCtx.currentState,
+        text: `No primary/backup/escalation coverage found for team ${teamId} — auto-assigned to workflow admin.`,
+      });
+    }
+    logger.info(
+      { tenantId, instanceId, teamId, assignedTier: "workflow_admin" },
+      "Automation: resolve_oncall assigned ticket via workflow-admin fallback",
+    );
+    return;
+  }
+
+  await writeAuditEntry(db, {
+    tenantId,
+    actorId: "system",
+    actorType: "system",
+    resourceType: "ticket",
+    resourceId: instanceId,
+    action: "oncall.no_schedule",
+    metadata: { teamId, scheduleId, cascadeExhausted },
+  });
+  oncallResolutionsTotal.add(1, {
+    outcome: "no_schedule",
+    assigned_tier: "none",
+    cascade_exhausted: String(cascadeExhausted),
+  });
+  if (redis) await redis.sadd(`oncall:coverage_gap:${tenantId}`, teamId);
+  if (instanceCtx) {
+    await postOncallComment(db, {
+      tenantId,
+      instanceId,
+      workflowId: instanceCtx.workflowId,
+      currentState: instanceCtx.currentState,
+      text: `No on-call coverage configured for team ${teamId}, and no workflow admin could be resolved — ticket left unassigned.`,
+    });
+  }
+}
 
 /**
  * docs/specs/oncall-routing.md R8/R8b/R9/R10/R11 — resolves the on-call
@@ -95,6 +240,30 @@ export async function executeResolveOncallAction(
 
   if (!teamId) return;
 
+  // /security-review finding, 2026-09-21 -- unlike POST /entities' top-level
+  // `teamId` param (validated against a real, same-tenant `teams` row before
+  // this action ever runs), `team_id` reaching this action via PATCH
+  // /entities/:id's free-form `fields` object, or via `fields.team_id` set
+  // directly on create, is NOT pre-validated anywhere upstream. Without this
+  // check, an arbitrary attacker-chosen string would flow into the schedule
+  // lookup (harmlessly finding no match), then into audit metadata and a
+  // persisted workflow comment via postOncallComment, unescaped. Re-validate
+  // here -- the one chokepoint both the create and update paths funnel
+  // through -- and silently no-op for a bogus/cross-tenant team_id, exactly
+  // as if team_id had never been set (never surfaced in audit/comment output).
+  const [teamRow] = await db
+    .select({ id: teams.id })
+    .from(teams)
+    .where(
+      and(
+        eq(teams.id, teamId),
+        eq(teams.tenantId, tenantId),
+        isNull(teams.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!teamRow) return;
+
   // R11 idempotency — re-delivering the same event (BullMQ retry, worker
   // restart replay) for an unchanged (instanceId, teamId) pair must not
   // duplicate ANY of this action's outcomes, including the early-return
@@ -151,45 +320,23 @@ export async function executeResolveOncallAction(
   );
 
   if (!schedule) {
-    await writeAuditEntry(db, {
-      tenantId,
-      actorId: "system",
-      actorType: "system",
-      resourceType: "ticket",
-      resourceId: instanceId,
-      action: "oncall.no_schedule",
-      metadata: { teamId },
+    await handleCascadeMiss(db, tenantId, instanceId, teamId, depth, redis, {
+      scheduleId: undefined,
+      cascadeExhausted: false,
     });
-    oncallResolutionsTotal.add(1, {
-      outcome: "no_schedule",
-      assigned_tier: "none",
-      cascade_exhausted: "false",
-    });
-    if (redis) await redis.sadd(`oncall:coverage_gap:${tenantId}`, teamId);
     return;
   }
 
   // R8b cascade: primary -> backup -> escalation, skipping unresolvable
-  // tiers. Exhausted cascade (every tier unresolvable) is treated exactly
-  // like "no schedule" (R9/R8b fail-open parity) — same audit action, no
-  // distinct code path.
+  // tiers. Exhausted cascade (every tier unresolvable) now falls through to
+  // the workflow-admin fallback tier (docs/specs/team-assign-oncall-fallback.md
+  // R4) before being treated as fully fail-open.
   const resolved = await resolveOncallCascade(db, tenantId, schedule);
   if (!resolved.tier) {
-    await writeAuditEntry(db, {
-      tenantId,
-      actorId: "system",
-      actorType: "system",
-      resourceType: "ticket",
-      resourceId: instanceId,
-      action: "oncall.no_schedule",
-      metadata: { teamId, scheduleId: schedule.id, cascadeExhausted: true },
+    await handleCascadeMiss(db, tenantId, instanceId, teamId, depth, redis, {
+      scheduleId: schedule.id,
+      cascadeExhausted: true,
     });
-    oncallResolutionsTotal.add(1, {
-      outcome: "no_schedule",
-      assigned_tier: "none",
-      cascade_exhausted: "true",
-    });
-    if (redis) await redis.sadd(`oncall:coverage_gap:${tenantId}`, teamId);
     return;
   }
 
@@ -220,6 +367,17 @@ export async function executeResolveOncallAction(
     cascade_exhausted: "false",
   });
   if (redis) await redis.srem(`oncall:coverage_gap:${tenantId}`, teamId);
+
+  const instanceCtx = await getInstanceContext(db, tenantId, instanceId);
+  if (instanceCtx) {
+    await postOncallComment(db, {
+      tenantId,
+      instanceId,
+      workflowId: instanceCtx.workflowId,
+      currentState: instanceCtx.currentState,
+      text: `Auto-assigned to the on-call ${resolved.tier} for team ${teamId}.`,
+    });
+  }
 
   // Backup on-call notification — same in-app notification pattern as
   // actions/notify.ts (direct table insert, same tx; outbound handoff

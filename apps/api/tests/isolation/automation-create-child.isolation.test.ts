@@ -65,7 +65,9 @@ beforeAll(async () => {
     allowCustomFields: true,
   });
 
-  for (const field of ["title", "summary", "description", "costing_child_id"]) {
+  // createEntityType now auto-seeds a required "title" custom field for any
+  // per-tenant entity type — omitted here to avoid a duplicate insert.
+  for (const field of ["summary", "description", "costing_child_id"]) {
     await addEntityField(db, TENANT, entityType.id, {
       name: field,
       label: field,

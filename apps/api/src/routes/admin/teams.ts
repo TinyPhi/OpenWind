@@ -1,8 +1,11 @@
 /**
  * Admin Teams CRUD — docs/specs/oncall-routing.md T7, R3, R13.
  *
- * Read (GET) allows agent + admin (needed for ticket-form team pickers).
- * Write (POST/PATCH/DELETE) is admin-only.
+ * Read (GET) allows agent + admin + user (docs/specs/team-assign-oncall-fallback.md
+ * R1 — the customer-facing ticket-creation form, reachable by plain "user"
+ * role, needs this to populate its Team assign-mode picker; read-only, no
+ * data exposed beyond team name/id that agent/admin already see). Write
+ * (POST/PATCH/DELETE) remains admin-only.
  */
 
 import { Hono } from "hono";
@@ -38,7 +41,7 @@ const UpdateTeamSchema = CreateTeamSchema.partial();
 // GET /admin/teams
 router.get(
   "/",
-  requireRole("agent", "admin"),
+  requireRole("agent", "admin", "user"),
   zValidator("query", ListTeamsQuerySchema),
   async (c) => {
     const auth = c.get("auth");

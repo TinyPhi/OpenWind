@@ -188,14 +188,68 @@ const ACTING_PERSON: ActingPersonContext = {
   orgId: "org-121",
 };
 
+// assignedTo/dueDate are mandatory on every creation path (platform-wide
+// invariant, see SYNC-TO-CURRENT-FORMAT.md's "current format" definition) --
+// default valid values for tests unrelated to these two fields specifically.
+const DUE_DATE = "2026-01-01T00:00:00.000Z";
+function ticketBody(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    workflowId,
+    fields: {},
+    assignedTo: "some-assignee",
+    dueDate: DUE_DATE,
+    remark: "default test remark",
+    ...overrides,
+  });
+}
+
 describe("POST /api/v1/tickets", () => {
-  it("creates a ticket into the workflow's initial state, ignoring any state field sent", async () => {
+  it("returns 400 when assignedTo is missing (mandatory field)", async () => {
+    const app = makeApp(apiKeyAuth(), ACTING_PERSON);
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workflowId, fields: {}, dueDate: DUE_DATE }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when dueDate is missing (mandatory field)", async () => {
     const app = makeApp(apiKeyAuth(), ACTING_PERSON);
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         workflowId,
+        fields: {},
+        assignedTo: "some-assignee",
+        remark: "a remark",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when remark is missing (mandatory field)", async () => {
+    const app = makeApp(apiKeyAuth(), ACTING_PERSON);
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflowId,
+        fields: {},
+        assignedTo: "some-assignee",
+        dueDate: DUE_DATE,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("creates a ticket into the workflow's initial state, ignoring any state field sent", async () => {
+    const app = makeApp(apiKeyAuth(), ACTING_PERSON);
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: ticketBody({
         fields: { title: "Test ticket" },
         state: "closed",
         currentState: "closed",
@@ -210,16 +264,12 @@ describe("POST /api/v1/tickets", () => {
     expect(body.data.createdBy).toBe(ACTING_PERSON.userId);
   });
 
-  it("applies an optional assignee", async () => {
+  it("applies an assignee", async () => {
     const app = makeApp(apiKeyAuth(), ACTING_PERSON);
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workflowId,
-        fields: {},
-        assignedTo: "some-assignee",
-      }),
+      body: ticketBody({ assignedTo: "some-assignee" }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
@@ -240,11 +290,7 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workflowId,
-        fields: {},
-        assignedTo: "bob-username",
-      }),
+      body: ticketBody({ assignedTo: "bob-username" }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
@@ -267,11 +313,7 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workflowId,
-        fields: {},
-        assignedTo: "totally-unknown-identifier-xyz",
-      }),
+      body: ticketBody({ assignedTo: "totally-unknown-identifier-xyz" }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
@@ -318,7 +360,7 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workflowId, fields: {} }),
+      body: ticketBody(),
     });
     const body = (await res.json()) as { data: { id: string } };
     createdInstanceIds.push(body.data.id);
@@ -360,7 +402,7 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workflowId, fields: {} }),
+      body: ticketBody(),
     });
     expect(res.status).toBe(403);
   });
@@ -370,8 +412,7 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workflowId,
+      body: ticketBody({
         fields: { title: `bad${String.fromCharCode(0)}value` },
       }),
     });
@@ -385,10 +426,7 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workflowId,
-        fields: { blob: "x".repeat(200_000) },
-      }),
+      body: ticketBody({ fields: { blob: "x".repeat(200_000) } }),
     });
     expect(res.status).toBe(422);
   });
@@ -402,7 +440,7 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workflowId, fields: { deep: deeplyNested } }),
+      body: ticketBody({ fields: { deep: deeplyNested } }),
     });
     expect(res.status).toBe(422);
   });
@@ -412,9 +450,8 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: ticketBody({
         workflowId: "00000000-0000-4000-a000-000000000000",
-        fields: {},
       }),
     });
     expect(res.status).toBe(404);
@@ -425,8 +462,7 @@ describe("POST /api/v1/tickets", () => {
     const res = await app.request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workflowId,
+      body: ticketBody({
         fields: {
           title: "Injected ACL attempt",
           __accessUsers: {

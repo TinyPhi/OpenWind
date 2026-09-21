@@ -264,19 +264,72 @@ function actingAs(userId: string): ActingPersonContext {
   };
 }
 
+// assignedTo/dueDate are mandatory on every creation path (platform-wide
+// invariant, see SYNC-TO-CURRENT-FORMAT.md's "current format" definition) --
+// default valid values for tests unrelated to these two fields specifically.
+const DUE_DATE = "2026-01-01T00:00:00.000Z";
+
 async function postChild(
   app: Hono<Vars>,
   parentId: string,
   fields: object = {},
+  overrides: Record<string, unknown> = {},
 ) {
   return app.request(`/${parentId}/children`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ entityTypeId, fields }),
+    body: JSON.stringify({
+      entityTypeId,
+      fields,
+      assignedTo: "some-assignee",
+      dueDate: DUE_DATE,
+      remark: "default test remark",
+      ...overrides,
+    }),
   });
 }
 
 describe("POST /api/v1/tickets/:id/children", () => {
+  it("returns 400 when assignedTo is missing (mandatory field)", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${creatorTicketId}/children`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ entityTypeId, fields: {}, dueDate: DUE_DATE }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when dueDate is missing (mandatory field)", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${creatorTicketId}/children`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId,
+        fields: {},
+        assignedTo: "some-assignee",
+        remark: "a remark",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when remark is missing (mandatory field)", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${creatorTicketId}/children`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId,
+        fields: {},
+        assignedTo: "some-assignee",
+        dueDate: DUE_DATE,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("creator can create a sub-ticket under their own ticket", async () => {
     const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
     const res = await postChild(app, creatorTicketId, { title: "sub" });
@@ -377,6 +430,8 @@ describe("POST /api/v1/tickets/:id/children", () => {
         entityTypeId,
         fields: { title: "assignee via username" },
         assignedTo: "bob-username",
+        dueDate: DUE_DATE,
+        remark: "a remark",
       }),
     });
     expect(res.status).toBe(201);
@@ -398,6 +453,8 @@ describe("POST /api/v1/tickets/:id/children", () => {
         entityTypeId,
         fields: { title: "bad assignee" },
         assignedTo: "totally-unknown-identifier-xyz",
+        dueDate: DUE_DATE,
+        remark: "a remark",
       }),
     });
     expect(res.status).toBe(201);

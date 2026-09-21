@@ -44,6 +44,12 @@ export interface EntityInstance {
   assignedTo: string | null;
   /** System field, independent of workflow state/SLA — docs/specs/due-date.md. */
   dueDate: Date | null;
+  /**
+   * Mandatory-ticket-fields sync, 2026-09-21 (migration 0108). Plain system
+   * field like dueDate above, not an entity_fields row. NULL only on rows
+   * created before this feature shipped.
+   */
+  remark: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -80,6 +86,8 @@ export type CreateChildRelationInput = {
   createdBy?: string | undefined;
   /** ISO datetime string, or null. Independent of workflow state/SLA. */
   dueDate?: string | null | undefined;
+  /** Mandatory-ticket-fields sync, 2026-09-21 — same shape as createEntity's. */
+  remark?: string | null | undefined;
   /**
    * ADR-012 Phase C, spec R10 — dual-identity attribution for a third-party
    * sub-ticket creation, mirroring createEntity's actorType/actingPersonId
@@ -130,6 +138,12 @@ export type CreateEntityInput = {
   assignedTo?: string | undefined;
   /** ISO datetime string, or null. Independent of workflow state/SLA. */
   dueDate?: string | null | undefined;
+  /**
+   * Mandatory-ticket-fields sync, 2026-09-21 — required at the route layer
+   * like dueDate/assignedTo; createEntity itself does not default or
+   * require this, matching dueDate's own pattern.
+   */
+  remark?: string | null | undefined;
   workflowId?: string | undefined;
   currentState?: string | undefined;
   /**

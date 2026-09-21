@@ -43,7 +43,7 @@ describe("entity.created outbox depth carries through for MAX_DEPTH enforcement 
     await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
         depth: 9,
       }),
     );
@@ -89,7 +89,7 @@ describe("entity.created outbox depth carries through for MAX_DEPTH enforcement 
     const createdInstance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
         assignedTo: TEST_USER,
         depth: 9,
       }),

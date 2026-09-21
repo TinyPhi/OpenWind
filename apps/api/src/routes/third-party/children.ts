@@ -18,15 +18,25 @@ import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js"
 import { resolveOriginOidcClientId } from "../../lib/resolve-origin-oidc-client-id.js";
 import { resolveOrgMemberUserId } from "../../lib/resolve-org-member.js";
 import { postSystemComment } from "../../lib/post-system-comment.js";
+import { postRemarkComment } from "../../lib/post-remark-comment.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
 import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 
 const CreateThirdPartyChildSchema = z.object({
   entityTypeId: z.string().uuid(),
   fields: z.record(z.unknown()).default({}),
+  // Mandatory platform-wide invariant on every creation path (this route,
+  // entities/create.ts, third-party/tickets.ts) -- title, assignedTo, and
+  // dueDate are required on every ticket, on every workflow, no exceptions.
+  // Previously assignedTo was optional here and dueDate didn't exist on
+  // this schema at all -- trivially bypassed by any direct API call. Not a
+  // per-workflow toggle like a workflow's own custom entity_fields.
+  //
   // PR #576 review (PrabhuVijit, F2/M4) -- bounded + trimmed, same rationale
   // as tickets.ts's identical schema field.
-  assignedTo: z.string().trim().max(256).optional(),
+  assignedTo: z.string().trim().min(1).max(256),
+  dueDate: z.string().datetime(),
+  remark: z.string().trim().min(1).max(4000),
   // No state/currentState field, same rationale as Phase B's ticket-create
   // schema (spec R6 pattern) — a sub-ticket is always created into its own
   // "open" child_status, never a caller-supplied value.
@@ -159,30 +169,30 @@ export const createThirdPartyChildHandler = factory.createHandlers(
     // assignedTo no longer blocks sub-ticket creation. The sub-ticket is
     // always created (unassigned if resolution failed), and the caller
     // learns about the failure only via a system-generated comment
-    // notification below, never via a synchronous 422.
+    // notification below, never via a synchronous 422. assignedTo is
+    // mandatory (CreateThirdPartyChildSchema) but that only means the
+    // caller must send something -- resolution can still fail, orthogonally.
     let resolvedAssignedTo: string | undefined;
     let assignedToUnresolved = false;
-    if (input.assignedTo) {
-      // PR #576 review (PrabhuVijit, F3) -- same guard as tickets.ts's
-      // identical check: orgId is optional on AuthContext, and without this
-      // guard an absent orgId would silently treat every assignedTo as
-      // unresolved rather than skipping resolution outright.
-      if (!orgId) {
-        logger.warn(
-          { tenantId },
-          "third-party sub-ticket create: assignedTo resolution skipped -- orgId absent from auth context",
-        );
-        resolvedAssignedTo = input.assignedTo;
+    // PR #576 review (PrabhuVijit, F3) -- same guard as tickets.ts's
+    // identical check: orgId is optional on AuthContext, and without this
+    // guard an absent orgId would silently treat every assignedTo as
+    // unresolved rather than skipping resolution outright.
+    if (!orgId) {
+      logger.warn(
+        { tenantId },
+        "third-party sub-ticket create: assignedTo resolution skipped -- orgId absent from auth context",
+      );
+      resolvedAssignedTo = input.assignedTo;
+    } else {
+      const assignedToResolution = await resolveOrgMemberUserId(
+        orgId,
+        input.assignedTo,
+      );
+      if (assignedToResolution.ok) {
+        resolvedAssignedTo = assignedToResolution.userId;
       } else {
-        const assignedToResolution = await resolveOrgMemberUserId(
-          orgId,
-          input.assignedTo,
-        );
-        if (assignedToResolution.ok) {
-          resolvedAssignedTo = assignedToResolution.userId;
-        } else {
-          assignedToUnresolved = true;
-        }
+        assignedToUnresolved = true;
       }
     }
 
@@ -198,6 +208,8 @@ export const createThirdPartyChildHandler = factory.createHandlers(
         entityTypeId: input.entityTypeId,
         fields: input.fields,
         assignedTo: resolvedAssignedTo ?? null,
+        dueDate: input.dueDate,
+        remark: input.remark,
       },
       async () => {
         try {
@@ -207,6 +219,8 @@ export const createThirdPartyChildHandler = factory.createHandlers(
               entityTypeId: input.entityTypeId,
               childFields: input.fields,
               assignedTo: resolvedAssignedTo,
+              dueDate: input.dueDate,
+              remark: input.remark,
               createdBy: actingPersonId,
               actorType: "api_key",
               actingPersonId,
@@ -245,6 +259,29 @@ export const createThirdPartyChildHandler = factory.createHandlers(
             };
           });
 
+          // Best-effort, outside the create transaction (already committed
+          // by this point) -- a failure here must never surface as a failed
+          // sub-ticket creation. See post-remark-comment.ts.
+          if (result.instance.workflowId) {
+            try {
+              await withTenantContext(tenantId, (tx) =>
+                postRemarkComment(tx, {
+                  tenantId,
+                  instanceId: result.instance.id,
+                  workflowId: result.instance.workflowId as string,
+                  currentState: result.instance.currentState,
+                  actorId: applicationActorId,
+                  text: input.remark,
+                }),
+              );
+            } catch (remarkErr) {
+              logger.error(
+                { remarkErr, tenantId, instanceId: result.instance.id },
+                "third-party sub-ticket create: failed to post remark as first comment",
+              );
+            }
+          }
+
           // PR #576 review (PrabhuVijit, F1) -- deliberately OUTSIDE the
           // transaction above, in its own withTenantContext call. See
           // tickets.ts's identical fix for the full rationale: running this
@@ -255,8 +292,9 @@ export const createThirdPartyChildHandler = factory.createHandlers(
           // creation too. See resolveOrgMemberUserId call above and
           // post-system-comment.ts -- notify the creator that assignedTo
           // didn't resolve via a system comment, never via the API response
-          // itself. Top-level (no replyTo) since this tree's schema has no
-          // remark field to seed a host comment from.
+          // itself. Top-level (no replyTo) -- could reply to the remark
+          // comment just posted above, but that coupling is deliberately
+          // not made here.
           if (assignedToUnresolved && result.instance.workflowId) {
             try {
               await withTenantContext(tenantId, (tx) =>

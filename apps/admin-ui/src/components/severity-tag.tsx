@@ -115,7 +115,7 @@ export function SeverityDropdown({
   const isUnset = value === null;
 
   return (
-    <div ref={containerRef} className="asgn-drop">
+    <div ref={containerRef} className="asgn-drop asgn-drop-full">
       <button
         type="button"
         className={`asgn-trigger asgn-trigger-state ${open ? "asgn-trigger-open" : ""}`}

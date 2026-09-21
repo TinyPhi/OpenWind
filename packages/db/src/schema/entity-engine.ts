@@ -93,6 +93,10 @@ export const entityInstances = pgTable(
       "low" | "medium" | "high" | "critical" | null
     >(),
     dueDate: timestamp("due_date", { withTimezone: true }),
+    // Mandatory-ticket-fields sync, 2026-09-21 (migration 0108). Plain
+    // system column, not an entity_fields row -- same rationale as
+    // due_date/severity above. NULL on rows created before this feature.
+    remark: text("remark"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

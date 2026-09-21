@@ -98,7 +98,13 @@ export function classifyOncallUser(
   return { userId, displayName };
 }
 
-export type OncallTier = "primary" | "backup" | "escalation";
+// "workflow_admin" is never produced by resolveOncallCascade below -- it's
+// resolved by the caller (packages/automation-engine's resolve-oncall.ts),
+// which needs workflow-engine/db to look up the ticket's governing workflow,
+// something this package (db-only per the dependency rule) cannot import.
+// Included in the union here so both packages share one CascadeResult/tier
+// vocabulary (docs/specs/team-assign-oncall-fallback.md R4/§I).
+export type OncallTier = "primary" | "backup" | "escalation" | "workflow_admin";
 
 export type CascadeResult =
   | { tier: OncallTier; userId: string }

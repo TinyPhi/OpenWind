@@ -17,7 +17,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, and } from "drizzle-orm";
 import { db, withTenantContext } from "@platform/db";
-import { entityInstances, entityTypes, entityRelations } from "@platform/db";
+import {
+  entityInstances,
+  entityTypes,
+  entityRelations,
+  entityFields,
+} from "@platform/db";
 import {
   createEntityType,
   getEntityType,
@@ -106,6 +111,13 @@ afterAll(async () => {
   await db
     .delete(entityInstances)
     .where(eq(entityInstances.entityTypeId, tenantBType.id));
+  // entityFields before entityTypes — entity_fields.entity_type_id has no
+  // ON DELETE CASCADE, so deleting entityTypes first would FK-violate
+  // (createEntityType now auto-seeds a "title" custom field for
+  // tenant-scoped types, e.g. tenantBType here).
+  await db
+    .delete(entityFields)
+    .where(eq(entityFields.entityTypeId, tenantBType.id));
   await db.delete(entityTypes).where(eq(entityTypes.id, entityType.id));
   await db.delete(entityTypes).where(eq(entityTypes.id, tenantBType.id));
 });
