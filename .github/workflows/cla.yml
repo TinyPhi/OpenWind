@@ -25,7 +25,7 @@ jobs:
           path-to-signatures: "signatures/cla.json"
           path-to-document: "https://github.com/TinyPhi/OpenWind/blob/main/CLA.md"
           branch: "cla-signatures"
-          allowlist: dependabot*
+          allowlist: dependabot*,claude
           custom-notsigned-prcomment: |
             Thanks for this contribution! Before it can be merged, please read and sign the
             [Contributor Assignment Agreement](https://github.com/TinyPhi/OpenWind/blob/main/CLA.md)
