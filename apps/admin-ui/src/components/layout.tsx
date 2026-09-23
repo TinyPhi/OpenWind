@@ -173,6 +173,34 @@ const ANALYTICS_NAV = {
   ),
 };
 
+// Embedded Superset dashboards (track 3G). Staff (admin/agent) get both tabs;
+// customers get their own link in the customer nav with only "My Tickets"
+// (reporting.tsx narrows by role either way).
+const REPORTING_NAV = {
+  route: "/reporting",
+  label: "Reporting",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="2"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z"
+      />
+    </svg>
+  ),
+};
+
 // Moved from the normal workspace nav to admin-only, 2026-09-22 nav reorganization.
 const TEMPLATES_NAV = {
   route: "/modules",
@@ -257,8 +285,15 @@ const RECORDS_NAV = {
 
 // 2026-09-22 nav reorganization: the normal workspace nav (agent + admin) is
 // now just Dashboard/Workflows/Records/Users -- Analytics/Templates/
-// Automations moved into the admin-only section below.
-const ADMIN_NAV = [DASHBOARD_NAV, WORKFLOWS_NAV, RECORDS_NAV, USERS_NAV];
+// Automations moved into the admin-only section below. Reporting sits here
+// because agents use it too.
+const ADMIN_NAV = [
+  DASHBOARD_NAV,
+  REPORTING_NAV,
+  WORKFLOWS_NAV,
+  RECORDS_NAV,
+  USERS_NAV,
+];
 
 // 2026-09-22 nav reorganization: Dashboard/Workflows/Records/Users are the
 // normal workspace nav (agent + admin, see ADMIN_NAV above); everything else
@@ -729,6 +764,35 @@ export function Layout({
                   />
                 </svg>
                 {(sidebarOpen || mobileNavOpen) && <span>Records</span>}
+              </Link>
+
+              {/* Reporting — a customer's own "My Tickets" dashboard (track
+                  3G). Scoped server-side to their own created tickets; the
+                  tenant-wide tab is refused independently by the API. */}
+              <Link
+                to="/reporting"
+                className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive("/reporting") ? "active" : ""}`}
+                title={!sidebarOpen ? "Reporting" : undefined}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="2"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z"
+                  />
+                </svg>
+                {(sidebarOpen || mobileNavOpen) && <span>Reporting</span>}
               </Link>
 
               {/* Templates — customers can browse / fork workflows. Hidden
