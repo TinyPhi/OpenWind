@@ -16,6 +16,7 @@ import {
   scheduleRules,
   scheduleExecutions,
   adminAuditLog,
+  tenantUsers,
 } from "@platform/db";
 import { createEntityType } from "@platform/entity-engine";
 import type { EntityType } from "@platform/entity-engine";
@@ -58,6 +59,13 @@ beforeAll(async () => {
     plural: "tickets",
     allowCustomFields: true,
   });
+
+  // Mandate-fields templates require a valid assignedTo, cross-tenant
+  // validated against tenant_users (packages/scheduler/src/cross-tenant-refs.ts).
+  await db.insert(tenantUsers).values([
+    { tenantId: TENANT_A, userId: "aaaaaaaa-0000-4000-a000-0000000000aa" },
+    { tenantId: TENANT_B, userId: "bbbbbbbb-0000-4000-b000-0000000000bb" },
+  ]);
 
   const [ruleA] = await db
     .insert(scheduleRules)
@@ -116,6 +124,9 @@ afterAll(async () => {
   await db
     .delete(adminAuditLog)
     .where(inArray(adminAuditLog.tenantId, [TENANT_A, TENANT_B]));
+  await db
+    .delete(tenantUsers)
+    .where(inArray(tenantUsers.tenantId, [TENANT_A, TENANT_B]));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
 });
 
