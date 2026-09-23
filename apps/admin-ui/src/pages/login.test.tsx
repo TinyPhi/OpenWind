@@ -77,6 +77,35 @@ describe("Login", () => {
     });
   });
 
+  it("logs a sign-in failure instead of swallowing it, and re-enables the button", async () => {
+    const failure = new Error(
+      "Crypto.subtle is available only in secure contexts (HTTPS)",
+    );
+    vi.mocked(userManager.signinRedirect).mockRejectedValueOnce(failure);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    renderAt("/login");
+    const button = screen.getByRole("button", { name: /Continue with SSO/ });
+    button.click();
+
+    await waitFor(() => {
+      expect(consoleError).toHaveBeenCalledWith(
+        "Sign-in failed before redirect:",
+        failure,
+      );
+    });
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("button", { name: /Continue with SSO/ })
+          .hasAttribute("disabled"),
+      ).toBe(false);
+    });
+    consoleError.mockRestore();
+  });
+
   // Corrected after live testing: the handoff redirect is NOT auto-triggered
   // on mount (that skipped straight to Zitadel's hosted login page with no
   // visible OpenWind screen) -- the user still sees this page and clicks
