@@ -632,8 +632,27 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           return name.replace(/[<>]/g, "");
         };
 
-        const nextEmail = auth.email || null;
-        const nextDisplayName = sanitizeDisplayName(auth.displayName);
+        // A token that carries no name leaves displayName set to the subject
+        // id. That is the absence of a name, not a name — writing it would
+        // overwrite whatever a better source already stored (the userinfo
+        // enrichment above, or an out-of-band sync from Zitadel) with a raw
+        // id, on every single request. Observed exactly that: the only two
+        // users with live sessions had their real names replaced by their ids
+        // while every other user kept theirs, which is why names rendered as
+        // numbers wherever a person is shown.
+        //
+        // So a missing value never overwrites a stored one — the sync can add
+        // and improve, but not erase.
+        const incomingName = sanitizeDisplayName(auth.displayName);
+        const nextDisplayName =
+          incomingName && incomingName !== auth.userId
+            ? incomingName
+            : (existing?.displayName ?? incomingName);
+        // First non-empty value wins. An empty string from the token is as
+        // meaningless as a missing one and must fall through to the stored
+        // email, which a plain `??` would not do.
+        const nextEmail =
+          [auth.email, existing?.email].find((e) => Boolean(e)) ?? null;
 
         if (
           existing?.email === nextEmail &&
