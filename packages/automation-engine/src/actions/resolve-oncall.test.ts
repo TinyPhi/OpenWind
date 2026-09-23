@@ -29,7 +29,9 @@ const dbMock = {
           // generic chain mock.
           columns && "assignedTo" in columns
             ? Promise.resolve(entityRow ? [entityRow] : [])
-            : Promise.resolve(teamExists ? [{ id: "team-1" }] : []),
+            : Promise.resolve(
+                teamExists ? [{ id: "team-1", name: "Team One" }] : [],
+              ),
         orderBy: () => ({
           limit: () => Promise.resolve(workflowRow ? [workflowRow] : []),
         }),

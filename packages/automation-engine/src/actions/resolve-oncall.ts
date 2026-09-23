@@ -88,6 +88,7 @@ async function handleCascadeMiss(
   tenantId: string,
   instanceId: string,
   teamId: string,
+  teamName: string,
   depth: number,
   redis: Redis | undefined,
   scheduleInfo: { scheduleId: string | undefined; cascadeExhausted: boolean },
@@ -130,7 +131,7 @@ async function handleCascadeMiss(
         instanceId,
         workflowId: instanceCtx.workflowId,
         currentState: instanceCtx.currentState,
-        text: `No primary/backup/escalation coverage found for team ${teamId} — auto-assigned to workflow admin.`,
+        text: `No primary/backup/escalation coverage found for team ${teamName} — auto-assigned to workflow admin.`,
       });
     }
     logger.info(
@@ -161,7 +162,7 @@ async function handleCascadeMiss(
       instanceId,
       workflowId: instanceCtx.workflowId,
       currentState: instanceCtx.currentState,
-      text: `No on-call coverage configured for team ${teamId}, and no workflow admin could be resolved — ticket left unassigned.`,
+      text: `No on-call coverage configured for team ${teamName}, and no workflow admin could be resolved — ticket left unassigned.`,
     });
   }
 }
@@ -252,7 +253,7 @@ export async function executeResolveOncallAction(
   // through -- and silently no-op for a bogus/cross-tenant team_id, exactly
   // as if team_id had never been set (never surfaced in audit/comment output).
   const [teamRow] = await db
-    .select({ id: teams.id })
+    .select({ id: teams.id, name: teams.name })
     .from(teams)
     .where(
       and(
@@ -263,6 +264,10 @@ export async function executeResolveOncallAction(
     )
     .limit(1);
   if (!teamRow) return;
+  // Human-readable team name for the summary comment (R5) -- audit metadata
+  // below still keys on teamId (stable, joinable); the comment is the one
+  // place a raw UUID would be confusing to read.
+  const teamName = teamRow.name;
 
   // R11 idempotency — re-delivering the same event (BullMQ retry, worker
   // restart replay) for an unchanged (instanceId, teamId) pair must not
@@ -320,10 +325,16 @@ export async function executeResolveOncallAction(
   );
 
   if (!schedule) {
-    await handleCascadeMiss(db, tenantId, instanceId, teamId, depth, redis, {
-      scheduleId: undefined,
-      cascadeExhausted: false,
-    });
+    await handleCascadeMiss(
+      db,
+      tenantId,
+      instanceId,
+      teamId,
+      teamName,
+      depth,
+      redis,
+      { scheduleId: undefined, cascadeExhausted: false },
+    );
     return;
   }
 
@@ -333,10 +344,16 @@ export async function executeResolveOncallAction(
   // R4) before being treated as fully fail-open.
   const resolved = await resolveOncallCascade(db, tenantId, schedule);
   if (!resolved.tier) {
-    await handleCascadeMiss(db, tenantId, instanceId, teamId, depth, redis, {
-      scheduleId: schedule.id,
-      cascadeExhausted: true,
-    });
+    await handleCascadeMiss(
+      db,
+      tenantId,
+      instanceId,
+      teamId,
+      teamName,
+      depth,
+      redis,
+      { scheduleId: schedule.id, cascadeExhausted: true },
+    );
     return;
   }
 
@@ -375,7 +392,7 @@ export async function executeResolveOncallAction(
       instanceId,
       workflowId: instanceCtx.workflowId,
       currentState: instanceCtx.currentState,
-      text: `Auto-assigned to the on-call ${resolved.tier} for team ${teamId}.`,
+      text: `Auto-assigned to the on-call ${resolved.tier} for team ${teamName}.`,
     });
   }
 

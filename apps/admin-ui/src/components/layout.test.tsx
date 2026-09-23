@@ -62,22 +62,35 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     renderLayout();
 
     await waitFor(() => expect(screen.getByText("Admin")).not.toBeNull());
-    expect(screen.getByText("Users")).not.toBeNull();
+    expect(screen.getByText("Analytics")).not.toBeNull();
+    expect(screen.getByText("Templates")).not.toBeNull();
+    expect(screen.getByText("Automations")).not.toBeNull();
     expect(screen.getByText("System Logs")).not.toBeNull();
     expect(screen.getByText("API Keys")).not.toBeNull();
     expect(screen.getByText("On-Call")).not.toBeNull();
+    // 2026-09-22 nav reorganization: no separate top-level "API Access
+    // Logs" entry anymore -- that content already lives in the API Keys
+    // page's own tab.
+    expect(screen.queryByText("API Access Logs")).toBeNull();
   });
 
-  it("hides the 'Admin' section entirely for an agent (no admin role)", async () => {
+  // 2026-09-22 nav reorganization: Dashboard/Workflows/Records/Users are the
+  // normal workspace nav, shown to agent and admin alike -- only Analytics/
+  // Templates/Automations/System Logs/API Keys/On-Call/Schedule Rules are
+  // admin-only now.
+  it("hides the 'Admin' section and its admin-only items for an agent, but still shows the normal workspace nav including Users", async () => {
     mockUserWithRoles(["agent"]);
     renderLayout();
 
-    // Dashboard (workspace nav) still renders once roles resolve — used as
-    // the "identity has loaded" signal before asserting the negative below.
     await waitFor(() => expect(screen.getByText("Dashboard")).not.toBeNull());
+    expect(screen.getByText("Workflows")).not.toBeNull();
+    expect(screen.getByText("Records")).not.toBeNull();
+    expect(screen.getByText("Users")).not.toBeNull();
 
     expect(screen.queryByText("Admin")).toBeNull();
-    expect(screen.queryByText("Users")).toBeNull();
+    expect(screen.queryByText("Analytics")).toBeNull();
+    expect(screen.queryByText("Templates")).toBeNull();
+    expect(screen.queryByText("Automations")).toBeNull();
     expect(screen.queryByText("System Logs")).toBeNull();
     expect(screen.queryByText("API Keys")).toBeNull();
     expect(screen.queryByText("On-Call")).toBeNull();

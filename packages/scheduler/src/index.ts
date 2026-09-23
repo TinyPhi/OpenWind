@@ -17,3 +17,4 @@ export {
   validateScheduleRuleRefs,
   type ScheduleRuleRefInput,
 } from "./cross-tenant-refs.js";
+export { postScheduleRemarkComment } from "./post-remark-comment.js";

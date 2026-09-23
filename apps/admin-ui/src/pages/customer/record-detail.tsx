@@ -81,6 +81,10 @@ type EntityInstance = {
   // docs/specs/ticket-severity-and-tags.md — null only for tickets created
   // before this feature shipped (§V).
   severity?: Severity | null;
+  // Resolved server-side from fields.team_id (get.ts) -- team_id is a plain
+  // generic field on every entity type, so this is never trusted from
+  // `fields` directly for display; null when no team_id is set.
+  teamName?: string | null;
 };
 type EntityInstanceTag = {
   id: string;
@@ -2571,6 +2575,15 @@ export function CustomerRecordDetail(): React.ReactElement {
     return subscribeToTicketRoom(id, (msg) => {
       if (msg.type === "comment.created" && msg.instanceId === id) {
         void refreshComments();
+        // Also silently re-fetch the record itself (no setLoading(true) --
+        // same pattern already used elsewhere in this file for background
+        // refreshes). A ticket created via team-assign lands here already
+        // unassigned (resolve_oncall resolves asynchronously); its own
+        // system summary comment IS a comment.created event, so this is the
+        // one signal that reliably fires right when assignedTo actually
+        // changes -- without it, the page only picked up the new assignee
+        // on a manual refresh (2026-09-22 fix).
+        void loadRecord();
         return;
       }
       if (
@@ -4120,7 +4133,15 @@ export function CustomerRecordDetail(): React.ReactElement {
                         <div className="rcd-field-lbl">{f.label}</div>
                         <div className="rcd-field-val">
                           <FieldValue
-                            value={record.fields[f.name]}
+                            // team_id is a plain generic field on every
+                            // entity type (no dedicated field type) -- the
+                            // server-resolved live team name (get.ts) is
+                            // shown instead of the raw id whenever present.
+                            value={
+                              f.name === "team_id" && record.teamName
+                                ? record.teamName
+                                : record.fields[f.name]
+                            }
                             fieldType={f.fieldType}
                             field={f}
                             attachments={attachments}

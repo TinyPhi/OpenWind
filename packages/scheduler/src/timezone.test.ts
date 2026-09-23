@@ -3,18 +3,24 @@ import { isValidTimezone } from "./timezone.js";
 
 describe("isValidTimezone", () => {
   it("accepts a valid IANA timezone", () => {
-    // Avoid asserting on a specific zone name beyond "UTC" -- ICU/tzdata
-    // version differences across Node builds mean not every alias (e.g.
-    // "Asia/Kolkata" vs "Asia/Calcutta") is guaranteed present everywhere;
-    // asserting against the runtime's own supported-zone list keeps this
-    // test environment-independent while still exercising the real function.
     expect(isValidTimezone("America/New_York")).toBe(true);
     const [firstSupported] = Intl.supportedValuesOf("timeZone");
     expect(isValidTimezone(firstSupported!)).toBe(true);
   });
 
-  it("accepts the bare 'UTC' identifier (schedule_rules.timezone's own DB default) even when Intl.supportedValuesOf('timeZone') omits it on this runtime", () => {
+  it("accepts the bare 'UTC' identifier (schedule_rules.timezone's own DB default)", () => {
     expect(isValidTimezone("UTC")).toBe(true);
+  });
+
+  // 2026-09-22 regression (real user report): the old Set-membership check
+  // against Intl.supportedValuesOf('timeZone') rejected "Asia/Kolkata" on a
+  // runtime whose ICU build enumerates the legacy alias "Asia/Calcutta"
+  // instead -- both name the same zone and both are valid IANA identifiers,
+  // so both must validate regardless of which one that runtime's
+  // supportedValuesOf() happens to prefer.
+  it("accepts both a zone's modern name and its legacy alias, whichever this runtime's Intl.supportedValuesOf('timeZone') does or doesn't enumerate", () => {
+    expect(isValidTimezone("Asia/Kolkata")).toBe(true);
+    expect(isValidTimezone("Asia/Calcutta")).toBe(true);
   });
 
   it("rejects an invalid timezone string", () => {

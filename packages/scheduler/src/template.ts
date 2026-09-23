@@ -14,15 +14,39 @@ import { z } from "zod";
 // JSONB blob is a cross-system (route <-> future Phase 3 worker) contract,
 // not a Drizzle-managed column, so it follows the documented API shape
 // rather than this repo's usual camelCase-in-TS convention.
-export const TemplateSchema = z.object({
-  title: z.string().trim().min(1).max(500), // trim before min: "   " must fail validation
-  description: z.string().trim().max(10000).optional(),
-  severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-  assignee_id: z.string().uuid().optional(),
-  team_id: z.string().uuid().optional(),
-  service_id: z.string().uuid().optional(),
-  fields: z.record(z.string(), z.unknown()).optional(),
-});
+export const TemplateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500), // trim before min: "   " must fail validation
+    description: z.string().trim().max(10000).optional(),
+    severity: z.enum(["critical", "high", "medium", "low"]).optional(),
+    // Mandate fields mirror apps/api/src/routes/entities/create.ts's
+    // CreateEntitySchema (docs/specs/schedule-rules-mandate-fields.md R1) --
+    // exactly one of assignedTo/teamId, enforced by the superRefine below.
+    // teamId resolves via the existing entity.created -> resolve_oncall
+    // cascade at fire time, never a separate resolution path (R2).
+    assignedTo: z.string().uuid().optional(),
+    teamId: z.string().uuid().optional(),
+    service_id: z.string().uuid().optional(),
+    // Due date has no fixed value for a recurring rule -- due_days is an
+    // offset from each fire's own scheduled instant (R4).
+    due_days: z.number().int().min(0),
+    // Becomes the fired ticket's first comment via postRemarkComment,
+    // attributed to the rule's creator (R5) -- same bounds as
+    // CreateEntitySchema's remark field.
+    remark: z.string().trim().min(1).max(4000),
+    fields: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((template, ctx) => {
+    const hasAssignedTo = template.assignedTo !== undefined;
+    const hasTeamId = template.teamId !== undefined;
+    if (hasAssignedTo === hasTeamId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Exactly one of assignedTo or teamId must be set",
+        path: ["teamId"],
+      });
+    }
+  });
 
 export type Template = z.infer<typeof TemplateSchema>;
 

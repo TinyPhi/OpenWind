@@ -187,7 +187,7 @@ describe("schedule_rules — cross-tenant WRITE isolation", () => {
   // Documents a known architectural risk boundary (same pattern established
   // by PR #585's B1 and PR #586's B3): workflow_id has no FK-level tenant
   // guard beyond existence (migration 0101's comment), and template's
-  // team_id/service_id/assignee_id live inside the JSONB column, which
+  // teamId/service_id/assignedTo live inside the JSONB column, which
   // can't carry a FK at all. RLS on this table only checks tenant_id, so a
   // rule tagged with the caller's own tenant_id but referencing another
   // tenant's workflow_id/template refs passes RLS. The route layer's
@@ -207,7 +207,7 @@ describe("schedule_rules — cross-tenant WRITE isolation", () => {
           cronExpr: "0 9 1 * *",
           entityTypeId,
           workflowId: workflowBId,
-          template: { title: "Smuggled", team_id: foreignTeamId },
+          template: { title: "Smuggled", teamId: foreignTeamId },
           createdBy: USER_A,
         })
         .returning({

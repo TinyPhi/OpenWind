@@ -119,12 +119,12 @@ describe("GET /admin/members", () => {
     currentRoles = ["admin"];
   });
 
-  it("returns agents and admins, excluding customers (PR #602 review, BLOCKER-1)", async () => {
+  it("returns agents, admins, and users -- any org member is a valid on-call assignee", async () => {
     mockListOrgUsers.mockResolvedValueOnce([
       {
-        userId: "u-customer",
+        userId: "u-user",
         email: "c@x.com",
-        displayName: "Customer One",
+        displayName: "User One",
         loginName: "c",
       },
       {
@@ -142,7 +142,7 @@ describe("GET /admin/members", () => {
     ]);
     mockListUserRolesByUserId.mockResolvedValueOnce(
       new Map([
-        ["u-customer", ["user"]],
+        ["u-user", ["user"]],
         ["u-agent", ["agent"]],
         ["u-admin", ["admin"]],
       ]),
@@ -153,8 +153,37 @@ describe("GET /admin/members", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     const ids = (body.data as { userId: string }[]).map((u) => u.userId);
-    expect(ids).toEqual(expect.arrayContaining(["u-agent", "u-admin"]));
-    expect(ids).not.toContain("u-customer");
+    expect(ids).toEqual(
+      expect.arrayContaining(["u-user", "u-agent", "u-admin"]),
+    );
+  });
+
+  it("excludes an org member with no role grant at all", async () => {
+    mockListOrgUsers.mockResolvedValueOnce([
+      {
+        userId: "u-norole",
+        email: "n@x.com",
+        displayName: "No Role",
+        loginName: "n",
+      },
+      {
+        userId: "u-admin",
+        email: "ad@x.com",
+        displayName: "Admin One",
+        loginName: "ad",
+      },
+    ]);
+    mockListUserRolesByUserId.mockResolvedValueOnce(
+      new Map([["u-admin", ["admin"]]]),
+    );
+    mockWithTenantContext.mockResolvedValueOnce([]);
+
+    const res = await makeApp().request("/admin/members");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const ids = (body.data as { userId: string }[]).map((u) => u.userId);
+    expect(ids).toContain("u-admin");
+    expect(ids).not.toContain("u-norole");
   });
 
   it("rejects a non-admin caller with 403", async () => {

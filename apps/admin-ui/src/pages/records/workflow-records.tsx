@@ -1711,14 +1711,19 @@ export function WorkflowRecords(): React.ReactElement {
             </Link>
           )}
 
-          {/* New record */}
+          {/* New record. No `returnTo` -- record-create.tsx's own default
+              (navigate to the new ticket's detail page) is what an ordinary
+              in-app creation from this list should do; `returnTo` exists for
+              flows that need to land somewhere specific afterward (e.g. the
+              hosted handoff flow), not for this button (2026-09-22 fix --
+              was unconditionally routing every creation back to this list
+              instead of the new ticket). */}
           {entityTypeId && (
             <Link
               to={`/records/${typeSlug || entityTypeId}/new`}
               state={{
                 workflowId,
                 entityTypeId,
-                returnTo: `/workflows/${workflowSlug ?? ""}/records`,
               }}
               className="kb-circ-btn kb-circ-btn-primary"
               title={`New ${entityType?.name ?? "Record"}`}
@@ -1754,7 +1759,6 @@ export function WorkflowRecords(): React.ReactElement {
               state={{
                 workflowId,
                 entityTypeId,
-                returnTo: `/workflows/${workflowSlug ?? ""}/records`,
               }}
               className="kb-new-btn"
             >
