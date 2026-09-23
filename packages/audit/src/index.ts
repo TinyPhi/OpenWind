@@ -139,7 +139,16 @@ export type AuditAction =
   | "schedule.execution_skipped"
   | "schedule.rule_paused"
   | "schedule.rule_resumed"
-  | "schedule.rule_archived";
+  | "schedule.rule_archived"
+  // docs/specs/byoq-hardening.md - migration 0107_reporting_audit_trail.sql
+  // already reserved these three in the DB CHECK constraint (for Superset
+  // SQL Lab's analytics_user path, via record_reporting_audit()) but nothing
+  // TS-side ever called it. BYOQ wires up the two it actually produces;
+  // "reporting.exported" stays reserved in the DB but has no caller yet
+  // (Superset's own export path, not BYOQ's client-side CSV button, which
+  // makes no server request at all).
+  | "reporting.query_executed"
+  | "reporting.query_failed";
 
 export type AuditEntryInput = {
   tenantId: string;
