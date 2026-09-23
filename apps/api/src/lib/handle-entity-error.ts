@@ -115,6 +115,29 @@ export function handleEntityError(c: Context, err: unknown): Response {
           },
           409,
         ) as Response;
+      case "SEVERITY_REQUIRED":
+        return c.json(
+          { error: err.code, message: "Severity is required" },
+          422,
+        ) as Response;
+      case "TAG_NOT_FOUND":
+        return c.json(
+          { error: err.code, message: "Not found" },
+          404,
+        ) as Response;
+      case "TAG_FORBIDDEN":
+        return c.json(
+          { error: err.code, message: "Not the tag creator" },
+          403,
+        ) as Response;
+      case "TAG_ALREADY_EXISTS":
+        return c.json(
+          {
+            error: err.code,
+            message: "This tag already exists on this ticket",
+          },
+          409,
+        ) as Response;
       default:
         break;
     }

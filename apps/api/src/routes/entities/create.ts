@@ -6,31 +6,88 @@ import {
   files,
   tenantUsers,
   apiKeys,
+  teams,
   db,
   withTenantContext,
 } from "@platform/db";
-import { createEntity } from "@platform/entity-engine";
+import {
+  createEntity,
+  TicketSeveritySchema,
+  DEFAULT_TICKET_SEVERITY,
+} from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { listUserIdsWithRole } from "../../lib/zitadel-management.js";
 import { ensureUserRefsKnown } from "../../lib/ensure-user-refs.js";
+import { postRemarkComment } from "../../lib/post-remark-comment.js";
+import { logger } from "@platform/logger";
 
-const CreateEntitySchema = z.object({
-  entityTypeId: z.string().uuid(),
-  fields: z.record(z.unknown()),
-  assignedTo: z.string().optional(),
-  dueDate: z.string().datetime().nullable().optional(),
-  workflowId: z.string().uuid().optional(),
-  currentState: z.string().optional(),
-  // docs/specs/hosted-ticket-create-handoff.md R7 / third-party-api-origin-
-  // tagging.md R2 — set ONLY when this create request arrives via the hosted
-  // handoff flow (apps/admin-ui/src/pages/customer/record-create.tsx, threaded
-  // from callback.tsx's state). Absent entirely on every normal, direct in-app
-  // creation — those are never origin-tagged, by design (spec §V). When
-  // present it is NOT trusted at face value: it must resolve to a real,
-  // active, non-revoked api_keys row below, or creation is rejected outright.
-  appClientId: z.string().trim().min(1).optional(),
-});
+const CreateEntitySchema = z
+  .object({
+    entityTypeId: z.string().uuid(),
+    fields: z.record(z.unknown()),
+    // Mandatory platform-wide invariant on every creation path (admin-ui here,
+    // third-party/tickets.ts, third-party/children.ts) -- title and dueDate
+    // are required on every ticket, on every workflow, no exceptions.
+    // assignedTo/teamId are each optional individually but exactly one of the
+    // two must be present -- docs/specs/team-assign-oncall-fallback.md R1.
+    // Previously optional here even though the admin-ui form already blocked
+    // submission without them client-side -- trivially bypassed by any direct
+    // API call. Not a per-workflow toggle like a workflow's own custom
+    // entity_fields.
+    assignedTo: z.string().min(1).optional(),
+    // docs/specs/team-assign-oncall-fallback.md R1/R3 -- alternative to
+    // assignedTo. Resolved asynchronously to an on-call user (or a fallback
+    // tier) by the existing entity.created -> resolve_oncall automation
+    // pipeline; never resolved synchronously in this request. Written into
+    // fields.team_id below (the JSONB slot resolve-oncall.ts already reads),
+    // not a new entity_instances column.
+    // PR #659 review (Vijit), G6: was z.string().min(1) -- a non-UUID value
+    // passed schema validation and only failed at the team lookup below,
+    // surfacing as "Must be an existing team in this tenant" rather than a
+    // structured invalid-format error. TemplateSchema uses .uuid() for the
+    // same field.
+    teamId: z.string().uuid().optional(),
+    dueDate: z.string().datetime(),
+    remark: z.string().trim().min(1).max(4000),
+    workflowId: z.string().uuid().optional(),
+    currentState: z.string().optional(),
+    // docs/specs/ticket-severity-and-tags.md R1 — optional on the wire; the
+    // handler below defaults to Medium when omitted. Never NULL once past
+    // this route (§V).
+    severity: TicketSeveritySchema.optional(),
+    // docs/specs/hosted-ticket-create-handoff.md R7 / third-party-api-origin-
+    // tagging.md R2 — set ONLY when this create request arrives via the hosted
+    // handoff flow (apps/admin-ui/src/pages/customer/record-create.tsx, threaded
+    // from callback.tsx's state). Absent entirely on every normal, direct in-app
+    // creation — those are never origin-tagged, by design (spec §V). When
+    // present it is NOT trusted at face value: it must resolve to a real,
+    // active, non-revoked api_keys row below, or creation is rejected outright.
+    appClientId: z.string().trim().min(1).optional(),
+  })
+  .superRefine((input, ctx) => {
+    // docs/specs/team-assign-oncall-fallback.md R1 — exactly one of
+    // assignedTo/teamId, enforced server-side regardless of client behavior
+    // (§V — never trust the toggle UI alone).
+    const hasAssignedTo = input.assignedTo !== undefined;
+    const hasTeamId = input.teamId !== undefined;
+    if (hasAssignedTo && hasTeamId) {
+      // Both set — attribute to teamId (the field whose presence conflicts
+      // with an otherwise-valid assignedTo), not the field that's actually
+      // fine on its own (/review finding, 2026-09-21).
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Exactly one of assignedTo or teamId must be set, not both",
+        path: ["teamId"],
+      });
+    } else if (!hasAssignedTo && !hasTeamId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Exactly one of assignedTo or teamId must be set",
+        path: ["assignedTo"],
+      });
+    }
+  });
 
 /**
  * docs/specs/hosted-ticket-create-handoff.md R7 — the handoff URL's
@@ -105,6 +162,9 @@ export const createEntityHandler = factory.createHandlers(
     // (tenant_users has no role column), scoped by orgId, so this also rejects a
     // cross-tenant user id (they simply won't appear in this org's role set).
     // Fail closed (no orgId → reject) rather than silently skipping the check.
+    // Only runs when assignedTo was set -- CreateEntitySchema's superRefine
+    // guarantees it's the mutually-exclusive alternative to teamId, not that
+    // it's always present (docs/specs/team-assign-oncall-fallback.md R1).
     if (input.assignedTo !== undefined) {
       const usersWithRole = orgId
         ? await listUserIdsWithRole(orgId, "user")
@@ -117,6 +177,40 @@ export const createEntityHandler = factory.createHandlers(
             fields: {
               assignedTo:
                 "Must be an existing tenant member with the 'user' role",
+            },
+          },
+          422,
+        );
+      }
+    }
+
+    // docs/specs/team-assign-oncall-fallback.md R1 — teamId must resolve to a
+    // real team in the caller's own tenant. resolve_oncall's own schedule
+    // lookup is already tenant-scoped and would silently no-op (fail open to
+    // the workflow-admin fallback) on a bogus/cross-tenant id, so this isn't
+    // closing a cross-tenant leak -- it's failing fast with a clear 422
+    // instead of creating a ticket that's silently unresolvable.
+    if (input.teamId !== undefined) {
+      const [team] = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({ id: teams.id })
+          .from(teams)
+          .where(
+            and(
+              eq(teams.id, input.teamId as string),
+              eq(teams.tenantId, tenantId),
+              isNull(teams.deletedAt),
+            ),
+          )
+          .limit(1),
+      );
+      if (!team) {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "Validation failed",
+            fields: {
+              teamId: "Must be an existing team in this tenant",
             },
           },
           422,
@@ -181,9 +275,16 @@ export const createEntityHandler = factory.createHandlers(
           input.fields,
           orgId,
         );
-        const { appClientId, ...createInput } = input;
+        // teamId isn't a createEntity field -- it's written into
+        // fields.team_id (docs/specs/team-assign-oncall-fallback.md R1/§I),
+        // the same JSONB slot the (previously dormant) resolve_oncall
+        // automation rule already reads.
+        const { appClientId, teamId, fields, ...createInput } = input;
         return createEntity(tx, tenantId, {
           ...createInput,
+          fields:
+            teamId !== undefined ? { ...fields, team_id: teamId } : fields,
+          severity: createInput.severity ?? DEFAULT_TICKET_SEVERITY,
           actorId: userId,
           actorName: actorName ?? undefined,
           createdBy: userId,
@@ -220,6 +321,30 @@ export const createEntityHandler = factory.createHandlers(
               ),
             ),
         );
+      }
+
+      // Best-effort, outside the create transaction (already committed by
+      // this point) -- a failure here must never surface as a failed ticket
+      // creation. See post-remark-comment.ts.
+      if (instance.workflowId) {
+        try {
+          await withTenantContext(tenantId, (tx) =>
+            postRemarkComment(tx, {
+              tenantId,
+              instanceId: instance.id,
+              workflowId: instance.workflowId as string,
+              currentState: instance.currentState,
+              actorId: userId,
+              actorName: actorName ?? undefined,
+              text: input.remark,
+            }),
+          );
+        } catch (remarkErr) {
+          logger.warn(
+            { remarkErr, tenantId, instanceId: instance.id },
+            "entity create: failed to post remark as first comment",
+          );
+        }
       }
 
       return c.json({ data: instance }, 201);

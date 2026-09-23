@@ -85,7 +85,18 @@ export const entityInstances = pgTable(
     originMechanism: text("origin_mechanism"),
     originOidcClientId: text("origin_oidc_client_id"),
     originPerformerUserId: text("origin_performer_user_id"),
+    // docs/specs/ticket-severity-and-tags.md — migration 0108. NULL only on rows that
+    // predate this feature; every creation path since writes one of the 4 enum values
+    // (default "medium") at the app layer — see the migration's own comment for why
+    // there is deliberately no DB-level DEFAULT.
+    severity: text("severity").$type<
+      "low" | "medium" | "high" | "critical" | null
+    >(),
     dueDate: timestamp("due_date", { withTimezone: true }),
+    // Mandatory-ticket-fields sync, 2026-09-21 (migration 0109). Plain
+    // system column, not an entity_fields row -- same rationale as
+    // due_date/severity above. NULL on rows created before this feature.
+    remark: text("remark"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -181,6 +192,47 @@ export const ticketAlerts = pgTable(
     tenantCreatedByIdx: index("ticket_alerts_tenant_created_by_idx").on(
       t.tenantId,
       t.createdBy,
+    ),
+  }),
+);
+
+// docs/specs/ticket-severity-and-tags.md — migration 0108. Shared, ticket-bound
+// freeform tags (R4/R5). Uniqueness on (tenantId, entityInstanceId, tagText) is
+// enforced at the DB level (see migration) so the "already exists on this ticket"
+// dedup check can't race; tagText is stored already-normalized (trim+lowercase) by
+// the write path. No UPDATE grant — tags are only ever added or removed, never
+// edited in place.
+export const entityInstanceTags = pgTable(
+  "entity_instance_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull(),
+    // PR #659 review (Vijit), B3: the SQL migration (0108) declares
+    // ON DELETE CASCADE, but the Drizzle definition omitted
+    // .onDelete("cascade") -- the exact class of bug migration 0108's own
+    // header comment warns about (ticket_alerts/migration 0045). Without
+    // this, a future `drizzle-kit generate` diffs against a FK with no
+    // CASCADE and would emit a migration silently breaking GDPR purge.
+    entityInstanceId: uuid("entity_instance_id")
+      .notNull()
+      .references(() => entityInstances.id, { onDelete: "cascade" }),
+    tagText: text("tag_text").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    tenantInstanceTextUnique: unique(
+      "entity_instance_tags_tenant_instance_text_uidx",
+    ).on(t.tenantId, t.entityInstanceId, t.tagText),
+    tenantInstanceIdx: index("entity_instance_tags_tenant_instance_idx").on(
+      t.tenantId,
+      t.entityInstanceId,
+    ),
+    tenantTextIdx: index("entity_instance_tags_tenant_text_idx").on(
+      t.tenantId,
+      t.tagText,
     ),
   }),
 );

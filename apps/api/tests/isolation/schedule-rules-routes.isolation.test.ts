@@ -13,7 +13,13 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { db, tenants, entityTypes, scheduleRules } from "@platform/db";
+import {
+  db,
+  tenants,
+  entityTypes,
+  scheduleRules,
+  tenantUsers,
+} from "@platform/db";
 import type { AuthContext } from "@platform/auth";
 import { scheduleRulesRouter } from "../../src/routes/admin/schedule-rules.js";
 
@@ -21,6 +27,7 @@ const TENANT_A = "aaaaaaaa-8888-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-8888-4000-b000-000000000002";
 
 let entityTypeId: string;
+let assigneeUserId: string;
 
 function makeApp(tenantId: string, roles: string[]) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
@@ -54,8 +61,7 @@ beforeAll(async () => {
     },
   ]);
   // Shared NULL-tenant "ticket" template, same convention as the real
-  // helpdesk module's entity type -- validateScheduleRuleRefs requires
-  // name === 'ticket'.
+  // helpdesk module's entity type.
   const [et] = await db
     .insert(entityTypes)
     .values({
@@ -66,12 +72,24 @@ beforeAll(async () => {
     })
     .returning({ id: entityTypes.id });
   entityTypeId = et!.id;
+
+  // Mandate-fields templates require a valid assignedTo, cross-tenant
+  // validated against tenant_users (packages/scheduler/src/cross-tenant-refs.ts).
+  const [tu] = await db
+    .insert(tenantUsers)
+    .values({
+      tenantId: TENANT_A,
+      userId: "aaaaaaaa-0000-4000-a000-0000000000a1",
+    })
+    .returning({ userId: tenantUsers.userId });
+  assigneeUserId = tu!.userId;
 });
 
 afterAll(async () => {
   await db
     .delete(scheduleRules)
     .where(inArray(scheduleRules.tenantId, [TENANT_A, TENANT_B]));
+  await db.delete(tenantUsers).where(eq(tenantUsers.tenantId, TENANT_A));
   await db.delete(entityTypes).where(eq(entityTypes.id, entityTypeId));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
 });
@@ -86,7 +104,12 @@ describe("schedule-rules router — tenant isolation", () => {
         name: "Route Isolation Rule",
         cronExpr: "0 9 1 * *",
         entityTypeId,
-        template: { title: "Monthly Review" },
+        template: {
+          title: "Monthly Review",
+          assignedTo: assigneeUserId,
+          due_days: 3,
+          remark: "Monthly review reminder",
+        },
       }),
     });
     expect(createRes.status).toBe(201);
@@ -133,7 +156,12 @@ describe("schedule-rules router — tenant isolation", () => {
         name: "Soft-Delete Race Rule",
         cronExpr: "0 9 1 * *",
         entityTypeId,
-        template: { title: "Monthly Review" },
+        template: {
+          title: "Monthly Review",
+          assignedTo: assigneeUserId,
+          due_days: 3,
+          remark: "Monthly review reminder",
+        },
       }),
     });
     expect(createRes.status).toBe(201);

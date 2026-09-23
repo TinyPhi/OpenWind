@@ -157,6 +157,14 @@ export async function buildNotificationContent(
         body: "A ticket's due date is coming up in 2 days",
         link,
       };
+    case "ticket.severity_changed":
+      return {
+        title: "Severity changed",
+        body: reason
+          ? `${actorName} changed a ticket's severity to "${reason}"`
+          : `${actorName} changed a ticket's severity`,
+        link,
+      };
     case "workflow.sla_breached":
       return {
         title: "SLA breached",

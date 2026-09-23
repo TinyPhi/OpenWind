@@ -13,9 +13,12 @@ import {
   db,
   tenants,
   entityInstances,
+  entityTypes,
+  entityFields,
   scheduleRules,
   scheduleExecutions,
   adminAuditLog,
+  tenantUsers,
 } from "@platform/db";
 import { createEntityType } from "@platform/entity-engine";
 import type { EntityType } from "@platform/entity-engine";
@@ -59,6 +62,13 @@ beforeAll(async () => {
     allowCustomFields: true,
   });
 
+  // Mandate-fields templates require a valid assignedTo, cross-tenant
+  // validated against tenant_users (packages/scheduler/src/cross-tenant-refs.ts).
+  await db.insert(tenantUsers).values([
+    { tenantId: TENANT_A, userId: "aaaaaaaa-0000-4000-a000-0000000000aa" },
+    { tenantId: TENANT_B, userId: "bbbbbbbb-0000-4000-b000-0000000000bb" },
+  ]);
+
   const [ruleA] = await db
     .insert(scheduleRules)
     .values({
@@ -67,7 +77,12 @@ beforeAll(async () => {
       cronExpr: "* * * * *",
       timezone: "UTC",
       entityTypeId: entityTypeA.id,
-      template: { title: "Weekly review" },
+      template: {
+        title: "Weekly review",
+        assignedTo: "aaaaaaaa-0000-4000-a000-0000000000aa",
+        due_days: 3,
+        remark: "Auto-created weekly review",
+      },
       status: "active",
       nextFireAt: new Date(Date.now() - 1000),
       createdBy: "u-a",
@@ -81,7 +96,12 @@ beforeAll(async () => {
       cronExpr: "* * * * *",
       timezone: "UTC",
       entityTypeId: entityTypeB.id,
-      template: { title: "Weekly review" },
+      template: {
+        title: "Weekly review",
+        assignedTo: "bbbbbbbb-0000-4000-b000-0000000000bb",
+        due_days: 3,
+        remark: "Auto-created weekly review",
+      },
       status: "active",
       nextFireAt: new Date(Date.now() - 1000),
       createdBy: "u-b",
@@ -106,6 +126,22 @@ afterAll(async () => {
   await db
     .delete(adminAuditLog)
     .where(inArray(adminAuditLog.tenantId, [TENANT_A, TENANT_B]));
+  // PR #659 review (Vijit), S7: entityTypes created in beforeAll were never
+  // cleaned up, leaking rows into long-lived CI databases. entity_fields
+  // (the auto-seeded required "title" field -- entity-types.ts) references
+  // entity_types and must be deleted first or the entityTypes delete below
+  // fails its FK constraint.
+  await db
+    .delete(entityFields)
+    .where(
+      inArray(entityFields.entityTypeId, [entityTypeA.id, entityTypeB.id]),
+    );
+  await db
+    .delete(entityTypes)
+    .where(inArray(entityTypes.id, [entityTypeA.id, entityTypeB.id]));
+  await db
+    .delete(tenantUsers)
+    .where(inArray(tenantUsers.tenantId, [TENANT_A, TENANT_B]));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
 });
 

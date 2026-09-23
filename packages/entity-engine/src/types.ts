@@ -1,5 +1,6 @@
 import type { FieldType } from "./field-types.js";
 import type { FieldError } from "./errors.js";
+import type { TicketSeverity } from "./severity-and-tags.js";
 
 /** PII classification for a field — controls redaction in workflow_events.metadata. */
 export type FieldSensitivity = "public" | "internal" | "pii" | "financial";
@@ -43,6 +44,12 @@ export interface EntityInstance {
   assignedTo: string | null;
   /** System field, independent of workflow state/SLA — docs/specs/due-date.md. */
   dueDate: Date | null;
+  /**
+   * Mandatory-ticket-fields sync, 2026-09-21 (migration 0108). Plain system
+   * field like dueDate above, not an entity_fields row. NULL only on rows
+   * created before this feature shipped.
+   */
+  remark: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -54,6 +61,11 @@ export interface EntityInstance {
   originMechanism: "api" | "handoff" | null;
   originOidcClientId: string | null;
   originPerformerUserId: string | null;
+  /**
+   * docs/specs/ticket-severity-and-tags.md. NULL only on rows created before this
+   * feature shipped (§V) — every creation path since writes a real value.
+   */
+  severity: TicketSeverity | null;
 }
 
 export interface EntityRelation {
@@ -74,6 +86,8 @@ export type CreateChildRelationInput = {
   createdBy?: string | undefined;
   /** ISO datetime string, or null. Independent of workflow state/SLA. */
   dueDate?: string | null | undefined;
+  /** Mandatory-ticket-fields sync, 2026-09-21 — same shape as createEntity's. */
+  remark?: string | null | undefined;
   /**
    * ADR-012 Phase C, spec R10 — dual-identity attribution for a third-party
    * sub-ticket creation, mirroring createEntity's actorType/actingPersonId
@@ -124,6 +138,12 @@ export type CreateEntityInput = {
   assignedTo?: string | undefined;
   /** ISO datetime string, or null. Independent of workflow state/SLA. */
   dueDate?: string | null | undefined;
+  /**
+   * Mandatory-ticket-fields sync, 2026-09-21 — required at the route layer
+   * like dueDate/assignedTo; createEntity itself does not default or
+   * require this, matching dueDate's own pattern.
+   */
+  remark?: string | null | undefined;
   workflowId?: string | undefined;
   currentState?: string | undefined;
   /**
@@ -143,6 +163,14 @@ export type CreateEntityInput = {
   originMechanism?: "api" | "handoff" | undefined;
   originOidcClientId?: string | undefined;
   originPerformerUserId?: string | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md R1 — required at the route layer
+   * (defaulted to "medium" there if the caller omitted it); createEntity
+   * itself does not default this, so a root caller must always resolve a
+   * value before calling in, matching the spec's "never a code path that
+   * writes NULL after this feature ships" invariant.
+   */
+  severity?: TicketSeverity | undefined;
 };
 
 export type UpdateEntityInput = {
@@ -181,6 +209,23 @@ export type ListEntitiesInput = {
    */
   scopeToUserId?: string | undefined;
   fieldFilters?: Record<string, unknown> | undefined;
+  /** docs/specs/ticket-severity-and-tags.md R6 — one or more severity levels (OR'd). */
+  severity?: TicketSeverity[] | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md R6 — a single already-normalized
+   * (trim+lowercase) tag substring, matched via ILIKE (revised from exact
+   * match for a live type-ahead UX). Callers must normalize before passing
+   * this in — see normalizeTagText. escapeLikePattern is applied downstream
+   * (in engine.ts), not by the caller.
+   */
+  tag?: string | undefined;
+  /**
+   * docs/specs/ticket-severity-and-tags.md T16 (records-page Source filter,
+   * converted from client-side to server-side) — "internal" means
+   * originMechanism IS NULL (normal human creation), "external" means "api",
+   * "redirected" means "handoff". See docs/specs/third-party-api-origin-tagging.md.
+   */
+  origin?: "internal" | "external" | "redirected" | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
   includeDeleted?: boolean | undefined;

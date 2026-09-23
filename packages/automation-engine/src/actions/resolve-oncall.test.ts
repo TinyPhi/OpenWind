@@ -3,12 +3,38 @@ import type { TriggerEvent } from "../event-schemas.js";
 
 const insertedRows: Array<{ table: unknown; values: unknown }> = [];
 let entityRow: { assignedTo: string | null } | undefined = undefined;
+// /security-review finding, 2026-09-21 -- resolve-oncall.ts now re-validates
+// team_id against a real, same-tenant `teams` row before using it. Default
+// true so the many existing scenarios below (which all use a legitimate
+// "team-1") don't need to opt in individually.
+let teamExists = true;
+
+// /review finding, 2026-09-21 -- workflow-admin fallback (R4, resolve-oncall.ts
+// handleCascadeMiss -> resolveWorkflowAdminFallback) calls
+// getWorkflowByEntityTypeId, whose query chain ends in
+// .where(...).orderBy(...).limit(...) -- one extra step this mock didn't
+// have before that fallback existed. Default: no governing workflow found
+// (workflowRow stays undefined), matching the pre-fallback fail-open
+// behavior these existing scenarios assert on.
+let workflowRow: { createdBy: string | null } | undefined = undefined;
 
 const dbMock = {
-  select: () => ({
+  select: (columns?: Record<string, unknown>) => ({
     from: () => ({
       where: () => ({
-        limit: () => Promise.resolve(entityRow ? [entityRow] : []),
+        limit: () =>
+          // Differentiate the entity_instances.assignedTo lookup
+          // (explicit-assignee-wins) from the new teams-existence check by
+          // the shape of the selected columns -- both share this same
+          // generic chain mock.
+          columns && "assignedTo" in columns
+            ? Promise.resolve(entityRow ? [entityRow] : [])
+            : Promise.resolve(
+                teamExists ? [{ id: "team-1", name: "Team One" }] : [],
+              ),
+        orderBy: () => ({
+          limit: () => Promise.resolve(workflowRow ? [workflowRow] : []),
+        }),
       }),
     }),
   }),
@@ -22,6 +48,7 @@ const dbMock = {
 
 vi.mock("@platform/db", () => ({
   entityInstances: "entity_instances_table",
+  teams: { id: "id", tenantId: "tenant_id", deletedAt: "deleted_at" },
   notifications: "notifications_table",
   notificationRecipients: "notification_recipients_table",
   isOutboundNotificationsEnabled: () => Promise.resolve(true),
@@ -92,6 +119,8 @@ describe("executeResolveOncallAction", () => {
   beforeEach(() => {
     insertedRows.length = 0;
     entityRow = undefined;
+    teamExists = true;
+    workflowRow = undefined;
     mockUpdateEntity.mockClear();
     mockGetActiveScheduleForTeam.mockReset();
     mockResolveOncallCascade.mockReset();
@@ -149,9 +178,9 @@ describe("executeResolveOncallAction", () => {
     // Backup notification: backup exists and resolved tier isn't backup.
     expect(insertedRows).toHaveLength(2);
     expect(insertedRows[0]?.table).toBe("notifications_table");
-    // Vijit review, PR #597 G1: the BullMQ Queue created for the outbound
-    // handoff must be closed, or every execution reaching this path leaks
-    // its subscriber/publisher IORedis clients.
+    // Vijit review, PR #597 G1 / PR #600 B1: the BullMQ Queue created for
+    // the outbound handoff must be closed, or every execution reaching this
+    // path leaks its subscriber/publisher IORedis clients.
     expect(mockQueueAdd).toHaveBeenCalledTimes(1);
     expect(mockQueueClose).toHaveBeenCalledTimes(1);
   });
@@ -369,6 +398,40 @@ describe("executeResolveOncallAction", () => {
 
     expect(mockGetActiveScheduleForTeam).not.toHaveBeenCalled();
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  // /security-review finding, 2026-09-21 -- team_id reaching this action via
+  // PATCH /entities/:id's free-form `fields`, or via `fields.team_id` set
+  // directly on create, is never pre-validated the way POST /entities' own
+  // top-level `teamId` param is. Confirms the action itself now closes that
+  // gap rather than letting a bogus string flow into audit metadata / the
+  // summary comment.
+  it("no-ops (no assignment, no audit, no comment) when team_id doesn't resolve to a real team in this tenant", async () => {
+    teamExists = false;
+
+    const event = {
+      eventType: "entity.updated",
+      instanceId: "inst-1",
+      entityTypeId: "et-1",
+      actorId: "u-actor",
+      changed: { team_id: { old: null, new: "not-a-real-team" } },
+    } as unknown as TriggerEvent;
+
+    await executeResolveOncallAction(
+      dbMock as never,
+      "t-1",
+      RULE_ID,
+      EXEC_ID,
+      event,
+      {},
+      0,
+      redisMock(),
+    );
+
+    expect(mockGetActiveScheduleForTeam).not.toHaveBeenCalled();
+    expect(mockUpdateEntity).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    expect(insertedRows).toHaveLength(0);
   });
 
   it("no-ops when team_id did not change in this entity.updated event", async () => {

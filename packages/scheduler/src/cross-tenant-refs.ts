@@ -31,7 +31,7 @@ import type { Template } from "./template.js";
 export type ScheduleRuleRefInput = {
   entityTypeId: string;
   workflowId?: string | undefined;
-  template: Pick<Template, "team_id" | "service_id" | "assignee_id">;
+  template: Pick<Template, "teamId" | "service_id" | "assignedTo">;
 };
 
 async function nullTenantAwareLookup(
@@ -66,11 +66,16 @@ export async function validateScheduleRuleRefs(
 ): Promise<{ field: string; message: string }[]> {
   const errors: { field: string; message: string }[] = [];
 
-  // entity_type_id: must resolve (own tenant or global template) AND have
-  // name = 'ticket' (out of scope: "Auto-creation of any entity type other
-  // than ticket", §C).
+  // entity_type_id must resolve (own tenant or global template) -- any
+  // entity type is allowed (docs/specs/schedule-rules-mandate-fields.md
+  // R7, 2026-09-22 direction change): a schedule rule targets whatever
+  // entity type its workflow belongs to, the same way manual creation via
+  // record-create.tsx is not restricted to "ticket" either. The route
+  // layer resolves entityTypeId FROM the chosen workflowId before calling
+  // this function -- this is just existence/tenant-ownership validation,
+  // same as workflowId's own check just below.
   const [entityType] = await tx
-    .select({ id: entityTypes.id, name: entityTypes.name })
+    .select({ id: entityTypes.id })
     .from(entityTypes)
     .where(
       and(
@@ -83,11 +88,6 @@ export async function validateScheduleRuleRefs(
     errors.push({
       field: "entityTypeId",
       message: "Referenced resource does not exist or is not accessible",
-    });
-  } else if (entityType.name !== "ticket") {
-    errors.push({
-      field: "entityTypeId",
-      message: "entityTypeId must reference the ticket entity type",
     });
   }
 
@@ -111,7 +111,7 @@ export async function validateScheduleRuleRefs(
     );
   }
 
-  if (input.template.team_id) {
+  if (input.template.teamId) {
     const lookup = lookupValidIdsInTable(
       tx,
       teams,
@@ -121,7 +121,7 @@ export async function validateScheduleRuleRefs(
       tenantId,
     );
     const teamErrors = await validateCrossTenantRefs(
-      [{ fieldName: "template.team_id", refId: input.template.team_id }],
+      [{ fieldName: "template.teamId", refId: input.template.teamId }],
       lookup,
     );
     errors.push(
@@ -158,7 +158,7 @@ export async function validateScheduleRuleRefs(
     );
   }
 
-  if (input.template.assignee_id) {
+  if (input.template.assignedTo) {
     const lookup = lookupValidIdsInTable(
       tx,
       tenantUsers,
@@ -170,8 +170,8 @@ export async function validateScheduleRuleRefs(
     const assigneeErrors = await validateCrossTenantRefs(
       [
         {
-          fieldName: "template.assignee_id",
-          refId: input.template.assignee_id,
+          fieldName: "template.assignedTo",
+          refId: input.template.assignedTo,
         },
       ],
       lookup,

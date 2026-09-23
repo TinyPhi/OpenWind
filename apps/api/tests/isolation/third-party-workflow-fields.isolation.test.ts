@@ -5,7 +5,7 @@
  * Real Postgres connection, RLS + app_user enforced (not mocked).
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { inArray, eq, and } from "drizzle-orm";
@@ -27,6 +27,19 @@ import { hashApiKey } from "@platform/auth";
 import type { AuthContext, ActingPersonContext } from "@platform/auth";
 import { getThirdPartyWorkflowFieldsHandler } from "../../src/routes/third-party/workflow-fields.js";
 import { createThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
+
+// assignedTo is now mandatory (platform-wide invariant) on ticket create.
+// Its *resolution* isn't what this file tests, so mock listOrgUsers empty --
+// resolveOrgMemberUserId then cleanly reports unresolved and the ticket
+// create proceeds to the custom-field validation this file actually
+// exercises, rather than hitting a real Zitadel org that doesn't exist for
+// this test's fake orgId. Mocked at the service boundary per
+// testing-conventions.md.
+import type * as ZitadelManagement from "../../src/lib/zitadel-management.js";
+vi.mock("../../src/lib/zitadel-management.js", async (importOriginal) => {
+  const real = await importOriginal<typeof ZitadelManagement>();
+  return { ...real, listOrgUsers: async () => [] };
+});
 
 const TENANT = "ffffffff-0000-4000-f000-000000000f01";
 const OTHER_TENANT = "ffffffff-0000-4000-f000-000000000f02";
@@ -283,7 +296,13 @@ describe("GET /api/v1/workflows/:workflowId/fields", () => {
     const createRes = await app.request("/tickets", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workflowId, fields: {} }),
+      body: JSON.stringify({
+        workflowId,
+        fields: {},
+        assignedTo: "workflow-fields-test-assignee",
+        dueDate: "2026-01-01T00:00:00.000Z",
+        remark: "a remark",
+      }),
     });
     expect(createRes.status).toBe(422);
     const createBody = (await createRes.json()) as {

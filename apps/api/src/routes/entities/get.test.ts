@@ -32,12 +32,20 @@ vi.mock("@platform/auth", () => ({
 // getAncestorDepth (unconditionally called by the handler) walks
 // entity_relations via a raw select chain -- stub it to resolve no parent,
 // matching the flat (non-nested) fixtures these tests use.
+const teamsTable = { __name: "teams" };
+let mockTeamRow: { name: string } | undefined;
+
 const mockAncestorSelect = vi.fn(() => ({
-  from: vi.fn(() => ({
-    where: vi.fn(() => ({
-      limit: vi.fn().mockResolvedValue([]),
-    })),
-  })),
+  from: vi.fn((t: { __table?: unknown }) => {
+    const isTeams = t?.__table === teamsTable;
+    return {
+      where: vi.fn(() => ({
+        limit: vi
+          .fn()
+          .mockResolvedValue(isTeams ? (mockTeamRow ? [mockTeamRow] : []) : []),
+      })),
+    };
+  }),
 }));
 
 vi.mock("@platform/db", () => ({
@@ -52,6 +60,13 @@ vi.mock("@platform/db", () => ({
   workflows: {
     id: "workflows.id",
     maxChildDepth: "workflows.max_child_depth",
+  },
+  teams: {
+    id: "teams.id",
+    name: "teams.name",
+    tenantId: "teams.tenant_id",
+    deletedAt: "teams.deleted_at",
+    __table: teamsTable,
   },
   withTenantContext: (tenantId, fn) => fn({ select: mockAncestorSelect }),
 }));
@@ -106,6 +121,7 @@ describe("GET /entities/:id", () => {
       roles: ["agent"],
       email: "test@example.com",
     };
+    mockTeamRow = undefined;
   });
 
   it("returns 200 with the entity instance when found", async () => {
@@ -212,5 +228,45 @@ describe("GET /entities/:id", () => {
     const res = await makeApp().request(`/${INST_ID}`);
 
     expect(res.status).toBe(200);
+  });
+
+  // 2026-09-22: team_id is a plain generic field on every entity type (no
+  // dedicated "team reference" field type) -- the UI showed the raw UUID
+  // for any non-ticket entity type until this resolution was added.
+  describe("teamName resolution", () => {
+    it("resolves fields.team_id to the team's live display name", async () => {
+      mockTeamRow = { name: "Dev Team" };
+      mockGetEntity.mockResolvedValue({
+        ...fakeInstance,
+        fields: { subject: "hello", team_id: "team-1" },
+      });
+
+      const res = await makeApp().request(`/${INST_ID}`);
+      const json = await res.json();
+
+      expect(json.data.teamName).toBe("Dev Team");
+    });
+
+    it("falls back to the raw id when the team no longer exists", async () => {
+      mockTeamRow = undefined;
+      mockGetEntity.mockResolvedValue({
+        ...fakeInstance,
+        fields: { subject: "hello", team_id: "deleted-team-1" },
+      });
+
+      const res = await makeApp().request(`/${INST_ID}`);
+      const json = await res.json();
+
+      expect(json.data.teamName).toBe("deleted-team-1");
+    });
+
+    it("is null when the entity has no team_id set", async () => {
+      mockGetEntity.mockResolvedValue(fakeInstance);
+
+      const res = await makeApp().request(`/${INST_ID}`);
+      const json = await res.json();
+
+      expect(json.data.teamName).toBeNull();
+    });
   });
 });

@@ -39,6 +39,7 @@ import {
   workflowStates,
   workflows,
   entityTypes,
+  entityFields,
   notifications,
   notificationRecipients,
   tenants,
@@ -205,6 +206,13 @@ afterAll(async () => {
       .where(eq(workflowTransitions.tenantId, TENANT));
     await tx.delete(workflowStates).where(eq(workflowStates.tenantId, TENANT));
     await tx.delete(workflows).where(eq(workflows.tenantId, TENANT));
+    // entity_fields (the auto-seeded required "title" field --
+    // packages/entity-engine/src/entity-types.ts) references entity_types
+    // and must be deleted first, or the entityTypes delete below fails its
+    // FK constraint and this whole afterAll throws -- leaking the tenant
+    // row (the trailing db.delete(tenants) below never runs) and poisoning
+    // every subsequent run with a duplicate-key beforeAll failure.
+    await tx.delete(entityFields).where(eq(entityFields.tenantId, TENANT));
     await tx.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT));
   });
   await db.delete(tenants).where(eq(tenants.id, TENANT));
@@ -215,7 +223,7 @@ describe("outbox-poller's real query + executor.ts dedup together prevent a doub
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "dedup race ticket" },
         workflowId,
       }),
     );

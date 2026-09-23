@@ -68,6 +68,16 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// createEntityType now auto-seeds a required "title" field via
+// addEntityField (mandatory-ticket-fields sync, 2026-09-21) -- that pulls in
+// engine.ts's full dependency graph (schema cache, reserved-name checks,
+// etc.), well beyond what this narrow unit test mocks. Mock addEntityField
+// itself at the module boundary rather than its transitive dependencies.
+const mockAddEntityField = vi.fn().mockResolvedValue({});
+vi.mock("./engine.js", () => ({
+  addEntityField: (...args: unknown[]) => mockAddEntityField(...args),
+}));
+
 // ── Import AFTER mocks ────────────────────────────────────────────────────────
 
 const {
@@ -93,7 +103,10 @@ const fakeEntityType = {
 };
 
 describe("createEntityType", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAddEntityField.mockResolvedValue({});
+  });
 
   it("creates an entity type and returns it", async () => {
     mockInsertReturning.mockResolvedValue([fakeEntityType]);
@@ -105,6 +118,65 @@ describe("createEntityType", () => {
     expect(result.name).toBe("ticket");
   });
 
+  // Mandatory-ticket-fields sync, 2026-09-21 -- every new, per-tenant entity
+  // type must have at least a required "title" field guaranteed from
+  // creation, not left to the admin's separate, optional "add fields" step.
+  it("auto-seeds a required 'title' field for a per-tenant entity type", async () => {
+    mockInsertReturning.mockResolvedValue([fakeEntityType]);
+    await createEntityType(dbMock as never, TENANT_ID, {
+      name: "ticket",
+      plural: "tickets",
+    });
+    expect(mockAddEntityField).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      TYPE_ID,
+      expect.objectContaining({
+        name: "title",
+        isRequired: true,
+        isSystem: false,
+      }),
+    );
+  });
+
+  // Team-assign sync, 2026-09-21 (docs/specs/team-assign-oncall-fallback.md
+  // R2) -- every new, per-tenant entity type must have an optional team_id
+  // field guaranteed from creation, alongside the required title field.
+  it("auto-seeds an optional 'team_id' field for a per-tenant entity type", async () => {
+    mockInsertReturning.mockResolvedValue([fakeEntityType]);
+    await createEntityType(dbMock as never, TENANT_ID, {
+      name: "ticket",
+      plural: "tickets",
+    });
+    expect(mockAddEntityField).toHaveBeenCalledWith(
+      dbMock,
+      TENANT_ID,
+      TYPE_ID,
+      expect.objectContaining({
+        name: "team_id",
+        isRequired: false,
+        isSystem: false,
+      }),
+    );
+  });
+
+  // /review finding, 2026-09-21 -- addEntityField itself enforces
+  // allowCustomFields (engine.ts, CUSTOM_FIELDS_NOT_ALLOWED) and would throw
+  // if the auto-seed unconditionally called it, turning a locked-down
+  // entity type's creation into a hard failure.
+  it("does not auto-seed title or team_id for an entity type created with allowCustomFields: false", async () => {
+    mockInsertReturning.mockResolvedValue([
+      { ...fakeEntityType, allowCustomFields: false },
+    ]);
+    const result = await createEntityType(dbMock as never, TENANT_ID, {
+      name: "ticket",
+      plural: "tickets",
+      allowCustomFields: false,
+    });
+    expect(result.id).toBe(TYPE_ID);
+    expect(mockAddEntityField).not.toHaveBeenCalled();
+  });
+
   it("creates a system-level type when tenantId is null", async () => {
     mockInsertReturning.mockResolvedValue([
       { ...fakeEntityType, tenantId: null },
@@ -114,6 +186,20 @@ describe("createEntityType", () => {
       plural: "tickets",
     });
     expect(result.tenantId).toBeNull();
+  });
+
+  // Module-catalog entity types (tenantId null) come from seed SQL
+  // (modules/*.sql, ADR-004) which defines its own fields explicitly --
+  // auto-seeding here would be a second, conflicting source of truth.
+  it("does not auto-seed a 'title' field for a module-catalog entity type (tenantId null)", async () => {
+    mockInsertReturning.mockResolvedValue([
+      { ...fakeEntityType, tenantId: null },
+    ]);
+    await createEntityType(dbMock as never, null, {
+      name: "ticket",
+      plural: "tickets",
+    });
+    expect(mockAddEntityField).not.toHaveBeenCalled();
   });
 });
 

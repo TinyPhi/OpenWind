@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { requireAuth, requireActingPerson } from "@platform/auth";
 import { withTenantContext, db } from "@platform/db";
-import { getEntity, createEntity } from "@platform/entity-engine";
+import {
+  getEntity,
+  createEntity,
+  DEFAULT_TICKET_SEVERITY,
+} from "@platform/entity-engine";
 import { getWorkflow } from "@platform/workflow-engine";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
@@ -17,11 +21,13 @@ import {
 } from "./attachments-reference.js";
 import { notFound } from "./not-found.js";
 import { redactEntityFieldsForThirdParty } from "../../lib/redact-entity-fields.js";
+import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 import { withIdempotency, isIdempotencyStatus } from "../../lib/idempotency.js";
 import { applicationActorIdFromUserId } from "../../lib/application-actor-id.js";
 import { resolveOriginOidcClientId } from "../../lib/resolve-origin-oidc-client-id.js";
 import { resolveOrgMemberUserId } from "../../lib/resolve-org-member.js";
 import { postSystemComment } from "../../lib/post-system-comment.js";
+import { postRemarkComment } from "../../lib/post-remark-comment.js";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 
@@ -128,7 +134,12 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
         );
       }
 
-      return c.json({ data: { ...instance, fields: redactedFields } });
+      return c.json({
+        data: {
+          ...instance,
+          fields: stripInternalFields(redactedFields),
+        },
+      });
     } catch (err) {
       if (isEntityNotFound(err)) {
         return notFound(c);
@@ -141,10 +152,20 @@ export const getThirdPartyTicketHandler = factory.createHandlers(
 const CreateThirdPartyTicketSchema = z.object({
   workflowId: z.string().uuid(),
   fields: z.record(z.unknown()).default({}),
+  // Mandatory platform-wide invariant on every creation path (this route,
+  // entities/create.ts, third-party/children.ts) -- title, assignedTo, and
+  // dueDate are required on every ticket, on every workflow, no exceptions.
+  // Previously optional here even though the admin-ui form already blocked
+  // submission without them client-side -- trivially bypassed by any direct
+  // API call, including this one. Not a per-workflow toggle like a
+  // workflow's own custom entity_fields.
+  //
   // PR #576 review (PrabhuVijit, F2/M4) -- bounded + trimmed so an
   // unbounded-length or whitespace-padded value never reaches
   // resolveOrgMemberUserId or (on the unresolved path) the log line.
-  assignedTo: z.string().trim().max(256).optional(),
+  assignedTo: z.string().trim().min(1).max(256),
+  dueDate: z.string().datetime(),
+  remark: z.string().trim().min(1).max(4000),
   // Any `state`/`currentState` field the caller sends is intentionally NOT
   // part of this schema — Zod's default "strip unknown keys" behavior drops
   // it silently, with no rejection (spec R6: force-to-initial-state
@@ -212,13 +233,14 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
       return c.json({ error: "UNAUTHORIZED", message: "Invalid API key" }, 401);
     }
 
-    // assignedTo is optional on this tree's schema, but when supplied it
-    // must resolve to a real org member -- accepts either their raw Zitadel
-    // user id or their username (loginName). Previously an assignedTo value
-    // was stored verbatim with zero validation -- a caller-supplied username
-    // silently landed in assigned_to and never matched any real user in
-    // admin-ui's own lookup (which keys strictly on userId), so the ticket
-    // just looked unassigned with no error anywhere.
+    // assignedTo is mandatory (CreateThirdPartyTicketSchema) but the
+    // *resolution* of that value can still fail -- it must resolve to a real
+    // org member, accepting either their raw Zitadel user id or their
+    // username (loginName). Previously an assignedTo value was stored
+    // verbatim with zero validation -- a caller-supplied username silently
+    // landed in assigned_to and never matched any real user in admin-ui's
+    // own lookup (which keys strictly on userId), so the ticket just looked
+    // unassigned with no error anywhere.
     //
     // Policy (ported from the sibling AuthNexus fork, revised from an
     // earlier 422-on-failure design tried the same day): an unresolvable
@@ -227,35 +249,36 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
     // about the failure only via a system-generated comment notification
     // (posted below), never via a synchronous 422 -- see
     // post-system-comment.ts for the full rationale (a 422 here is a fast,
-    // scriptable "does this identifier exist" oracle).
+    // scriptable "does this identifier exist" oracle). This degrade-
+    // gracefully-on-resolution-failure policy is orthogonal to the field
+    // being mandatory -- mandatory only means the caller must send
+    // something, not that whatever they send is guaranteed to resolve.
     let resolvedAssignedTo: string | undefined;
     let assignedToUnresolved = false;
-    if (input.assignedTo) {
-      // PR #576 review (PrabhuVijit, F3) -- orgId is optional on AuthContext
-      // (absent when a tenant has no zitadel_org_id mapping); without this
-      // guard, resolveOrgMemberUserId's own `if (!orgId) return { ok: false
-      // }` would silently treat every assignedTo as unresolved for such a
-      // tenant, posting a bogus "couldn't be resolved" system comment on
-      // every ticket regardless of whether the value was actually valid.
-      // Falls back to the pre-this-feature behavior (store verbatim, no
-      // validation) for that narrow case, logged so the gap is observable
-      // rather than silently misfiring.
-      if (!orgId) {
-        logger.warn(
-          { tenantId },
-          "third-party ticket create: assignedTo resolution skipped -- orgId absent from auth context",
-        );
-        resolvedAssignedTo = input.assignedTo;
+    // PR #576 review (PrabhuVijit, F3) -- orgId is optional on AuthContext
+    // (absent when a tenant has no zitadel_org_id mapping); without this
+    // guard, resolveOrgMemberUserId's own `if (!orgId) return { ok: false }`
+    // would silently treat every assignedTo as unresolved for such a
+    // tenant, posting a bogus "couldn't be resolved" system comment on
+    // every ticket regardless of whether the value was actually valid.
+    // Falls back to the pre-this-feature behavior (store verbatim, no
+    // validation) for that narrow case, logged so the gap is observable
+    // rather than silently misfiring.
+    if (!orgId) {
+      logger.warn(
+        { tenantId },
+        "third-party ticket create: assignedTo resolution skipped -- orgId absent from auth context",
+      );
+      resolvedAssignedTo = input.assignedTo;
+    } else {
+      const assignedToResolution = await resolveOrgMemberUserId(
+        orgId,
+        input.assignedTo,
+      );
+      if (assignedToResolution.ok) {
+        resolvedAssignedTo = assignedToResolution.userId;
       } else {
-        const assignedToResolution = await resolveOrgMemberUserId(
-          orgId,
-          input.assignedTo,
-        );
-        if (assignedToResolution.ok) {
-          resolvedAssignedTo = assignedToResolution.userId;
-        } else {
-          assignedToUnresolved = true;
-        }
+        assignedToUnresolved = true;
       }
     }
 
@@ -274,6 +297,8 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
         workflowId: input.workflowId,
         fields: input.fields,
         assignedTo: resolvedAssignedTo ?? null,
+        dueDate: input.dueDate,
+        remark: input.remark,
         attachmentIds: input.attachmentIds,
       },
       async () => {
@@ -288,6 +313,8 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               workflowId: workflow.id,
               fields: input.fields,
               assignedTo: resolvedAssignedTo,
+              dueDate: input.dueDate,
+              remark: input.remark,
               createdBy: actingPersonId,
               actorId: applicationActorId,
               actorType: "api_key",
@@ -295,6 +322,10 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               originMechanism: "api",
               originOidcClientId,
               originPerformerUserId: actingPersonId,
+              // docs/specs/ticket-severity-and-tags.md R1 — the third-party
+              // API always creates at Medium, unconditionally; no request
+              // param can set this (out of scope for this feature's v1).
+              severity: DEFAULT_TICKET_SEVERITY,
             });
             // Same transaction as the create above -- a rejected attachment
             // reference rolls back the whole ticket creation, never leaving a
@@ -307,11 +338,48 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
               actingPersonId,
               applicationActorId,
             );
+            // ADR-012 Phase G, spec R7 -- same redact-then-strip pass every
+            // read endpoint applies, so a create response (which echoes the
+            // stored entity straight back) is never a second, unfiltered
+            // path to pii/financial values or the internal __accessUsers
+            // ACL object.
+            const redactedFields = await redactEntityFieldsForThirdParty(
+              tx,
+              tenantId,
+              created.entityTypeId,
+              created.fields,
+            );
             return {
-              created,
+              created: {
+                ...created,
+                fields: stripInternalFields(redactedFields),
+              },
               workflowId: workflow.id,
             };
           });
+
+          // Best-effort, outside the create transaction (already committed
+          // by this point) -- a failure here must never surface as a failed
+          // ticket creation. See post-remark-comment.ts. Posted before the
+          // assignedTo-unresolved system notice below so the remark is the
+          // ticket's genuine first comment.
+          try {
+            await withTenantContext(tenantId, (tx) =>
+              postRemarkComment(tx, {
+                tenantId,
+                instanceId: instance.created.id,
+                workflowId: instance.workflowId,
+                currentState: instance.created.currentState,
+                actorId: applicationActorId,
+                text: input.remark,
+              }),
+            );
+          } catch (remarkErr) {
+            logger.error(
+              { remarkErr, tenantId, instanceId: instance.created.id },
+              "third-party ticket create: failed to post remark as first comment",
+            );
+          }
 
           // PR #576 review (PrabhuVijit, F1) -- deliberately OUTSIDE the
           // transaction above, in its own withTenantContext call. Running
@@ -326,8 +394,9 @@ export const createThirdPartyTicketHandler = factory.createHandlers(
           // best-effort. See resolveOrgMemberUserId call above and
           // post-system-comment.ts -- notify the creator that assignedTo
           // didn't resolve via a system comment, never via the API response
-          // itself. Top-level (no replyTo) since this tree's schema has no
-          // remark field to seed a host comment from.
+          // itself. Top-level (no replyTo) -- could reply to the remark
+          // comment just posted above, but that coupling is deliberately
+          // not made here; keeping the two best-effort writes independent.
           if (assignedToUnresolved) {
             try {
               await withTenantContext(tenantId, (tx) =>
