@@ -360,6 +360,15 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    # host-gateway explicitly restores the host.docker.internal mapping that
+    # Docker Desktop normally provides automatically. Observed live: after a
+    # Docker Desktop crash/restart, that automatic mapping can go missing —
+    # DNS lookups from inside the container fail with ENOTFOUND — even though
+    # every container is healthy and Zitadel itself never went down. This is a
+    # host-gateway request, not a Zitadel restart, and does not change which
+    # URL or Host header the app sends — only that the name resolves again.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - path: .env.local
         required: false
@@ -373,6 +382,15 @@ services:
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
       ZITADEL_INTROSPECTION_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/introspect
       OPENBAO_ADDR: http://openbao:8200
+      # Reporting (track 3G) — read from .env like every other setting here, not
+      # .env.local; this repo's config discipline is .env locally and the same
+      # variable names again at deploy time, never a second config file.
+      SUPERSET_SITE_URL: ${SUPERSET_SITE_URL:-http://localhost:8088}
+      SUPERSET_INTERNAL_URL: ${SUPERSET_INTERNAL_URL:-http://superset:8088}
+      SUPERSET_DASHBOARD_TENANT_SLUG: ${SUPERSET_DASHBOARD_TENANT_SLUG:-openwind-tenant-overview}
+      SUPERSET_DASHBOARD_USER_SLUG: ${SUPERSET_DASHBOARD_USER_SLUG:-openwind-my-performance}
+      SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
+      SUPERSET_SERVICE_ACCOUNT_PASSWORD: ${SUPERSET_SERVICE_ACCOUNT_PASSWORD:?SUPERSET_SERVICE_ACCOUNT_PASSWORD is required}
       # Local-disk file storage (see docs/specs/local-disk-file-storage.md) —
       # in-container path only; the host-side bind-mount source is
       # FILES_STORAGE_PATH_HOST below, set from .env.
@@ -424,6 +442,10 @@ services:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
+    # Same host.docker.internal restoration as ow-backend above, needed here
+    # for the identical ZITADEL_JWKS_URL/ZITADEL_INTROSPECTION_URL usage below.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - path: .env.local
         required: false
@@ -577,6 +599,189 @@ services:
       - ./docker/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     ports:
       - "${ALERTMANAGER_HOST_PORT:-9093}:9093"
+
+  # ── Superset (Reporting, track 3G) — profile:reporting ─────────────────────
+  # Started by default: .env.example ships COMPOSE_PROFILES=reporting, so a
+  # fresh clone comes up with reporting working. The profile is still here so a
+  # deployment that does not want reporting can drop it from COMPOSE_PROFILES
+  # without editing this file (spec R16, amended 2026-09-11).
+  #
+  # Two things this service must never be, per the reporting spec's §S:
+  #  - reachable off-box (loopback mapping below, same as postgres/redis/openbao)
+  #  - running on a default signing key (@platform/config refuses to start in
+  #    production if SUPERSET_SECRET_KEY is still the dev value — a known key
+  #    forges an admin session, the CVE-2023-27524 mechanism)
+  superset:
+    container_name: ow-superset
+    profiles: [reporting]
+    # re-pinned 2026-09-17 to 6.1.0 — 6.0.0 shipped setThemeMode/urlParams.
+    # themeMode as API surface with no working implementation for embedded/
+    # guest dashboards (confirmed live: called with no error, no visual
+    # effect, and its ThemeRestApi permission does not even exist in that
+    # build). 6.1.0's changelog lists setThemeMode as newly functional
+    # (#36125); verified no CVEs and no breaking change to RLS/guest-token/
+    # DB_CONNECTION_MUTATOR between 6.0.x and 6.1.0. Re-pin cadence is
+    # tracked in the spec (T6): an unrefreshed pin freezes today's CVE
+    # exposure.
+    # Built, not pulled: the upstream image carries no database driver.
+    # See docker/superset/Dockerfile.
+    build:
+      context: .
+      dockerfile: docker/superset/Dockerfile
+    image: openwind-superset:6.1.0
+    restart: unless-stopped
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    # Deployment secrets, the same channel api/worker/bootstrap already use.
+    # The OAuth client id and secret are issued per Zitadel instance and belong
+    # here rather than in .env, which this repo commits.
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY is required — see .env.example}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:?SUPERSET_GUEST_TOKEN_SECRET is required — see .env.example}
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+      # The shipped image defaults to 1 worker / 60s timeout (see its own
+      # run-server.sh). Verified live: a single worker under normal browser
+      # retry traffic hit WORKER TIMEOUT -> SIGKILL -> respawn, which is
+      # indistinguishable from the container being down for whoever is
+      # loading the page at that moment. Raised for local-dev resilience;
+      # revisit alongside the real capacity number T17 is meant to set.
+      SERVER_WORKER_AMOUNT: ${SUPERSET_WORKER_AMOUNT:-2}
+      GUNICORN_TIMEOUT: ${SUPERSET_GUNICORN_TIMEOUT:-120}
+      # Superset's OWN metadata database (dashboards, charts, roles) — not the
+      # platform database, and not the reporting credential. Superset creates
+      # these tables itself, which needs DDL; analytics_user is read-only by
+      # design, so pointing this at the platform database fails at `db upgrade`
+      # with "permission denied for schema public". The reporting connection is
+      # registered separately, read-only, by bootstrap.py.
+      #
+      # Direct to postgres, not pgbouncer: pgbouncer is configured with a single
+      # hardcoded user (DB_USER: app_user), so no other role can authenticate
+      # through it as things stand. migration_user connects directly for the
+      # same reason. This matters for capacity — Superset opens a fresh
+      # connection per query (NullPool), so the spec's 200-concurrent target
+      # (R11/T17) lands on postgres directly until pgbouncer supports more than
+      # one user. Tracked on T17, not assumed to already work.
+      DATABASE_URL: postgresql+psycopg2://superset_user:${SUPERSET_DB_PASSWORD:-superset_user_dev_password}@postgres:5432/superset
+      REDIS_URL: redis://redis:6379/2
+      # Stage 2 (users write their own queries). Superset switches to Zitadel
+      # login only when a client id is present - unset leaves it on database
+      # login, with the embedded path as the only way in.
+      # SUPERSET_OAUTH_CLIENT_ID and SUPERSET_OAUTH_CLIENT_SECRET are NOT listed
+      # here on purpose. They are issued per Zitadel instance by
+      # scripts/setup-superset-oauth.ts, so they are deployment secrets, not
+      # defaults — and `environment:` takes precedence over `env_file:`, so
+      # naming them here with a `${VAR:-}` fallback would override the real
+      # value with an empty string whenever .env did not carry it.
+      #
+      # They arrive through the env_file above instead, which is how api,
+      # worker and bootstrap already take their secrets. That keeps them out of
+      # .env, which this repo commits on purpose as upstream-safe defaults.
+      # Two URLs on purpose: the browser is redirected to the first, while the
+      # container fetches tokens and keys over the Docker network with the
+      # second. One value cannot serve both.
+      SUPERSET_OAUTH_ISSUER: ${SUPERSET_OAUTH_ISSUER:-http://localhost:8080}
+      # SUPERSET_OAUTH_INTERNAL_ISSUER is also not listed here: it names one
+      # Zitadel instance's own domain, so it differs per install and comes from
+      # .env.local via env_file. Unset, Superset uses SUPERSET_OAUTH_ISSUER.
+      # Setup: docs/specs/superset-standalone-with-zitadel.md, "Local setup".
+      SUPERSET_SESSION_MAX_MINUTES: ${SUPERSET_SESSION_MAX_MINUTES:-480}
+      SUPERSET_REPORTING_DB_NAME: ${SUPERSET_REPORTING_DB_NAME:-OpenWind Platform}
+    volumes:
+      - ./docker/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    ports:
+      # Loopback-only, for the same reason as postgres/redis/openbao above:
+      # Superset holds a database credential and (until SQL Lab is disabled)
+      # a query surface over platform data. The browser reaches it from this
+      # machine — SUPERSET_SITE_URL — so loopback still serves the real need.
+      - "127.0.0.1:${SUPERSET_HOST_PORT:-8088}:8088"
+    networks:
+      - default
+      # Stage 2 only: Superset completes the OAuth code exchange from its own
+      # process, so it needs a route to Zitadel that does not go through the
+      # browser. Without this the container cannot resolve the name at all and
+      # every login fails at the discovery fetch, before any credential is
+      # entered. Same network the API and worker already join.
+      - openwind_zitadel
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  # One-shot: database migration, admin user, then provisioning. Exits 0 when
+  # done; the superset service waits on that via service_completed_successfully
+  # so the app never serves an unmigrated metadata database.
+  superset-init:
+    container_name: ow-superset-init
+    profiles: [reporting]
+    # Built, not pulled: the upstream image carries no database driver.
+    # See docker/superset/Dockerfile.
+    build:
+      context: .
+      dockerfile: docker/superset/Dockerfile
+    image: openwind-superset:6.1.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Same channel as the server above. Provisioning needs the OAuth client id
+    # to decide whether SQL Lab is exposed on the reporting connection, and it
+    # must read the same value the server does or a restart flips it back.
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY is required — see .env.example}
+      SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:?SUPERSET_GUEST_TOKEN_SECRET is required — see .env.example}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:?SUPERSET_ADMIN_PASSWORD is required — see .env.example}
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+      # The reporting data connection: read-only, separate from the metadata
+      # credential above, and pointed at the platform database.
+      # The backend-only account the API mints passes with. Provisioned with a
+      # single Superset permission, never Admin.
+      SUPERSET_SERVICE_ACCOUNT_USER: ${SUPERSET_SERVICE_ACCOUNT_USER:-service_account}
+      SUPERSET_SERVICE_ACCOUNT_PASSWORD: ${SUPERSET_SERVICE_ACCOUNT_PASSWORD:?SUPERSET_SERVICE_ACCOUNT_PASSWORD is required — see .env.example}
+      SUPERSET_REPORTING_DB_URI: postgresql+psycopg2://analytics_user:${ANALYTICS_USER_PASSWORD:-analytics_user_dev_password}@postgres:5432/platform
+      # Dashboards are addressed by slug, never by UUID — the embedded UUID is
+      # generated by Superset and resolved at runtime (spec R17).
+      SUPERSET_DASHBOARD_TENANT_SLUG: ${SUPERSET_DASHBOARD_TENANT_SLUG:-openwind-tenant-overview}
+      SUPERSET_DASHBOARD_USER_SLUG: ${SUPERSET_DASHBOARD_USER_SLUG:-openwind-my-performance}
+      # The only origin permitted to frame an embedded dashboard.
+      SUPERSET_EMBED_ORIGIN: ${SUPERSET_EMBED_ORIGIN:-http://localhost:3001}
+      # Superset's OWN metadata database (dashboards, charts, roles) — not the
+      # platform database, and not the reporting credential. Superset creates
+      # these tables itself, which needs DDL; analytics_user is read-only by
+      # design, so pointing this at the platform database fails at `db upgrade`
+      # with "permission denied for schema public". The reporting connection is
+      # registered separately, read-only, by bootstrap.py.
+      #
+      # Direct to postgres, not pgbouncer: pgbouncer is configured with a single
+      # hardcoded user (DB_USER: app_user), so no other role can authenticate
+      # through it as things stand. migration_user connects directly for the
+      # same reason. This matters for capacity — Superset opens a fresh
+      # connection per query (NullPool), so the spec's 200-concurrent target
+      # (R11/T17) lands on postgres directly until pgbouncer supports more than
+      # one user. Tracked on T17, not assumed to already work.
+      DATABASE_URL: postgresql+psycopg2://superset_user:${SUPERSET_DB_PASSWORD:-superset_user_dev_password}@postgres:5432/superset
+      REDIS_URL: redis://redis:6379/2
+      # SUPERSET_OAUTH_CLIENT_ID is deliberately absent here, as it is on the
+      # server above: it arrives through env_file. Provisioning needs the same
+      # value the server sees — it decides whether the reporting connection is
+      # exposed in SQL Lab, and a mismatch between the two makes a restart
+      # silently flip it back. Listing it here with a `${VAR:-}` fallback would
+      # do exactly that, because `environment:` overrides `env_file:`.
+    volumes:
+      - ./docker/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - ./docker/superset/init.sh:/app/init.sh:ro
+      - ./docker/superset/bootstrap.py:/app/bootstrap.py:ro
+      - ./docker/superset/tiles.yaml:/app/tiles.yaml:ro
+    entrypoint: ["/bin/bash", "/app/init.sh"]
+    networks:
+      - default
 
 # ─────────────────────────────────────────────────────────────────────────────
 volumes:

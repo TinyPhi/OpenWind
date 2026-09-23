@@ -33,7 +33,11 @@
     "setup-auth": "tsx scripts/setup-dev-auth.ts",
     "setup-bao": "tsx scripts/setup-dev-bao.ts",
     "seed:demo": "dotenv -e .env.local -- tsx scripts/seed-demo.ts",
+    "seed:reporting": "dotenv -e .env.local -- tsx scripts/seed-reporting-demo.ts",
+    "sync:users": "dotenv -e .env.local -- tsx scripts/sync-tenant-users.ts",
+    "setup:superset-oauth": "dotenv -e .env.local -- tsx scripts/setup-superset-oauth.ts",
     "reset:data": "pnpm exec dotenv -e .env.local -- tsx scripts/reset-data.ts",
+    "backfill:department": "dotenv -e .env.local -- tsx scripts/backfill-ticket-department.ts",
     "dev:down": "docker compose down",
     "dev:reset": "tsx scripts/dev-reset.ts"
   },
