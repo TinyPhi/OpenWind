@@ -161,7 +161,7 @@ export function TeamsPage(): React.ReactElement {
           <AlertDialogTitle>Delete team?</AlertDialogTitle>
           <AlertDialogDescription>
             {deleting
-              ? `"${deleting.name}" will be archived. Existing services and on-call schedules referencing it are unaffected but no longer editable through this team.`
+              ? `"${deleting.name}" will be archived. On-call schedules and automation rules that route to this team will stop resolving on-call assignments. This action cannot be undone through the UI.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>

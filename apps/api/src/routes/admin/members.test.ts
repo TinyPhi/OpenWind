@@ -119,12 +119,15 @@ describe("GET /admin/members", () => {
     currentRoles = ["admin"];
   });
 
-  it("returns agents, admins, and users -- any org member is a valid on-call assignee", async () => {
+  it('returns agents and admins -- a customer ("user" role) is never a valid on-call assignee', async () => {
+    // PR #623 review (Vijit), round 2 BLOCKER-1: "user" is the customer
+    // role (platform/users.ts's GET /users) -- a customer must never be
+    // selectable as an on-call primary/backup/escalation contact.
     mockListOrgUsers.mockResolvedValueOnce([
       {
-        userId: "u-user",
+        userId: "u-customer",
         email: "c@x.com",
-        displayName: "User One",
+        displayName: "Customer One",
         loginName: "c",
       },
       {
@@ -142,7 +145,7 @@ describe("GET /admin/members", () => {
     ]);
     mockListUserRolesByUserId.mockResolvedValueOnce(
       new Map([
-        ["u-user", ["user"]],
+        ["u-customer", ["user"]],
         ["u-agent", ["agent"]],
         ["u-admin", ["admin"]],
       ]),
@@ -153,9 +156,8 @@ describe("GET /admin/members", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     const ids = (body.data as { userId: string }[]).map((u) => u.userId);
-    expect(ids).toEqual(
-      expect.arrayContaining(["u-user", "u-agent", "u-admin"]),
-    );
+    expect(ids).toEqual(expect.arrayContaining(["u-agent", "u-admin"]));
+    expect(ids).not.toContain("u-customer");
   });
 
   it("excludes an org member with no role grant at all", async () => {
