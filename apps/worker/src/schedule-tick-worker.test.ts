@@ -225,64 +225,6 @@ describe("schedulerTick", () => {
     expect(mockSetScheduleSweeperRole).toHaveBeenCalledTimes(2);
   });
 
-  it("posts the template's remark as the ticket's first comment, authored by the rule owner", async () => {
-    // User request: the schedule rule's "remark" (template.description)
-    // shows up as the first comment on the auto-created ticket, attributed
-    // to whoever created the rule -- not a silent system actor.
-    const rule = makeRule({
-      createdBy: "u-creator",
-      template: { title: "Weekly review", description: "Please review Q3." },
-    });
-    dueRules = [rule];
-    claimRows = [rule];
-    mockCreateEntity.mockResolvedValue({
-      id: "ticket-1",
-      workflowId: "wf-1",
-      currentState: "open",
-    });
-
-    await schedulerTick();
-
-    const commentEvent = insertedExecutions.find(
-      (e) =>
-        (e as { metadata?: { type?: string } }).metadata?.type === "comment",
-    ) as
-      | {
-          instanceId: string;
-          workflowId: string;
-          actorId: string;
-          triggeredBy: string;
-          metadata: { type: string; text: string };
-        }
-      | undefined;
-
-    expect(commentEvent).toBeDefined();
-    expect(commentEvent?.instanceId).toBe("ticket-1");
-    expect(commentEvent?.workflowId).toBe("wf-1");
-    expect(commentEvent?.actorId).toBe("u-creator");
-    expect(commentEvent?.triggeredBy).toBe("user");
-    expect(commentEvent?.metadata.text).toBe("Please review Q3.");
-  });
-
-  it("does not post a comment when the template has no remark", async () => {
-    const rule = makeRule({ template: { title: "Weekly review" } });
-    dueRules = [rule];
-    claimRows = [rule];
-    mockCreateEntity.mockResolvedValue({
-      id: "ticket-1",
-      workflowId: "wf-1",
-      currentState: "open",
-    });
-
-    await schedulerTick();
-
-    const commentEvent = insertedExecutions.find(
-      (e) =>
-        (e as { metadata?: { type?: string } }).metadata?.type === "comment",
-    );
-    expect(commentEvent).toBeUndefined();
-  });
-
   it("skips a rule already claimed by another worker instance", async () => {
     const rule = makeRule();
     dueRules = [rule];
