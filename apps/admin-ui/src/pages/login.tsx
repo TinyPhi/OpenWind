@@ -127,11 +127,22 @@ export function Login(): React.ReactElement {
     try {
       await userManager.removeUser();
       await userManager.signinRedirect({ prompt: "login" });
-    } catch {
+    } catch (err) {
       // signinRedirect navigates away on success, so this only runs on a
       // genuine failure (IdP unreachable, misconfigured OIDC endpoint) --
       // without resetting loading here, the button stays permanently
       // disabled for the rest of the session with no way to retry.
+      //
+      // Logged, not swallowed: an empty catch here turned a specific,
+      // actionable error into a button that silently resets. The case that
+      // proved it -- oidc-client-ts throws "Crypto.subtle is available only
+      // in secure contexts (HTTPS)" when the app is served over plain HTTP
+      // on a non-localhost origin (a LAN IP, say), because PKCE needs
+      // crypto.subtle to build the code_challenge. The failure is invisible
+      // server-side too: discovery is fetched, then nothing else is ever
+      // sent, so the IdP log shows a bare /.well-known hit and no
+      // /oauth/v2/authorize to explain it.
+      console.error("Sign-in failed before redirect:", err);
       setLoading(false);
     }
   }
