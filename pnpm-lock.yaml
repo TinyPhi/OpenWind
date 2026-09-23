@@ -163,10 +163,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: '>=2.0.10'
-        version: 2.1.1(hono@4.12.34)
+        version: 2.1.1(hono@4.13.5)
       '@hono/zod-validator':
         specifier: ^0.4.0
-        version: 0.4.3(hono@4.12.34)(zod@3.25.76)
+        version: 0.4.3(hono@4.13.5)(zod@3.25.76)
       '@platform/audit':
         specifier: workspace:*
         version: link:../../packages/audit
@@ -235,7 +235,7 @@ importers:
         version: 4.4.0
       hono:
         specifier: '>=4.12.34'
-        version: 4.12.34
+        version: 4.13.5
       ioredis:
         specifier: ^5.4.0
         version: 5.10.1
@@ -284,7 +284,7 @@ importers:
         version: 3.1045.0
       '@hono/node-server':
         specifier: '>=2.0.10'
-        version: 2.1.1(hono@4.12.34)
+        version: 2.1.1(hono@4.13.5)
       '@platform/audit':
         specifier: workspace:*
         version: link:../../packages/audit
@@ -347,7 +347,7 @@ importers:
         version: 4.4.0
       hono:
         specifier: '>=4.12.34'
-        version: 4.12.34
+        version: 4.13.5
       ioredis:
         specifier: ^5.0.0
         version: 5.10.1
@@ -637,7 +637,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: '>=2.0.10'
-        version: 2.1.1(hono@4.12.34)
+        version: 2.1.1(hono@4.13.5)
       '@node-rs/argon2':
         specifier: ^2.0.2
         version: 2.0.2
@@ -658,7 +658,7 @@ importers:
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(postgres@3.4.9)
       hono:
         specifier: '>=4.12.34'
-        version: 4.12.34
+        version: 4.13.5
       ipaddr.js:
         specifier: ^2.4.0
         version: 2.4.0
@@ -5094,8 +5094,8 @@ packages:
   help-me@5.0.0:
     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
 
-  hono@4.12.34:
-    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
     engines: {node: '>=16.9.0'}
 
   html-encoding-sniffer@6.0.0:
@@ -7969,13 +7969,13 @@ snapshots:
       protobufjs: 7.6.5
       yargs: 17.7.2
 
-  '@hono/node-server@2.1.1(hono@4.12.34)':
+  '@hono/node-server@2.1.1(hono@4.13.5)':
     dependencies:
-      hono: 4.12.34
+      hono: 4.13.5
 
-  '@hono/zod-validator@0.4.3(hono@4.12.34)(zod@3.25.76)':
+  '@hono/zod-validator@0.4.3(hono@4.13.5)(zod@3.25.76)':
     dependencies:
-      hono: 4.12.34
+      hono: 4.13.5
       zod: 3.25.76
 
   '@humanfs/core@0.19.2':
@@ -11450,7 +11450,7 @@ snapshots:
 
   help-me@5.0.0: {}
 
-  hono@4.12.34: {}
+  hono@4.13.5: {}
 
   html-encoding-sniffer@6.0.0(@noble/hashes@1.8.0):
     dependencies:

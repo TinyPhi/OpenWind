@@ -49,6 +49,19 @@ export async function setOutboxSweeperRole(tx: Tx): Promise<void> {
   await tx.execute(sql`SET LOCAL ROLE outbox_sweeper`);
 }
 
+/**
+ * Switches to schedule_sweeper (BYPASSRLS, see
+ * 0107_schedule_sweeper_role.sql) for the remainder of the current
+ * transaction. For schedule-tick-worker.ts's schedulerTick/claimRule, which
+ * poll and claim due `schedule_rules` *across all tenants* in one pass —
+ * same situation setOutboxSweeperRole solves for outbox_events. Scoped to
+ * just that transaction; every other query on the connection keeps full RLS
+ * enforcement.
+ */
+export async function setScheduleSweeperRole(tx: Tx): Promise<void> {
+  await tx.execute(sql`SET LOCAL ROLE schedule_sweeper`);
+}
+
 export async function withTenantAndUserContext<T>(
   tenantId: string,
   userId: string,

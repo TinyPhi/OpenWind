@@ -138,7 +138,8 @@ This is the exact same bug class migration 0058 already fixed for
 `outbox-poller.ts`/`notification-poller.ts`) — `schedule_rules` was simply never given the
 same fix when it was created.
 
-**Fix.** `packages/db/migrations/0109_schedule_rules_rls_null_guc_fix.sql` — gives
+**Fix (superseded before merge — see note below).** Originally landed as
+`packages/db/migrations/0109_schedule_rules_rls_null_guc_fix.sql`, giving
 `schedule_rules_tenant_rls` the identical 3-branch exemption 0058 uses: match required when
 `app.tenant_id` is a real value, allowed when it's NULL (backend never touched the GUC) or
 `''` (touched earlier in this pooled connection's lifetime, per 0058's own documented
@@ -149,6 +150,17 @@ tenant still sees 0 rows).
 Applied directly to the running dev DB (`psql -f` inside the `ow-database` container) for
 immediate retesting, in addition to the migration file for the normal `pnpm db:migrate`
 path on other environments.
+
+**Superseded, 2026-09-23**: while preparing this branch's PR, discovered upstream/main had
+independently merged PR #646 fixing the exact same bug via a different, already-reviewed
+mechanism — a dedicated `schedule_sweeper` BYPASSRLS role (migration
+`0107_schedule_sweeper_role.sql`), mirroring the existing `outbox_sweeper` pattern
+(`0064_outbox_sweeper_role.sql`) rather than the NULL-GUC policy-exemption pattern used
+here. To avoid two competing "bypass" mechanisms on the same table, this branch dropped its
+own `0109_schedule_rules_rls_null_guc_fix.sql` migration during the upstream merge and
+adopted `schedule_sweeper` instead (`schedulerTick`/`claimRule` now call
+`setScheduleSweeperRole(tx)` before their cross-tenant queries). The RLS-never-fires root
+cause and diagnosis above are still accurate; only the fix mechanism changed.
 
 ### Verification
 

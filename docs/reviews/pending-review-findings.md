@@ -44,12 +44,21 @@ published no host port, so this was unreachable/unexploitable). This diff's own 
 overwrite form, but the underlying trust assumption in `rate-limit.ts` has no enforcement — see
 the issue for suggested fix directions.
 
-| Finding                                                                                                                                                                                                                               | Issue                    | Owner      |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------- |
-| No backup / disaster-recovery runbook — mechanical building block shipped (PR #286), RPO/RTO policy still an open maintainer decision                                                                                                 | [#192](../../issues/192) | Unassigned |
-| No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay); closing vs. leaving open for those 2 is an open maintainer decision | [#198](../../issues/198) | Unassigned |
-| Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                    | [#200](../../issues/200) | Unassigned |
-| `rate-limit.ts` trusts the first `X-Forwarded-For` hop with no enforcement that a fronting proxy overwrites (not appends) it — spoofable rate-limit bypass if misconfigured                                                           | [#540](../../issues/540) | Unassigned |
+**Reconciled 2026-09-18:** #192 (backup/DR runbook) closed and actually resolved, not just
+mechanically shipped — `docs/local-setup.md`'s "Backup & Disaster Recovery" section documents the
+RPO/RTO policy this doc's row said was still pending (RPO 24h, RTO measured-not-pre-committed),
+with a working nightly cron/systemd-timer scheduling section; row removed. #198's "close vs.
+leave open" maintainer decision resolved the same day — **keep open**: direct repo check
+confirms both deferred items (`workflow-canvas.tsx`'s slide-in panel, `record-detail.tsx`'s
+access-denied overlay) are still plain, un-ARIA'd markup, not partially addressed elsewhere; the
+mid-market-buyer direction confirmed the same day (see #622) makes accessibility procurement
+requirements more likely to surface, not less. Row updated below, not removed.
+
+| Finding                                                                                                                                                                                                                                                          | Issue                    | Owner      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------- |
+| No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay) — **decided 2026-09-18: keep open**, not a maintainer-decision gap anymore, just unstaffed work | [#198](../../issues/198) | Unassigned |
+| Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                                               | [#200](../../issues/200) | Unassigned |
+| `rate-limit.ts` trusts the first `X-Forwarded-For` hop with no enforcement that a fronting proxy overwrites (not appends) it — spoofable rate-limit bypass if misconfigured                                                                                      | [#540](../../issues/540) | Unassigned |
 
 ---
 

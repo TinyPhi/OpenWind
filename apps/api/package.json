@@ -40,7 +40,7 @@
     "canonicalize": "^4.0.0",
     "csv-stringify": "^6.8.0",
     "exceljs": "^4.4.0",
-    "hono": "^4.5.0",
+    "hono": "^4.13.5",
     "ioredis": "^5.4.0",
     "jose": "^5.0.0",
     "pdfkit": "^0.19.1",
