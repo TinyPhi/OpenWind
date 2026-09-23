@@ -297,26 +297,36 @@ Migration `0009` implements this in three steps:
 
 ### Per-table access policy
 
-| Table                                                    | analytics_user access                                                             | Reason                                            |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `tenants`                                                | `id, name, slug, plan, status, created_at, updated_at`                            | No sensitive config                               |
-| `entity_types`                                           | All columns                                                                       | No sensitive data                                 |
-| `entity_fields`                                          | All columns incl. `sensitivity`                                                   | Sensitivity is metadata, not a secret             |
-| `entity_instances`                                       | All columns **except `fields`**                                                   | `fields` JSONB may contain raw PII                |
-| `entity_relations`                                       | All columns                                                                       | No sensitive data                                 |
-| `workflows` / `workflow_states` / `workflow_transitions` | All columns                                                                       | Config only, no PII                               |
-| `workflow_events`                                        | **Via `workflow_events_masked` view only**                                        | `metadata` JSONB may contain PII/financial values |
-| `automation_rules`                                       | `id, tenant_id, name, is_enabled, trigger_type, priority, created_at, updated_at` | `actions` JSONB may contain webhook URLs/API keys |
-| `automation_executions`                                  | All columns                                                                       | Result JSONB contains counts only                 |
-| `outbox_events`                                          | **Excluded**                                                                      | Payload mirrors `entity_instances.fields`         |
-| `dead_letter_events`                                     | **Excluded**                                                                      | Same as `outbox_events`                           |
-| `api_keys`                                               | **Excluded**                                                                      | `key_hash` is a credential                        |
-| `tenant_users`                                           | **Excluded**                                                                      | `user_id` is PII under GDPR                       |
-| `connector_credentials`                                  | **Excluded**                                                                      | `credentials` is encrypted ciphertext             |
+| Table                                                    | analytics_user access                                                                                                     | Reason                                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `tenants`                                                | `id, name, slug, plan, status, created_at, updated_at`                                                                    | No sensitive config                                                    |
+| `entity_types`                                           | All columns                                                                                                               | No sensitive data                                                      |
+| `entity_fields`                                          | All columns incl. `sensitivity`                                                                                           | Sensitivity is metadata, not a secret                                  |
+| `entity_instances`                                       | Named columns only, **never `fields`/`search_vector`**; `reporting_title` + `reporting_department` carry what charts need | `fields` JSONB may contain raw PII; `search_vector` is derived from it |
+| `entity_relations`                                       | All columns                                                                                                               | No sensitive data                                                      |
+| `workflows` / `workflow_states` / `workflow_transitions` | All columns                                                                                                               | Config only, no PII                                                    |
+| `workflow_events`                                        | Named columns only, **never `metadata`**; classification via `event_type`                                                 | `metadata` JSONB may contain PII/financial values                      |
+| `automation_rules`                                       | `id, tenant_id, name, is_enabled, trigger_type, priority, created_at, updated_at`                                         | `actions` JSONB may contain webhook URLs/API keys                      |
+| `automation_executions`                                  | All columns                                                                                                               | Result JSONB contains counts only                                      |
+| `outbox_events`                                          | **Excluded**                                                                                                              | Payload mirrors `entity_instances.fields`                              |
+| `dead_letter_events`                                     | **Excluded**                                                                                                              | Same as `outbox_events`                                                |
+| `api_keys`                                               | **Excluded**                                                                                                              | `key_hash` is a credential                                             |
+| `tenant_users`                                           | `user_id, tenant_id, display_name` only — **never `email`**                                                               | Names are needed to label charts; email is not                         |
+| `connector_credentials`                                  | **Excluded**                                                                                                              | `credentials` is encrypted ciphertext                                  |
 
-### `workflow_events_masked` view
+### `workflow_events`: exclusion, not redaction (amended 2026-09-22)
 
-`analytics_user` accesses `workflow_events` only via the `workflow_events_masked` view, which replaces values for fields with `sensitivity IN ('pii', 'financial')` with `"[REDACTED]"` at query time. This is a secondary safety net — the primary defence is application-layer redaction at INSERT time in `executeTransition`.
+`analytics_user` holds a **column-level** grant on `workflow_events` and `metadata` is not in it. The payload is unreadable by reporting through any path, so there is nothing to redact.
+
+Event classification, the only thing reporting ever needed from the payload, comes from `workflow_events.event_type` — a trigger-maintained mirror of `metadata->>'type'` added by migration `0117`. Migration `0118` restores the column allowlist that `0112` intended, and `0119` drops the view described below.
+
+**What this replaces.** Reporting previously accessed the table through a `workflow_events_masked` view that redacted values for fields with `sensitivity IN ('pii', 'financial')` at query time. That view was removed because it could never work: it had to read `metadata` in order to redact it, while `0112`'s `security_invoker = true` meant the caller's own privileges were checked against every column the view touched. An analyst could therefore use it only while also holding the raw column it existed to hide, and it never returned a row to one. Meanwhile `0113` had granted the table wholesale, so the payload was readable directly and the redaction protected nothing.
+
+Exclusion is the stronger control of the two. Redaction hides values inside a column the caller can still reach; withholding the grant means the column is not reachable at all, and a column added to this table in future is unreadable by reporting until someone grants it deliberately.
+
+The primary defence is unchanged: application-layer redaction at INSERT time in `executeTransition`.
+
+Full reasoning, evidence and the rejected alternatives are in `docs/specs/reporting-metadata-masking-repair.md`.
 
 ### Convention for future migrations
 

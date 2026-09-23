@@ -785,6 +785,97 @@
       "when": 1789033300000,
       "tag": "0111_schedule_sweeper_entity_instance_tags_grant",
       "breakpoints": false
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1789033301000,
+      "tag": "0112_reporting_tenant_isolation",
+      "breakpoints": false
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1789033302000,
+      "tag": "0113_reporting_least_privilege",
+      "breakpoints": false
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1789033303000,
+      "tag": "0114_tenant_for_org_lookup",
+      "breakpoints": false
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1789033304000,
+      "tag": "0115_reporting_audit_trail",
+      "breakpoints": false
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1789033305000,
+      "tag": "0116_reporting_own_rows",
+      "breakpoints": false
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1789033306000,
+      "tag": "0117_reporting_event_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1789033307000,
+      "tag": "0118_reporting_payload_revoke",
+      "breakpoints": false
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1789033308000,
+      "tag": "0119_drop_workflow_events_masked",
+      "breakpoints": false
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1789033309000,
+      "tag": "0120_reporting_tenant_users_columns",
+      "breakpoints": false
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1789033310000,
+      "tag": "0121_reporting_instance_projections",
+      "breakpoints": false
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1789033311000,
+      "tag": "0122_reporting_instance_payload_revoke",
+      "breakpoints": false
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1789033312000,
+      "tag": "0123_reporting_instance_priority",
+      "breakpoints": false
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1789033313000,
+      "tag": "0124_reporting_instances_view",
+      "breakpoints": false
     }
   ]
 }

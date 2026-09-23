@@ -1,3 +1,11 @@
+-- SUPERSEDED (2026-09-22): the workflow_events_masked view created below is
+-- dropped by migration 0119. It could never work — it reads `metadata` in
+-- order to redact it, while 0112 set security_invoker = true, so the caller
+-- needed the very column it hides. Reporting now classifies events through
+-- workflow_events.event_type (0117) and is not granted the payload at all
+-- (0118). This migration is left intact for replay; expect a fresh build to
+-- create the view here and drop it at 0119.
+-- See docs/specs/reporting-metadata-masking-repair.md
 -- ============================================================
 -- Migration: 0009_analytics_user_grants
 -- Locks down analytics_user to an explicit column allowlist.
