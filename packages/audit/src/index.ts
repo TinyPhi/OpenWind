@@ -140,7 +140,7 @@ export type AuditAction =
   | "schedule.rule_paused"
   | "schedule.rule_resumed"
   | "schedule.rule_archived"
-  // docs/specs/byoq-hardening.md - migration 0107_reporting_audit_trail.sql
+  // docs/specs/byoq-hardening.md - migration 0115_reporting_audit_trail.sql
   // already reserved these three in the DB CHECK constraint (for Superset
   // SQL Lab's analytics_user path, via record_reporting_audit()) but nothing
   // TS-side ever called it. BYOQ wires up the two it actually produces;

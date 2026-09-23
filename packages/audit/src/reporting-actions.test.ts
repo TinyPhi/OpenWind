@@ -2,7 +2,7 @@
  * audit log reporting action strings -- docs/specs/byoq-hardening.md.
  *
  * Confirms the two new reporting.* AuditAction values are wired into every
- * exhaustiveness map, matching migration 0107_reporting_audit_trail.sql's
+ * exhaustiveness map, matching migration 0115_reporting_audit_trail.sql's
  * DB CHECK constraint (which also reserves "reporting.exported", not yet
  * called from anywhere TS-side).
  */
