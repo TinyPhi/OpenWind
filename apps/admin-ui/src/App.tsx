@@ -36,6 +36,9 @@ import { SystemLogsPage } from "./pages/system-logs.js";
 import { ThirdPartyAccessLogsPage } from "./pages/third-party-access-logs.js";
 import { ApiKeysPage } from "./pages/api-keys/page.js";
 import { ApiKeyApplicationDetail } from "./pages/api-keys/detail.js";
+import { TeamsPage } from "./pages/teams/index.js";
+import { ServicesPage } from "./pages/services/index.js";
+import { RosterPage } from "./pages/roster/index.js";
 import { ScheduleRulesPage } from "./pages/schedule-rules/index.js";
 import { ScheduleRuleDetailPage } from "./pages/schedule-rules/detail.js";
 import { NotificationPoliciesPage } from "./pages/notification-policies/index.js";
@@ -188,6 +191,9 @@ export function App(): React.ReactElement {
                 path="/admin/api-keys/:slug"
                 element={<ApiKeyApplicationDetail />}
               />
+              <Route path="/admin/teams" element={<TeamsPage />} />
+              <Route path="/admin/services" element={<ServicesPage />} />
+              <Route path="/admin/roster" element={<RosterPage />} />
               <Route
                 path="/admin/schedule-rules"
                 element={<ScheduleRulesPage />}

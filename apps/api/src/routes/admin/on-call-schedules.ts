@@ -185,8 +185,19 @@ router.get(
           isNull(onCallSchedules.deletedAt),
         ];
         if (teamId) conditions.push(eq(onCallSchedules.teamId, teamId));
-        if (from) conditions.push(gte(onCallSchedules.startsAt, from));
-        if (to) conditions.push(lte(onCallSchedules.endsAt, to));
+        // Overlap, not containment: a schedule belongs to the queried window
+        // if it starts before the window ends and ends after the window
+        // starts. The previous startsAt>=from && endsAt<=to check required
+        // the whole schedule to fit inside [from, to], so a schedule
+        // extending even a minute past the window's edge (routine for a
+        // week-long schedule against a calendar week boundary) silently
+        // never appeared in that week's view.
+        // Overlap test: startsAt <= to AND endsAt >= from -- each condition
+        // reads "backwards" at a glance (the `to` bound checks startsAt, the
+        // `from` bound checks endsAt), so spelled out per-line for the next
+        // reader who arrives here without the block comment above.
+        if (to) conditions.push(lte(onCallSchedules.startsAt, to)); // starts before window closes
+        if (from) conditions.push(gte(onCallSchedules.endsAt, from)); // ends after window opens
         if (cursor) {
           const [cursorRow] = await tx
             .select({
