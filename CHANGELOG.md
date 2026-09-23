@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — MIS reporting dashboards (phase 0 + Stage 1)]
+
+### Added
+
+- **Embedded Superset reporting (track 3G, Stage 1)** — A Reporting page in admin-ui showing two
+  dashboards (Tenant Overview, My Performance) for admin and agent roles. Users never see a Superset
+  login: the API mints a short-lived, row-filtered pass per request and the embed SDK exchanges it.
+  Superset starts with the rest of the stack on a fresh clone (`COMPOSE_PROFILES=reporting`), bound
+  to loopback only, and provisions itself — dedicated guest role, read-only data connection with SQL
+  Lab off, and both dashboards addressed by slug rather than hardcoded identifiers.
+
+### Security
+
+- **Reporting tenant isolation is now enforced by the database, not by a filter** (migration 0112).
+  `analytics_user` no longer bypasses row-level security; Superset stamps the caller's tenant onto
+  each connection, so the platform's existing RLS policies apply to reporting queries exactly as
+  they do to the API. An unidentified connection returns no rows rather than every tenant's.
+- **Fixed a view that bypassed tenant isolation.** `workflow_events_masked` executed with its
+  owner's privileges, so RLS on the underlying table did not apply through it — querying it while
+  claiming a tenant that owned none of the rows returned all of them. Now declared
+  `security_invoker`, with the reporting role granted its own column-level read on the base table.
+- **Guest dashboard permissions no longer land on the anonymous role.** They were granted to
+  Flask-AppBuilder's `Public` role, which is the role given to unauthenticated visitors, leaving
+  Superset's dashboard/chart/dataset APIs answering `200` with no credentials. Provisioning now
+  revokes them from `Public`, grants them to a dedicated `EmbeddedViewer` role, and refuses to run
+  if the guest role is ever pointed back at `Public`.
+- **Superset secrets fail startup in production when left at their development defaults**, rather
+  than running on a published signing key — the mechanism behind CVE-2023-27524's attack class.
+  The browser-facing and container-internal URLs are also validated as different in production.
+
+---
+
 ## [Unreleased — MIS reporting dashboards (spec only)]
 
 ### Added
