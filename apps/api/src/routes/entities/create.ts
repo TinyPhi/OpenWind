@@ -42,7 +42,12 @@ const CreateEntitySchema = z
     // pipeline; never resolved synchronously in this request. Written into
     // fields.team_id below (the JSONB slot resolve-oncall.ts already reads),
     // not a new entity_instances column.
-    teamId: z.string().min(1).optional(),
+    // PR #659 review (Vijit), G6: was z.string().min(1) -- a non-UUID value
+    // passed schema validation and only failed at the team lookup below,
+    // surfacing as "Must be an existing team in this tenant" rather than a
+    // structured invalid-format error. TemplateSchema uses .uuid() for the
+    // same field.
+    teamId: z.string().uuid().optional(),
     dueDate: z.string().datetime(),
     remark: z.string().trim().min(1).max(4000),
     workflowId: z.string().uuid().optional(),

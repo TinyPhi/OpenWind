@@ -251,6 +251,24 @@ describe("listEntities — severity and tag filters", () => {
     await db.delete(entityInstances).where(eq(entityInstances.id, critical.id));
   });
 
+  // PR #659 review (Vijit), G5: the tag filter had an explicit cross-tenant
+  // negative assertion below; the severity filter didn't, leaving the
+  // isolation coverage asymmetric even though the underlying engine query
+  // is correct.
+  it("severity filter never returns another tenant's instance", async () => {
+    await withTenantContext(TENANT_B, (tx) =>
+      setEntityInstanceSeverity(tx, TENANT_B, instanceBId, "critical"),
+    );
+
+    const page = await withTenantContext(TENANT_A, (tx) =>
+      listEntities(tx, TENANT_A, {
+        entityTypeId: entityTypeIdA,
+        severity: ["critical"],
+      }),
+    );
+    expect(page.data.map((r) => r.id)).not.toContain(instanceBId);
+  });
+
   it("tag filter returns only instances carrying that exact normalized tag", async () => {
     const tagged = await createEntity(db, TENANT_A, {
       entityTypeId: entityTypeIdA,

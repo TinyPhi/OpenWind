@@ -2,7 +2,11 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { workflowEvents, withTenantContext } from "@platform/db";
-import { addEntityInstanceTag, getEntity } from "@platform/entity-engine";
+import {
+  addEntityInstanceTag,
+  getEntity,
+  TAG_TEXT_MAX_LENGTH,
+} from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { assertRecordWorkflowAccess } from "../../lib/assert-record-workflow-access.js";
@@ -11,7 +15,10 @@ const AddTagSchema = z.object({
   // Raw text — normalization (trim+lowercase) happens inside
   // addEntityInstanceTag, not here, so the DB constraint and the app-layer
   // normalization can never disagree (single source of truth).
-  tagText: z.string().min(1),
+  // PR #659 review (Vijit), G7: matches the DB's length(tag_text) <= 50
+  // CHECK constraint -- without this an oversized value surfaced as a raw
+  // DB constraint error instead of a structured 400.
+  tagText: z.string().min(1).max(TAG_TEXT_MAX_LENGTH),
 });
 
 export const addTagHandler = factory.createHandlers(

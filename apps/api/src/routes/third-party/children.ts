@@ -280,6 +280,15 @@ export const createThirdPartyChildHandler = factory.createHandlers(
                 "third-party sub-ticket create: failed to post remark as first comment",
               );
             }
+          } else {
+            // PR #659 review (Vijit), G9: remark is mandatory in
+            // CreateThirdPartyChildSchema, so a null workflowId here means
+            // it's silently dropped with no trace -- log it rather than
+            // return 201 with no signal anything was skipped.
+            logger.warn(
+              { tenantId, instanceId: result.instance.id },
+              "third-party sub-ticket create: remark not posted -- no workflowId on newly created child",
+            );
           }
 
           // PR #576 review (PrabhuVijit, F1) -- deliberately OUTSIDE the

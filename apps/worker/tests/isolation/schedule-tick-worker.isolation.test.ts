@@ -13,6 +13,8 @@ import {
   db,
   tenants,
   entityInstances,
+  entityTypes,
+  entityFields,
   scheduleRules,
   scheduleExecutions,
   adminAuditLog,
@@ -124,6 +126,19 @@ afterAll(async () => {
   await db
     .delete(adminAuditLog)
     .where(inArray(adminAuditLog.tenantId, [TENANT_A, TENANT_B]));
+  // PR #659 review (Vijit), S7: entityTypes created in beforeAll were never
+  // cleaned up, leaking rows into long-lived CI databases. entity_fields
+  // (the auto-seeded required "title" field -- entity-types.ts) references
+  // entity_types and must be deleted first or the entityTypes delete below
+  // fails its FK constraint.
+  await db
+    .delete(entityFields)
+    .where(
+      inArray(entityFields.entityTypeId, [entityTypeA.id, entityTypeB.id]),
+    );
+  await db
+    .delete(entityTypes)
+    .where(inArray(entityTypes.id, [entityTypeA.id, entityTypeB.id]));
   await db
     .delete(tenantUsers)
     .where(inArray(tenantUsers.tenantId, [TENANT_A, TENANT_B]));

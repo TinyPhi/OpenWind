@@ -28,8 +28,11 @@ export const TemplateSchema = z
     teamId: z.string().uuid().optional(),
     service_id: z.string().uuid().optional(),
     // Due date has no fixed value for a recurring rule -- due_days is an
-    // offset from each fire's own scheduled instant (R4).
-    due_days: z.number().int().min(0),
+    // offset from each fire's own scheduled instant (R4). Capped at 3650
+    // (10 years) -- same ceiling the pre-mandate-fields due_after_days had;
+    // PR #659 review (Vijit), B2: dropping it during the R1-R7 rename let
+    // an unbounded offset (e.g. 99999999) produce a due date centuries out.
+    due_days: z.number().int().min(0).max(3650),
     // Becomes the fired ticket's first comment via postRemarkComment,
     // attributed to the rule's creator (R5) -- same bounds as
     // CreateEntitySchema's remark field.
@@ -40,10 +43,14 @@ export const TemplateSchema = z
     const hasAssignedTo = template.assignedTo !== undefined;
     const hasTeamId = template.teamId !== undefined;
     if (hasAssignedTo === hasTeamId) {
+      // PR #659 review (Vijit), G3: blame whichever field is actually the
+      // problem -- both set -> teamId is the "extra" one; neither set ->
+      // assignedTo is the one a caller who never touched teamId expects to
+      // see flagged, not a field it never provided a value for.
       ctx.addIssue({
         code: "custom",
         message: "Exactly one of assignedTo or teamId must be set",
-        path: ["teamId"],
+        path: hasAssignedTo && hasTeamId ? ["teamId"] : ["assignedTo"],
       });
     }
   });

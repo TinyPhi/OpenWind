@@ -3,7 +3,7 @@
 --
 -- Adds the `remark` system field to entity_instances (mandatory-ticket-fields sync,
 -- 2026-09-21) -- same shape as the existing due_date (migration 0052) and severity
--- (migration 0106) system columns: a plain, nullable TEXT column, not an entity_fields
+-- (migration 0108) system columns: a plain, nullable TEXT column, not an entity_fields
 -- row, so every workflow's create form gets the same "Remark" box without per-module
 -- seed changes. NULL on rows created before this feature (no DB-level DEFAULT, same
 -- rationale as severity's own migration comment -- an ADD COLUMN DEFAULT would

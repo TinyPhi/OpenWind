@@ -73,7 +73,7 @@ beforeAll(async () => {
   instanceB = b.id;
 
   // Insert via withTenantContext (SET LOCAL ROLE app_user) — proves the GRANT in
-  // migration 0092 is present, same #10-class bug class as access_requests/ticket_alerts.
+  // migration 0108 is present, same #10-class bug class as access_requests/ticket_alerts.
   const [rowA] = await withTenantContext(TENANT_A, (tx) =>
     tx
       .insert(entityInstanceTags)
@@ -117,7 +117,7 @@ afterAll(async () => {
   await db.delete(tenants).where(eq(tenants.id, TENANT_B));
 });
 
-describe("entity_instance_tags — app_user GRANT (migration 0092)", () => {
+describe("entity_instance_tags — app_user GRANT (migration 0108)", () => {
   it("INSERT via withTenantContext succeeds against real Postgres+RLS", () => {
     expect(tagAId).toBeDefined();
     expect(tagBId).toBeDefined();
@@ -289,7 +289,7 @@ describe("entity_instance_tags — composite uniqueness (tenant_id, entity_insta
   });
 });
 
-describe("entity_instances.severity — CHECK constraint (migration 0092)", () => {
+describe("entity_instances.severity — CHECK constraint (migration 0108)", () => {
   it("accepts each of the four fixed severity values", async () => {
     for (const value of ["low", "medium", "high", "critical"] as const) {
       await db

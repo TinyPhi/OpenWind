@@ -394,12 +394,15 @@ describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-a
   });
 
   it("returns 400 when both assignedTo and teamId are set", async () => {
-    mockSelectLimitResult = [{ id: "team-1" }];
+    mockSelectLimitResult = [{ id: "00000000-0000-0000-0000-000000000001" }];
 
     const res = await makeApp().request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: validBody({ assignedTo: "u-target", teamId: "team-1" }),
+      body: validBody({
+        assignedTo: "u-target",
+        teamId: "00000000-0000-0000-0000-000000000001",
+      }),
     });
 
     expect(res.status).toBe(400);
@@ -412,7 +415,10 @@ describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-a
     const res = await makeApp().request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: validBody({ assignedTo: undefined, teamId: "team-nonexistent" }),
+      body: validBody({
+        assignedTo: undefined,
+        teamId: "00000000-0000-0000-0000-0000000000ff",
+      }),
     });
 
     expect(res.status).toBe(422);
@@ -422,7 +428,7 @@ describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-a
   });
 
   it("succeeds with teamId alone, writing it into fields.team_id (not assignedTo)", async () => {
-    mockSelectLimitResult = [{ id: "team-1" }];
+    mockSelectLimitResult = [{ id: "00000000-0000-0000-0000-000000000001" }];
     mockCreateEntity.mockResolvedValue(fakeInstance);
 
     const res = await makeApp().request("/", {
@@ -430,7 +436,7 @@ describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-a
       headers: { "Content-Type": "application/json" },
       body: validBody({
         assignedTo: undefined,
-        teamId: "team-1",
+        teamId: "00000000-0000-0000-0000-000000000001",
         fields: { subject: "hello" },
       }),
     });
@@ -440,7 +446,10 @@ describe("POST /entities — assignedTo/teamId exactly-one-of (docs/specs/team-a
       expect.any(Object),
       "t-aaa",
       expect.objectContaining({
-        fields: { subject: "hello", team_id: "team-1" },
+        fields: {
+          subject: "hello",
+          team_id: "00000000-0000-0000-0000-000000000001",
+        },
       }),
     );
     expect(mockCreateEntity.mock.calls[0]?.[2]).not.toHaveProperty(
