@@ -45,7 +45,7 @@ SELECT has_table_privilege('analytics_user','public.entity_fields','SELECT');  -
 ### P2 — the raw payload is readable, against 0112's explicit intent _(security)_
 
 Migration 0112 grants eleven named columns and deliberately omits `metadata`
-(`0104_reporting_tenant_isolation.sql:63-70`). Its own comment states why:
+(`0112_reporting_tenant_isolation.sql:58-71`). Its own comment states why:
 
 > that redaction is only worth anything while the raw column stays ungranted — otherwise the view
 > is a formality the caller can step around by selecting the base table directly.
@@ -140,7 +140,7 @@ payload completely and the contradiction in P3 is dissolved rather than worked a
 **Run the masked view with definer semantics under a safe owner.** Rejected. Migration 0112 set
 `security_invoker = true` to close a measured cross-tenant hole: a tenant owning none of the rows
 got zero from the base table and all 48 through the view
-(`0104_reporting_tenant_isolation.sql:26-30`). Any return to owner-evaluated privileges walks back
+(`0112_reporting_tenant_isolation.sql:25-29`). Any return to owner-evaluated privileges walks back
 into a documented incident, and the restrictive `reporting_own_rows` policy is bound to
 `analytics_user` so it would silently stop applying, leaking within the tenant.
 

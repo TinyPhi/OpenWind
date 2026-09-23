@@ -135,7 +135,7 @@ already exist:
   `enforceTenantRateLimit()` unconditionally (`packages/auth/src/middleware.ts:592`) for every
   authenticated request, including this route — per-tenant, per-minute, Redis-backed, with an
   admin-editable override. No BYOQ-specific work needed.
-- **Audit logging**: `packages/db/migrations/0107_reporting_audit_trail.sql` had already
+- **Audit logging**: `packages/db/migrations/0115_reporting_audit_trail.sql` had already
   reserved `reporting.query_executed`/`reporting.query_failed`/`reporting.exported` in
   `admin_audit_log`'s CHECK constraint (built for Superset SQL Lab's `analytics_user` path via
   `record_reporting_audit()`), but nothing TS-side ever called it. Added the two BYOQ produces
