@@ -504,12 +504,24 @@ function ScheduleFormModal({
     }
   }, [open, schedule]);
 
+  // PR #623 review (Vijit), G3: a schedule where primary/backup/escalation
+  // overlap is a silent misconfiguration -- backup gets paged alongside
+  // primary, defeating the point of a backup tier.
+  const assignedUserIds = [
+    primaryUserId,
+    backupUserId,
+    escalationManagerUserId,
+  ].filter((id) => id.length > 0);
+  const hasDuplicateAssignees =
+    new Set(assignedUserIds).size !== assignedUserIds.length;
+
   const isValid =
     label.trim().length > 0 &&
     startsAt.length > 0 &&
     endsAt.length > 0 &&
     primaryUserId.length > 0 &&
-    new Date(startsAt) < new Date(endsAt);
+    new Date(startsAt) < new Date(endsAt) &&
+    !hasDuplicateAssignees;
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -662,6 +674,12 @@ function ScheduleFormModal({
               portalContainer={contentNode}
             />
           </div>
+          {hasDuplicateAssignees && (
+            <div className="alert alert-error" style={{ marginTop: 8 }}>
+              Primary, backup, and escalation manager must be different people —
+              the same person can't cover their own backup.
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <Button
               type="submit"
