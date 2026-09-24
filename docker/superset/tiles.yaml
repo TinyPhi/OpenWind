@@ -12,6 +12,8 @@
 #   width     1-12 columns of the dashboard grid
 #   height    Superset's own row units
 #   params    passed to Superset as the chart definition, verbatim
+#   renamed_from  optional list of earlier titles; the provisioned chart
+#             under one of them is renamed in place instead of duplicated
 #
 # Layout is packed, not positioned: tiles fill a row left to right in the order
 # they appear here and wrap when the next one will not fit. Reordering this
@@ -140,6 +142,77 @@ tiles:
           operator: TEMPORAL_RANGE
           comparator: No filter
           expressionType: SIMPLE
+
+  # Second row, directly under the four KPI numbers (review feedback,
+  # 2026-09-24): full width, so it takes the whole row by itself.
+  # A native range filter here (Days To Due, 2026-09-21) turned out broken
+  # under embed: its slider needs to fetch the column's min/max as the
+  # dashboard owner, the same RLS/owner-context gap already documented
+  # below for select filters (bootstrap.py logs "RLS blocks every sample
+  # row" for ticket_list under that context) — the control rendered but
+  # could not actually move. A follow-up two-static-tiles split (Next 7
+  # Days / All) was tried instead and dropped too — not what was wanted;
+  # one table, no filter, was the actual ask all along. All tickets, no
+  # row filter, sorted by days-to-due ascending so overdue and soon-due
+  # rows are read first and later/no-due-date rows fall to the bottom
+  # (Postgres puts NULL last on ASC) — colour-graded on the same column.
+  - name: Ticket SLA Watch (Upcoming & Overdue)
+    # Renamed in place from the old title, keeping the same chart.
+    renamed_from: ["Ticket SLA Watch(Upcoming & Overdue came first)"]
+    dashboard: tenant
+    dataset: ticket_list
+    viz_type: table
+    width: 12
+    height: 80
+    params:
+      query_mode: raw
+      all_columns:
+        - open_link
+        - sno
+        - title
+        - workflow_name
+        - current_state
+        - department
+        - assignee
+        - first_response_hours
+        - due_date_display
+        - days_to_due
+      order_by_cols:
+        - '["days_to_due", true]'
+      # Was 200 - genuinely truncated real data (301 tickets, no row filter
+      # on this tile by design) and threw Superset's own "row limit reached"
+      # warning. 1000 matches the cap used elsewhere in this file for the
+      # same reason (e.g. "My tickets" below).
+      row_limit: 1000
+      page_length: 15
+      include_search: true
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+      allow_render_html: true
+      column_config:
+        days_to_due:
+          d3NumberFormat: ",d"
+          horizontalAlign: right
+        first_response_hours:
+          d3NumberFormat: ",.1f"
+          horizontalAlign: right
+      conditional_formatting:
+        - column: days_to_due
+          operator: "<"
+          targetValue: 0
+          colorScheme: "#EA3E5B"
+        - column: days_to_due
+          operator: "<="
+          targetValue: 2
+          colorScheme: "#F38516"
+        - column: days_to_due
+          operator: "<="
+          targetValue: 7
+          colorScheme: "#FFC700"
 
   - name: Tickets by State
     dashboard: tenant
@@ -466,13 +539,12 @@ tiles:
       # (bootstrap.py), so a figure means the same thing wherever it appears
       # and the explanation sits next to the number rather than in a doc.
       # allow_render_html lets open_link's <a> tag actually render as a
-      # link rather than escaped text. target="_blank" needs no extra
-      # iframe permission - the embed SDK's sandbox already includes
-      # allow-popups by default (checked against its own source), which
-      # is exactly what a target="_blank" anchor needs. Verified: this
-      # does not depend on cross-filtering or postMessage inside the
-      # embed at all, unlike the emitFilter approach tried first and
-      # reverted after it did not fire on a real click.
+      # link rather than escaped text. It opens the ticket in a new tab;
+      # see open_link in bootstrap.py for why that also needs
+      # allow-popups-to-escape-sandbox on the embed. A plain link, so it
+      # does not depend on cross-filtering or postMessage inside the embed,
+      # unlike the emitFilter approach tried first and reverted after it
+      # did not fire on a real click.
       allow_render_html: true
       column_config:
         sno:
@@ -543,73 +615,6 @@ tiles:
       # placeholder/always-"No SLA" values.
 
   # ---- Organisation: SLA and ageing ------------------------------
-
-  # A native range filter here (Days To Due, 2026-09-21) turned out broken
-  # under embed: its slider needs to fetch the column's min/max as the
-  # dashboard owner, the same RLS/owner-context gap already documented
-  # below for select filters (bootstrap.py logs "RLS blocks every sample
-  # row" for ticket_list under that context) — the control rendered but
-  # could not actually move. A follow-up two-static-tiles split (Next 7
-  # Days / All) was tried instead and dropped too — not what was wanted;
-  # one table, no filter, was the actual ask all along. All tickets, no
-  # row filter, sorted by days-to-due ascending so overdue and soon-due
-  # rows are read first and later/no-due-date rows fall to the bottom
-  # (Postgres puts NULL last on ASC) — colour-graded on the same column.
-  - name: Ticket SLA Watch(Upcoming & Overdue came first)
-    dashboard: tenant
-    dataset: ticket_list
-    viz_type: table
-    width: 12
-    height: 80
-    params:
-      query_mode: raw
-      all_columns:
-        - open_link
-        - sno
-        - title
-        - workflow_name
-        - current_state
-        - department
-        - assignee
-        - first_response_hours
-        - due_date_display
-        - days_to_due
-      order_by_cols:
-        - '["days_to_due", true]'
-      # Was 200 - genuinely truncated real data (301 tickets, no row filter
-      # on this tile by design) and threw Superset's own "row limit reached"
-      # warning. 1000 matches the cap used elsewhere in this file for the
-      # same reason (e.g. "My tickets" below).
-      row_limit: 1000
-      page_length: 15
-      include_search: true
-      adhoc_filters:
-        - clause: WHERE
-          subject: created_at
-          operator: TEMPORAL_RANGE
-          comparator: No filter
-          expressionType: SIMPLE
-      allow_render_html: true
-      column_config:
-        days_to_due:
-          d3NumberFormat: ",d"
-          horizontalAlign: right
-        first_response_hours:
-          d3NumberFormat: ",.1f"
-          horizontalAlign: right
-      conditional_formatting:
-        - column: days_to_due
-          operator: "<"
-          targetValue: 0
-          colorScheme: "#EA3E5B"
-        - column: days_to_due
-          operator: "<="
-          targetValue: 2
-          colorScheme: "#F38516"
-        - column: days_to_due
-          operator: "<="
-          targetValue: 7
-          colorScheme: "#FFC700"
 
   # Replaces four separate tiles (Time To Close - Distribution, SLA Margin -
   # Distribution, Tickets by Status & SLA, Staleness by Status) and the
@@ -691,11 +696,16 @@ filters:
   # `severity` is deliberately absent: it has no field definition anywhere and
   # the dataset carries a 'Not set' placeholder for it, so a dropdown on it
   # would offer exactly one meaningless choice. Priority is the real one.
-  - name: Priority
+  #
+  # Order is the order in the bar (review feedback, 2026-09-24): the date
+  # range leads the first row, and Priority comes after the other dropdowns.
+  # Superset's horizontal bar shows filters in this order and moves the ones
+  # that do not fit the row into its "More filters" menu, so on a typical
+  # screen the row holds the first four and Priority sits in the menu. How
+  # many fit depends on the viewer's screen width.
+  - name: Date Range
     dashboard: tenant
-    type: select
-    dataset: ticket_list
-    column: priority
+    type: time
 
   - name: Status
     dashboard: tenant
@@ -715,14 +725,18 @@ filters:
     dataset: ticket_list
     column: assignee
 
+  - name: Priority
+    dashboard: tenant
+    type: select
+    dataset: ticket_list
+    column: priority
+
   # The personal dashboard gets the same two that make sense there. Assignee
   # and department are omitted: every row is already the viewer's own, so
   # filtering by who it belongs to answers a question nobody is asking.
-  - name: Priority
+  - name: Date Range
     dashboard: user
-    type: select
-    dataset: my_tickets_assigned
-    column: priority
+    type: time
 
   - name: Status
     dashboard: user
@@ -730,13 +744,11 @@ filters:
     dataset: my_tickets_assigned
     column: current_state
 
-  - name: Date Range
-    dashboard: tenant
-    type: time
-
-  - name: Date Range
+  - name: Priority
     dashboard: user
-    type: time
+    type: select
+    dataset: my_tickets_assigned
+    column: priority
 
   # Per-KPI-tile date filters (D6, docs/specs/superset-embedded-dashboarding.md).
   # `charts:` restricts a time filter to exactly the named tile(s) instead of

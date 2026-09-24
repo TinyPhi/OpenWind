@@ -939,6 +939,7 @@ def ensure_dataset(
 
 def ensure_chart(
     db, dataset, dashboard, chart_name: str, viz_type: str, params: dict,
+    renamed_from: list[str] | None = None,
 ):
     """Create one chart against `dataset`, and attach it to `dashboard`.
 
@@ -972,6 +973,36 @@ def ensure_chart(
         .all()
     )
     chart = next((s for s in matches if s.dashboards), matches[0] if matches else None)
+
+    # A tile retitled in tiles.yaml (`renamed_from`) keeps its chart: the
+    # provisioned chart under the old title, the one on this dashboard, is
+    # renamed in place. Matching the new title alone would create a second
+    # chart and leave the old one stranded. Copies users saved under the old
+    # title are not on the dashboard, so they are left alone.
+    if chart is None:
+        for old_name in renamed_from or []:
+            previous = next(
+                (
+                    s
+                    for s in db.session.query(Slice)
+                    .filter_by(slice_name=old_name, datasource_id=dataset.id)
+                    .order_by(Slice.id)
+                    .all()
+                    if dashboard in s.dashboards
+                ),
+                None,
+            )
+            if previous is not None:
+                logger.info(
+                    "chart '%s' renamed to '%s' (id=%s)",
+                    old_name,
+                    chart_name,
+                    previous.id,
+                )
+                previous.slice_name = chart_name
+                chart = previous
+                break
+
     if len(matches) > 1:
         logger.warning(
             "chart '%s': %d charts share this name on dataset %s — updating id=%s "
@@ -1205,6 +1236,7 @@ def apply_tiles(db, tiles: list[dict], datasets: dict, dashboards: dict) -> tupl
             tile["name"],
             tile["viz_type"],
             params,
+            renamed_from=tile.get("renamed_from"),
         )
 
         charts_by_dataset.setdefault(
@@ -2032,17 +2064,25 @@ def main() -> int:
                         '[^a-z0-9-]', '', 'g'
                     ) AS record_type_slug,
 
-                    -- A real, clickable link, rendered as HTML in the table
-                    -- cell (allow_render_html on the chart). target="_blank"
-                    -- needs no extra iframe permission: the embed SDK's
-                    -- sandbox already includes allow-popups by default
-                    -- (verified against its own source), which is exactly
-                    -- what a target="_blank" anchor needs. This does not
-                    -- depend on cross-filtering or postMessage working inside
-                    -- the embed at all — it is a plain link a browser already
-                    -- knows how to follow.
-                    '<a href="{_embed_origin_sql}/records/record/' ||
-                        ei.id ||
+                    -- A real, clickable link to the ticket in OpenWind,
+                    -- rendered as HTML in the table cell (allow_render_html
+                    -- on the chart). The path is /records/<type slug>/<id>,
+                    -- the route admin-ui serves; the slug is the same
+                    -- expression as record_type_slug above (a SELECT cannot
+                    -- reuse its own alias). It opens in a new tab, which only
+                    -- works because the embed page adds
+                    -- allow-popups-to-escape-sandbox (reporting.tsx): the
+                    -- SDK's own allow-popups opens the tab but leaves it
+                    -- inside the dashboard iframe's sandbox.
+                    '<a href="{_embed_origin_sql}/records/' ||
+                        REGEXP_REPLACE(
+                            REGEXP_REPLACE(
+                                LOWER(COALESCE(NULLIF(et.plural, ''), et.name, 'record')),
+                                '\s+', '-', 'g'
+                            ),
+                            '[^a-z0-9-]', '', 'g'
+                        ) ||
+                        '/' || ei.id ||
                         '" target="_blank" rel="noopener">Open &rarr;</a>'
                         AS open_link,
 
