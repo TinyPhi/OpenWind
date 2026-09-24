@@ -5,27 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased — MIS reporting dashboards (phase 0 + Stage 1)]
+## [Unreleased — MIS reporting (Stage 1 embedded + Stage 2 standalone)]
 
 ### Added
 
-- **Embedded Superset reporting (track 3G, Stage 1)** — A Reporting page in admin-ui showing two
-  dashboards (Tenant Overview, My Performance) for admin and agent roles. Users never see a Superset
-  login: the API mints a short-lived, row-filtered pass per request and the embed SDK exchanges it.
-  Superset starts with the rest of the stack on a fresh clone (`COMPOSE_PROFILES=reporting`), bound
-  to loopback only, and provisions itself — dedicated guest role, read-only data connection with SQL
-  Lab off, and both dashboards addressed by slug rather than hardcoded identifiers.
+- **Embedded Superset reporting (track 3G, Stage 1)** — A Reporting page in admin-ui. Admins and
+  agents get two dashboards (Tenant Overview, My Performance); customers get only their own. Users
+  never see a Superset login: the API mints a 60-second, row-filtered pass per request and the embed
+  SDK exchanges it. Dashboard filter bars for Priority, Status, Department and Assignee. Superset
+  starts with the rest of the stack on a fresh clone (`COMPOSE_PROFILES=reporting`), bound to
+  loopback only, and provisions itself: a dedicated guest role, a read-only data connection, and both
+  dashboards addressed by slug rather than hardcoded identifiers.
+- **Query builder on the Reporting page** — point-and-click measure, grouping and filters over
+  tickets, with CSV export. Staff query their tenant; everyone else only their own tickets, enforced
+  by the API. Every query is recorded in the audit log (`reporting.query_executed` /
+  `reporting.query_failed`).
+- **Standalone Superset with Zitadel sign-in (Stage 2)** — optional, off unless
+  `SUPERSET_OAUTH_CLIENT_ID` is set. Roles are re-synced at every login; non-staff are narrowed to
+  their own tickets by the database, whatever query they write.
+- **Helpdesk tickets gain a `department` field** (optional select).
 
 ### Security
 
-- **Reporting tenant isolation is now enforced by the database, not by a filter** (migration 0112).
+- **Reporting tenant isolation is enforced by the database, not by a filter** (migration 0112).
   `analytics_user` no longer bypasses row-level security; Superset stamps the caller's tenant onto
-  each connection, so the platform's existing RLS policies apply to reporting queries exactly as
-  they do to the API. An unidentified connection returns no rows rather than every tenant's.
-- **Fixed a view that bypassed tenant isolation.** `workflow_events_masked` executed with its
-  owner's privileges, so RLS on the underlying table did not apply through it — querying it while
-  claiming a tenant that owned none of the rows returned all of them. Now declared
-  `security_invoker`, with the reporting role granted its own column-level read on the base table.
+  each connection, so the platform's RLS policies apply to reporting queries exactly as they do to
+  the API. A connection with no tenant returns no rows.
+- **Own-rows boundary in the database** (0116) — a restrictive policy limits non-staff reporting
+  sessions to tickets they raised or are assigned.
+- **PII withheld by grant, not masked by a view** (0117–0124) — the reporting role cannot read
+  `workflow_events.metadata`, `entity_instances.fields`/`search_vector` or `tenant_users.email`;
+  reporting reads trigger-maintained projection columns instead. The old `workflow_events_masked`
+  view executed with its owner's privileges, so RLS did not apply through it; it has been dropped
+  (0119). The role reaches only the reporting tables (0113), and `pg_stat_statements` is no longer
+  readable by `PUBLIC`.
 - **Guest dashboard permissions no longer land on the anonymous role.** They were granted to
   Flask-AppBuilder's `Public` role, which is the role given to unauthenticated visitors, leaving
   Superset's dashboard/chart/dataset APIs answering `200` with no credentials. Provisioning now
@@ -34,6 +47,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Superset secrets fail startup in production when left at their development defaults**, rather
   than running on a published signing key — the mechanism behind CVE-2023-27524's attack class.
   The browser-facing and container-internal URLs are also validated as different in production.
+
+### Fixed
+
+- **Sign-in no longer overwrites stored display names with the user id** when the token carries no
+  name.
+- **Login failures before the redirect are logged** instead of silently resetting the button.
 
 ---
 
