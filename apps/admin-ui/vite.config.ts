@@ -13,7 +13,6 @@ function envJsPlugin(vars: Record<string, string | undefined>): Plugin {
       "",
     IDLE_LOGOUT_ENABLED: vars["VITE_IDLE_LOGOUT_ENABLED"] ?? "",
     IDLE_LOGOUT_TIMEOUT_MINUTES: vars["VITE_IDLE_LOGOUT_TIMEOUT_MINUTES"] ?? "",
-    REPORTING_TIMEZONE: vars["VITE_REPORTING_TIMEZONE"] ?? "",
   })};`;
   return {
     name: "serve-env-js",

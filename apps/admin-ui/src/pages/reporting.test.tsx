@@ -43,14 +43,6 @@ vi.mock("@platform/ui", () => ({
     accentPrimary: "#0a5",
     surface: "#fff",
   },
-  useHoverStyle: (props?: {
-    base?: Record<string, unknown>;
-    hover?: Record<string, unknown>;
-  }) => ({
-    style: props?.base ?? {},
-    onMouseEnter: vi.fn(),
-    onMouseLeave: vi.fn(),
-  }),
 }));
 
 const { ReportingPage } = await import("./reporting.js");
@@ -66,32 +58,7 @@ const PASS = {
 beforeEach(() => {
   vi.clearAllMocks();
   currentRoles = { agent: {} };
-  fetchWithAuth.mockImplementation((url: string) => {
-    if (typeof url === "string" && url.includes("/users")) {
-      return Promise.resolve({ data: [] });
-    }
-    if (typeof url === "string" && url.includes("/reporting/query")) {
-      return Promise.resolve({
-        data: {
-          summary: {
-            measure: "tickets",
-            operation: "count",
-            value: 0,
-            formattedValue: "0",
-            totalRows: 0,
-          },
-          groups: [],
-          rows: [],
-          meta: {
-            groupBy: "status",
-            isScopedToUser: false,
-            appliedFiltersCount: 0,
-          },
-        },
-      });
-    }
-    return Promise.resolve(PASS);
-  });
+  fetchWithAuth.mockResolvedValue(PASS);
   embedDashboard.mockResolvedValue({ unmount: vi.fn() });
 });
 
@@ -103,11 +70,21 @@ afterEach(() => {
 });
 
 describe("Reporting page", () => {
-  it("renders both overview and performance tabs for an agent, plus the BYOQ sidebar toggle", async () => {
+  it("renders both overview and performance tabs for an agent", async () => {
     render(<ReportingPage />);
     expect(await screen.findByText("My Organisation Overview")).toBeTruthy();
     expect(screen.getByText("My Performance")).toBeTruthy();
-    expect(screen.getByText("⚡ BYOQ Sidebar")).toBeTruthy();
+  });
+
+  it("has no query-builder sidebar and calls only the guest-token endpoint", async () => {
+    // The sidebar and its /reporting/query endpoint were removed; the page
+    // must not render a remnant of it or call the endpoint.
+    render(<ReportingPage />);
+    await waitFor(() => expect(embedDashboard).toHaveBeenCalled());
+    expect(screen.queryByText(/BYOQ/)).toBeNull();
+    for (const [url] of fetchWithAuth.mock.calls as [string][]) {
+      expect(url).toContain("/superset/guest-token");
+    }
   });
 
   it("embeds the dashboard the API resolved, not a hardcoded id", async () => {
@@ -144,27 +121,19 @@ describe("Reporting page", () => {
     );
   });
 
-  it("toggles the BYOQ sidebar open and closed", async () => {
+  it("lets links from the dashboard open a normal tab outside the sandbox", async () => {
+    // The ticket tables' "Open" link uses target="_blank". Without this the
+    // new tab inherits the dashboard iframe's sandbox and OpenWind fails
+    // to load in it.
     render(<ReportingPage />);
-    await waitFor(() =>
-      expect(screen.getByText("⚡ BYOQ Sidebar")).toBeTruthy(),
-    );
+    await waitFor(() => expect(embedDashboard).toHaveBeenCalled());
 
-    // Click to open sidebar
-    fireEvent.click(screen.getByText("⚡ BYOQ Sidebar"));
-
-    await waitFor(() => {
-      expect(screen.getByText("⚡ BYOQ Control Panel")).toBeTruthy();
-      expect(screen.getByText("🌐 Tenant-wide Scope")).toBeTruthy();
-    });
-
-    // Click collapse button
-    const collapseBtn = screen.getByTitle("Collapse Sidebar");
-    fireEvent.click(collapseBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText("⚡ BYOQ Sidebar")).toBeTruthy();
-    });
+    const [args] = embedDashboard.mock.calls[0] as [
+      { iframeSandboxExtras?: string[] },
+    ];
+    expect(args.iframeSandboxExtras).toEqual([
+      "allow-popups-to-escape-sandbox",
+    ]);
   });
 
   it("hands the SDK a callback that fetches a fresh pass on expiry", async () => {
@@ -188,7 +157,7 @@ describe("Reporting page", () => {
 });
 
 describe("customer access", () => {
-  it("gives a customer their own performance dashboard and user-scoped BYOQ sidebar", async () => {
+  it("gives a customer their own performance dashboard", async () => {
     currentRoles = { user: {} };
     render(<ReportingPage />);
 
@@ -200,13 +169,6 @@ describe("customer access", () => {
     await waitFor(() => expect(embedDashboard).toHaveBeenCalled());
     expect(screen.queryByText("My Organisation Overview")).toBeNull();
     expect(screen.getByText("My Performance")).toBeTruthy();
-    expect(screen.getByText("⚡ BYOQ Sidebar")).toBeTruthy();
-
-    // Open sidebar for customer
-    fireEvent.click(screen.getByText("⚡ BYOQ Sidebar"));
-    await waitFor(() => {
-      expect(screen.getByText("🔒 Scoped to Your Tickets")).toBeTruthy();
-    });
   });
 
   it("never shows the tenant tab to a customer, even for a frame", async () => {
@@ -219,13 +181,12 @@ describe("customer access", () => {
     expect(screen.queryByText("My Organisation Overview")).toBeNull();
   });
 
-  it("treats an admin as entitled to both tabs and tenant-wide BYOQ scope", async () => {
+  it("treats an admin as entitled to both tabs", async () => {
     currentRoles = { admin: {} };
     render(<ReportingPage />);
     await waitFor(() => expect(embedDashboard).toHaveBeenCalled());
     expect(await screen.findByText("My Organisation Overview")).toBeTruthy();
     expect(screen.getByText("My Performance")).toBeTruthy();
-    expect(screen.getByText("⚡ BYOQ Sidebar")).toBeTruthy();
   });
 });
 

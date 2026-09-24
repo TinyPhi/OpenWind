@@ -7,11 +7,9 @@ import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
 import { TOKENS } from "@platform/ui";
 import { getSavedTheme } from "../lib/theme.js";
-import { ReportingBYOQSidebar } from "./reporting-byoq.js";
 
 /**
- * Reporting — embedded Superset dashboards (track 3G, Stage 1)
- * with native BYOQ (Build Your Own Query) sidebar control panel.
+ * Reporting — embedded Superset dashboards (track 3G, Stage 1).
  *
  * Everything outside the iframe is ours; everything inside it is Superset's.
  * We never hold a Superset credential here: the page asks our API for a
@@ -123,7 +121,6 @@ export const ReportingPage: React.FC = () => {
   // Starts at a viewport-ish floor so the panel is never a thin strip while
   // the real size is still being worked out.
   const [embedHeight, setEmbedHeight] = useState(viewportEmbedHeight);
-  const [isByoqOpen, setIsByoqOpen] = useState(false);
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const [supersetSiteUrl, setSupersetSiteUrl] = useState(
     "http://localhost:8088",
@@ -206,6 +203,12 @@ export const ReportingPage: React.FC = () => {
           // decide, so the refresh is expiry-driven rather than a timer we pick
           // here — a hardcoded interval would drift from the real lifetime.
           fetchGuestToken: async () => (await fetchGuestToken(activeTab)).token,
+          // The ticket tables' "Open" link opens the ticket in a new tab. The
+          // SDK's own `allow-popups` lets the tab open, but the tab inherits
+          // this iframe's sandbox, so OpenWind would load there sandboxed and
+          // fail. Escaping the sandbox gives it a normal browsing context; it
+          // widens nothing for the dashboard iframe itself.
+          iframeSandboxExtras: ["allow-popups-to-escape-sandbox"],
           dashboardUiConfig: {
             hideTitle: true,
             // Shown and expanded. `expanded: false` collapses the filter bar
@@ -436,8 +439,7 @@ export const ReportingPage: React.FC = () => {
                     pointerEvents: "none",
                   }}
                 >
-                  For more detailed analysis and BYOQ, please visit the Superset
-                  report.
+                  For more detailed analysis, open the full report in Superset.
                 </div>
               )}
             </div>
@@ -472,18 +474,11 @@ export const ReportingPage: React.FC = () => {
       <div
         style={{
           display: "flex",
-          gap: 16,
           alignItems: "flex-start",
           flex: 1,
           minHeight: 0,
         }}
       >
-        <ReportingBYOQSidebar
-          isOpen={isByoqOpen}
-          onToggle={() => setIsByoqOpen((prev) => !prev)}
-          isStaff={isStaff}
-        />
-
         <div
           style={{
             flex: 1,
