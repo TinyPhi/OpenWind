@@ -63,7 +63,6 @@ ALTER TABLE admin_audit_log ADD CONSTRAINT audit_log_action_check CHECK (
         -- data from the platform's control, and the spec asks for export
         -- volume to be answerable on its own.
         'reporting.query_executed',
-        'reporting.query_failed',
         'reporting.exported'
     ])
 );
@@ -84,7 +83,6 @@ AS $$
 BEGIN
     IF p_action NOT IN (
         'reporting.query_executed',
-        'reporting.query_failed',
         'reporting.exported'
     ) THEN
         RAISE EXCEPTION 'record_reporting_audit: unsupported action %', p_action;

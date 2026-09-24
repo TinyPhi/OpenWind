@@ -20,12 +20,11 @@
 -- — a projection maintained for reporting — and keeps the namespace free for a
 -- real column should the platform ever grow one.
 --
--- Exact mirrors, deliberately. `apps/api/src/routes/reporting/query.ts` builds
--- a friendlier title with COALESCE over 'title'/'subject'/'name' and an id
--- fallback, but that path runs as app_user and is untouched here. Copying its
--- fallbacks into this column would make the Superset datasets return different
--- rows than they do today, and the whole point is that they return identical
--- ones. Equivalence is verified before the payload grant is withdrawn in 0122.
+-- Exact mirrors, deliberately. A friendlier title (COALESCE over
+-- 'title'/'subject'/'name' with an id fallback) was considered and left out:
+-- it would make the Superset datasets return different rows than they do
+-- today, and the whole point is that they return identical ones. Equivalence
+-- is verified before the payload grant is withdrawn in 0122.
 --
 -- Mechanism follows 0117: a nullable column is a catalogue-only change with no
 -- table rewrite, where a stored generated column would rewrite this table under
