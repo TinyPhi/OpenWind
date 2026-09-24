@@ -64,7 +64,19 @@ VALUES
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description', 'Description', 'textarea', '{}'::jsonb, false, false, true, 2),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'priority', 'Priority', 'select', '{"options": ["low", "medium", "high", "urgent"]}'::jsonb, true, true, true, 3),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'category', 'Category', 'select', '{"options": ["technical", "billing", "general"]}'::jsonb, true, true, true, 4),
-  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'severity', 'Severity', 'select', '{"options": ["critical", "high", "medium", "low"]}'::jsonb, false, true, true, 5)
+  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'severity', 'Severity', 'select', '{"options": ["critical", "high", "medium", "low"]}'::jsonb, false, true, true, 5),
+  -- Which team/business unit the ticket belongs to. Same shape as
+  -- priority/category above -- a plain `select` field, not `entity_ref` --
+  -- deliberately: the real HRMS Department entity does not exist yet
+  -- (modules/hrms/src/index.ts is a stub), and team_id/service_id above are
+  -- already documented as blocked on validateEntityRefs only resolving
+  -- entity_type refs (see the comment above), which would hit the same wall.
+  -- A plain select avoids that entirely and matches how department is
+  -- already read in reporting (docker/superset/bootstrap.py, ei.fields->>
+  -- 'department'). Options are a starting list, editable per tenant later by
+  -- updating this row's own `config.options` -- no schema or code change
+  -- needed (see field-input.tsx, which renders any select field generically).
+  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'department', 'Department', 'select', '{"options": ["support", "engineering", "finance", "sales", "hr", "operations"]}'::jsonb, false, true, true, 6)
 ON CONFLICT (entity_type_id, name) DO NOTHING;
 
 -- Insert fields for Comment
