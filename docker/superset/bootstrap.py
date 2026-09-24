@@ -490,8 +490,9 @@ def ensure_reporting_database(db, database_name: str, sqlalchemy_uri: str):
     database, right here.
 
     That matters more than usual on this particular connection: it reaches the
-    platform database, and the reporting role currently bypasses row-level
-    security, so an arbitrary-SQL surface on it would read every tenant's rows.
+    platform database, so an arbitrary-SQL surface on it is only as safe as the
+    database-side boundaries under it (row-level security with no bypass, the
+    column allowlist and the own-rows policy; migrations 0112-0124).
     """
     from superset.models.core import Database
 
