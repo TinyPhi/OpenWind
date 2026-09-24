@@ -168,7 +168,6 @@ export function createApp(): Hono<AppVars> {
   app.route("/preferences", preferencesRouter);
   app.route("/saved-views", savedViewsRouter);
   app.route("/superset", reportingRouter);
-  app.route("/reporting", reportingRouter);
   app.route("/notifications", notificationsRouter);
   app.route("/exports", exportsRouter);
   app.route("/dashboard", dashboardRouter);
