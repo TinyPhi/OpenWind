@@ -1086,11 +1086,11 @@ def build_position_json(placements: list[dict]) -> str:
     Superset version — description/certification never render at all
     (aria-label only), and MARKDOWN renders but is capped at a fixed ~268px
     width regardless of the width declared, specifically for a row Superset's
-    own interactive editor never touched. The 4 KPI tiles' hint now lives in
-    their native `subheader` param instead (tiles.yaml) — the one place this
-    kind of text is confirmed to render correctly, because the big-number viz
-    plugin reads it directly rather than routing through the same header
-    component the other three mechanisms depend on.
+    own interactive editor never touched. If a tile ever needs hint text, the
+    big-number viz's own `subheader` param (tiles.yaml) is the one place it is
+    confirmed to render, because that plugin reads it directly rather than
+    routing through the header component the other three depend on. The 4
+    KPI tiles deliberately carry none: the number and its title stand alone.
     """
     position: dict = {
         "DASHBOARD_VERSION_KEY": "v2",
@@ -1288,10 +1288,9 @@ def apply_tiles(db, tiles: list[dict], datasets: dict, dashboards: dict) -> tupl
         # but none render usably on a dashboard tile in this Superset version
         # — the first two never render at all (aria-label only), and the
         # MARKDOWN tile renders capped at a fixed ~268px width regardless of
-        # what width is declared. The 4 KPI tiles' hint lives in their native
-        # `subheader` param instead (tiles.yaml) — confirmed working, since
-        # the big-number viz plugin reads it directly rather than routing
-        # through the same header component the other three depend on.
+        # what width is declared. Hint text, where a tile needs any, belongs
+        # in the big-number viz's own `subheader` param (tiles.yaml) — the
+        # one mechanism confirmed to render. The 4 KPI tiles carry none.
         # Nothing to set in json_metadata for this; just clearing stray keys
         # left over from the abandoned attempt.
         metadata = json.loads(dashboard.json_metadata or "{}")

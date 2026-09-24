@@ -58,9 +58,7 @@ tiles:
     height: 50
     params:
       metric: count
-      subheader: All Tickets to be respond
       header_font_size: 0.4
-      subheader_font_size: 0.125
 
       adhoc_filters:
         - clause: WHERE
@@ -77,9 +75,7 @@ tiles:
     height: 50
     params:
       metric: count
-      subheader: Tickets past due date and not yet closed.
       header_font_size: 0.4
-      subheader_font_size: 0.125
       # A plain comparison, no sub-query. due_date is nullable and NULL
       # compares false, so tickets without a due date are excluded rather
       # than counted as on-time or as breaches.
@@ -108,9 +104,7 @@ tiles:
     height: 50
     params:
       metric: count
-      subheader: Tickets with no assignee yet.
       header_font_size: 0.4
-      subheader_font_size: 0.125
       adhoc_filters:
         - clause: WHERE
           subject: created_at
@@ -139,9 +133,7 @@ tiles:
         expressionType: SQL
         sqlExpression: percentile_cont(0.5) within group (order by hours_to_first_response)
         label: median_hours
-      subheader: "Median Response Time(24hrs), ticket creation - first response"
       header_font_size: 0.4
-      subheader_font_size: 0.125
       adhoc_filters:
         - clause: WHERE
           subject: replied_at
