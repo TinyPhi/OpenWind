@@ -44,6 +44,9 @@ vi.mock("../../src/lib/zitadel-management.js", async (importOriginal) => {
 import { createThirdPartyCommentHandler } from "../../src/routes/third-party/comments.js";
 import { createThirdPartyTicketHandler } from "../../src/routes/third-party/tickets.js";
 
+// Relative, not a fixed date: a due date must be after the ticket's creation
+// (entity-engine), so any fixed date eventually falls into the past.
+const DUE_DATE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 const TENANT = "aabbccdd-0000-4000-a000-000000000801";
 const OTHER_TENANT = "aabbccdd-0000-4000-a000-000000000802";
 const API_KEY_ID = "55555555-5555-5555-5555-555555555555";
@@ -556,7 +559,7 @@ describe("attachment references on ticket-create", () => {
         workflowId,
         fields: {},
         assignedTo: "unresolved-assignee",
-        dueDate: "2026-01-01T00:00:00.000Z",
+        dueDate: DUE_DATE,
         remark: "a remark",
         attachmentIds: [attachmentId],
       }),
@@ -580,7 +583,7 @@ describe("attachment references on ticket-create", () => {
         workflowId,
         fields: {},
         assignedTo: "unresolved-assignee",
-        dueDate: "2026-01-01T00:00:00.000Z",
+        dueDate: DUE_DATE,
         remark: "a remark",
         attachmentIds: ["00000000-0000-4000-8000-000000000000"],
       }),

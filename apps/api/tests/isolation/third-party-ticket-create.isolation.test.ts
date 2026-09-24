@@ -191,7 +191,9 @@ const ACTING_PERSON: ActingPersonContext = {
 // assignedTo/dueDate are mandatory on every creation path (platform-wide
 // invariant, see SYNC-TO-CURRENT-FORMAT.md's "current format" definition) --
 // default valid values for tests unrelated to these two fields specifically.
-const DUE_DATE = "2026-01-01T00:00:00.000Z";
+// Relative, not a fixed date: a due date must be after the ticket's creation
+// (entity-engine), so any fixed date eventually falls into the past.
+const DUE_DATE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 function ticketBody(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     workflowId,
