@@ -12,17 +12,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Embedded Superset reporting (track 3G, Stage 1)** — A Reporting page in admin-ui. Admins and
   agents get two dashboards (Tenant Overview, My Performance); customers get only their own. Users
   never see a Superset login: the API mints a 60-second, row-filtered pass per request and the embed
-  SDK exchanges it. Dashboard filter bars for Priority, Status, Department and Assignee. Superset
+  SDK exchanges it. A filter bar led by the date range, with Status, Department, Assignee and
+  Priority; on My Organisation Overview the SLA watch table sits directly under the four KPI numbers,
+  and each ticket row links straight to the ticket in OpenWind. Superset
   starts with the rest of the stack on a fresh clone (`COMPOSE_PROFILES=reporting`), bound to
   loopback only, and provisions itself: a dedicated guest role, a read-only data connection, and both
   dashboards addressed by slug rather than hardcoded identifiers.
-- **Query builder on the Reporting page** — point-and-click measure, grouping and filters over
-  tickets, with CSV export. Staff query their tenant; everyone else only their own tickets, enforced
-  by the API. Every query is recorded in the audit log (`reporting.query_executed` /
-  `reporting.query_failed`).
 - **Standalone Superset with Zitadel sign-in (Stage 2)** — optional, off unless
   `SUPERSET_OAUTH_CLIENT_ID` is set. Roles are re-synced at every login; non-staff are narrowed to
-  their own tickets by the database, whatever query they write.
+  their own tickets by the database, whatever query they write. Every query and export is recorded
+  in the platform audit log (`reporting.query_executed` / `reporting.exported`).
 - **Helpdesk tickets gain a `department` field** (optional select).
 
 ### Security

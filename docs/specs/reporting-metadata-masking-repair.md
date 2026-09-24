@@ -158,16 +158,16 @@ and a trigger instead.
 
 ## §C Constraints
 
-| constraint           | value                                                                                                                                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| isolation            | unchanged. `security_invoker` semantics are not revisited, `analytics_user` stays `NOBYPASSRLS`, no new role, no definer object                                                      |
-| blast radius         | reporting only, with one stated exception: the column and trigger live on `workflow_events`, a core table the engine writes to                                                       |
-| grant discipline     | column-level, matching 0009 and 0112. No table-level grants on any table holding a payload or free-text column                                                                       |
-| availability         | no full-table rewrite and no exclusive lock held for the backfill                                                                                                                    |
-| write path           | the trigger adds no logic and no application change. Computing the value in the engine instead is out of scope, since a database-level trigger cannot be bypassed by a future writer |
-| ordering             | no step may leave reporting more broken than it found it. The revoke lands after the charts are confirmed                                                                            |
-| unaffected by design | the embedded guest-token path (same datasets, moves with them) and the in-app BYOQ sidebar at `/reporting` (runs through the API as `app_user`, never uses the reporting role)       |
-| out of scope         | export limits (Stage 2 T12), MFA, single-logout, session values, DPIA                                                                                                                |
+| constraint           | value                                                                                                                                                                                              |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| isolation            | unchanged. `security_invoker` semantics are not revisited, `analytics_user` stays `NOBYPASSRLS`, no new role, no definer object                                                                    |
+| blast radius         | reporting only, with one stated exception: the column and trigger live on `workflow_events`, a core table the engine writes to                                                                     |
+| grant discipline     | column-level, matching 0009 and 0112. No table-level grants on any table holding a payload or free-text column                                                                                     |
+| availability         | no full-table rewrite and no exclusive lock held for the backfill                                                                                                                                  |
+| write path           | the trigger adds no logic and no application change. Computing the value in the engine instead is out of scope, since a database-level trigger cannot be bypassed by a future writer               |
+| ordering             | no step may leave reporting more broken than it found it. The revoke lands after the charts are confirmed                                                                                          |
+| unaffected by design | the embedded guest-token path (same datasets, moves with them). An in-app query sidebar that ran through the API as `app_user` was later removed, so no reporting path bypasses the reporting role |
+| out of scope         | export limits (Stage 2 T12), MFA, single-logout, session values, DPIA                                                                                                                              |
 
 ## §I Interfaces
 
@@ -302,7 +302,7 @@ pattern, plus a measure that lies. All three are now fixed.
 | T13 | Migration `0121`: add `reporting_title` and `reporting_department` to `entity_instances`, trigger-maintained mirrors of the only two payload keys reporting reads              | **done**                                      |
 | T14 | Repoint the datasets onto the projections; prove equivalence under both scopes                                                                                                 | **done**                                      |
 | T15 | Migration `0122`: revoke the table-level grant on `entity_instances`; withhold `fields`, `search_vector` and the three `origin_*` columns                                      | **done**                                      |
-| T16 | `query.ts`: stop coalescing a non-count aggregate to `0`. An absent measurement now reports as absent and says why                                                             | **done**                                      |
+| T16 | `query.ts`: stop coalescing a non-count aggregate to `0`. An absent measurement now reports as absent and says why (the endpoint was later removed with the query sidebar)     | **done**                                      |
 | T17 | Five new tests covering the absent-measurement paths, which the existing suite never exercised because its mocks always returned a value                                       | **done**                                      |
 | T18 | `bootstrap.py`: prune dataset columns the reporting role cannot read, asked of the database rather than hard-coded, so it tracks grants instead of drifting from them          | **done**                                      |
 | T19 | Set `sla_hours` on the Helpdesk workflow states, or decide the product does not use SLAs there                                                                                 | **todo — not an engineering call** (see OQ-5) |

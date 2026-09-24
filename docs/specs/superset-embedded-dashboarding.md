@@ -452,7 +452,7 @@ Never log the actual guest token or the service-account session credential.
 
 | surface      | value                                                                                                   |
 | ------------ | ------------------------------------------------------------------------------------------------------- |
-| nav item     | **Reporting**, in the sidebar after Analytics                                                           |
+| nav item     | **Reporting**, in the workspace nav after Dashboard (admin and agent); customers have their own link    |
 | route        | `/reporting`                                                                                            |
 | visible when | always — reporting is always-on for every tenant, no per-tenant switch (R8 removed, decided 2026-09-09) |
 | roles        | all roles — admin/agent get both tabs, customers get My Performance only (D4)                           |
