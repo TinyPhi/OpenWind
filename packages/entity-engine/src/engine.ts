@@ -224,6 +224,25 @@ export function registerValidator(
   crossFieldValidators.set(entityTypeName, [...existing, validator]);
 }
 
+// SLA dates only make sense measured from when the ticket started the
+// clock — a dueDate at or before createdAt would report the SLA as already
+// breached the moment the ticket exists.
+function validateDueDateAfterCreation(
+  dueDate: string,
+  createdAt: Date,
+): FieldError[] {
+  if (new Date(dueDate) <= createdAt) {
+    return [
+      {
+        field: "dueDate",
+        code: "invalid",
+        message: "dueDate must be after the entity's created date",
+      },
+    ];
+  }
+  return [];
+}
+
 export async function createEntity(
   db: DbOrTx,
   tenantId: string,
@@ -288,6 +307,14 @@ export async function createEntity(
   ]);
   const allRefErrors = [...refErrors, ...userRefErrors];
   if (allRefErrors.length > 0) throw new ValidationError(allRefErrors);
+
+  if (input.dueDate) {
+    const dueDateErrors = validateDueDateAfterCreation(
+      input.dueDate,
+      new Date(),
+    );
+    if (dueDateErrors.length > 0) throw new ValidationError(dueDateErrors);
+  }
 
   const fieldsWithFormulas = await applyFormulaFields(
     allFields,
@@ -652,6 +679,13 @@ export async function updateEntity(
       updates.assignedTo = input.assignedTo;
     }
     if (input.dueDate !== undefined) {
+      if (input.dueDate) {
+        const dueDateErrors = validateDueDateAfterCreation(
+          input.dueDate,
+          existing.createdAt,
+        );
+        if (dueDateErrors.length > 0) throw new ValidationError(dueDateErrors);
+      }
       updates.dueDate = input.dueDate ? new Date(input.dueDate) : null;
     }
     if (input.currentState !== undefined && input.currentState !== null) {
@@ -901,6 +935,13 @@ export async function updateEntity(
       updates.assignedTo = input.assignedTo;
     }
     if (input.dueDate !== undefined) {
+      if (input.dueDate) {
+        const dueDateErrors = validateDueDateAfterCreation(
+          input.dueDate,
+          existing.createdAt,
+        );
+        if (dueDateErrors.length > 0) throw new ValidationError(dueDateErrors);
+      }
       updates.dueDate = input.dueDate ? new Date(input.dueDate) : null;
     }
     if (input.currentState !== undefined && input.currentState !== null) {
@@ -1749,6 +1790,17 @@ export async function bulkCreateEntities(
       continue;
     }
 
+    if (input.dueDate) {
+      const dueDateErrors = validateDueDateAfterCreation(
+        input.dueDate,
+        new Date(),
+      );
+      if (dueDateErrors.length > 0) {
+        errors.push({ index: i, fields: dueDateErrors });
+        continue;
+      }
+    }
+
     const initialState = await resolveInitialState(db, input.workflowId);
 
     toInsert.push({
@@ -2057,6 +2109,21 @@ export async function bulkUpdateEntities(
           updateValues.assignedTo = input.assignedTo;
         }
         if (input.dueDate !== undefined) {
+          if (input.dueDate) {
+            const dueDateErrors = validateDueDateAfterCreation(
+              input.dueDate,
+              existing.createdAt,
+            );
+            if (dueDateErrors.length > 0) {
+              errors.push({
+                index: i,
+                id,
+                code: "VALIDATION_ERROR",
+                fields: dueDateErrors,
+              });
+              return;
+            }
+          }
           updateValues.dueDate = input.dueDate ? new Date(input.dueDate) : null;
         }
 
@@ -2149,6 +2216,21 @@ export async function bulkUpdateEntities(
           updateValues.assignedTo = input.assignedTo;
         }
         if (input.dueDate !== undefined) {
+          if (input.dueDate) {
+            const dueDateErrors = validateDueDateAfterCreation(
+              input.dueDate,
+              existing.createdAt,
+            );
+            if (dueDateErrors.length > 0) {
+              errors.push({
+                index: i,
+                id,
+                code: "VALIDATION_ERROR",
+                fields: dueDateErrors,
+              });
+              return;
+            }
+          }
           updateValues.dueDate = input.dueDate ? new Date(input.dueDate) : null;
         }
         const [row] = await db

@@ -254,6 +254,17 @@ describe("createEntity", () => {
       }),
     ).rejects.toBeInstanceOf(EntityError);
   });
+
+  it("throws ValidationError when dueDate is not after the creation time", async () => {
+    await expect(
+      createEntity(dbMock as never, TENANT_ID, {
+        entityTypeId: ENTITY_TYPE_ID,
+        fields: { subject: "Test" },
+        dueDate: "2000-01-01T00:00:00.000Z",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
 });
 
 describe("getEntity", () => {
@@ -519,7 +530,7 @@ describe("updateEntity — dueDate", () => {
   });
 
   it("schedules an entity.due_date_scheduled outbox event when dueDate is set", async () => {
-    const dueDate = "2026-06-01T00:00:00.000Z";
+    const dueDate = "2099-06-01T00:00:00.000Z";
     mockUpdateReturning.mockResolvedValue([
       { ...fakeInstance, dueDate: new Date(dueDate) },
     ]);
@@ -575,7 +586,7 @@ describe("updateEntity — dueDate", () => {
   });
 
   it("is a no-op when the new dueDate equals the existing one", async () => {
-    const dueDate = "2026-06-01T00:00:00.000Z";
+    const dueDate = "2099-06-01T00:00:00.000Z";
     const instanceWithDueDate = {
       ...fakeInstance,
       dueDate: new Date(dueDate),
@@ -590,6 +601,15 @@ describe("updateEntity — dueDate", () => {
     await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, { dueDate });
 
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("throws ValidationError when dueDate is not after the entity's createdAt", async () => {
+    await expect(
+      updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+        dueDate: "2000-01-01T00:00:00.000Z",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(dbMock.update).not.toHaveBeenCalled();
   });
 });
 
