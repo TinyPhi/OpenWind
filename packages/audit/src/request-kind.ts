@@ -60,9 +60,10 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "schedule.rule_paused": true,
   "schedule.rule_resumed": true,
   "schedule.rule_archived": true,
-  // Not added to WRITE_ACTIONS below - a BYOQ query only reads ticket data.
+  // Not added to WRITE_ACTIONS below: a query and an export both only read
+  // ticket data.
   "reporting.query_executed": true,
-  "reporting.query_failed": true,
+  "reporting.exported": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =

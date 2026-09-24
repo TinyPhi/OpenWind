@@ -1,10 +1,10 @@
 /**
- * audit log reporting action strings -- docs/specs/byoq-hardening.md.
+ * Audit log reporting action strings.
  *
- * Confirms the two new reporting.* AuditAction values are wired into every
- * exhaustiveness map, matching migration 0115_reporting_audit_trail.sql's
- * DB CHECK constraint (which also reserves "reporting.exported", not yet
- * called from anywhere TS-side).
+ * Confirms the reporting.* AuditAction values are wired into every
+ * exhaustiveness map. They are exactly the actions migration
+ * 0115_reporting_audit_trail.sql's CHECK constraint admits, written by
+ * Superset through record_reporting_audit().
  */
 
 import { describe, it, expect } from "vitest";
@@ -13,7 +13,7 @@ import { classifyRequestKind } from "./request-kind.js";
 
 const REPORTING_ACTIONS = [
   "reporting.query_executed",
-  "reporting.query_failed",
+  "reporting.exported",
 ] as const;
 
 describe("audit log reporting action strings", () => {
@@ -25,7 +25,7 @@ describe("audit log reporting action strings", () => {
   );
 
   it.each(REPORTING_ACTIONS)(
-    "%s classifies as allowed -- a failed query is a runtime error, not a denied caller request",
+    "%s classifies as allowed -- it records something that happened, not a refused request",
     (action) => {
       expect(classifyOutcome(action)).toBe("allowed");
     },

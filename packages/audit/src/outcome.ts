@@ -79,12 +79,11 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "schedule.rule_paused": true,
   "schedule.rule_resumed": true,
   "schedule.rule_archived": true,
-  // A failed BYOQ query is a runtime execution error, not a denied caller
-  // request - same reasoning as tag.resolution_failed/schedule.execution_failed
-  // above. Access control for BYOQ is requireRole(), enforced before any
-  // query runs; nothing here represents that check failing.
+  // Both record something that happened. Superset's role checks run before a
+  // query or export, so a refusal never reaches the audit table as one of
+  // these.
   "reporting.query_executed": true,
-  "reporting.query_failed": true,
+  "reporting.exported": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since
