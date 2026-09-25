@@ -766,9 +766,13 @@ export function Layout({
                 {(sidebarOpen || mobileNavOpen) && <span>Records</span>}
               </Link>
 
-              {/* Reporting — a customer's own "My Tickets" dashboard (track
-                  3G). Scoped server-side to their own created tickets; the
-                  tenant-wide tab is refused independently by the API. */}
+              {/* Reporting — a customer's own "My Performance" dashboard
+                  (track 3G). Scoped server-side to tickets they raised or are
+                  assigned; the tenant-wide tab is refused independently by
+                  the API. Deliberately NOT behind the !isPlainUser guard the
+                  Templates link below uses: plain users are exactly who this
+                  personal dashboard is for, so adding that guard would take
+                  reporting away from them. */}
               <Link
                 to="/reporting"
                 className={`menu-item ${!sidebarOpen && !mobileNavOpen ? "menu-item-icon-only" : ""} ${isActive("/reporting") ? "active" : ""}`}

@@ -122,8 +122,12 @@ export const ReportingPage: React.FC = () => {
   // the real size is still being worked out.
   const [embedHeight, setEmbedHeight] = useState(viewportEmbedHeight);
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
-  const [supersetSiteUrl, setSupersetSiteUrl] = useState(
-    "http://localhost:8088",
+  // Unset until the guest-token response says where Superset lives. A
+  // hardcoded default (it used to be http://localhost:8088) sent staff who
+  // clicked early to the wrong place in any real deployment, so the link is
+  // not rendered at all until the real address is known.
+  const [supersetSiteUrl, setSupersetSiteUrl] = useState<string | undefined>(
+    undefined,
   );
 
   // Role gating resolves before anything renders or fetches. Without the
@@ -445,28 +449,30 @@ export const ReportingPage: React.FC = () => {
             </div>
 
             {/* Explore Detailed Report Button */}
-            <a
-              href={supersetSiteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Explore Detailed Report in Superset"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 14px",
-                borderRadius: "var(--radius-md, 6px)",
-                border: `1px solid ${TOKENS.borderColor}`,
-                background: "var(--bg-secondary, rgba(255,255,255,0.05))",
-                color: TOKENS.accentPrimary,
-                textDecoration: "none",
-                fontSize: 13,
-                fontWeight: 600,
-                transition: "all 0.15s ease",
-              }}
-            >
-              Explore Detailed Report →
-            </a>
+            {supersetSiteUrl && (
+              <a
+                href={supersetSiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Explore Detailed Report in Superset"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 14px",
+                  borderRadius: "var(--radius-md, 6px)",
+                  border: `1px solid ${TOKENS.borderColor}`,
+                  background: "var(--bg-secondary, rgba(255,255,255,0.05))",
+                  color: TOKENS.accentPrimary,
+                  textDecoration: "none",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                Explore Detailed Report →
+              </a>
+            )}
           </div>
         )}
       </div>

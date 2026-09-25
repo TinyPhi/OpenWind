@@ -136,6 +136,26 @@ describe("Reporting page", () => {
     ]);
   });
 
+  it("shows the Superset link only once the API has said where Superset is", async () => {
+    // Before the pass resolves there is no real address; a hardcoded
+    // localhost default used to be clickable here.
+    let resolvePass: (v: unknown) => void = () => undefined;
+    fetchWithAuth.mockReturnValueOnce(
+      new Promise((r) => {
+        resolvePass = r;
+      }),
+    );
+    render(<ReportingPage />);
+    await screen.findByText("My Organisation Overview");
+    expect(screen.queryByText(/Explore Detailed Report/)).toBeNull();
+
+    resolvePass(PASS);
+    const link = await screen.findByText(/Explore Detailed Report/);
+    expect(link.closest("a")?.getAttribute("href")).toBe(
+      "http://localhost:8088",
+    );
+  });
+
   it("hands the SDK a callback that fetches a fresh pass on expiry", async () => {
     // The SDK re-invokes this before the pass lapses. It is also the revocation
     // path — a caller whose access was withdrawn is refused on the refresh, so
