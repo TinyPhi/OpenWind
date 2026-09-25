@@ -10,6 +10,7 @@
     "signInTag": "Sign in",
     "signInButton": "Continue with SSO",
     "redirecting": "Redirecting…",
+    "signInFailed": "Sign-in failed. If this continues, please contact support.",
     "securityNote": "Encrypted session · access is scoped to your organisation",
     "helpPrompt": "Need access?",
     "contactAdmin": "Contact your admin",

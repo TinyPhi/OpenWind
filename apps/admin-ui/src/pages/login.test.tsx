@@ -7,7 +7,13 @@ import {
   beforeEach,
   afterEach,
 } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  cleanup,
+  fireEvent,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import "../i18n.js";
 
@@ -75,6 +81,61 @@ describe("Login", () => {
     expect(userManager.signinRedirect).toHaveBeenCalledWith({
       prompt: "login",
     });
+  });
+
+  it("shows a sign-in failure to the user, logs it, and re-enables the button", async () => {
+    const failure = new Error(
+      "Crypto.subtle is available only in secure contexts (HTTPS)",
+    );
+    vi.mocked(userManager.signinRedirect).mockRejectedValueOnce(failure);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    renderAt("/login");
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Continue with SSO/ }));
+
+    await waitFor(() => {
+      expect(consoleError).toHaveBeenCalledWith(
+        "Sign-in failed before redirect:",
+        failure,
+      );
+    });
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("button", { name: /Continue with SSO/ })
+          .hasAttribute("disabled"),
+      ).toBe(false);
+    });
+    // A fixed sentence for the user; the raw error stays out of the page.
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toBe(
+      "Sign-in failed. If this continues, please contact support.",
+    );
+    expect(document.body.textContent).not.toContain("Crypto.subtle");
+    consoleError.mockRestore();
+  });
+
+  it("shows the same message when the handoff sign-in fails", async () => {
+    vi.mocked(userManager.signinRedirect).mockRejectedValueOnce(
+      new Error("discovery failed"),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    renderAt(
+      "/login?workflowId=11111111-1111-4111-a111-111111111111&entityTypeId=22222222-2222-4222-a222-222222222222&appClientId=app-1",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Continue with SSO/ }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Sign-in failed. If this continues, please contact support.",
+    );
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   // Corrected after live testing: the handoff redirect is NOT auto-triggered
