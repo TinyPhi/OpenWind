@@ -257,6 +257,32 @@ describe("bulkCreateEntities", () => {
     expect(result.errors[0]?.fields[0]?.field).toBe("__accessUsers");
   });
 
+  it("reports a past dueDate against its own item without failing the batch", async () => {
+    mockGetValidationSchema.mockResolvedValue(passingSchema());
+    mockSelectResult.mockReturnValue([fakeEntityType]);
+    mockInsertReturning.mockResolvedValue([makeRow("inst-2")]);
+
+    const inputs = [
+      {
+        entityTypeId: TYPE_ID,
+        fields: { subject: "A" },
+        dueDate: "2000-01-01T00:00:00.000Z",
+      },
+      { entityTypeId: TYPE_ID, fields: { subject: "B" } },
+    ];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await bulkCreateEntities(dbMock as any, TENANT, inputs);
+
+    expect(result.created).toHaveLength(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.index).toBe(0);
+    expect(result.errors[0]?.fields[0]).toMatchObject({
+      field: "dueDate",
+      message: "dueDate must not be in the past",
+    });
+  });
+
   it("returns empty created and collects all errors when every item fails", async () => {
     mockGetValidationSchema.mockResolvedValue(failingSchema());
 

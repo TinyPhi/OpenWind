@@ -31,6 +31,9 @@ vi.mock("../../src/lib/zitadel-management.js", async (importOriginal) => {
   };
 });
 
+// Relative, not a fixed date: a due date must be after the ticket's creation
+// (entity-engine), so any fixed date eventually falls into the past.
+const DUE_DATE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 const TENANT = "aabbccdd-0000-4000-a000-000000000090";
 const ACTIVE_KEY_ID = "90000000-9000-4000-9000-000000000001";
 const REVOKED_KEY_ID = "90000000-9000-4000-9000-000000000002";
@@ -139,7 +142,7 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
         entityTypeId,
         fields: {},
         assignedTo: "handoff-origin-test-assignee",
-        dueDate: "2026-01-01T00:00:00.000Z",
+        dueDate: DUE_DATE,
         remark: "a remark",
         appClientId: ACTIVE_CLIENT_ID,
       }),
@@ -170,7 +173,7 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
         entityTypeId,
         fields: {},
         assignedTo: "handoff-origin-test-assignee",
-        dueDate: "2026-01-01T00:00:00.000Z",
+        dueDate: DUE_DATE,
         remark: "a remark",
       }),
     });
@@ -199,7 +202,7 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
         entityTypeId,
         fields: {},
         assignedTo: "handoff-origin-test-assignee",
-        dueDate: "2026-01-01T00:00:00.000Z",
+        dueDate: DUE_DATE,
         remark: "a remark",
         appClientId: "not-a-real-registered-client-id",
       }),
@@ -221,7 +224,7 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
         entityTypeId,
         fields: {},
         assignedTo: "handoff-origin-test-assignee",
-        dueDate: "2026-01-01T00:00:00.000Z",
+        dueDate: DUE_DATE,
         remark: "a remark",
         appClientId: REVOKED_CLIENT_ID,
       }),
@@ -248,7 +251,7 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
         entityTypeId,
         fields: {},
         assignedTo: "handoff-origin-test-assignee",
-        dueDate: "2026-01-01T00:00:00.000Z",
+        dueDate: DUE_DATE,
         remark: "a remark",
         appClientId: OTHER_TENANT_CLIENT_ID,
       }),
