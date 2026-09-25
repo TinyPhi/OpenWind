@@ -345,6 +345,39 @@ describe("requireAuth", () => {
       });
     });
 
+    it("keeps the stored email when the token's email is an empty string", async () => {
+      // The old `auth.email || null` turned "" into null and overwrote the
+      // stored address; an empty claim is as meaningless as a missing one.
+      // A new display name forces a write, so the email that write carries
+      // is what this checks.
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        email: "",
+        displayName: "Alice Renamed",
+      });
+      mockExistingTenantUser = {
+        email: "alice@stored.example.com",
+        displayName: "Alice Tester",
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }),
+      );
+
+      const app = makeApp([requireAuth()]);
+      await get(app, "empty-email.jwt");
+      vi.unstubAllGlobals();
+
+      expect(mockTxInsertValues).toHaveBeenCalledTimes(1);
+      expect(mockTxInsertValues.mock.calls[0]?.[0]).toMatchObject({
+        email: "alice@stored.example.com",
+        displayName: "Alice Renamed",
+      });
+    });
+
     it("skips the write when the existing row already matches the JWT profile", async () => {
       mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
       mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);

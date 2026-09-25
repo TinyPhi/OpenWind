@@ -643,6 +643,12 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         //
         // So a missing value never overwrites a stored one — the sync can add
         // and improve, but not erase.
+        //
+        // Scope: this protects a name that is already stored. On a user's
+        // first-ever sign-in there is no stored row, so a token with no name
+        // still writes the subject id, as before. The userinfo lookup above
+        // and an out-of-band sync from Zitadel are what fill a
+        // real name in later.
         const incomingName = sanitizeDisplayName(auth.displayName);
         const nextDisplayName =
           incomingName && incomingName !== auth.userId
