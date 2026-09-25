@@ -57,7 +57,7 @@ tiles:
     dataset: entity_instances
     viz_type: big_number_total
     width: 3
-    height: 50
+    height: 25
     params:
       metric: count
       header_font_size: 0.4
@@ -74,7 +74,7 @@ tiles:
     dataset: entity_instances
     viz_type: big_number_total
     width: 3
-    height: 50
+    height: 25
     params:
       metric: count
       header_font_size: 0.4
@@ -103,7 +103,7 @@ tiles:
     dataset: entity_instances
     viz_type: big_number_total
     width: 3
-    height: 50
+    height: 25
     params:
       metric: count
       header_font_size: 0.4
@@ -129,7 +129,7 @@ tiles:
     dataset: ticket_first_response
     viz_type: big_number_total
     width: 3
-    height: 50
+    height: 25
     params:
       metric:
         expressionType: SQL
