@@ -255,15 +255,39 @@ describe("createEntity", () => {
     ).rejects.toBeInstanceOf(EntityError);
   });
 
-  it("throws ValidationError when dueDate is not after the creation time", async () => {
+  it("throws ValidationError when dueDate is in the past", async () => {
+    const err = await createEntity(dbMock as never, TENANT_ID, {
+      entityTypeId: ENTITY_TYPE_ID,
+      fields: { subject: "Test" },
+      dueDate: "2000-01-01T00:00:00.000Z",
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ValidationError);
+    expect((err as ValidationError).fields[0]).toMatchObject({
+      field: "dueDate",
+      message: "dueDate must not be in the past",
+    });
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+
+  it("accepts a dueDate a few seconds in the past, to absorb clock skew", async () => {
+    // Validation runs after auth, pool wait and tenant setup, on a clock that
+    // may differ from the caller's; a dueDate meant as "just now" must pass.
+    const result = await createEntity(dbMock as never, TENANT_ID, {
+      entityTypeId: ENTITY_TYPE_ID,
+      fields: { subject: "Test" },
+      dueDate: new Date(Date.now() - 30_000).toISOString(),
+    });
+    expect(result.id).toBe(INSTANCE_ID);
+  });
+
+  it("still rejects a dueDate beyond the grace margin", async () => {
     await expect(
       createEntity(dbMock as never, TENANT_ID, {
         entityTypeId: ENTITY_TYPE_ID,
         fields: { subject: "Test" },
-        dueDate: "2000-01-01T00:00:00.000Z",
+        dueDate: new Date(Date.now() - 120_000).toISOString(),
       }),
     ).rejects.toBeInstanceOf(ValidationError);
-    expect(dbMock.insert).not.toHaveBeenCalled();
   });
 });
 

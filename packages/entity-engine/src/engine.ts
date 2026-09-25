@@ -243,6 +243,29 @@ function validateDueDateAfterCreation(
   return [];
 }
 
+// How far in the past a new entity's dueDate may be before it is refused. On
+// create there is no stored createdAt yet, only this process's clock at
+// validation time, which runs after auth, pool wait and tenant setup and may
+// be skewed from the caller's clock. Without a margin, a dueDate a few
+// seconds out could arrive already "past" and be refused.
+const CREATE_DUE_DATE_GRACE_MS = 60_000;
+
+// Create-path counterpart of validateDueDateAfterCreation: the entity is
+// being created now, so "after creation" means "not in the past", with the
+// grace margin above.
+function validateDueDateOnCreate(dueDate: string): FieldError[] {
+  if (new Date(dueDate).getTime() < Date.now() - CREATE_DUE_DATE_GRACE_MS) {
+    return [
+      {
+        field: "dueDate",
+        code: "invalid",
+        message: "dueDate must not be in the past",
+      },
+    ];
+  }
+  return [];
+}
+
 export async function createEntity(
   db: DbOrTx,
   tenantId: string,
@@ -309,10 +332,7 @@ export async function createEntity(
   if (allRefErrors.length > 0) throw new ValidationError(allRefErrors);
 
   if (input.dueDate) {
-    const dueDateErrors = validateDueDateAfterCreation(
-      input.dueDate,
-      new Date(),
-    );
+    const dueDateErrors = validateDueDateOnCreate(input.dueDate);
     if (dueDateErrors.length > 0) throw new ValidationError(dueDateErrors);
   }
 
@@ -1791,10 +1811,7 @@ export async function bulkCreateEntities(
     }
 
     if (input.dueDate) {
-      const dueDateErrors = validateDueDateAfterCreation(
-        input.dueDate,
-        new Date(),
-      );
+      const dueDateErrors = validateDueDateOnCreate(input.dueDate);
       if (dueDateErrors.length > 0) {
         errors.push({ index: i, fields: dueDateErrors });
         continue;
