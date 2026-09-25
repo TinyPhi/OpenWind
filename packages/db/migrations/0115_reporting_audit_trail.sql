@@ -85,6 +85,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+    v_session_tenant uuid := NULLIF(current_setting('app.tenant_id', true), '')::uuid;
 BEGIN
     IF p_action NOT IN (
         'reporting.query_executed',
@@ -99,8 +101,14 @@ BEGIN
     -- connection mutator stamps app.tenant_id on every reporting connection
     -- (NullPool, so no connection is reused across callers), and the caller
     -- passes the same tenant, so a mismatch means a forged call.
-    IF p_tenant_id IS DISTINCT FROM
-       NULLIF(current_setting('app.tenant_id', true), '')::uuid THEN
+    --
+    -- The session tenant is checked on its own first: `IS DISTINCT FROM`
+    -- treats two NULLs as equal, so a NULL parameter from an unstamped
+    -- connection would otherwise pass the comparison below.
+    IF v_session_tenant IS NULL THEN
+        RAISE EXCEPTION 'record_reporting_audit: no session tenant';
+    END IF;
+    IF p_tenant_id IS DISTINCT FROM v_session_tenant THEN
         RAISE EXCEPTION 'record_reporting_audit: tenant does not match the session tenant';
     END IF;
 
@@ -108,7 +116,10 @@ BEGIN
         tenant_id, actor_id, actor_type, resource_type, resource_id,
         action, metadata
     ) VALUES (
-        p_tenant_id,
+        -- The session's tenant, never the caller's parameter: after the checks
+        -- above they are equal, and writing the session value keeps the
+        -- parameter from being the source of the stored tenant at all.
+        v_session_tenant,
         p_actor_id,
         'user',
         'reporting',

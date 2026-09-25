@@ -40,6 +40,7 @@ import {
   entityTypes,
   entityInstances,
   workflows,
+  workflowEvents,
 } from "@platform/db";
 
 const TENANT_A = "aaaaaaaa-0000-4000-a000-000000000117";
@@ -125,39 +126,65 @@ beforeAll(async () => {
 
   // Two tickets in tenant A: one owned by OWNER, one by somebody else. The
   // own-rows test needs both to prove it narrows rather than returning all.
-  await db.insert(entityInstances).values([
-    {
-      entityTypeId,
-      tenantId: TENANT_A,
-      workflowId: workflowAId,
-      currentState: "open",
-      fields: {
-        title: "Reporting iso mine",
-        department: "IT",
-        priority: "high",
+  const tickets = await db
+    .insert(entityInstances)
+    .values([
+      {
+        entityTypeId,
+        tenantId: TENANT_A,
+        workflowId: workflowAId,
+        currentState: "open",
+        fields: {
+          title: "Reporting iso mine",
+          department: "IT",
+          priority: "high",
+        },
+        createdBy: OWNER,
+        assignedTo: OWNER,
       },
-      createdBy: OWNER,
-      assignedTo: OWNER,
-    },
-    {
-      entityTypeId,
-      tenantId: TENANT_A,
-      workflowId: workflowAId,
-      currentState: "open",
-      fields: {
-        title: "Reporting iso theirs",
-        department: "HR",
-        priority: "low",
+      {
+        entityTypeId,
+        tenantId: TENANT_A,
+        workflowId: workflowAId,
+        currentState: "open",
+        fields: {
+          title: "Reporting iso theirs",
+          department: "HR",
+          priority: "low",
+        },
+        createdBy: OTHER,
+        assignedTo: OTHER,
       },
-      createdBy: OTHER,
-      assignedTo: OTHER,
-    },
-  ]);
+    ])
+    .returning({
+      id: entityInstances.id,
+      createdBy: entityInstances.createdBy,
+    });
+
+  // One event on each ticket, so the own-rows policy on workflow_events has
+  // something to narrow: a non-staff session must see only the event on its
+  // own ticket, even though both are in its tenant.
+  await db.insert(workflowEvents).values(
+    tickets.map((t) => ({
+      tenantId: TENANT_A,
+      instanceId: t.id,
+      workflowId: workflowAId,
+      fromState: null,
+      toState: "open",
+      triggeredBy: "user",
+      actorId: t.createdBy,
+      comment: `Reporting iso event for ${t.createdBy}`,
+    })),
+  );
 });
 
 afterAll(async () => {
   // Order matters: the entity type is global (tenantId null), so deleting the
-  // tenants does not take its instances with it.
+  // tenants does not take its instances with it. Events go first: they
+  // reference the instances.
+  await db
+    .delete(workflowEvents)
+    .where(eq(workflowEvents.workflowId, workflowAId));
   await db
     .delete(entityInstances)
     .where(eq(entityInstances.entityTypeId, entityTypeId));
@@ -343,6 +370,30 @@ describe("reporting role is bounded by tenant and by own rows", () => {
     ]);
   });
 
+  it("narrows a non-staff session to events on its own tickets", async () => {
+    // The second block of migration 0116: events are scoped by the ticket
+    // they belong to, not by who acted.
+    const rows = await asAnalyst(
+      { tenant: TENANT_A, scope: "own", userId: OWNER },
+      (tx) => tx`
+        SELECT comment FROM workflow_events WHERE workflow_id = ${workflowAId}
+      `,
+    );
+    expect(rows.map((r) => r["comment"])).toEqual([
+      `Reporting iso event for ${OWNER}`,
+    ]);
+  });
+
+  it("gives a staff session every event in its tenant", async () => {
+    const rows = await asAnalyst(
+      { tenant: TENANT_A },
+      (tx) => tx`
+        SELECT comment FROM workflow_events WHERE workflow_id = ${workflowAId}
+      `,
+    );
+    expect(rows).toHaveLength(2);
+  });
+
   it("does not bypass row-level security", async () => {
     const [row] = await asAnalyst(
       {},
@@ -390,6 +441,32 @@ describe("record_reporting_audit cannot write another tenant's audit trail", () 
         (tx) => tx`
         SELECT public.record_reporting_audit(
           ${TENANT_A}::uuid, 'unstamped', 'reporting.query_executed', '{}'::jsonb)
+      `,
+      ),
+    ).rejects.toThrow(/no session tenant/);
+  });
+
+  it("refuses a NULL tenant from an unstamped connection", async () => {
+    // NULL IS DISTINCT FROM NULL is false, so a bare comparison would let
+    // this through; the explicit session-tenant check must catch it.
+    await expect(
+      asAnalyst(
+        {},
+        (tx) => tx`
+        SELECT public.record_reporting_audit(
+          NULL::uuid, 'null-tenant', 'reporting.query_executed', '{}'::jsonb)
+      `,
+      ),
+    ).rejects.toThrow(/no session tenant/);
+  });
+
+  it("refuses a NULL tenant from a stamped connection", async () => {
+    await expect(
+      asAnalyst(
+        { tenant: TENANT_A },
+        (tx) => tx`
+        SELECT public.record_reporting_audit(
+          NULL::uuid, 'null-tenant', 'reporting.query_executed', '{}'::jsonb)
       `,
       ),
     ).rejects.toThrow(/does not match the session tenant/);
