@@ -20,6 +20,7 @@ const DENIED: AuditAction[] = [
   "attachment.reference_denied",
   "ticket.view_denied",
   "attachment.download_denied",
+  "reporting.guest_token_denied",
 ];
 
 describe("classifyOutcome", () => {

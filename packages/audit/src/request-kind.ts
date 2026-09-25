@@ -60,6 +60,13 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "schedule.rule_paused": true,
   "schedule.rule_resumed": true,
   "schedule.rule_archived": true,
+  // Not added to WRITE_ACTIONS below: a query and an export both only read
+  // ticket data.
+  "reporting.query_executed": true,
+  "reporting.exported": true,
+  // Minting a pass to view a dashboard reads data; refusing one reads none.
+  "reporting.guest_token_issued": true,
+  "reporting.guest_token_denied": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
