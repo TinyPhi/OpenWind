@@ -275,7 +275,7 @@ describe("createEntity", () => {
     const result = await createEntity(dbMock as never, TENANT_ID, {
       entityTypeId: ENTITY_TYPE_ID,
       fields: { subject: "Test" },
-      dueDate: new Date(Date.now() - 30_000).toISOString(),
+      dueDate: new Date(Date.now() - 10_000).toISOString(),
     });
     expect(result.id).toBe(INSTANCE_ID);
   });
@@ -285,7 +285,7 @@ describe("createEntity", () => {
       createEntity(dbMock as never, TENANT_ID, {
         entityTypeId: ENTITY_TYPE_ID,
         fields: { subject: "Test" },
-        dueDate: new Date(Date.now() - 120_000).toISOString(),
+        dueDate: new Date(Date.now() - 30_000).toISOString(),
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
@@ -625,6 +625,23 @@ describe("updateEntity — dueDate", () => {
     await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, { dueDate });
 
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("clears the due date when dueDate is null", async () => {
+    // Clearing is a supported operation: null must skip the created-date
+    // check (changing the gate to `!== undefined` would validate null and
+    // refuse it) and must write NULL to the column.
+    mockUpdateReturning.mockResolvedValue([{ ...fakeInstance, dueDate: null }]);
+
+    const result = await updateEntity(dbMock as never, TENANT_ID, INSTANCE_ID, {
+      dueDate: null,
+    });
+
+    expect(result.dueDate).toBeNull();
+    const setMock = (
+      dbMock.update.mock.results[0]?.value as { set: ReturnType<typeof vi.fn> }
+    ).set;
+    expect(setMock.mock.calls[0]?.[0]).toMatchObject({ dueDate: null });
   });
 
   it("throws ValidationError when dueDate is not after the entity's createdAt", async () => {

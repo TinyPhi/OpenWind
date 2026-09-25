@@ -247,8 +247,10 @@ function validateDueDateAfterCreation(
 // create there is no stored createdAt yet, only this process's clock at
 // validation time, which runs after auth, pool wait and tenant setup and may
 // be skewed from the caller's clock. Without a margin, a dueDate a few
-// seconds out could arrive already "past" and be refused.
-const CREATE_DUE_DATE_GRACE_MS = 60_000;
+// seconds out could arrive already "past" and be refused. 15s covers
+// NTP-synced clock skew (typically well under 5s) plus request latency,
+// without letting a ticket start with its SLA clock visibly in the past.
+const CREATE_DUE_DATE_GRACE_MS = 15_000;
 
 // Create-path counterpart of validateDueDateAfterCreation: the entity is
 // being created now, so "after creation" means "not in the past", with the
