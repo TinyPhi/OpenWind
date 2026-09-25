@@ -136,6 +136,10 @@ tiles:
         sqlExpression: percentile_cont(0.5) within group (order by hours_to_first_response)
         label: median_hours
       header_font_size: 0.4
+      # The unit, shown under the number: Superset's number formats cannot
+      # append text to the value itself.
+      subheader: hrs
+      subheader_font_size: 0.15
       adhoc_filters:
         - clause: WHERE
           subject: replied_at

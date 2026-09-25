@@ -1121,7 +1121,8 @@ def build_position_json(placements: list[dict]) -> str:
     big-number viz's own `subheader` param (tiles.yaml) is the one place it is
     confirmed to render, because that plugin reads it directly rather than
     routing through the header component the other three depend on. The 4
-    KPI tiles deliberately carry none: the number and its title stand alone.
+    KPI tiles carry no hint text; the only subheader is the median tile's
+    unit ("hrs").
     """
     position: dict = {
         "DASHBOARD_VERSION_KEY": "v2",
@@ -1322,7 +1323,8 @@ def apply_tiles(db, tiles: list[dict], datasets: dict, dashboards: dict) -> tupl
         # MARKDOWN tile renders capped at a fixed ~268px width regardless of
         # what width is declared. Hint text, where a tile needs any, belongs
         # in the big-number viz's own `subheader` param (tiles.yaml) — the
-        # one mechanism confirmed to render. The 4 KPI tiles carry none.
+        # one mechanism confirmed to render. The KPI tiles use it only for
+        # the median tile's unit.
         # Nothing to set in json_metadata for this; just clearing stray keys
         # left over from the abandoned attempt.
         metadata = json.loads(dashboard.json_metadata or "{}")
