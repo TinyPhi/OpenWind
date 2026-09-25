@@ -63,7 +63,12 @@ ALTER TABLE admin_audit_log ADD CONSTRAINT audit_log_action_check CHECK (
         -- data from the platform's control, and the spec asks for export
         -- volume to be answerable on its own.
         'reporting.query_executed',
-        'reporting.exported'
+        'reporting.exported',
+        -- Embedded reporting: the API records each guest pass it mints and
+        -- each dashboard it refuses (apps/api, as app_user, through the
+        -- normal audit writer; not through record_reporting_audit below).
+        'reporting.guest_token_issued',
+        'reporting.guest_token_denied'
     ])
 );
 
@@ -86,6 +91,17 @@ BEGIN
         'reporting.exported'
     ) THEN
         RAISE EXCEPTION 'record_reporting_audit: unsupported action %', p_action;
+    END IF;
+
+    -- The record's tenant must be the connection's own. Without this, any
+    -- reporting connection could write a row that appears to come from
+    -- another tenant, polluting that tenant's audit trail. Superset's
+    -- connection mutator stamps app.tenant_id on every reporting connection
+    -- (NullPool, so no connection is reused across callers), and the caller
+    -- passes the same tenant, so a mismatch means a forged call.
+    IF p_tenant_id IS DISTINCT FROM
+       NULLIF(current_setting('app.tenant_id', true), '')::uuid THEN
+        RAISE EXCEPTION 'record_reporting_audit: tenant does not match the session tenant';
     END IF;
 
     INSERT INTO admin_audit_log (

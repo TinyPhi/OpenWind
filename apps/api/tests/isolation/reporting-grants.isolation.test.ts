@@ -368,3 +368,48 @@ describe("derived reporting columns cannot drift from the payload they mirror", 
     expect(Number(first?.drifted ?? -1)).toBe(0);
   });
 });
+
+describe("record_reporting_audit cannot write another tenant's audit trail", () => {
+  it("refuses a record whose tenant is not the session's tenant", async () => {
+    // Stamped as Tenant A, claiming Tenant B: a forged call.
+    await expect(
+      asAnalyst(
+        { tenant: TENANT_A },
+        (tx) => tx`
+        SELECT public.record_reporting_audit(
+          ${TENANT_B}::uuid, 'forger', 'reporting.query_executed', '{}'::jsonb)
+      `,
+      ),
+    ).rejects.toThrow(/does not match the session tenant/);
+  });
+
+  it("refuses a record from a connection with no tenant stamped", async () => {
+    await expect(
+      asAnalyst(
+        {},
+        (tx) => tx`
+        SELECT public.record_reporting_audit(
+          ${TENANT_A}::uuid, 'unstamped', 'reporting.query_executed', '{}'::jsonb)
+      `,
+      ),
+    ).rejects.toThrow(/does not match the session tenant/);
+  });
+
+  it("writes the record when the tenant matches the session", async () => {
+    const actor = `reporting-iso-audit-${Date.now()}`;
+    await asAnalyst(
+      { tenant: TENANT_A },
+      (tx) => tx`
+      SELECT public.record_reporting_audit(
+        ${TENANT_A}::uuid, ${actor}, 'reporting.query_executed', '{}'::jsonb)
+    `,
+    );
+    const rows = await db.execute(dsql`
+      SELECT tenant_id FROM admin_audit_log WHERE actor_id = ${actor}`);
+    const found = rows as unknown as Array<{ tenant_id: string }>;
+    expect(found.map((r) => r.tenant_id)).toEqual([TENANT_A]);
+    await db.execute(
+      dsql`DELETE FROM admin_audit_log WHERE actor_id = ${actor}`,
+    );
+  });
+});
