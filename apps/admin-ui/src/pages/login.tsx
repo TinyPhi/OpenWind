@@ -106,6 +106,10 @@ export function Login(): React.ReactElement {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = React.useState(false);
+  // Shown when the redirect to the identity provider fails before leaving
+  // the page. A fixed sentence: the underlying error can name hosts or
+  // endpoints, so it goes to the console for whoever is debugging, not here.
+  const [signInFailed, setSignInFailed] = React.useState(false);
   const [theme, setTheme] = React.useState<"dark" | "light">(() => {
     const stored = localStorage.getItem("ow-theme");
     if (stored === "light" || stored === "dark") return stored;
@@ -124,6 +128,7 @@ export function Login(): React.ReactElement {
 
   async function handleLogin(): Promise<void> {
     setLoading(true);
+    setSignInFailed(false);
     try {
       await userManager.removeUser();
       await userManager.signinRedirect({ prompt: "login" });
@@ -142,20 +147,30 @@ export function Login(): React.ReactElement {
       // server-side too: discovery is fetched, then nothing else is ever
       // sent, so the IdP log shows a bare /.well-known hit and no
       // /oauth/v2/authorize to explain it.
+      //
+      // The console line is for whoever is debugging; the in-page message is
+      // for the user, who otherwise just sees the button reset and tries
+      // again. admin-ui has no frontend error-reporting client yet, so there
+      // is nowhere server-side to send this from here.
       console.error("Sign-in failed before redirect:", err);
+      setSignInFailed(true);
       setLoading(false);
     }
   }
 
   async function handleHandoffLogin(handoff: HandoffState): Promise<void> {
     setLoading(true);
+    setSignInFailed(false);
     try {
       // Deliberately NO prompt: "login" (unlike handleLogin above) and NO
       // removeUser() -- an already-authenticated caller must be able to
       // reuse their existing session silently and land straight on the
       // pre-filled page, per spec R1, without a forced re-login screen.
       await userManager.signinRedirect({ state: handoff });
-    } catch {
+    } catch (err) {
+      // Same failure as handleLogin's, same handling.
+      console.error("Sign-in failed before redirect:", err);
+      setSignInFailed(true);
       setLoading(false);
     }
   }
@@ -259,6 +274,18 @@ export function Login(): React.ReactElement {
                 </>
               )}
             </button>
+            {signInFailed && (
+              <p
+                role="alert"
+                style={{
+                  margin: "10px 0 0",
+                  fontSize: 13,
+                  color: "var(--danger, #dc2626)",
+                }}
+              >
+                {t("login.signInFailed")}
+              </p>
+            )}
           </div>
 
           {/* Security note */}
