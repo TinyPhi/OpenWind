@@ -16,6 +16,7 @@ import { Login } from "./pages/login.js";
 import { AuthCallback } from "./pages/callback.js";
 import { Dashboard } from "./pages/dashboard.js";
 import { Analytics } from "./pages/analytics.js";
+import { ReportingPage } from "./pages/reporting.js";
 import { Modules } from "./pages/modules.js";
 import { Plugins } from "./pages/plugins.js";
 import { EntityTypeDetail } from "./pages/entity-types/detail.js";
@@ -128,6 +129,7 @@ export function App(): React.ReactElement {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/reporting" element={<ReportingPage />} />
             <Route path="/records" element={<AdminRecords />} />
             <Route
               path="/workflows/:workflowSlug/records"
