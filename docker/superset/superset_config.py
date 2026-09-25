@@ -333,12 +333,57 @@ _ADMIN_UI_ORIGIN = os.environ.get("SUPERSET_EMBED_ORIGIN", "http://localhost:300
 ENABLE_CORS = True
 CORS_OPTIONS = {
     "supports_credentials": True,
-    "allow_headers": ["*"],
+    # Only the headers the embed SDK and Superset's API use. A wildcard, with
+    # credentials allowed, would let the permitted origin send any custom
+    # header that might change server-side behaviour.
+    "allow_headers": [
+        "Authorization",
+        "Content-Type",
+        "X-CSRFToken",
+        "X-GuestToken",
+        "X-Requested-With",
+    ],
     "resources": ["*"],
     "origins": [_ADMIN_UI_ORIGIN],
 }
 
-TALISMAN_ENABLED = False
+# ── Security headers (Talisman) ──────────────────────────────────────────────
+#
+# On, with Superset's own default policy (config.py TALISMAN_CONFIG), changed
+# in exactly the two places embedding needs. Turning Talisman off entirely
+# would also drop X-Content-Type-Options, Referrer-Policy and the rest of the
+# content security policy, including on the standalone login page.
+#
+#   frame_options None            X-Frame-Options only knows DENY/SAMEORIGIN,
+#                                 either of which blocks the admin-ui iframe.
+#   frame-ancestors [origin]      the modern replacement: only admin-ui (and
+#                                 Superset itself) may frame these pages, the
+#                                 same single origin CORS allows above.
+#
+# Read from Superset's config module, which has already defined its defaults
+# by the time this file is imported, so the policy tracks Superset upgrades
+# instead of freezing a copy here.
+import copy as _copy
+import sys as _sys
+
+_superset_config = _sys.modules.get("superset.config")
+_default_talisman = getattr(_superset_config, "TALISMAN_CONFIG", None)
+if not isinstance(_default_talisman, dict):
+    raise RuntimeError(
+        "superset.config.TALISMAN_CONFIG not found; refusing to start with "
+        "security headers in an unknown state"
+    )
+TALISMAN_ENABLED = True
+TALISMAN_CONFIG = _copy.deepcopy(_default_talisman)
+TALISMAN_CONFIG["frame_options"] = None
+TALISMAN_CONFIG.setdefault("content_security_policy", {})
+TALISMAN_CONFIG["content_security_policy"]["frame-ancestors"] = [
+    "'self'",
+    _ADMIN_UI_ORIGIN,
+]
+# Superset switches to TALISMAN_DEV_CONFIG in debug mode; without the same
+# two changes there, a debug instance would refuse to be framed.
+TALISMAN_DEV_CONFIG = _copy.deepcopy(TALISMAN_CONFIG)
 
 # ── Date range ───────────────────────────────────────────────────────────────
 #

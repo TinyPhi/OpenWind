@@ -47,7 +47,7 @@ import {
   workflowEvents,
   tenantUsers,
 } from "@platform/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createEntity } from "@platform/entity-engine";
 import { executeTransition } from "@platform/workflow-engine";
 
@@ -319,13 +319,17 @@ async function main(): Promise<void> {
     // leaving it behind produces negative or absurd durations rather than an
     // obvious error.
     await withTenantContext(DEV_TENANT_ID, (tx) =>
+      // Bound parameters, not string interpolation: every value reaches
+      // Postgres as a parameter, the same as everywhere else in the codebase.
+      // Dates go as ISO strings with an explicit cast; drizzle's raw sql
+      // template does not serialise a Date object (verified).
       tx.execute(
-        `UPDATE entity_instances SET created_at = '${createdAt.toISOString()}', updated_at = '${createdAt.toISOString()}' WHERE id = '${instance.id}'`,
+        sql`UPDATE entity_instances SET created_at = ${createdAt.toISOString()}::timestamptz, updated_at = ${createdAt.toISOString()}::timestamptz WHERE id = ${instance.id}::uuid`,
       ),
     );
     await withTenantContext(DEV_TENANT_ID, (tx) =>
       tx.execute(
-        `UPDATE workflow_events SET created_at = '${createdAt.toISOString()}' WHERE instance_id = '${instance.id}'`,
+        sql`UPDATE workflow_events SET created_at = ${createdAt.toISOString()}::timestamptz WHERE instance_id = ${instance.id}::uuid`,
       ),
     );
 
@@ -438,14 +442,14 @@ async function backdateLatestEvent(
 ): Promise<void> {
   await withTenantContext(DEV_TENANT_ID, (tx) =>
     tx.execute(
-      `UPDATE workflow_events SET created_at = '${at.toISOString()}' ` +
-        `WHERE id = (SELECT id FROM workflow_events WHERE instance_id = '${instanceId}' ` +
-        `ORDER BY created_at DESC LIMIT 1)`,
+      sql`UPDATE workflow_events SET created_at = ${at.toISOString()}::timestamptz
+          WHERE id = (SELECT id FROM workflow_events WHERE instance_id = ${instanceId}::uuid
+                      ORDER BY created_at DESC LIMIT 1)`,
     ),
   );
   await withTenantContext(DEV_TENANT_ID, (tx) =>
     tx.execute(
-      `UPDATE entity_instances SET updated_at = '${at.toISOString()}' WHERE id = '${instanceId}'`,
+      sql`UPDATE entity_instances SET updated_at = ${at.toISOString()}::timestamptz WHERE id = ${instanceId}::uuid`,
     ),
   );
 }

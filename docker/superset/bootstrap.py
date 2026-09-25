@@ -262,9 +262,11 @@ def ensure_service_account(security_manager, db, username: str, password: str):
     )
     if not created:
         raise SystemExit(f"could not create Superset service account '{username}'")
-    return created
+    # Committed explicitly: whether add_user commits on its own depends on the
+    # Flask-AppBuilder version, and a first run must leave the account saved.
     db.session.commit()
     logger.info("created service account '%s' with role '%s'", username, role_name)
+    return created
 
 
 def ensure_analyst_roles(security_manager, db, database):
