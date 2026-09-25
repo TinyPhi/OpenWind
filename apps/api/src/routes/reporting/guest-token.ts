@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
 import { writeAuditEntry } from "@platform/audit";
@@ -125,6 +125,31 @@ function buildRlsRules(
  * audit-store hiccup into a broken dashboard would be worse for the user than
  * one missing row, and the database is also what serves the dashboard.
  */
+// RFC 4122 URL namespace. Any fixed namespace works; this one is standard.
+const UUID_NAMESPACE_URL = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
+
+/**
+ * Deterministic UUID (RFC 4122 v5) for a name. Used as the audit resource id
+ * for a dashboard so every row about the same dashboard, issued or refused,
+ * carries the same id and can be found by it.
+ */
+export function uuidV5(name: string): string {
+  const ns = Buffer.from(UUID_NAMESPACE_URL.replace(/-/g, ""), "hex");
+  const bytes = createHash("sha1")
+    .update(Buffer.concat([ns, Buffer.from(name, "utf8")]))
+    .digest()
+    .subarray(0, 16);
+  bytes.writeUInt8((bytes.readUInt8(6) & 0x0f) | 0x50, 6); // version 5
+  bytes.writeUInt8((bytes.readUInt8(8) & 0x3f) | 0x80, 8); // RFC 4122 variant
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** The audit resource id for a dashboard, stable across deployments. */
+export function dashboardResourceId(slug: string): string {
+  return uuidV5(`openwind:reporting-dashboard:${slug}`);
+}
+
 async function recordGuestTokenAudit(
   tenantId: string,
   userId: string,
@@ -139,12 +164,16 @@ async function recordGuestTokenAudit(
         actorId: userId,
         actorType: "user",
         resourceType: "reporting_dashboard",
-        // The embedded dashboard's id when there is one; a refused request has
-        // no resource, and the column is a required UUID.
-        resourceId:
-          embeddedId && UUID_RE.test(embeddedId) ? embeddedId : randomUUID(),
+        // Derived from the dashboard slug, so issued and refused rows about
+        // the same dashboard share one id. The embedded id (which Superset
+        // regenerates per install) is kept in metadata when there is one.
+        resourceId: dashboardResourceId(DASHBOARD_SLUGS[dashboard]),
         action,
-        metadata: { dashboard, dashboardSlug: DASHBOARD_SLUGS[dashboard] },
+        metadata: {
+          dashboard,
+          dashboardSlug: DASHBOARD_SLUGS[dashboard],
+          ...(embeddedId && UUID_RE.test(embeddedId) ? { embeddedId } : {}),
+        },
       }),
     );
   } catch (auditErr) {

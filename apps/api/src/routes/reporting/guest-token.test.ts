@@ -74,7 +74,8 @@ vi.mock("@platform/db", () => ({
     fn({}),
 }));
 
-const { guestTokenHandler } = await import("./guest-token.js");
+const { guestTokenHandler, dashboardResourceId, uuidV5 } =
+  await import("./guest-token.js");
 
 function buildApp() {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
@@ -111,12 +112,23 @@ describe("GET /superset/guest-token", () => {
       actorId: authState.userId,
       action: "reporting.guest_token_issued",
       resourceType: "reporting_dashboard",
-      resourceId: "023c70fc-fe94-40cc-a625-e9532cefe4d3",
+      resourceId: dashboardResourceId("openwind-tenant-overview"),
       metadata: {
         dashboard: "tenant",
         dashboardSlug: "openwind-tenant-overview",
+        embeddedId: "023c70fc-fe94-40cc-a625-e9532cefe4d3",
       },
     });
+  });
+
+  it("gives issued and refused rows for one dashboard the same resource id", async () => {
+    await buildApp().request("/superset/guest-token?dashboard=tenant");
+    authState.roles = ["user"];
+    await buildApp().request("/superset/guest-token?dashboard=tenant");
+    const [issued, denied] = writeAuditEntry.mock.calls.map(
+      (c) => (c[1] as { resourceId: string }).resourceId,
+    );
+    expect(issued).toBe(denied);
   });
 
   it("records a refused dashboard as a denial, and mints nothing", async () => {
@@ -377,5 +389,23 @@ describe("failure handling", () => {
     expect(raw).not.toContain("superset:8088");
     expect(raw).not.toContain("service_account");
     expect(raw).not.toContain("ECONNREFUSED");
+  });
+});
+
+describe("uuidV5", () => {
+  it("matches the RFC 4122 reference value", () => {
+    // uuid.uuid5(uuid.NAMESPACE_URL, "http://example.com") in Python.
+    expect(uuidV5("http://example.com")).toBe(
+      "8c9ddcb0-8084-5a7f-a988-1095ab18b5df",
+    );
+  });
+
+  it("is stable per dashboard and differs between dashboards", () => {
+    expect(dashboardResourceId("openwind-tenant-overview")).toBe(
+      dashboardResourceId("openwind-tenant-overview"),
+    );
+    expect(dashboardResourceId("openwind-tenant-overview")).not.toBe(
+      dashboardResourceId("openwind-my-performance"),
+    );
   });
 });
