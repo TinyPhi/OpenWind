@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
+import { writeAuditEntry } from "@platform/audit";
 import { env } from "@platform/config";
+import { withTenantContext } from "@platform/db";
 import { logger } from "@platform/logger";
 import { zValidator } from "../../lib/validator.js";
 import { factory } from "./factory.js";
@@ -110,6 +113,48 @@ function buildRlsRules(
   return rules;
 }
 
+/**
+ * Durable record of a dashboard access decision, in the platform audit store.
+ *
+ * The application log is not enough on its own: it rotates and is not
+ * queryable, so it cannot answer "who viewed which reporting dashboards, and
+ * when" for a data-subject request or an incident window.
+ *
+ * Best-effort: a failed audit write is logged loudly and does not fail the
+ * request. The pass is minted every ~55s per open dashboard, so turning an
+ * audit-store hiccup into a broken dashboard would be worse for the user than
+ * one missing row, and the database is also what serves the dashboard.
+ */
+async function recordGuestTokenAudit(
+  tenantId: string,
+  userId: string,
+  action: "reporting.guest_token_issued" | "reporting.guest_token_denied",
+  dashboard: "tenant" | "user",
+  embeddedId?: string,
+): Promise<void> {
+  try {
+    await withTenantContext(tenantId, (tx) =>
+      writeAuditEntry(tx, {
+        tenantId,
+        actorId: userId,
+        actorType: "user",
+        resourceType: "reporting_dashboard",
+        // The embedded dashboard's id when there is one; a refused request has
+        // no resource, and the column is a required UUID.
+        resourceId:
+          embeddedId && UUID_RE.test(embeddedId) ? embeddedId : randomUUID(),
+        action,
+        metadata: { dashboard, dashboardSlug: DASHBOARD_SLUGS[dashboard] },
+      }),
+    );
+  } catch (auditErr) {
+    logger.error(
+      { tenantId, userId, action, dashboard, auditErr },
+      "reporting: failed to write guest token audit entry",
+    );
+  }
+}
+
 export const guestTokenHandler = factory.createHandlers(
   requireAuth(),
   // "user" added so end customers can reach their own "My Tickets" dashboard.
@@ -145,6 +190,12 @@ export const guestTokenHandler = factory.createHandlers(
       // Belt-and-braces: the UI never offers this tab to a customer, but the
       // query param is typed and guessable, and the tenant dashboard shows
       // every ticket in the tenant, not just the caller's own.
+      await recordGuestTokenAudit(
+        tenantId,
+        userId,
+        "reporting.guest_token_denied",
+        dashboard,
+      );
       return c.json(
         { error: "FORBIDDEN", message: "Insufficient permissions" },
         403,
@@ -166,6 +217,13 @@ export const guestTokenHandler = factory.createHandlers(
       logger.info(
         { tenantId, userId, dashboard, embeddedId },
         "reporting: guest token minted",
+      );
+      await recordGuestTokenAudit(
+        tenantId,
+        userId,
+        "reporting.guest_token_issued",
+        dashboard,
+        embeddedId,
       );
 
       return c.json({

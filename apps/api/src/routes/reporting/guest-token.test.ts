@@ -62,6 +62,18 @@ vi.mock("@platform/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 
+// The audit write goes through the real tenant-context wrapper in production;
+// here the wrapper just hands the callback a transaction stand-in, so the test
+// checks what is written, not how the transaction is opened.
+const writeAuditEntry = vi.fn().mockResolvedValue(undefined);
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => writeAuditEntry(...args),
+}));
+vi.mock("@platform/db", () => ({
+  withTenantContext: (_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn({}),
+}));
+
 const { guestTokenHandler } = await import("./guest-token.js");
 
 function buildApp() {
@@ -89,6 +101,45 @@ describe("GET /superset/guest-token", () => {
     expect(body.data.token).toBe("guest-token-value");
     expect(body.data.dashboardId).toBe("023c70fc-fe94-40cc-a625-e9532cefe4d3");
     expect(body.data.supersetDomain).toBe("http://localhost:8088");
+  });
+
+  it("records every pass it mints in the audit store", async () => {
+    await buildApp().request("/superset/guest-token?dashboard=tenant");
+    expect(writeAuditEntry).toHaveBeenCalledTimes(1);
+    expect(writeAuditEntry.mock.calls[0]?.[1]).toMatchObject({
+      tenantId: authState.tenantId,
+      actorId: authState.userId,
+      action: "reporting.guest_token_issued",
+      resourceType: "reporting_dashboard",
+      resourceId: "023c70fc-fe94-40cc-a625-e9532cefe4d3",
+      metadata: {
+        dashboard: "tenant",
+        dashboardSlug: "openwind-tenant-overview",
+      },
+    });
+  });
+
+  it("records a refused dashboard as a denial, and mints nothing", async () => {
+    authState.roles = ["user"];
+    const res = await buildApp().request(
+      "/superset/guest-token?dashboard=tenant",
+    );
+    expect(res.status).toBe(403);
+    expect(mintDashboardPass).not.toHaveBeenCalled();
+    expect(writeAuditEntry.mock.calls[0]?.[1]).toMatchObject({
+      action: "reporting.guest_token_denied",
+      metadata: { dashboard: "tenant" },
+    });
+  });
+
+  it("still returns the pass when the audit write fails", async () => {
+    // Best-effort by design: an audit-store hiccup must not break an open
+    // dashboard that re-mints every minute.
+    writeAuditEntry.mockRejectedValueOnce(new Error("audit store down"));
+    const res = await buildApp().request(
+      "/superset/guest-token?dashboard=tenant",
+    );
+    expect(res.status).toBe(200);
   });
 
   it("rejects an unknown dashboard name", async () => {

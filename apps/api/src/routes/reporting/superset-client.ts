@@ -297,7 +297,49 @@ export async function mintGuestToken(
       "Superset guest-token response had no token",
     );
   }
+  if (!isGuestTokenLifetimeAcceptable(body.token, Date.now())) {
+    throw new SupersetUnavailableError(
+      "Superset minted a guest token outliving the allowed lifetime",
+    );
+  }
   return body.token;
+}
+
+/**
+ * The longest a guest pass may live, in seconds. Superset's own
+ * GUEST_TOKEN_JWT_EXP_SECONDS is 60 (docker/superset/superset_config.py);
+ * the extra 30s absorbs clock drift between the two containers.
+ */
+export const MAX_GUEST_TOKEN_LIFETIME_SECONDS = 90;
+
+/**
+ * Whether a minted pass expires within MAX_GUEST_TOKEN_LIFETIME_SECONDS.
+ *
+ * The pass lifetime is the revocation window for a withdrawn user or tenant,
+ * and it is set in Superset's config, not by this request: the guest-token
+ * API has no per-request expiry. If that config were lost or reverted,
+ * Superset's 300s default would apply silently. This check makes the API
+ * refuse such a pass instead of handing it out. It reads the unverified
+ * payload only for `exp`; the signature is Superset's to check.
+ */
+export function isGuestTokenLifetimeAcceptable(
+  token: string,
+  nowMs: number,
+): boolean {
+  const payload = token.split(".")[1];
+  if (!payload) return false;
+  let exp: unknown;
+  try {
+    exp = (
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+        exp?: unknown;
+      }
+    ).exp;
+  } catch {
+    return false;
+  }
+  if (typeof exp !== "number") return false;
+  return exp - nowMs / 1000 <= MAX_GUEST_TOKEN_LIFETIME_SECONDS;
 }
 
 /** Open a session, resolve the dashboard, and mint — the whole mint path. */

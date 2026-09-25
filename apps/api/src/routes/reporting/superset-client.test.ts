@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+/** A JWT-shaped pass whose payload expires `ttlSeconds` from now. */
+function passExpiringIn(ttlSeconds: number): string {
+  const payload = Buffer.from(
+    JSON.stringify({ exp: Math.floor(Date.now() / 1000) + ttlSeconds }),
+  ).toString("base64url");
+  return `header.${payload}.signature`;
+}
+
 vi.mock("@platform/config", () => ({
   env: {
     SUPERSET_SITE_URL: "http://localhost:8088",
@@ -100,7 +108,9 @@ describe("mintDashboardPass coverage guard", () => {
     "my_tickets_assigned",
   ];
 
-  function stubSuperset(): void {
+  const GUEST_TOKEN = passExpiringIn(60);
+
+  function stubSuperset(token: string = GUEST_TOKEN): void {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
@@ -119,7 +129,7 @@ describe("mintDashboardPass coverage guard", () => {
           });
         if (url.includes("/dataset/"))
           return ok({ result: [{ id: 3, database: ON_MANAGED }] });
-        if (url.includes("/guest_token")) return ok({ token: "guest-token" });
+        if (url.includes("/guest_token")) return ok({ token });
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
@@ -154,7 +164,7 @@ describe("mintDashboardPass coverage guard", () => {
       ],
       true,
     );
-    expect(result.token).toBe("guest-token");
+    expect(result.token).toBe(GUEST_TOKEN);
   });
 
   it("does not require per-dataset coverage on the tenant dashboard", async () => {
@@ -167,6 +177,42 @@ describe("mintDashboardPass coverage guard", () => {
       "00000000-0000-0000-0000-000000000001",
       [{ clause: "tenant_id = 'x'" }],
     );
-    expect(result.token).toBe("guest-token");
+    expect(result.token).toBe(GUEST_TOKEN);
+  });
+
+  it("refuses a pass that outlives the allowed lifetime", async () => {
+    // Superset's 300s default, as if GUEST_TOKEN_JWT_EXP_SECONDS were lost.
+    stubSuperset(passExpiringIn(300));
+    const { mintDashboardPass } = await import("./superset-client.js");
+    await expect(
+      mintDashboardPass(
+        "openwind-tenant-overview",
+        "00000000-0000-0000-0000-000000000001",
+        [{ clause: "tenant_id = 'x'" }],
+      ),
+    ).rejects.toThrow(/outliving the allowed lifetime/);
+  });
+});
+
+describe("isGuestTokenLifetimeAcceptable", () => {
+  it("accepts a pass within the limit and refuses one beyond it", async () => {
+    const { isGuestTokenLifetimeAcceptable, MAX_GUEST_TOKEN_LIFETIME_SECONDS } =
+      await import("./superset-client.js");
+    const now = Date.now();
+    expect(isGuestTokenLifetimeAcceptable(passExpiringIn(60), now)).toBe(true);
+    expect(
+      isGuestTokenLifetimeAcceptable(
+        passExpiringIn(MAX_GUEST_TOKEN_LIFETIME_SECONDS + 60),
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a pass with no readable expiry", async () => {
+    const { isGuestTokenLifetimeAcceptable } =
+      await import("./superset-client.js");
+    const noExp = `h.${Buffer.from("{}").toString("base64url")}.s`;
+    expect(isGuestTokenLifetimeAcceptable(noExp, Date.now())).toBe(false);
+    expect(isGuestTokenLifetimeAcceptable("not-a-jwt", Date.now())).toBe(false);
   });
 });
