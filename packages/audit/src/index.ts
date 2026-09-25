@@ -146,7 +146,13 @@ export type AuditAction =
   // so every action the DB CHECK constraint admits has a classification when
   // the audit log is read back (third-party access logs, retention rollup).
   | "reporting.query_executed"
-  | "reporting.exported";
+  | "reporting.exported"
+  // Written by the reporting API for embedded dashboards: a guest pass
+  // minted, and a dashboard request refused by role (a customer asking for
+  // the tenant-wide dashboard). Together they answer "who viewed which
+  // reporting dashboards, and when".
+  | "reporting.guest_token_issued"
+  | "reporting.guest_token_denied";
 
 export type AuditEntryInput = {
   tenantId: string;

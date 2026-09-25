@@ -64,6 +64,9 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // ticket data.
   "reporting.query_executed": true,
   "reporting.exported": true,
+  // Minting a pass to view a dashboard reads data; refusing one reads none.
+  "reporting.guest_token_issued": true,
+  "reporting.guest_token_denied": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =

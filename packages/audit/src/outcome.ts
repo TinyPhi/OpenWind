@@ -84,6 +84,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // these.
   "reporting.query_executed": true,
   "reporting.exported": true,
+  "reporting.guest_token_issued": true,
+  "reporting.guest_token_denied": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since
@@ -106,6 +108,8 @@ const DENIED_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "attachment.reference_denied",
   "ticket.view_denied",
   "attachment.download_denied",
+  // A dashboard the caller's role does not entitle them to.
+  "reporting.guest_token_denied",
 ]);
 
 /**
