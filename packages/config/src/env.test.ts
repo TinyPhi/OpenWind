@@ -122,8 +122,9 @@ const PRODUCTION_ENV = {
   // absent it every parse below would throw for the wrong reason.
   CORS_ORIGIN: "https://app.example.com",
   // Non-default Superset values, so only the field under test is at fault.
-  SUPERSET_SECRET_KEY: "a-real-secret-key",
-  SUPERSET_GUEST_TOKEN_SECRET: "a-real-guest-token-secret",
+  // 32+ characters: production requires it of both signing keys.
+  SUPERSET_SECRET_KEY: "a-real-secret-key-of-at-least-32-chars",
+  SUPERSET_GUEST_TOKEN_SECRET: "a-real-guest-token-secret-32-chars-min",
   SUPERSET_SERVICE_ACCOUNT_PASSWORD: "a-real-service-account-password",
   SUPERSET_ADMIN_PASSWORD: "a-real-admin-password",
   SUPERSET_SITE_URL: "https://reporting.example.com",
@@ -134,8 +135,36 @@ describe("Superset secrets — production default guards", () => {
   it("accepts a production env where every Superset secret is set to a real value", () => {
     const parsed = EnvSchema.parse(PRODUCTION_ENV);
     expect(parsed.NODE_ENV).toBe("production");
-    expect(parsed.SUPERSET_SECRET_KEY).toBe("a-real-secret-key");
+    expect(parsed.SUPERSET_SECRET_KEY).toBe(
+      "a-real-secret-key-of-at-least-32-chars",
+    );
   });
+
+  it.each(Object.keys(DEV_SUPERSET_DEFAULTS))(
+    "rejects an empty %s in any environment",
+    (varName) => {
+      // Empty is not the dev default, so without a length check it would
+      // pass the production guards and reach Superset as an empty secret.
+      expect(() =>
+        EnvSchema.parse({ ...PRODUCTION_ENV, [varName]: "" }),
+      ).toThrow(new RegExp(varName));
+      expect(() =>
+        EnvSchema.parse({ ...MINIMAL_VALID_ENV, [varName]: "" }),
+      ).toThrow(new RegExp(varName));
+    },
+  );
+
+  it.each(["SUPERSET_SECRET_KEY", "SUPERSET_GUEST_TOKEN_SECRET"])(
+    "rejects a %s shorter than 32 characters in production",
+    (varName) => {
+      expect(() =>
+        EnvSchema.parse({ ...PRODUCTION_ENV, [varName]: "x".repeat(31) }),
+      ).toThrow(new RegExp(`${varName} must be at least 32 characters`));
+      expect(
+        EnvSchema.parse({ ...PRODUCTION_ENV, [varName]: "x".repeat(32) }),
+      ).toBeTruthy();
+    },
+  );
 
   it.each(Object.entries(DEV_SUPERSET_DEFAULTS))(
     "rejects %s when it is still the development default in production",
