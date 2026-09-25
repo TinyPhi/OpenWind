@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { EnvSchema, DEV_SUPERSET_DEFAULTS } from "./env.js";
+import { EnvSchema } from "./env.js";
+import { DEV_SUPERSET_DEFAULTS } from "./dev-defaults.js";
 
 // Mirrors vitest.config.ts's fixture, minus RATE_LIMIT_TENANT_PER_MIN — the
 // field under test — so each test controls it explicitly or omits it.

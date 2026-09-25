@@ -2,6 +2,14 @@ import { z } from "zod";
 import { config as loadDotenv } from "dotenv";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+// Reporting (3G) development-only secret defaults live in dev-defaults.ts, so
+// the one list the guards and the tests share has a single, obvious home.
+import {
+  DEV_SUPERSET_SECRET_KEY,
+  DEV_SUPERSET_GUEST_TOKEN_SECRET,
+  DEV_SUPERSET_SERVICE_ACCOUNT_PASSWORD,
+  DEV_SUPERSET_ADMIN_PASSWORD,
+} from "./dev-defaults.js";
 
 // Load .env.local from the monorepo root (walk up from cwd until we find it)
 function findEnvLocal(): string | undefined {
@@ -34,28 +42,6 @@ if (_raw["ZITADEL_URL"]) {
 if (_raw["APP_URL"]) {
   _raw["CORS_ORIGIN"] ??= _raw["APP_URL"];
 }
-
-// Reporting (3G) development-only secret defaults.
-//
-// These exist so `git clone && docker compose up` gives a working stack, and
-// every one of them is rejected in production by a refine at the bottom of this
-// schema. They are named constants rather than inline literals for one reason:
-// the guard and the default must never drift apart. An inline default that
-// someone later edits without editing the guard would silently become a usable
-// production secret again, which is exactly the failure this guard exists to
-// prevent.
-const DEV_SUPERSET_SECRET_KEY = "superset_dev_secret_key_change_in_prod";
-const DEV_SUPERSET_GUEST_TOKEN_SECRET = "superset_guest_dev_secret_key";
-const DEV_SUPERSET_SERVICE_ACCOUNT_PASSWORD = "service_account_dev_password";
-const DEV_SUPERSET_ADMIN_PASSWORD = "admin_dev_password";
-
-/** Exported for env.test.ts — the guards assert against exactly these values. */
-export const DEV_SUPERSET_DEFAULTS = {
-  SUPERSET_SECRET_KEY: DEV_SUPERSET_SECRET_KEY,
-  SUPERSET_GUEST_TOKEN_SECRET: DEV_SUPERSET_GUEST_TOKEN_SECRET,
-  SUPERSET_SERVICE_ACCOUNT_PASSWORD: DEV_SUPERSET_SERVICE_ACCOUNT_PASSWORD,
-  SUPERSET_ADMIN_PASSWORD: DEV_SUPERSET_ADMIN_PASSWORD,
-} as const;
 
 const EnvSchema = z
   .object({
