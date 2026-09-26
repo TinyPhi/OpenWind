@@ -26,7 +26,9 @@ CREATE TABLE schedule_rules (
   -- Validated via cron-parser before storage; invalid expressions never reach DB.
   timezone        text NOT NULL DEFAULT 'UTC',
   -- IANA timezone string (e.g. 'Asia/Kolkata', 'America/New_York').
-  -- Validated against Intl.supportedValuesOf('timeZone') before storage.
+  -- Validated by constructing Intl.DateTimeFormat with the supplied zone.
+  -- This accepts valid aliases that Intl.supportedValuesOf('timeZone') may omit
+  -- because its canonical-name list varies between ICU/Node builds.
 
   -- ticket template
   entity_type_id  uuid NOT NULL REFERENCES entity_types(id),
