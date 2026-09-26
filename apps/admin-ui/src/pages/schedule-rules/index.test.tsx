@@ -259,6 +259,37 @@ describe("ScheduleRulesPage", () => {
     );
   });
 
+  it("rejects a fractional due-days value before saving", async () => {
+    queueRefresh([RULE_A]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Edit rule"));
+    await waitFor(() => expect(screen.getByLabelText("Day")).toBeTruthy());
+    fireEvent.click(screen.getByText("Next: Ticket template →"));
+
+    const dueDaysInput = screen.getByLabelText(
+      /Due — days after creation/,
+    ) as HTMLInputElement;
+    expect(dueDaysInput.step).toBe("1");
+    expect(dueDaysInput.max).toBe("3650");
+    fireEvent.change(dueDaysInput, { target: { value: "1.5" } });
+
+    expect(
+      screen.getByText("Due after (days) must be a whole number."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByText("Save changes"));
+    expect(
+      mockFetchWithAuth.mock.calls.some(
+        (call) =>
+          call[0] === "/api/admin/schedule-rules/rule-1" &&
+          (call[1] as { method?: string } | undefined)?.method === "PATCH",
+      ),
+    ).toBe(false);
+  });
+
   it("lets you search and pick a workflow from a searchable dropdown", async () => {
     queueRefresh([]);
     renderPage();
