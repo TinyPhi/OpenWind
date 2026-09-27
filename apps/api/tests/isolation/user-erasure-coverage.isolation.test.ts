@@ -17,6 +17,7 @@ import {
   db,
   tenants,
   withTenantContext,
+  withTenantAndUserContext,
   apiKeys,
   savedViews,
   ticketAlerts,
@@ -355,6 +356,22 @@ describe("per-user erasure — column coverage (#635)", () => {
       .from(adminAuditLog)
       .where(eq(adminAuditLog.tenantId, TENANT));
     expect(rows.map((r) => r.actorId)).toContain(TARGET);
+  });
+
+  it("restores the caller's app.user_id after switching it for the saved_views delete", async () => {
+    // Re-running is a no-op on data (idempotent); this checks only the GUC.
+    const after = await withTenantAndUserContext(
+      TENANT,
+      "u-erasure-admin",
+      async (tx) => {
+        await eraseUserFromTenant(tx, TENANT, TARGET);
+        const [row] = await tx.execute<{ current: string | null }>(
+          sql`SELECT current_setting('app.user_id', true) AS current`,
+        );
+        return row?.current;
+      },
+    );
+    expect(after).toBe("u-erasure-admin");
   });
 
   it("does not touch another tenant's references to the same user id", async () => {

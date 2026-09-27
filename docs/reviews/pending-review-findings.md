@@ -59,17 +59,11 @@ requirements more likely to surface, not less. Row updated below, not removed.
 | No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay) — **decided 2026-09-18: keep open**, not a maintainer-decision gap anymore, just unstaffed work | [#198](../../issues/198) | Unassigned |
 | Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                                               | [#200](../../issues/200) | Unassigned |
 | `rate-limit.ts` trusts the first `X-Forwarded-For` hop with no enforcement that a fronting proxy overwrites (not appends) it — spoofable rate-limit bypass if misconfigured                                                                                      | [#540](../../issues/540) | Unassigned |
+| Per-user erasure misses user ids inside tenant-defined `user_ref` custom fields and free-text mentions in `entity_instances.fields` (found during #635)                                                                                                          | [#688](../../issues/688) | Unassigned |
 
 ---
 
 ## No tracked issue yet — file before picking up
-
-### Found during #635 (GDPR erasure coverage, 2026-09-27)
-
-- **Per-user erasure doesn't reach user ids inside tenant-defined `user_ref` custom fields or
-  free-text mentions in `entity_instances.fields`.** Those live at per-entity-type schema
-  locations, not fixed columns, so the column guard can't see them. Needs a field-type-aware
-  pass (spec `docs/specs/gdpr-erasure-coverage.md` §B B5).
 
 ### ADR backlog (all from the 2026-06-29 consulting review, still open)
 

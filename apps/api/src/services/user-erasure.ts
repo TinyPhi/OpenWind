@@ -88,24 +88,34 @@ export async function eraseUserFromTenant(
 ): Promise<void> {
   // saved_views RLS also requires user_id = app.user_id, and the caller is the
   // admin, not the target — switch the GUC to the target for this one delete
-  // (transaction-local), then restore it.
-  const [setting] = await tx.execute<{ current: string | null }>(
-    sql`SELECT current_setting('app.user_id', true) AS current`,
-  );
-  await tx.execute(
-    sql`SELECT set_config('app.user_id', ${targetUserId}, true)`,
-  );
-  await tx
-    .delete(savedViews)
-    .where(
-      and(
-        eq(savedViews.tenantId, tenantId),
-        eq(savedViews.userId, targetUserId),
-      ),
+  // (transaction-local), then restore it. The savepoint (nested transaction)
+  // makes the restore structural: if the delete throws, ROLLBACK TO SAVEPOINT
+  // also reverts the GUC, so a caller that catches and carries on in the same
+  // transaction never keeps the target's user id as app.user_id.
+  // Restoring an unset value writes '' — Postgres resets an unregistered
+  // custom GUC to '' rather than NULL (set_config(..., NULL, ...) gives the
+  // same), which is also what any pooled connection already reads once it has
+  // run one transaction-local set_config. Policies reading app.user_id must
+  // therefore use NULLIF(current_setting(...), '') before any cast.
+  await tx.transaction(async (sp) => {
+    const [setting] = await sp.execute<{ current: string | null }>(
+      sql`SELECT current_setting('app.user_id', true) AS current`,
     );
-  await tx.execute(
-    sql`SELECT set_config('app.user_id', ${setting?.current ?? ""}, true)`,
-  );
+    await sp.execute(
+      sql`SELECT set_config('app.user_id', ${targetUserId}, true)`,
+    );
+    await sp
+      .delete(savedViews)
+      .where(
+        and(
+          eq(savedViews.tenantId, tenantId),
+          eq(savedViews.userId, targetUserId),
+        ),
+      );
+    await sp.execute(
+      sql`SELECT set_config('app.user_id', ${setting?.current ?? ""}, true)`,
+    );
+  });
 
   await tx
     .delete(notificationRecipients)

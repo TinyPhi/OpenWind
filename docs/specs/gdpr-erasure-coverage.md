@@ -135,7 +135,7 @@ matching the user-reference naming convention (`created_by`, `*_user_id`, `assig
 - **B5 — per-record grants.** `entity_instances.fields.__accessUsers` is keyed by user id, so
   erasure now removes the target's key. Deferred, not handled: user ids inside tenant-defined
   `user_ref` custom fields and free-text mentions in `fields`. Their location is schema-defined
-  per entity type, not a fixed column; this needs a field-type-aware pass.
+  per entity type, not a fixed column; this needs a field-type-aware pass. Tracked as #688.
 - **B6 — `schedule_rules.created_by` redacted.** Per ADR-017 Decision 5 (an inactive creator),
   the rule then logs `failed` executions until an admin reassigns the creator.
 - **B7 (review) — legacy `__accessUsers` shape.** Older rows store it as `string[]`, and
@@ -148,6 +148,14 @@ matching the user-reference naming convention (`created_by`, `*_user_id`, `assig
   ahead of the RESTRICT-FK rule delete. A tick already mid-flight converges on BullMQ retry.
 - **B10 (review) — test context.** The erasure isolation test now runs under
   `withTenantContext` exactly as the route does (`app.user_id` unset), not with a user context.
+- **B11 (PR #681 review) — saved_views GUC switch.** The switch now runs inside a savepoint
+  (`tx.transaction`), so if the delete throws, `ROLLBACK TO SAVEPOINT` also reverts `app.user_id`.
+  A caller that catches and continues can't keep the target as `app.user_id`. Verified in psql.
+  The reviewer's proposed `?? null` restore is **not** a behaviour change: Postgres resets an
+  unregistered custom GUC to `''`, and `set_config(..., NULL, ...)` also yields `''` (verified in
+  psql). Any pooled connection already reads `''` after one transaction-local `set_config`. The
+  real guard is that policies use `NULLIF(current_setting(...), '')` before a cast, now stated in
+  `db-conventions.md`. New test: the caller's `app.user_id` is restored after erasure.
 - **Order note:** Phase 2's service was written before its isolation test (Phase 1 was test-first).
   F3 had already been reproduced directly (`permission denied for table ticket_alerts` as
   `app_user`), and every newly handled column fails the new test against the old statements.
