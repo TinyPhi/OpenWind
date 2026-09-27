@@ -94,6 +94,15 @@ describe("ruleInScope", () => {
     ).toBe(false);
   });
 
+  it("matches the entityType name case-insensitively", async () => {
+    expect(
+      await ruleInScope({ entityType: "Ticket" }, created(TICKET), names),
+    ).toBe(true);
+    expect(
+      await ruleInScope({ entityType: "TICKET" }, created(ORDER), names),
+    ).toBe(false);
+  });
+
   it("does not match a set key when the event lacks that field", async () => {
     expect(
       await ruleInScope({ entityTypeId: TICKET }, created(undefined), names),

@@ -2,6 +2,7 @@ import type { Redis } from "ioredis";
 import { and, eq } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
 import { entityInstances } from "@platform/db";
+import { logger } from "@platform/logger";
 import { executeTransition } from "@platform/workflow-engine";
 import type { TriggerEvent } from "../event-schemas.js";
 import { executeAutomationRules } from "../executor.js";
@@ -44,7 +45,15 @@ export async function executeTransitionAction(
       ),
     )
     .limit(1);
-  if (!transitioned) return;
+  if (!transitioned) {
+    // executeTransition just succeeded in this transaction, so this should be
+    // unreachable — but never drop the follow-up rules silently.
+    logger.warn(
+      { tenantId, instanceId },
+      "Automation: transition action — instance not found after transition; skipping follow-up rules",
+    );
+    return;
+  }
   const { entityTypeId } = transitioned;
 
   // This recursive call — together with engine.ts's outbox-write skip for

@@ -1,3 +1,4 @@
+import { logger } from "@platform/logger";
 import type { TriggerEvent } from "./event-schemas.js";
 
 /**
@@ -66,7 +67,17 @@ export async function ruleInScope(
 ): Promise<boolean> {
   if (!config) return true;
   const keys = SCOPE_KEYS[event.eventType];
-  if (!keys) return true;
+  if (!keys) {
+    // Open world: unknown event types aren't scoped. A non-empty config here
+    // means an emitter was added without extending SCOPE_KEYS — surface it.
+    if (Object.keys(config).length > 0) {
+      logger.warn(
+        { eventType: event.eventType, configKeys: Object.keys(config) },
+        "Automation: trigger_config set for an event type with no scope keys — not filtering",
+      );
+    }
+    return true;
+  }
   const fields = event as Record<string, unknown>;
 
   for (const [key, eventField] of Object.entries(keys)) {
@@ -79,7 +90,13 @@ export async function ruleInScope(
   if (!isUnset(expectedName)) {
     const entityTypeId = fields["entityTypeId"];
     if (typeof entityTypeId !== "string") return false;
-    if ((await resolveEntityTypeName(entityTypeId)) !== expectedName) {
+    // Case-insensitive: names carry no casing constraint, and a rename that only
+    // changes case must not silently stop every name-scoped rule.
+    const actualName = await resolveEntityTypeName(entityTypeId);
+    if (
+      typeof expectedName !== "string" ||
+      actualName?.toLowerCase() !== expectedName.toLowerCase()
+    ) {
       return false;
     }
   }

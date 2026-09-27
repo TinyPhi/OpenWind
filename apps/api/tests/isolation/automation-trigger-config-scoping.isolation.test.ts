@@ -18,6 +18,7 @@ import {
   entityTypes,
   automationRules,
   automationExecutions,
+  withTenantContext,
 } from "@platform/db";
 import { env } from "@platform/config";
 import {
@@ -61,18 +62,21 @@ async function rule(
   return created.id;
 }
 
+// Same execution path as production: under the tenant's RLS context.
 async function fire(event: Record<string, unknown>): Promise<void> {
-  await executeAutomationRules(
-    db,
-    TENANT,
-    {
-      version: 1,
-      tenantId: TENANT,
-      instanceId: randomUUID(),
-      ...event,
-    },
-    0,
-    redis,
+  await withTenantContext(TENANT, (tx) =>
+    executeAutomationRules(
+      tx,
+      TENANT,
+      {
+        version: 1,
+        tenantId: TENANT,
+        instanceId: randomUUID(),
+        ...event,
+      },
+      0,
+      redis,
+    ),
   );
 }
 

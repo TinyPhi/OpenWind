@@ -116,5 +116,14 @@ ORDER BY tenant_id, trigger_type;
 - **B3 — name resolution includes system templates.** The `entityType` name lookup accepts the
   tenant's own types and `tenant_id IS NULL` templates, never another tenant's. The isolation
   test fires an event whose type is another tenant's same-named type and asserts no match.
+- **B4 (PR #686 review).**
+  - The name match is now case-insensitive, because entity type names carry no casing
+    constraint and a case-only rename must not silently stop name-scoped rules.
+  - A warning is logged when a non-empty `trigger_config` meets an event type with no scope
+    keys (an emitter added without extending `SCOPE_KEYS`).
+  - `actions/transition.ts` logs instead of returning silently if the instance is missing.
+  - The scoping isolation test runs under `withTenantContext`.
+  - The operator query still counts `false`/`0` as narrowing on purpose: they are set values,
+    so they never equal a real id.
 - **Follow-up:** wizard/API key mismatches (`fieldName` vs `field`, `state` vs `toState`, empty-string
   uuids) and trigger types with no emitter are filed as #684.
