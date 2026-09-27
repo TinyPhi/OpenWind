@@ -92,11 +92,11 @@ export async function eraseUserFromTenant(
   // makes the restore structural: if the delete throws, ROLLBACK TO SAVEPOINT
   // also reverts the GUC, so a caller that catches and carries on in the same
   // transaction never keeps the target's user id as app.user_id.
-  // Restoring an unset value writes '' — Postgres resets an unregistered
-  // custom GUC to '' rather than NULL (set_config(..., NULL, ...) gives the
-  // same), which is also what any pooled connection already reads once it has
-  // run one transaction-local set_config. Policies reading app.user_id must
-  // therefore use NULLIF(current_setting(...), '') before any cast.
+  // The restore passes NULL when app.user_id was unset, meaning "back to
+  // nothing". Postgres still *reads* an unregistered custom GUC back as ''
+  // after any set_config in the session — so do pooled connections generally —
+  // which is why policies reading app.user_id must use
+  // NULLIF(current_setting(...), '') before any cast (db-conventions.md).
   await tx.transaction(async (sp) => {
     const [setting] = await sp.execute<{ current: string | null }>(
       sql`SELECT current_setting('app.user_id', true) AS current`,
@@ -113,7 +113,7 @@ export async function eraseUserFromTenant(
         ),
       );
     await sp.execute(
-      sql`SELECT set_config('app.user_id', ${setting?.current ?? ""}, true)`,
+      sql`SELECT set_config('app.user_id', ${setting?.current ?? null}, true)`,
     );
   });
 
@@ -329,23 +329,6 @@ export async function eraseUserFromTenant(
     );
 
   await tx
-    .delete(tenantUsers)
-    .where(
-      and(
-        eq(tenantUsers.tenantId, tenantId),
-        eq(tenantUsers.userId, targetUserId),
-      ),
-    );
-  await tx
-    .delete(idempotencyKeys)
-    .where(
-      and(
-        eq(idempotencyKeys.tenantId, tenantId),
-        eq(idempotencyKeys.actingPersonId, targetUserId),
-      ),
-    );
-
-  await tx
     .update(connectorCredentials)
     .set({ disabledBy: REDACTED })
     .where(
@@ -442,6 +425,25 @@ export async function eraseUserFromTenant(
       and(
         eq(scheduleRules.tenantId, tenantId),
         eq(scheduleRules.createdBy, targetUserId),
+      ),
+    );
+
+  // Last: tenant membership (and the acting-person replay cache tied to it)
+  // goes only after every footprint of the user in the tenant is scrubbed.
+  await tx
+    .delete(tenantUsers)
+    .where(
+      and(
+        eq(tenantUsers.tenantId, tenantId),
+        eq(tenantUsers.userId, targetUserId),
+      ),
+    );
+  await tx
+    .delete(idempotencyKeys)
+    .where(
+      and(
+        eq(idempotencyKeys.tenantId, tenantId),
+        eq(idempotencyKeys.actingPersonId, targetUserId),
       ),
     );
 }
