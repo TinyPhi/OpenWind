@@ -41,12 +41,14 @@ See `packages/secrets/README.md` for the API surface.
 3. **Never construct SQL strings from user input.** Use Drizzle's parameterized queries or
    the `sql` tagged template literal. The linter flags string concatenation in SQL contexts.
 
-4. **File bytes only through `@platform/files`, behind an authorized route.** Storage is local
-   disk (PR #340 — no S3/MinIO) and the storage directory is never served directly. Downloads are
-   streamed by the API after the tenant + record-ACL check (`routes/files/download.ts`); the
-   third-party API's upload slots use single-use, hashed, short-TTL tokens
-   (`routes/third-party/attachments-presign.ts`). Never return a filesystem path or an unscoped
-   URL.
+4. **File bytes only through an authorized, tenant-scoped path.** Attachments live on local
+   disk via `@platform/files` (PR #340), and the storage directory is never served directly.
+   Downloads are streamed by the API after the tenant + record-ACL check
+   (`routes/files/download.ts`). The third-party API's upload slots use single-use, hashed,
+   short-TTL tokens (`routes/third-party/attachments-presign.ts`). The exception is async
+   entity exports (`apps/worker/src/export-worker.ts`), which still upload to S3 and return a
+   1-hour presigned URL, pending #697; any S3 bucket must stay private. Never return a
+   filesystem path or an unscoped URL.
 
 5. **Never expose internal error details to clients.** Catch all unhandled errors at the API
    boundary, return a generic 500 with a correlation ID. Log the full error server-side.

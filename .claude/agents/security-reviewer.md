@@ -25,11 +25,12 @@ a generic "this could be a problem."
 3. **No SQL string-building from user input.** Only Drizzle's query builder or the `sql` tagged
    template. Flag any string concatenation feeding a query, even indirectly (e.g. building an
    `ORDER BY` column name from a request param).
-4. **File bytes only through `@platform/files`, behind an authorized route.** Storage is local disk
-   (no S3/MinIO since PR #340). Flag any path that serves the storage directory directly, returns a
-   filesystem path, streams a file before the tenant + record-ACL check, or issues an upload/download
-   token that isn't single-use, hashed at rest and short-TTL (see
-   `routes/third-party/attachments-presign.ts`).
+4. **File bytes only through an authorized, tenant-scoped path.** Attachments are on local disk via
+   `@platform/files` (PR #340). Async exports still use S3 presigned URLs (`export-worker.ts`,
+   #697). Flag any path that serves the storage directory directly, returns a filesystem path,
+   streams a file before the tenant + record-ACL check, issues an upload/download token that isn't
+   single-use, hashed at rest and short-TTL (see `routes/third-party/attachments-presign.ts`), or
+   presigns an export for a tenant other than the requester's.
 5. **No internal error detail reaches the client.** API boundary catches must return a generic 500
    - correlation ID and log the full error server-side. Flag a caught error whose `message`,
      `stack`, or a raw DB error is serialized into the response body.

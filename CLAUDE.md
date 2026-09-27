@@ -94,7 +94,7 @@ packages/
   entity-engine/  workflow-engine/  automation-engine/
   auth/           Zitadel JWT + RBAC helpers
   notifications/  Novu wrapper
-  files/          Tenant-scoped local-disk storage + async ClamAV scan (no S3 since PR #340)
+  files/          Tenant-scoped local-disk storage + async ClamAV scan (PR #340; async exports still use S3, #697)
   audit/          Append-only audit log
   config/         Zod-validated env — import from @platform/config
   logger/         Structured pino logger
