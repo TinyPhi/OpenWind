@@ -64,6 +64,13 @@ requirements more likely to surface, not less. Row updated below, not removed.
 
 ## No tracked issue yet — file before picking up
 
+### Found during #635 (GDPR erasure coverage, 2026-09-27)
+
+- **Per-user erasure doesn't reach user ids inside tenant-defined `user_ref` custom fields or
+  free-text mentions in `entity_instances.fields`.** Those live at per-entity-type schema
+  locations, not fixed columns, so the column guard can't see them. Needs a field-type-aware
+  pass (spec `docs/specs/gdpr-erasure-coverage.md` §B B5).
+
 ### ADR backlog (all from the 2026-06-29 consulting review, still open)
 
 ADRs are human-authored per `CLAUDE.md` convention — these are intentionally **not**

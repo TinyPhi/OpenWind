@@ -37,6 +37,16 @@ tenant_id UUID NOT NULL REFERENCES tenants(id)
 
 Missing any of these is a PR blocker.
 
+**…and a place in both GDPR erasure paths, in the same PR (#635).** A new tenant-scoped
+table goes into `apps/worker/src/tenant-purge.ts` (a delete in FK-safe order +
+`PURGED_TENANT_TABLES`) or into `ERASURE_EXEMPT_TABLES` with a reason. A new column holding a
+user id goes into `apps/api/src/services/user-erasure.ts` (a delete/redact/null statement +
+`USER_REFERENCE_COLUMNS_HANDLED`) or into `USER_REFERENCE_COLUMNS_EXEMPT` with a reason. Two
+isolation guards (`erasure-table-coverage-guard`, `erasure-user-column-coverage-guard`) read
+`information_schema` and fail CI naming anything missing. Also add a row for the new table to
+`apps/worker/tests/isolation/fixtures/seed-every-tenant-table.sql`. Check the grants the erasure
+needs: `app_user` must be able to DELETE or UPDATE what it scrubs.
+
 ---
 
 ## Migration files
@@ -63,6 +73,7 @@ Migration PR checklist:
 - [ ] Index on primary query pattern
 - [ ] Down migration (rollback SQL) at the top as a comment
 - [ ] Analytics annotation on every `CREATE TABLE`
+- [ ] Wired into tenant purge + per-user erasure (or exempted with a reason)
 
 ---
 
