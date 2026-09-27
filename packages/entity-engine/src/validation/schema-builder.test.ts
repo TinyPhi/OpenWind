@@ -93,17 +93,30 @@ describe("buildZodSchema", () => {
   });
 
   describe("longtext field", () => {
-    it("accepts strings and rejects non-string values", () => {
-      const schema = buildZodSchema(
-        [makeField({ name: "summary", fieldType: "longtext" })],
-        "create",
-      );
+    const schema = buildZodSchema(
+      [makeField({ name: "summary", fieldType: "longtext" })],
+      "create",
+    );
+
+    it("accepts strings, including empty and whitespace-only values", () => {
+      // longtext follows the existing text-field semantics: content bounds
+      // are opt-in configuration, while isRequired controls only presence.
       expect(schema.safeParse({ summary: "Tender summary" }).success).toBe(
         true,
       );
+      expect(schema.safeParse({ summary: "" }).success).toBe(true);
+      expect(schema.safeParse({ summary: "   " }).success).toBe(true);
+    });
+
+    it("rejects explicit null and non-string values", () => {
+      expect(schema.safeParse({ summary: null }).success).toBe(false);
       expect(schema.safeParse({ summary: { unvalidated: true } }).success).toBe(
         false,
       );
+    });
+
+    it("allows an optional longtext field to be omitted", () => {
+      expect(schema.safeParse({}).success).toBe(true);
     });
   });
 

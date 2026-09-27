@@ -55,18 +55,22 @@ describe("FieldInput", () => {
   });
 
   it("renders a textarea for longtext fields", () => {
+    const onChange = vi.fn();
     const { container } = render(
       <FieldInput
         moduleSlug="tender"
         entityId={undefined}
         field={{ ...baseField, fieldType: "longtext" }}
         value="Tender summary"
-        onChange={vi.fn()}
+        onChange={onChange}
       />,
     );
     const textarea = container.querySelector("textarea");
     expect(textarea).not.toBeNull();
     expect(textarea?.value).toBe("Tender summary");
+    if (!textarea) throw new Error("longtext textarea not found");
+    fireEvent.change(textarea, { target: { value: "" } });
+    expect(onChange).toHaveBeenCalledWith(null);
   });
 
   it("renders a checkbox for boolean fields with portal className", () => {
