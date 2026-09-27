@@ -176,7 +176,8 @@ export async function processExportJob(
     return result;
   } catch (err) {
     await auditExport(job, "export.failed", {
-      error: err instanceof Error ? err.name : "UNKNOWN",
+      // Domain code, matching the route's RENDER_FAILED / ENQUEUE_FAILED.
+      error: "JOB_FAILED",
     }).catch((auditErr: unknown) => {
       logger.error(
         { err: auditErr, tenantId: job.data.tenantId, jobId: job.id },

@@ -238,7 +238,7 @@ describe("processExportJob — audit trail", () => {
     );
     expect(actions()).toEqual(["export.failed"]);
     expect(mockWriteAuditEntry.mock.calls[0]?.[1]).toMatchObject({
-      metadata: { error: "TypeError", jobId: "job-1" },
+      metadata: { error: "JOB_FAILED", jobId: "job-1" },
     });
   });
 

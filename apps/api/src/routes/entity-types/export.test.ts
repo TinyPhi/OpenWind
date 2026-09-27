@@ -260,7 +260,7 @@ describe("GET /entity-types/:id/export?format=csv", () => {
           format: "pdf",
           includePii: true,
           mode: "sync",
-          error: "Error",
+          error: "RENDER_FAILED",
         },
       },
     ]);
@@ -474,6 +474,10 @@ describe("async export — row count > 5 000", () => {
       "export.requested",
       "export.failed",
     ]);
+    expect(auditEntries()[1]?.metadata).toMatchObject({
+      rowCount: 5_001,
+      error: "ENQUEUE_FAILED",
+    });
   });
 
   it("does not enqueue when the request audit fails", async () => {

@@ -152,6 +152,7 @@ export const exportEntitiesHandler = factory.createHandlers(
         await audit("export.failed", {
           mode: "async",
           jobId,
+          rowCount: rows.length,
           error: "ENQUEUE_FAILED",
         });
         throw err;
@@ -172,7 +173,8 @@ export const exportEntitiesHandler = factory.createHandlers(
     } catch (err) {
       await audit("export.failed", {
         mode: "sync",
-        error: err instanceof Error ? err.name : "UNKNOWN",
+        // Domain codes, not JS class names, so audit queries see one shape.
+        error: "RENDER_FAILED",
       });
       throw err;
     }

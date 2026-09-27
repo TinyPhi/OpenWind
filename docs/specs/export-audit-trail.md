@@ -87,5 +87,9 @@ columns to include.
   `[A-Za-z0-9_-]`, so it can't write arbitrary text into audit rows.
 - **B6 (security review) — cross-tenant test.** It now reads `admin_audit_log` as the other
   tenant under RLS, rather than through an explicit tenant filter.
+- **B7 (PR #687 review).** The `error` field now uses domain codes everywhere (`RENDER_FAILED`,
+  `ENQUEUE_FAILED`, `JOB_FAILED`) rather than JS class names, and the enqueue-failure entry
+  carries `rowCount`. Filed as follow-ups: rate-limiting the export endpoint (ADR-013), and
+  auditing the async file download.
 - **Structure:** the worker's inline processor was extracted as `processExportJob` so its audit
   behaviour is unit-testable. `Worker` now calls it. Nothing else about the job changed.
