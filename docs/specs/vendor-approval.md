@@ -4,7 +4,7 @@
 > approval chain: Draft → IT Security Review → Legal Review → Pending Final Approval →
 > Approved / Rejected. The Cockpit MVP flagship demo (issue #606, tracker #613).
 
-status: implemented (T12 manual UI walk-through pending — see §B)
+status: implemented (T12 live walk-through risk-accepted, tracked in #691 — see §B)
 created: 2026-09-27
 updated: 2026-09-27
 
@@ -138,21 +138,21 @@ Legal, Source.
 
 ## §T Tasks
 
-| id  | task                                                                                                 | req        | status |
-| --- | ---------------------------------------------------------------------------------------------------- | ---------- | ------ |
-| T1  | `modules/vendor-approval` package scaffold (package.json, tsconfig, stub index.ts, README)           | R1, V1     | done   |
-| T2  | `001_entity_types.sql` — vendor entity + fields                                                      | R1, R3     | done   |
-| T3  | `002_workflow.sql` — states, SLA, role-guarded transitions                                           | R1, R2, R3 | done   |
-| T4  | `003_automation_rules.sql` — 3 disabled notify rules                                                 | R4         | done   |
-| T5  | `004_view_configs.sql`                                                                               | R5         | done   |
-| T6  | `seedRegistry()` entry (`seed-demo.ts` doesn't list optional modules — no entry needed)              | R1         | done   |
-| T7  | Integration test: install creates rows, idempotent, not auto-installed; role guards (R2/R3)          | R1–R3      | done   |
-| T8  | Isolation test: seeded rows invisible cross-tenant                                                   | R8         | done   |
-| T9  | Automation test: enabled rule on transition → notification row                                       | R4         | done   |
-| T10 | `scripts/bootstrap.ts` — 3 roles + 3 demo approver users                                             | R6         | done   |
-| T11 | `scripts/vendor-approval-demo.ts` + fixtures — install, wire notify, create demo vendors via mapping | R7, D2     | done   |
-| T12 | Manual E2E in docker stack: Draft → Approved across 3 role users; screenshot/notes                   | R5, R7     | open   |
-| T13 | Module README (setup + runbook); tracker row, week-log; issue checkboxes after merge                 | R6, R9     | done   |
+| id  | task                                                                                                 | req        | status          |
+| --- | ---------------------------------------------------------------------------------------------------- | ---------- | --------------- |
+| T1  | `modules/vendor-approval` package scaffold (package.json, tsconfig, stub index.ts, README)           | R1, V1     | done            |
+| T2  | `001_entity_types.sql` — vendor entity + fields                                                      | R1, R3     | done            |
+| T3  | `002_workflow.sql` — states, SLA, role-guarded transitions                                           | R1, R2, R3 | done            |
+| T4  | `003_automation_rules.sql` — 3 disabled notify rules                                                 | R4         | done            |
+| T5  | `004_view_configs.sql`                                                                               | R5         | done            |
+| T6  | `seedRegistry()` entry (`seed-demo.ts` doesn't list optional modules — no entry needed)              | R1         | done            |
+| T7  | Integration test: install creates rows, idempotent, not auto-installed; role guards (R2/R3)          | R1–R3      | done            |
+| T8  | Isolation test: seeded rows invisible cross-tenant                                                   | R8         | done            |
+| T9  | Automation test: enabled rule on transition → notification row                                       | R4         | done            |
+| T10 | `scripts/bootstrap.ts` — 3 roles + 3 demo approver users                                             | R6         | done            |
+| T11 | `scripts/vendor-approval-demo.ts` + fixtures — install, wire notify, create demo vendors via mapping | R7, D2     | done            |
+| T12 | Manual E2E in docker stack: Draft → Approved across 3 role users; screenshot/notes                   | R5, R7     | deferred (#691) |
+| T13 | Module README (setup + runbook); tracker row, week-log; issue checkboxes after merge                 | R6, R9     | done            |
 
 ## §B Bugs / Backprop Log
 
@@ -174,9 +174,18 @@ Legal, Source.
   stage's department role. Fixtures gain an optional `rejectAt`, and demo-vendor-007 is rejected
   at Legal. The decision lives in `apps/api/src/scripts/vendor-approval-rejection.ts` (unit-tested). Verified on a throwaway tenant, including resuming at Legal and at Final Approval. The script also calls
   `seedRegistry()` first, so it works before the API has ever booted.
-- **Open — T12, and a live T10 run:** the admin-ui walk-through across the three approver logins
-  has not been run, and `bootstrap.ts`'s new roles/users have only been type-checked, not run.
-  This machine has no Zitadel bootstrap yet, and `pnpm bootstrap` includes a manual PAT step.
-  Covered meanwhile: engine-level walk-through + role guards (integration test), and the demo
-  script run twice against a throwaway tenant (six vendors at every state, idempotent re-run,
-  real stored attachments).
+- **Risk accepted — T12 (and a live T10 bootstrap run) deferred to #691.** Accepted by
+  @abmish on 2026-09-27 as an explicit team decision, so the PR can merge without the live
+  walk-through.
+  - **Not verified live:** Zitadel putting the department roles in the JWT claim; admin-ui
+    showing or hiding the action bar per role; `ow-worker` consuming the 48h
+    `workflow.sla_scheduled` events; `pnpm bootstrap` running clean with the new roles and users.
+  - **Why the risk is bounded:**
+    - The module is `category: optional`, so no tenant has it until an admin installs it.
+    - Role gating is enforced server-side by the workflow engine. A UI gating defect would show
+      buttons that return `TRANSITION_FORBIDDEN`; it would not grant access.
+    - SLA scheduling is proven at the outbox level by an integration test.
+  - **Covered meanwhile:** the engine-level walk-through, role guards, required fields,
+    rejection at every stage and SLA scheduling (integration tests); tenant isolation; and the
+    demo script against throwaway tenants.
+  - **To close:** run the #691 checklist and record "T12 PASS" with the date here, or file bugs.

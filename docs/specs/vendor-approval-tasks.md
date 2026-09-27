@@ -2,7 +2,7 @@
 
 **Spec:** docs/specs/vendor-approval.md
 **Generated:** 2026-09-27
-**Status:** Phases 1–3 implemented; T12 (manual admin-ui walk-through) open — see spec §B
+**Status:** Phases 1–3 implemented; T12 (live walk-through) risk-accepted and tracked in #691 — see spec §B
 **Issue:** #606 (tracker #613). #634 out of scope.
 
 ---
@@ -42,11 +42,11 @@
 **Goal:** recorded-demo-ready flow on the dev tenant using only existing UI.
 **Gate:** §R met; full exit condition (typecheck, lint, test, test:isolation) green.
 
-| task                                                                                         | requirement | status |
-| -------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T11: apps/api/src/scripts/vendor-approval-demo.ts + payload fixtures via single mapping (D2) | R7          | done   |
-| T12: manual E2E in docker stack, Draft → Approved across 3 role users                        | R5, R7      | open   |
-| T13: module README runbook, roadmap-tracker 3H row, week-log (issue checkboxes after merge)  | R6, R9      | done   |
+| task                                                                                         | requirement | status          |
+| -------------------------------------------------------------------------------------------- | ----------- | --------------- |
+| T11: apps/api/src/scripts/vendor-approval-demo.ts + payload fixtures via single mapping (D2) | R7          | done            |
+| T12: manual E2E in docker stack, Draft → Approved across 3 role users                        | R5, R7      | deferred (#691) |
+| T13: module README runbook, roadmap-tracker 3H row, week-log (issue checkboxes after merge)  | R6, R9      | done            |
 
 ---
 
