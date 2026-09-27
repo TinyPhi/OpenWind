@@ -1,11 +1,11 @@
 /**
  * IANA timezone validation — docs/temporal-scheduler-design.md §1.1:
- * "Validated against Intl.supportedValuesOf('timeZone') before storage."
+ * validated by constructing Intl.DateTimeFormat with the supplied zone.
  *
- * Not implemented as a Set-membership check against
- * Intl.supportedValuesOf('timeZone') (found via manual QA, PLAT-temporal-
- * scheduler-ui): that list is ICU's CANONICAL zone names only, and varies
- * by ICU/Node build -- one build lists "Asia/Kolkata", another lists only
+ * This deliberately does not use a Set-membership check against
+ * Intl.supportedValuesOf('timeZone'): that list contains ICU's canonical
+ * zone names only and varies by ICU/Node build -- one build lists
+ * "Asia/Kolkata", another lists only
  * the older "Asia/Calcutta" alias for the same zone, even though
  * Intl.DateTimeFormat happily constructs either. A membership check
  * rejected a perfectly valid, commonly-used identifier with a 422 purely

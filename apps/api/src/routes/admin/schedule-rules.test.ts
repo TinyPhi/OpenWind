@@ -452,6 +452,23 @@ describe("POST /admin/schedule-rules", () => {
 });
 
 describe("PATCH /admin/schedule-rules/:id — status transitions", () => {
+  it.each([-1, 1.5, 3651])(
+    "returns 400 when template due_days is %s",
+    async (dueDays) => {
+      const res = await makeApp().request(
+        `/admin/schedule-rules/${mockRuleRow.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            template: { ...validBody.template, due_days: dueDays },
+          }),
+        },
+      );
+      expect(res.status).toBe(400);
+    },
+  );
+
   it("pauses an active rule and audits schedule.rule_paused", async () => {
     const res = await makeApp().request(
       `/admin/schedule-rules/${mockRuleRow.id}`,

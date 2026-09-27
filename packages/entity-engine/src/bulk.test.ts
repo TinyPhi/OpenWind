@@ -7,6 +7,9 @@ import { ValidationError } from "./errors.js";
 
 const mockInsertReturning = vi.fn();
 const mockUpdateReturning = vi.fn();
+const mockUpdateSet = vi.fn(() => ({
+  where: vi.fn(() => ({ returning: mockUpdateReturning })),
+}));
 const mockSelectResult = vi.fn();
 
 function makeSelectBuilder(result: () => unknown[]) {
@@ -26,10 +29,11 @@ const dbMock = {
     values: vi.fn(() => ({ returning: mockInsertReturning })),
   })),
   update: vi.fn(() => ({
-    set: vi.fn(() => ({
-      where: vi.fn(() => ({ returning: mockUpdateReturning })),
-    })),
+    set: mockUpdateSet,
   })),
+  // Clearing an existing due date cancels its pending scheduled outbox event
+  // through rescheduleDueDate's raw SQL update.
+  execute: vi.fn(),
 };
 
 vi.mock("@platform/db", () => ({
@@ -58,6 +62,7 @@ vi.mock("drizzle-orm", () => ({
   or: vi.fn((...args) => ({ args, op: "or" })),
   isNull: vi.fn((col) => ({ col, op: "isNull" })),
   inArray: vi.fn((col, vals) => ({ col, vals, op: "inArray" })),
+  sql: vi.fn(),
   asc: vi.fn((col) => ({ col, op: "asc" })),
   gt: vi.fn((col, val) => ({ col, val, op: "gt" })),
   desc: vi.fn((col) => ({ col, op: "desc" })),
@@ -365,6 +370,62 @@ describe("bulkUpdateEntities", () => {
 
     expect(result.updated).toHaveLength(1);
     expect(result.errors).toHaveLength(0);
+  });
+
+  it("clears the due date when dueDate is null", async () => {
+    const existingDueDate = new Date("2026-10-10T09:00:00.000Z");
+    const existing = makeRow("inst-1", { dueDate: existingDueDate });
+    mockSelectResult.mockReturnValue([existing]);
+    mockUpdateReturning.mockResolvedValue([
+      makeRow("inst-1", { dueDate: null }),
+    ]);
+
+    const updates = [{ id: "inst-1", input: { dueDate: null } }];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await bulkUpdateEntities(dbMock as any, TENANT, updates);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.updated).toHaveLength(1);
+    expect(result.updated[0]?.dueDate).toBeNull();
+    // Keep this assertion explicit: changing the guard from
+    // `input.dueDate !== undefined` to a truthiness check would silently omit
+    // the clear from the UPDATE while the mocked returned row stayed null.
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ dueDate: null }),
+    );
+    expect(dbMock.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the due date when fields are also provided", async () => {
+    const existingDueDate = new Date("2026-10-10T09:00:00.000Z");
+    const existing = makeRow("inst-1", { dueDate: existingDueDate });
+    mockSelectResult.mockReturnValue([existing, fakeEntityType]);
+    mockGetValidationSchema.mockResolvedValue(passingSchema());
+    mockUpdateReturning.mockResolvedValue([
+      makeRow("inst-1", {
+        fields: { subject: "updated" },
+        dueDate: null,
+      }),
+    ]);
+
+    const updates = [
+      {
+        id: "inst-1",
+        input: { fields: { subject: "updated" }, dueDate: null },
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await bulkUpdateEntities(dbMock as any, TENANT, updates);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.updated).toHaveLength(1);
+    expect(result.updated[0]?.dueDate).toBeNull();
+    // Guard the independent fields-present update path against replacing its
+    // explicit undefined check with a truthiness check.
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ dueDate: null }),
+    );
+    expect(dbMock.execute).toHaveBeenCalledTimes(1);
   });
 
   it("records ENTITY_NOT_FOUND error for unknown ids", async () => {
