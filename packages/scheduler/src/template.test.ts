@@ -140,9 +140,15 @@ describe("TemplateSchema", () => {
     ).toThrow();
   });
 
-  it("rejects a negative due_days", () => {
+  it.each([-1, 1.5, 3651])("rejects due_days outside 0–3650: %s", (dueDays) => {
     expect(() =>
-      TemplateSchema.parse({ ...valid, due_days: -1, teamId: TEAM_ID }),
+      TemplateSchema.parse({ ...valid, due_days: dueDays, teamId: TEAM_ID }),
     ).toThrow();
+  });
+
+  it.each([0, 3650])("accepts due_days boundary value: %s", (dueDays) => {
+    expect(() =>
+      TemplateSchema.parse({ ...valid, due_days: dueDays, teamId: TEAM_ID }),
+    ).not.toThrow();
   });
 });
