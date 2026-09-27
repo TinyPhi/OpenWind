@@ -33,7 +33,7 @@ Completion: when you are sure the unit is done, run .claude/hooks/mark-done.sh; 
 confirms the pipeline actually finished (everything committed) before the session can end.
 
 Source of truth: CLAUDE.md (Current Focus + Off-limits), the relevant docs/decisions/ADR,
-docs/sup-docs/{roadmap-tracker,week-log}.md, .claude/references/definition-of-done.md, .claude/README.md.
+docs/tracker/roadmap-tracker.md + docs/tracker/week-log/, .claude/references/definition-of-done.md, .claude/README.md.
 EOF
 
 # Surface working context if present (folded from PR #132's PROGRESS/BLOCKERS idea, path-fixed).

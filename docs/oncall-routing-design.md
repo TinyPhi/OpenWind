@@ -1060,7 +1060,7 @@ child spans (one per channel):
 
 ### 9.4 Grafana dashboard
 
-Add a new **On-Call Routing** row to the existing ops dashboard (`docs/sup-docs/grafana-oncall.json` — to be created by the Phase 1 implementer from the metric names above).
+Add a new **On-Call Routing** row to the existing ops dashboard. Shipped in PR #605 as part of `docker/observability/grafana/dashboards/openwind-dashboard.json`.
 
 **Panels:**
 

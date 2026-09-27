@@ -2,7 +2,7 @@
 
 > Build the k6 script + instrumentation needed to answer #296 ("is DATABASE_POOL_MAX=10 enough?") — not the sizing decision itself, which needs a real target number and a production-like run.
 
-status: draft
+status: implemented — T1–T3 done; T4–T5 (first real run + results doc) deferred, see tasks file
 created: 2026-08-25
 updated: 2026-08-25
 
@@ -35,7 +35,7 @@ updated: 2026-08-25
 
 - `scripts/load-test/pool-ceiling.js` (new) — k6 script.
 - `scripts/load-test/README.md` (new) — how to run it, what it measures, how to read `SHOW POOLS` / `pg_stat_activity` output.
-- `docs/sup-docs/load-test-results/2026-08-25-pool-ceiling-baseline.md` (new) — one results doc from the first real run.
+- `docs/load-test-results/2026-08-25-pool-ceiling-baseline.md` (new) — one results doc from the first real run.
 
 ## §R Requirements
 
@@ -54,7 +54,7 @@ R3: A worker-poller backlog scenario runs alongside API load
 ✓ the results doc records whether pool contention from worker pollers measurably degrades API latency during the same run, or vice versa
 
 R4: A results doc exists from one real run against the provisional target
-✓ `docs/sup-docs/load-test-results/2026-08-25-pool-ceiling-baseline.md` records: p50/p95 API latency, max observed connections per process, whether `DATABASE_POOL_MAX`/`DEFAULT_POOL_SIZE` saturated before Postgres's `max_connections`, and the exact load profile used
+✓ `docs/load-test-results/2026-08-25-pool-ceiling-baseline.md` records: p50/p95 API latency, max observed connections per process, whether `DATABASE_POOL_MAX`/`DEFAULT_POOL_SIZE` saturated before Postgres's `max_connections`, and the exact load profile used
 ✓ the doc states in its first paragraph that the target (20×5/5min) is provisional and the run used dev-scale data, not production data — so it cannot be read as a sizing recommendation
 ✓ the doc explicitly lists what would need to change for a production-grade sizing exercise (real concurrency number, production-representative data volume, running outside a laptop/dev-scale environment)
 
@@ -66,13 +66,13 @@ R4: A results doc exists from one real run against the provisional target
 
 ## §T Tasks
 
-| id  | task                                                                                                                                                | phase | status   | depends  |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | -------- | -------- |
-| T1  | write `scripts/load-test/pool-ceiling.js` (k6 script, parameterized tenant/rps/duration)                                                            | 1     | done     | —        |
-| T2  | write `scripts/load-test/README.md` — run instructions, `pg_stat_activity`/`SHOW POOLS` capture commands                                            | 1     | done     | T1       |
-| T3  | write the synthetic-backlog helper (SQL or small script) for the worker-contention scenario                                                         | 2     | done     | T1       |
-| T4  | run once against the live dev stack at the provisional target; capture connection/latency data                                                      | 2     | deferred | T1,T2,T3 |
-| T5  | write `docs/sup-docs/load-test-results/2026-08-25-pool-ceiling-baseline.md` from the T4 run, with the provisional/dev-scale caveats stated up front | 2     | deferred | T4       |
+| id  | task                                                                                                                                       | phase | status   | depends  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----- | -------- | -------- |
+| T1  | write `scripts/load-test/pool-ceiling.js` (k6 script, parameterized tenant/rps/duration)                                                   | 1     | done     | —        |
+| T2  | write `scripts/load-test/README.md` — run instructions, `pg_stat_activity`/`SHOW POOLS` capture commands                                   | 1     | done     | T1       |
+| T3  | write the synthetic-backlog helper (SQL or small script) for the worker-contention scenario                                                | 2     | done     | T1       |
+| T4  | run once against the live dev stack at the provisional target; capture connection/latency data                                             | 2     | deferred | T1,T2,T3 |
+| T5  | write `docs/load-test-results/2026-08-25-pool-ceiling-baseline.md` from the T4 run, with the provisional/dev-scale caveats stated up front | 2     | deferred | T4       |
 
 phase gate: T4's run must actually complete without the k6 script itself erroring out before T5 is written — a results doc from a broken run is worse than no doc
 

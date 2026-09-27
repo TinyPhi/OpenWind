@@ -1,7 +1,7 @@
 # Definition of Done — OpenWind
 
 The verified-completion contract. The Review stage checks the diff against this list and records
-the result in `.claude/state/review.json` (`dod_met` / `dod_unmet`); the commit gate refuses if
+the result in `.claude/state/review/<branch-slug>.json` (`dod_met` / `dod_unmet`); the commit gate refuses if
 `dod_met` is false. "Compiles" and "seems right" are **not** done — evidence is.
 
 A change is **done** only when every applicable box is true:
@@ -36,8 +36,8 @@ A change is **done** only when every applicable box is true:
 ## Integration & docs
 
 - [ ] Works with the whole system; migrations/config/flags accounted for; backward-compat considered.
-- [ ] A new dated file added under `docs/tracker/week-log/` (never edit `week-log.md` itself —
-      frozen history) and `docs/tracker/roadmap-tracker.md`'s **own track row** updated (leave
+- [ ] A new dated file added under `docs/tracker/week-log/` (never edit
+      `week-log/archive/week-log.md` — frozen history) and `docs/tracker/roadmap-tracker.md`'s **own track row** updated (leave
       the Summary scorecard for reconciliation — see that doc's header).
 - [ ] `CHANGELOG.md` entry for user-facing changes.
 - [ ] If an architectural decision was made: an ADR is **flagged as needed** (ADRs are human-written — do not author one).
@@ -45,7 +45,7 @@ A change is **done** only when every applicable box is true:
 
 ## Security (when the diff touches auth / db / routes / files / secrets)
 
-- [ ] `/security-review` run; findings triaged. RLS, Zod validation at boundaries, presigned-URL-only file access, rate limiting in place.
+- [ ] `/security-review` run; findings triaged. RLS, Zod validation at boundaries, signed-URL-only file access via `@platform/files`, rate limiting in place.
 
 ## Ship-readiness
 

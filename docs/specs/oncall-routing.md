@@ -2,7 +2,7 @@
 
 > Smart ticket routing via on-call schedules and severity-driven notification dispatch — assigns primary on-call, tags backup, and escalates via the right channel mix for the ticket's severity.
 
-status: draft
+status: implemented (3E Phases 1–4; ADR-016) — remaining gaps tracked in #570, #571
 created: 2026-09-06
 updated: 2026-09-06
 

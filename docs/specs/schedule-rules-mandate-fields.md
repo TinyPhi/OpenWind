@@ -5,7 +5,7 @@
 > a relative due date, and a remark posted as the first comment. Drop the old
 > "assign to rule creator" implicit behavior entirely.
 
-status: approved
+status: implemented (PR #659)
 created: 2026-09-22
 updated: 2026-09-22
 

@@ -2,7 +2,7 @@
 
 > `apps/admin-ui` has no global notion of connectivity — a transport failure dispatches nothing, leaving users with per-page silent failures and no "is it me or the server?" answer. Adds a shared network-status store + banner state, reusing the existing `api:error` banner contract.
 
-status: approved
+status: implemented (PR #486)
 created: 2026-08-25
 updated: 2026-08-25
 

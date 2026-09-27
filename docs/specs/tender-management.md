@@ -2,7 +2,7 @@
 
 > Config-only module (seed SQL, no TS) digitizing the tender team's lifecycle: draft → BOQ → costing review (isolated via child ticket) → doc prep → submission review → submitted.
 
-status: draft
+status: implemented (modules/tender; ADR-005)
 created: 2026-07-07
 updated: 2026-07-07
 

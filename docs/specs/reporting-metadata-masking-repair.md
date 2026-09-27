@@ -6,7 +6,7 @@
 > payload with one derived column, take the payload off the reporting surface, and delete the
 > view that never worked.
 
-status: implemented locally and verified — not committed, awaiting manual testing
+status: implemented (migrations 0117–0119, merged with 3G PRs #663–#671)
 created: 2026-09-21
 updated: 2026-09-22 (implemented; migrations 0117–0119 applied to the local database, results in §Verification)
 issue: #106 (Stage 2 / standalone BYOQ)

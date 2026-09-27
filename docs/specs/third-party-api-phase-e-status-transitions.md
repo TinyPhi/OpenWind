@@ -2,7 +2,7 @@
 
 > Let a third-party app move a ticket through its workflow, under the exact same rules a human gets — never looser.
 
-status: draft
+status: implemented (PR #484)
 created: 2026-08-25
 updated: 2026-08-25 (spec-review fixes: 409 response, race-condition invariant, exactly-once outbox assertion, boundary test moved to phase 1)
 

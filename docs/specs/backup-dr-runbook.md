@@ -2,7 +2,7 @@
 
 > Fix the stale backup script, wire a real schedule, prove restore works — for ops running the platform's single shared Postgres + local-disk file storage.
 
-status: approved
+status: implemented (PR #482)
 created: 2026-08-25
 updated: 2026-08-25
 

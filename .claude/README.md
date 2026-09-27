@@ -1,7 +1,9 @@
 # `.claude/` — Agent guardrails for OpenWind
 
 This directory configures **Claude Code** for this repo: rules, context docs, prompt scaffolds,
-skills, and a set of **hooks that guide a disciplined delivery flow** (Plan → Code → Review → Ship).
+skills, and a set of **hooks that guide a disciplined delivery flow** (Plan → Code → Review → Docs → Ship).
+This file is the single reference for the flow; `CLAUDE.md` and `rules/agent-behaviour.md` link here
+rather than restating it.
 
 > ### These are guardrails, not barricades
 >
@@ -61,7 +63,11 @@ the commit) — via the `approval-gate` hook, which fires on _your_ chat message
 output. That makes **accidental** self-approval unlikely. It is **not** a hard guarantee: the approval
 state is a plain file, so a determined agent can still write it. The approval that genuinely cannot be
 faked is the **human review on the pull request** — _once branch protection requires it_. Keep that
-as the real gate. `OPENWIND_AUTOPASS=1` skips the ship checkpoint.
+as the real gate.
+
+Both keypresses can be graduated to standing trust by the owner: `OPENWIND_PLAN_AUTOPASS=1` skips
+`approve-plan` and `OPENWIND_AUTOPASS=1` skips `approve-ship`. The plan-lock, review, docs marker
+and ship marker are all still required, so neither is logged as a bypass.
 
 1. **Approve the freeze** (start) — the agent drafts `plan.json`; you type `approve-plan` in chat to
    unlock source edits. The agent's `write-plan.sh approve` is refused (it must ask you).

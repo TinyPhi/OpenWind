@@ -4,7 +4,7 @@
 > Key Management admin-UI screen. Foundation for the Third-Party API ticket-lifecycle feature —
 > no ticket endpoints in this phase, just the key itself.
 
-status: draft
+status: implemented (PRs #439/#440/#449)
 created: 2026-08-17
 updated: 2026-08-21
 

@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Use this agent to security-review a diff or PR against OpenWind's non-negotiable invariants — tenant isolation (RLS + explicit filters), Zod boundary validation, presigned-URL-only file access, secret handling, rate limiting — and to run STRIDE threat modeling on anything crossing a trust boundary. Invoke proactively for any diff touching apps/api, packages/auth, packages/files, packages/audit, packages/secrets, apps/worker, or introducing a new table, route, or connector/webhook surface. Read-only — reports findings, does not edit code (the main agent applies fixes).
+description: Use this agent to security-review a diff or PR against OpenWind's non-negotiable invariants — tenant isolation (RLS + explicit filters), Zod boundary validation, file access only through @platform/files behind an authorized route, secret handling, rate limiting — and to run STRIDE threat modeling on anything crossing a trust boundary. Invoke proactively for any diff touching apps/api, packages/auth, packages/files, packages/audit, packages/secrets, apps/worker, or introducing a new table, route, or connector/webhook surface. Read-only — reports findings, does not edit code (the main agent applies fixes).
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -25,9 +25,11 @@ a generic "this could be a problem."
 3. **No SQL string-building from user input.** Only Drizzle's query builder or the `sql` tagged
    template. Flag any string concatenation feeding a query, even indirectly (e.g. building an
    `ORDER BY` column name from a request param).
-4. **File access only via presigned URLs from `@platform/files`**, which validates tenant ownership
-   before signing. Flag any code path that returns a raw S3/MinIO URL, or that signs a URL without
-   a tenant-ownership check first.
+4. **File bytes only through `@platform/files`, behind an authorized route.** Storage is local disk
+   (no S3/MinIO since PR #340). Flag any path that serves the storage directory directly, returns a
+   filesystem path, streams a file before the tenant + record-ACL check, or issues an upload/download
+   token that isn't single-use, hashed at rest and short-TTL (see
+   `routes/third-party/attachments-presign.ts`).
 5. **No internal error detail reaches the client.** API boundary catches must return a generic 500
    - correlation ID and log the full error server-side. Flag a caught error whose `message`,
      `stack`, or a raw DB error is serialized into the response body.

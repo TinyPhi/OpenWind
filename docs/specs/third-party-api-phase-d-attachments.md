@@ -3,7 +3,7 @@
 > Let a third party attach a file to a ticket or comment via a presigned, direct-to-storage
 > upload flow, adapted to OpenWind's local-disk file storage (no S3 in this stack).
 
-status: draft
+status: implemented (PRs #472/#475)
 created: 2026-08-24
 updated: 2026-08-24
 

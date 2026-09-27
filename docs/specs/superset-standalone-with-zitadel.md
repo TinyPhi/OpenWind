@@ -2,7 +2,7 @@
 
 > Superset on its own URL, Zitadel login, reporting on OpenWind data. Stage 2. Both paths are now built: embedded (Stage 1) and standalone with SQL Lab (Stage 2).
 
-status: built locally, not committed — this document lagged the code and is being reconciled
+status: implemented (3G Stage 2, PRs #663–#671; off until SUPERSET_OAUTH_CLIENT_ID is set)
 created: 2026-09-08
 updated: 2026-09-22
 issue: #106

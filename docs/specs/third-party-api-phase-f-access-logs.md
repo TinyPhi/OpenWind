@@ -3,7 +3,7 @@
 > The dedicated, admin-only screen that is the primary place to investigate any third-party
 > application's behavior — separate from the ticket timeline, plus proactive misuse alerting.
 
-status: draft
+status: implemented (PRs #489/#546)
 created: 2026-08-25
 updated: 2026-08-25 (retention-policy correction: 90-day rolling + purge-anonymization per Round 7
 GAP-06, not the earlier superseded "indefinite" decision this spec was first drafted against;

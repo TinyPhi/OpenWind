@@ -120,7 +120,7 @@ skill to learn):
    must not self-approve. The commit gate stays blocked until that approval matches the diff. Required
    on every commit until the owner sets `OPENWIND_AUTOPASS=1`.
 6. Stage explicitly (never `git add -A`). Add a new dated file under
-   `docs/tracker/week-log/` (see its README — never edit `week-log.md`, it's frozen history)
+   `docs/tracker/week-log/` (see its README — never edit `week-log/archive/week-log.md`, it's frozen history)
    and update your track's own row in `roadmap-tracker.md`.
 7. `.claude/hooks/write-ship-marker.sh` — **write the marker LAST**, after the exit condition and
    review have finished, so its 60-min window covers only stage→commit, not the (possibly slow)
