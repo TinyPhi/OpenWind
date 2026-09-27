@@ -105,6 +105,19 @@ classified; only `true` types are scrubbed from `fields`.
   revoking.
 - **B8 (review) — bystander tenant.** The anonymization test now seeds a second tenant with the
   same user id and name in fields, comments and history, and asserts it is untouched.
+- **B9 (PR #690 review).**
+  - Change-history aggregate wrapped in `COALESCE(…, '{}')`.
+  - Explicit `status <> 'pending'` guard on the access-request anonymize.
+  - A flat-`fields` contract comment on the `user_ref` scrub.
+  - An idempotency test: a second erasure succeeds, returns no keys, and changes nothing.
+  - `access_requests.status` is CHECK-constrained to `pending/approved/rejected`, so the
+    pending-delete/anonymize split covers every row, with no intermediate statuses.
+- **For counsel (PR #690 review):**
+  - `admin_audit_log` keeps `actor_id` and `acting_person_id` on per-user erasure
+    (Art. 17(3)(b)). The exemption being relied on covers the **identifiers in the audit
+    rows**, not only row retention. Counsel's sign-off must cover that explicitly.
+  - Users with display names under 3 characters have their id scrubbed from `mentions`, but
+    `@Jo`-style text stays. This is an accepted trade-off against false positives.
 - **Follow-up:** third-party comment mentions (identifiers or emails in text, resolved later) —
   #689.
 - **B3 — `actorName` in the same statement as `actor_id`.** Once `actor_id` is redacted, the

@@ -161,6 +161,15 @@ matching the user-reference naming convention (`created_by`, `*_user_id`, `assig
   psql). Any pooled connection already reads `''` after one transaction-local `set_config`. The
   real guard is that policies use `NULLIF(current_setting(...), '')` before a cast, now stated in
   `db-conventions.md`. New test: the caller's `app.user_id` is restored after erasure.
+- **B12 (PR #681 review, round 2).**
+  - The restore now passes `?? null` ("back to nothing"), with the comment corrected. This
+    changes no behaviour, since Postgres reads it back as `''` either way, but it states the
+    intent.
+  - The `tenant_users` and `idempotency_keys` deletes moved to the end of `eraseUserFromTenant`,
+    so membership goes only after every footprint is scrubbed.
+  - Retrospective check for N2: the only policy reading `app.user_id` is `saved_views`. It
+    compares as text (`user_id = current_setting('app.user_id', true)`) and never casts to
+    uuid, so no existing policy is exposed to the `''` cast error.
 - **Order note:** Phase 2's service was written before its isolation test (Phase 1 was test-first).
   F3 had already been reproduced directly (`permission denied for table ticket_alerts` as
   `app_user`), and every newly handled column fails the new test against the old statements.

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   type DbOrTx,
   entityFields,
@@ -116,11 +116,11 @@ export async function eraseUserFromTenant(
   // makes the restore structural: if the delete throws, ROLLBACK TO SAVEPOINT
   // also reverts the GUC, so a caller that catches and carries on in the same
   // transaction never keeps the target's user id as app.user_id.
-  // Restoring an unset value writes '' — Postgres resets an unregistered
-  // custom GUC to '' rather than NULL (set_config(..., NULL, ...) gives the
-  // same), which is also what any pooled connection already reads once it has
-  // run one transaction-local set_config. Policies reading app.user_id must
-  // therefore use NULLIF(current_setting(...), '') before any cast.
+  // The restore passes NULL when app.user_id was unset, meaning "back to
+  // nothing". Postgres still *reads* an unregistered custom GUC back as ''
+  // after any set_config in the session — so do pooled connections generally —
+  // which is why policies reading app.user_id must use
+  // NULLIF(current_setting(...), '') before any cast (db-conventions.md).
   await tx.transaction(async (sp) => {
     const [setting] = await sp.execute<{ current: string | null }>(
       sql`SELECT current_setting('app.user_id', true) AS current`,
@@ -137,7 +137,7 @@ export async function eraseUserFromTenant(
         ),
       );
     await sp.execute(
-      sql`SELECT set_config('app.user_id', ${setting?.current ?? ""}, true)`,
+      sql`SELECT set_config('app.user_id', ${setting?.current ?? null}, true)`,
     );
   });
 
@@ -189,6 +189,9 @@ export async function eraseUserFromTenant(
       and(
         eq(accessRequests.tenantId, tenantId),
         eq(accessRequests.requesterId, targetUserId),
+        // status is CHECK-constrained to pending/approved/rejected, so this
+        // plus the pending delete above covers every row.
+        ne(accessRequests.status, "pending"),
       ),
     );
   await tx
@@ -333,12 +336,12 @@ export async function eraseUserFromTenant(
   await tx
     .update(workflowEvents)
     .set({
-      metadata: sql`jsonb_set(${workflowEvents.metadata}, '{changed}', (
+      metadata: sql`jsonb_set(${workflowEvents.metadata}, '{changed}', COALESCE((
         SELECT jsonb_object_agg(k, CASE WHEN jsonb_typeof(v) = 'object' THEN v
           || CASE WHEN v ->> 'old' = ${targetUserId} THEN jsonb_build_object('old', ${REDACTED}::text) ELSE '{}'::jsonb END
           || CASE WHEN v ->> 'new' = ${targetUserId} THEN jsonb_build_object('new', ${REDACTED}::text) ELSE '{}'::jsonb END
           ELSE v END)
-        FROM jsonb_each(${workflowEvents.metadata} -> 'changed') AS e(k, v)))`,
+        FROM jsonb_each(${workflowEvents.metadata} -> 'changed') AS e(k, v)), '{}'::jsonb))`,
     })
     .where(
       and(
@@ -394,23 +397,6 @@ export async function eraseUserFromTenant(
     .set({ uploadedBy: REDACTED })
     .where(
       and(eq(files.tenantId, tenantId), eq(files.uploadedBy, targetUserId)),
-    );
-
-  await tx
-    .delete(tenantUsers)
-    .where(
-      and(
-        eq(tenantUsers.tenantId, tenantId),
-        eq(tenantUsers.userId, targetUserId),
-      ),
-    );
-  await tx
-    .delete(idempotencyKeys)
-    .where(
-      and(
-        eq(idempotencyKeys.tenantId, tenantId),
-        eq(idempotencyKeys.actingPersonId, targetUserId),
-      ),
     );
 
   await tx
@@ -516,6 +502,25 @@ export async function eraseUserFromTenant(
       ),
     );
 
+  // Last: tenant membership (and the acting-person replay cache tied to it)
+  // goes only after every footprint of the user in the tenant is scrubbed.
+  await tx
+    .delete(tenantUsers)
+    .where(
+      and(
+        eq(tenantUsers.tenantId, tenantId),
+        eq(tenantUsers.userId, targetUserId),
+      ),
+    );
+  await tx
+    .delete(idempotencyKeys)
+    .where(
+      and(
+        eq(idempotencyKeys.tenantId, tenantId),
+        eq(idempotencyKeys.actingPersonId, targetUserId),
+      ),
+    );
+
   return { rotatedApiKeys };
 }
 
@@ -551,7 +556,9 @@ const USER_ID_FIELD_TYPE_NAMES = Object.entries(USER_ID_FIELD_TYPES)
 
 // Optional user-id fields lose the key; required ones can't be emptied, so
 // they are redacted. System-template fields (tenant_id NULL) apply to this
-// tenant's instances too.
+// tenant's instances too. entity_instances.fields is flat by the entity-engine
+// contract — every field is a top-level key named by entity_fields.name — so a
+// single-element path reaches every user_ref value.
 async function scrubUserRefFields(
   tx: DbOrTx,
   tenantId: string,

@@ -487,6 +487,21 @@ describe("per-user erasure anonymizes rather than deletes (#688)", () => {
     });
   });
 
+  it("is idempotent: a second erasure of the same user succeeds and changes nothing", async () => {
+    const snapshot = async (): Promise<unknown> => ({
+      fields: await fieldsOf(refInstanceId),
+      mentioning: await eventMeta(mentioningCommentId),
+      authored: await eventMeta(targetCommentId),
+      change: await eventMeta(changeEventId),
+    });
+    const before = await snapshot();
+    const again = await withTenantContext(TENANT, (tx) =>
+      eraseUserFromTenant(tx, TENANT, TARGET),
+    );
+    expect(again.rotatedApiKeys).toEqual([]);
+    expect(await snapshot()).toEqual(before);
+  });
+
   it("leaves another tenant's fields, comments and names untouched", async () => {
     expect(await fieldsOf(bystanderInstanceId)).toMatchObject({
       reviewer: TARGET,
