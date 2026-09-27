@@ -577,6 +577,31 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  modules/vendor-approval:
+    dependencies:
+      '@platform/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@platform/entity-engine':
+        specifier: workspace:*
+        version: link:../../packages/entity-engine
+      '@platform/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@platform/workflow-engine':
+        specifier: workspace:*
+        version: link:../../packages/workflow-engine
+    devDependencies:
+      '@platform/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: ^25.7.0
+        version: 25.7.0
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
   packages/ai:
     dependencies:
       '@anthropic-ai/sdk':

@@ -567,16 +567,26 @@ async function runZitadelSetup(
     ok(`Created project "${PROJECT_NAME}"`);
   }
 
-  // 2. Roles: admin, agent, user
-  for (const role of ["admin", "agent", "user"]) {
+  // 2. Roles: platform roles, plus the department roles that gate the
+  // vendor-approval module's review stages (docs/specs/vendor-approval.md).
+  // Department roles are held alongside "agent", never on their own.
+  const roles: Array<{ key: string; displayName: string; group: string }> = [
+    { key: "admin", displayName: "Admin", group: "platform" },
+    { key: "agent", displayName: "Agent", group: "platform" },
+    { key: "user", displayName: "User", group: "platform" },
+    { key: "it_security", displayName: "IT Security", group: "department" },
+    { key: "legal", displayName: "Legal", group: "department" },
+    {
+      key: "finance_approver",
+      displayName: "Finance Approver",
+      group: "department",
+    },
+  ];
+  for (const { key: role, displayName, group } of roles) {
     try {
       await zCall(`/management/v1/projects/${projectId}/roles`, pat, {
         method: "POST",
-        body: {
-          roleKey: role,
-          displayName: role.charAt(0).toUpperCase() + role.slice(1),
-          group: "platform",
-        },
+        body: { roleKey: role, displayName, group },
       });
       ok(`Created role "${role}"`);
     } catch (e) {
@@ -808,7 +818,7 @@ async function createDemoUser(
     firstName: string;
     lastName: string;
     userName: string;
-    role: string;
+    roles: string[];
   },
 ): Promise<void> {
   // Check if user already exists
@@ -873,19 +883,20 @@ async function createDemoUser(
     );
   }
 
-  // Grant project role
+  // Grant project roles
+  const roleList = opts.roles.join(", ");
   try {
     await zCall(`/management/v1/users/${userId}/grants`, pat, {
       method: "POST",
-      body: { projectId, roleKeys: [opts.role] },
+      body: { projectId, roleKeys: opts.roles },
     });
-    ok(`  → granted role "${opts.role}"`);
+    ok(`  → granted roles "${roleList}"`);
   } catch (e) {
     const msg = String(e);
     if (msg.includes("409") || msg.toLowerCase().includes("already exist")) {
-      ok(`  → role "${opts.role}" already granted`);
+      ok(`  → roles "${roleList}" already granted`);
     } else {
-      warn(`  → could not grant role "${opts.role}": ${msg}`);
+      warn(`  → could not grant roles "${roleList}": ${msg}`);
     }
   }
 }
@@ -1035,7 +1046,7 @@ async function main(): Promise<void> {
     firstName: "Admin",
     lastName: "Demo",
     userName: "owAdmin",
-    role: "admin",
+    roles: ["admin"],
   });
 
   await createDemoUser(authToken, projectId, {
@@ -1043,7 +1054,7 @@ async function main(): Promise<void> {
     firstName: "Portal",
     lastName: "User",
     userName: "owUser",
-    role: "user",
+    roles: ["user"],
   });
 
   // Test users — 5 users with "user" role for development / demo purposes
@@ -1081,7 +1092,38 @@ async function main(): Promise<void> {
   ];
 
   for (const u of TEST_USERS) {
-    await createDemoUser(authToken, projectId, { ...u, role: "user" });
+    await createDemoUser(authToken, projectId, { ...u, roles: ["user"] });
+  }
+
+  // Department approvers for the vendor-approval module — each holds "agent"
+  // (required by the entity routes and admin-ui's agent views) plus one
+  // department role that gates a single review stage.
+  const APPROVERS = [
+    {
+      firstName: "Ivy",
+      lastName: "Security",
+      userName: "itSecurity",
+      email: "itSecurity@openwind.local",
+      roles: ["agent", "it_security"],
+    },
+    {
+      firstName: "Leo",
+      lastName: "Legal",
+      userName: "legal",
+      email: "legal@openwind.local",
+      roles: ["agent", "legal"],
+    },
+    {
+      firstName: "Fay",
+      lastName: "Finance",
+      userName: "financeApprover",
+      email: "financeApprover@openwind.local",
+      roles: ["agent", "finance_approver"],
+    },
+  ];
+
+  for (const u of APPROVERS) {
+    await createDemoUser(authToken, projectId, u);
   }
 
   // ── 9. Module templates ───────────────────────────────────────────────────────
@@ -1121,6 +1163,10 @@ ${BOLD}${GREEN}  ✅  OpenWind is ready!${RESET}
 
   ${BOLD}Test Users${RESET}  (5 users with "user" role)
     testUser1 / testUser2 / testUser3 / testUser4 / testUser5
+    Password:  ${YELLOW}${DEMO_PASSWORD}${RESET}
+
+  ${BOLD}Vendor Approvers${RESET}  (agent + department role)
+    itSecurity / legal / financeApprover
     Password:  ${YELLOW}${DEMO_PASSWORD}${RESET}
 
   ${BOLD}─────────────────────────────────────────────────────────────${RESET}

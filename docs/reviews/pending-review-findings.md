@@ -64,6 +64,21 @@ requirements more likely to surface, not less. Row updated below, not removed.
 
 ## No tracked issue yet — file before picking up
 
+### Found during #606 (vendor-approval module, 2026-09-27)
+
+- **Automation executor ignores `trigger_config`.** `packages/automation-engine/src/executor.ts`
+  selects rules by `trigger_type` + `is_enabled` and evaluates conditions only. The
+  `{"entityType": ...}` that every module seed puts in `trigger_config` is never read, so a rule
+  with a bare `toState` condition fires for every entity type in the tenant that has a
+  same-named state. `@modules/vendor-approval` works around it by pinning `entityTypeId` in its
+  conditions. Tender's `create_child` rule still relies on `trigger_config` alone. Fix options:
+  honour `trigger_config.entityType` in the executor, or pin `entityTypeId` in every seed.
+- **Tender seeds `textarea` fields, which isn't a registered field type** (`longtext` is).
+  `modules/tender/seed/001_entity_types.sql` uses it for summary / finance_details /
+  eligibility_criteria / certifications. Unknown types fall through to `z.unknown()` in
+  `packages/entity-engine/src/validation/schema-builder.ts`, so those fields go unvalidated.
+  Same bug class as the `select` alias note in `field-types.ts`.
+
 ### ADR backlog (all from the 2026-06-29 consulting review, still open)
 
 ADRs are human-authored per `CLAUDE.md` convention — these are intentionally **not**

@@ -115,6 +115,16 @@ export class ModuleService {
         minPlan: "standard",
         category: "optional" as const,
       },
+      {
+        slug: "vendor-approval",
+        name: "Vendor Approval",
+        description:
+          "Sequential vendor onboarding approval: IT Security, Legal, then Finance sign-off",
+        version: "0.0.1",
+        isSystem: false,
+        minPlan: "standard",
+        category: "optional" as const,
+      },
     ];
 
     logger.info({}, "Seeding modules registry...");
