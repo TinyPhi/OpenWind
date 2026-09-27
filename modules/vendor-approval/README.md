@@ -54,7 +54,7 @@ Don't force a re-seed on a tenant with active vendors.
 ## Demo data
 
 `apps/api/src/scripts/vendor-approval-demo.ts` installs the module on a tenant (dev tenant by
-default), optionally wires notify recipients, and creates six vendors, one at every state, with
+default), optionally wires notify recipients, and creates seven vendors — one at every state, plus a second rejection at the Legal stage — with
 generated attachments stored through `@platform/files`. It is idempotent and resumable: the install short-circuits,
 vendors are keyed on `external_ref`, and an existing vendor continues from its current state.
 A run that fails partway is completed by the next run. Run it inside `ow-backend` so it shares
@@ -82,9 +82,3 @@ type, workflow and rules stay unchanged.
 
 A user without the stage's department role doesn't see that stage's buttons. If they call the
 API directly, they get `TRANSITION_FORBIDDEN`.
-
-## Known limitations
-
-- The demo fixtures reject only at the IT Security stage. `legal_review → rejected` and
-  `pending_final_approval → rejected` work the same way (comment required) and are covered by
-  the integration tests, but the demo data doesn't include them.

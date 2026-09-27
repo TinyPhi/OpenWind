@@ -34,6 +34,12 @@ import {
   mapVendorPayload,
   type VendorFields,
 } from "./vendor-approval-payload.js";
+import {
+  REVIEW_STATES,
+  REJECTORS,
+  rejectionStageFor,
+  type ReviewState,
+} from "./vendor-approval-rejection.js";
 
 const MODULE_SLUG = "vendor-approval";
 const ACTOR_ID = "vendor-approval-demo-script";
@@ -49,7 +55,12 @@ const STATES = [
 ] as const;
 
 const FixtureSchema = z.array(
-  z.object({ advanceTo: z.enum(STATES), payload: VendorPayloadSchema }),
+  z.object({
+    advanceTo: z.enum(STATES),
+    // Only meaningful with advanceTo "rejected"; defaults to the first review stage.
+    rejectAt: z.enum(REVIEW_STATES).optional(),
+    payload: VendorPayloadSchema,
+  }),
 );
 
 const DEPARTMENT_RULES: Record<string, string> = {
@@ -248,6 +259,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const tenantId = args.tenant;
 
+  // Idempotent upsert — the API does this at boot, but the script may run first.
+  await ModuleService.seedRegistry();
   await ModuleService.installModule(tenantId, MODULE_SLUG);
   const { entityTypeId, workflowId, transitionIds } =
     await loadConfig(tenantId);
@@ -261,7 +274,7 @@ async function main(): Promise<void> {
     JSON.parse(await readFile(fixturePath, "utf8")),
   );
 
-  for (const { advanceTo, payload } of fixtures) {
+  for (const { advanceTo, rejectAt, payload } of fixtures) {
     const fields = mapVendorPayload(payload);
     const instance = await findOrCreateVendor(
       tenantId,
@@ -273,6 +286,7 @@ async function main(): Promise<void> {
       tenantId,
       instance,
       advanceTo,
+      rejectAt ?? "it_security_review",
       transitionIds,
       fields.vendor_name,
     );
@@ -337,6 +351,7 @@ async function advanceVendor(
   tenantId: string,
   vendor: VendorRow,
   advanceTo: (typeof STATES)[number],
+  rejectAt: ReviewState,
   transitionIds: Map<string, string>,
   vendorName: string,
 ): Promise<void> {
@@ -361,13 +376,17 @@ async function advanceVendor(
       );
       hasQuestionnaire = true;
     }
-    if (advanceTo === "rejected" && state === "it_security_review") {
+    // Reject at rejectAt — or at the current review stage if a resumed vendor
+    // is already past it, so a "rejected" fixture never walks on to approval.
+    const rejectHere = rejectionStageFor(state, advanceTo, rejectAt);
+    if (rejectHere) {
+      const { role, comment } = REJECTORS[rejectHere];
       await step(
         tenantId,
         vendor.id,
-        transitionIds.get("it_security_review->rejected"),
-        ["it_security"],
-        "Vendor could not provide a current SOC 2 report or equivalent.",
+        transitionIds.get(`${rejectHere}->rejected`),
+        [role],
+        comment,
       );
       state = "rejected";
       continue;

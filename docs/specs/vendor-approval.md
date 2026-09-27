@@ -167,6 +167,13 @@ Legal, Source.
   type is `longtext`). Unknown types fall through to `z.unknown()` in the schema builder, silently
   skipping validation. This module uses `longtext`. Tender's four `textarea` fields have the same
   latent bug; filed in `pending-review-findings.md`.
+- **B7 (PR review N2) — rejected fixtures could end approved.** A vendor resumed past
+  `it_security_review` with `advanceTo: "rejected"` walked the approval path to Approved (the
+  terminal-state check stopped the loop, so it never looped indefinitely). The script now rejects
+  at `rejectAt`, or at the current review stage if the vendor is already past it, using that
+  stage's department role. Fixtures gain an optional `rejectAt`, and demo-vendor-007 is rejected
+  at Legal. The decision lives in `apps/api/src/scripts/vendor-approval-rejection.ts` (unit-tested). Verified on a throwaway tenant, including resuming at Legal and at Final Approval. The script also calls
+  `seedRegistry()` first, so it works before the API has ever booted.
 - **Open — T12, and a live T10 run:** the admin-ui walk-through across the three approver logins
   has not been run, and `bootstrap.ts`'s new roles/users have only been type-checked, not run.
   This machine has no Zitadel bootstrap yet, and `pnpm bootstrap` includes a manual PAT step.

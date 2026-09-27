@@ -88,5 +88,21 @@
         "justification": "Brochure and signage printing for the Q4 trade fair."
       }
     }
+  },
+  {
+    "advanceTo": "rejected",
+    "rejectAt": "legal_review",
+    "payload": {
+      "source": "synthetic-demo",
+      "externalId": "demo-vendor-007",
+      "vendor": {
+        "name": "Harbor Freight Forwarding",
+        "email": "contracts@harbor-freight.example",
+        "category": "services",
+        "annualSpend": 1100000,
+        "currency": "INR",
+        "justification": "Import customs brokerage for the Chennai port shipments."
+      }
+    }
   }
 ]
