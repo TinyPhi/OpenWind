@@ -54,6 +54,21 @@ describe("FieldInput", () => {
     expect(input.value).toBe("5");
   });
 
+  it("renders a textarea for longtext fields", () => {
+    const { container } = render(
+      <FieldInput
+        moduleSlug="tender"
+        entityId={undefined}
+        field={{ ...baseField, fieldType: "longtext" }}
+        value="Tender summary"
+        onChange={vi.fn()}
+      />,
+    );
+    const textarea = container.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    expect(textarea?.value).toBe("Tender summary");
+  });
+
   it("renders a checkbox for boolean fields with portal className", () => {
     const { container } = render(
       <FieldInput

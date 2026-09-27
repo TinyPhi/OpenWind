@@ -92,6 +92,21 @@ describe("buildZodSchema", () => {
     });
   });
 
+  describe("longtext field", () => {
+    it("accepts strings and rejects non-string values", () => {
+      const schema = buildZodSchema(
+        [makeField({ name: "summary", fieldType: "longtext" })],
+        "create",
+      );
+      expect(schema.safeParse({ summary: "Tender summary" }).success).toBe(
+        true,
+      );
+      expect(schema.safeParse({ summary: { unvalidated: true } }).success).toBe(
+        false,
+      );
+    });
+  });
+
   describe("number field", () => {
     it("accepts a valid number", () => {
       const schema = buildZodSchema(
