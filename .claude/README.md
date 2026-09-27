@@ -12,12 +12,12 @@ rather than restating it.
 > (write its own state files directly, write files via `Bash` instead of the Write tool, or run a
 > wrapper script the per-command hooks don't see). They are deliberately best-effort.
 >
-> **The real enforcement lives outside these scripts — and most of it must be enabled in GitHub
-> settings, not here:** **CI** is active today and runs on every PR (the only currently-binding gate).
-> **Branch protection + required PR review** are what make the human approval un-fakeable, and a
-> `.github/CODEOWNERS` (for `.claude/` · `scripts/` · `.github/`) is included — but CODEOWNERS only
-> has teeth once a branch-protection rule requires code-owner review, which is **not yet configured.**
-> Until then, treat the hooks as a seatbelt, not a vault, and CI as the floor.
+> **The real enforcement lives outside these scripts, in GitHub:** `main`'s branch protection
+> requires the CI checks (`CI complete`, `Claude hooks unit tests`, `Gate-equivalent PR checks`)
+> and 1 approving review, dismisses stale approvals, and requires **code-owner review**. Any PR
+> touching `.claude/`, `scripts/` or `.github/` therefore needs an approval from a
+> `.github/CODEOWNERS` owner other than its author. Admins are not included in the protection, so an
+> admin can still bypass it. Treat the hooks as a seatbelt and the PR review as the vault.
 
 > **Not using Claude Code? This does not affect you.** Every hook here fires _only_ inside a Claude
 > Code session. Plain `git`, the Husky `pre-commit`/`commit-msg` hooks, and GitHub Actions CI are
@@ -62,8 +62,8 @@ The intent is that a human approves twice — `approve-plan` (unlock edits) and 
 the commit) — via the `approval-gate` hook, which fires on _your_ chat message rather than agent
 output. That makes **accidental** self-approval unlikely. It is **not** a hard guarantee: the approval
 state is a plain file, so a determined agent can still write it. The approval that genuinely cannot be
-faked is the **human review on the pull request** — _once branch protection requires it_. Keep that
-as the real gate.
+faked is the **human review on the pull request**, which branch protection requires. Keep that as
+the real gate.
 
 Both keypresses can be graduated to standing trust by the owner: `OPENWIND_PLAN_AUTOPASS=1` skips
 `approve-plan` and `OPENWIND_AUTOPASS=1` skips `approve-ship`. The plan-lock, review, docs marker

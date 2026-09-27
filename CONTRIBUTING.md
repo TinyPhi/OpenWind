@@ -266,7 +266,7 @@ Full conventions: [`.claude/rules/code-style.md`](.claude/rules/code-style.md).
 
 If you use [Claude Code](https://claude.com/claude-code) on this repo, the `.claude/` directory adds
 a **delivery flow** (Plan → Code → Review → Docs → Ship) guided by best-effort hooks (guardrails, not a
-security boundary — the real gate is CI, and PR review once branch protection requires it): you freeze and approve an
+security boundary — the real gate is CI plus the required PR review on `main`): you freeze and approve an
 acceptance-criteria plan before editing source, review once at the end, and commit through a
 procedure that runs the full exit condition. See [`.claude/README.md`](.claude/README.md).
 

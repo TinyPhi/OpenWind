@@ -6,7 +6,7 @@ cat <<'EOF'
 OpenWind delivery guardrails are ACTIVE for Claude Code in this repo (plain git + CI are unaffected).
 These are GUARDRAILS, not barricades - a best-effort speed bump that catches honest mistakes and makes
 the disciplined path the default. They are NOT a security boundary (a determined agent can bypass
-them). The real gate is CI (active today); required PR review + branch protection are recommended and must be enabled in repo settings.
+them). The real gate is CI + required PR review (main's branch protection, incl. code-owner review for .claude/ scripts/ .github/).
 
 Pipeline - the hooks nudge you to produce each stage's artifact before the next:
   PLAN  -> agent drafts acceptance criteria + scope (/spec-tasks or the openwind-loop pick step).
