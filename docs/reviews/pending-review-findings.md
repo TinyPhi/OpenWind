@@ -37,6 +37,8 @@ that's the difference between the two halves of this list.
 both phases done per `docs/tracker/week-log.md`'s 2026-08-12 entries (PR #372, #380); row
 removed per this doc's own rule below.
 
+**Added 2026-09-27:** #678 and #679, both found while building #606 (`docs/specs/vendor-approval.md` §B).
+
 **Added 2026-08-31:** #540 (rate-limit.ts trusts first X-Forwarded-For hop, spoofable if a
 fronting proxy appends instead of overwrites) — found during a security review of the fix that
 first made the third-party API reachable via a reverse proxy at all (previously the backend
@@ -59,25 +61,12 @@ requirements more likely to surface, not less. Row updated below, not removed.
 | No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay) — **decided 2026-09-18: keep open**, not a maintainer-decision gap anymore, just unstaffed work | [#198](../../issues/198) | Unassigned |
 | Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                                               | [#200](../../issues/200) | Unassigned |
 | `rate-limit.ts` trusts the first `X-Forwarded-For` hop with no enforcement that a fronting proxy overwrites (not appends) it — spoofable rate-limit bypass if misconfigured                                                                                      | [#540](../../issues/540) | Unassigned |
+| Automation executor ignores `trigger_config` — `workflow.transitioned` rules with a bare `toState` condition fire for every entity type sharing that state name (found during #606; tender's `create_child` rule affected)                                       | [#678](../../issues/678) | Unassigned |
+| Tender seed uses unregistered `textarea` field type — four fields fall through to `z.unknown()` and go unvalidated (found during #606)                                                                                                                           | [#679](../../issues/679) | Unassigned |
 
 ---
 
 ## No tracked issue yet — file before picking up
-
-### Found during #606 (vendor-approval module, 2026-09-27)
-
-- **Automation executor ignores `trigger_config`.** `packages/automation-engine/src/executor.ts`
-  selects rules by `trigger_type` + `is_enabled` and evaluates conditions only. The
-  `{"entityType": ...}` that every module seed puts in `trigger_config` is never read, so a rule
-  with a bare `toState` condition fires for every entity type in the tenant that has a
-  same-named state. `@modules/vendor-approval` works around it by pinning `entityTypeId` in its
-  conditions. Tender's `create_child` rule still relies on `trigger_config` alone. Fix options:
-  honour `trigger_config.entityType` in the executor, or pin `entityTypeId` in every seed.
-- **Tender seeds `textarea` fields, which isn't a registered field type** (`longtext` is).
-  `modules/tender/seed/001_entity_types.sql` uses it for summary / finance_details /
-  eligibility_criteria / certifications. Unknown types fall through to `z.unknown()` in
-  `packages/entity-engine/src/validation/schema-builder.ts`, so those fields go unvalidated.
-  Same bug class as the `select` alias note in `field-types.ts`.
 
 ### ADR backlog (all from the 2026-06-29 consulting review, still open)
 
