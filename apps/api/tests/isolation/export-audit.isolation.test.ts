@@ -1,7 +1,7 @@
 /**
  * #638 / docs/specs/export-audit-trail.md R1, R5: a real sync export through
  * the real route writes export.requested + export.completed rows into
- * admin_audit_log for the exporting tenant only, and migration 0126's CHECK
+ * admin_audit_log for the exporting tenant only, and migration 0127's CHECK
  * constraint accepts the export.* actions while still rejecting unknown ones.
  *
  * Real Postgres; only auth (and the queue module, unused on the sync path) are

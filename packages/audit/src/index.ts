@@ -153,7 +153,7 @@ export type AuditAction =
   // reporting dashboards, and when".
   | "reporting.guest_token_issued"
   | "reporting.guest_token_denied"
-  // #638 — entity-list exports (sync and async), migration 0126 extends the
+  // #638 — entity-list exports (sync and async), migration 0127 extends the
   // DB CHECK constraint in the same commit.
   | "export.requested"
   | "export.completed"

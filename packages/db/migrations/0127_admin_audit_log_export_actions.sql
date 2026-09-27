@@ -5,7 +5,7 @@
 -- vocabulary. packages/audit's AuditAction gains the same three in this
 -- commit (0077 rule: type and constraint change together).
 --
--- Must apply after 0125 (PR #681): the migrator skips a migration whose
+-- Must apply after 0126 (PR #681): the migrator skips a migration whose
 -- journal timestamp is older than the newest one already applied.
 --
 -- Rollback (fails if export.* rows exist — delete or keep them first):

@@ -6,7 +6,7 @@
 
 ### Done
 
-- **New audit actions.** Migration 0126 adds `export.requested`, `export.completed` and
+- **New audit actions.** Migration 0127 adds `export.requested`, `export.completed` and
   `export.failed` to `audit_log_action_check`, and `AuditAction` gains the same three.
 - **Route (`entity-types/export.ts`).**
   - `export.requested` is written before any data leaves, on both paths. The export fails if
@@ -29,5 +29,5 @@
 
 ### Merge order
 
-Stacked on #681 because both add migrations (0125, 0126). The migrator skips a migration older
+Stacked on #681 because both add migrations (0126, 0127 — renumbered from 0125/0126 after #685 took 0125 on main). The migrator skips a migration older
 than the newest one applied, so #681 must merge first.

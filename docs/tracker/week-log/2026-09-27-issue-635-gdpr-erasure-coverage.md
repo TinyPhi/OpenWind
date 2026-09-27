@@ -32,7 +32,7 @@
   - `origin_*` is redacted (all-or-nothing CHECK).
   - `__accessUsers` grants and `recipients_snapshot` entries are removed.
   - `schedule_rules` creators are redacted (ADR-017 inactive-creator path).
-- Migration 0125:
+- Migration 0126 (renumbered from 0125 after #685 took that number on main):
   - `GRANT DELETE` on `ticket_alerts`/`access_requests`.
   - Column-level `UPDATE (created_by)` on `entity_instance_tags`.
 - Drift guards read `information_schema` and fail CI naming any uncovered tenant table or
