@@ -43,6 +43,14 @@ Each rule's condition also pins `entityTypeId` to this tenant's vendor type. The
 executor ignores `trigger_config`, so without that pin a bare `toState` condition would fire for
 any entity type with a same-named state.
 
+### 3. Don't re-run the seed on a tenant with live vendors
+
+`002_workflow.sql` deletes and re-inserts the workflow's states and transitions with new
+ids, the same pattern as tender. Install is guarded by `installed_modules`, so this only
+happens if that marker is cleared by hand. If it is, any vendor mid-workflow keeps pending
+SLA timers and events that reference the old state ids, and those are not re-resolved.
+Don't force a re-seed on a tenant with active vendors.
+
 ## Demo data
 
 `apps/api/src/scripts/vendor-approval-demo.ts` installs the module on a tenant (dev tenant by
@@ -74,3 +82,9 @@ type, workflow and rules stay unchanged.
 
 A user without the stage's department role doesn't see that stage's buttons. If they call the
 API directly, they get `TRANSITION_FORBIDDEN`.
+
+## Known limitations
+
+- The demo fixtures reject only at the IT Security stage. `legal_review → rejected` and
+  `pending_final_approval → rejected` work the same way (comment required) and are covered by
+  the integration tests, but the demo data doesn't include them.

@@ -63,7 +63,7 @@ copies `apps/api/` but not `scripts/`, and `apps/api`'s typecheck/lint only cove
 | vendor_name            | text     | yes                | —                                            |
 | contact_email          | text     | no                 | draft → it_security_review                   |
 | category               | select   | yes                | — (software, services, hardware, consulting) |
-| annual_spend_estimate  | number   | no                 | draft → it_security_review                   |
+| annual_spend_estimate  | currency | no                 | draft → it_security_review                   |
 | business_justification | longtext | no                 | draft → it_security_review                   |
 | security_questionnaire | file     | no                 | draft → it_security_review                   |
 | contract_draft         | file     | no                 | legal_review → pending_final_approval        |

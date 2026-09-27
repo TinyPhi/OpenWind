@@ -6,7 +6,7 @@
  * disabled with no recipient).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import Redis from "ioredis";
 import { env } from "@platform/config";
 import {
@@ -433,6 +433,102 @@ describe("vendor-approval module (#606)", () => {
         getAvailableTransitions(tx, TENANT_ID, id, ["admin"]),
       );
       expect(outgoing).toHaveLength(0);
+    });
+  });
+
+  describe("R3 — rejection at every review stage", () => {
+    it("requires a comment to reject at legal review and at final approval", async () => {
+      const atLegal = await newVendor(READY_FIELDS);
+      await transition(atLegal, "draft", "it_security_review", ["agent"]);
+      await transition(atLegal, "it_security_review", "legal_review", [
+        "it_security",
+      ]);
+      await expectWorkflowError(
+        transition(atLegal, "legal_review", "rejected", ["legal"]),
+        "REQUIRED_FIELDS_MISSING",
+      );
+      await transition(
+        atLegal,
+        "legal_review",
+        "rejected",
+        ["legal"],
+        "Indemnity clause unacceptable",
+      );
+      expect(await currentState(atLegal)).toBe("rejected");
+
+      const atFinal = await newVendor({
+        ...READY_FIELDS,
+        contract_draft: "file-contract-draft",
+      });
+      await transition(atFinal, "draft", "it_security_review", ["agent"]);
+      await transition(atFinal, "it_security_review", "legal_review", [
+        "it_security",
+      ]);
+      await transition(atFinal, "legal_review", "pending_final_approval", [
+        "legal",
+      ]);
+      await expectWorkflowError(
+        transition(atFinal, "pending_final_approval", "rejected", [
+          "finance_approver",
+        ]),
+        "REQUIRED_FIELDS_MISSING",
+      );
+      await expectWorkflowError(
+        transition(
+          atFinal,
+          "pending_final_approval",
+          "rejected",
+          ["legal"],
+          "wrong department",
+        ),
+        "TRANSITION_FORBIDDEN",
+      );
+      await transition(
+        atFinal,
+        "pending_final_approval",
+        "rejected",
+        ["finance_approver"],
+        "Over budget for this quarter",
+      );
+      expect(await currentState(atFinal)).toBe("rejected");
+    });
+  });
+
+  describe("SLA scheduling", () => {
+    it("schedules a 48h SLA on entry to each review state, and none for draft or terminal states", async () => {
+      const id = await newVendor({
+        ...READY_FIELDS,
+        contract_draft: "file-contract-draft",
+      });
+      await transition(id, "draft", "it_security_review", ["agent"]);
+      await transition(id, "it_security_review", "legal_review", [
+        "it_security",
+      ]);
+      await transition(id, "legal_review", "pending_final_approval", ["legal"]);
+      await transition(id, "pending_final_approval", "approved", [
+        "finance_approver",
+      ]);
+
+      const rows = await db
+        .select({ payload: outboxEvents.payload })
+        .from(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.tenantId, TENANT_ID),
+            eq(outboxEvents.eventType, "workflow.sla_scheduled"),
+            sql`${outboxEvents.payload}->>'instanceId' = ${id}`,
+          ),
+        );
+      // jsonb payload — shape written by workflow-engine's SLA scheduler
+      const scheduled = rows
+        .map((r) => r.payload as { stateName: string; slaHours: number })
+        .map((p) => `${p.stateName}:${p.slaHours}`)
+        .sort();
+      expect(scheduled).toEqual([
+        "it_security_review:48",
+        "legal_review:48",
+        "pending_final_approval:48",
+      ]);
     });
   });
 

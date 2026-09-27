@@ -12,12 +12,6 @@
     "lint:fix": "eslint . --fix",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "@platform/db": "workspace:*",
-    "@platform/entity-engine": "workspace:*",
-    "@platform/logger": "workspace:*",
-    "@platform/workflow-engine": "workspace:*"
-  },
   "devDependencies": {
     "@platform/tsconfig": "workspace:*",
     "@types/node": "^25.7.0",
