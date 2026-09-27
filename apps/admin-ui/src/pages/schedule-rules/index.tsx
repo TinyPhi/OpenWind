@@ -27,7 +27,8 @@ import { showAlert } from "../../components/global-alert-dialog.js";
 const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 type Severity = (typeof SEVERITIES)[number];
 type RuleStatus = "active" | "paused" | "archived";
-const DUE_DAYS_INTEGER_ERROR = "Due after (days) must be a whole number.";
+const DUE_DAYS_INTEGER_ERROR =
+  "Due after (days) must be a whole number between 0 and 3650.";
 
 // Cron expressions are still what the API stores and the worker reads
 // (docs/decisions/ADR-017-temporal-scheduler.md: "cron as canonical
@@ -697,7 +698,11 @@ function RuleFormModal({
       return;
     }
     const dueDaysValue = Number(dueDays);
-    if (!Number.isInteger(dueDaysValue)) {
+    if (
+      !Number.isInteger(dueDaysValue) ||
+      dueDaysValue < 0 ||
+      dueDaysValue > 3650
+    ) {
       setError(DUE_DAYS_INTEGER_ERROR);
       return;
     }
@@ -1085,7 +1090,13 @@ function RuleFormModal({
                 onChange={(e) => {
                   const value = e.target.value;
                   setDueDays(value);
-                  if (value !== "" && !Number.isInteger(Number(value))) {
+                  const numericValue = Number(value);
+                  if (
+                    value !== "" &&
+                    (!Number.isInteger(numericValue) ||
+                      numericValue < 0 ||
+                      numericValue > 3650)
+                  ) {
                     setError(DUE_DAYS_INTEGER_ERROR);
                   } else if (error === DUE_DAYS_INTEGER_ERROR) {
                     setError(null);
