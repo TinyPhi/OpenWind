@@ -8,7 +8,7 @@
  * exceljs output, not the queue processor itself.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import ExcelJS from "exceljs";
 
 // ── Mocks (only what's needed to import the module safely) ────────────────────
@@ -20,16 +20,26 @@ vi.mock("bullmq", () => ({
   }),
 }));
 
+const mockIsTenantActive = vi.fn().mockResolvedValue(true);
 vi.mock("@platform/db", () => ({
   withTenantContext: (tenantId: string, fn: (tx: unknown) => unknown) => fn({}),
-  isTenantActive: vi.fn().mockResolvedValue(true),
+  isTenantActive: (...args: unknown[]) => mockIsTenantActive(...args),
 }));
 
+const mockGetEntityType = vi.fn();
+const mockListEntityFields = vi.fn();
+const mockListEntities = vi.fn();
 vi.mock("@platform/entity-engine", () => ({
-  getEntityType: vi.fn(),
-  listEntityFields: vi.fn(),
-  listEntities: vi.fn(),
-  buildExportRow: vi.fn(),
+  getEntityType: (...args: unknown[]) => mockGetEntityType(...args),
+  listEntityFields: (...args: unknown[]) => mockListEntityFields(...args),
+  listEntities: (...args: unknown[]) => mockListEntities(...args),
+  buildExportRow: vi.fn(() => ["id", "open", "", ""]),
+  PII_EXPORT_ROLES: new Set(["pii_export", "admin", "superadmin"]),
+}));
+
+const mockWriteAuditEntry = vi.fn();
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
 }));
 
 vi.mock("@aws-sdk/client-s3", () => ({
@@ -60,7 +70,7 @@ vi.mock("@platform/logger", () => ({
 vi.mock("./queues.js", () => ({ connection: {} }));
 vi.mock("./render-export-pdf.js", () => ({ renderExportPdf: vi.fn() }));
 
-const { sanitizeSpreadsheetCell, renderCsv, renderXlsx } =
+const { sanitizeSpreadsheetCell, renderCsv, renderXlsx, processExportJob } =
   await import("./export-worker.js");
 
 // ── sanitizeSpreadsheetCell ────────────────────────────────────────────────────
@@ -161,5 +171,87 @@ describe("renderXlsx", () => {
     await workbook.xlsx.load(buf);
     const sheet = workbook.getWorksheet("TestSheet");
     expect(sheet?.getCell("B2").value).toBe("Fix the login bug");
+  });
+});
+
+// ── processExportJob audit trail (#638) ────────────────────────────────────────
+
+describe("processExportJob — audit trail", () => {
+  const TYPE_ID = "00000000-0000-0000-0000-000000000001";
+  const job = (roles: string[]) => ({
+    id: "job-1",
+    data: {
+      tenantId: "t-aaa",
+      entityTypeId: TYPE_ID,
+      format: "csv" as const,
+      filters: {},
+      requestedBy: "u-bbb",
+      requestedByRoles: roles,
+    },
+  });
+  const actions = (): string[] =>
+    mockWriteAuditEntry.mock.calls.map(
+      // second argument is writeAuditEntry's AuditEntryInput
+      (c) => (c[1] as { action: string }).action,
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsTenantActive.mockResolvedValue(true);
+    mockGetEntityType.mockResolvedValue({ id: TYPE_ID, plural: "Tickets" });
+    mockListEntityFields.mockResolvedValue([]);
+    mockListEntities.mockResolvedValue({ data: [{ id: "i1" }, { id: "i2" }] });
+    mockWriteAuditEntry.mockResolvedValue(undefined);
+  });
+
+  it("audits export.completed with row count and includePii on success", async () => {
+    const result = await processExportJob(job(["admin"]));
+    expect(result.rowCount).toBe(2);
+    expect(actions()).toEqual(["export.completed"]);
+    expect(mockWriteAuditEntry.mock.calls[0]?.[1]).toMatchObject({
+      tenantId: "t-aaa",
+      actorId: "u-bbb",
+      actorType: "user",
+      resourceType: "entity_type",
+      resourceId: TYPE_ID,
+      metadata: {
+        format: "csv",
+        mode: "async",
+        jobId: "job-1",
+        rowCount: 2,
+        includePii: true,
+      },
+    });
+  });
+
+  it("records includePii: false for a requester without a PII export role", async () => {
+    await processExportJob(job(["agent"]));
+    expect(mockWriteAuditEntry.mock.calls[0]?.[1]).toMatchObject({
+      metadata: { includePii: false },
+    });
+  });
+
+  it("audits export.failed and rethrows when the job throws", async () => {
+    mockListEntities.mockRejectedValueOnce(new TypeError("db exploded"));
+    await expect(processExportJob(job(["agent"]))).rejects.toThrow(
+      "db exploded",
+    );
+    expect(actions()).toEqual(["export.failed"]);
+    expect(mockWriteAuditEntry.mock.calls[0]?.[1]).toMatchObject({
+      metadata: { error: "TypeError", jobId: "job-1" },
+    });
+  });
+
+  it("audits export.failed when the tenant was deactivated before the job ran", async () => {
+    mockIsTenantActive.mockResolvedValueOnce(false);
+    const result = await processExportJob(job(["agent"]));
+    expect(result.error).toBe("TENANT_DEACTIVATED");
+    expect(actions()).toEqual(["export.failed"]);
+  });
+
+  it("still surfaces the original error when auditing the failure also fails", async () => {
+    mockListEntities.mockRejectedValueOnce(new Error("original"));
+    mockWriteAuditEntry.mockRejectedValueOnce(new Error("audit down"));
+    await expect(processExportJob(job(["agent"]))).rejects.toThrow("original");
   });
 });

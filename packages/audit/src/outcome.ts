@@ -86,6 +86,11 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "reporting.exported": true,
   "reporting.guest_token_issued": true,
   "reporting.guest_token_denied": true,
+  // #638 entity-list exports. None is a denial: a refused export (unknown type,
+  // too many rows) returns before anything is audited.
+  "export.requested": true,
+  "export.completed": true,
+  "export.failed": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since

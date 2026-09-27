@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
 import type * as EntityEngine from "@platform/entity-engine";
+import type * as RenderExportPdf from "../../lib/render-export-pdf.js";
 import { EntityError } from "@platform/entity-engine";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -11,6 +12,22 @@ const mockGetEntityType = vi.fn();
 const mockListEntityFields = vi.fn();
 const mockListEntities = vi.fn();
 const mockExportQueueAdd = vi.fn();
+const mockWriteAuditEntry = vi.fn();
+
+let failPdfRender = false;
+vi.mock("../../lib/render-export-pdf.js", async (importOriginal) => {
+  const real = await importOriginal<typeof RenderExportPdf>();
+  return {
+    renderExportPdf: (...args: Parameters<typeof real.renderExportPdf>) => {
+      if (failPdfRender) throw new Error("render exploded");
+      return real.renderExportPdf(...args);
+    },
+  };
+});
+
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
+}));
 
 vi.mock("@platform/auth", () => ({
   requireAuth: () => async (_c: Context, next: Next) => {
@@ -137,7 +154,24 @@ beforeEach(() => {
     nextCursor: null,
   });
   mockExportQueueAdd.mockResolvedValue({ id: "job-async-001" });
+  mockWriteAuditEntry.mockResolvedValue(undefined);
+  failPdfRender = false;
 });
+
+// The audit entries written, in order, as { action, metadata }.
+function auditEntries(): Array<{
+  action: string;
+  metadata: Record<string, unknown>;
+}> {
+  return mockWriteAuditEntry.mock.calls.map((call) => {
+    // second argument is writeAuditEntry's AuditEntryInput
+    const input = call[1] as {
+      action: string;
+      metadata: Record<string, unknown>;
+    };
+    return { action: input.action, metadata: input.metadata };
+  });
+}
 
 // ── CSV tests ─────────────────────────────────────────────────────────────────
 
@@ -170,6 +204,102 @@ describe("GET /entity-types/:id/export?format=csv", () => {
       .split("\n")
       .filter((l) => l.trim().length > 0);
     expect(lines).toHaveLength(3); // header + 2 data rows
+  });
+
+  it("audits a sync export as requested then completed, without row values", async () => {
+    const res = await makeApp(["agent"]).request(
+      `/${TYPE_ID}/export?format=csv&state=open`,
+    );
+    expect(res.status).toBe(200);
+    expect(auditEntries()).toEqual([
+      {
+        action: "export.requested",
+        metadata: {
+          format: "csv",
+          includePii: false,
+          filters: { state: "open" },
+          rowCount: 2,
+          mode: "sync",
+        },
+      },
+      {
+        action: "export.completed",
+        metadata: {
+          format: "csv",
+          includePii: false,
+          rowCount: 2,
+          mode: "sync",
+        },
+      },
+    ]);
+    const input = mockWriteAuditEntry.mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(input).toMatchObject({
+      tenantId: "t-aaa",
+      actorId: "u-bbb",
+      actorType: "user",
+      resourceType: "entity_type",
+      resourceId: TYPE_ID,
+    });
+    expect(JSON.stringify(mockWriteAuditEntry.mock.calls)).not.toContain(
+      "user@example.com",
+    );
+  });
+
+  it("audits export.failed and returns an error when a sync render throws", async () => {
+    failPdfRender = true;
+    const res = await makeApp().request(`/${TYPE_ID}/export?format=pdf`);
+    expect(res.status).toBe(500);
+    expect(auditEntries()).toEqual([
+      expect.objectContaining({ action: "export.requested" }),
+      {
+        action: "export.failed",
+        metadata: {
+          format: "pdf",
+          includePii: true,
+          mode: "sync",
+          error: "Error",
+        },
+      },
+    ]);
+  });
+
+  it("records that an assignee filter was used, never the assignee's user id", async () => {
+    const assignee = "11111111-1111-4111-8111-111111111111";
+    await makeApp().request(
+      `/${TYPE_ID}/export?format=csv&assignedTo=${assignee}`,
+    );
+    expect(auditEntries()[0]?.metadata["filters"]).toEqual({
+      assignedToFilter: true,
+    });
+    expect(JSON.stringify(mockWriteAuditEntry.mock.calls)).not.toContain(
+      assignee,
+    );
+  });
+
+  it("rejects a state filter outside the state-name character set", async () => {
+    const res = await makeApp().request(
+      `/${TYPE_ID}/export?format=csv&state=${encodeURIComponent("open; drop")}`,
+    );
+    expect(res.status).toBe(400);
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("records includePii: true when the requester holds a PII export role", async () => {
+    await makeApp(["pii_export"]).request(`/${TYPE_ID}/export?format=csv`);
+    expect(auditEntries().map((e) => e.metadata["includePii"])).toEqual([
+      true,
+      true,
+    ]);
+  });
+
+  it("returns an error and exports nothing when the audit write fails", async () => {
+    mockWriteAuditEntry.mockRejectedValueOnce(new Error("audit down"));
+    const res = await makeApp().request(`/${TYPE_ID}/export?format=csv`);
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain("Test ticket");
   });
 
   it("PII fields excluded when user lacks pii_export role", async () => {
@@ -305,7 +435,56 @@ describe("async export — row count > 5 000", () => {
         format: "xlsx",
         filters: { state: "open" },
       }),
+      expect.objectContaining({ jobId: expect.any(String) }),
     );
+  });
+
+  it("audits the request with the enqueued job's id before enqueueing, and nothing else", async () => {
+    const manyRows = Array.from({ length: 5_001 }, (_, i) =>
+      makeInstance(`inst-${i}`),
+    );
+    mockListEntities.mockResolvedValue({ data: manyRows, nextCursor: null });
+    await makeApp(["admin"]).request(`/${TYPE_ID}/export?format=xlsx`);
+
+    const entries = auditEntries();
+    expect(entries.map((e) => e.action)).toEqual(["export.requested"]);
+    const opts = mockExportQueueAdd.mock.calls[0]?.[2] as { jobId: string };
+    expect(entries[0]?.metadata).toEqual({
+      format: "xlsx",
+      includePii: true,
+      filters: {},
+      rowCount: 5_001,
+      mode: "async",
+      jobId: opts.jobId,
+    });
+    expect(mockWriteAuditEntry.mock.invocationCallOrder[0]).toBeLessThan(
+      mockExportQueueAdd.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("audits export.failed when the job can't be enqueued", async () => {
+    const manyRows = Array.from({ length: 5_001 }, (_, i) =>
+      makeInstance(`inst-${i}`),
+    );
+    mockListEntities.mockResolvedValue({ data: manyRows, nextCursor: null });
+    mockExportQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+    const res = await makeApp().request(`/${TYPE_ID}/export?format=csv`);
+    expect(res.status).toBe(500);
+    expect(auditEntries().map((e) => e.action)).toEqual([
+      "export.requested",
+      "export.failed",
+    ]);
+  });
+
+  it("does not enqueue when the request audit fails", async () => {
+    const manyRows = Array.from({ length: 5_001 }, (_, i) =>
+      makeInstance(`inst-${i}`),
+    );
+    mockListEntities.mockResolvedValue({ data: manyRows, nextCursor: null });
+    mockWriteAuditEntry.mockRejectedValueOnce(new Error("audit down"));
+    const res = await makeApp().request(`/${TYPE_ID}/export?format=csv`);
+    expect(res.status).toBe(500);
+    expect(mockExportQueueAdd).not.toHaveBeenCalled();
   });
 });
 
@@ -321,6 +500,7 @@ describe("export guards", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("EXPORT_TOO_LARGE");
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 
   it("returns 400 for unknown format", async () => {

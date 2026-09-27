@@ -67,6 +67,10 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // Minting a pass to view a dashboard reads data; refusing one reads none.
   "reporting.guest_token_issued": true,
   "reporting.guest_token_denied": true,
+  // #638 entity-list exports: reads (default kind), like reporting.exported.
+  "export.requested": true,
+  "export.completed": true,
+  "export.failed": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
