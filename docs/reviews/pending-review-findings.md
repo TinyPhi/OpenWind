@@ -64,6 +64,17 @@ requirements more likely to surface, not less. Row updated below, not removed.
 
 ## No tracked issue yet — file before picking up
 
+### Found during #678 (automation trigger_config scoping, 2026-09-27)
+
+- **System-template entity types are protected from tenant renames by RLS alone.**
+  `updateEntityType` (`packages/entity-engine/src/entity-types.ts` ~197–235) explicitly includes
+  `tenant_id IS NULL` rows in its SELECT and UPDATE. Only the `tenant_type_write` RLS policy
+  (migration 0037) stops a tenant admin from renaming one; the explicit-filter layer doesn't. The
+  comment there saying `entity_types` has no RLS is stale. Since #678, rules scoped by
+  `{"entityType": name}` match system templates by name, so a regression here would let one
+  tenant change what every tenant's name-scoped rules match. Fix: exclude NULL-tenant rows from
+  the tenant update path explicitly.
+
 ### ADR backlog (all from the 2026-06-29 consulting review, still open)
 
 ADRs are human-authored per `CLAUDE.md` convention — these are intentionally **not**
