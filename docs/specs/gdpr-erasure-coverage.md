@@ -121,6 +121,11 @@ matching the user-reference naming convention (`created_by`, `*_user_id`, `assig
 
 ## §B Bugs / Backprop Log
 
+- **Superseded in part by #688 (`docs/specs/user-erasure-anonymization.md`).** Per-user erasure
+  now anonymizes instead of deleting API keys the user created, resolved access requests, and
+  ended on-call shifts, and it also scrubs `user_ref` fields and comment mentions, names and
+  text. The rows below describe #681 as it shipped.
+
 - **B1 — a 15th uncovered table.** `entity_instance_tags` (migration 0108, #659) landed after the
   audit. The seed-coverage check in `tenant-purge-full-coverage` caught it on a freshly migrated
   database. It is now purged, and its `created_by` is redacted on user erasure.

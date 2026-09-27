@@ -138,7 +138,27 @@ usersRouter.delete(
     const targetUserId = c.req.param("userId");
 
     await withTenantContext(tenantId, async (tx) => {
-      await eraseUserFromTenant(tx, tenantId, targetUserId);
+      const { rotatedApiKeys } = await eraseUserFromTenant(
+        tx,
+        tenantId,
+        targetUserId,
+      );
+      // #688: one entry per key put on a forced rotation window, so admins
+      // can find every key the erased user created and rotate it in time.
+      for (const key of rotatedApiKeys) {
+        await writeAuditEntry(tx, {
+          tenantId,
+          actorId: adminUserId,
+          actorType: "user",
+          resourceType: "api_key",
+          resourceId: key.id,
+          action: "updated",
+          metadata: {
+            reason: "creator_erased",
+            rotateBy: key.expiresAt?.toISOString() ?? null,
+          },
+        });
+      }
 
       // 10. Audit log entry for erasure
       // NOTE ON adminAuditLog (GDPR Finding 8):
