@@ -37,6 +37,8 @@ that's the difference between the two halves of this list.
 both phases done per `docs/tracker/week-log.md`'s 2026-08-12 entries (PR #372, #380); row
 removed per this doc's own rule below.
 
+**Added 2026-09-27:** #678 and #679, both found while building #606 (`docs/specs/vendor-approval.md` §B).
+
 **Added 2026-08-31:** #540 (rate-limit.ts trusts first X-Forwarded-For hop, spoofable if a
 fronting proxy appends instead of overwrites) — found during a security review of the fix that
 first made the third-party API reachable via a reverse proxy at all (previously the backend

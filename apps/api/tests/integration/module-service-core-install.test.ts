@@ -74,6 +74,7 @@ describe("ModuleService.installCoreModules", () => {
     );
     // tender is 'optional' per ADR-005 — must never auto-install
     expect(result.succeeded).not.toContain("tender");
+    expect(result.succeeded).not.toContain("vendor-approval");
 
     const [tenant] = await db
       .select()
@@ -84,6 +85,7 @@ describe("ModuleService.installCoreModules", () => {
       "installed_modules"
     ] as string[];
     expect(installed).not.toContain("tender");
+    expect(installed).not.toContain("vendor-approval");
     expect(installed).toContain("helpdesk");
   });
 

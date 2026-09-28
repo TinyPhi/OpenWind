@@ -583,6 +583,18 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  modules/vendor-approval:
+    devDependencies:
+      '@platform/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: ^25.7.0
+        version: 25.7.0
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
   packages/ai:
     dependencies:
       '@anthropic-ai/sdk':
