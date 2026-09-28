@@ -98,12 +98,21 @@ describe("schedule_rules cross-tenant sweep", () => {
     expect(rows).toHaveLength(0);
   });
 
-  // The live cross-role SELECT itself is exercised end-to-end by
-  // schedulerTick/claimRule against a real Postgres instance (this is
-  // exactly what those two functions do); the catalog-level checks below
-  // are the stable, deterministic way to assert this role's shape in an
-  // isolation-test context without depending on driver/pooler-specific
-  // mid-transaction role-switch behavior.
+  it("schedule_sweeper sees both tenants' rules without tenant context", async () => {
+    const rows = await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL ROLE schedule_sweeper`);
+      return tx
+        .select({ id: scheduleRules.id, tenantId: scheduleRules.tenantId })
+        .from(scheduleRules)
+        .where(inArray(scheduleRules.id, [ruleAId, ruleBId]));
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.tenantId).sort()).toEqual(
+      [TENANT_A, TENANT_B].sort(),
+    );
+  });
+
   it("schedule_sweeper role exists with BYPASSRLS and no other elevated attributes", async () => {
     const [role] = await db.execute<{
       rolbypassrls: boolean;
