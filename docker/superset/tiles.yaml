@@ -1,0 +1,780 @@
+# Reporting tile definitions - OpenWind (track 3G, Stage 1)
+#
+# The dashboards' content lives here, as configuration, not in bootstrap.py.
+# Adding, removing or retuning a tile is an edit to this file; provisioning
+# only reads it and applies it.
+#
+# Fields per tile:
+#   name      chart title, and the key provisioning matches on when re-running
+#   dashboard which dashboard it belongs to: tenant | user
+#   dataset   table name, resolved to a Superset dataset id at provisioning
+#   viz_type  Superset visualisation type
+#   width     1-12 columns of the dashboard grid
+#   height    Superset's own row units
+#   params    passed to Superset as the chart definition, verbatim
+#   renamed_from  optional list of earlier titles; the provisioned chart
+#             under one of them is renamed in place instead of duplicated
+#
+# Layout is packed, not positioned: tiles fill a row left to right in the order
+# they appear here and wrap when the next one will not fit. Reordering this
+# file reorders the dashboard.
+#
+# Constraints these tiles are written against, verified against the running
+# instance rather than assumed. Breaking any of these produces a chart that
+# renders and is wrong, which is worse than one that fails:
+#
+#   1. No sub-queries in chart filters. Superset rejects them outright
+#      (ADHOC_SUBQUERY_NOT_ALLOWED_ERROR), so "is this state terminal?" cannot
+#      be asked here - that belongs in the dataset.
+#   2. No `tenants` join. That table has row-level security disabled while
+#      every other reporting table has it on, so a join would read across
+#      tenants on an otherwise isolated connection.
+#   3. No `fields` JSONB, with two named exceptions: `title` and (2026-09-21)
+#      `department`, each lifted into the `ticket_list` dataset as a real
+#      column. `description`, `body` and the `__accessUsers` grant list stay
+#      unreachable. Postgres cannot grant SELECT on one key of a JSONB, so
+#      the restriction is enforced by dataset definition: a tile can only
+#      read a column its dataset declares — never widen this list to a
+#      column carrying PII or access-control data.
+#   4. No state names written here. State vocabularies are per-workflow
+#      (Helpdesk closes at `resolved`, Purchase Approval at `received`), so a
+#      hardcoded name is wrong for every workflow but one. Stacks and axes name
+#      a *column*; Superset discovers the values from the data.
+#
+# The filter bar sits across the top rather than down the side; inside an embed
+# a fixed left column is taken out of an already narrow panel.
+filter_bar_orientation: HORIZONTAL
+
+tiles:
+  # ---- Org Overview --------------------------------------------
+  # These 4 KPI tiles are deliberately first in this list: layout is packed
+  # (see the note above), and at width 3 each they fill exactly one row —
+  # the dashboard's first row. Each also gets its own filters.yaml entry
+  # below, scoped via `charts:` to itself alone, so its date range moves
+  # independently of the other 3 and of the rest of the dashboard.
+  - name: Total Tickets
+    dashboard: tenant
+    dataset: entity_instances
+    viz_type: big_number_total
+    width: 3
+    height: 25
+    params:
+      metric: count
+      header_font_size: 0.4
+
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: Overdue Now
+    dashboard: tenant
+    dataset: entity_instances
+    viz_type: big_number_total
+    width: 3
+    height: 25
+    params:
+      metric: count
+      header_font_size: 0.4
+      # A plain comparison, no sub-query. due_date is nullable and NULL
+      # compares false, so tickets without a due date are excluded rather
+      # than counted as on-time or as breaches.
+      #
+      # Found missing entirely on 2026-09-17: an earlier bulk edit that added
+      # a TEMPORAL_RANGE placeholder to every tile overwrote this clause
+      # instead of appending beside it, so this chart had been returning the
+      # tenant's total ticket count under an "Overdue Now" label rather than
+      # failing loudly. Restored, and now covered by a live check
+      # (mis-matching Total Tickets is the exact bug this reintroduces).
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+        - clause: WHERE
+          expressionType: SQL
+          sqlExpression: due_date < now()
+
+  - name: Unassigned Tickets
+    dashboard: tenant
+    dataset: entity_instances
+    viz_type: big_number_total
+    width: 3
+    height: 25
+    params:
+      metric: count
+      header_font_size: 0.4
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+        - clause: WHERE
+          expressionType: SQL
+          sqlExpression: assigned_to IS NULL
+
+    # Stays a plain big number. A trendline was tried here and reverted on
+    # the evidence: Superset headlines the *latest bucket*, which moved the
+    # figure from a stable 26.5h to 62.3h - drawn from the three tickets
+    # answered so far in a partial week, against a ~21-26h baseline. A
+    # sparkline has no axis and no sample count, so nothing on the tile
+    # would have shown the headline was noise. The trend lives in its own
+    # chart below, where a thin week reads as a thin week.
+  - name: Median Time to First Response
+    dashboard: tenant
+    dataset: ticket_first_response
+    viz_type: big_number_total
+    width: 3
+    height: 25
+    params:
+      metric:
+        expressionType: SQL
+        sqlExpression: percentile_cont(0.5) within group (order by hours_to_first_response)
+        label: median_hours
+      header_font_size: 0.4
+      # The unit, shown under the number: Superset's number formats cannot
+      # append text to the value itself.
+      subheader: hrs
+      subheader_font_size: 0.15
+      adhoc_filters:
+        - clause: WHERE
+          subject: replied_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  # Second row, directly under the four KPI numbers (review feedback,
+  # 2026-09-24): full width, so it takes the whole row by itself.
+  # A native range filter here (Days To Due, 2026-09-21) turned out broken
+  # under embed: its slider needs to fetch the column's min/max as the
+  # dashboard owner, the same RLS/owner-context gap already documented
+  # below for select filters (bootstrap.py logs "RLS blocks every sample
+  # row" for ticket_list under that context) — the control rendered but
+  # could not actually move. A follow-up two-static-tiles split (Next 7
+  # Days / All) was tried instead and dropped too — not what was wanted;
+  # one table, no filter, was the actual ask all along. All tickets, no
+  # row filter, sorted by days-to-due ascending so overdue and soon-due
+  # rows are read first and later/no-due-date rows fall to the bottom
+  # (Postgres puts NULL last on ASC) — colour-graded on the same column.
+  - name: Ticket SLA Watch (Upcoming & Overdue)
+    # Renamed in place from the old title, keeping the same chart.
+    renamed_from: ["Ticket SLA Watch(Upcoming & Overdue came first)"]
+    dashboard: tenant
+    dataset: ticket_list
+    viz_type: table
+    width: 12
+    height: 80
+    params:
+      query_mode: raw
+      all_columns:
+        - open_link
+        - sno
+        - title
+        - workflow_name
+        - current_state
+        - department
+        - assignee
+        - first_response_hours
+        - due_date_display
+        - days_to_due
+      order_by_cols:
+        - '["days_to_due", true]'
+      # Was 200 - genuinely truncated real data (301 tickets, no row filter
+      # on this tile by design) and threw Superset's own "row limit reached"
+      # warning. 1000 matches the cap used elsewhere in this file for the
+      # same reason (e.g. "My tickets" below).
+      row_limit: 1000
+      page_length: 15
+      include_search: true
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+      allow_render_html: true
+      column_config:
+        days_to_due:
+          d3NumberFormat: ",d"
+          horizontalAlign: right
+        first_response_hours:
+          d3NumberFormat: ",.1f"
+          horizontalAlign: right
+      conditional_formatting:
+        - column: days_to_due
+          operator: "<"
+          targetValue: 0
+          colorScheme: "#EA3E5B"
+        - column: days_to_due
+          operator: "<="
+          targetValue: 2
+          colorScheme: "#F38516"
+        - column: days_to_due
+          operator: "<="
+          targetValue: 7
+          colorScheme: "#FFC700"
+
+  - name: Tickets by State
+    dashboard: tenant
+    dataset: entity_instances
+    viz_type: echarts_timeseries_bar
+    width: 6
+    height: 50
+    params:
+      color_scheme: openwind
+      metrics:
+        - expressionType: SQL
+          sqlExpression: "count(*)"
+          label: Tickets
+      x_axis: state
+      row_limit: 50
+      orderby:
+        - - Tickets
+          - false
+      show_legend: false
+      x_axis_title: "Status\n(Total volume of tickets in each workflow stage)"
+      y_axis_title: Tickets
+      x_axis_title_margin: 45
+      y_axis_title_margin: 30
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: Tickets Raised Over Time
+    dashboard: tenant
+    dataset: entity_instances
+    viz_type: echarts_timeseries_line
+    width: 6
+    height: 50
+    params:
+      color_scheme: openwind
+      metrics:
+        - expressionType: SQL
+          sqlExpression: "count(*)"
+          label: Tickets
+      x_axis: created_at
+      time_grain_sqla: P1D
+      row_limit: 1000
+      show_legend: false
+      x_axis_title: "Date\n(Daily trend of incoming new tickets)"
+      y_axis_title: Tickets
+      x_axis_title_margin: 45
+      y_axis_title_margin: 30
+
+      # Full row, stacked by status: per person it separates work being held
+      # from work being cleared, which a plain count cannot. The series are
+      # whatever states the data contains - Superset builds one per distinct
+      # value, so no state name appears in this file. Colouring closed states
+      # differently was considered and dropped: it would mean naming them.
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: Workload by User
+    dashboard: tenant
+    dataset: entity_instances
+    viz_type: echarts_timeseries_bar
+    width: 12
+    height: 60
+    params:
+      color_scheme: openwind
+      metrics:
+        - expressionType: SQL
+          sqlExpression: "count(*)"
+          label: Tickets
+      x_axis: assignee_name
+      groupby:
+        - state
+      stack: Stack
+      row_limit: 50
+      orderby:
+        - - Tickets
+          - false
+      show_legend: true
+      legendOrientation: top
+      x_axis_title: "Assignee\n(Open tickets per team member, stacked by status)"
+      y_axis_title: Tickets
+      x_axis_title_margin: 45
+      y_axis_title_margin: 30
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: Median Time in State
+    dashboard: tenant
+    dataset: ticket_dwell_time
+    viz_type: echarts_timeseries_bar
+    width: 6
+    height: 60
+    params:
+      color_scheme: openwind
+      metrics:
+        - expressionType: SQL
+          sqlExpression: percentile_cont(0.5) within group (order by dwell_hours)
+          label: median_hours
+      x_axis: to_state
+      row_limit: 20
+      orderby:
+        - - median_hours
+          - false
+      show_legend: false
+      x_axis_title: "Status\n(Typical dwell time in median hours per stage)"
+      y_axis_title: Median hours
+      x_axis_title_margin: 45
+      y_axis_title_margin: 30
+
+      # Named for what it measures, not who it assumes. "by Agent" claimed a
+      # role this data does not carry: the responder is whoever replied
+      # first, which may be an admin, the assignee, or anyone with access.
+      # Pie, on request, with the deviation recorded rather than buried: §I of the
+      # spec rules out pie, donut and gauge, and this is the one tile that departs
+      # from it.
+      #
+      # Labels show the hours themselves, never percentages, and that is load
+      # bearing. A pie encodes parts of a whole, and medians have no whole — Eve's
+      # 25.8h plus Bob's 28.3h is not 54.1h of anything, and nobody waited that
+      # long. Percentage labels would state that false total outright ("Bob is 37%
+      # of response time"); absolute labels leave the slice sizes as a rough
+      # ranking, which is the honest reading of this data in this form.
+      #
+      # The bar version compared these correctly by length. If the pie proves hard
+      # to read at a glance, that is the reason, and switching viz_type back is a
+      # one-line change here.
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: Response Time
+    dashboard: tenant
+    dataset: ticket_first_response
+    viz_type: pie
+    width: 6
+    height: 60
+    params:
+      color_scheme: openwind
+      metric:
+        expressionType: SQL
+        sqlExpression: "percentile_cont(0.5) within group (order by hours_to_first_response)"
+        label: median_hours
+      groupby:
+        - responder
+      row_limit: 25
+      sort_by_metric: true
+      show_labels: true
+      labels_outside: true
+      # key_value, not key_percent: the value is the median in hours; a
+      # percentage of a meaningless total would be worse than no label.
+      label_type: key_value
+      number_format: ",.1f"
+      show_legend: true
+      legendOrientation: right
+      donut: false
+      label_line: true
+      adhoc_filters:
+        - clause: WHERE
+          subject: replied_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: Response Time Trend
+    dashboard: tenant
+    dataset: ticket_first_response
+    viz_type: echarts_timeseries_line
+    width: 12
+    height: 50
+    params:
+      color_scheme: openwind
+      metrics:
+        - expressionType: SQL
+          sqlExpression: percentile_cont(0.5) within group (order by hours_to_first_response)
+          label: median_hours
+      x_axis: replied_at
+      time_grain_sqla: P1W
+      row_limit: 1000
+      show_legend: false
+
+      # ---- My Performance ------------------------------------------
+      # Two figures, not one. "Assigned to or created by me" answered neither
+      # question on its own. They read the same rows through two
+      # differently-filtered datasets (bootstrap.py, guest-token.ts), so they
+      # overlap wherever a ticket someone raised came back to them: two
+      # measures, not two halves of a total.
+      x_axis_title: "Week\n(Weekly median hours taken to send first reply)"
+      y_axis_title: Median hours
+      x_axis_title_margin: 45
+      y_axis_title_margin: 30
+      adhoc_filters:
+        - clause: WHERE
+          subject: replied_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: Raised by Me
+    dashboard: user
+    dataset: my_tickets_created
+    viz_type: big_number_total
+    width: 3
+    height: 50
+    params:
+      metric:
+        expressionType: SQL
+        sqlExpression: "count(*)"
+        label: Tickets
+      subheader: created I Tickets
+      header_font_size: 0.4
+      subheader_font_size: 0.125
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: Assigned to Me
+    dashboard: user
+    dataset: my_tickets_assigned
+    viz_type: big_number_total
+    width: 3
+    height: 50
+    params:
+      metric:
+        expressionType: SQL
+        sqlExpression: "count(*)"
+        label: Tickets
+      subheader: Assigned I Tickets
+      header_font_size: 0.4
+      subheader_font_size: 0.125
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: My Tickets by State
+    dashboard: user
+    dataset: entity_instances
+    viz_type: echarts_timeseries_bar
+    width: 6
+    height: 50
+    params:
+      color_scheme: openwind
+      metrics:
+        - expressionType: SQL
+          sqlExpression: "count(*)"
+          label: Tickets
+      x_axis: state
+      row_limit: 50
+      orderby:
+        - - Tickets
+          - false
+      show_legend: false
+      x_axis_title: "Status\n(Active tickets grouped by current workflow stage)"
+      y_axis_title: Tickets
+      x_axis_title_margin: 45
+      y_axis_title_margin: 30
+
+      # Scoped by the mint endpoint's per-user filter, which names this
+      # dataset explicitly (guest-token.ts, PER_USER_DATASET_FILTERS). That
+      # naming is what makes the tile safe: Superset returns a dataset with
+      # no rule attached unfiltered, so an unlisted dataset would show the
+      # whole tenant under a personal label.
+      #
+      # No S.No. column here: the serial is numbered per tenant, and this
+      # tile is filtered per viewer on assigned_to/created_by - a predicate
+      # no single partition can match - so the numbers would arrive correct
+      # but with gaps. A column headed S.No. that skips is worse than none.
+      adhoc_filters:
+        - clause: WHERE
+          subject: created_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+  - name: My tickets (most approaching SLA appear first)
+    dashboard: user
+    dataset: ticket_list
+    viz_type: table
+    width: 12
+    height: 90
+    params:
+      query_mode: raw
+      all_columns:
+        - open_link
+        - sno
+        - title
+        - workflow_name
+        - current_state
+        - severity
+        - department
+        - raiser
+        - first_response_hours
+        - created_at_display
+        # Both, deliberately. The day count is what you scan for urgency and
+        # what a colour rule can threshold on; the date is what you quote to
+        # somebody. Showing only the date is what left this tile with a column
+        # headed "SLA (Days)" that displayed neither days nor an SLA.
+        - days_to_due
+        - due_date_display
+      order_by_cols:
+        - '["days_to_due", true]'
+      row_limit: 1000
+      page_length: 25
+      include_search: true
+      # Column headers and their hover text both come from the dataset
+      # (bootstrap.py), so a figure means the same thing wherever it appears
+      # and the explanation sits next to the number rather than in a doc.
+      # allow_render_html lets open_link's <a> tag actually render as a
+      # link rather than escaped text. It opens the ticket in a new tab;
+      # see open_link in bootstrap.py for why that also needs
+      # allow-popups-to-escape-sandbox on the embed. A plain link, so it
+      # does not depend on cross-filtering or postMessage inside the embed,
+      # unlike the emitFilter approach tried first and reverted after it
+      # did not fire on a real click.
+      allow_render_html: true
+      column_config:
+        sno:
+          horizontalAlign: left
+        first_response_hours:
+          d3NumberFormat: ",.1f"
+          horizontalAlign: right
+          # Faster is better, so the scale runs the other way here than on the
+          # due-date column: a long wait for a first reply is the bad end.
+          colorPositiveNegative: false
+        # due_date_display's own dataset-level header is "Due" (shared with
+        # the org dashboard's SLA Watch table) — overridden per-chart here
+        # since this tile shows the same column but wants the "SLA (Days)"
+        # label kept, on request, even though it now displays a full date
+        # rather than a day count.
+        # The day count carries the "SLA (Days)" heading, because that is what
+        # it now is — a number of days. The date next to it is labelled as a
+        # date. Previously the date column wore the "SLA (Days)" label, which
+        # was wrong twice: it was not days, and no SLA is configured anywhere
+        # (no workflow state sets sla_hours, so every sla_state reads "No SLA").
+        # This is a due date, and both columns now say so honestly.
+        days_to_due:
+          customColumnName: "SLA (Days)"
+          d3NumberFormat: ",d"
+          horizontalAlign: right
+        due_date_display:
+          customColumnName: "Due Date"
+      # days_to_due is still the sort key (order_by_cols above) even though
+      # its own column no longer appears here — the visible date column
+      # (due_date_display) replaced it in the grid, on request, but the
+      # underlying urgency ordering is unchanged.
+      #
+      # Graded by how close the due date is, on the day count rather than the
+      # date text. This is the same scale, thresholds and colours as the org
+      # dashboard's SLA Watch table, deliberately: two tables in one product
+      # that both colour by urgency must not disagree about what red means.
+      #
+      # It replaces a flat yellow on "has a due date", which was the best that
+      # could be done while the only visible column here was text — a colour
+      # that marked almost every row and so distinguished nothing.
+      #
+      # Rows with no due date are left uncoloured. A numeric comparator does
+      # not match NULL, so the 42 tickets without one fall through every rule
+      # rather than being treated as zero and flagged as due today.
+      #
+      # Worth knowing when reading this: on the current data 256 of 302 rows
+      # are already past due, so red covers most of the table. That is the
+      # data saying something, not the rule misfiring. If red should be rarer,
+      # change the first threshold here and the matching one on the org table
+      # together — e.g. -30 for "badly overdue" with amber for the rest.
+      conditional_formatting:
+        - column: days_to_due
+          operator: "<"
+          targetValue: 0
+          colorScheme: "#EA3E5B"
+        - column: days_to_due
+          operator: "<="
+          targetValue: 2
+          colorScheme: "#F38516"
+        - column: days_to_due
+          operator: "<="
+          targetValue: 7
+          colorScheme: "#FFC700"
+      # Severity still reads "Not set" until the platform ships that field.
+      # It's here now so the layout is reviewable and starts carrying real
+      # values without another dashboard change. team_service and sla_state
+      # were dropped (2026-09-21, on request) rather than left showing
+      # placeholder/always-"No SLA" values.
+
+  # ---- Organisation: SLA and ageing ------------------------------
+
+  # Replaces four separate tiles (Time To Close - Distribution, SLA Margin -
+  # Distribution, Tickets by Status & SLA, Staleness by Status) and the
+  # SLA Outcome by Assignee heatmap that briefly replaced them (2026-09-21,
+  # removed on request) — closed-ticket SLA performance, week over week
+  # rather than by assignee.
+  - name: SLA Outcome Trend
+    dashboard: tenant
+    dataset: ticket_list
+    viz_type: echarts_area
+    width: 12
+    height: 60
+    params:
+      color_scheme: openwind
+      metrics:
+        - expressionType: SQL
+          sqlExpression: "count(*)"
+          label: Tickets
+      x_axis: closed_at
+      time_grain_sqla: P1W
+      groupby:
+        - sla_outcome
+      stack: Stack
+      row_limit: 1000
+      show_legend: true
+      legendOrientation: top
+      x_axis_title: "Week\n(Weekly volume of closed tickets stacked by SLA outcome)"
+      y_axis_title: Tickets
+      x_axis_title_margin: 45
+      y_axis_title_margin: 30
+      adhoc_filters:
+        - clause: WHERE
+          expressionType: SQL
+          sqlExpression: "sla_outcome IS NOT NULL"
+        - clause: WHERE
+          subject: closed_at
+          operator: TEMPORAL_RANGE
+          comparator: No filter
+          expressionType: SIMPLE
+
+# ---- Dashboard filters -----------------------------------------------------
+#
+# Only a time filter, deliberately - and the reason is worth keeping, because
+# "add a dropdown for workflow/assignee/status" is an obvious ask that will
+# come back.
+#
+# A select filter has to query its own options, and that query is made at
+# dashboard level with no chart attached. Superset runs it as the dashboard
+# owner rather than as the viewer, so the viewer's tenant never reaches the
+# database connection, app.tenant_id is left unset, and row-level security
+# correctly returns nothing - an empty dropdown. Verified live: the identical
+# query returns four workflows with a chart id attached, and zero without.
+#
+# The empty dropdown is the isolation guard working, not a bug to code around.
+# Making it "work" by giving the connection mutator a fallback tenant would
+# list every tenant's workflows and people to any embedded viewer.
+# superset_config.py already attempts the one safe recovery - reading the
+# tenant from the viewer's *signed* guest token - and that is what would have
+# to start succeeding for select filters to come back.
+#
+# A time filter needs no such query: it carries its own range. Per-table
+# narrowing is still available through each table's own Search box.
+filters:
+  # ── Point-and-click filtering, for people who do not write SQL ────────────
+  #
+  # These are the dashboard's own dropdowns: pick Priority = High, pick a
+  # department, and every tile below re-queries. That is the whole answer for
+  # a non-developer — no chart to build, no dataset to choose, nothing to
+  # learn. Explore and SQL Lab exist for people who want to compose something
+  # new; this bar covers the questions most people actually ask.
+  #
+  # Options are never listed here. A select filter reads them from the column
+  # it targets, so a new department appears in the dropdown on its own.
+  #
+  # These narrow, they never widen. They sit on top of the per-viewer row
+  # filter, so a customer choosing a name from a dropdown still only sees
+  # their own rows.
+  #
+  # `severity` is deliberately absent: it has no field definition anywhere and
+  # the dataset carries a 'Not set' placeholder for it, so a dropdown on it
+  # would offer exactly one meaningless choice. Priority is the real one.
+  #
+  # Order is the order in the bar (review feedback, 2026-09-24): the date
+  # range leads the first row, and Priority comes after the other dropdowns.
+  # Superset's horizontal bar shows filters in this order and moves the ones
+  # that do not fit the row into its "More filters" menu, so on a typical
+  # screen the row holds the first four and Priority sits in the menu. How
+  # many fit depends on the viewer's screen width.
+  - name: Date Range
+    dashboard: tenant
+    type: time
+
+  - name: Status
+    dashboard: tenant
+    type: select
+    dataset: ticket_list
+    column: current_state
+
+  - name: Department
+    dashboard: tenant
+    type: select
+    dataset: ticket_list
+    column: department
+
+  - name: Assignee
+    dashboard: tenant
+    type: select
+    dataset: ticket_list
+    column: assignee
+
+  - name: Priority
+    dashboard: tenant
+    type: select
+    dataset: ticket_list
+    column: priority
+
+  # The personal dashboard gets the same two that make sense there. Assignee
+  # and department are omitted: every row is already the viewer's own, so
+  # filtering by who it belongs to answers a question nobody is asking.
+  - name: Date Range
+    dashboard: user
+    type: time
+
+  - name: Status
+    dashboard: user
+    type: select
+    dataset: my_tickets_assigned
+    column: current_state
+
+  - name: Priority
+    dashboard: user
+    type: select
+    dataset: my_tickets_assigned
+    column: priority
+
+  # Per-KPI-tile date filters (D6, docs/specs/superset-embedded-dashboarding.md).
+  # `charts:` restricts a time filter to exactly the named tile(s) instead of
+  # the default "every chart on the dashboard" — the first use of that scoping
+  # in this file (see OQ-16 in the spec). Each is independent of the other 3
+  # and of the "Date Range" filter above.
+  - name: Total Tickets — Date Range
+    dashboard: tenant
+    type: time
+    charts: [Total Tickets]
+
+  - name: Overdue Now — Date Range
+    dashboard: tenant
+    type: time
+    charts: [Overdue Now]
+
+  - name: Unassigned Tickets — Date Range
+    dashboard: tenant
+    type: time
+    charts: [Unassigned Tickets]
+
+  - name: Median Time to First Response — Date Range
+    dashboard: tenant
+    type: time
+    charts: [Median Time to First Response]

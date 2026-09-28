@@ -264,35 +264,108 @@ function actingAs(userId: string): ActingPersonContext {
   };
 }
 
+// assignedTo/dueDate are mandatory on every creation path (platform-wide
+// invariant, see SYNC-TO-CURRENT-FORMAT.md's "current format" definition) --
+// default valid values for tests unrelated to these two fields specifically.
+const DUE_DATE = "2026-01-01T00:00:00.000Z";
+
 async function postChild(
   app: Hono<Vars>,
   parentId: string,
   fields: object = {},
+  overrides: Record<string, unknown> = {},
 ) {
   return app.request(`/${parentId}/children`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ entityTypeId, fields }),
+    body: JSON.stringify({
+      entityTypeId,
+      fields,
+      assignedTo: "some-assignee",
+      dueDate: DUE_DATE,
+      remark: "default test remark",
+      ...overrides,
+    }),
   });
 }
 
 describe("POST /api/v1/tickets/:id/children", () => {
+  it("returns 400 when assignedTo is missing (mandatory field)", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${creatorTicketId}/children`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ entityTypeId, fields: {}, dueDate: DUE_DATE }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when dueDate is missing (mandatory field)", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${creatorTicketId}/children`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId,
+        fields: {},
+        assignedTo: "some-assignee",
+        remark: "a remark",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when remark is missing (mandatory field)", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await app.request(`/${creatorTicketId}/children`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId,
+        fields: {},
+        assignedTo: "some-assignee",
+        dueDate: DUE_DATE,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("creator can create a sub-ticket under their own ticket", async () => {
     const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
     const res = await postChild(app, creatorTicketId, { title: "sub" });
     expect(res.status).toBe(201);
   });
 
-  it("child inherits the parent's __accessUsers grants — the ACL-inheritance bug fix", async () => {
+  it("child inherits the parent's __accessUsers grants — the ACL-inheritance bug fix (verified at the DB level, since the API response never exposes this internal key)", async () => {
     const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
     const res = await postChild(app, mentionedTicketId, { title: "sub2" });
     expect(res.status).toBe(201);
-    const { data } = (await res.json()) as {
-      data: { fields: { __accessUsers?: Record<string, { level: string }> } };
+    const { data } = (await res.json()) as { data: { id: string } };
+
+    // The wire response must never expose __accessUsers (strip-internal-
+    // fields.ts) -- inheritance itself is a real, separate mechanism
+    // (createChildRelation copying the parent's grants), verified directly
+    // against the stored row instead.
+    const [childRow] = await db
+      .select({ fields: entityInstances.fields })
+      .from(entityInstances)
+      .where(eq(entityInstances.id, data.id));
+    const childFields = childRow?.fields as {
+      __accessUsers?: Record<string, { level: string }>;
     };
-    expect(data.fields.__accessUsers?.[MENTIONED_PERSON]?.level).toBe(
+    expect(childFields.__accessUsers?.[MENTIONED_PERSON]?.level).toBe(
       "read_comment",
     );
+  });
+
+  it("never includes the internal __accessUsers ACL object in the create response", async () => {
+    const app = makeApp(apiKeyAuth(), actingAs(CREATOR));
+    const res = await postChild(app, mentionedTicketId, { title: "sub2b" });
+    expect(res.status).toBe(201);
+    const { data } = (await res.json()) as {
+      data: { fields: Record<string, unknown> };
+    };
+    expect(data.fields).not.toHaveProperty("__accessUsers");
   });
 
   it("a person with only mention-grant access on the parent can create a sub-ticket (hasEntityAccess, any level)", async () => {
@@ -357,6 +430,8 @@ describe("POST /api/v1/tickets/:id/children", () => {
         entityTypeId,
         fields: { title: "assignee via username" },
         assignedTo: "bob-username",
+        dueDate: DUE_DATE,
+        remark: "a remark",
       }),
     });
     expect(res.status).toBe(201);
@@ -378,6 +453,8 @@ describe("POST /api/v1/tickets/:id/children", () => {
         entityTypeId,
         fields: { title: "bad assignee" },
         assignedTo: "totally-unknown-identifier-xyz",
+        dueDate: DUE_DATE,
+        remark: "a remark",
       }),
     });
     expect(res.status).toBe(201);

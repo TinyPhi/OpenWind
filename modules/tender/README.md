@@ -35,17 +35,17 @@ Source spec: `docs/specs/tender-management.md`.
 | ---------------------- | ---------- | ----------- | ------------------------------------------------------------------------------------------ |
 | `title`                | text       | internal    | required, indexed                                                                          |
 | `client_name`          | text       | internal    | required, indexed                                                                          |
-| `summary`              | textarea   | internal    | required by draft → boq_preparation                                                        |
-| `finance_details`      | textarea   | financial   | required by draft → boq_preparation; redacted in events                                    |
-| `eligibility_criteria` | textarea   | internal    | required by draft → boq_preparation                                                        |
-| `certifications`       | textarea   | internal    | required by draft → boq_preparation                                                        |
+| `summary`              | longtext   | internal    | required by draft → boq_preparation                                                        |
+| `finance_details`      | longtext   | financial   | required by draft → boq_preparation; redacted in events                                    |
+| `eligibility_criteria` | longtext   | internal    | required by draft → boq_preparation                                                        |
+| `certifications`       | longtext   | internal    | required by draft → boq_preparation                                                        |
 | `boq_file`             | file       | internal    | required by boq_preparation → pending_costing_review                                       |
 | `costing_child_id`     | entity_ref | internal    | self-referencing; written by automation on first entry to pending_costing_review (see gap) |
 | `tender_documents`     | file       | internal    | required by document_preparation → pending_submission_review                               |
 | `submitted_at`         | datetime   | internal    | written by workflow engine on transition to `submitted`                                    |
 | `submitted_by`         | user_ref   | internal    | written by workflow engine on transition to `submitted`                                    |
 
-`field_type` values used (`text`, `textarea`, `file`, `entity_ref`, `datetime`, `user_ref`)
+`field_type` values used (`text`, `longtext`, `file`, `entity_ref`, `datetime`, `user_ref`)
 follow the naming convention already used elsewhere in the codebase (`entity_ref`/`user_ref`
 appear in `modules/helpdesk` and `.claude/context/parallel-approval-pattern.md`; `date` is
 used by several modules for date-only fields). There is no DB-enforced enum on `field_type`

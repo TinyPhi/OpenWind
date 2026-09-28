@@ -32,7 +32,10 @@ import {
   scheduleRules,
   scheduleExecutions,
   entityInstances,
+  entityTypes,
+  workflows,
 } from "@platform/db";
+import type { DbOrTx } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import {
   validateCronExpr,
@@ -66,11 +69,80 @@ const CreateRuleSchema = z.object({
   description: z.string().trim().max(2000).optional(),
   cronExpr: z.string().min(1),
   timezone: z.string().min(1).default("UTC"),
-  entityTypeId: z.string().uuid(),
+  // Optional so the client never has to guess/supply it -- resolveEntityTypeId
+  // resolves it server-side, the single source of truth for "which entity
+  // type", rather than a client-side lookup against a possibly-paginated
+  // list (2026-09-22 incident: admin-ui's entity-types list is paginated, so
+  // a client-side `find(name === "ticket")` could silently miss it and fall
+  // back to the wrong entity type entirely). A rule targets whatever entity
+  // type its own workflowId belongs to -- same as manual creation via
+  // record-create.tsx, which is not restricted to "ticket" either
+  // (docs/specs/schedule-rules-mandate-fields.md R7, 2026-09-22 direction
+  // change: team-assignment via the on-call cascade still only resolves for
+  // the "ticket" entity type specifically -- that's the existing
+  // resolve_oncall automation rule's own trigger_config scoping
+  // (modules/helpdesk/seed/003_automation_rules.sql), a pre-existing
+  // platform-wide limitation this change does not touch, not a restriction
+  // this route enforces).
+  entityTypeId: z.string().uuid().optional(),
   workflowId: z.string().uuid().optional(),
   catchUp: z.boolean().default(false),
   template: TemplateSchema,
 });
+
+/** Resolves the tenant's "ticket" entity type -- own tenant row or a
+ * global/system template row (tenant_id IS NULL), matching entity_types'
+ * nullable-tenant "system template" semantics (ADR-007) and the same
+ * own-tenant-or-global check validateScheduleRuleRefs performs. Used as the
+ * final fallback when a rule has no workflowId to derive an entity type
+ * from at all. */
+async function resolveTicketEntityTypeId(
+  tx: DbOrTx,
+  tenantId: string,
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(
+      and(
+        eq(entityTypes.name, "ticket"),
+        or(eq(entityTypes.tenantId, tenantId), isNull(entityTypes.tenantId)),
+      ),
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
+ * Resolves the entity type a schedule rule should create: explicit
+ * entityTypeId if given (back-compat / API completeness), else the chosen
+ * workflow's own entityTypeId (2026-09-22 direction: derive from workflow,
+ * matching manual creation's own model rather than hardcoding "ticket"),
+ * else the tenant's "ticket" entity type as the final default when no
+ * workflow is selected at all.
+ */
+async function resolveEntityTypeId(
+  tx: DbOrTx,
+  tenantId: string,
+  explicitEntityTypeId: string | undefined,
+  workflowId: string | undefined,
+): Promise<string | null> {
+  if (explicitEntityTypeId) return explicitEntityTypeId;
+  if (workflowId) {
+    const [wf] = await tx
+      .select({ entityTypeId: workflows.entityTypeId })
+      .from(workflows)
+      .where(
+        and(
+          eq(workflows.id, workflowId),
+          or(eq(workflows.tenantId, tenantId), isNull(workflows.tenantId)),
+        ),
+      )
+      .limit(1);
+    if (wf) return wf.entityTypeId;
+  }
+  return resolveTicketEntityTypeId(tx, tenantId);
+}
 
 const UpdateRuleSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
@@ -280,8 +352,18 @@ router.post(
 
     try {
       const result = await withTenantContext(auth.tenantId, async (tx) => {
+        const entityTypeId = await resolveEntityTypeId(
+          tx,
+          auth.tenantId,
+          input.entityTypeId,
+          input.workflowId,
+        );
+        if (!entityTypeId) {
+          return { status: "no_ticket_type" as const };
+        }
+
         const refErrors = await validateScheduleRuleRefs(tx, auth.tenantId, {
-          entityTypeId: input.entityTypeId,
+          entityTypeId,
           workflowId: input.workflowId,
           template: input.template,
         });
@@ -297,7 +379,7 @@ router.post(
             description: input.description,
             cronExpr: input.cronExpr,
             timezone: input.timezone,
-            entityTypeId: input.entityTypeId,
+            entityTypeId,
             workflowId: input.workflowId,
             template: input.template,
             catchUp: input.catchUp,
@@ -324,6 +406,21 @@ router.post(
         return { status: "created" as const, row };
       });
 
+      if (result.status === "no_ticket_type") {
+        return c.json(
+          {
+            error: "VALIDATION_ERROR",
+            message: "Validation failed",
+            fields: [
+              {
+                field: "entityTypeId",
+                message: "No ticket entity type found for this tenant",
+              },
+            ],
+          },
+          422,
+        );
+      }
       if (result.status === "invalid") {
         return c.json(
           {
@@ -425,24 +522,39 @@ router.patch(
           return { status: "archived_terminal" as const };
         }
 
+        // If the workflow is changing, the stored entityTypeId must follow
+        // it (2026-09-22 direction: entity type is derived from the
+        // workflow) -- otherwise a rule's entityTypeId could silently stay
+        // pinned to its OLD workflow's entity type after moving to a new
+        // workflow on a different one, reintroducing the exact
+        // entity-type/workflow mismatch this whole change exists to fix.
+        const effectiveEntityTypeId = input.workflowId
+          ? ((await resolveEntityTypeId(
+              tx,
+              auth.tenantId,
+              undefined,
+              input.workflowId,
+            )) ?? existing.entityTypeId)
+          : existing.entityTypeId;
+
         if (input.template || input.workflowId) {
           const effectiveWorkflowId =
             input.workflowId ?? nullToUndefined(existing.workflowId);
           const refErrors = await validateScheduleRuleRefs(tx, auth.tenantId, {
-            entityTypeId: existing.entityTypeId,
+            entityTypeId: effectiveEntityTypeId,
             workflowId: effectiveWorkflowId,
             template:
               (input.template as
                 | {
-                    team_id?: string;
+                    teamId?: string;
                     service_id?: string;
-                    assignee_id?: string;
+                    assignedTo?: string;
                   }
                 | undefined) ??
               (existing.template as {
-                team_id?: string;
+                teamId?: string;
                 service_id?: string;
-                assignee_id?: string;
+                assignedTo?: string;
               }),
           });
           if (refErrors.length > 0) {
@@ -478,6 +590,9 @@ router.patch(
           .update(scheduleRules)
           .set({
             ...input,
+            ...(input.workflowId
+              ? { entityTypeId: effectiveEntityTypeId }
+              : {}),
             updatedAt: new Date(),
             ...(nextFireAtUpdate !== undefined
               ? { nextFireAt: nextFireAtUpdate }

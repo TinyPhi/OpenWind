@@ -22,7 +22,6 @@ import {
   setScheduleSweeperRole,
   scheduleRules,
   scheduleExecutions,
-  workflowEvents,
 } from "@platform/db";
 import { createEntity } from "@platform/entity-engine";
 import type { EntityError, ValidationError } from "@platform/entity-engine";
@@ -31,6 +30,7 @@ import {
   buildTemplateVariables,
   renderTemplate,
   validateScheduleRuleRefs,
+  postScheduleRemarkComment,
   TemplateSchema,
   type Template,
 } from "@platform/scheduler";
@@ -116,9 +116,9 @@ async function validateTemplate(
     entityTypeId: rule.entityTypeId,
     workflowId: rule.workflowId ?? undefined,
     template: {
-      team_id: template.team_id,
+      teamId: template.teamId,
       service_id: template.service_id,
-      assignee_id: template.assignee_id,
+      assignedTo: template.assignedTo,
     },
   });
   if (errors.length > 0) {
@@ -244,115 +244,118 @@ async function fireRule(
   tickTime: Date,
 ): Promise<void> {
   try {
-    await withTenantContext(rule.tenantId, async (tx) => {
-      const template = await validateTemplate(tx, rule);
+    const { instance, remark } = await withTenantContext(
+      rule.tenantId,
+      async (tx) => {
+        const template = await validateTemplate(tx, rule);
 
-      const vars = buildTemplateVariables(
-        scheduledAt,
-        rule.timezone,
-        rule.name,
-      );
-      const rendered = renderTemplate(template, vars);
+        const vars = buildTemplateVariables(
+          scheduledAt,
+          rule.timezone,
+          rule.name,
+        );
+        const rendered = renderTemplate(template, vars);
 
-      const dueDate =
-        rendered.due_after_days !== undefined
-          ? new Date(
-              scheduledAt.getTime() + rendered.due_after_days * 86_400_000,
-            ).toISOString()
-          : undefined;
+        // due_days is an offset from THIS fire's own scheduled instant, not
+        // tickTime (docs/specs/schedule-rules-mandate-fields.md R4) --
+        // scheduledAt is the canonical fire time even for a catch-up run
+        // executed late.
+        const dueDate = new Date(
+          scheduledAt.getTime() + rendered.due_days * 24 * 60 * 60 * 1000,
+        ).toISOString();
 
-      const instance = await createEntity(tx, rule.tenantId, {
-        entityTypeId: rule.entityTypeId,
-        workflowId: rule.workflowId ?? undefined,
-        // Defaults to the rule owner (user request) so an auto-created
-        // ticket always has a human on it -- template.assignee_id, when
-        // set, still overrides this (e.g. routing to a specific agent).
-        assignedTo: rendered.assignee_id ?? rule.createdBy,
-        createdBy: rule.createdBy,
-        dueDate,
-        fields: {
-          // Ticket's priority/category are required fields with no DB-level
-          // default (modules/helpdesk/seed/001_entity_types.sql) -- the
-          // schedule-rule admin form deliberately only exposes Title/Remark/
-          // Due-after-days/Severity (user request: match the fields agents
-          // actually care about on a ticket), so without a default here
-          // every auto-created ticket fails FIELD_VALIDATION_FAILED. These
-          // are placed before ...rendered.fields so an explicit
-          // template.fields.priority/category (set some other way, e.g.
-          // directly via the API) still overrides them.
-          priority: DEFAULT_SCHEDULED_TICKET_PRIORITY,
-          category: DEFAULT_SCHEDULED_TICKET_CATEGORY,
-          ...rendered.fields,
-          title: rendered.title,
-          ...(rendered.description
-            ? { description: rendered.description }
-            : {}),
-          ...(rendered.severity ? { severity: rendered.severity } : {}),
-          ...(rendered.team_id ? { team_id: rendered.team_id } : {}),
-          ...(rendered.service_id ? { service_id: rendered.service_id } : {}),
-        },
-      });
-
-      // Remark posted as the ticket's first comment, authored by the
-      // schedule owner (user request) -- comments are workflow_events rows
-      // with metadata.type "comment" (see apps/api/src/routes/entities/
-      // add-comment.ts), not a separate entity_instance despite the
-      // "comment" entity type existing; mirrored here rather than reusing
-      // add-comment.ts's handler since that handler also does HTTP-only
-      // concerns (mention/access-grant notifications) that don't apply to a
-      // system-authored first comment with no mentions.
-      // workflow_events.workflow_id is NOT NULL -- a ticket created with no
-      // workflow (rule.workflowId is optional in the admin form) has
-      // nothing to attach a comment to, same restriction add-comment.ts
-      // enforces for manually-posted comments.
-      if (rendered.description && instance.workflowId) {
-        await tx.insert(workflowEvents).values({
-          tenantId: rule.tenantId,
-          instanceId: instance.id,
-          workflowId: instance.workflowId,
-          fromState: instance.currentState,
-          toState: instance.currentState,
-          triggeredBy: "user",
-          actorId: rule.createdBy,
-          comment: null,
-          metadata: {
-            type: "comment",
-            text: rendered.description,
-            mentions: [],
-            replyTo: null,
+        // Exactly one of assignedTo/teamId (TemplateSchema's superRefine
+        // guarantees this) -- teamId mode leaves assignment unset here and
+        // instead writes fields.team_id, the same JSONB slot the existing
+        // entity.created -> resolve_oncall automation rule already reads,
+        // so a rule-created ticket resolves via the identical cascade a
+        // manually created team-assigned ticket does (R2). No separate
+        // resolution logic for scheduled tickets.
+        //
+        // Ticket's priority/category are required fields with no DB-level
+        // default (modules/helpdesk/seed/001_entity_types.sql) -- the
+        // schedule-rule admin form doesn't expose them, so without a default
+        // here every auto-created ticket fails FIELD_VALIDATION_FAILED.
+        // Placed before ...rendered.fields so an explicit
+        // template.fields.priority/category still overrides them.
+        const instance = await createEntity(tx, rule.tenantId, {
+          entityTypeId: rule.entityTypeId,
+          workflowId: rule.workflowId ?? undefined,
+          assignedTo: rendered.assignedTo,
+          dueDate,
+          createdBy: rule.createdBy,
+          fields: {
+            priority: DEFAULT_SCHEDULED_TICKET_PRIORITY,
+            category: DEFAULT_SCHEDULED_TICKET_CATEGORY,
+            ...rendered.fields,
+            title: rendered.title,
+            ...(rendered.description
+              ? { description: rendered.description }
+              : {}),
+            ...(rendered.severity ? { severity: rendered.severity } : {}),
+            ...(rendered.teamId ? { team_id: rendered.teamId } : {}),
+            ...(rendered.service_id ? { service_id: rendered.service_id } : {}),
           },
         });
-      }
 
-      await tx.insert(scheduleExecutions).values({
-        tenantId: rule.tenantId,
-        ruleId: rule.id,
-        scheduledAt,
-        firedAt: tickTime,
-        status: "success",
-        entityInstanceId: instance.id,
-      });
-
-      await writeAuditEntry(tx, {
-        tenantId: rule.tenantId,
-        actorId: "system",
-        actorType: "system",
-        resourceType: "ticket",
-        resourceId: instance.id,
-        action: "schedule.ticket_created",
-        metadata: { ruleId: rule.id, scheduledAt: scheduledAt.toISOString() },
-      });
-
-      logger.info(
-        {
+        await tx.insert(scheduleExecutions).values({
           tenantId: rule.tenantId,
           ruleId: rule.id,
-          ticketId: instance.id,
           scheduledAt,
-        },
-        "schedule rule fired",
-      );
-    });
+          firedAt: tickTime,
+          status: "success",
+          entityInstanceId: instance.id,
+        });
+
+        await writeAuditEntry(tx, {
+          tenantId: rule.tenantId,
+          actorId: "system",
+          actorType: "system",
+          resourceType: "ticket",
+          resourceId: instance.id,
+          action: "schedule.ticket_created",
+          metadata: {
+            ruleId: rule.id,
+            scheduledAt: scheduledAt.toISOString(),
+          },
+        });
+
+        logger.info(
+          {
+            tenantId: rule.tenantId,
+            ruleId: rule.id,
+            ticketId: instance.id,
+            scheduledAt,
+          },
+          "schedule rule fired",
+        );
+
+        return { instance, remark: rendered.remark };
+      },
+    );
+
+    // Best-effort, outside the create transaction (already committed) --
+    // a remark-post failure must never fail the fire (R5); mirrors
+    // apps/api/src/routes/entities/create.ts's own postRemarkComment call.
+    if (instance.workflowId) {
+      try {
+        await withTenantContext(rule.tenantId, (tx) =>
+          postScheduleRemarkComment(tx, {
+            tenantId: rule.tenantId,
+            instanceId: instance.id,
+            workflowId: instance.workflowId as string,
+            currentState: instance.currentState,
+            actorId: rule.createdBy,
+            text: remark,
+          }),
+        );
+      } catch (remarkErr) {
+        logger.warn(
+          { remarkErr, tenantId: rule.tenantId, ticketId: instance.id },
+          "schedule rule fired: failed to post remark as first comment",
+        );
+      }
+    }
     scheduleExecutionTotal.add(1, { status: "success" });
   } catch (err: unknown) {
     const errorCode = classifyScheduleError(err);

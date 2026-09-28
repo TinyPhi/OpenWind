@@ -253,7 +253,13 @@ describe("Phase F, spec R3/AC5 — denied attempts across all four action types"
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ entityTypeId: entityType.id, fields: {} }),
+        body: JSON.stringify({
+          entityTypeId: entityType.id,
+          fields: {},
+          assignedTo: "phase-f-test-assignee",
+          dueDate: "2026-01-01T00:00:00.000Z",
+          remark: "a remark",
+        }),
       },
     );
     expect(res.status).toBe(404);

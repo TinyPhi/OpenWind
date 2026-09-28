@@ -143,6 +143,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://platform:platform_test_password@localhost:5432/platform_test
       DATABASE_MIGRATION_URL: postgresql://platform:platform_test_password@localhost:5432/platform_test
+      ANALYTICS_DATABASE_URL: postgresql://analytics_user:analytics_user_test_password@localhost:5432/platform_test
       REDIS_URL: redis://localhost:6379
       NODE_ENV: test
       OPENBAO_ADDR: http://localhost:8200
@@ -184,6 +185,16 @@ jobs:
 
       - name: Build
         run: pnpm build --filter="$TURBO_FILTER"
+
+      # The reporting role normally comes from docker/postgres/init, which the
+      # service container does not run. It must exist before migrating so the
+      # reporting grants and policies are applied, and the reporting isolation
+      # tests connect as it.
+      - name: Create reporting role
+        run: >-
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1
+          -c "CREATE ROLE analytics_user LOGIN PASSWORD 'analytics_user_test_password'"
+          -c "GRANT USAGE ON SCHEMA public TO analytics_user"
 
       - name: Run database migrations
         run: pnpm db:migrate
@@ -245,6 +256,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://platform:platform_test_password@localhost:5432/platform_test
       DATABASE_MIGRATION_URL: postgresql://platform:platform_test_password@localhost:5432/platform_test
+      ANALYTICS_DATABASE_URL: postgresql://analytics_user:analytics_user_test_password@localhost:5432/platform_test
       REDIS_URL: redis://localhost:6379
       NODE_ENV: test
       APP_URL: https://platform.example.com
@@ -274,6 +286,16 @@ jobs:
 
       - name: Build
         run: pnpm build --filter="$TURBO_FILTER"
+
+      # The reporting role normally comes from docker/postgres/init, which the
+      # service container does not run. It must exist before migrating so the
+      # reporting grants and policies are applied, and the reporting isolation
+      # tests connect as it.
+      - name: Create reporting role
+        run: >-
+          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1
+          -c "CREATE ROLE analytics_user LOGIN PASSWORD 'analytics_user_test_password'"
+          -c "GRANT USAGE ON SCHEMA public TO analytics_user"
 
       - name: Run database migrations
         run: pnpm db:migrate

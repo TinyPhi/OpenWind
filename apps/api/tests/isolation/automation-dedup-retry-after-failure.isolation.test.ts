@@ -172,7 +172,7 @@ describe("a 'failed' execution for (ruleId, transitionEventId) does not block a 
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "T8 retry test ticket" },
         workflowId,
       }),
     );

@@ -138,8 +138,19 @@ describe("GET /admin/teams — role enforcement", () => {
     expect(res.status).toBe(200);
   });
 
-  it("returns 403 for a role with neither agent nor admin", async () => {
+  // docs/specs/team-assign-oncall-fallback.md R1/AC6 -- widened from
+  // agent/admin-only so the customer-facing ticket-creation form
+  // (record-create.tsx, reachable by plain "user" role) can populate its
+  // Team assign-mode picker. Read-only, no data exposed beyond team
+  // name/id that agent/admin already see.
+  it("returns 200 for user role (read widened for ticket-form team pickers)", async () => {
     mockAuth.roles = ["user"];
+    const res = await makeApp().request("/admin/teams");
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 403 for a role with none of agent/admin/user", async () => {
+    mockAuth.roles = ["guest"];
     const res = await makeApp().request("/admin/teams");
     expect(res.status).toBe(403);
   });

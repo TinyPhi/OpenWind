@@ -216,4 +216,54 @@ describe("on-call-schedules router — tenant isolation", () => {
     };
     expect(listB.some((s) => s.id === created.id)).toBe(false);
   });
+
+  it("GET list returns a schedule that overlaps the from/to window without being fully contained in it", async () => {
+    // Regression test for a real bug: the route used to filter with
+    // startsAt >= from && endsAt <= to (full containment), so a schedule
+    // extending even a minute past the queried window's edge -- routine
+    // for a week-long schedule queried against a calendar-week boundary --
+    // silently never appeared. Fixed to startsAt <= to && endsAt >= from
+    // (interval overlap).
+    const [team] = await db
+      .insert(teams)
+      .values({
+        tenantId: TENANT_A,
+        name: "Overlap Query Team",
+        createdBy: USER_A,
+      })
+      .returning({ id: teams.id });
+
+    const appA = makeApp(TENANT_A, USER_A, ["admin"]);
+    const createRes = await appA.request("/admin/on-call-schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        teamId: team!.id,
+        label: "Overlap Query Week",
+        startsAt: "2026-12-01T00:00:00Z",
+        endsAt: "2026-12-08T00:00:00Z",
+        primaryUserId: USER_A,
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const { data: created } = (await createRes.json()) as {
+      data: { id: string };
+    };
+
+    // Query window's `to` ends an hour before the schedule's own end --
+    // under the old containment check this would have been excluded.
+    const params = new URLSearchParams({
+      teamId: team!.id,
+      from: "2026-11-30T00:00:00Z",
+      to: "2026-12-07T23:00:00Z",
+    });
+    const listRes = await appA.request(
+      `/admin/on-call-schedules?${params.toString()}`,
+    );
+    expect(listRes.status).toBe(200);
+    const { data: list } = (await listRes.json()) as {
+      data: { id: string }[];
+    };
+    expect(list.some((s) => s.id === created.id)).toBe(true);
+  });
 });

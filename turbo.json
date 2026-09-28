@@ -53,13 +53,13 @@
       "dependsOn": ["^build"],
       "inputs": ["src/**", "tests/**", "vitest.config.*"],
       "outputs": [],
-      "env": ["DATABASE_URL", "REDIS_URL", "NODE_ENV"]
+      "env": ["DATABASE_URL", "ANALYTICS_DATABASE_URL", "REDIS_URL", "NODE_ENV"]
     },
     "test:isolation": {
       "dependsOn": ["^build"],
       "inputs": ["tests/isolation/**"],
       "outputs": [],
-      "env": ["DATABASE_URL", "NODE_ENV"]
+      "env": ["DATABASE_URL", "ANALYTICS_DATABASE_URL", "NODE_ENV"]
     },
     "test:e2e": {
       "dependsOn": ["^build"],

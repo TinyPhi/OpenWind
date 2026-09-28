@@ -31,6 +31,7 @@ const NOTIFICATION_EVENT_TYPES = [
   "comment.created",
   "access_request.created",
   "access_request.updated",
+  "ticket.severity_changed",
 ] as const;
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;

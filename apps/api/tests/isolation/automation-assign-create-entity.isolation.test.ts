@@ -21,7 +21,6 @@ import {
   createEntityType,
   createEntity,
   getEntity,
-  addEntityField,
 } from "@platform/entity-engine";
 import type { EntityType } from "@platform/entity-engine";
 import {
@@ -41,20 +40,8 @@ beforeAll(async () => {
     plural: "tickets",
     allowCustomFields: true,
   });
-
-  // Registered so createEntity's field-schema validation actually persists
-  // "title" instead of silently stripping the unrecognized key.
-  await addEntityField(db, TENANT, entityType.id, {
-    name: "title",
-    label: "Title",
-    fieldType: "text",
-    config: {},
-    isRequired: false,
-    isIndexed: false,
-    isSystem: false,
-    sortOrder: 0,
-    sensitivity: "public",
-  });
+  // createEntityType now auto-seeds a required "title" custom field for any
+  // per-tenant entity type — no need to register it again here.
 });
 
 afterAll(async () => {
@@ -75,7 +62,7 @@ describe("automation 'assign' action (#191)", () => {
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
       }),
     );
 
@@ -125,7 +112,7 @@ describe("automation 'create_entity' action (#191)", () => {
     const trigger = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Trigger ticket" },
       }),
     );
 

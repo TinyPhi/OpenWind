@@ -115,21 +115,16 @@ beforeAll(async () => {
     createdBy: USER_B,
   });
 
+  // team_id is now auto-seeded by createEntityType itself
+  // (docs/specs/team-assign-oncall-fallback.md R2, entity-types.ts), along
+  // with title -- no longer registered manually here (that used to be
+  // needed back when team_id was a documented-dormant, un-seeded field;
+  // doing it again now would collide with the auto-seed on the unique
+  // (entity_type_id, name) constraint).
   entityTypeA = await createEntityType(db, TENANT_A, {
     name: `dispatch_severity_ticket_${TENANT_A}_${Date.now()}`,
     plural: "tickets",
     allowCustomFields: true,
-  });
-  await addEntityField(db, TENANT_A, entityTypeA.id, {
-    name: "team_id",
-    label: "Team",
-    fieldType: "text",
-    config: {},
-    isRequired: false,
-    isIndexed: false,
-    isSystem: false,
-    sortOrder: 0,
-    sensitivity: "public",
   });
   await addEntityField(db, TENANT_A, entityTypeA.id, {
     name: "severity",
@@ -184,7 +179,7 @@ describe("dispatch_severity_notification action — tenant isolation", () => {
     const instance = await withTenantContext(TENANT_A, (tx) =>
       createEntity(tx, TENANT_A, {
         entityTypeId: entityTypeA.id,
-        fields: { team_id: teamAId, severity: "high" },
+        fields: { title: "Test ticket", team_id: teamAId, severity: "high" },
         assignedTo: ASSIGNEE_A,
       }),
     );

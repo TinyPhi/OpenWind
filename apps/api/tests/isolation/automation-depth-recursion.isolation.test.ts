@@ -31,6 +31,7 @@ import {
   workflowStates,
   workflows,
   entityTypes,
+  entityFields,
 } from "@platform/db";
 import { env } from "@platform/config";
 import { createEntityType, createEntity } from "@platform/entity-engine";
@@ -175,6 +176,10 @@ afterAll(async () => {
       .where(eq(workflowTransitions.tenantId, TENANT));
     await tx.delete(workflowStates).where(eq(workflowStates.tenantId, TENANT));
     await tx.delete(workflows).where(eq(workflows.tenantId, TENANT));
+    // createEntityType now auto-seeds a "title" entity_fields row — must be
+    // deleted before entityTypes or the FK blocks the delete on every rerun
+    // (this tenant id is reused across runs).
+    await tx.delete(entityFields).where(eq(entityFields.tenantId, TENANT));
     // tenantId filter, not id (PR #372 review, L2) — consistent with every
     // other delete above, and safe against a beforeAll failure leaving
     // entityType.id undefined (which would otherwise make this a no-op
@@ -188,7 +193,7 @@ describe("automation-triggered transitions reach the outbox exactly once (#120, 
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Depth test ticket" },
         workflowId,
       }),
     );

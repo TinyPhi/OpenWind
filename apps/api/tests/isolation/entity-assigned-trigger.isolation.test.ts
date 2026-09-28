@@ -40,7 +40,7 @@ describe("entity.assigned outbox emission (#126)", () => {
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
         assignedTo: ASSIGNEE_ID,
       }),
     );
@@ -69,7 +69,7 @@ describe("entity.assigned outbox emission (#126)", () => {
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
       }),
     );
 
@@ -101,7 +101,7 @@ describe("entity.assigned outbox emission (#126)", () => {
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
         assignedTo: ASSIGNEE_ID,
       }),
     );
@@ -135,7 +135,7 @@ describe("entity.unassigned outbox emission (notifies the previous assignee, doc
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
         assignedTo: ASSIGNEE_ID,
       }),
     );
@@ -184,7 +184,7 @@ describe("entity.unassigned outbox emission (notifies the previous assignee, doc
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
       }),
     );
 
@@ -213,7 +213,7 @@ describe("entity.unassigned outbox emission (notifies the previous assignee, doc
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
         assignedTo: ASSIGNEE_ID,
       }),
     );
@@ -243,7 +243,7 @@ describe("entity.unassigned outbox emission (notifies the previous assignee, doc
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
       }),
     );
 

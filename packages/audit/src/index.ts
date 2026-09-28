@@ -139,7 +139,20 @@ export type AuditAction =
   | "schedule.execution_skipped"
   | "schedule.rule_paused"
   | "schedule.rule_resumed"
-  | "schedule.rule_archived";
+  | "schedule.rule_archived"
+  // Written by Superset (standalone, Stage 2) through
+  // record_reporting_audit() — migration 0115_reporting_audit_trail.sql —
+  // for every query an analyst runs and every export they take. Listed here
+  // so every action the DB CHECK constraint admits has a classification when
+  // the audit log is read back (third-party access logs, retention rollup).
+  | "reporting.query_executed"
+  | "reporting.exported"
+  // Written by the reporting API for embedded dashboards: a guest pass
+  // minted, and a dashboard request refused by role (a customer asking for
+  // the tenant-wide dashboard). Together they answer "who viewed which
+  // reporting dashboards, and when".
+  | "reporting.guest_token_issued"
+  | "reporting.guest_token_denied";
 
 export type AuditEntryInput = {
   tenantId: string;

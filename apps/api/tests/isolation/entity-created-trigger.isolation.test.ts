@@ -100,7 +100,7 @@ describe("entity.created outbox emission and automation execution (#126)", () =>
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
       }),
     );
 
@@ -135,7 +135,10 @@ describe("entity.created outbox emission and automation execution (#126)", () =>
     // rule would silently stop firing, exactly the bug #126 fixes. This
     // assertion catches that drift at test time instead.
     await withTenantContext(TENANT, (tx) =>
-      createEntity(tx, TENANT, { entityTypeId: entityType.id, fields: {} }),
+      createEntity(tx, TENANT, {
+        entityTypeId: entityType.id,
+        fields: { title: "Test ticket" },
+      }),
     );
 
     const [row] = await withTenantContext(TENANT, (tx) =>
@@ -161,7 +164,7 @@ describe("entity.created outbox emission and automation execution (#126)", () =>
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Test ticket" },
       }),
     );
 
@@ -193,7 +196,7 @@ describe("entity.created outbox emission and automation execution (#126)", () =>
     await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: { ssn: "123-45-6789" },
+        fields: { title: "Test ticket", ssn: "123-45-6789" },
       }),
     );
 

@@ -2,7 +2,13 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth } from "@platform/auth";
 import { withTenantContext } from "@platform/db";
-import { listEntities, MAX_PAGE_SIZE } from "@platform/entity-engine";
+import {
+  listEntities,
+  MAX_PAGE_SIZE,
+  TicketSeveritySchema,
+  normalizeTagText,
+  TAG_TEXT_MAX_LENGTH,
+} from "@platform/entity-engine";
 import {
   getWorkflowByEntityTypeId,
   isWorkflowAdmin,
@@ -57,6 +63,36 @@ const ListEntitiesQuerySchema = z.object({
     .enum(["true", "false"])
     .transform((v) => v === "true")
     .optional(),
+  // docs/specs/ticket-severity-and-tags.md R6 — comma-separated list of one
+  // or more severity levels, OR'd together.
+  severity: z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      const parts = v.split(",").filter((s) => s.length > 0);
+      const parsed = z.array(TicketSeveritySchema).safeParse(parts);
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "severity must be a comma-separated list of low/medium/high/critical",
+        });
+        return z.NEVER;
+      }
+      return parsed.data;
+    }),
+  // docs/specs/ticket-severity-and-tags.md R6 — single tag, substring match
+  // (ILIKE) after normalization (trim+lowercase, same as tag creation) —
+  // revised from exact match for a live type-ahead UX.
+  tag: z
+    .string()
+    .max(TAG_TEXT_MAX_LENGTH)
+    .optional()
+    .transform((v) => (v === undefined ? undefined : normalizeTagText(v))),
+  // T16 — records-page Source filter, converted from client-side to
+  // server-side.
+  origin: z.enum(["internal", "external", "redirected"]).optional(),
 });
 
 export const listEntitiesHandler = factory.createHandlers(

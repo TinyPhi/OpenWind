@@ -154,6 +154,53 @@ function renderRecordDetail(): void {
   );
 }
 
+// 2026-09-22: team_id is a plain generic field on every entity type (no
+// dedicated "team reference" field type) -- get.ts resolves it server-side
+// to a live team name (`teamName`), and the field grid must show that
+// resolved name instead of the raw id for any field literally named
+// "team_id".
+describe("CustomerRecordDetail — team_id field shows the resolved team name (2026-09-22)", () => {
+  beforeEach(() => {
+    capturedRoomHandler = null;
+  });
+  afterEach(() => cleanup());
+
+  it("shows the resolved teamName, not the raw team_id, for a field named team_id", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: {
+            ...BASE_RECORD,
+            fields: { subject: "Test ticket", team_id: "team-uuid-1" },
+            teamName: "Dev Team",
+          },
+        });
+      }
+      if (url === `/api/entity-types/${ENTITY_TYPE_ID}/fields`) {
+        return Promise.resolve({
+          data: [
+            {
+              id: "f-team",
+              name: "team_id",
+              label: "Team",
+              fieldType: "text",
+              isRequired: false,
+              isSystem: false,
+              config: {},
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    await waitFor(() => expect(screen.getByText("Dev Team")).toBeTruthy());
+    expect(screen.queryByText("team-uuid-1")).toBeNull();
+  });
+});
+
 describe("CustomerRecordDetail — Access Requests tab (ui-feature-checklist §2.9/§2.10)", () => {
   beforeEach(() => {
     capturedRoomHandler = null;
@@ -296,6 +343,82 @@ describe("CustomerRecordDetail — Access Requests tab (ui-feature-checklist §2
 
     // Give any (incorrect) async refetch a chance to fire before asserting
     // it didn't.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockFetchWithAuth.mock.calls.length).toBe(callsBefore);
+  });
+});
+
+// 2026-09-22 fix — a ticket team-assigned at creation lands here unassigned
+// (resolve_oncall resolves asynchronously); its system summary comment is a
+// comment.created push like any other, and was previously handled only by
+// refreshComments(), leaving assignedTo stale until a manual page refresh.
+describe("CustomerRecordDetail — live comment push also refreshes the record (assignedTo)", () => {
+  beforeEach(() => {
+    capturedRoomHandler = null;
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockUnsubscribe.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("re-fetches the record (picking up a newly-set assignedTo) when a comment.created push arrives for this ticket", async () => {
+    mockRoutesForAccessRequests([]);
+    renderRecordDetail();
+    await screen.findByText("Comments");
+    await waitFor(() => expect(capturedRoomHandler).not.toBeNull());
+
+    const callsBefore = mockFetchWithAuth.mock.calls.filter(
+      ([url]) => url === `/api/entities/${RECORD_ID}`,
+    ).length;
+
+    // resolve_oncall has now assigned the ticket; simulate its system
+    // comment's push arriving before any manual refresh.
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: { ...BASE_RECORD, assignedTo: "u-oncall-primary" },
+        });
+      }
+      if (url === `/api/entities/${RECORD_ID}/comments`) {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    capturedRoomHandler?.({
+      type: "comment.created",
+      instanceId: RECORD_ID,
+      commentId: "c-1",
+      actorId: "system",
+    });
+
+    await waitFor(() => {
+      const callsAfter = mockFetchWithAuth.mock.calls.filter(
+        ([url]) => url === `/api/entities/${RECORD_ID}`,
+      ).length;
+      expect(callsAfter).toBeGreaterThan(callsBefore);
+    });
+  });
+
+  it("live comment.created push for a different ticket's room does not re-fetch this record", async () => {
+    mockRoutesForAccessRequests([]);
+    renderRecordDetail();
+    await screen.findByText("Comments");
+    await waitFor(() => expect(capturedRoomHandler).not.toBeNull());
+
+    const callsBefore = mockFetchWithAuth.mock.calls.length;
+
+    capturedRoomHandler?.({
+      type: "comment.created",
+      instanceId: "some-other-ticket",
+      commentId: "c-2",
+      actorId: "system",
+    });
+
     await new Promise((r) => setTimeout(r, 20));
     expect(mockFetchWithAuth.mock.calls.length).toBe(callsBefore);
   });

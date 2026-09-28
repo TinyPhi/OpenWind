@@ -10,7 +10,13 @@ import {
   workflowStates,
   workflowTransitions,
 } from "@platform/db";
-import { MAX_PAGE_SIZE } from "@platform/entity-engine";
+import {
+  MAX_PAGE_SIZE,
+  TicketSeveritySchema,
+  normalizeTagText,
+  escapeLikePattern,
+  TAG_TEXT_MAX_LENGTH,
+} from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { buildUserScopeFilter } from "./scoped-access.js";
@@ -30,6 +36,33 @@ type AccessReason = "creator" | "assigned" | "mention" | "manual";
 
 const MyTicketsQuerySchema = z.object({
   workflowId: z.string().uuid().optional(),
+  // docs/specs/ticket-severity-and-tags.md T10c — mirrors list.ts's own
+  // severity/tag/origin query params so the records page's filters work
+  // identically for a plain "user" caller (this endpoint) and an
+  // admin/agent/workflow-admin caller (list.ts).
+  severity: z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      const parts = v.split(",").filter((s) => s.length > 0);
+      const parsed = z.array(TicketSeveritySchema).safeParse(parts);
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "severity must be a comma-separated list of low/medium/high/critical",
+        });
+        return z.NEVER;
+      }
+      return parsed.data;
+    }),
+  tag: z
+    .string()
+    .max(TAG_TEXT_MAX_LENGTH)
+    .optional()
+    .transform((v) => (v === undefined ? undefined : normalizeTagText(v))),
+  origin: z.enum(["internal", "external", "redirected"]).optional(),
 });
 
 function deriveAccessReason(
@@ -65,7 +98,7 @@ export const myTicketsHandler = factory.createHandlers(
   zValidator("query", MyTicketsQuerySchema),
   async (c) => {
     const { tenantId, userId } = c.get("auth");
-    const { workflowId } = c.req.valid("query");
+    const { workflowId, severity, tag, origin } = c.req.valid("query");
 
     try {
       // ── Step 1: find all instances where user is in the access list ───────
@@ -79,6 +112,30 @@ export const myTicketsHandler = factory.createHandlers(
         isNull(entityInstances.deletedAt),
         accessFilter,
         workflowId ? eq(entityInstances.workflowId, workflowId) : undefined,
+        severity && severity.length > 0
+          ? inArray(entityInstances.severity, severity)
+          : undefined,
+        origin === "internal"
+          ? isNull(entityInstances.originMechanism)
+          : undefined,
+        origin === "external"
+          ? eq(entityInstances.originMechanism, "api")
+          : undefined,
+        origin === "redirected"
+          ? eq(entityInstances.originMechanism, "handoff")
+          : undefined,
+        // docs/specs/ticket-severity-and-tags.md R6 — substring match
+        // (live type-ahead UX), mirroring list.ts's identical condition.
+        // Wildcard chars in the user's input are escaped so a literal
+        // "%"/"_" can't act as a SQL wildcard.
+        tag !== undefined
+          ? sql`EXISTS (
+              SELECT 1 FROM entity_instance_tags eit
+              WHERE eit.entity_instance_id = ${entityInstances.id}
+                AND eit.tenant_id = ${tenantId}
+                AND eit.tag_text ILIKE ${`%${escapeLikePattern(tag)}%`} ESCAPE '\\'
+            )`
+          : undefined,
       );
 
       const fetchedRows = await withTenantContext(tenantId, (tx) =>
@@ -94,6 +151,7 @@ export const myTicketsHandler = factory.createHandlers(
             originMechanism: entityInstances.originMechanism,
             originOidcClientId: entityInstances.originOidcClientId,
             originPerformerUserId: entityInstances.originPerformerUserId,
+            severity: entityInstances.severity,
           })
           .from(entityInstances)
           .where(baseConditions)
@@ -305,6 +363,7 @@ export const myTicketsHandler = factory.createHandlers(
             createdAt: row.createdAt.toISOString(),
             accessReason: reason === "creator" ? ("manual" as const) : reason,
             origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
+            severity: row.severity,
           });
         } else {
           // Parent ticket
@@ -317,6 +376,7 @@ export const myTicketsHandler = factory.createHandlers(
             createdAt: row.createdAt.toISOString(),
             accessReason: reason,
             origin: toOriginDisplay(row, nameByClientId, performerNameByUserId),
+            severity: row.severity,
           });
         }
 

@@ -42,6 +42,7 @@ import {
   workflowStates,
   workflows,
   entityTypes,
+  entityFields,
 } from "@platform/db";
 import { env } from "@platform/config";
 import { createEntityType, createEntity } from "@platform/entity-engine";
@@ -152,6 +153,10 @@ afterAll(async () => {
       .where(eq(workflowTransitions.tenantId, TENANT));
     await tx.delete(workflowStates).where(eq(workflowStates.tenantId, TENANT));
     await tx.delete(workflows).where(eq(workflows.tenantId, TENANT));
+    // entityFields before entityTypes — entity_fields.entity_type_id has no
+    // ON DELETE CASCADE, so deleting entityTypes first would FK-violate
+    // (createEntityType now auto-seeds a "title" custom field per tenant).
+    await tx.delete(entityFields).where(eq(entityFields.tenantId, TENANT));
     await tx.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT));
   });
 });
@@ -161,7 +166,7 @@ describe("transition action stamps depth on its own outbox row (#379)", () => {
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "Depth transition test ticket" },
         workflowId,
       }),
     );

@@ -7,7 +7,7 @@
  *
  * Real Postgres connection, RLS + app_user enforced (not mocked).
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { eq } from "drizzle-orm";
@@ -17,6 +17,23 @@ import { hashApiKey } from "@platform/auth";
 import type { AuthContext } from "@platform/auth";
 import { createEntityHandler } from "../../src/routes/entities/create.js";
 
+// assignedTo is now mandatory (platform-wide invariant) and resolves against
+// a real Zitadel role lookup -- mocked at the service boundary per
+// testing-conventions.md, same pattern as third-party-ticket-create's own
+// listOrgUsers mock. "handoff-origin-test-assignee" is the only fixture
+// this file's request bodies ever assign to.
+import type * as ZitadelManagement from "../../src/lib/zitadel-management.js";
+vi.mock("../../src/lib/zitadel-management.js", async (importOriginal) => {
+  const real = await importOriginal<typeof ZitadelManagement>();
+  return {
+    ...real,
+    listUserIdsWithRole: async () => new Set(["handoff-origin-test-assignee"]),
+  };
+});
+
+// Relative, not a fixed date: a due date must be after the ticket's creation
+// (entity-engine), so any fixed date eventually falls into the past.
+const DUE_DATE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 const TENANT = "aabbccdd-0000-4000-a000-000000000090";
 const ACTIVE_KEY_ID = "90000000-9000-4000-9000-000000000001";
 const REVOKED_KEY_ID = "90000000-9000-4000-9000-000000000002";
@@ -124,6 +141,9 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
       body: JSON.stringify({
         entityTypeId,
         fields: {},
+        assignedTo: "handoff-origin-test-assignee",
+        dueDate: DUE_DATE,
+        remark: "a remark",
         appClientId: ACTIVE_CLIENT_ID,
       }),
     });
@@ -149,7 +169,13 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
     const res = await makeApp().request("/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entityTypeId, fields: {} }),
+      body: JSON.stringify({
+        entityTypeId,
+        fields: {},
+        assignedTo: "handoff-origin-test-assignee",
+        dueDate: DUE_DATE,
+        remark: "a remark",
+      }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as { data: { id: string } };
@@ -175,6 +201,9 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
       body: JSON.stringify({
         entityTypeId,
         fields: {},
+        assignedTo: "handoff-origin-test-assignee",
+        dueDate: DUE_DATE,
+        remark: "a remark",
         appClientId: "not-a-real-registered-client-id",
       }),
     });
@@ -194,6 +223,9 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
       body: JSON.stringify({
         entityTypeId,
         fields: {},
+        assignedTo: "handoff-origin-test-assignee",
+        dueDate: DUE_DATE,
+        remark: "a remark",
         appClientId: REVOKED_CLIENT_ID,
       }),
     });
@@ -218,6 +250,9 @@ describe("POST /entities appClientId validation (docs/specs/hosted-ticket-create
       body: JSON.stringify({
         entityTypeId,
         fields: {},
+        assignedTo: "handoff-origin-test-assignee",
+        dueDate: DUE_DATE,
+        remark: "a remark",
         appClientId: OTHER_TENANT_CLIENT_ID,
       }),
     });

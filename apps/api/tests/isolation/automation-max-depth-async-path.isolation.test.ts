@@ -32,6 +32,7 @@ import {
   workflowStates,
   workflows,
   entityTypes,
+  entityFields,
 } from "@platform/db";
 import { env } from "@platform/config";
 import { createEntityType, createEntity } from "@platform/entity-engine";
@@ -159,6 +160,10 @@ afterAll(async () => {
       .where(eq(workflowTransitions.tenantId, TENANT));
     await tx.delete(workflowStates).where(eq(workflowStates.tenantId, TENANT));
     await tx.delete(workflows).where(eq(workflows.tenantId, TENANT));
+    // createEntityType now auto-seeds a "title" entity_fields row — must be
+    // deleted before entityTypes or the FK blocks the delete on every rerun
+    // (this tenant id is reused across runs).
+    await tx.delete(entityFields).where(eq(entityFields.tenantId, TENANT));
     await tx.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT));
   });
 });
@@ -168,7 +173,7 @@ describe("MAX_DEPTH is enforced on the async outbox->worker path (#143 T7)", () 
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "T7 depth test ticket" },
         workflowId,
       }),
     );

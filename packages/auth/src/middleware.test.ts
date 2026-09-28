@@ -291,6 +291,93 @@ describe("requireAuth", () => {
       expect(mockTxOnConflictDoUpdate).toHaveBeenCalledTimes(1);
     });
 
+    it("does not overwrite a stored name when the token carries no name", async () => {
+      // A token with no name claim leaves displayName set to the subject id.
+      // That is the absence of a name, so the stored one must survive.
+      // Live symptom when it did not: the only two users with active sessions
+      // had their real names replaced by their numeric ids on the next
+      // request, while everyone else kept theirs.
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        displayName: VALID_AUTH.userId,
+      });
+      mockExistingTenantUser = {
+        email: VALID_AUTH.email,
+        displayName: "Alice Tester",
+      };
+      // A nameless token sends the middleware to the userinfo endpoint; this
+      // is the case where that lookup also comes back without a name, which is
+      // what produced the live failure.
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }),
+      );
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "no-name.jwt");
+      vi.unstubAllGlobals();
+
+      expect(res.status).toBe(200);
+      // Nothing better to write, and nothing worse written: no write at all.
+      expect(mockTxInsertValues).not.toHaveBeenCalled();
+    });
+
+    it("still stores a real name when the token carries one", async () => {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        displayName: "Alice Renamed",
+      });
+      mockExistingTenantUser = {
+        email: VALID_AUTH.email,
+        displayName: "Alice Tester",
+      };
+
+      const app = makeApp([requireAuth()]);
+      await get(app, "valid.jwt");
+
+      expect(mockTxInsertValues).toHaveBeenCalledTimes(1);
+      expect(mockTxInsertValues.mock.calls[0]?.[0]).toMatchObject({
+        displayName: "Alice Renamed",
+      });
+    });
+
+    it("keeps the stored email when the token's email is an empty string", async () => {
+      // The old `auth.email || null` turned "" into null and overwrote the
+      // stored address; an empty claim is as meaningless as a missing one.
+      // A new display name forces a write, so the email that write carries
+      // is what this checks.
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        email: "",
+        displayName: "Alice Renamed",
+      });
+      mockExistingTenantUser = {
+        email: "alice@stored.example.com",
+        displayName: "Alice Tester",
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }),
+      );
+
+      const app = makeApp([requireAuth()]);
+      await get(app, "empty-email.jwt");
+      vi.unstubAllGlobals();
+
+      expect(mockTxInsertValues).toHaveBeenCalledTimes(1);
+      expect(mockTxInsertValues.mock.calls[0]?.[0]).toMatchObject({
+        email: "alice@stored.example.com",
+        displayName: "Alice Renamed",
+      });
+    });
+
     it("skips the write when the existing row already matches the JWT profile", async () => {
       mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
       mockExtractAuthContext.mockReturnValueOnce(VALID_AUTH);

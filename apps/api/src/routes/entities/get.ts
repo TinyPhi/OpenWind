@@ -11,6 +11,8 @@ import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { resolveOriginDisplay } from "../../lib/resolve-origin-display.js";
+import { resolveTeamDisplayName } from "../../lib/resolve-team-display.js";
+import { stripInternalFields } from "../../lib/strip-internal-fields.js";
 
 async function getAncestorDepth(
   db: Parameters<Parameters<typeof withTenantContext>[1]>[0],
@@ -81,9 +83,24 @@ export const getEntityHandler = factory.createHandlers(
       // application name for display (R1/R2/R4's ticket-detail tag), not
       // the raw oidc_client_id the record itself stores.
       const origin = await resolveOriginDisplay(tenantId, instance);
+      // Resolves fields.team_id to the team's live name, same "resolve on
+      // read" pattern as origin above — never a raw UUID on the page.
+      const teamName = await resolveTeamDisplayName(tenantId, instance.fields);
 
       return c.json({
-        data: { ...instance, parentId, childCount, canAddChildren, origin },
+        data: {
+          ...instance,
+          // PR #659 review (Vijit), G1: __accessUsers (internal ACL
+          // bookkeeping) was stripped from every third-party route but not
+          // this first-party one -- any caller with read access, including
+          // a "user"-role ticket creator, got the full grant-level map back.
+          fields: stripInternalFields(instance.fields),
+          parentId,
+          childCount,
+          canAddChildren,
+          origin,
+          teamName,
+        },
       });
     } catch (err) {
       return handleEntityError(c, err);

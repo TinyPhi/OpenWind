@@ -16,6 +16,7 @@ import { Login } from "./pages/login.js";
 import { AuthCallback } from "./pages/callback.js";
 import { Dashboard } from "./pages/dashboard.js";
 import { Analytics } from "./pages/analytics.js";
+import { ReportingPage } from "./pages/reporting.js";
 import { Modules } from "./pages/modules.js";
 import { Plugins } from "./pages/plugins.js";
 import { EntityTypeDetail } from "./pages/entity-types/detail.js";
@@ -38,7 +39,11 @@ import { ApiKeysPage } from "./pages/api-keys/page.js";
 import { ApiKeyApplicationDetail } from "./pages/api-keys/detail.js";
 import { ScheduleRulesPage } from "./pages/schedule-rules/index.js";
 import { ScheduleRuleDetailPage } from "./pages/schedule-rules/detail.js";
+import { TeamsPage } from "./pages/teams/index.js";
+import { ServicesPage } from "./pages/services/index.js";
+import { RosterPage } from "./pages/roster/index.js";
 import { NotificationPoliciesPage } from "./pages/notification-policies/index.js";
+import { OnCallAdminPage } from "./pages/admin-oncall/index.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
@@ -124,6 +129,7 @@ export function App(): React.ReactElement {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/reporting" element={<ReportingPage />} />
             <Route path="/records" element={<AdminRecords />} />
             <Route
               path="/workflows/:workflowSlug/records"
@@ -196,6 +202,14 @@ export function App(): React.ReactElement {
                 path="/admin/schedule-rules/:id"
                 element={<ScheduleRuleDetailPage />}
               />
+              {/* Combined tabbed hub (Teams | Services | Roster | Notification
+                  Policies) — the sidebar links here now. The 4 individual
+                  routes below stay mounted so existing bookmarks/direct
+                  links to e.g. /admin/teams keep working. */}
+              <Route path="/admin/on-call" element={<OnCallAdminPage />} />
+              <Route path="/admin/teams" element={<TeamsPage />} />
+              <Route path="/admin/services" element={<ServicesPage />} />
+              <Route path="/admin/roster" element={<RosterPage />} />
               <Route
                 path="/admin/notification-policies"
                 element={<NotificationPoliciesPage />}

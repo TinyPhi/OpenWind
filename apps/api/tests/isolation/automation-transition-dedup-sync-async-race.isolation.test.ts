@@ -48,6 +48,7 @@ import {
   workflowStates,
   workflows,
   entityTypes,
+  entityFields,
   notifications,
   notificationRecipients,
   tenants,
@@ -93,11 +94,18 @@ beforeAll(async () => {
   redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   // Required by notifications.tenant_id's FK — unlike entity_types/workflows,
   // notifications was added after tenant FKs became the norm for new tables.
-  await db.insert(tenants).values({
-    id: TENANT,
-    name: "T6 sync-async race test",
-    slug: `t6-race-${TENANT}`,
-  });
+  // onConflictDoNothing guards against a leftover row from a prior run whose
+  // afterAll didn't reach the tenants delete (e.g. an interrupted run) —
+  // the fixed TENANT id is otherwise unused, so this is a no-op in the
+  // normal case.
+  await db
+    .insert(tenants)
+    .values({
+      id: TENANT,
+      name: "T6 sync-async race test",
+      slug: `t6-race-${TENANT}`,
+    })
+    .onConflictDoNothing();
   entityType = await createEntityType(db, TENANT, {
     name: `t6_race_ticket_${Date.now()}`,
     plural: "t6_race_tickets",
@@ -205,6 +213,10 @@ afterAll(async () => {
       .where(eq(workflowTransitions.tenantId, TENANT));
     await tx.delete(workflowStates).where(eq(workflowStates.tenantId, TENANT));
     await tx.delete(workflows).where(eq(workflows.tenantId, TENANT));
+    // entityFields before entityTypes — entity_fields.entity_type_id has no
+    // ON DELETE CASCADE, so deleting entityTypes first would FK-violate
+    // (createEntityType now auto-seeds a "title" custom field per tenant).
+    await tx.delete(entityFields).where(eq(entityFields.tenantId, TENANT));
     await tx.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT));
   });
   await db.delete(tenants).where(eq(tenants.id, TENANT));
@@ -215,7 +227,7 @@ describe("executor.ts dedup prevents a duplicate rule execution on a sync/async 
     const instance = await withTenantContext(TENANT, (tx) =>
       createEntity(tx, TENANT, {
         entityTypeId: entityType.id,
-        fields: {},
+        fields: { title: "T6 race test ticket" },
         workflowId,
       }),
     );

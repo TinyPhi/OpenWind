@@ -4,6 +4,7 @@ import { entityTypes, entityInstances } from "@platform/db";
 import { logger } from "@platform/logger";
 import type { EntityType } from "./types.js";
 import { EntityError } from "./errors.js";
+import { addEntityField } from "./engine.js";
 import {
   encodeCursor,
   decodeCursor,
@@ -51,6 +52,68 @@ export async function createEntityType(
     .returning();
 
   if (!row) throw new EntityError("ENTITY_TYPE_NOT_FOUND");
+
+  // Mandatory-ticket-fields sync, 2026-09-21 -- guarantee every new,
+  // per-tenant entity type has at least a required "title" field from the
+  // moment it's created, rather than leaving that to the admin's separate,
+  // optional "add fields" step afterward (apps/admin-ui's workflow-create
+  // page never called that step automatically, so plenty of real workflows
+  // ended up with no required custom field at all, or an arbitrary set of
+  // their own instead of the intended title-is-the-one-mandatory-field
+  // baseline). Does not touch what other fields the admin adds afterward or
+  // whether they mark them required too -- this only guarantees the floor.
+  // Skipped for module-catalog entity types (tenantId === null): those come
+  // from seed SQL (modules/*.sql) which defines its own fields explicitly,
+  // per ADR-004's config-first module model. Also skipped when this entity
+  // type was created with allowCustomFields: false -- addEntityField itself
+  // enforces that flag (engine.ts, CUSTOM_FIELDS_NOT_ALLOWED) and would
+  // throw here otherwise, turning a locked-down entity type's creation into
+  // a hard failure (/review finding, 2026-09-21). An allowCustomFields:false
+  // entity type is intentionally locked down, same reasoning as the
+  // module-catalog skip above -- it doesn't get either auto-seeded field.
+  const allowCustomFields = input.allowCustomFields ?? true;
+  if (tenantId !== null && allowCustomFields) {
+    await addEntityField(db, tenantId, row.id, {
+      entityTypeId: row.id,
+      name: "title",
+      label: "Title",
+      fieldType: "text",
+      config: {},
+      isRequired: true,
+      isIndexed: true,
+      isSystem: false,
+      sortOrder: 0,
+      sensitivity: "public",
+      createdAt: new Date(),
+    });
+
+    // Team-assign sync, 2026-09-21 (docs/specs/team-assign-oncall-fallback.md
+    // R2) -- guarantee every new, per-tenant entity type has a team_id field
+    // available from creation, mirroring the title auto-seed above. Always
+    // optional (never isRequired: true): a ticket assigned by user has no
+    // team, and by design exactly one of assignedTo/teamId is ever set (see
+    // apps/api/src/routes/entities/create.ts's CreateEntitySchema refinement)
+    // -- forcing team_id required would break that exclusivity. fieldType is
+    // plain "text" (holds a teams.id UUID string), not "entity_ref": that
+    // type validates against entity_instances, and teams is a separate
+    // lookup table, not an entity type. This field is deliberately never
+    // rendered via FieldInput on either ticket-creation form (excluded from
+    // both the Mandate and Other tabs) -- its value is written exclusively
+    // through the create form's User/Team assign-mode toggle.
+    await addEntityField(db, tenantId, row.id, {
+      entityTypeId: row.id,
+      name: "team_id",
+      label: "Team",
+      fieldType: "text",
+      config: {},
+      isRequired: false,
+      isIndexed: true,
+      isSystem: false,
+      sortOrder: 1,
+      sensitivity: "public",
+      createdAt: new Date(),
+    });
+  }
 
   logger.info(
     { tenantId, entityTypeId: row.id, name: row.name },

@@ -61,12 +61,22 @@ requirements more likely to surface, not less. Row updated below, not removed.
 | No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay) — **decided 2026-09-18: keep open**, not a maintainer-decision gap anymore, just unstaffed work | [#198](../../issues/198) | Unassigned |
 | Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                                               | [#200](../../issues/200) | Unassigned |
 | `rate-limit.ts` trusts the first `X-Forwarded-For` hop with no enforcement that a fronting proxy overwrites (not appends) it — spoofable rate-limit bypass if misconfigured                                                                                      | [#540](../../issues/540) | Unassigned |
-| Automation executor ignores `trigger_config` — `workflow.transitioned` rules with a bare `toState` condition fire for every entity type sharing that state name (found during #606; tender's `create_child` rule affected)                                       | [#678](../../issues/678) | Unassigned |
-| Tender seed uses unregistered `textarea` field type — four fields fall through to `z.unknown()` and go unvalidated (found during #606)                                                                                                                           | [#679](../../issues/679) | Unassigned |
+| Per-user erasure misses user ids inside tenant-defined `user_ref` custom fields and free-text mentions in `entity_instances.fields` (found during #635)                                                                                                          | [#688](../../issues/688) | Unassigned |
 
 ---
 
 ## No tracked issue yet — file before picking up
+
+### Found during #678 (automation trigger_config scoping, 2026-09-27)
+
+- **System-template entity types are protected from tenant renames by RLS alone.**
+  `updateEntityType` (`packages/entity-engine/src/entity-types.ts` ~197–235) explicitly includes
+  `tenant_id IS NULL` rows in its SELECT and UPDATE. Only the `tenant_type_write` RLS policy
+  (migration 0037) stops a tenant admin from renaming one; the explicit-filter layer doesn't. The
+  comment there saying `entity_types` has no RLS is stale. Since #678, rules scoped by
+  `{"entityType": name}` match system templates by name, so a regression here would let one
+  tenant change what every tenant's name-scoped rules match. Fix: exclude NULL-tenant rows from
+  the tenant update path explicitly.
 
 ### ADR backlog (all from the 2026-06-29 consulting review, still open)
 

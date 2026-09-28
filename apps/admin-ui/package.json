@@ -21,6 +21,7 @@
     "@platform/ui": "workspace:*",
     "@refinedev/core": "^4.0.0",
     "@refinedev/react-router-v6": "^4.0.0",
+    "@superset-ui/embedded-sdk": "0.4.0",
     "i18next": "^26.3.6",
     "oidc-client-ts": "^3.5.0",
     "react": "^18.3.0",

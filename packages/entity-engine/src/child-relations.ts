@@ -16,6 +16,7 @@ import {
 import { logger } from "@platform/logger";
 import { EntityError, ValidationError } from "./errors.js";
 import { validateReservedFieldNames } from "./validation/index.js";
+import { DEFAULT_TICKET_SEVERITY } from "./severity-and-tags.js";
 import {
   buildEntityAssignedPayload,
   buildEntityCreatedPayload,
@@ -188,6 +189,7 @@ export async function createChildRelation(
     assignedTo,
     createdBy,
     dueDate,
+    remark,
     actorType,
     actingPersonId,
     maxAncestorDepth,
@@ -346,9 +348,13 @@ export async function createChildRelation(
       createdBy: createdBy ?? null,
       currentState: "open",
       dueDate: dueDate ? new Date(dueDate) : null,
+      remark: remark ?? null,
       originMechanism: originMechanism ?? null,
       originOidcClientId: originOidcClientId ?? null,
       originPerformerUserId: originPerformerUserId ?? null,
+      // docs/specs/ticket-severity-and-tags.md R1/R7 — sub-tickets follow the
+      // same "never NULL past creation" rule as top-level tickets.
+      severity: DEFAULT_TICKET_SEVERITY,
     })
     .returning();
 
@@ -808,6 +814,7 @@ function rowToInstance(
     createdBy: row.createdBy,
     assignedTo: row.assignedTo,
     dueDate: row.dueDate,
+    remark: row.remark,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
@@ -818,6 +825,7 @@ function rowToInstance(
     originMechanism: row.originMechanism as "api" | "handoff" | null,
     originOidcClientId: row.originOidcClientId,
     originPerformerUserId: row.originPerformerUserId,
+    severity: row.severity ?? null,
   };
 }
 

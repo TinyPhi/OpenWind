@@ -1,5 +1,8 @@
 import type { Redis } from "ioredis";
+import { and, eq } from "drizzle-orm";
 import type { DbOrTx } from "@platform/db";
+import { entityInstances } from "@platform/db";
+import { logger } from "@platform/logger";
 import { executeTransition } from "@platform/workflow-engine";
 import type { TriggerEvent } from "../event-schemas.js";
 import { executeAutomationRules } from "../executor.js";
@@ -28,12 +31,30 @@ export async function executeTransitionAction(
     ...(config.comment !== undefined && { comment: config.comment }),
   });
 
-  // Propagate entityTypeId from the triggering event when available (all four
-  // TriggerEvent variants carry entityTypeId). When config.instanceId targets
-  // a different entity than the one that fired the rule, the entityTypeId will
-  // be wrong; a full fix requires a DB lookup which is deferred.
-  const entityTypeId =
-    "entityTypeId" in event ? (event.entityTypeId as string) : instanceId;
+  // The follow-up event describes the instance that was just transitioned,
+  // which config.instanceId may point at instead of the triggering entity —
+  // read its entity type rather than copying the triggering event's. Rules
+  // scoped by entityTypeId depend on this (#678).
+  const [transitioned] = await db
+    .select({ entityTypeId: entityInstances.entityTypeId })
+    .from(entityInstances)
+    .where(
+      and(
+        eq(entityInstances.id, instanceId),
+        eq(entityInstances.tenantId, tenantId),
+      ),
+    )
+    .limit(1);
+  if (!transitioned) {
+    // executeTransition just succeeded in this transaction, so this should be
+    // unreachable — but never drop the follow-up rules silently.
+    logger.warn(
+      { tenantId, instanceId },
+      "Automation: transition action — instance not found after transition; skipping follow-up rules",
+    );
+    return;
+  }
+  const { entityTypeId } = transitioned;
 
   // This recursive call — together with engine.ts's outbox-write skip for
   // triggeredBy === "automation" — IS the actual double-trigger guard for

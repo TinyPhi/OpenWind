@@ -14,20 +14,46 @@ import { z } from "zod";
 // JSONB blob is a cross-system (route <-> future Phase 3 worker) contract,
 // not a Drizzle-managed column, so it follows the documented API shape
 // rather than this repo's usual camelCase-in-TS convention.
-export const TemplateSchema = z.object({
-  title: z.string().trim().min(1).max(500), // trim before min: "   " must fail validation
-  description: z.string().trim().max(10000).optional(),
-  severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-  assignee_id: z.string().uuid().optional(),
-  team_id: z.string().uuid().optional(),
-  service_id: z.string().uuid().optional(),
-  // Days after the fire time the created ticket's due_date should be set to
-  // (docs/specs/temporal-scheduler.md's template can't hold a fixed date --
-  // each fire creates a new ticket, so "due date" only makes sense as an
-  // offset from that fire's scheduledAt, applied in fireRule).
-  due_after_days: z.number().int().min(0).max(3650).optional(),
-  fields: z.record(z.string(), z.unknown()).optional(),
-});
+export const TemplateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500), // trim before min: "   " must fail validation
+    description: z.string().trim().max(10000).optional(),
+    severity: z.enum(["critical", "high", "medium", "low"]).optional(),
+    // Mandate fields mirror apps/api/src/routes/entities/create.ts's
+    // CreateEntitySchema (docs/specs/schedule-rules-mandate-fields.md R1) --
+    // exactly one of assignedTo/teamId, enforced by the superRefine below.
+    // teamId resolves via the existing entity.created -> resolve_oncall
+    // cascade at fire time, never a separate resolution path (R2).
+    assignedTo: z.string().uuid().optional(),
+    teamId: z.string().uuid().optional(),
+    service_id: z.string().uuid().optional(),
+    // Due date has no fixed value for a recurring rule -- due_days is an
+    // offset from each fire's own scheduled instant (R4). Capped at 3650
+    // (10 years) -- same ceiling the pre-mandate-fields due_after_days had;
+    // PR #659 review (Vijit), B2: dropping it during the R1-R7 rename let
+    // an unbounded offset (e.g. 99999999) produce a due date centuries out.
+    due_days: z.number().int().min(0).max(3650),
+    // Becomes the fired ticket's first comment via postRemarkComment,
+    // attributed to the rule's creator (R5) -- same bounds as
+    // CreateEntitySchema's remark field.
+    remark: z.string().trim().min(1).max(4000),
+    fields: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((template, ctx) => {
+    const hasAssignedTo = template.assignedTo !== undefined;
+    const hasTeamId = template.teamId !== undefined;
+    if (hasAssignedTo === hasTeamId) {
+      // PR #659 review (Vijit), G3: blame whichever field is actually the
+      // problem -- both set -> teamId is the "extra" one; neither set ->
+      // assignedTo is the one a caller who never touched teamId expects to
+      // see flagged, not a field it never provided a value for.
+      ctx.addIssue({
+        code: "custom",
+        message: "Exactly one of assignedTo or teamId must be set",
+        path: hasAssignedTo && hasTeamId ? ["teamId"] : ["assignedTo"],
+      });
+    }
+  });
 
 export type Template = z.infer<typeof TemplateSchema>;
 

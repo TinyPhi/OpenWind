@@ -53,11 +53,14 @@ const mockTemplateSchema = z.object({
   title: z.string().trim().min(1).max(500),
   description: z.string().trim().max(10000).optional(),
   severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-  assignee_id: z.string().uuid().optional(),
-  team_id: z.string().uuid().optional(),
+  assignedTo: z.string().uuid().optional(),
+  teamId: z.string().uuid().optional(),
   service_id: z.string().uuid().optional(),
+  due_days: z.number().int().min(0),
+  remark: z.string().trim().min(1).max(4000),
   fields: z.record(z.string(), z.unknown()).optional(),
 });
+const mockPostScheduleRemarkComment = vi.fn().mockResolvedValue(undefined);
 vi.mock("@platform/scheduler", () => ({
   computeNextFireAt: (...args: [string, string, Date]) =>
     mockComputeNextFireAt(...args),
@@ -66,6 +69,8 @@ vi.mock("@platform/scheduler", () => ({
   TemplateSchema: mockTemplateSchema,
   validateScheduleRuleRefs: (...args: unknown[]) =>
     mockValidateScheduleRuleRefs(...args),
+  postScheduleRemarkComment: (...args: unknown[]) =>
+    mockPostScheduleRemarkComment(...args),
 }));
 
 let dueRules: unknown[] = [];
@@ -146,7 +151,12 @@ function makeRule(overrides: Partial<Record<string, unknown>> = {}) {
     timezone: "UTC",
     entityTypeId: "et-1",
     workflowId: null,
-    template: { title: "Weekly review" },
+    template: {
+      title: "Weekly review",
+      teamId: "22222222-2222-2222-2222-222222222222",
+      due_days: 2,
+      remark: "Auto-created by the weekly review rule.",
+    },
     status: "active",
     nextFireAt: new Date(Date.now() - 1000),
     lastFiredAt: null,
@@ -169,6 +179,7 @@ describe("schedulerTick", () => {
     mockCreateEntity.mockReset();
     mockValidateScheduleRuleRefs.mockReset().mockResolvedValue([]);
     mockWithTenantContext.mockClear();
+    mockPostScheduleRemarkComment.mockClear().mockResolvedValue(undefined);
     mockSetScheduleSweeperRole.mockClear();
   });
 
@@ -212,64 +223,6 @@ describe("schedulerTick", () => {
 
     // Once for the poll transaction, once for claimRule's transaction.
     expect(mockSetScheduleSweeperRole).toHaveBeenCalledTimes(2);
-  });
-
-  it("posts the template's remark as the ticket's first comment, authored by the rule owner", async () => {
-    // User request: the schedule rule's "remark" (template.description)
-    // shows up as the first comment on the auto-created ticket, attributed
-    // to whoever created the rule -- not a silent system actor.
-    const rule = makeRule({
-      createdBy: "u-creator",
-      template: { title: "Weekly review", description: "Please review Q3." },
-    });
-    dueRules = [rule];
-    claimRows = [rule];
-    mockCreateEntity.mockResolvedValue({
-      id: "ticket-1",
-      workflowId: "wf-1",
-      currentState: "open",
-    });
-
-    await schedulerTick();
-
-    const commentEvent = insertedExecutions.find(
-      (e) =>
-        (e as { metadata?: { type?: string } }).metadata?.type === "comment",
-    ) as
-      | {
-          instanceId: string;
-          workflowId: string;
-          actorId: string;
-          triggeredBy: string;
-          metadata: { type: string; text: string };
-        }
-      | undefined;
-
-    expect(commentEvent).toBeDefined();
-    expect(commentEvent?.instanceId).toBe("ticket-1");
-    expect(commentEvent?.workflowId).toBe("wf-1");
-    expect(commentEvent?.actorId).toBe("u-creator");
-    expect(commentEvent?.triggeredBy).toBe("user");
-    expect(commentEvent?.metadata.text).toBe("Please review Q3.");
-  });
-
-  it("does not post a comment when the template has no remark", async () => {
-    const rule = makeRule({ template: { title: "Weekly review" } });
-    dueRules = [rule];
-    claimRows = [rule];
-    mockCreateEntity.mockResolvedValue({
-      id: "ticket-1",
-      workflowId: "wf-1",
-      currentState: "open",
-    });
-
-    await schedulerTick();
-
-    const commentEvent = insertedExecutions.find(
-      (e) =>
-        (e as { metadata?: { type?: string } }).metadata?.type === "comment",
-    );
-    expect(commentEvent).toBeUndefined();
   });
 
   it("skips a rule already claimed by another worker instance", async () => {
@@ -434,6 +387,165 @@ describe("schedulerTick", () => {
     expect(mockScheduleExecutionAdd).toHaveBeenCalledWith(1, {
       status: "failed",
       errorCode: "TEMPLATE_VALIDATION_FAILED",
+    });
+  });
+
+  describe("mandate fields (docs/specs/schedule-rules-mandate-fields.md)", () => {
+    it("teamId mode writes fields.team_id and does not pass assignedTo, leaving resolution to the entity.created -> resolve_oncall cascade", async () => {
+      const rule = makeRule({
+        template: {
+          title: "Team review",
+          teamId: "22222222-2222-2222-2222-222222222222",
+          due_days: 1,
+          remark: "r",
+        },
+      });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({
+        id: "ticket-team",
+        workflowId: "wf-1",
+        currentState: "open",
+      });
+
+      await schedulerTick();
+
+      expect(mockCreateEntity).toHaveBeenCalledTimes(1);
+      const createArgs = mockCreateEntity.mock.calls[0]?.[2] as {
+        assignedTo?: string;
+        fields: Record<string, unknown>;
+      };
+      expect(createArgs.assignedTo).toBeUndefined();
+      expect(createArgs.fields["team_id"]).toBe(
+        "22222222-2222-2222-2222-222222222222",
+      );
+    });
+
+    it("assignedTo mode passes assignedTo directly and writes no team_id field", async () => {
+      const rule = makeRule({
+        template: {
+          title: "User review",
+          assignedTo: "33333333-3333-3333-3333-333333333333",
+          due_days: 1,
+          remark: "r",
+        },
+      });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({
+        id: "ticket-user",
+        workflowId: "wf-1",
+        currentState: "open",
+      });
+
+      await schedulerTick();
+
+      const createArgs = mockCreateEntity.mock.calls[0]?.[2] as {
+        assignedTo?: string;
+        fields: Record<string, unknown>;
+      };
+      expect(createArgs.assignedTo).toBe(
+        "33333333-3333-3333-3333-333333333333",
+      );
+      expect(createArgs.fields["team_id"]).toBeUndefined();
+    });
+
+    it("resolves due date as the fire's scheduled instant plus due_days days", async () => {
+      const scheduledAt = new Date(Date.now() - 1000);
+      const rule = makeRule({
+        nextFireAt: scheduledAt,
+        template: {
+          title: "Due date check",
+          teamId: "22222222-2222-2222-2222-222222222222",
+          due_days: 3,
+          remark: "r",
+        },
+      });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({
+        id: "ticket-due",
+        workflowId: "wf-1",
+        currentState: "open",
+      });
+
+      await schedulerTick();
+
+      const createArgs = mockCreateEntity.mock.calls[0]?.[2] as {
+        dueDate: string;
+      };
+      expect(new Date(createArgs.dueDate).getTime()).toBe(
+        scheduledAt.getTime() + 3 * 24 * 60 * 60 * 1000,
+      );
+    });
+
+    it("posts the remark as the ticket's first comment, attributed to the rule's creator", async () => {
+      const rule = makeRule({
+        createdBy: "u-creator",
+        template: {
+          title: "Remark check",
+          teamId: "22222222-2222-2222-2222-222222222222",
+          due_days: 0,
+          remark: "This is the remark text.",
+        },
+      });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({
+        id: "ticket-remark",
+        workflowId: "wf-1",
+        currentState: "open",
+      });
+
+      await schedulerTick();
+
+      expect(mockPostScheduleRemarkComment).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          instanceId: "ticket-remark",
+          workflowId: "wf-1",
+          currentState: "open",
+          actorId: "u-creator",
+          text: "This is the remark text.",
+        }),
+      );
+    });
+
+    it("does not post a remark when the created ticket has no workflow", async () => {
+      const rule = makeRule();
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({
+        id: "ticket-no-wf",
+        workflowId: null,
+        currentState: "open",
+      });
+
+      await schedulerTick();
+
+      expect(mockPostScheduleRemarkComment).not.toHaveBeenCalled();
+    });
+
+    it("a remark-post failure does not fail the fire — execution still records success", async () => {
+      const rule = makeRule();
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({
+        id: "ticket-remark-fail",
+        workflowId: "wf-1",
+        currentState: "open",
+      });
+      mockPostScheduleRemarkComment.mockRejectedValue(new Error("boom"));
+
+      await schedulerTick();
+
+      expect(insertedExecutions).toHaveLength(1);
+      expect((insertedExecutions[0] as { status: string }).status).toBe(
+        "success",
+      );
+      expect(mockScheduleExecutionAdd).toHaveBeenCalledWith(1, {
+        status: "success",
+      });
     });
   });
 });

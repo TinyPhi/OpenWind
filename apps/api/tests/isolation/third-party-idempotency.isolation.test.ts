@@ -347,7 +347,13 @@ describe("Phase G — header forwarding and Retry-After verification", () => {
           "content-type": "application/json",
           "Idempotency-Key": key,
         },
-        body: JSON.stringify({ workflowId, fields: {} }),
+        body: JSON.stringify({
+          workflowId,
+          fields: {},
+          assignedTo: "some-assignee",
+          dueDate: "2026-01-01T00:00:00.000Z",
+          remark: "a remark",
+        }),
       });
       expect(res.status).toBe(409);
       expect(res.headers.get("Retry-After")).toBe("1");
@@ -371,7 +377,13 @@ describe("Phase G — header forwarding and Retry-After verification", () => {
           "content-type": "application/json",
           "Idempotency-Key": key,
         },
-        body: JSON.stringify({ entityTypeId, fields: {} }),
+        body: JSON.stringify({
+          entityTypeId,
+          fields: {},
+          assignedTo: "some-assignee",
+          dueDate: "2026-01-01T00:00:00.000Z",
+          remark: "a remark",
+        }),
       });
       expect(res.status).toBe(409);
       expect(res.headers.get("Retry-After")).toBe("1");

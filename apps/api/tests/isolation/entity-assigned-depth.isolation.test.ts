@@ -41,7 +41,10 @@ describe("entity.assigned outbox depth carries through for MAX_DEPTH enforcement
     });
 
     const instance = await withTenantContext(TENANT, (tx) =>
-      createEntity(tx, TENANT, { entityTypeId: entityType.id, fields: {} }),
+      createEntity(tx, TENANT, {
+        entityTypeId: entityType.id,
+        fields: { title: "Test ticket" },
+      }),
     );
 
     // No current automation action can reach this path (set_field only

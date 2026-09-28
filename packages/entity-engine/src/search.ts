@@ -76,6 +76,7 @@ export async function searchEntities(
       createdBy: entityInstances.createdBy,
       assignedTo: entityInstances.assignedTo,
       dueDate: entityInstances.dueDate,
+      remark: entityInstances.remark,
       createdAt: entityInstances.createdAt,
       updatedAt: entityInstances.updatedAt,
       deletedAt: entityInstances.deletedAt,
@@ -83,6 +84,7 @@ export async function searchEntities(
       originMechanism: entityInstances.originMechanism,
       originOidcClientId: entityInstances.originOidcClientId,
       originPerformerUserId: entityInstances.originPerformerUserId,
+      severity: entityInstances.severity,
       rank: rankExpr,
     })
     .from(entityInstances)
@@ -121,6 +123,7 @@ function rowToInstance(
     createdBy: row.createdBy ?? null,
     assignedTo: row.assignedTo ?? null,
     dueDate: row.dueDate ?? null,
+    remark: row.remark ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt ?? null,
@@ -131,5 +134,6 @@ function rowToInstance(
     originMechanism: row.originMechanism as "api" | "handoff" | null,
     originOidcClientId: row.originOidcClientId ?? null,
     originPerformerUserId: row.originPerformerUserId ?? null,
+    severity: row.severity ?? null,
   };
 }
