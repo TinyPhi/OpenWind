@@ -156,6 +156,44 @@ describe("GET /users", () => {
   describe("DELETE /users/:userId", () => {
     beforeEach(() => {
       vi.clearAllMocks();
+      mockEraseUserFromTenant.mockResolvedValue({ rotatedApiKeys: [] });
+    });
+
+    it("audits each API key put on a forced rotation window (#688)", async () => {
+      const rotateBy = new Date("2026-10-27T00:00:00.000Z");
+      mockEraseUserFromTenant.mockResolvedValueOnce({
+        rotatedApiKeys: [
+          { id: "key-1", expiresAt: rotateBy },
+          { id: "key-2", expiresAt: rotateBy },
+        ],
+      });
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+
+      const res = await makeApp().request("/users/target-user-123", {
+        method: "DELETE",
+      });
+      expect(res.status).toBe(200);
+      const keyEntries = mockWriteAuditEntry.mock.calls
+        // second argument is writeAuditEntry's AuditEntryInput
+        .map(
+          (c) =>
+            c[1] as {
+              resourceType: string;
+              resourceId: string;
+              metadata: unknown;
+            },
+        )
+        .filter((e) => e.resourceType === "api_key");
+      expect(keyEntries).toEqual([
+        expect.objectContaining({
+          resourceId: "key-1",
+          metadata: {
+            reason: "creator_erased",
+            rotateBy: rotateBy.toISOString(),
+          },
+        }),
+        expect.objectContaining({ resourceId: "key-2" }),
+      ]);
     });
 
     it("erases the user inside the tenant transaction, audits it, and invalidates the user cache", async () => {

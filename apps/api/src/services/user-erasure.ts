@@ -1,6 +1,7 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   type DbOrTx,
+  entityFields,
   tenantUsers,
   savedViews,
   notificationRecipients,
@@ -23,6 +24,7 @@ import {
   onCallSchedules,
   scheduleRules,
 } from "@platform/db";
+import type { EntityField } from "@platform/entity-engine";
 
 const REDACTED = "[REDACTED]";
 
@@ -46,7 +48,6 @@ export const USER_REFERENCE_COLUMNS_HANDLED: readonly string[] = [
   "entity_instance_tags.created_by",
   "workflows.created_by",
   "workflows.assigned_to",
-  "workflow_events.triggered_by",
   "workflow_events.actor_id",
   "workflow_events.origin_performer_user_id",
   "attachments.uploaded_by",
@@ -69,6 +70,8 @@ export const USER_REFERENCE_COLUMNS_HANDLED: readonly string[] = [
 
 /** User-reference columns deliberately left untouched, with the reason. */
 export const USER_REFERENCE_COLUMNS_EXEMPT: Readonly<Record<string, string>> = {
+  "workflow_events.triggered_by":
+    "not a user reference: holds the trigger type ('user', 'automation', 'api', 'system') — matched by the guard's column-name pattern only; the author is workflow_events.actor_id",
   "admin_audit_log.actor_id":
     "append-only security audit trail, kept under Art. 17(3)(b); anonymized only on tenant purge",
   "admin_audit_log.acting_person_id":
@@ -81,11 +84,33 @@ export const USER_REFERENCE_COLUMNS_EXEMPT: Readonly<Record<string, string>> = {
  * the user's; redacts or nulls the reference where the row belongs to someone
  * or something else. Every statement also filters on tenant_id explicitly.
  */
+/** Days an erased user's API keys keep working before they expire (#688). */
+export const API_KEY_ROTATION_GRACE_DAYS = 30;
+
+export type UserErasureResult = {
+  /** Keys the target created, now on a forced rotation window. */
+  rotatedApiKeys: Array<{ id: string; expiresAt: Date | null }>;
+};
+
 export async function eraseUserFromTenant(
   tx: DbOrTx,
   tenantId: string,
   targetUserId: string,
-): Promise<void> {
+): Promise<UserErasureResult> {
+  // Read before tenant_users is deleted below: the text rewrite needs it.
+  const [member] = await tx
+    .select({ displayName: tenantUsers.displayName })
+    .from(tenantUsers)
+    .where(
+      and(
+        eq(tenantUsers.tenantId, tenantId),
+        eq(tenantUsers.userId, targetUserId),
+      ),
+    )
+    .limit(1);
+  await scrubComments(tx, tenantId, targetUserId, member?.displayName ?? null);
+  await scrubUserRefFields(tx, tenantId, targetUserId);
+
   // saved_views RLS also requires user_id = app.user_id, and the caller is the
   // admin, not the target — switch the GUC to the target for this one delete
   // (transaction-local), then restore it. The savepoint (nested transaction)
@@ -147,12 +172,27 @@ export async function eraseUserFromTenant(
       ),
     );
 
+  // #688: a pending request from an erased user is dead and goes; a resolved
+  // one is access-grant history and stays, anonymized.
   await tx
     .delete(accessRequests)
     .where(
       and(
         eq(accessRequests.tenantId, tenantId),
         eq(accessRequests.requesterId, targetUserId),
+        eq(accessRequests.status, "pending"),
+      ),
+    );
+  await tx
+    .update(accessRequests)
+    .set({ requesterId: REDACTED })
+    .where(
+      and(
+        eq(accessRequests.tenantId, tenantId),
+        eq(accessRequests.requesterId, targetUserId),
+        // status is CHECK-constrained to pending/approved/rejected, so this
+        // plus the pending delete above covers every row.
+        ne(accessRequests.status, "pending"),
       ),
     );
   await tx
@@ -165,33 +205,25 @@ export async function eraseUserFromTenant(
       ),
     );
 
-  // A key rotated by someone else points back at the target's old key via
-  // rotated_from (self-FK, NO ACTION) — clear that lineage pointer first.
-  await tx
+  // #688: keys are org-owned integration credentials (scopes live on the key,
+  // not the creator), so they survive — deleting them broke live
+  // integrations. But the erased person may still hold the secret, so each
+  // key gets a forced rotation window: expires_at is pulled in to at most
+  // API_KEY_ROTATION_GRACE_DAYS from now (ADR-008 expiry, enforced at auth),
+  // and the caller audits each key so admins can find what to rotate.
+  const rotateBy = new Date(
+    Date.now() + API_KEY_ROTATION_GRACE_DAYS * 24 * 60 * 60 * 1000,
+  );
+  const rotatedApiKeys = await tx
     .update(apiKeys)
-    .set({ rotatedFrom: null })
-    .where(
-      and(
-        eq(apiKeys.tenantId, tenantId),
-        inArray(
-          apiKeys.rotatedFrom,
-          tx
-            .select({ id: apiKeys.id })
-            .from(apiKeys)
-            .where(
-              and(
-                eq(apiKeys.tenantId, tenantId),
-                eq(apiKeys.createdBy, targetUserId),
-              ),
-            ),
-        ),
-      ),
-    );
-  await tx
-    .delete(apiKeys)
+    .set({
+      createdBy: REDACTED,
+      expiresAt: sql`LEAST(COALESCE(${apiKeys.expiresAt}, ${rotateBy.toISOString()}::timestamptz), ${rotateBy.toISOString()}::timestamptz)`,
+    })
     .where(
       and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.createdBy, targetUserId)),
-    );
+    )
+    .returning({ id: apiKeys.id, expiresAt: apiKeys.expiresAt });
   await tx
     .update(apiKeys)
     .set({ revokedBy: REDACTED })
@@ -278,18 +310,51 @@ export async function eraseUserFromTenant(
       ),
     );
 
+  // Third-party writes record the acting person in metadata too, and the
+  // actor may be the API key rather than the person, so match it directly.
   await tx
     .update(workflowEvents)
-    .set({ triggeredBy: REDACTED })
+    .set({
+      metadata: sql`jsonb_set(${workflowEvents.metadata}, '{actingPersonId}', to_jsonb(${REDACTED}::text))`,
+    })
     .where(
       and(
         eq(workflowEvents.tenantId, tenantId),
-        eq(workflowEvents.triggeredBy, targetUserId),
+        sql`jsonb_typeof(${workflowEvents.metadata}) = 'object'`,
+        sql`${workflowEvents.metadata} ->> 'actingPersonId' = ${targetUserId}`,
       ),
     );
+  // Field-change history: metadata.changed.<field> = {old, new}
   await tx
     .update(workflowEvents)
-    .set({ actorId: REDACTED })
+    .set({
+      metadata: sql`jsonb_set(${workflowEvents.metadata}, '{changed}', COALESCE((
+        SELECT jsonb_object_agg(k, CASE WHEN jsonb_typeof(v) = 'object' THEN v
+          || CASE WHEN v ->> 'old' = ${targetUserId} THEN jsonb_build_object('old', ${REDACTED}::text) ELSE '{}'::jsonb END
+          || CASE WHEN v ->> 'new' = ${targetUserId} THEN jsonb_build_object('new', ${REDACTED}::text) ELSE '{}'::jsonb END
+          ELSE v END)
+        FROM jsonb_each(${workflowEvents.metadata} -> 'changed') AS e(k, v)), '{}'::jsonb))`,
+    })
+    .where(
+      and(
+        eq(workflowEvents.tenantId, tenantId),
+        sql`jsonb_typeof(${workflowEvents.metadata} -> 'changed') = 'object'`,
+        sql`EXISTS (SELECT 1 FROM jsonb_each(${workflowEvents.metadata} -> 'changed') AS e(k, v)
+          WHERE jsonb_typeof(v) = 'object' AND (v ->> 'old' = ${targetUserId} OR v ->> 'new' = ${targetUserId}))`,
+      ),
+    );
+
+  // The event's actorName is a display-name snapshot of the same person. Match on
+  // actor_id: triggered_by holds the trigger type ('user', 'automation', 'api',
+  // 'system'), never a user id, so it is left untouched (and exempt above).
+  await tx
+    .update(workflowEvents)
+    .set({
+      actorId: REDACTED,
+      metadata: sql`CASE WHEN ${workflowEvents.metadata} ? 'actorName'
+        THEN jsonb_set(${workflowEvents.metadata}, '{actorName}', to_jsonb(${REDACTED}::text))
+        ELSE ${workflowEvents.metadata} END`,
+    })
     .where(
       and(
         eq(workflowEvents.tenantId, tenantId),
@@ -377,10 +442,16 @@ export async function eraseUserFromTenant(
       ),
     );
 
-  // On-call (decided 2026-09-27): a shift whose primary is the target is wholly
-  // theirs and is deleted; other references are nulled or redacted.
+  // On-call (#688): every shift is kept with the primary redacted. The
+  // resolver skips an unresolvable primary and pages backup, then escalation
+  // (packages/teams oncall-resolver.ts), so a current or future shift keeps
+  // its remaining cover; an ended one is coverage history.
+  // primary/backup/escalation user columns are Zitadel `sub` text with no FK to
+  // tenant_users (migration 0094), so redacting them here cannot block the
+  // tenant_users DELETE at the end of this function.
   await tx
-    .delete(onCallSchedules)
+    .update(onCallSchedules)
+    .set({ primaryUserId: REDACTED })
     .where(
       and(
         eq(onCallSchedules.tenantId, tenantId),
@@ -444,6 +515,115 @@ export async function eraseUserFromTenant(
       and(
         eq(idempotencyKeys.tenantId, tenantId),
         eq(idempotencyKeys.actingPersonId, targetUserId),
+      ),
+    );
+
+  return { rotatedApiKeys };
+}
+
+/**
+ * Which field types store a user id in entity_instances.fields (#688).
+ * Exhaustive over EntityField["fieldType"], so adding a field type fails
+ * typecheck until it is classified here.
+ */
+export const USER_ID_FIELD_TYPES: Readonly<
+  Record<EntityField["fieldType"], boolean>
+> = {
+  text: false,
+  longtext: false,
+  number: false,
+  currency: false,
+  date: false,
+  datetime: false,
+  boolean: false,
+  enum: false,
+  select: false,
+  multi_enum: false,
+  user_ref: true,
+  entity_ref: false,
+  file: false,
+  files: false,
+  formula: false,
+  lookup: false,
+};
+
+const USER_ID_FIELD_TYPE_NAMES = Object.entries(USER_ID_FIELD_TYPES)
+  .filter(([, holdsUserId]) => holdsUserId)
+  .map(([type]) => type);
+
+// Optional user-id fields lose the key; required ones can't be emptied, so
+// they are redacted. System-template fields (tenant_id NULL) apply to this
+// tenant's instances too. entity_instances.fields is flat by the entity-engine
+// contract — every field is a top-level key named by entity_fields.name — so a
+// single-element path reaches every user_ref value.
+async function scrubUserRefFields(
+  tx: DbOrTx,
+  tenantId: string,
+  targetUserId: string,
+): Promise<void> {
+  const refFields = await tx
+    .select({
+      entityTypeId: entityFields.entityTypeId,
+      name: entityFields.name,
+      isRequired: entityFields.isRequired,
+    })
+    .from(entityFields)
+    .where(
+      and(
+        inArray(entityFields.fieldType, USER_ID_FIELD_TYPE_NAMES),
+        or(eq(entityFields.tenantId, tenantId), isNull(entityFields.tenantId)),
+      ),
+    );
+  for (const field of refFields) {
+    await tx
+      .update(entityInstances)
+      .set({
+        fields: field.isRequired
+          ? sql`jsonb_set(${entityInstances.fields}, ARRAY[${field.name}::text], to_jsonb(${REDACTED}::text))`
+          : sql`${entityInstances.fields} - ${field.name}::text`,
+      })
+      .where(
+        and(
+          eq(entityInstances.tenantId, tenantId),
+          eq(entityInstances.entityTypeId, field.entityTypeId),
+          sql`${entityInstances.fields} ->> ${field.name}::text = ${targetUserId}`,
+        ),
+      );
+  }
+}
+
+// Comments are workflow_events with metadata {type, text, mentions[], ...}.
+// Only comments that recorded a mention of the target are touched: the id is
+// removed from mentions, and "@<display name>" in their text becomes
+// "@[REDACTED]" — a same-named person in other comments is left alone.
+async function scrubComments(
+  tx: DbOrTx,
+  tenantId: string,
+  targetUserId: string,
+  displayName: string | null,
+): Promise<void> {
+  // Word-boundary match: target "Ann" must not rewrite "@Anne". Very short
+  // names are too likely to collide, so their text is left alone (ids are
+  // still scrubbed from mentions).
+  const name = displayName?.trim() ?? "";
+  const pattern =
+    name.length >= 3
+      ? `@${name.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}(?![[:alnum:]_])`
+      : null;
+  const withoutMention = sql`jsonb_set(${workflowEvents.metadata}, '{mentions}', (${workflowEvents.metadata} -> 'mentions') - ${targetUserId}::text)`;
+  const metadata = pattern
+    ? sql`CASE WHEN jsonb_typeof(${workflowEvents.metadata} -> 'text') = 'string'
+        THEN jsonb_set(${withoutMention}, '{text}', to_jsonb(regexp_replace(${workflowEvents.metadata} ->> 'text', ${pattern}::text, '@[REDACTED]', 'g')))
+        ELSE ${withoutMention} END`
+    : withoutMention;
+  await tx
+    .update(workflowEvents)
+    .set({ metadata })
+    .where(
+      and(
+        eq(workflowEvents.tenantId, tenantId),
+        sql`jsonb_typeof(${workflowEvents.metadata} -> 'mentions') = 'array'`,
+        sql`${workflowEvents.metadata} -> 'mentions' ? ${targetUserId}::text`,
       ),
     );
 }

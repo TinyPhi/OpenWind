@@ -298,13 +298,18 @@ describe("per-user erasure — column coverage (#635)", () => {
     ]);
   });
 
-  it("deletes the target's api keys and keeps another user's rotated key, unlinked", async () => {
+  it("keeps the target's api keys anonymized, and another user's rotated key keeps its lineage (#688)", async () => {
     const [rotated] = await db
       .select()
       .from(apiKeys)
       .where(eq(apiKeys.id, rotatedKeyId));
     expect(rotated?.createdBy).toBe(OTHER);
-    expect(rotated?.rotatedFrom).toBeNull();
+    expect(rotated?.rotatedFrom).not.toBeNull();
+    const [original] = await db
+      .select()
+      .from(apiKeys)
+      .where(eq(apiKeys.id, rotated?.rotatedFrom ?? ""));
+    expect(original?.createdBy).toBe("[REDACTED]");
   });
 
   it("deletes the target's saved views when app.user_id is unset (route context), and keeps others'", async () => {
