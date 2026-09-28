@@ -1,1 +1,5 @@
-export { createClient } from "./client.js";
+export {
+  AiNotConfiguredError,
+  createClient,
+  isAiConfigured,
+} from "./client.js";

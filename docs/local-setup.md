@@ -456,7 +456,7 @@ refuses to start if any required variable is missing or malformed.
 | `ZITADEL_KEY_JSON`                    | bootstrap         | Base64 machine key for M2M API calls                                            |
 | `VITE_ZITADEL_ISSUER`                 | bootstrap         | Same issuer, prefixed for Vite (browser-accessible)                             |
 | `VITE_ZITADEL_OIDC_CLIENT_ID`         | bootstrap         | Same client ID for Vite                                                         |
-| `ANTHROPIC_API_KEY`                   | manual            | AI features only — rest of platform works without it                            |
+| `ANTHROPIC_API_KEY`                   | manual            | Optional — AI features only; unset disables AI (`AiNotConfiguredError`)         |
 | `TELEMETRY_ENABLED`                   | `.env.example`    | Flag to enable/disable OpenTelemetry and Prometheus collection                  |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`         | `.env.example`    | HTTP endpoint for trace export (e.g., http://localhost:4318/v1/traces)          |
 | `OTEL_SERVICE_NAME`                   | `.env.example`    | Service name for distributed trace grouping                                     |

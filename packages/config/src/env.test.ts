@@ -240,3 +240,29 @@ describe("Superset URLs — production split", () => {
     expect(parsed.SUPERSET_SITE_URL).toBe(parsed.SUPERSET_INTERNAL_URL);
   });
 });
+
+describe("ANTHROPIC_API_KEY", () => {
+  it("is optional — the platform starts without AI configured", () => {
+    const withoutKey: Record<string, string> = { ...MINIMAL_VALID_ENV };
+    delete withoutKey["ANTHROPIC_API_KEY"];
+    expect(EnvSchema.parse(withoutKey).ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it("treats an empty or whitespace value as unset", () => {
+    for (const value of ["", "   "]) {
+      const parsed = EnvSchema.parse({
+        ...MINIMAL_VALID_ENV,
+        ANTHROPIC_API_KEY: value,
+      });
+      expect(parsed.ANTHROPIC_API_KEY).toBeUndefined();
+    }
+  });
+
+  it("keeps a provided key", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      ANTHROPIC_API_KEY: "sk-test",
+    });
+    expect(parsed.ANTHROPIC_API_KEY).toBe("sk-test");
+  });
+});

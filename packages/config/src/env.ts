@@ -176,7 +176,12 @@ const EnvSchema = z
     // host-side bind-mount source is FILES_STORAGE_PATH_HOST, a
     // docker-compose-only var never read by application code.
     FILES_STORAGE_PATH: z.string().default("/data/files"),
-    ANTHROPIC_API_KEY: z.string(),
+    // Optional until an AI feature ships (ADR-018): @platform/ai's createClient()
+    // throws AiNotConfiguredError when it is unset. Empty counts as unset.
+    ANTHROPIC_API_KEY: z
+      .string()
+      .optional()
+      .transform((v) => (v && v.trim() !== "" ? v : undefined)),
     // SSRF protection — comma-separated extra CIDR ranges to block on outbound webhooks
     // (hardcoded RFC 1918 / loopback / link-local ranges are always blocked regardless)
     SSRF_BLOCK_CIDRS: z
