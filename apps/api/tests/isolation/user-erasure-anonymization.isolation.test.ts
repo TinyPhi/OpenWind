@@ -393,6 +393,16 @@ describe("per-user erasure anonymizes rather than deletes (#688)", () => {
     const meta = await eventMeta(targetCommentId);
     expect(meta.text).toBe("Signed off — budget within limits.");
     expect(meta.actorName).toBe(REDACTED);
+    const [row] = await db
+      .select({
+        actorId: workflowEvents.actorId,
+        triggeredBy: workflowEvents.triggeredBy,
+      })
+      .from(workflowEvents)
+      .where(eq(workflowEvents.id, targetCommentId));
+    expect(row?.actorId).toBe(REDACTED);
+    // triggered_by is the trigger type, not a person — erasure must not rewrite it.
+    expect(row?.triggeredBy).toBe("user");
   });
 
   it("does not touch a same-named @mention in a comment that never recorded the target", async () => {

@@ -44,3 +44,15 @@ All are fixed with tests. Third-party email mentions are filed as #689.
 
 - Unmentioned free-text references to a person.
 - Notification titles and bodies sent to _other_ users (left to the #636 retention sweep).
+
+### Review round 3 (2026-09-28)
+
+- Removed a dead `workflow_events` UPDATE that matched and rewrote `triggered_by`. That column
+  holds the trigger type (`user`, `automation`, `api`, `system`), so the UPDATE never matched and
+  would have corrupted the type if it had. #681's name-based column guard had listed it as a
+  handled user column; it is now in `USER_REFERENCE_COLUMNS_EXEMPT` with that reason. The author scrub was already correct: the `actor_id`
+  UPDATE anonymizes `actorId` and `metadata.actorName`. The isolation test now asserts
+  `actor_id = [REDACTED]` and `triggered_by = 'user'` on the target's comment.
+- Noted at the on-call UPDATE that the schedule user columns have no FK to `tenant_users`
+  (migration 0094), so redacting them can't block the final `tenant_users` DELETE.
+- Merged main after #681's squash (0125 → 0126 renumber).

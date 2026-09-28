@@ -48,7 +48,6 @@ export const USER_REFERENCE_COLUMNS_HANDLED: readonly string[] = [
   "entity_instance_tags.created_by",
   "workflows.created_by",
   "workflows.assigned_to",
-  "workflow_events.triggered_by",
   "workflow_events.actor_id",
   "workflow_events.origin_performer_user_id",
   "attachments.uploaded_by",
@@ -71,6 +70,8 @@ export const USER_REFERENCE_COLUMNS_HANDLED: readonly string[] = [
 
 /** User-reference columns deliberately left untouched, with the reason. */
 export const USER_REFERENCE_COLUMNS_EXEMPT: Readonly<Record<string, string>> = {
+  "workflow_events.triggered_by":
+    "not a user reference: holds the trigger type ('user', 'automation', 'api', 'system') — matched by the guard's column-name pattern only; the author is workflow_events.actor_id",
   "admin_audit_log.actor_id":
     "append-only security audit trail, kept under Art. 17(3)(b); anonymized only on tenant purge",
   "admin_audit_log.acting_person_id":
@@ -309,15 +310,6 @@ export async function eraseUserFromTenant(
       ),
     );
 
-  await tx
-    .update(workflowEvents)
-    .set({ triggeredBy: REDACTED })
-    .where(
-      and(
-        eq(workflowEvents.tenantId, tenantId),
-        eq(workflowEvents.triggeredBy, targetUserId),
-      ),
-    );
   // Third-party writes record the acting person in metadata too, and the
   // actor may be the API key rather than the person, so match it directly.
   await tx
@@ -352,7 +344,9 @@ export async function eraseUserFromTenant(
       ),
     );
 
-  // The event's actorName is a display-name snapshot of the same person.
+  // The event's actorName is a display-name snapshot of the same person. Match on
+  // actor_id: triggered_by holds the trigger type ('user', 'automation', 'api',
+  // 'system'), never a user id, so it is left untouched (and exempt above).
   await tx
     .update(workflowEvents)
     .set({
@@ -452,6 +446,9 @@ export async function eraseUserFromTenant(
   // resolver skips an unresolvable primary and pages backup, then escalation
   // (packages/teams oncall-resolver.ts), so a current or future shift keeps
   // its remaining cover; an ended one is coverage history.
+  // primary/backup/escalation user columns are Zitadel `sub` text with no FK to
+  // tenant_users (migration 0094), so redacting them here cannot block the
+  // tenant_users DELETE at the end of this function.
   await tx
     .update(onCallSchedules)
     .set({ primaryUserId: REDACTED })
