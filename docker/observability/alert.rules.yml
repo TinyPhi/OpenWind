@@ -45,7 +45,7 @@ groups:
       # OncallResolutionSLOBreached, is deferred: it needs
       # openwind_oncall_resolution_duration_seconds, a histogram that isn't
       # registered on any branch yet (T39 partially done, see
-      # docs/sup-docs/week-log/2026-09-15-grafana-oncall-dashboards.md).
+      # docs/tracker/week-log/2026-09-15-grafana-oncall-dashboards.md).
       - alert: OncallCoverageGapsDetected
         expr: openwind_oncall_coverage_gap_teams > 0
         for: 10m

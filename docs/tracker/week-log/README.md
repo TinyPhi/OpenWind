@@ -1,14 +1,16 @@
 # Week-log entries (one file per session)
 
-**Why this directory exists:** [`../week-log.md`](../week-log.md) used to be a single file that
+**Why this directory exists:** [`archive/week-log.md`](archive/week-log.md) used to be a single file that
 every session prepended an entry to. Two branches doing that from the same parent commit hit the
 exact same insertion point — an almost-guaranteed merge conflict. That got materially worse once
 tracks (3B/3C/3D) started running in parallel branches instead of sequentially. This directory
 replaces that pattern going forward: **one file per session/PR, named by date.** Two parallel
 branches each creating their own new file never collide — there's no shared line to fight over.
 
-`../week-log.md` is frozen — history through 2026-08-13 lives there unchanged, do not add to it.
-Everything from 2026-08-14 onward goes here instead.
+`archive/week-log.md` is frozen — history through 2026-08-13 lives there unchanged, do not add to it.
+Everything from 2026-08-14 onward goes here instead. `archive/` also holds bulk-archived
+tables moved out of other docs (e.g. the 2026-08-24 roadmap-tracker history). Those are
+reference material, not session entries.
 
 ## Naming
 

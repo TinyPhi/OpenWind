@@ -34,7 +34,7 @@ that's the difference between the two halves of this list.
 ## Already has a tracked issue — just needs a person
 
 **Reconciled 2026-08-19:** #143 (automation-triggered transitions absent from outbox) closed —
-both phases done per `docs/tracker/week-log.md`'s 2026-08-12 entries (PR #372, #380); row
+both phases done per `docs/tracker/week-log/archive/week-log.md`'s 2026-08-12 entries (PR #372, #380); row
 removed per this doc's own rule below.
 
 **Added 2026-09-27:** #678 and #679, both found while building #606 (`docs/specs/vendor-approval.md` §B).
@@ -98,5 +98,5 @@ filed as GitHub issues; they're tracked here and via `CLAUDE.md`'s Phase 3 table
    untouched for a month while the security findings from the same review session got fixed.
    (As of 2026-07-24, every non-ADR finding here now has one — see the table above.)
 3. When something here is closed, delete its row (don't mark it done in place) — this doc's
-   entire value is being _only_ the pending list, not a history. `week-log.md` is where closures
+   entire value is being _only_ the pending list, not a history. `docs/tracker/week-log/` is where closures
    get logged.

@@ -145,14 +145,14 @@ If there's no issue number yet, omit it: `feat/entity-bulk-operations`.
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-feat(workflow): add parallel approval state machine pattern
+feat(workflow): cancel SLA timer on terminal transition
 fix(entity): invalidate schema cache on field delete
 chore(deps): upgrade hono to 4.x
 test(isolation): add RLS tests for workflow_events table
 docs(adr): record decision on field validation strategy
 ```
 
-The scope in parentheses is the package or component (`workflow`, `entity`, `auth`, `db`, `api`, `worker`, `admin-ui`, `portal`).
+The scope in parentheses is the package or component (`workflow`, `entity`, `auth`, `db`, `api`, `worker`, `admin-ui`, `scheduler`, `teams`, …).
 
 ### Opening a PR
 
@@ -161,33 +161,11 @@ The scope in parentheses is the package or component (`workflow`, `entity`, `aut
 3. Link to the relevant issue with `Closes #N`.
 4. Mark the PR ready for review when the checklist is fully satisfied.
 
-### PR checklist summary
+### PR checklist
 
-Every PR must:
-
-- [ ] Include tests — coverage must not drop
-- [ ] Pass `pnpm typecheck` and `pnpm lint` with zero errors
-- [ ] Follow Conventional Commits
-
-If the PR touches `packages/db/` or adds tables:
-
-- [ ] `tenant_id UUID NOT NULL` on all new tenant-scoped tables
-- [ ] RLS enabled + both read and write policies defined
-- [ ] `tenant_id` index present
-- [ ] Tenant isolation tests added (`tests/isolation/`)
-- [ ] Down migration present as a comment in the migration file
-
-If the PR touches `apps/api/` or adds routes:
-
-- [ ] All inputs validated with Zod at the route boundary
-- [ ] `requireAuth()` applied
-- [ ] Rate limiting configured
-- [ ] E2E tests for the new route
-- [ ] Tenant isolation tests for the new route
-
-If the PR makes a significant architectural decision:
-
-- [ ] ADR created or updated in `docs/decisions/`
+The checklist lives in one place, the [PR template](.github/pull_request_template.md), which
+GitHub pre-fills when you open a PR. [`.claude/rules/git-conventions.md`](.claude/rules/git-conventions.md)
+explains the CI escape tokens (`[skip-tests-check]`, `[skip-isolation-check]`).
 
 ---
 
@@ -255,7 +233,7 @@ These rules are non-negotiable and reviewed in every PR:
 - **No SQL string construction from user input.** Drizzle parameterized queries only.
 - **No secrets in code.** Not in tests, not in comments, not in config files.
 - **File access is tenant-scoped and never publicly accessible.** Files live on local disk (`packages/files`) with async ClamAV scanning — not a public bucket, and not S3 (that design was replaced in PR #340).
-- **Rate limit all public endpoints.** Default 100 req/min per tenant (10 for auth endpoints).
+- **Rate limit all public endpoints.** Default 600 req/min per tenant (10 for auth and webhook endpoints) — see ADR-013.
 
 If you discover a security vulnerability, do not open a public issue. Email [security@tinyphi.com](mailto:security@tinyphi.com) with a description.
 
@@ -272,7 +250,7 @@ TypeScript strict mode everywhere. Key rules enforced by the compiler and linter
 - Structured logging via `@platform/logger` — never `console.log`
 - Read env vars only from `@platform/config` — never `process.env` directly
 
-See [CLAUDE.md](CLAUDE.md) for the full conventions reference.
+Full conventions: [`.claude/rules/code-style.md`](.claude/rules/code-style.md).
 
 ---
 
@@ -287,8 +265,8 @@ See [CLAUDE.md](CLAUDE.md) for the full conventions reference.
 ## Working with Claude Code (optional)
 
 If you use [Claude Code](https://claude.com/claude-code) on this repo, the `.claude/` directory adds
-a **delivery flow** (Plan → Code → Review → Ship) guided by best-effort hooks (guardrails, not a
-security boundary — the real gate is CI, and PR review once branch protection requires it): you freeze and approve an
+a **delivery flow** (Plan → Code → Review → Docs → Ship) guided by best-effort hooks (guardrails, not a
+security boundary — the real gate is CI plus the required PR review on `main`): you freeze and approve an
 acceptance-criteria plan before editing source, review once at the end, and commit through a
 procedure that runs the full exit condition. See [`.claude/README.md`](.claude/README.md).
 
@@ -310,7 +288,7 @@ already-open PR, push a commit or close/reopen the PR to get a fresh check run.
 
 **⚠️ Draft terms — not yet reviewed by a lawyer.** These are the default terms that apply to
 anyone submitting a pull request, unless you've signed [`CLA.md`](CLA.md) directly (the two cover
-the same ground — the PR template lets you check either box).
+the same ground — the CLA Assistant bot asks you to sign by comment on your first PR).
 
 By submitting a pull request (or other contribution) to this repository, you confirm:
 

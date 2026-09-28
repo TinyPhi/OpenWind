@@ -4,7 +4,7 @@
 > made them (app + performer) everywhere they appear. Closes ADR-012 design doc §5.1/§5.3
 > gap — confirmed unbuilt in admin-ui. For OpenWind agents/admins triaging tickets.
 
-status: draft
+status: implemented (PR #556)
 created: 2026-09-02
 updated: 2026-09-02
 

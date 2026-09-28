@@ -2,7 +2,7 @@
 
 > Auto-create tickets at configured dates and times so recurring workflows start without manual intervention.
 
-status: draft
+status: implemented (3F Phases 1–4; ADR-017) — remaining gap tracked in #580
 created: 2026-09-07
 updated: 2026-09-07
 

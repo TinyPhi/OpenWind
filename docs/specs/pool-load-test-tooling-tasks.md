@@ -27,7 +27,7 @@
 | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | -------- |
 | T3: write the synthetic-backlog helper for `outbox_events` (or equivalent poller-backed table)                                                          | R3          | done     |
 | T4: run the full scenario once against the live dev stack at the 20×5/5min provisional target, with backlog injected; capture connection + latency data | R1, R2, R3  | deferred |
-| T5: write `docs/sup-docs/load-test-results/2026-08-25-pool-ceiling-baseline.md` from the T4 run, provisional/dev-scale caveats stated up front          | R4          | deferred |
+| T5: write `docs/load-test-results/2026-08-25-pool-ceiling-baseline.md` from the T4 run, provisional/dev-scale caveats stated up front                   | R4          | deferred |
 
 ---
 

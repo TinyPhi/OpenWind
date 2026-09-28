@@ -1,6 +1,6 @@
 # Spec: Global Outbound-Notifications Kill Switch
 
-**Status:** approved-pending-plan-lock
+**Status:** implemented (isOutboundNotificationsEnabled in apps/worker/src/notification-worker.ts)
 **Author:** Claude Code (session), reviewed by Tushar
 **Date:** 2026-07-25
 

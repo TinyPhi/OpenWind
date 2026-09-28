@@ -2,7 +2,7 @@
 
 > MIS reporting inside admin-ui: two per-tenant dashboards rendered from Apache Superset, row-filtered server-side. Users never reach Superset. This embedded style is the primary production reporting architecture for OpenWind; standalone Superset (Stage 2) is deferred.
 
-status: active — implemented & adopted
+status: implemented (3G Stage 1, PRs #663–#671)
 created: 2026-09-09
 updated: 2026-09-18
 issue: #106 (tracker) · #102 #103 #104 #105 (tasks)

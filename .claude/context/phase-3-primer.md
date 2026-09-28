@@ -54,7 +54,7 @@ plan-lock all of this as one unit.
 
 ### Stage 0 — cheap prep, no ADR blocking
 
-Full detail for everything below: `docs/tracker/week-log.md`'s 2026-08-09/2026-08-12 entries.
+Full detail for everything below: `docs/tracker/week-log/archive/week-log.md`'s 2026-08-09/2026-08-12 entries.
 
 - [x] #143 both phases done (PR #372, #380, 2026-08-12) — outbox writes unconditionally per
       `triggeredBy`, dedup on `(ruleId, transitionEventId)` via advisory lock. Unblocked
@@ -67,7 +67,7 @@ Full detail for everything below: `docs/tracker/week-log.md`'s 2026-08-09/2026-0
 
 ### Stage 1 — ADR-008 core hardening (independent of connector runtime)
 
-Full detail: `docs/tracker/week-log.md`'s 2026-08-09 "Phase 3A Stage 1" entry.
+Full detail: `docs/tracker/week-log/archive/week-log.md`'s 2026-08-09 "Phase 3A Stage 1" entry.
 
 - [x] `api_keys.created_by` + audit-log entry on mint/delete (Decision #2) — done 2026-08-09,
       migration 0053.
@@ -85,7 +85,7 @@ Filed as granular, PR-sized GitHub issues 2026-08-10 (previously only lived as c
 see issue #16's pinned comment for why the umbrella issue itself is stale and these are the
 trackable replacement).
 
-Runtime track — full detail for all done items: `docs/tracker/week-log.md`'s 2026-08-12/13 entries.
+Runtime track — full detail for all done items: `docs/tracker/week-log/archive/week-log.md`'s 2026-08-12/13 entries.
 
 - [x] `ConnectorContext` + OpenBao credential decrypt — done 2026-08-12. Concrete
       `ConnectorAuthConfig` discriminated union (`bearer`/`basic`/`apiKey`) replacing the prior

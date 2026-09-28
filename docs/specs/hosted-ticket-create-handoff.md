@@ -3,7 +3,7 @@
 > 3rd party opens a new tab to OpenWind's own login+create page w/ workflow+prefill data; user logs
 > in (real OpenWind acct) if needed, lands on a pre-filled create-ticket form, creates it themselves.
 
-status: review
+status: implemented (PR #542)
 created: 2026-08-31
 updated: 2026-09-02 — amended for docs/specs/third-party-api-origin-tagging.md R2: entry URL
 gains a required `appClientId` param (§I), creation is now rejected outright without a valid one

@@ -77,7 +77,7 @@ Use **caveman encoding**: fragments over sentences, symbols over words, pipe tab
 
 > [One-line purpose. What + for whom.]
 
-status: draft | review | approved | implemented
+status: draft | review | approved | in-progress | implemented (PR #N) | abandoned
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 

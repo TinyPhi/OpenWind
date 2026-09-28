@@ -3,7 +3,7 @@
 > Ticket creation gets a User/Team assign-mode toggle; team_id starts real (seeded field), and
 > resolve_oncall's cascade gains a workflow-admin final tier + one summarizing system comment.
 
-status: draft
+status: implemented (PR #659)
 created: 2026-09-21
 updated: 2026-09-21
 

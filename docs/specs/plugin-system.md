@@ -1,6 +1,6 @@
 # Spec: Plugin System (3B)
 
-**Status:** draft
+**Status:** implemented (PR #397; gaps tracked in #644)
 **Author:** Claude Code (session), planning decisions confirmed by @abmish 2026-08-13
 **Date:** 2026-08-13
 **Decision record:** `docs/decisions/ADR-011-plugin-system.md` (Accepted 2026-08-24) formalizes

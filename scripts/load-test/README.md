@@ -97,7 +97,7 @@ injecting, then start it once the k6 run is underway.
 
 ## 5. Write up the results
 
-Copy the previous run's file under `docs/sup-docs/load-test-results/` as a template and
+Write it as `docs/load-test-results/YYYY-MM-DD-<slug>.md` (copy the previous run once one exists) and
 record: p50/p95 latency, max observed connections per process, which pool ceiling
 saturated first, and the exact load profile used. State the provisional-target and
 dev-scale-data caveats in the first paragraph — this is a baseline for the next person to

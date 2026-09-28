@@ -6,7 +6,7 @@
 > onto `@platform/ui`'s `Dialog`/`AlertDialog` primitives, in place, using the same
 > style-reset technique `TransitionModal` already established.
 
-status: draft
+status: implemented (PR #298, closes #284)
 created: 2026-08-02
 updated: 2026-08-02
 

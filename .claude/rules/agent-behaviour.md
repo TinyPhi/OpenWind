@@ -47,47 +47,37 @@ docker compose up -d && pnpm test:e2e
 
 ---
 
-## Delivery flow (guardrails, not barricades)
+## Delivery flow (every change)
 
-Every change moves through five stages. The hooks are **guardrails** — best-effort speed bumps that
-catch honest mistakes and make the disciplined path the default. They are **not a security boundary**:
-a determined agent can bypass them, so the real enforcement is CI + required human PR review + branch
-protection. The stages live **inside existing skills** — there is no new skill to learn. Full
-reference: `.claude/README.md`; completion contract: `.claude/references/definition-of-done.md`.
+Plan → Code → Review → Docs → Ship. Hooks, state files, bypass envs and their limits are documented
+once, in `.claude/README.md`; the completion contract is `.claude/references/definition-of-done.md`.
+The hooks are guardrails, not a security boundary — CI + human PR review are the real gate.
 
-| Stage      | Run it with                                                                                                                                   | Gate (hook)                                                                                       |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Plan**   | `/spec-tasks` or the `openwind-loop` pick step → freezes `plan.json`, **you approve it**                                                      | —                                                                                                 |
-| **Code**   | normal editing                                                                                                                                | `edit-gate` blocks `apps/`·`packages/`·`modules/` edits without an approved plan-lock             |
-| **Review** | `/review` (+ `/security-review`) → `write-review.sh` writes `review.json`                                                                     | review needs plan+code+tests                                                                      |
-| **Docs**   | update `docs/**`/`CLAUDE.md`/`README.md`/`.claude/**/*.md` → `write-docs-marker.sh --touched`, or `--skip "<reason>"` if genuinely none apply | `commit-gate` needs a docs marker matching the diff (touched or explicitly skipped)               |
-| **Ship**   | the loop's **commit procedure** (exit condition → marker → commit → PR)                                                                       | `commit-gate` blocks `git commit` without a fresh marker + matching review + matching docs marker |
+1. `/spec` — write the spec (ADR, engine touched, data flow). Skip for small fixes with an issue.
+2. `/spec-tasks` (or the `openwind-loop` pick step) — freeze the plan-lock; **human types
+   `approve-plan`** — _Plan gate_
+3. Implement with tests in the same pass; all edits first, no mid-review — _Code gate:
+   `edit-gate` blocks `apps/`·`packages/`·`modules/` source edits without an approved plan-lock_
+4. `/review` (+ `/security-review` for auth/tables/routes/files/secrets) → `write-review.sh` —
+   _Review gate: needs plan + code + tests_
+5. Add a dated file under `docs/tracker/week-log/`, update your track's own row in
+   `roadmap-tracker.md` and any other doc the change touches → `write-docs-marker.sh --touched`,
+   or `--skip "<reason>"` if the diff genuinely has no doc surface — _Docs gate_
+6. Commit procedure (exit condition → marker → **human types `approve-ship`** → commit →
+   push → PR) — never a bare commit — _Ship gate: `commit-gate` needs marker + review +
+   docs marker all matching the diff_
+7. `/ultrareview` before merge on non-trivial PRs
 
-**Scale review effort to diff size and risk — this is a cost control, not optional polish.**
-`/review` can fan out into many parallel sub-agents; that fan-out is appropriate for large or
-security-sensitive diffs (new tables/routes/auth paths, multi-file features) but wasteful for a
-small, mechanical, or config/docs-only change (a single migration, a comment fix, a one-file
-docker-compose tweak). For the latter, ask for a low/quick-effort pass explicitly (pass an
-effort hint in the skill's `args`, e.g. "low effort, small config-only diff") rather than
-defaulting to full fan-out every time. Don't re-invoke `/review` repeatedly on the same diff
-once it returns clean — one pass per meaningfully-changed diff is enough. This was a real
-incident: an unscaled multi-round review of a handful of docker-compose/docs edits alone spent
-a large fraction of a session's token budget and contributed to hitting the org's spend limit.
+**Scale review effort to diff size and risk.** Full `/review` fan-out is for large or
+security-sensitive diffs (new tables/routes/auth paths, multi-file features). For a small,
+mechanical, config- or docs-only change, pass a low-effort hint in the skill's `args`. One review
+pass per meaningfully-changed diff — don't re-run it once clean. (Unscaled reviews have already
+hit the org's spend limit once.)
 
-The human approves twice: type `approve-plan` (start) and `approve-ship` (end) in chat. The
-`approval-gate` hook fires on your prompt rather than agent output, which makes _accidental_
-self-approval unlikely — but it is not a hard guarantee (the approval state is a plain file). The
-real, un-fakeable human approval is the **PR review**. Both typed approvals can be graduated to
-standing trust once you've built confidence in the loop: `OPENWIND_PLAN_AUTOPASS=1` skips typing
-`approve-plan` (a plan-lock still has to exist — `/spec-tasks` still has to run — it just doesn't
-need the human blessing each time); `OPENWIND_AUTOPASS=1` does the same for `approve-ship` (marker
-
-- review + docs still all have to match the diff). Neither is logged as a bypass — unlike
-  `OPENWIND_GATE=off`/`SHIP_BYPASS=1`, they don't skip the underlying artifact, only the human keypress.
-  The agent does everything in between; use the commit procedure rather than a bare `git commit`
-  (the marker is what the gate looks for). `PROGRESS.md` and
-  `BLOCKERS.md` are written during this flow (and are gitignored). Bypass envs exist for genuine cases
-  and are logged to `.claude/state/bypass.log`.
+**Standing trust (owner-set only):** `OPENWIND_PLAN_AUTOPASS=1` removes the `approve-plan`
+keypress and `OPENWIND_AUTOPASS=1` removes `approve-ship` — the plan-lock, review, docs marker and
+ship marker are all still required, so neither is logged as a bypass. `OPENWIND_GATE=off` /
+`SHIP_BYPASS=1` skip the artifact itself and are logged to `.claude/state/bypass.log`.
 
 ---
 
@@ -110,28 +100,11 @@ need the human blessing each time); `OPENWIND_AUTOPASS=1` does the same for `app
 
 **Never do autonomously:**
 
-- Enable or implement parallel approval — deferred to Phase 3
+- Enable or implement parallel approval — off-limits regardless of phase (#65)
 - Modify any `.github/workflows/` file (CI/CD — secret-exfiltration / check-disabling risk)
 - Write or modify ADR files in `docs/decisions/`
 - Force-push or rebase published commits
 - Touch schema cache or `redis.keys()` code
-
----
-
-## Session workflow (every feature track)
-
-1. `/spec` — write spec referencing the ADR, engine it touches, and data flow
-2. `/spec-tasks` — turn spec into ordered task list **and freeze the plan-lock (you approve it)** — _Plan gate_
-3. Implement with tests in same pass — never implementation without tests. All edits first, no mid-review — _Code gate: needs the approved plan_
-4. `/review` (+ `/security-review` for auth/tables/routes/files/secrets) → `write-review.sh` — _Review gate: needs plan+code+tests_
-5. Add a new dated file under `docs/tracker/week-log/` (never edit `week-log.md` — frozen
-   history) / update your track's own row in `roadmap-tracker.md` / any other doc this change
-   touches → `write-docs-marker.sh --touched`, or `--skip "<reason>"` if this diff genuinely has
-   no doc surface — _Docs gate: needs a marker matching the diff_
-6. Commit procedure (exit condition → marker → `git commit` → push → PR) — never a bare `git commit` — _Ship gate_
-7. `/ultrareview` before merge
-
-See the **Delivery flow** section above and `.claude/README.md` for the guardrails that guide each step.
 
 ---
 

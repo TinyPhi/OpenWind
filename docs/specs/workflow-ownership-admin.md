@@ -2,10 +2,10 @@
 
 > Retroactive spec for PR #155 (`feat/PLAT-workflow-ownership-admin`, merged 2026-07-21). Migration
 > `packages/db/migrations/0035_workflow_created_by.sql` referenced this file's path before it
-> existed — written now, alongside `docs/sup-docs/adr-006-draft-per-workflow-ownership-admin-model.md`
-> (staged for migration to `docs/decisions/ADR-006-...md`), to close that gap.
+> existed — written now, alongside the ADR-006 draft that became
+> `docs/decisions/ADR-006-per-workflow-ownership-admin-model.md`, to close that gap.
 
-status: shipped (retroactively specified)
+status: implemented (retroactively specified; ADR-006)
 created: 2026-07-23
 updated: 2026-07-23
 

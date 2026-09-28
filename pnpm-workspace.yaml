@@ -12,6 +12,7 @@ allowBuilds:
 # read; see CLAUDE.md's Maintenance notes for why the esbuild pin must not be removed).
 overrides:
   typescript: "^5.5.0"
+  # GHSA-gv7w-rqvm-qjhr (high): tsx@4.x and vite@6.x pull in the vulnerable esbuild transitively
   esbuild: ">=0.28.1"
   # Source of truth for the minimum hono version across the workspace (#182) — package.json
   # "hono" specifiers in individual apps/packages should match this floor, not drift below it.
@@ -48,7 +49,8 @@ overrides:
   # Bounded to <8 to prevent major upgrades breaking jsdom's internal file imports.
   undici: ">=7.29.0 <8"
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
-  # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths
+  # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths.
+  # GHSA-fxqj-rqcc-2cmp: second path-traversal variant — floor raised >=8.5.18 → >=8.5.23.
   postcss: ">=8.5.23"
   # GHSA-2v37-7h3g-55p8: nanoid can loop indefinitely when size is 0 — pulled in
   # transitively via postcss (vite/vitest chains in admin-ui devDependencies), 27 paths.
@@ -78,3 +80,13 @@ overrides:
   # GHSA-9mqv-5hh9-4cgg (memory-leak DoS via aborted WebSocket handshake) — pulled in by
   # apps/api, apps/worker, and packages/auth
   "@hono/node-server": ">=2.0.10"
+  #
+  # Deferred — NOT overridden, need major-version coordination first:
+  # - uuid GHSA-w5hq-g745-h8pq (buffer bounds check in v3/v5/v6 when `buf` is provided): fix is
+  #   >=11.1.1 but exceljs pins uuid@8.x and uuid 11 dropped CommonJS — forcing it breaks exceljs
+  #   at runtime. Revisit when exceljs supports uuid 11.
+  # - @opentelemetry/core GHSA-8988-4f7v-96qf (unbounded W3C Baggage memory): fix is >=2.8.0,
+  #   current 1.30.1; @sentry/node + packages/telemetry's OTel instrumentation are 1.x-only.
+  #   Revisit when Sentry ships a 2.x-compatible SDK.
+  # - react-router GHSA-wrjc-x8rr-h8h6 / GHSA-337j-9hxr-rhxg need >=7.18.0 — deferred to a
+  #   coordinated v7 upgrade (hence the <7 bounds above).
