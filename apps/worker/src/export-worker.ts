@@ -23,6 +23,8 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import ExcelJS from "exceljs";
 import { stringify } from "csv-stringify/sync";
 import { withTenantContext } from "@platform/db";
+import { writeAuditEntry } from "@platform/audit";
+import type { AuditAction } from "@platform/audit";
 import { validateActiveTenant } from "./tenant-guard.js";
 import {
   getEntityType,
@@ -132,113 +134,166 @@ export async function renderXlsx(
 
 // ── Worker ────────────────────────────────────────────────────────────────────
 
+type ExportJob = { id?: string | undefined; data: ExportJobPayload };
+
+async function auditExport(
+  job: ExportJob,
+  action: AuditAction,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const { tenantId, entityTypeId, requestedBy, format } = job.data;
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId: requestedBy,
+      actorType: "user",
+      resourceType: "entity_type",
+      resourceId: entityTypeId,
+      action,
+      metadata: { format, mode: "async", jobId: job.id, ...metadata },
+    }),
+  );
+}
+
+/**
+ * The export processor. #638: writes export.completed on success and
+ * export.failed when anything throws (then rethrows, so BullMQ's retry/failure
+ * handling is unchanged). The API route already wrote export.requested.
+ */
+export async function processExportJob(
+  job: ExportJob,
+): Promise<ExportJobResult> {
+  try {
+    const result = await runExportJob(job);
+    if (result.error) {
+      await auditExport(job, "export.failed", { error: result.error });
+    } else {
+      await auditExport(job, "export.completed", {
+        rowCount: result.rowCount,
+        includePii: resolveIncludePii(job.data),
+      });
+    }
+    return result;
+  } catch (err) {
+    await auditExport(job, "export.failed", {
+      // Domain code, matching the route's RENDER_FAILED / ENQUEUE_FAILED.
+      error: "JOB_FAILED",
+    }).catch((auditErr: unknown) => {
+      logger.error(
+        { err: auditErr, tenantId: job.data.tenantId, jobId: job.id },
+        "export job: failed to audit export failure",
+      );
+    });
+    throw err;
+  }
+}
+
+function resolveIncludePii(data: ExportJobPayload): boolean {
+  return (
+    data.includePii ??
+    data.requestedByRoles?.some((r) => PII_EXPORT_ROLES.has(r)) ??
+    false
+  );
+}
+
+async function runExportJob(job: ExportJob): Promise<ExportJobResult> {
+  const { tenantId, entityTypeId, format, filters } = job.data;
+
+  logger.info(
+    { tenantId, entityTypeId, format, jobId: job.id },
+    "export job started",
+  );
+
+  const active = await validateActiveTenant(tenantId, "export job", {
+    entityTypeId,
+    jobId: job.id,
+  });
+  if (!active) {
+    return {
+      downloadUrl: "",
+      error: "TENANT_DEACTIVATED",
+      format,
+      rowCount: 0,
+    };
+  }
+
+  const result = await withTenantContext(tenantId, async (tx) => {
+    const entityType = await getEntityType(tx, tenantId, entityTypeId);
+    const allFields = await listEntityFields(tx, tenantId, entityTypeId);
+
+    const includePii = resolveIncludePii(job.data);
+    const exportFields = includePii
+      ? allFields
+      : allFields.filter(
+          (f) => f.sensitivity !== "pii" && f.sensitivity !== "financial",
+        );
+
+    const page = await listEntities(tx, tenantId, {
+      entityTypeId,
+      ...filters,
+      limit: EXPORT_ROW_LIMIT,
+    });
+
+    return { entityType, fields: exportFields, rows: page.data };
+  });
+
+  const { entityType, fields, rows } = result;
+  const headers = [
+    "ID",
+    "State",
+    "Created At",
+    "Updated At",
+    ...fields.map((f) => f.label),
+  ];
+  const dataRows = rows.map((r) => buildExportRow(r, fields));
+
+  let fileBuffer: Buffer;
+  let contentType: string;
+  let ext: string;
+
+  if (format === "csv") {
+    fileBuffer = renderCsv(headers, dataRows);
+    contentType = "text/csv";
+    ext = "csv";
+  } else if (format === "pdf") {
+    fileBuffer = await renderExportPdf(headers, dataRows, entityType.plural);
+    contentType = "application/pdf";
+    ext = "pdf";
+  } else {
+    fileBuffer = await renderXlsx(headers, dataRows, entityType.plural);
+    contentType =
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    ext = "xlsx";
+  }
+
+  const storageKey = `exports/${tenantId}/${job.id}.${ext}`;
+
+  await getS3().send(
+    new PutObjectCommand({
+      Bucket: env.S3_BUCKET,
+      Key: storageKey,
+      Body: fileBuffer,
+      ContentType: contentType,
+    }),
+  );
+
+  const downloadUrl = await getSignedUrl(
+    getS3ForSigning(),
+    new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: storageKey }),
+    { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
+  );
+
+  logger.info(
+    { tenantId, entityTypeId, jobId: job.id, rowCount: rows.length },
+    "export job completed",
+  );
+
+  return { downloadUrl, format, rowCount: rows.length };
+}
+
 export const exportWorker = new Worker<ExportJobPayload, ExportJobResult>(
   "export",
-  async (job) => {
-    const {
-      tenantId,
-      entityTypeId,
-      format,
-      filters,
-      requestedByRoles,
-      includePii: legacyIncludePii,
-    } = job.data;
-
-    logger.info(
-      { tenantId, entityTypeId, format, jobId: job.id },
-      "export job started",
-    );
-
-    const active = await validateActiveTenant(tenantId, "export job", {
-      entityTypeId,
-      jobId: job.id,
-    });
-    if (!active) {
-      return {
-        downloadUrl: "",
-        error: "TENANT_DEACTIVATED",
-        format,
-        rowCount: 0,
-      };
-    }
-
-    const result = await withTenantContext(tenantId, async (tx) => {
-      const entityType = await getEntityType(tx, tenantId, entityTypeId);
-      const allFields = await listEntityFields(tx, tenantId, entityTypeId);
-
-      // Determine includePii in the worker by checking requestedByRoles against PII_EXPORT_ROLES
-      const includePii =
-        legacyIncludePii ??
-        requestedByRoles?.some((r) => PII_EXPORT_ROLES.has(r)) ??
-        false;
-      const exportFields = includePii
-        ? allFields
-        : allFields.filter(
-            (f) => f.sensitivity !== "pii" && f.sensitivity !== "financial",
-          );
-
-      const page = await listEntities(tx, tenantId, {
-        entityTypeId,
-        ...filters,
-        limit: EXPORT_ROW_LIMIT,
-      });
-
-      return { entityType, fields: exportFields, rows: page.data };
-    });
-
-    const { entityType, fields, rows } = result;
-    const headers = [
-      "ID",
-      "State",
-      "Created At",
-      "Updated At",
-      ...fields.map((f) => f.label),
-    ];
-    const dataRows = rows.map((r) => buildExportRow(r, fields));
-
-    let fileBuffer: Buffer;
-    let contentType: string;
-    let ext: string;
-
-    if (format === "csv") {
-      fileBuffer = renderCsv(headers, dataRows);
-      contentType = "text/csv";
-      ext = "csv";
-    } else if (format === "pdf") {
-      fileBuffer = await renderExportPdf(headers, dataRows, entityType.plural);
-      contentType = "application/pdf";
-      ext = "pdf";
-    } else {
-      fileBuffer = await renderXlsx(headers, dataRows, entityType.plural);
-      contentType =
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-      ext = "xlsx";
-    }
-
-    const storageKey = `exports/${tenantId}/${job.id}.${ext}`;
-
-    await getS3().send(
-      new PutObjectCommand({
-        Bucket: env.S3_BUCKET,
-        Key: storageKey,
-        Body: fileBuffer,
-        ContentType: contentType,
-      }),
-    );
-
-    const downloadUrl = await getSignedUrl(
-      getS3ForSigning(),
-      new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: storageKey }),
-      { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
-    );
-
-    logger.info(
-      { tenantId, entityTypeId, jobId: job.id, rowCount: rows.length },
-      "export job completed",
-    );
-
-    return { downloadUrl, format, rowCount: rows.length };
-  },
+  (job) => processExportJob(job),
   {
     connection,
     concurrency: 3,
