@@ -12,7 +12,7 @@
  * Zitadel org configured (orgId absent -- the DB-only fallback path).
  */
 
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
 import { inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
@@ -23,13 +23,25 @@ import { membersRouter } from "../../src/routes/admin/members.js";
 const TENANT_A = "aaaaaaaa-7777-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-7777-4000-b000-000000000002";
 
-function makeApp(tenantId: string, roles: string[]) {
+const zitadelMocks = vi.hoisted(() => ({
+  listOrgUsers: vi.fn(),
+  listUserRolesByUserId: vi.fn(),
+}));
+
+vi.mock("../../src/lib/zitadel-management.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  listOrgUsers: zitadelMocks.listOrgUsers,
+  listUserRolesByUserId: zitadelMocks.listUserRolesByUserId,
+}));
+
+function makeApp(tenantId: string, roles: string[], orgId?: string) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
   app.use(
     "*",
     async (c: Context<{ Variables: { auth: AuthContext } }>, next: Next) => {
       c.set("auth", {
         tenantId,
+        orgId,
         userId: "u-test",
         roles,
         email: "test@example.com",
@@ -67,12 +79,37 @@ describe("GET /admin/members — route-level access control", () => {
       slug: `members-route-b-${TENANT_B}`,
     });
 
-    const res = await makeApp(TENANT_B, ["admin"]).request("/admin/members");
+    await db.insert(tenantUsers).values([
+      {
+        tenantId: TENANT_A,
+        userId: "u-tenant-a-only",
+        displayName: "Tenant A User",
+        email: "a@tenant-a.example",
+      },
+      {
+        tenantId: TENANT_B,
+        userId: "u-tenant-b-only",
+        displayName: "Tenant B User",
+        email: "b@tenant-b.example",
+      },
+    ]);
+
+    zitadelMocks.listOrgUsers.mockResolvedValueOnce([]);
+    zitadelMocks.listUserRolesByUserId.mockResolvedValueOnce(
+      new Map([
+        ["u-tenant-a-only", ["admin"]],
+        ["u-tenant-b-only", ["admin"]],
+      ]),
+    );
+
+    const res = await makeApp(TENANT_B, ["admin"], "org-test").request(
+      "/admin/members",
+    );
     expect(res.status).toBe(200);
-    const { data } = (await res.json()) as { data: unknown[] };
-    // No Zitadel org configured in this test (orgId omitted) -- exercises
-    // the DB-only fallback path, which must not throw and must not surface
-    // anything scoped to a different tenant.
-    expect(Array.isArray(data)).toBe(true);
+    const { data } = (await res.json()) as { data: { userId: string }[] };
+    const userIds = data.map((user) => user.userId);
+
+    expect(userIds).toContain("u-tenant-b-only");
+    expect(userIds).not.toContain("u-tenant-a-only");
   });
 });
