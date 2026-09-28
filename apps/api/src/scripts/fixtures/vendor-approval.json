@@ -1,0 +1,108 @@
+[
+  {
+    "advanceTo": "draft",
+    "payload": {
+      "source": "synthetic-demo",
+      "externalId": "demo-vendor-001",
+      "vendor": {
+        "name": "Northwind Cloud Backup",
+        "email": "partners@northwind-backup.example",
+        "category": "software",
+        "annualSpend": 480000,
+        "currency": "INR",
+        "justification": "Offsite backup for the finance and HR file shares; current tape rotation fails audit."
+      }
+    }
+  },
+  {
+    "advanceTo": "it_security_review",
+    "payload": {
+      "source": "synthetic-demo",
+      "externalId": "demo-vendor-002",
+      "vendor": {
+        "name": "Brightline Payroll Services",
+        "email": "onboarding@brightline-payroll.example",
+        "category": "services",
+        "annualSpend": 900000,
+        "currency": "INR",
+        "justification": "Outsource monthly payroll processing for 220 staff across three states."
+      }
+    }
+  },
+  {
+    "advanceTo": "legal_review",
+    "payload": {
+      "source": "synthetic-demo",
+      "externalId": "demo-vendor-003",
+      "vendor": {
+        "name": "Ferrous Rack Systems",
+        "email": "sales@ferrous-racks.example",
+        "category": "hardware",
+        "annualSpend": 1350000,
+        "currency": "INR",
+        "justification": "Warehouse racking for the new Pune distribution centre."
+      }
+    }
+  },
+  {
+    "advanceTo": "pending_final_approval",
+    "payload": {
+      "source": "synthetic-demo",
+      "externalId": "demo-vendor-004",
+      "vendor": {
+        "name": "Kestrel GST Advisory",
+        "email": "engage@kestrel-advisory.example",
+        "category": "consulting",
+        "annualSpend": 600000,
+        "currency": "INR",
+        "justification": "Quarterly GST reconciliation and notice handling support."
+      }
+    }
+  },
+  {
+    "advanceTo": "approved",
+    "payload": {
+      "source": "synthetic-demo",
+      "externalId": "demo-vendor-005",
+      "vendor": {
+        "name": "Lumen Fleet Telematics",
+        "email": "b2b@lumen-fleet.example",
+        "category": "software",
+        "annualSpend": 720000,
+        "currency": "INR",
+        "justification": "GPS tracking and fuel reporting for the 40-vehicle delivery fleet."
+      }
+    }
+  },
+  {
+    "advanceTo": "rejected",
+    "payload": {
+      "source": "synthetic-demo",
+      "externalId": "demo-vendor-006",
+      "vendor": {
+        "name": "QuickPrint Marketing Co",
+        "email": "hello@quickprint.example",
+        "category": "services",
+        "annualSpend": 150000,
+        "currency": "INR",
+        "justification": "Brochure and signage printing for the Q4 trade fair."
+      }
+    }
+  },
+  {
+    "advanceTo": "rejected",
+    "rejectAt": "legal_review",
+    "payload": {
+      "source": "synthetic-demo",
+      "externalId": "demo-vendor-007",
+      "vendor": {
+        "name": "Harbor Freight Forwarding",
+        "email": "contracts@harbor-freight.example",
+        "category": "services",
+        "annualSpend": 1100000,
+        "currency": "INR",
+        "justification": "Import customs brokerage for the Chennai port shipments."
+      }
+    }
+  }
+]

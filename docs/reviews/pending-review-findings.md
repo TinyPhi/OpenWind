@@ -37,6 +37,8 @@ that's the difference between the two halves of this list.
 both phases done per `docs/tracker/week-log/archive/week-log.md`'s 2026-08-12 entries (PR #372, #380); row
 removed per this doc's own rule below.
 
+**Added 2026-09-27:** #678 and #679, both found while building #606 (`docs/specs/vendor-approval.md` §B).
+
 **Added 2026-08-31:** #540 (rate-limit.ts trusts first X-Forwarded-For hop, spoofable if a
 fronting proxy appends instead of overwrites) — found during a security review of the fix that
 first made the third-party API reachable via a reverse proxy at all (previously the backend
@@ -59,6 +61,7 @@ requirements more likely to surface, not less. Row updated below, not removed.
 | No accessibility floor on modals — waves 1 & 2 shipped (PR #285, PR #298); 2 items deliberately deferred (workflow-canvas slide-in panel, access-denied overlay) — **decided 2026-09-18: keep open**, not a maintainer-decision gap anymore, just unstaffed work | [#198](../../issues/198) | Unassigned |
 | Zero internationalization — scaffolding shipped (PR #272), ~55 of 57 files still hardcoded English                                                                                                                                                               | [#200](../../issues/200) | Unassigned |
 | `rate-limit.ts` trusts the first `X-Forwarded-For` hop with no enforcement that a fronting proxy overwrites (not appends) it — spoofable rate-limit bypass if misconfigured                                                                                      | [#540](../../issues/540) | Unassigned |
+| Per-user erasure misses user ids inside tenant-defined `user_ref` custom fields and free-text mentions in `entity_instances.fields` (found during #635)                                                                                                          | [#688](../../issues/688) | Unassigned |
 
 ---
 

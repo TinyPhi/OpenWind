@@ -152,7 +152,12 @@ export type AuditAction =
   // the tenant-wide dashboard). Together they answer "who viewed which
   // reporting dashboards, and when".
   | "reporting.guest_token_issued"
-  | "reporting.guest_token_denied";
+  | "reporting.guest_token_denied"
+  // #638 — entity-list exports (sync and async), migration 0127 extends the
+  // DB CHECK constraint in the same commit.
+  | "export.requested"
+  | "export.completed"
+  | "export.failed";
 
 export type AuditEntryInput = {
   tenantId: string;

@@ -17,7 +17,7 @@ const ctx=require(process.env.LIBDIR+"/context.js");
 const repo=process.env.REPO;
 ctx.ensureStateDir(repo,"docs-updated");
 const args=process.argv.slice(1);
-function sh(c){try{return cp.execSync(c,{cwd:repo}).toString();}catch(e){return "";}}
+function sh(c){try{return cp.execSync(c,{cwd:repo,maxBuffer:ctx.MAX_BUFFER}).toString();}catch(e){return "";}}
 const branch=ctx.branchOf(repo);
 const diffBuf=ctx.shBuf("git diff HEAD",repo);
 if(!diffBuf.toString().trim()){console.error("Cannot write docs marker: git diff HEAD is empty - nothing to document.");process.exit(1);}

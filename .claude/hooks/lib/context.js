@@ -20,9 +20,14 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
+// execSync's default maxBuffer is 1 MiB; past it the call throws ENOBUFS, which the catch
+// blocks below turn into an EMPTY result — every gate then saw a >1 MiB `git diff HEAD`
+// (e.g. merging main into a long-lived branch) as "nothing to review" (#698).
+const MAX_BUFFER = 256 * 1024 * 1024;
+
 function sh(cmd, cwd) {
   try {
-    return cp.execSync(cmd, { cwd, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return cp.execSync(cmd, { cwd, stdio: ["ignore", "pipe", "ignore"], maxBuffer: MAX_BUFFER }).toString().trim();
   } catch (e) {
     return "";
   }
@@ -35,7 +40,7 @@ function sh(cmd, cwd) {
 // silently disagree if one trims and the other doesn't.
 function shBuf(cmd, cwd) {
   try {
-    return cp.execSync(cmd, { cwd, stdio: ["ignore", "pipe", "ignore"] });
+    return cp.execSync(cmd, { cwd, stdio: ["ignore", "pipe", "ignore"], maxBuffer: MAX_BUFFER });
   } catch (e) {
     return Buffer.alloc(0);
   }
@@ -166,6 +171,7 @@ function listWorktrees(repo) {
 }
 
 module.exports = {
+  MAX_BUFFER,
   sh,
   shBuf,
   sha256,

@@ -16,6 +16,15 @@ vi.mock("drizzle-orm", () => ({
 const mockWithTenantContext = vi.fn();
 const mockWriteAuditEntry = vi.fn();
 
+const mockEraseUserFromTenant = vi.fn();
+
+// The erasure statements themselves are exercised against real Postgres in
+// tests/isolation/user-erasure-coverage.isolation.test.ts; here only the
+// route's orchestration is checked.
+vi.mock("../../services/user-erasure.js", () => ({
+  eraseUserFromTenant: (...args: unknown[]) => mockEraseUserFromTenant(...args),
+}));
+
 vi.mock("@platform/audit", () => ({
   writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
 }));
@@ -28,43 +37,6 @@ vi.mock("@platform/db", () => ({
     userId: "userId",
     email: "email",
     displayName: "displayName",
-  },
-  savedViews: { tenantId: "tenantId", userId: "userId" },
-  notificationRecipients: { tenantId: "tenantId", userId: "userId" },
-  ticketAlerts: { tenantId: "tenantId", createdBy: "createdBy" },
-  accessRequests: {
-    tenantId: "tenantId",
-    requesterId: "requesterId",
-    resolvedBy: "resolvedBy",
-  },
-  apiKeys: {
-    tenantId: "tenantId",
-    createdBy: "createdBy",
-    revokedBy: "revokedBy",
-  },
-  entityInstances: {
-    tenantId: "tenantId",
-    createdBy: "createdBy",
-    assignedTo: "assignedTo",
-  },
-  workflows: {
-    tenantId: "tenantId",
-    createdBy: "createdBy",
-    assignedTo: "assignedTo",
-  },
-  workflowEvents: {
-    tenantId: "tenantId",
-    triggeredBy: "triggeredBy",
-    actorId: "actorId",
-  },
-  attachments: {
-    tenantId: "tenantId",
-    uploadedBy: "uploadedBy",
-    actingPersonId: "actingPersonId",
-  },
-  idempotencyKeys: {
-    tenantId: "tenantId",
-    userId: "userId",
   },
 }));
 
@@ -92,13 +64,14 @@ vi.mock("@platform/auth", () => ({
 const mockListOrgUsers = vi.fn();
 const mockListUserRolesByUserId = vi.fn();
 const mockInvalidateUserCache = vi.fn();
+const mockDeleteUser = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../../lib/zitadel-management.js", () => ({
   listOrgUsers: (...args: unknown[]) => mockListOrgUsers(...args),
   listUserRolesByUserId: (...args: unknown[]) =>
     mockListUserRolesByUserId(...args),
   invalidateUserCache: () => mockInvalidateUserCache(),
-  deleteUser: vi.fn().mockResolvedValue(undefined),
+  deleteUser: (...args: unknown[]) => mockDeleteUser(...args),
 }));
 
 const { usersRouter } = await import("./users.js");
@@ -183,17 +156,48 @@ describe("GET /users", () => {
   describe("DELETE /users/:userId", () => {
     beforeEach(() => {
       vi.clearAllMocks();
+      mockEraseUserFromTenant.mockResolvedValue({ rotatedApiKeys: [] });
     });
 
-    it("purges user data and metadata across all tables, invalidates cache, and logs deletion", async () => {
-      const mockTx = {
-        delete: vi.fn().mockReturnThis(),
-        update: vi.fn().mockReturnThis(),
-        set: vi.fn().mockReturnThis(),
-        where: vi.fn().mockResolvedValue(undefined),
-      };
+    it("audits each API key put on a forced rotation window (#688)", async () => {
+      const rotateBy = new Date("2026-10-27T00:00:00.000Z");
+      mockEraseUserFromTenant.mockResolvedValueOnce({
+        rotatedApiKeys: [
+          { id: "key-1", expiresAt: rotateBy },
+          { id: "key-2", expiresAt: rotateBy },
+        ],
+      });
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
 
-      // withTenantContext runs the callback on mockTx
+      const res = await makeApp().request("/users/target-user-123", {
+        method: "DELETE",
+      });
+      expect(res.status).toBe(200);
+      const keyEntries = mockWriteAuditEntry.mock.calls
+        // second argument is writeAuditEntry's AuditEntryInput
+        .map(
+          (c) =>
+            c[1] as {
+              resourceType: string;
+              resourceId: string;
+              metadata: unknown;
+            },
+        )
+        .filter((e) => e.resourceType === "api_key");
+      expect(keyEntries).toEqual([
+        expect.objectContaining({
+          resourceId: "key-1",
+          metadata: {
+            reason: "creator_erased",
+            rotateBy: rotateBy.toISOString(),
+          },
+        }),
+        expect.objectContaining({ resourceId: "key-2" }),
+      ]);
+    });
+
+    it("erases the user inside the tenant transaction, audits it, and invalidates the user cache", async () => {
+      const mockTx = { marker: "tx" };
       mockWithTenantContext.mockImplementationOnce((_tenantId, cb) =>
         cb(mockTx),
       );
@@ -206,11 +210,35 @@ describe("GET /users", () => {
       const body = await res.json();
       expect(body.success).toBe(true);
 
-      // Verify that all steps ran inside the transaction
-      expect(mockTx.delete).toHaveBeenCalledTimes(7);
-      expect(mockTx.update).toHaveBeenCalledTimes(9);
-      expect(mockWriteAuditEntry).toHaveBeenCalled();
+      expect(mockWithTenantContext).toHaveBeenCalledTimes(1);
+      const [tenantIdArg] = mockWithTenantContext.mock.calls[0] ?? [];
+      expect(mockEraseUserFromTenant).toHaveBeenCalledWith(
+        mockTx,
+        tenantIdArg,
+        "target-user-123",
+      );
+      expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+        mockTx,
+        expect.objectContaining({
+          resourceType: "user",
+          resourceId: "target-user-123",
+          action: "deleted",
+        }),
+      );
       expect(mockInvalidateUserCache).toHaveBeenCalled();
+    });
+
+    it("does not audit or touch Zitadel when the erasure fails", async () => {
+      mockEraseUserFromTenant.mockRejectedValueOnce(new Error("boom"));
+      mockWithTenantContext.mockImplementationOnce((_tenantId, cb) => cb({}));
+
+      const res = await makeApp().request("/users/target-user-123", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(500);
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+      expect(mockDeleteUser).not.toHaveBeenCalled();
     });
   });
 });

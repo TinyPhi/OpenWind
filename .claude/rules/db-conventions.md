@@ -20,7 +20,7 @@ Never instantiate a DB client. Always import from `@platform/db`.
 1. **Explicit `WHERE tenant_id = ?` filters** in every engine query. These are the primary guard and must not be removed.
 2. **RLS via `set_config('app.tenant_id', …)`** set by `withTenantContext`. This is the second line of defence.
 
-`withTenantContext` and `executeRawInTenantContext` issue `SET LOCAL ROLE app_user` before setting the GUC (#121), so RLS is enforced even when `DATABASE_URL` connects as a superuser (e.g. CI's `platform` role) — `SET LOCAL ROLE` inside the transaction switches to the non-superuser, non-`BYPASSRLS` `app_user` role for the duration of that transaction. RLS and explicit `WHERE tenant_id` filters are both required — defense-in-depth, not alternatives. Never remove explicit tenant filters on the assumption that RLS alone is sufficient. `withTenantAndUserContext` (used for saved views) additionally sets `app.user_id` and is the pattern to follow for user-scoped resources.
+`withTenantContext` and `executeRawInTenantContext` issue `SET LOCAL ROLE app_user` before setting the GUC (#121), so RLS is enforced even when `DATABASE_URL` connects as a superuser (e.g. CI's `platform` role) — `SET LOCAL ROLE` inside the transaction switches to the non-superuser, non-`BYPASSRLS` `app_user` role for the duration of that transaction. RLS and explicit `WHERE tenant_id` filters are both required — defense-in-depth, not alternatives. Never remove explicit tenant filters on the assumption that RLS alone is sufficient. `withTenantAndUserContext` (used for saved views) additionally sets `app.user_id` and is the pattern to follow for user-scoped resources. A policy that reads `app.user_id` (or any `app.*` GUC) and casts it must wrap it in `NULLIF(current_setting('app.user_id', true), '')` first: an unset custom GUC reads as `''` (not NULL) on any pooled connection that has run a transaction-local `set_config`, and `''::uuid` throws.
 
 `entity_types` and `workflows` have `tenant_id` nullable — `NULL` denotes system/template rows visible to every tenant, enforced by an `entity_fields`-style RLS policy pair (`tenant_id IS NULL OR tenant_id = current_setting(...)` for reads, no `IS NULL` branch for writes) as of ADR-007 (migration 0037). `workflow_states`/`workflow_transitions` gained a denormalized `tenant_id UUID NOT NULL` column (backfilled from `workflow_id` → `workflows.tenant_id`) and a standard `entity_instances`-style RLS pair in the same migration — see `docs/decisions/ADR-007-rls-workflow-config-tables.md` for why they don't need the nullable shape. The explicit ownership checks in `packages/workflow-engine` (`assertWorkflowOwned`/`visibleTo`) remain unchanged and are still required — RLS on these four tables is the second layer, not a replacement.
 
@@ -36,6 +36,16 @@ tenant_id UUID NOT NULL REFERENCES tenants(id)
 ```
 
 Missing any of these is a PR blocker.
+
+**…and a place in both GDPR erasure paths, in the same PR (#635).** A new tenant-scoped
+table goes into `apps/worker/src/tenant-purge.ts` (a delete in FK-safe order +
+`PURGED_TENANT_TABLES`) or into `ERASURE_EXEMPT_TABLES` with a reason. A new column holding a
+user id goes into `apps/api/src/services/user-erasure.ts` (a delete/redact/null statement +
+`USER_REFERENCE_COLUMNS_HANDLED`) or into `USER_REFERENCE_COLUMNS_EXEMPT` with a reason. Two
+isolation guards (`erasure-table-coverage-guard`, `erasure-user-column-coverage-guard`) read
+`information_schema` and fail CI naming anything missing. Also add a row for the new table to
+`apps/worker/tests/isolation/fixtures/seed-every-tenant-table.sql`. Check the grants the erasure
+needs: `app_user` must be able to DELETE or UPDATE what it scrubs.
 
 ---
 
@@ -63,6 +73,7 @@ Migration PR checklist:
 - [ ] Index on primary query pattern
 - [ ] Down migration (rollback SQL) at the top as a comment
 - [ ] Analytics annotation on every `CREATE TABLE`
+- [ ] Wired into tenant purge + per-user erasure (or exempted with a reason)
 
 ---
 

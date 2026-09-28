@@ -883,6 +883,20 @@
       "when": 1789033314000,
       "tag": "0125_normalize_textarea_field_type",
       "breakpoints": false
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1789033315000,
+      "tag": "0126_erasure_delete_grants",
+      "breakpoints": false
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1789033316000,
+      "tag": "0127_admin_audit_log_export_actions",
+      "breakpoints": false
     }
   ]
 }

@@ -5,7 +5,11 @@
  * `scheduleTenantDeletion` in the API's tenant lifecycle service.
  *
  * FK-safe deletion order (children before parents):
- *   files (DB rows) → workflowTransitions → workflowStates → workflowEvents
+ *   [privileged pre-step: scheduleExecutions, savedViews — see below]
+ *   notificationRecipients → notifications → ticketLabels → labels
+ *   → entityInstanceTags → ticketAlerts → accessRequests → attachments
+ *   → files (DB rows) → scheduleRules → notificationPolicies → onCallSchedules
+ *   → services → teams → workflowTransitions → workflowStates → workflowEvents
  *   → workflows → entityRelations → entityInstances → entityFields → entityTypes
  *   → automationExecutions → automationRules → deadLetterEvents → outboxEvents
  *   → connectorDeliveryAttempts → connectorCredentials → apiKeys → tenantUsers
@@ -35,6 +39,21 @@
  * ADR-007 (migration 0037) — their deletes below now filter by `tenant_id` directly
  * (in addition to the pre-existing `inArray(workflowId, wfIds)` filter), matching every
  * other table in this function.
+ *
+ * Privileged pre-step (#635): two tables can't be deleted through app_user.
+ * `schedule_executions` is append-only (INSERT+SELECT grant, migration 0102),
+ * and `saved_views`'s RLS policy also requires `user_id = app.user_id`, which a
+ * tenant-wide purge has no single value for. Both are deleted on the worker's
+ * privileged `db` connection with an explicit tenant_id filter, before the main
+ * transaction (schedule_executions → schedule_rules is ON DELETE RESTRICT) —
+ * the same compensating pattern as the audit-log anonymization and the plugin
+ * schema purge.
+ *
+ * Coverage is enforced by tests/isolation/tenant-purge-full-coverage and the
+ * erasure coverage guard, which read PURGED_TENANT_TABLES and
+ * ERASURE_EXEMPT_TABLES below: every tenant-scoped table must appear in one of
+ * them. Add a new tenant table to this purge (or exempt it with a reason) in
+ * the same PR that creates it.
  *
  * The job is idempotent: re-running after partial failure is safe because
  * each DELETE targets by tenant_id and missing rows are a no-op.
@@ -78,9 +97,77 @@ import {
   deadLetterEvents,
   connectorDeliveryAttempts,
   idempotencyKeys,
+  ticketAlerts,
+  accessRequests,
+  attachments,
+  notifications,
+  notificationRecipients,
+  savedViews,
+  labels,
+  ticketLabels,
+  entityInstanceTags,
+  teams,
+  services,
+  onCallSchedules,
+  notificationPolicies,
+  scheduleRules,
+  scheduleExecutions,
 } from "@platform/db";
 
 const QUEUE_NAME = "tenant-purge";
+
+/** Every tenant-scoped table this purge deletes from (SQL names). */
+export const PURGED_TENANT_TABLES: readonly string[] = [
+  "schedule_executions",
+  "saved_views",
+  "notification_recipients",
+  "notifications",
+  "ticket_labels",
+  "labels",
+  "entity_instance_tags",
+  "ticket_alerts",
+  "access_requests",
+  "attachments",
+  "files",
+  "schedule_rules",
+  "notification_policies",
+  "on_call_schedules",
+  "services",
+  "teams",
+  "workflow_transitions",
+  "workflow_states",
+  "workflow_events",
+  "workflows",
+  "entity_relations",
+  "entity_instances",
+  "entity_fields",
+  "entity_types",
+  "automation_executions",
+  "automation_rules",
+  "dead_letter_events",
+  "outbox_events",
+  "connector_delivery_attempts",
+  "connector_credentials",
+  "api_keys",
+  "tenant_users",
+  "view_configs",
+  "plugin_errors",
+  "installed_plugins",
+  "idempotency_keys",
+];
+
+/**
+ * Tenant-scoped tables deliberately kept after a purge, with the reason
+ * (docs/specs/gdpr-erasure-coverage.md §C, decided 2026-09-27).
+ */
+export const ERASURE_EXEMPT_TABLES: Readonly<Record<string, string>> = {
+  admin_audit_log:
+    "anonymized in place, not deleted — operational history survives (Phase G spec R9)",
+  admin_audit_log_daily_rollup:
+    "aggregate counts only (resource_type/action/day), no personal data",
+  tenant_usage_daily:
+    "metering counts only, no personal data; retained for billing records",
+};
 
 type PurgeJobData = { tenantId: string };
 
@@ -138,11 +225,67 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       );
     }
 
+    // Privileged pre-step (#635) — see header comment for why these two
+    // tables can't go through app_user.
+    // Archive the tenant's schedule rules first: the tick only fires active
+    // rules, so no new schedule_executions row can land between this delete
+    // and the main transaction's schedule_rules delete (RESTRICT FK). A tick
+    // already mid-flight can still race once; the BullMQ retry then converges.
+    await db
+      .update(scheduleRules)
+      .set({ status: "archived" })
+      .where(eq(scheduleRules.tenantId, tenantId));
+    await db
+      .delete(scheduleExecutions)
+      .where(eq(scheduleExecutions.tenantId, tenantId));
+    await db.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
+
     await withTenantContext(tenantId, async (tx) => {
+      // Notifications (recipients cascade, but are deleted explicitly so the
+      // coverage list stays exact)
+      await tx
+        .delete(notificationRecipients)
+        .where(eq(notificationRecipients.tenantId, tenantId));
+      await tx
+        .delete(notifications)
+        .where(eq(notifications.tenantId, tenantId));
+
+      // Per-record children of entity_instances — must precede it (NO ACTION FKs)
+      await tx.delete(ticketLabels).where(eq(ticketLabels.tenantId, tenantId));
+      await tx.delete(labels).where(eq(labels.tenantId, tenantId));
+      await tx
+        .delete(entityInstanceTags)
+        .where(eq(entityInstanceTags.tenantId, tenantId));
+      await tx.delete(ticketAlerts).where(eq(ticketAlerts.tenantId, tenantId));
+      await tx
+        .delete(accessRequests)
+        .where(eq(accessRequests.tenantId, tenantId));
+
+      // attachments → files is NO ACTION, so attachments go first
+      await tx.delete(attachments).where(eq(attachments.tenantId, tenantId));
+
       // M3: DELETE file rows (not just mark deleted) — on-disk bytes are
       // purged after commit via a recursive tenant-directory removal
       await tx.delete(files).where(eq(files.tenantId, tenantId));
       logger.info({ tenantId }, "tenant-purge: file rows deleted");
+
+      // Scheduler + on-call config (3E/3F). schedule_rules → workflows is
+      // ON DELETE RESTRICT, so it must precede the workflow deletes below.
+      await tx
+        .delete(scheduleRules)
+        .where(eq(scheduleRules.tenantId, tenantId));
+      await tx
+        .delete(notificationPolicies)
+        .where(eq(notificationPolicies.tenantId, tenantId));
+      await tx
+        .delete(onCallSchedules)
+        .where(eq(onCallSchedules.tenantId, tenantId));
+      await tx.delete(services).where(eq(services.tenantId, tenantId));
+      await tx.delete(teams).where(eq(teams.tenantId, tenantId));
+      logger.info(
+        { tenantId },
+        "tenant-purge: scheduler + on-call data deleted",
+      );
 
       // M1: workflow transitions + states, scoped by both workflow ID and tenant_id
       // (the latter added in ADR-007 — kept alongside the workflow ID list rather

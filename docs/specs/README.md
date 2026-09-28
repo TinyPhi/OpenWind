@@ -9,7 +9,7 @@ Status values (`.claude/commands/spec.md`): `draft` → `review` → `approved` 
 `implemented (PR #N)`, or `abandoned` (abandoned specs are deleted unless code cites them). When a spec's PR merges, update its header and this table in
 the same PR.
 
-Last reconciled: 2026-09-27 (#694).
+Last reconciled: 2026-09-28 (#694).
 
 ## Open
 
@@ -23,6 +23,8 @@ Last reconciled: 2026-09-27 (#694).
 | ------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------- |
 | [automation-trigger-config-scoping](automation-trigger-config-scoping.md)                   | —     | see header                                                                       |
 | [backup-dr-runbook](backup-dr-runbook.md)                                                   | —     | #482                                                                             |
+| [export-audit-trail](export-audit-trail.md)                                                 | —     | #687                                                                             |
+| [gdpr-erasure-coverage](gdpr-erasure-coverage.md)                                           | ✓     | #681                                                                             |
 | [hosted-ticket-create-handoff](hosted-ticket-create-handoff.md)                             | —     | #542                                                                             |
 | [modal-a11y-wave2](modal-a11y-wave2.md)                                                     | —     | #298                                                                             |
 | [network-status-awareness](network-status-awareness.md)                                     | —     | #486                                                                             |
@@ -50,6 +52,8 @@ Last reconciled: 2026-09-27 (#694).
 | [third-party-key-external-org-mapping](third-party-key-external-org-mapping.md)             | —     | #545                                                                             |
 | [third-party-transition-role-mapping](third-party-transition-role-mapping.md)               | —     | #514                                                                             |
 | [ticket-severity-and-tags](ticket-severity-and-tags.md)                                     | ✓     | see header                                                                       |
+| [user-erasure-anonymization](user-erasure-anonymization.md)                                 | —     | #690                                                                             |
+| [vendor-approval](vendor-approval.md)                                                       | ✓     | #680 (live walk-through #691)                                                    |
 | [workflow-ownership-admin](workflow-ownership-admin.md)                                     | —     | retroactive spec (ADR-006)                                                       |
 
 The third-party API specs are per-phase delivery detail. The cross-cutting rules and index live
