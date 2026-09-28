@@ -87,7 +87,7 @@ the record's own owner, a global admin/agent, **or** the workflow admin — the 
 composition used throughout. Direct grants (`grant-access.ts`, bypassing the request flow) are
 the one inconsistency found during this review: they're gated `requireRole("admin", "agent")`
 only — a workflow admin cannot directly grant access the way they can approve a _requested_ grant.
-Worth resolving (see Open Questions), but not blocking this ADR.
+Worth resolving (see Questions and resolutions), but not blocking this ADR.
 
 ### Known gap #1 — transition guards don't consult it (accepted "v1 limitation")
 
@@ -186,7 +186,7 @@ scoped alternative to global RBAC roles, not a workaround or a bug. Specifically
    reclassified from generic hardening to a dependency of this model's integrity.** It should be
    scheduled with that framing, not left indefinitely deferred.
 5. **`grant-access.ts`'s inconsistency (workflow admins can approve a _request_ but not issue a
-   _direct_ grant) is noted as a follow-up, not fixed by this ADR.** See Open Questions (WA-03).
+   _direct_ grant) is noted as a follow-up, not fixed by this ADR.** See Questions and resolutions (WA-03).
 6. **#168 (Known gap #3 — `createWorkflow` doesn't check the entity type isn't already governed)
    is accepted as a real, unresolved gap, tracked and prioritized, not blocking this ADR's
    acceptance.** Ratifying the ownership model does not mean ratifying this specific gap in how a
@@ -238,7 +238,7 @@ scoped alternative to global RBAC roles, not a workaround or a bug. Specifically
 
 ---
 
-## Open Questions
+## Questions and resolutions
 
 The questions below were raised during drafting and resolved with the human decider on
 2026-07-23. Each is settled as follows; none are still open.
