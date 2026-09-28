@@ -56,6 +56,11 @@ hook() { printf '%s' "$2" | "$H/$1" >/dev/null 2>&1; echo $?; }
 echo "syntax:"
 for f in "$H"/*.sh; do bash -n "$f" && echo "  ok    $f" || { echo "  FAIL  $f"; FAIL=$((FAIL + 1)); }; done
 
+echo "context.js (large command output, #698):"
+BIG=$((2 * 1024 * 1024))
+ck "$BIG" "shBuf returns >1 MiB output in full (not an empty buffer)" "$(node -e 'const c=require(require("path").resolve(process.argv[1],"lib/context.js"));process.stdout.write(String(c.shBuf("head -c "+process.argv[2]+" /dev/zero",".").length))' "$H" "$BIG")"
+ck "$BIG" "sh returns >1 MiB output in full (not an empty string)" "$(node -e 'const c=require(require("path").resolve(process.argv[1],"lib/context.js"));process.stdout.write(String(c.sh("head -c "+process.argv[2]+" /dev/zero | tr \"\\\\0\" x",".").length))' "$H" "$BIG")"
+
 echo "edit-gate (source-only, tests exempt):"
 ck 0 "docs under packages/ not gated" "$(hook edit-gate.sh '{"tool_name":"Write","tool_input":{"file_path":"packages/db/README.md"}}')"
 ck 2 ".ts under packages/ gated" "$(hook edit-gate.sh '{"tool_name":"Write","tool_input":{"file_path":"packages/db/x.ts"}}')"
