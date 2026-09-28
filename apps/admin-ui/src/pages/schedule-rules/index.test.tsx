@@ -259,6 +259,75 @@ describe("ScheduleRulesPage", () => {
     );
   });
 
+  it.each([
+    ["fractional", "1.5"],
+    ["negative", "-1"],
+    ["above the maximum", "3651"],
+  ])("rejects a %s due-days value before saving", async (_case, value) => {
+    queueRefresh([RULE_A]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Edit rule"));
+    await waitFor(() => expect(screen.getByLabelText("Day")).toBeTruthy());
+    fireEvent.click(screen.getByText("Next: Ticket template →"));
+
+    const dueDaysInput = screen.getByLabelText(
+      /Due — days after creation/,
+    ) as HTMLInputElement;
+    expect(dueDaysInput.step).toBe("1");
+    expect(dueDaysInput.max).toBe("3650");
+    fireEvent.change(dueDaysInput, { target: { value } });
+
+    expect(
+      screen.getByText(
+        "Due after (days) must be a whole number between 0 and 3650.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByText("Save changes"));
+    expect(
+      mockFetchWithAuth.mock.calls.some(
+        (call) =>
+          call[0] === "/api/admin/schedule-rules/rule-1" &&
+          (call[1] as { method?: string } | undefined)?.method === "PATCH",
+      ),
+    ).toBe(false);
+  });
+
+  it("submits a valid due-days value in the PATCH request", async () => {
+    queueRefresh([RULE_A]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Edit rule"));
+    await waitFor(() => expect(screen.getByLabelText("Day")).toBeTruthy());
+    fireEvent.click(screen.getByText("Next: Ticket template →"));
+
+    fireEvent.change(screen.getByLabelText(/Due — days after creation/), {
+      target: { value: "5" },
+    });
+    mockFetchWithAuth.mockResolvedValueOnce({ data: RULE_A });
+    queueRefresh([RULE_A]);
+    fireEvent.click(screen.getByText("Save changes"));
+
+    const findPatchCall = (): unknown[] | undefined =>
+      mockFetchWithAuth.mock.calls.find(
+        (call) =>
+          call[0] === "/api/admin/schedule-rules/rule-1" &&
+          (call[1] as { method?: string } | undefined)?.method === "PATCH",
+      );
+    await waitFor(() => expect(findPatchCall()).toBeTruthy());
+    const patchInit = findPatchCall()?.[1] as { body: string };
+    const patchBody = JSON.parse(patchInit.body) as {
+      template: { due_days: number };
+    };
+    expect(patchBody.template.due_days).toBe(5);
+  });
+
   it("lets you search and pick a workflow from a searchable dropdown", async () => {
     queueRefresh([]);
     renderPage();

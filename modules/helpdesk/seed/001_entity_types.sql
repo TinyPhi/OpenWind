@@ -61,7 +61,7 @@ WHERE NOT EXISTS (
 INSERT INTO entity_fields (entity_type_id, tenant_id, name, label, field_type, config, is_required, is_indexed, is_system, sort_order)
 VALUES
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title', 'Title', 'text', '{}'::jsonb, true, true, true, 1),
-  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description', 'Description', 'textarea', '{}'::jsonb, false, false, true, 2),
+  ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'description', 'Description', 'longtext', '{}'::jsonb, false, false, true, 2),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'priority', 'Priority', 'select', '{"options": ["low", "medium", "high", "urgent"]}'::jsonb, true, true, true, 3),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'category', 'Category', 'select', '{"options": ["technical", "billing", "general"]}'::jsonb, true, true, true, 4),
   ((SELECT id FROM entity_types WHERE name = 'ticket' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'severity', 'Severity', 'select', '{"options": ["critical", "high", "medium", "low"]}'::jsonb, false, true, true, 5),
@@ -82,7 +82,7 @@ ON CONFLICT (entity_type_id, name) DO NOTHING;
 -- Insert fields for Comment
 INSERT INTO entity_fields (entity_type_id, tenant_id, name, label, field_type, config, is_required, is_indexed, is_system, sort_order)
 VALUES
-  ((SELECT id FROM entity_types WHERE name = 'comment' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'body', 'Body', 'textarea', '{}'::jsonb, true, false, true, 1),
+  ((SELECT id FROM entity_types WHERE name = 'comment' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'body', 'Body', 'longtext', '{}'::jsonb, true, false, true, 1),
   ((SELECT id FROM entity_types WHERE name = 'comment' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'ticket_id', 'Ticket', 'entity_ref', '{"target_entity_type": "ticket"}'::jsonb, true, true, true, 2)
 ON CONFLICT (entity_type_id, name) DO NOTHING;
 
@@ -90,6 +90,6 @@ ON CONFLICT (entity_type_id, name) DO NOTHING;
 INSERT INTO entity_fields (entity_type_id, tenant_id, name, label, field_type, config, is_required, is_indexed, is_system, sort_order)
 VALUES
   ((SELECT id FROM entity_types WHERE name = 'article' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'title', 'Title', 'text', '{}'::jsonb, true, true, true, 1),
-  ((SELECT id FROM entity_types WHERE name = 'article' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'body', 'Body', 'textarea', '{}'::jsonb, true, false, true, 2),
+  ((SELECT id FROM entity_types WHERE name = 'article' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'body', 'Body', 'longtext', '{}'::jsonb, true, false, true, 2),
   ((SELECT id FROM entity_types WHERE name = 'article' AND tenant_id = '{TENANT_ID}'), '{TENANT_ID}', 'category', 'Category', 'text', '{}'::jsonb, false, true, true, 3)
 ON CONFLICT (entity_type_id, name) DO NOTHING;

@@ -27,6 +27,8 @@ import { showAlert } from "../../components/global-alert-dialog.js";
 const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 type Severity = (typeof SEVERITIES)[number];
 type RuleStatus = "active" | "paused" | "archived";
+const DUE_DAYS_INTEGER_ERROR =
+  "Due after (days) must be a whole number between 0 and 3650.";
 
 // Cron expressions are still what the API stores and the worker reads
 // (docs/decisions/ADR-017-temporal-scheduler.md: "cron as canonical
@@ -695,6 +697,15 @@ function RuleFormModal({
       );
       return;
     }
+    const dueDaysValue = Number(dueDays);
+    if (
+      !Number.isInteger(dueDaysValue) ||
+      dueDaysValue < 0 ||
+      dueDaysValue > 3650
+    ) {
+      setError(DUE_DAYS_INTEGER_ERROR);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -709,7 +720,7 @@ function RuleFormModal({
         severity: (templateSeverity || undefined) as Severity | undefined,
         assignedTo: assignMode === "user" ? assignedTo : undefined,
         teamId: assignMode === "team" ? teamId : undefined,
-        due_days: Number(dueDays),
+        due_days: dueDaysValue,
         remark: remark.trim(),
       };
       const cronExpr = buildCronExpr(
@@ -1072,9 +1083,25 @@ function RuleFormModal({
                 id="rule-due-days"
                 className="form-input"
                 type="number"
+                step={1}
                 min={0}
+                max={3650}
                 value={dueDays}
-                onChange={(e) => setDueDays(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setDueDays(value);
+                  const numericValue = Number(value);
+                  if (
+                    value !== "" &&
+                    (!Number.isInteger(numericValue) ||
+                      numericValue < 0 ||
+                      numericValue > 3650)
+                  ) {
+                    setError(DUE_DAYS_INTEGER_ERROR);
+                  } else if (error === DUE_DAYS_INTEGER_ERROR) {
+                    setError(null);
+                  }
+                }}
                 required
               />
             </div>

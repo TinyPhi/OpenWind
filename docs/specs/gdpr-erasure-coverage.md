@@ -53,7 +53,7 @@ escalation_manager_user_id, created_by}`, `schedule_rules.created_by`.
 | pattern refs       | ADR-015 (FK-safe, idempotent purge; audit log retained); `docs/specs/third-party-api-phase-g-hardening.md` R8–R10 and its rule that "a new PII-bearing table is never added without also adding it to the purge path in the same change"                                                               |
 | tenant isolation   | every delete/update keeps an explicit `tenant_id` filter; RLS stays enabled                                                                                                                                                                                                                            |
 | append-only tables | `schedule_executions` stays append-only for `app_user` (migration 0102 §V). Purge deletes it via the privileged `db` connection with an explicit tenant filter, as a pre-step before the main transaction — same precedent as `anonymizeAuditLogForTenant` and the plugin-schema pre-step              |
-| grants             | migration 0125: `GRANT DELETE ON ticket_alerts, access_requests TO app_user`, plus column-level `GRANT UPDATE (created_by) ON entity_instance_tags` (see §B B2). These are ordinary mutable tenant tables whose RLS policies already cover all commands (`*`); the route already depends on this grant |
+| grants             | migration 0126: `GRANT DELETE ON ticket_alerts, access_requests TO app_user`, plus column-level `GRANT UPDATE (created_by) ON entity_instance_tags` (see §B B2). These are ordinary mutable tenant tables whose RLS policies already cover all commands (`*`); the route already depends on this grant |
 | saved_views RLS    | not relaxed. Per-user erasure sets `app.user_id` to the target (transaction-local `set_config`) just for the `saved_views` delete, then restores it. Tenant purge deletes `saved_views` in the privileged pre-step                                                                                     |
 | on-call primary    | **decided 2026-09-27:** schedule rows where the erased user is `primary_user_id` are deleted (a shift slot is wholly that person's); `backup_user_id` / `escalation_manager_user_id` are nulled; `created_by` redacted                                                                                 |
 | exemptions         | **decided 2026-09-27:** `admin_audit_log` (anonymized on purge, per R9), `admin_audit_log_daily_rollup` and `tenant_usage_daily` (counts only, no personal data; kept for metering). Recorded in the guard's exemption list with reasons                                                               |
@@ -131,7 +131,7 @@ matching the user-reference naming convention (`created_by`, `*_user_id`, `assig
   database. It is now purged, and its `created_by` is redacted on user erasure.
 - **B2 — `entity_instance_tags` had no UPDATE grant.** Tags are add/remove only (0108 granted
   SELECT/INSERT/DELETE). Erasure must redact `created_by` on tags a user added to someone else's
-  ticket, so 0125 grants **column-level** `UPDATE (created_by)`; `tag_text` stays immutable.
+  ticket, so 0126 grants **column-level** `UPDATE (created_by)`; `tag_text` stays immutable.
 - **B3 — `origin_performer_user_id` can't be nulled.** CHECK `*_origin_all_or_nothing` requires
   all three `origin_*` columns set together, so the performer is redacted to `'[REDACTED]'`.
 - **B4 — old attachments step over-redacted.** It set _both_ `uploaded_by` and

@@ -1,7 +1,11 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, or, isNull, sql } from "drizzle-orm";
 import type { Redis } from "ioredis";
 import type { DbOrTx } from "@platform/db";
-import { automationRules, automationExecutions } from "@platform/db";
+import {
+  automationRules,
+  automationExecutions,
+  entityTypes,
+} from "@platform/db";
 import { logger } from "@platform/logger";
 import { env } from "@platform/config";
 import { evaluateConditionTree } from "@platform/workflow-engine";
@@ -20,6 +24,7 @@ import { executeCreateChildAction } from "./actions/create-child.js";
 import { executeResolveOncallAction } from "./actions/resolve-oncall.js";
 import { executeDispatchSeverityNotificationAction } from "./actions/dispatch-severity-notification.js";
 import { isOpen, recordFailure, reset } from "./circuit-breaker.js";
+import { ruleInScope } from "./trigger-scope.js";
 
 const MAX_DEPTH = 10;
 
@@ -64,7 +69,46 @@ export async function executeAutomationRules(
     )
     .orderBy(automationRules.priority, automationRules.createdAt);
 
+  // Memoised per call: several rules may scope by the same entity type name.
+  // Tenant-filtered — system-template types (tenant_id NULL) count as the
+  // tenant's own, another tenant's type never does.
+  const entityTypeNames = new Map<string, Promise<string | null>>();
+  const resolveEntityTypeName = (id: string): Promise<string | null> => {
+    let pending = entityTypeNames.get(id);
+    if (!pending) {
+      pending = db
+        .select({ name: entityTypes.name })
+        .from(entityTypes)
+        .where(
+          and(
+            eq(entityTypes.id, id),
+            or(
+              eq(entityTypes.tenantId, tenantId),
+              isNull(entityTypes.tenantId),
+            ),
+          ),
+        )
+        .limit(1)
+        .then(([row]) => row?.name ?? null);
+      entityTypeNames.set(id, pending);
+    }
+    return pending;
+  };
+
   for (const rule of rules) {
+    // trigger_config scope first (#678): an out-of-scope rule is skipped
+    // before conditions and before any automation_executions row is written.
+    if (
+      !(await ruleInScope(
+        // jsonb column — drizzle types it as unknown
+        rule.triggerConfig as Record<string, unknown> | null,
+        event,
+        resolveEntityTypeName,
+      ))
+    ) {
+      continue;
+    }
+
     // Merge the event's top-level properties (e.g. toState, fromState,
     // assigneeId, slaHours) with any entity field values so that condition
     // trees can match on both. entity.created events carry a `fields` map;
