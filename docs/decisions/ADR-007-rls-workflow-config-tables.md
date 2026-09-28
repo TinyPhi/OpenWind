@@ -3,6 +3,7 @@
 **Status:** Accepted.  
 **Date:** 2026-07-24.  
 **Deciders:** Engineering lead, Platform architect.  
+**Related to:** ADR-001 (multitenancy/RLS, MT-04), ADR-006 (per-workflow ownership — WA-02), issue #136.  
 **Supersedes:** —  
 **Superseded by:** —
 
@@ -294,14 +295,14 @@ row-level lock duration at scale, not about protecting `SET NOT NULL` specifical
 
 ## Open Questions
 
-| ID   | Question                                                                                                                                                                                                                                                                                                                                               | Notes                                                                             |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| OQ-1 | **Resolved by outcome (2026-08-24):** the migration (0037) already shipped via PR #181 without a separate staging/production row-count check ever being recorded. No maintenance-window fallback was invoked and no incident followed — the dev-scale assumption held in practice. Retroactively confirming exact prod counts is no longer actionable. | Closing as moot — the decision point already passed.                              |
-| OQ-2 | **Resolved (2026-08-24):** pre-Phase-3 hardening backlog is 100% closed (`roadmap-tracker.md`), and this item (issue #136) is itself marked closed within it. Phase 3 is already underway.                                                                                                                                                             | Moot — the backlog it was prioritized within no longer exists as an open backlog. |
+| ID   | Question                                                                                                              | Status   | Evidence / answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---- | --------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-1 | What are the actual `workflow_states`/`workflow_transitions` row counts in staging/production?                        | Resolved | Original note: dev shows 22/20 (trivial); confirm before running; fall back to a maintenance window (per the `0024` precedent) only if counts are materially larger. **Resolved by outcome (2026-08-24):** the migration (0037) already shipped via PR #181 without a separate staging/production row-count check ever being recorded. No maintenance-window fallback was invoked and no incident followed — the dev-scale assumption held in practice. Retroactively confirming exact prod counts is no longer actionable. Closing as moot — the decision point already passed. |
+| OQ-2 | Does this keep its "before Phase 3" priority relative to the rest of the pre-Phase-3 hardening backlog (`CLAUDE.md`)? | Resolved | Original note: pure prioritization call — not resolvable by research. **Resolved (2026-08-24):** pre-Phase-3 hardening backlog is 100% closed (`roadmap-tracker.md`), and this item (issue #136) is itself marked closed within it. Phase 3 is already underway. Moot — the backlog it was prioritized within no longer exists as an open backlog.                                                                                                                                                                                                                               |
 
 ---
 
-## Next steps if accepted
+## Implementation status
 
 1. A human moves this file to `docs/decisions/ADR-007-rls-workflow-config-tables.md` (or edits it
    first) and updates `CLAUDE.md`'s ADR reference list.

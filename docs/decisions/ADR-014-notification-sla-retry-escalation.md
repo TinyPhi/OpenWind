@@ -7,7 +7,7 @@
 #6 (async attachment-scan-failure handling — the closest existing precedent for "async operation
 fails after its triggering request already returned success"), issue #19 (3D observability).  
 **Supersedes:** —  
-**Superseded by:** -
+**Superseded by:** —
 
 ---
 
@@ -48,7 +48,7 @@ code rather than assuming:
 
 ---
 
-## Decision (proposed)
+## Decision
 
 1. **Retry semantics: keep the existing BullMQ `attempts: 3` / exponential 1s-base backoff as the
    platform default for notification delivery queues** — it's already what's configured, already
@@ -125,13 +125,13 @@ code rather than assuming:
 
 ## Open Questions
 
-| ID   | Question                                                                   | Notes                                                                                                                                                                                 |
-| ---- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OQ-1 | Is 5s p95 the right in-app latency target, or should it be tighter/looser? | No load-test data yet — proposed as a starting point, not derived from measurement. The only genuinely open item; resolving it needs real poller-latency data, not a design decision. |
+| ID   | Question                                                                   | Status     | Evidence / answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---- | -------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-1 | Is 5s p95 the right in-app latency target, or should it be tighter/looser? | Still open | No load-test data yet — proposed as a starting point, not derived from measurement. The only genuinely open item; resolving it needs real poller-latency data, not a design decision. Review 2026-09-28: no load-test/production latency data found; no in-app poller latency instrumentation located in `apps/worker`. **Recommended (2026-09-28), pending acceptance:** instrument poller latency (Implementation status step 4) before touching the target number — this is a measurement gap, not a design disagreement. Owner: whoever next works in `apps/worker/src/notification-*.ts`. |
 
 ---
 
-## Implementation next steps
+## Implementation status
 
 1. This draft should be reviewed and formally accepted (moved into
    `docs/decisions/ADR-014-notification-sla-retry-escalation.md` with `Status: Accepted`) by a

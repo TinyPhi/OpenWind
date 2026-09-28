@@ -3,14 +3,13 @@
 **Status:** Accepted.  
 **Date:** 2026-08-06.  
 **Deciders:** Engineering lead, Platform architect.  
-**Supersedes:** —  
 **Related to:** ADR-001 (multitenancy — Zitadel org↔tenant mapping, already shipped per PRs
 #151/#152, is the foundation Decision #2's OAuth-reuse depends on), ADR-008 (API key lifecycle —
 Tier 1 of this ADR uses that mechanism with the scopes re-shape ADR-008 Decision #6 commits to,
 not unchanged; Tier 2's principal-type work is deferred, see Deferred Decisions), ADR-009
 (connector runtime — this ADR's webhook-subscription model, Decision #3, reuses its outbound
-delivery infrastructure rather than building a third pipeline).
-
+delivery infrastructure rather than building a third pipeline).  
+**Supersedes:** —  
 **Superseded by:** —
 
 ---
@@ -94,7 +93,7 @@ under-privilege sibling products:
 
 ---
 
-## Decision (proposed)
+## Decision
 
 1. **This ADR now covers Tier 1 only. Tier 2 (trusted in-house sibling products) is deferred —
    see Deferred Decisions.** rev.1's justification for building Tier 2 now ("a real, named,
@@ -225,15 +224,15 @@ _(OQ-1/OQ-2 from rev.1 — the day-one Tier 2 operations list and consumer ident
 not renumbered: they were blocking questions for a Decision that's now deferred. They'll need
 re-asking whenever Tier 2's trigger fires, not answering now.)_
 
-| ID   | Question                                                                                                | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OQ-3 | **Resolved (2026-08-05):** Type-level filtering only for v1.                                            | Confirmed with the product decider — simpler schema, revisit if the known Tier 1 partner (or a future one) actually needs entity-type/field-level filtering once building against real usage.                                                                                                                                                                                                                                                                     |
-| OQ-4 | **Resolved (2026-08-05):** filed as issue #344, linked to #16, scoped to Tier 1 (inbound) specifically. | #16 is scoped outbound-only per its own body (ADR-009's territory) — keeping this as its own linked issue avoids conflating two ADRs' scope under one tracker item.                                                                                                                                                                                                                                                                                               |
-| OQ-5 | **Proposed default, not yet confirmed:** monitoring-and-react, no proactive cap for v1.                 | Consistent with ADR-009's own precedent for deferring its fail-closed rate-limit tier — no live traffic on any of the three outbound mechanisms yet to size a limit against. Revisit if real usage approaches a level worth capping. As of 2026-08-24: the concrete near-term gate is ADR-012/Phase C (issues #467–#470) — still pre-launch, no real partner traffic exists yet, so the original "no live traffic to size against" premise still holds unchanged. |
+| ID   | Question                                                                                        | Status     | Evidence / answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---- | ----------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-3 | Type-level filtering only for v1.                                                               | Resolved   | **Resolved (2026-08-05):** Type-level filtering only for v1. Confirmed with the product decider — simpler schema, revisit if the known Tier 1 partner (or a future one) actually needs entity-type/field-level filtering once building against real usage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| OQ-4 | Filed as issue #344, linked to #16, scoped to Tier 1 (inbound) specifically.                    | Resolved   | **Resolved (2026-08-05):** filed as issue #344, linked to #16, scoped to Tier 1 (inbound) specifically. #16 is scoped outbound-only per its own body (ADR-009's territory) — keeping this as its own linked issue avoids conflating two ADRs' scope under one tracker item.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| OQ-5 | Monitoring-and-react vs. proactive cap on connector/subscription aggregate count (Decision #6). | Still open | **Proposed default, not yet confirmed:** monitoring-and-react, no proactive cap for v1. Consistent with ADR-009's own precedent for deferring its fail-closed rate-limit tier — no live traffic on any of the three outbound mechanisms yet to size a limit against. Revisit if real usage approaches a level worth capping. As of 2026-08-24: the concrete near-term gate is ADR-012/Phase C (issues #467–#470) — still pre-launch, no real partner traffic exists yet, so the original "no live traffic to size against" premise still holds unchanged. 2026-09-28 review: proposed default still unconfirmed; still no live traffic on any outbound mechanism to size a cap against. **Recommended (2026-09-28), pending acceptance:** keep as monitoring-and-react for v1; revisit only once ADR-013's tier-assignment work (Decision #4) is wired up and real per-tenant traffic is observable. |
 
 ---
 
-## Implementation next steps
+## Implementation status
 
 1. Tracked as issue #344 (OQ-4, resolved) — linked to #16, same tracked status as ADR-009's
    outbound work.

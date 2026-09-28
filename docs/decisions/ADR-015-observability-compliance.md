@@ -249,11 +249,11 @@ components/global-error-banner.tsx` (shipped via `feat/PLAT-403-network-status-a
 
 ## Open Questions
 
-None
+None open.
 
 ---
 
-## Implementation next steps
+## Implementation status
 
 1. Once accepted, update issue #19's Constraints section to drop the stale SRI cross-reference
    (Decision #4) and link this ADR.
