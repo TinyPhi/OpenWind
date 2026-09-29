@@ -36,6 +36,9 @@ TypeScript in `modules/` (ADR-004). Full architecture: `docs/architecture-brief.
 | `schedule_rules` / `schedule_executions`, scheduler tick (3F)                                        | ADR-017, `docs/temporal-scheduler-design.md`                                         |
 | `packages/automation-engine`                                                                         | `.claude/context/automation-engine.md` (always `/security-review`)                   |
 | Helpdesk/reimbursements/CRM modules, platform services, admin-ui generic views, no-code builders     | `.claude/context/phase-2-primer.md`                                                  |
+| AI features, `packages/ai`, model calls (3C — not started)                                           | ADR-018 (Proposed; accepting it does not start 3C)                                   |
+| New modules, module ownership / placement (3H)                                                       | ADR-020 (Proposed), ADR-004, ADR-005                                                 |
+| Ticket relations, child tickets, `__accessUsers` grants, access requests                             | ADR-021 (Proposed), ADR-006                                                          |
 | Parallel approval                                                                                    | Off-limits — `.claude/context/parallel-approval-pattern.md`, #65                     |
 
 Status and history: `docs/tracker/roadmap-tracker.md` and `docs/tracker/week-log/`, one file per

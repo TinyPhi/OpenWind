@@ -3,8 +3,8 @@
 **Status:** Accepted.  
 **Date:** 2026-07-23.  
 **Deciders:** Engineering lead, Platform architect.  
-**Supersedes:** —  
 **Related to:** ADR-001 (multitenancy/RLS), ADR-002 (workflow engine).  
+**Supersedes:** —  
 **Superseded by:** —
 
 ---
@@ -87,7 +87,7 @@ the record's own owner, a global admin/agent, **or** the workflow admin — the 
 composition used throughout. Direct grants (`grant-access.ts`, bypassing the request flow) are
 the one inconsistency found during this review: they're gated `requireRole("admin", "agent")`
 only — a workflow admin cannot directly grant access the way they can approve a _requested_ grant.
-Worth resolving (see Open Questions), but not blocking this ADR.
+Worth resolving (see Questions and resolutions), but not blocking this ADR.
 
 ### Known gap #1 — transition guards don't consult it (accepted "v1 limitation")
 
@@ -186,7 +186,7 @@ scoped alternative to global RBAC roles, not a workaround or a bug. Specifically
    reclassified from generic hardening to a dependency of this model's integrity.** It should be
    scheduled with that framing, not left indefinitely deferred.
 5. **`grant-access.ts`'s inconsistency (workflow admins can approve a _request_ but not issue a
-   _direct_ grant) is noted as a follow-up, not fixed by this ADR.** See Resolved Decisions (WA-03).
+   _direct_ grant) is noted as a follow-up, not fixed by this ADR.** See Questions and resolutions (WA-03).
 6. **#168 (Known gap #3 — `createWorkflow` doesn't check the entity type isn't already governed)
    is accepted as a real, unresolved gap, tracked and prioritized, not blocking this ADR's
    acceptance.** Ratifying the ownership model does not mean ratifying this specific gap in how a
@@ -238,48 +238,16 @@ scoped alternative to global RBAC roles, not a workaround or a bug. Specifically
 
 ---
 
-## Resolved Decisions (formerly Open Questions)
+## Questions and resolutions
 
-The four questions below were raised during drafting and resolved with the human decider on
+The questions below were raised during drafting and resolved with the human decider on
 2026-07-23. Each is settled as follows; none are still open.
 
-**WA-01 — Should `executeTransition` be extended to consult `__accessUsers`/ownership at
-transition time, closing Known gap #1?**
-**Resolved: no, not now.** Role-only transition gating stands as **permanent, accepted policy**,
-not a temporary gap — it matches ADR-004's escape-hatch philosophy (add an engine primitive only
-when a concrete requirement demands it; none has). No tracked issue filed for this — the existing
-`tender-management.md` v1-limitation language already documents the accepted boundary, and this
-ADR is the second, platform-level place it's now recorded. Revisit only if a future module has a
-concrete case that role-only gating actually blocks.
-
-**WA-02 — Should #136's RLS policy design be its own ADR, or an addendum to this one?**
-**Resolved: its own ADR (ADR-007, not yet drafted).** RLS policy shape for
-`entity_types`/`workflows`/`workflow_states`/`workflow_transitions` requires real schema decisions
-(adding `tenant_id` to `workflow_states`/`workflow_transitions`, or a subquery-based policy; how to
-keep `tenant_id = NULL` system/template rows visible tenant-wide under RLS) — enough surface area
-to deserve its own document, consistent with this repo's one-decision-per-ADR pattern (ADR-001 vs
-ADR-002, etc.), rather than being buried as a subsection here. Recorded as a comment on #136 for
-visibility. Whoever picks up #136 drafts ADR-007; recommend before Phase 3A per the existing
-hardening-checklist ordering.
-
-**WA-03 — Should `grant-access.ts` accept workflow-admin callers the same way
-`resolve-access-request.ts` does?**
-**Resolved: yes.** Filed as a small, low-risk follow-up (workflow admins already have equivalent-
-to-`admin`/`agent` access on these records under this ADR's ratified model, so letting them
-direct-grant too closes a consistency gap without creating new escalation surface). See the
-tracked issue filed alongside this ADR.
-
-**WA-04 — Should `docs/specs/workflow-ownership-admin.md` be written now, retroactively?**
-**Resolved: yes.** Drafted alongside this ADR at `docs/specs/workflow-ownership-admin.md`,
-referencing it, so migration `0035`'s dangling reference now points at a real document and the
-spec/ADR/code triangle is complete.
-
-**WA-05 — Should this ADR's acceptance be delayed until #168 (Known gap #3, found by this ADR's
-own adversarial review) is fixed?**
-**Resolved: no — proceed now, fix separately, tracked, not swept under anything.** The human
-decider's explicit call: ratifying the ownership model as an architecture decision and fixing a
-bug in how workflow↔entity-type governance gets established are separate concerns. Delaying this
-ADR wouldn't make #168 get fixed any faster, and leaving the model undocumented while #168 is
-worked is strictly worse than documenting it now with the gap tracked in the open. #168 is filed,
-referenced from Known gap #3/Decision/Consequences above, and carries its own urgency
-recommendation (before Phase 3A) independent of this ADR's acceptance timeline.
+| ID    | Question                                                                                                                | Status   | Evidence / answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WA-01 | Should `executeTransition` be extended to consult `__accessUsers`/ownership at transition time, closing Known gap #1?   | Resolved | **Resolved: no, not now.** Role-only transition gating stands as **permanent, accepted policy**, not a temporary gap — it matches ADR-004's escape-hatch philosophy (add an engine primitive only when a concrete requirement demands it; none has). No tracked issue filed for this — the existing `tender-management.md` v1-limitation language already documents the accepted boundary, and this ADR is the second, platform-level place it's now recorded. Revisit only if a future module has a concrete case that role-only gating actually blocks.                                                                                                                                                         |
+| WA-02 | Should #136's RLS policy design be its own ADR, or an addendum to this one?                                             | Resolved | **Resolved: its own ADR (ADR-007, not yet drafted).** RLS policy shape for `entity_types`/`workflows`/`workflow_states`/`workflow_transitions` requires real schema decisions (adding `tenant_id` to `workflow_states`/`workflow_transitions`, or a subquery-based policy; how to keep `tenant_id = NULL` system/template rows visible tenant-wide under RLS) — enough surface area to deserve its own document, consistent with this repo's one-decision-per-ADR pattern (ADR-001 vs ADR-002, etc.), rather than being buried as a subsection here. Recorded as a comment on #136 for visibility. Whoever picks up #136 drafts ADR-007; recommend before Phase 3A per the existing hardening-checklist ordering. |
+| WA-03 | Should `grant-access.ts` accept workflow-admin callers the same way `resolve-access-request.ts` does?                   | Resolved | **Resolved: yes.** Filed as a small, low-risk follow-up (workflow admins already have equivalent-to-`admin`/`agent` access on these records under this ADR's ratified model, so letting them direct-grant too closes a consistency gap without creating new escalation surface). See the tracked issue filed alongside this ADR.                                                                                                                                                                                                                                                                                                                                                                                  |
+| WA-04 | Should `docs/specs/workflow-ownership-admin.md` be written now, retroactively?                                          | Resolved | **Resolved: yes.** Drafted alongside this ADR at `docs/specs/workflow-ownership-admin.md`, referencing it, so migration `0035`'s dangling reference now points at a real document and the spec/ADR/code triangle is complete.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| WA-05 | Should this ADR's acceptance be delayed until #168 (Known gap #3, found by this ADR's own adversarial review) is fixed? | Resolved | **Resolved: no — proceed now, fix separately, tracked, not swept under anything.** The human decider's explicit call: ratifying the ownership model as an architecture decision and fixing a bug in how workflow↔entity-type governance gets established are separate concerns. Delaying this ADR wouldn't make #168 get fixed any faster, and leaving the model undocumented while #168 is worked is strictly worse than documenting it now with the gap tracked in the open. #168 is filed, referenced from Known gap #3/Decision/Consequences above, and carries its own urgency recommendation (before Phase 3A) independent of this ADR's acceptance timeline.                                               |
+| WA-06 | Was the WA-03 follow-up (workflow admins may issue a direct grant via `grant-access.ts`) actually shipped?              | Resolved | Yes. Issue #167 (`gh issue view 167`) closed 2026-07-24 via PR #179 ("allow workflow admins to grant direct access on their own records"). `apps/api/src/routes/entities/grant-access.ts` now takes `requireRole("admin", "agent", "user")` plus an `isWorkflowAdmin` check on the record's workflow; covered by `apps/api/tests/isolation/grant-access-workflow-admin.isolation.test.ts`. The Context paragraph and Decision item 5 above describe the pre-#179 state (admin/agent only) and are left as written. Surfaced as ADR-021 OQ-11 (2026-09-28).                                                                                                                                                        |

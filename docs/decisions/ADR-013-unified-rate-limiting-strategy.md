@@ -41,7 +41,7 @@ than one tier at once.
 
 ---
 
-## Decision (proposed)
+## Decision
 
 1. **Adopt ADR-012's 3-tier shape as the platform-wide default for any authenticated API
    traffic**, not just third-party keys: per-(key, person) or per-(user, session), per-key/per-user
@@ -119,9 +119,15 @@ general-case tenant ceiling, rate-limit-exceeded logging) were resolved above by
 mechanisms (`scopes_format`, `RATE_LIMIT_TENANT_PER_MIN`) or moved to Deferred Decisions pending a
 real prerequisite (#19).
 
+| ID   | Question                                                                                           | Status           | Evidence / answer                                                                                                                                                                                                                                                                                                                                                                            |
+| ---- | -------------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-1 | Internal-key tier: which rate-limit tier do internal API keys get vs. third-party keys?            | Resolved         | Resolved by Decision #4 — tier assignment reuses `api_keys.scopes_format` as the discriminator, no new column.                                                                                                                                                                                                                                                                               |
+| OQ-2 | General-case tenant ceiling: what per-tenant aggregate ceiling applies to non-third-party traffic? | Resolved         | Resolved by Decision #5 — reuses the existing `RATE_LIMIT_TENANT_PER_MIN` env default (600/min).                                                                                                                                                                                                                                                                                             |
+| OQ-3 | Rate-limit-exceeded logging/alerting.                                                              | Accepted default | Moved to Deferred Decisions pending a real prerequisite (#19 — 3D observability shipping actual code). 2026-09-28 review: no open items remain in this ADR. The _implementation_ of Decision #4 tier assignment is tracked under ADR-012 OQ-2 (a per-key aggregate tier is now wired in `packages/auth/src/middleware.ts`), an implementation step rather than an open question of this ADR. |
+
 ---
 
-## Implementation next steps
+## Implementation status
 
 1. This draft should be reviewed and formally accepted (moved into
    `docs/decisions/ADR-013-unified-rate-limiting-strategy.md` with `Status: Accepted`) by a human,
