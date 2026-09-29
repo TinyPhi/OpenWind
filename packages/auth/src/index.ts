@@ -53,10 +53,11 @@ export {
   listUserIdsWithRole,
   listUserRolesByUserId,
   getUserById,
+  getOrgMetadataForUser,
   invalidateUserCache,
   deleteUser,
 } from "./zitadel-management.js";
-export type { OrgUser } from "./zitadel-management.js";
+export type { OrgUser, OrgMetadata } from "./zitadel-management.js";
 export {
   detectScopesFormat,
   unknownTicketActionScopes,
