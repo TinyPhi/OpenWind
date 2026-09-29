@@ -1,6 +1,8 @@
 # ADR-019: Reporting Tenant Isolation — Embedded and Standalone Superset
 
-**Status:** Proposed.  
+**Status:** Proposed. Stage 2 is pending a security review, tracked privately (OQ-6): Stage 2 must
+stay disabled (`SUPERSET_OAUTH_CLIENT_ID` unset) on every deployment until that review closes and
+this ADR records the outcome.  
 **Date:** 2026-09-28.  
 **Deciders:** Engineering Lead (isolation approach owned by Bikash, decided 2026-09-09).  
 **Related to:** ADR-001 (multitenancy — RLS, `analytics_user` grants), ADR-013 (rate limiting),
@@ -55,7 +57,8 @@ This ADR records the isolation design. Stages 1–2 are already merged (#663–#
 
 Superset (pinned at 6.1.0) is the BI engine. Stage 1 exposes fixed, provisioned dashboards only;
 it opens no query-writing surface. Stage 2 (standalone + Zitadel SSO) needs the stronger data
-boundary in Decisions 2–6 and ships behind it.
+boundary in Decisions 2–6; whether that boundary holds against user-written SQL is the subject of
+the pending review (OQ-6).
 
 **Not chosen:** Metabase. Its free tier embeds static dashboards only; per-tenant filtered
 embedding is a paid feature.
@@ -69,10 +72,13 @@ no second isolation mechanism to keep in sync with the first.
 
 The tenant comes from, in order: the guest-pass username the API mints (embedded), the verified
 guest token on the request (dashboard-level queries Superset runs as the owner), and the user's
-`tenant:<uuid>` role bound at login (Stage 2). The value must match a UUID regex before it reaches
-the connection string; that regex is the whole defence against option injection.
+`tenant:<uuid>` role bound at login (Stage 2). The value must match `_TENANT_ID_RE` (`docker/superset/superset_config.py:128`, an anchored
+`^…$` 8-4-4-4-12 hex UUID pattern) before it reaches the connection string; that regex is the
+whole defence against injecting further startup options. Subject ids used for own-rows scoping
+match the anchored `_PRINCIPAL_ID_RE` (`:126`).
 
-Two properties make this safe, both verified against the image's source:
+Two properties this relies on, both verified against the image's source. They cover the chart and
+embedded paths; for Stage 2 SQL Lab the outcome is recorded after the pending review (OQ-6):
 
 1. **No connection is reused across tenants.** Superset uses `NullPool` by default — a fresh
    physical connection per query, closed after.
@@ -137,7 +143,11 @@ Non-staff users are narrowed to their own tickets by a `RESTRICTIVE` policy on `
 and `workflow_events` (0116), scoped to `analytics_user` alone and keyed on
 `app.reporting_scope = 'own'` plus `app.reporting_user_id`. Restrictive, so it ANDs with the tenant
 policy instead of offering another way in. The mutator stamps these for any non-staff Stage 2
-session; an unusable binding is stamped as a subject that matches nothing.
+session. If a session's own-rows binding is unusable — more than one `owuser:` role, or a subject
+that fails `_PRINCIPAL_ID_RE` — it is stamped with `app.reporting_user_id=-`, a subject no ticket
+can have, so the session sees nothing rather than falling back to tenant-wide
+(`superset_config.py:195`, `:300`). As with Decision 2, the Stage 2 outcome is recorded after the
+pending review (OQ-6).
 
 When the scope setting is absent the policy is tenant-wide; the embedded path and staff
 (`admin`, `agent`, `superadmin`) rely on that. On the embedded path a customer asking for the
@@ -164,7 +174,12 @@ decision does not fire. `PlatformAuditEventLogger` maps the action names `sql_js
 `ChartDataRestApi.data` and `SqlLabRestApi.export_streaming_csv` for the same operations. A SQL Lab
 query, a streaming CSV export and a chart CSV export by a `ReportingAnalyst` wrote no
 `reporting.*` row. The database function is correct; the mapping in `superset_config.py` is stale.
-The API's guest-token audit is unaffected.
+The API's guest-token audit is unaffected. Tracked in #709.
+
+**Audit is best-effort.** Both the guest-token audit write and the Superset-side write are
+fail-open: if the audit store is unreachable, the pass is still minted and the query still runs.
+The Stage 2 actor is the Zitadel login name rather than always the subject id (standalone spec
+T11). Refusing queries when the audit store is unreachable is deferred (see Deferred Decisions).
 
 ### Decision 8 — Embed passes are short-lived, least-privileged and instance-bound
 
@@ -178,8 +193,8 @@ The API's guest-token audit is unaffected.
 ### Decision 9 — Standalone identity comes from Zitadel, never from the user
 
 Stage 2 is off unless `SUPERSET_OAUTH_CLIENT_ID` is set. Users sign in through Zitadel; roles are
-re-synced at every login; a new user lands in `ReportingNoAccess`. The tenant is resolved from the
-org claim through `tenant_for_org()` and is never user-selectable. SQL Lab is read-only on the
+re-synced at every login; a new user lands in `ReportingNoAccess`. The tenant is resolved at login from
+the org claim through `tenant_for_org()`; the sign-in flow offers no way to choose it. SQL Lab is read-only on the
 reporting database (`allow_dml`, `allow_ctas`, `allow_cvas` all off).
 
 ---
@@ -189,8 +204,6 @@ reporting database (`allow_dml`, `allow_ctas`, `allow_cvas` all off).
 ### Positive
 
 - One isolation mechanism for API and reporting. A fix or test on platform RLS covers both.
-- A user-written query cannot widen what a user sees: tenant and own-rows scoping are stamped on
-  the connection before the SQL runs.
 - Every misconfiguration found so far fails closed (empty result or refused mint), not open.
 - New tables and new columns are unreadable by reporting by default.
 - Reporting audit is designed to share the platform's retention, export and erasure guarantees
@@ -198,11 +211,30 @@ reporting database (`allow_dml`, `allow_ctas`, `allow_cvas` all off).
 
 ### Negative and mitigations
 
+- **Stage 2 is pending a security review and must stay disabled.** The review is tracked
+  privately (OQ-6). Mitigation: Stage 2 is off unless `SUPERSET_OAUTH_CLIENT_ID` is set; no
+  deployment sets it until the review closes. Stage 1 remains the production path.
 - **The per-connection stamp relies on a direct connection with no pooling.** Superset connects
   to Postgres directly, not through PgBouncer (PgBouncer is configured for `app_user` only).
-  Routing reporting through a transaction-mode pooler would not carry the startup option per
-  server connection. Mitigation: this ADR records the constraint; any pooling change for reporting
-  must re-verify isolation first (see Deferred Decisions).
+  Routing reporting through the pinned PgBouncer fails closed either way: checked 2026-09-28
+  against the pinned `edoburu/pgbouncer` image (PgBouncer 1.25.2), a client sending
+  `options=-c app.tenant_id=<uuid>` is refused at login (`FATAL: unsupported startup parameter in
+options`), and adding the parameter to `ignore_startup_parameters` would drop it silently, so
+  every query would return zero rows. Mitigation: pooled reporting needs a different way to carry
+  the tenant, which is a new decision, not a PgBouncer setting (see Deferred Decisions).
+- **Bootstrap window.** `docker/postgres/init/001_setup.sql` still creates `analytics_user` with
+  `BYPASSRLS` and a default `SELECT` grant; migrations `0112`/`0113` undo both. Migrations run in
+  the separate `bootstrap` profile, so compose `depends_on` cannot order them. Mitigation:
+  tracked in #708.
+- **Views must stay `security_invoker`.** Base tables are owned by `migration_user` (`BYPASSRLS`)
+  and no reporting table uses `FORCE ROW LEVEL SECURITY`, so a reporting view without
+  `security_invoker = true` would silently drop tenant isolation. Mitigation: the isolation suite
+  asserts it for `reporting_instances`
+  (`apps/api/tests/isolation/reporting-grants.isolation.test.ts`); any future reporting view needs
+  the same test.
+- **The connection mutator has no test.** Nothing under `docker/superset/` tests
+  `DB_CONNECTION_MUTATOR`; the isolation tests set the settings directly, and behaviour when the
+  mutator raises has not been verified. Mitigation: none yet.
 - **One shared Superset instance is a single blast radius.** A Superset compromise reaches the
   reporting connection for every tenant. Mitigation: accepted for single-node compose; pinned
   image, production refuses empty or dev-default secrets (#666), network restriction deferred
@@ -220,9 +252,9 @@ reporting database (`allow_dml`, `allow_ctas`, `allow_cvas` all off).
   capability — the standalone spec's R7 requires it to be bounded and attributable, not withheld.
   Verified 2026-09-28: a `ReportingAnalyst` downloads chart CSV through `can_csv` and SQL Lab
   streaming CSV through `can_read` on SQLLab (the endpoint declares `@permission_name("read")`);
-  only the plain SQL Lab export (`can_export_csv`) is withheld. Exports stay within the rows the
-  analyst can already see (Decisions 2 and 6), so there is no cross-tenant exposure. Mitigation:
-  Stage 1 remains the production path; export-specific rate limiting (standalone T12) is pending.
+  only the plain SQL Lab export (`can_export_csv`) is withheld. Exports are bounded by the same
+  scoping as queries (Decisions 2 and 6). Mitigation: Stage 2 stays disabled pending OQ-6, and
+  export-specific rate limiting (standalone T12) is pending.
   Unlike the audit gap in Decision 7, this is accepted rather than a defect.
 - **A 60 s pass cannot be revoked.** Mitigation: the lifetime is the revocation window by design
   and is enforced on both sides.
@@ -231,39 +263,42 @@ reporting database (`allow_dml`, `allow_ctas`, `allow_cvas` all off).
 
 ## Deferred Decisions
 
-| Deferred item                                           | Trigger to revisit                                      | Why deferred                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Routing reporting through PgBouncer                     | 200-concurrent load target (spec T17) or pooler change  | Startup-option stamping must be re-proven under a pooler first (see Negative)      |
-| Network restriction around Superset                     | Deployment moves off single-node compose                | Blast radius accepted in writing for now                                           |
-| Read replica for reporting                              | Reporting load affects the primary                      | Grants must be re-applied on any replica; logical replication does not copy grants |
-| Export-specific limits in Stage 2                       | Stage 2 becomes a production path (standalone T12)      | Export is allowed; row caps bound query cost, not bulk-export volume               |
-| Per-tenant on/off switch for reporting                  | Tenant asks to disable reporting                        | Reporting is always on, tabs gated per role (decided 2026-09-09)                   |
-| Service-account session cache and a mint-specific limit | Mint latency or abuse observed; 200-dashboard load test | Only the global rate limit (ADR-013) applies to the mint endpoint today            |
+| Deferred item                                           | Trigger to revisit                                      | Why deferred                                                                         |
+| ------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Routing reporting through PgBouncer                     | 200-concurrent load target (spec T17) or pooler change  | The pinned PgBouncer refuses the startup option; needs a new way to carry the tenant |
+| Refusing queries when the audit store is unreachable    | Compliance owner requires fail-closed audit             | Audit is best-effort today (Decision 7)                                              |
+| Network restriction around Superset                     | Deployment moves off single-node compose                | Blast radius accepted in writing for now                                             |
+| Read replica for reporting                              | Reporting load affects the primary                      | Grants must be re-applied on any replica; logical replication does not copy grants   |
+| Export-specific limits in Stage 2                       | Stage 2 becomes a production path (standalone T12)      | Export is allowed; row caps bound query cost, not bulk-export volume                 |
+| Per-tenant on/off switch for reporting                  | Tenant asks to disable reporting                        | Reporting is always on, tabs gated per role (decided 2026-09-09)                     |
+| Service-account session cache and a mint-specific limit | Mint latency or abuse observed; 200-dashboard load test | Only the global rate limit (ADR-013) applies to the mint endpoint today              |
 
 ---
 
 ## Open Questions
 
-| ID   | Question                                                                                                           | Notes                                                                                                                                                                                                                                           |
-| ---- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OQ-1 | ~~Is CSV download reachable in Stage 2 even though `can_export_csv` is deliberately withheld?~~ **Resolved: yes.** | Verified 2026-09-28 on a running 6.1.0 instance: chart CSV (`can_csv`) and SQL Lab streaming CSV (`can_read` on SQLLab) return 200; plain SQL Lab export returns 403. Export is an intended capability (spec R7); see Negative and mitigations. |
-| OQ-2 | Should the free-text `workflow_events.comment` column, which stays granted, get its own treatment?                 | Kept on purpose for charts; open in `reporting-metadata-masking-repair.md` OQ-1.                                                                                                                                                                |
-| OQ-3 | Is Superset (metadata DB, export volume) covered by backups and by the retention/erasure sweeps (ADR-015)?         | `scripts/backup.sh` does not mention Superset today.                                                                                                                                                                                            |
-| OQ-4 | Should roles be re-checked when a pass is minted, rather than only at sign-in?                                     | Known gap; bounded by the 60 s pass lifetime.                                                                                                                                                                                                   |
-| OQ-5 | Single-logout and MFA for Stage 2 sessions?                                                                        | Session lifetime is capped (480 min); single-logout and MFA are open in `superset-standalone-with-zitadel.md`.                                                                                                                                  |
+| ID   | Question                                                                                                             | Notes                                                                                                                                                                                                                                           |
+| ---- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-1 | ~~Is CSV download reachable in Stage 2 even though `can_export_csv` is deliberately withheld?~~ **Resolved: yes.**   | Verified 2026-09-28 on a running 6.1.0 instance: chart CSV (`can_csv`) and SQL Lab streaming CSV (`can_read` on SQLLab) return 200; plain SQL Lab export returns 403. Export is an intended capability (spec R7); see Negative and mitigations. |
+| OQ-2 | Should the free-text `workflow_events.comment` column, which stays granted, get its own treatment?                   | Kept on purpose for charts; open in `reporting-metadata-masking-repair.md` OQ-1.                                                                                                                                                                |
+| OQ-3 | Is Superset (metadata DB, result cache, export volume) covered by backups and by ADR-015's retention/erasure sweeps? | `scripts/backup.sh` does not mention Superset today. ADR-015's sweeps are Postgres row-level; the Redis result cache (300 s TTL) is not swept, so erasure cannot be declared complete until it expires.                                         |
+| OQ-4 | Should roles be re-checked when a pass is minted, rather than only at sign-in?                                       | Known gap; bounded by the 60 s pass lifetime.                                                                                                                                                                                                   |
+| OQ-5 | Single-logout and MFA for Stage 2 sessions?                                                                          | Session lifetime is capped (480 min); single-logout and MFA are open in `superset-standalone-with-zitadel.md`.                                                                                                                                  |
+| OQ-6 | Does the Stage 2 boundary (Decisions 2 and 6) hold against user-written SQL?                                         | Pending a security review, tracked privately. Stage 2 stays disabled until it closes; Decisions 2 and 6 then record the outcome.                                                                                                                |
 
 ---
 
 ## Implementation next steps
 
 1. No implementation is gated on this ADR: Stages 1–2 are merged (#663–#671, migrations 0112–0124).
-2. Correct ADR-001's database-user table, which still lists `analytics_user` as
-   "SELECT + BYPASSRLS … Metabase" — superseded by 0112 (`NOBYPASSRLS`) and Decision 1. ADR edits
-   are human-authored, so this is flagged rather than done here.
-3. File and fix, as its own issue: correct the `PlatformAuditEventLogger` action mapping to
+2. ~~Correct ADR-001's database-user table.~~ Done in #702: ADR-001 now lists `analytics_user` as
+   "Column-scoped SELECT, subject to RLS | Superset reporting (see ADR-019)".
+3. #709: correct the `PlatformAuditEventLogger` action mapping to
    Superset 6.1.0's action names, with a test that a real query and a real export each write a
    `reporting.*` row (standalone spec T11 is marked done but writes nothing today).
-4. Update the standalone spec's status line, which says export is "deliberately ungranted pending
+4. Close OQ-6: once the private Stage 2 review closes, record its outcome in Decisions 2 and 6 and
+   lift the Stage 2 note in Status.
+5. Update the standalone spec's status line, which says export is "deliberately ungranted pending
    T12": chart CSV and SQL Lab streaming export are available; only T12's limits are pending.
-5. Reconcile the stale option-C wording in `docs/specs/superset-embedded-dashboarding.md` (§V, T3,
+6. Reconcile the stale option-C wording in `docs/specs/superset-embedded-dashboarding.md` (§V, T3,
    T3b, T3c, T12) with Decision 5.
