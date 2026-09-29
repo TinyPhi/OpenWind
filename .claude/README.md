@@ -131,7 +131,10 @@ given tool call actually targets — from the file path for `Write`/`Edit`, from
 one location with a matching pending item. This means running parallel branches across separate
 worktrees from the same Claude Code session works correctly. If a scan finds **more than one**
 matching pending plan/marker across locations, the hook reports the ambiguity (branch + path for
-each) instead of guessing — say which branch you mean.
+each) instead of guessing. Name the branch in the directive to pick one, e.g.
+`approve-plan fix/PLAT-123-foo` or `approve-ship fix/PLAT-123-foo`. The word after the directive
+counts as a branch only if it contains a `/` or exactly matches a pending branch, and a name that
+matches nothing approves nothing.
 
 **State files are still not locked.** `.claude/state/` has no file locking. Two concurrent
 sessions on the _same_ branch in the _same_ worktree share that branch's `plan/`, `review/`,
