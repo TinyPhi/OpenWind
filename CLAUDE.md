@@ -37,7 +37,6 @@ TypeScript in `modules/` (ADR-004). Full architecture: `docs/architecture-brief.
 | `packages/automation-engine`                                                                         | `.claude/context/automation-engine.md` (always `/security-review`)                   |
 | Helpdesk/reimbursements/CRM modules, platform services, admin-ui generic views, no-code builders     | `.claude/context/phase-2-primer.md`                                                  |
 | AI features, `packages/ai`, model calls (3C — not started)                                           | ADR-018 (Proposed; accepting it does not start 3C)                                   |
-| Reporting / Superset, `analytics_user`, reporting migrations `0112`–`0124` (3G)                      | ADR-019 (Proposed; Stage 2 must stay off)                                            |
 | New modules, module ownership / placement (3H)                                                       | ADR-020 (Proposed), ADR-004, ADR-005                                                 |
 | Ticket relations, child tickets, `__accessUsers` grants, access requests                             | ADR-021 (Proposed), ADR-006                                                          |
 | Parallel approval                                                                                    | Off-limits — `.claude/context/parallel-approval-pattern.md`, #65                     |
