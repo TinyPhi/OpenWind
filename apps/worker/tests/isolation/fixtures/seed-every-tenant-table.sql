@@ -68,6 +68,9 @@ BEGIN
     VALUES (t, 's', '0 9 * * 1', et, wf, '{"title":"x"}', u) RETURNING id INTO srule;
   INSERT INTO schedule_executions (tenant_id, rule_id, scheduled_at, status, entity_instance_id) VALUES (t, srule, now(), 'success', inst);
 
+  INSERT INTO org_employees (tenant_id, user_id, name, title, department, email) VALUES (t, u, 'Org Cov', 'Engineer', 'engineering', 'org-cov@example.invalid');
+  INSERT INTO org_directory_sync_runs (tenant_id, status, triggered_by) VALUES (t, 'completed', u);
+
   INSERT INTO admin_audit_log (tenant_id, actor_id, actor_type, resource_type, resource_id, action) VALUES (t, u, 'user', 'ticket', inst, 'created');
   INSERT INTO admin_audit_log_daily_rollup (tenant_id, day, resource_type, action) VALUES (t, current_date, 'ticket', 'created');
   INSERT INTO tenant_usage_daily (tenant_id, usage_date, metric, value) VALUES (t, current_date, 'api_calls', 1);

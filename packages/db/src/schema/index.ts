@@ -9,3 +9,4 @@ export * from "./teams.js";
 export * from "./labels.js";
 export * from "./notification-policies.js";
 export * from "./schedules.js";
+export * from "./org-directory.js";

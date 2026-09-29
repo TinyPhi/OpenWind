@@ -9,7 +9,8 @@
  *   notificationRecipients → notifications → ticketLabels → labels
  *   → entityInstanceTags → ticketAlerts → accessRequests → attachments
  *   → files (DB rows) → scheduleRules → notificationPolicies → onCallSchedules
- *   → services → teams → workflowTransitions → workflowStates → workflowEvents
+ *   → services → teams → orgDirectorySyncRuns → orgEmployees
+ *   → workflowTransitions → workflowStates → workflowEvents
  *   → workflows → entityRelations → entityInstances → entityFields → entityTypes
  *   → automationExecutions → automationRules → deadLetterEvents → outboxEvents
  *   → connectorDeliveryAttempts → connectorCredentials → apiKeys → tenantUsers
@@ -112,12 +113,16 @@ import {
   notificationPolicies,
   scheduleRules,
   scheduleExecutions,
+  orgEmployees,
+  orgDirectorySyncRuns,
 } from "@platform/db";
 
 const QUEUE_NAME = "tenant-purge";
 
 /** Every tenant-scoped table this purge deletes from (SQL names). */
 export const PURGED_TENANT_TABLES: readonly string[] = [
+  "org_directory_sync_runs",
+  "org_employees",
   "schedule_executions",
   "saved_views",
   "notification_recipients",
@@ -286,6 +291,16 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
         { tenantId },
         "tenant-purge: scheduler + on-call data deleted",
       );
+
+      // Org directory (docs/specs/org-directory.md T3/T12) -- no FK dependency on
+      // anything else in this graph. org_employees.parent_id is self-referential
+      // but this is a set-based DELETE over the whole tenant, so the self-FK never
+      // blocks it (unlike a row-by-row delete, which would need root-to-leaf order).
+      await tx
+        .delete(orgDirectorySyncRuns)
+        .where(eq(orgDirectorySyncRuns.tenantId, tenantId));
+      await tx.delete(orgEmployees).where(eq(orgEmployees.tenantId, tenantId));
+      logger.info({ tenantId }, "tenant-purge: org directory data deleted");
 
       // M1: workflow transitions + states, scoped by both workflow ID and tenant_id
       // (the latter added in ADR-007 — kept alongside the workflow ID list rather
