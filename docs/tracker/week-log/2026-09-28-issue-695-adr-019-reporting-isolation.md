@@ -39,6 +39,12 @@
   cited and confirmed anchored; the "unusable binding" behaviour spelled out; OQ-3 names
   ADR-015 and the 300 s Redis cache gap; next step 2 points at #702, which fixed ADR-001.
 
+### Review round 2 (2026-09-29, @PrabhuVijit)
+
+- OQ-6 now points at #716 for the SQL Lab 0-row result: SQL Lab runs queries outside the user's
+  login context, so no tenant is stamped and RLS returns nothing (fails closed). Stage 1 has no
+  SQL Lab and is unaffected.
+
 ### Found along the way
 
 - **#695 asked to ratify "option C" (redact on write into a stored column). That is not what
