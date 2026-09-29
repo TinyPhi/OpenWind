@@ -41,13 +41,17 @@ export interface OrgUser {
   phone: string | undefined;
 }
 
-// docs/specs/org-directory.md §C "metadata key contract" -- exactly these two keys,
-// case-sensitive. Any other/misspelled metadata key on the user is ignored.
-const ORG_METADATA_KEYS = ["manager_id", "department"] as const;
+// docs/specs/org-directory.md §C "metadata key contract" -- exactly these three
+// keys, case-sensitive. Any other/misspelled metadata key on the user is
+// ignored. `title` (job title) joined this list during PR3 implementation --
+// Zitadel's human profile has no native job-title field, so it's read as
+// metadata for the same reason department is: free text, sync-time only.
+const ORG_METADATA_KEYS = ["manager_id", "department", "title"] as const;
 
 export interface OrgMetadata {
   managerId: string | null;
   department: string | null;
+  title: string | null;
 }
 
 interface ZitadelMetadataEntry {
@@ -79,6 +83,7 @@ export function parseOrgMetadataEntries(
   return {
     managerId: byKey.get("manager_id") ?? null,
     department: byKey.get("department") ?? null,
+    title: byKey.get("title") ?? null,
   };
 }
 
@@ -716,7 +721,7 @@ export async function getOrgMetadataForUser(
 }
 
 async function _fetchOrgMetadataForUser(userId: string): Promise<OrgMetadata> {
-  const empty: OrgMetadata = { managerId: null, department: null };
+  const empty: OrgMetadata = { managerId: null, department: null, title: null };
   const token = await getAccessToken();
   if (!token) {
     logger.warn(
