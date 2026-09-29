@@ -360,6 +360,41 @@ describe("ScheduleRulesPage", () => {
     expect(tzSelect.value).toBe("Asia/Kolkata");
   });
 
+  it("preserves an existing timezone that is not in the picker options", async () => {
+    const customTimezoneRule = {
+      ...RULE_A,
+      timezone: "Pacific/Auckland",
+    };
+    queueRefresh([customTimezoneRule]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Edit rule"));
+    const timezoneSelect = (await screen.findByLabelText(
+      /Timezone/,
+    )) as HTMLSelectElement;
+    expect(timezoneSelect.value).toBe("Pacific/Auckland");
+
+    fireEvent.click(screen.getByText("Next: Ticket template →"));
+    mockFetchWithAuth.mockResolvedValueOnce({ data: customTimezoneRule });
+    queueRefresh([customTimezoneRule]);
+    fireEvent.click(await screen.findByText("Save changes"));
+
+    const findPatchCall = (): unknown[] | undefined =>
+      mockFetchWithAuth.mock.calls.find(
+        (call) =>
+          call[0] === "/api/admin/schedule-rules/rule-1" &&
+          (call[1] as { method?: string } | undefined)?.method === "PATCH",
+      );
+    await waitFor(() => expect(findPatchCall()).toBeTruthy());
+    const patchInit = findPatchCall()?.[1] as { body: string };
+    expect((JSON.parse(patchInit.body) as { timezone: string }).timezone).toBe(
+      "Pacific/Auckland",
+    );
+  });
+
   it("toggles pause/resume on a rule", async () => {
     queueRefresh([RULE_A]);
     renderPage();
