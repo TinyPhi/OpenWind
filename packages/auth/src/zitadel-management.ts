@@ -41,6 +41,42 @@ export interface OrgUser {
   phone: string | undefined;
 }
 
+// docs/specs/org-directory.md §C "metadata key contract" -- exactly these two keys,
+// case-sensitive. Any other/misspelled metadata key on the user is ignored.
+const ORG_METADATA_KEYS = ["manager_id", "department"] as const;
+
+export interface OrgMetadata {
+  managerId: string | null;
+  department: string | null;
+}
+
+interface ZitadelMetadataEntry {
+  key: string;
+  // Zitadel returns metadata values base64-encoded.
+  value: string;
+}
+
+// Exported (pure, no network) so the key-filtering/base64-decode contract can be unit
+// tested directly, without mocking node:http for the surrounding request plumbing.
+export function parseOrgMetadataEntries(
+  entries: ZitadelMetadataEntry[],
+): OrgMetadata {
+  const byKey = new Map<string, string>();
+  for (const entry of entries) {
+    if (
+      !ORG_METADATA_KEYS.includes(
+        entry.key as (typeof ORG_METADATA_KEYS)[number],
+      )
+    )
+      continue;
+    byKey.set(entry.key, Buffer.from(entry.value, "base64").toString("utf8"));
+  }
+  return {
+    managerId: byKey.get("manager_id") ?? null,
+    department: byKey.get("department") ?? null,
+  };
+}
+
 // ── Token cache ───────────────────────────────────────────────────────────────
 
 let _cachedToken: string | null = null;
@@ -647,6 +683,86 @@ export async function getUserById(userId: string): Promise<OrgUser | null> {
   }
 }
 
+// ── Get org-directory metadata (manager_id / department) for a user ────────────
+//
+// docs/specs/org-directory.md T2 -- read-only primitive the org-directory importer
+// (packages/org-directory) calls once per user during a sync. Deliberately separate
+// from getUserById's identity fields: metadata is a distinct Zitadel API surface
+// (user.v2.UserService/ListMetadata) and callers that don't care about org-directory
+// shouldn't pay for an extra request.
+
+const _orgMetadataCache = new Map<
+  string,
+  { data: OrgMetadata; expiresAt: number } | Promise<OrgMetadata>
+>();
+
+export async function getOrgMetadataForUser(
+  userId: string,
+): Promise<OrgMetadata> {
+  const now = Date.now();
+  const cached = _orgMetadataCache.get(userId);
+  if (cached && !(cached instanceof Promise) && now < cached.expiresAt)
+    return cached.data;
+  if (cached instanceof Promise) return cached;
+
+  const pending = _fetchOrgMetadataForUser(userId);
+  _orgMetadataCache.set(userId, pending);
+  return pending;
+}
+
+async function _fetchOrgMetadataForUser(userId: string): Promise<OrgMetadata> {
+  const empty: OrgMetadata = { managerId: null, department: null };
+  const token = await getAccessToken();
+  if (!token) {
+    logger.warn(
+      { userId },
+      "getOrgMetadataForUser: no service account token — check ZITADEL_SERVICE_ACCOUNT_KEY",
+    );
+    // Evict rather than leaving the resolved (empty) promise cached — otherwise a
+    // transient missing token permanently poisons this user's lookups until an
+    // unrelated invalidateUserCache() call, since a resolved Promise still reads
+    // as "cached" to callers.
+    _orgMetadataCache.delete(userId);
+    return empty;
+  }
+
+  try {
+    const url = `${internalBase()}/zitadel.user.v2.UserService/ListMetadata`;
+    const result = await httpPost(
+      url,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify({ userId }),
+    );
+
+    if (result.status < 200 || result.status >= 300) {
+      // Never log the raw response body -- see comment in getAccessToken.
+      logger.warn(
+        { status: result.status, userId },
+        "getOrgMetadataForUser: Zitadel list metadata failed",
+      );
+      _orgMetadataCache.delete(userId);
+      return empty;
+    }
+
+    const data = JSON.parse(result.text) as {
+      metadata?: ZitadelMetadataEntry[];
+    };
+    const orgMetadata = parseOrgMetadataEntries(data.metadata ?? []);
+    // TTL measured from completion, not from `now` captured before the round-trip --
+    // otherwise request latency silently shrinks the effective cache lifetime.
+    _orgMetadataCache.set(userId, {
+      data: orgMetadata,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    });
+    return orgMetadata;
+  } catch (err) {
+    logger.error({ err, userId }, "Failed to fetch Zitadel user org metadata");
+    _orgMetadataCache.delete(userId);
+    return empty;
+  }
+}
+
 export async function deleteUser(userId: string): Promise<boolean> {
   const token = await getAccessToken();
   if (!token) return false;
@@ -672,4 +788,5 @@ export function invalidateUserCache(): void {
   _usersCache.clear();
   _userByIdCache.clear();
   _userRolesCache.clear();
+  _orgMetadataCache.clear();
 }
