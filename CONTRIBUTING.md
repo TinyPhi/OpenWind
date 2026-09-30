@@ -27,8 +27,9 @@ Per-track live status changes frequently — check [`docs/tracker/roadmap-tracke
 
 To keep work coordinated and prevent duplicate effort, open issues must be claimed before starting:
 
-- **Self-assign (Contributors):** Comment `/take`, `/assign`, or `.take` on the issue. The bot will assign it to you and react with 🚀.
+- **Self-assign (Contributors):** Comment `/take`, `/assign`, or `.take` on an issue labelled [`good first issue`](https://github.com/TinyPhi/OpenWind/issues?q=is%3Aopen+label%3A%22good+first+issue%22) or [`help wanted`](https://github.com/TinyPhi/OpenWind/issues?q=is%3Aopen+label%3A%22help+wanted%22). The bot assigns it to you and reacts with 🚀. For any other issue, ask a maintainer to assign it.
 - **Unassign:** If your availability changes, comment `/unassign`, `/drop`, or `.drop` to release the issue for others.
+- **Command format:** Put the command at the start of its own line. Commands inside quotes (`>`) or code blocks, or in the middle of a sentence, are ignored.
 - **Assigning others (Maintainers & In-house devs):** Maintainers (`OWNER`, `MEMBER`, `COLLABORATOR`) can assign or unassign team members directly by commenting `/assign @username` or `/unassign @username`.
   - _GitHub permission note:_ On a public repository, non-collaborators can only be assigned after they have commented on that specific issue.
 - **Collision prevention:** If an issue is already assigned to another contributor, the bot blocks new claims. Please coordinate in the issue comments if you would like to collaborate.
@@ -66,6 +67,7 @@ docker compose up -d
 # Profile options:
 # --profile notifications (Novu email/in-app)
 # --profile observability (Prometheus/Grafana/Alertmanager)
+# --profile reporting (Superset dashboards)
 
 pnpm install
 pnpm db:migrate
@@ -118,12 +120,16 @@ Key architectural decisions are documented in [`docs/decisions/`](docs/decisions
 Dependencies flow strictly downward (enforced by ESLint and CI):
 
 ```
-apps/* → packages/*
-modules/* → packages/*  (never modules/* → modules/*)
-packages/entity-engine → packages/db only
-packages/workflow-engine → packages/db, packages/entity-engine
-packages/automation-engine → packages/db, packages/workflow-engine, packages/entity-engine
+apps/*             → packages/*
+modules/*          → packages/*   (never modules/* → modules/*)
+entity-engine      → db only
+workflow-engine    → db, entity-engine
+automation-engine  → db, workflow-engine, entity-engine, teams, audit
+teams              → db only
+scheduler          → db, teams, config, logger
 ```
+
+To see what depends on a file, run `pnpm dep:impact -- '<path-regex>'`.
 
 Cross-module communication occurs only through the event bus (`packages/automation-engine`), the entity relation API, or tRPC procedures in `apps/api`.
 
@@ -166,14 +172,14 @@ test/PLAT-345-what-is-tested
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-feat(workflow): cancel SLA timer on terminal transition
-fix(entity): invalidate schema cache on field delete
+feat(workflow-engine): cancel the sla timer on terminal transitions
+fix(entity-engine): invalidate schema cache on field delete
 chore(deps): upgrade hono to 4.x
-test(isolation): add RLS tests for workflow_events table
+test(db): add tenant isolation tests for workflow_events
 docs(docs): document issue assignment and self-assign commands
 ```
 
-Scope must match an area from the repository schema (`workflow-engine`, `entity-engine`, `db`, `api`, `admin-ui`, `ci`, `docs`, etc.).
+Scope must be one of the areas listed in [`commitlint.config.ts`](commitlint.config.ts) (`workflow-engine`, `entity-engine`, `db`, `api`, `admin-ui`, `ci`, `docs`, etc.); commitlint rejects anything else. Subjects must be lower-case.
 
 ### Opening a PR & CI Guardrails
 

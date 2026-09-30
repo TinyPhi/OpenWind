@@ -7,6 +7,11 @@ on:
 permissions:
   issues: write
 
+# One run at a time per issue, so two near-simultaneous claims are decided in order.
+concurrency:
+  group: issue-assign-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   assign:
     name: Assign or Unassign
@@ -14,7 +19,7 @@ jobs:
     if: |
       !github.event.issue.pull_request &&
       github.event.issue.state == 'open' &&
-      !github.event.comment.user.bot
+      github.event.comment.user.type != 'Bot'
     runs-on: ubuntu-latest
     steps:
       - name: Process assignment command
@@ -22,160 +27,154 @@ jobs:
         with:
           script: |
             const comment = context.payload.comment;
-            const issue = context.payload.issue;
-            const body = (comment.body || '').trim();
             const commenter = comment.user.login;
-            const authorAssociation = comment.author_association;
-            const issueNumber = issue.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+            const issueNumber = context.payload.issue.number;
+            const { owner, repo } = context.repo;
+            const isMaintainer = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(comment.author_association);
 
-            const isMaintainer = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(authorAssociation);
+            // Non-maintainers may only claim issues a maintainer has opened up for contributors.
+            const SELF_ASSIGNABLE_LABELS = ['good first issue', 'help wanted'];
+            const ASSIGN_COMMANDS = ['/assign', '/take', '.take'];
+            const UNASSIGN_COMMANDS = ['/unassign', '/drop', '.drop'];
 
-            // Match assignment commands: /assign, /take, .take
-            const assignMatch = body.match(/(?:^|\s)(?:\/assign|\/take|\.take)(?:[^\S\r\n]+([^\r\n]*))?/i);
-            // Match unassignment commands: /unassign, /drop, .drop
-            const unassignMatch = body.match(/(?:^|\s)(?:\/unassign|\/drop|\.drop)(?:[^\S\r\n]+([^\r\n]*))?/i);
+            // A command must be the first word on its own line. Quoted lines ("> /take") and
+            // fenced code blocks are ignored, so mentioning a command in prose does nothing.
+            function findCommand(body) {
+              let inFence = false;
+              for (const line of (body || '').split(/\r?\n/)) {
+                if (/^[ \t]*```/.test(line)) {
+                  inFence = !inFence;
+                  continue;
+                }
+                if (inFence) continue;
+                const m = line.match(/^[ \t]*(\S+)(?:[ \t]+(.*))?$/);
+                if (!m) continue;
+                const word = m[1].toLowerCase();
+                if (ASSIGN_COMMANDS.includes(word)) return { kind: 'assign', args: m[2] || '' };
+                if (UNASSIGN_COMMANDS.includes(word)) return { kind: 'unassign', args: m[2] || '' };
+              }
+              return null;
+            }
 
-            if (!assignMatch && !unassignMatch) {
+            const command = findCommand(comment.body);
+            if (!command) {
               return;
             }
 
-            const currentAssignees = (issue.assignees || []).map(a => a.login);
-
-            // Helper to parse mentioned @usernames
             function parseMentions(rawArgs) {
-              if (!rawArgs) return [];
-              const matches = rawArgs.match(/@([a-zA-Z0-9-]+)/g);
-              if (!matches) return [];
-              return [...new Set(matches.map(m => m.replace(/^@/, '')))];
+              const matches = (rawArgs || '').match(/@([a-zA-Z0-9-]+)/g) || [];
+              return [...new Set(matches.map(m => m.slice(1)))];
             }
 
-            // React to comment
             async function addReaction(content) {
               try {
-                await github.rest.reactions.createForIssueComment({
-                  owner,
-                  repo,
-                  comment_id: comment.id,
-                  content,
-                });
+                await github.rest.reactions.createForIssueComment({ owner, repo, comment_id: comment.id, content });
               } catch (err) {
                 core.warning(`Failed to add reaction: ${err.message}`);
               }
             }
 
-            // Post reply comment
             async function postComment(text) {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: issueNumber,
-                body: text,
-              });
+              await github.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body: text });
             }
 
-            if (assignMatch) {
-              const mentionedUsers = parseMentions(assignMatch[1]);
+            // Refused by policy: tell the commenter why; the run itself succeeds.
+            async function refuse(text) {
+              await addReaction('confused');
+              await postComment(`@${commenter} ${text}`);
+            }
 
+            // An API call failed: tell the commenter and fail the run so it shows up in Actions.
+            async function failed(what, error) {
+              await addReaction('confused');
+              await postComment(`@${commenter} Could not ${what}: ${error.message}`);
+              core.setFailed(`Could not ${what}: ${error.message}`);
+            }
+
+            // Decide on the issue as it is now, not as it was when the comment was posted.
+            const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: issueNumber });
+            if (issue.state !== 'open') {
+              return;
+            }
+            const currentAssignees = (issue.assignees || []).map(a => a.login);
+            const isAssigned = login => currentAssignees.some(a => a.toLowerCase() === login.toLowerCase());
+            const labels = (issue.labels || []).map(l => (typeof l === 'string' ? l : l.name).toLowerCase());
+            const mentionedUsers = parseMentions(command.args);
+
+            if (command.kind === 'assign') {
               if (mentionedUsers.length > 0) {
-                // Assigning specific users
                 if (!isMaintainer) {
-                  await addReaction('confused');
-                  await postComment(`@${commenter} Only maintainers can assign other users. Use \`/assign\` or \`/take\` to self-assign.`);
+                  await refuse('Only maintainers can assign other users. Use `/assign` or `/take` to self-assign.');
                   return;
                 }
-
-                const usersToAdd = mentionedUsers.filter(u => !currentAssignees.includes(u));
+                const usersToAdd = mentionedUsers.filter(u => !isAssigned(u));
                 if (usersToAdd.length === 0) {
                   await addReaction('eyes');
                   return;
                 }
-
                 try {
-                  await github.rest.issues.addAssignees({
-                    owner,
-                    repo,
-                    issue_number: issueNumber,
-                    assignees: usersToAdd,
-                  });
+                  await github.rest.issues.addAssignees({ owner, repo, issue_number: issueNumber, assignees: usersToAdd });
                   await addReaction('rocket');
                 } catch (error) {
-                  await addReaction('confused');
-                  await postComment(`Could not assign @${usersToAdd.join(', @')}: ${error.message}.\n\n*Note: On public repositories, users must either be a repository collaborator or have commented on this issue first to be assignable.*`);
+                  await failed(
+                    `assign @${usersToAdd.join(', @')}`,
+                    { message: `${error.message}. On public repositories, users must be a collaborator or have commented on this issue to be assignable.` },
+                  );
                 }
-              } else {
-                // Self-assignment
-                if (currentAssignees.includes(commenter)) {
-                  await addReaction('eyes');
+                return;
+              }
+
+              // Self-assignment
+              if (isAssigned(commenter)) {
+                await addReaction('eyes');
+                return;
+              }
+              if (!isMaintainer) {
+                if (currentAssignees.length > 0) {
+                  await refuse(`This issue is already assigned to @${currentAssignees.join(', @')}. Please coordinate with them if you'd like to collaborate!`);
                   return;
                 }
-
-                // If issue is already assigned to someone else and commenter is not a maintainer, prevent taking it
-                if (currentAssignees.length > 0 && !isMaintainer) {
-                  await addReaction('confused');
-                  await postComment(`@${commenter} This issue is already assigned to @${currentAssignees.join(', @')}. Please coordinate with them if you'd like to collaborate!`);
+                if (!labels.some(l => SELF_ASSIGNABLE_LABELS.includes(l))) {
+                  await refuse('This issue is not open for self-assignment. Look for issues labelled `good first issue` or `help wanted`, or ask a maintainer to assign it to you.');
                   return;
-                }
-
-                try {
-                  await github.rest.issues.addAssignees({
-                    owner,
-                    repo,
-                    issue_number: issueNumber,
-                    assignees: [commenter],
-                  });
-                  await addReaction('rocket');
-                } catch (error) {
-                  await addReaction('confused');
-                  core.setFailed(`Failed to self-assign issue: ${error.message}`);
                 }
               }
-            } else if (unassignMatch) {
-              const mentionedUsers = parseMentions(unassignMatch[1]);
-
-              if (mentionedUsers.length > 0) {
-                // Unassigning specific users
-                if (!isMaintainer) {
-                  await addReaction('confused');
-                  await postComment(`@${commenter} Only maintainers can unassign other users. Use \`/unassign\` or \`/drop\` to unassign yourself.`);
-                  return;
-                }
-
-                const usersToRemove = mentionedUsers.filter(u => currentAssignees.includes(u));
-                if (usersToRemove.length === 0) {
-                  await addReaction('eyes');
-                  return;
-                }
-
-                try {
-                  await github.rest.issues.removeAssignees({
-                    owner,
-                    repo,
-                    issue_number: issueNumber,
-                    assignees: usersToRemove,
-                  });
-                  await addReaction('+1');
-                } catch (error) {
-                  core.setFailed(`Failed to unassign users: ${error.message}`);
-                }
-              } else {
-                // Self-unassignment
-                if (!currentAssignees.includes(commenter)) {
-                  await addReaction('eyes');
-                  return;
-                }
-
-                try {
-                  await github.rest.issues.removeAssignees({
-                    owner,
-                    repo,
-                    issue_number: issueNumber,
-                    assignees: [commenter],
-                  });
-                  await addReaction('+1');
-                } catch (error) {
-                  core.setFailed(`Failed to self-unassign issue: ${error.message}`);
-                }
+              try {
+                await github.rest.issues.addAssignees({ owner, repo, issue_number: issueNumber, assignees: [commenter] });
+                await addReaction('rocket');
+              } catch (error) {
+                await failed('assign this issue to you', error);
               }
+              return;
+            }
+
+            // Unassignment
+            if (mentionedUsers.length > 0) {
+              if (!isMaintainer) {
+                await refuse('Only maintainers can unassign other users. Use `/unassign` or `/drop` to unassign yourself.');
+                return;
+              }
+              const usersToRemove = currentAssignees.filter(a => mentionedUsers.some(u => u.toLowerCase() === a.toLowerCase()));
+              if (usersToRemove.length === 0) {
+                await addReaction('eyes');
+                return;
+              }
+              try {
+                await github.rest.issues.removeAssignees({ owner, repo, issue_number: issueNumber, assignees: usersToRemove });
+                await addReaction('+1');
+              } catch (error) {
+                await failed(`unassign @${usersToRemove.join(', @')}`, error);
+              }
+              return;
+            }
+
+            if (!isAssigned(commenter)) {
+              await addReaction('eyes');
+              return;
+            }
+            try {
+              await github.rest.issues.removeAssignees({ owner, repo, issue_number: issueNumber, assignees: [commenter] });
+              await addReaction('+1');
+            } catch (error) {
+              await failed('unassign you from this issue', error);
             }
