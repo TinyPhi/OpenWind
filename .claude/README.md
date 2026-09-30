@@ -76,19 +76,19 @@ and ship marker are all still required, so neither is logged as a bypass.
 
 ## Hooks
 
-| Hook                   | Event / matcher          | What it does                                                                                                                                    | Block?      | Bypass (logged)                                        |
-| ---------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------ |
-| `edit-gate.sh`         | PreToolUse `Write\|Edit` | no edits to `apps/`·`packages/`·`modules/` without an **approved** `plan.json`                                                                  | hard        | `OPENWIND_GATE=off`                                    |
-| `commit-gate.sh`       | PreToolUse `Bash`        | no `git commit` without a fresh marker, a review matching the diff, a docs marker matching the diff, **and** the human `approve-ship`           | hard        | `SHIP_BYPASS=1`                                        |
-| `ship-cleanup.sh`      | PostToolUse `Bash`       | deletes the marker + docs marker + done-sentinel after a commit (one-shot)                                                                      | —           | —                                                      |
-| `destructive-guard.sh` | PreToolUse `Bash`        | blocks `rm -rf` on risky paths, `DROP`/`TRUNCATE TABLE`, `--no-verify`, `push --force`                                                          | default     | subshell/wrapper (like all hooks)                      |
-| `protected-paths.sh`   | PreToolUse `Write\|Edit` | blocks edits on `main`/`develop`, `modules/*.ts`, ADRs, `.github/workflows/*`, `.env*`                                                          | hard        | `OPENWIND_OFFLIMITS=ack`, `OPENWIND_ALLOW_MODULE_TS=1` |
-| `verify-stop.sh`       | Stop                     | only when a `claimed-done` sentinel exists: blocks a _false_ "done" if the pipeline did not finish (cheap check; does **not** re-run typecheck) | conditional | clear the sentinel                                     |
-| `session-start.sh`     | SessionStart             | injects the rules into context each session                                                                                                     | —           | —                                                      |
-| `write-plan.sh`        | helper                   | drafts `plan.json` (Plan stage); approval is human-only via `approve-plan`                                                                      | —           | —                                                      |
-| `write-review.sh`      | helper                   | writes `review.json` after `/review` (enforces plan+diff+tests)                                                                                 | —           | —                                                      |
-| `write-docs-marker.sh` | helper                   | writes `docs-updated.json` (Docs stage) — `--touched` records doc files in the diff, `--skip "<reason>"` justifies none                         | —           | —                                                      |
-| `write-ship-marker.sh` | helper                   | writes `ship-ready.json` right before commit                                                                                                    | —           | —                                                      |
+| Hook                   | Event / matcher          | What it does                                                                                                                                                          | Block?      | Bypass (logged)                                        |
+| ---------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------ |
+| `edit-gate.sh`         | PreToolUse `Write\|Edit` | no edits to `apps/`·`packages/`·`modules/` without an **approved** `plan.json`                                                                                        | hard        | `OPENWIND_GATE=off`                                    |
+| `commit-gate.sh`       | PreToolUse `Bash`        | no `git commit` without a fresh marker, a review matching the diff, a docs marker matching the diff, **and** the human `approve-ship`                                 | hard        | `SHIP_BYPASS=1`                                        |
+| `ship-cleanup.sh`      | PostToolUse `Bash`       | deletes the marker + docs marker + done-sentinel after a commit (one-shot)                                                                                            | —           | —                                                      |
+| `destructive-guard.sh` | PreToolUse `Bash`        | blocks `rm -rf` on risky paths, `DROP`/`TRUNCATE TABLE`, `--no-verify`, `push --force`                                                                                | default     | subshell/wrapper (like all hooks)                      |
+| `protected-paths.sh`   | PreToolUse `Write\|Edit` | blocks edits on `main`/`develop` (the edited file's own worktree branch), `modules/*.ts`, ADRs, `.github/workflows/*`, `.env*`; files outside the repo are ungoverned | hard        | `OPENWIND_OFFLIMITS=ack`, `OPENWIND_ALLOW_MODULE_TS=1` |
+| `verify-stop.sh`       | Stop                     | only when a `claimed-done` sentinel exists: blocks a _false_ "done" if the pipeline did not finish (cheap check; does **not** re-run typecheck)                       | conditional | clear the sentinel                                     |
+| `session-start.sh`     | SessionStart             | injects the rules into context each session                                                                                                                           | —           | —                                                      |
+| `write-plan.sh`        | helper                   | drafts `plan.json` (Plan stage); approval is human-only via `approve-plan`                                                                                            | —           | —                                                      |
+| `write-review.sh`      | helper                   | writes `review.json` after `/review` (enforces plan+diff+tests)                                                                                                       | —           | —                                                      |
+| `write-docs-marker.sh` | helper                   | writes `docs-updated.json` (Docs stage) — `--touched` records doc files in the diff, `--skip "<reason>"` justifies none                                               | —           | —                                                      |
+| `write-ship-marker.sh` | helper                   | writes `ship-ready.json` right before commit                                                                                                                          | —           | —                                                      |
 
 Plus `approval-gate.sh` (UserPromptSubmit) — the human-only approval path (`approve-plan` /
 `approve-ship`) — and `mark-done.sh` — the helper the agent runs to assert completion (writes the
@@ -124,7 +124,7 @@ subshell's git process), and the SHIP_BYPASS audit log, but worth knowing.
 ## Known limitations
 
 **Worktrees are supported, not just tolerated.** State is keyed by branch, and `edit-gate`,
-`commit-gate`, `ship-cleanup`, `approval-gate`, and `verify-stop` all resolve the repo/worktree a
+`protected-paths`, `commit-gate`, `ship-cleanup`, `approval-gate`, and `verify-stop` all resolve the repo/worktree a
 given tool call actually targets — from the file path for `Write`/`Edit`, from an explicit
 `cd <dir> &&` / `git -C <dir>` in a `Bash` command, or (for the two hooks with no such anchor,
 `approval-gate` and `verify-stop`) by scanning the main checkout plus every `git worktree` for the
