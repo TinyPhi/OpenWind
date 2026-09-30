@@ -10,7 +10,8 @@ branches each creating their own new file never collide — there's no shared li
 `archive/week-log.md` is frozen — history through 2026-08-13 lives there unchanged, do not add to it.
 Everything from 2026-08-14 onward goes here instead. `archive/` also holds bulk-archived
 tables moved out of other docs (e.g. the 2026-08-24 roadmap-tracker history). Those are
-reference material, not session entries.
+reference material, not session entries. Closed months live in `archive/` too (see
+[Monthly roll-up](#monthly-roll-up)); this directory holds only the current month's entries.
 
 ## Naming
 
@@ -30,6 +31,21 @@ problem this directory exists to avoid. List the directory sorted by name instea
 ```bash
 ls docs/tracker/week-log/ | sort -r   # newest first
 ```
+
+For a closed month, start with its summary, `archive/YYYY-MM.md`.
+
+## Monthly roll-up
+
+About a week after a month ends (so late-merging PRs' entries have landed), one docs-only PR:
+
+1. Writes `archive/YYYY-MM.md`: one or two pages grouped by track, covering what shipped (with
+   PR/issue numbers), decisions, and what carried into the next month. Every number is checked
+   against GitHub. Current status stays in `roadmap-tracker.md`, not here.
+2. `git mv`s that month's entries into `archive/YYYY-MM/`, keeping them intact and searchable.
+   Fix any relative link the move breaks (the files sit two levels deeper).
+
+Never roll up the month still in progress: that brings back the shared-file conflicts this
+directory exists to avoid. `archive/week-log.md` stays frozen.
 
 ## Entry format
 
