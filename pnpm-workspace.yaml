@@ -31,7 +31,9 @@ overrides:
   # final combine() step — two intermediate arrays built before it were never bounded, so a
   # ~25KB input still OOMs the process (uncatchable) and a ~400KB input can stall the event
   # loop for minutes. Patched in 5.0.9.
-  "brace-expansion": ">=5.0.9"
+  # GHSA-6j4f-fj2g-mc7p (patched 5.0.10) + GHSA-qhr7-859c-m2p7 (patched 5.0.11), 2026-09-30:
+  # uncontrolled recursion on comma parts / nested brace groups exhausts the stack.
+  "brace-expansion": ">=5.0.11"
   # GHSA-5p4m-2wfm-xmqj (CVE-2026-59870, 2026-08-07): quadratic CPU via !!omap resolution,
   # fix not backported to 4.3.0 — bumped from "4.3.0" (originally pinned for the merge-key
   # chain issue) to close this too. Bumped again to 4.3.2 (2026-09-09) for
@@ -50,7 +52,9 @@ overrides:
   "fast-uri": ">=3.1.7 <4.0.0 || >=4.1.4"
   # GHSA-4cwx-7wf7-3272 / GHSA-m8rv-5g2x-5cg5 / GHSA-jr45-8vmc-qm54 / GHSA-v3r7-h72x-cjcm: undici security vulnerability fixes.
   # Bounded to <8 to prevent major upgrades breaking jsdom's internal file imports.
-  undici: ">=7.29.0 <8"
+  # GHSA-rfgv-xxqx-mfg5 (WebSocket subprotocol DoS) + GHSA-w293-vg96-wgc3 (BalancedPool TLS
+  # validation bypass), 2026-09-30: patched in 7.29.1.
+  undici: ">=7.29.1 <8"
   # GHSA-r28c-9q8g-f849 (#206): postcss path traversal via previous sourceMappingURL
   # auto-loading — pulled in via vite (admin-ui/portal devDependency), 26 paths.
   # GHSA-fxqj-rqcc-2cmp: second path-traversal variant — floor raised >=8.5.18 → >=8.5.23.

@@ -7,12 +7,16 @@
 #   - .github/workflows/* (all CI/CD files)
 #   - secret .env files (.env, .env.local, .env.production, etc.) — .env.example is allowed
 # Mirrors documented rules + CI, so it is never arbitrary. Exit 2 = block.
-REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"
-export REPO
+#
+# Worktree-aware, like edit-gate.sh: the repo, the path rules and the branch check
+# all resolve from the FILE BEING EDITED, not from the main checkout the harness
+# spawns hooks in. A file outside every repo (e.g. a scratch dir) is not governed.
+FALLBACK_REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo "${CLAUDE_PROJECT_DIR:-$PWD}")"
+export FALLBACK_REPO
+export LIBDIR="${CLAUDE_PROJECT_DIR:-$FALLBACK_REPO}/.claude/hooks/lib"
 exec node -e '
 const fs = require("fs");
-const cp = require("child_process");
-const repo = process.env.REPO;
+const ctx = require(process.env.LIBDIR + "/context.js");
 let input = {};
 try { input = JSON.parse(fs.readFileSync(0, "utf8") || "{}"); } catch (e) {}
 const tool = input.tool_name || "";
@@ -20,8 +24,9 @@ if (tool !== "Write" && tool !== "Edit") process.exit(0);
 const ti = input.tool_input || {};
 const fp = ti.file_path || input.file_path || "";
 if (!fp) process.exit(0);
-let rel = fp;
-if (rel.indexOf(repo) === 0) rel = rel.slice(repo.length).replace(/^\/+/, "");
+const repo = ctx.repoRootFromAnchor(fp, process.env.FALLBACK_REPO);
+const rel = ctx.relPath(repo, fp);
+if (rel === ".." || rel.startsWith("../") || require("path").isAbsolute(rel)) process.exit(0);
 function ensureDir() { try { fs.mkdirSync(repo + "/.claude/state", { recursive: true }); } catch (e) {} }
 function bypassed(envName) {
   const v = process.env[envName];
@@ -33,8 +38,7 @@ function block(msg, bypassEnv) {
   process.stderr.write("PROTECTED PATH - blocked editing " + rel + "\n" + msg + "\n" + (bypassEnv ? ("Human-directed bypass (logged): " + bypassEnv + "\n") : ""));
   process.exit(2);
 }
-let branch = "";
-try { branch = cp.execSync("git rev-parse --abbrev-ref HEAD", { cwd: repo }).toString().trim(); } catch (e) {}
+const branch = ctx.branchOf(repo);
 if (branch === "main" || branch === "develop") {
   block("These are integration branches. Create a feat/ fix/ chore/ docs/ test/ branch off main first.", null);
 }

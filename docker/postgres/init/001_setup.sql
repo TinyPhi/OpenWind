@@ -69,12 +69,12 @@ ALTER SCHEMA public OWNER TO migration_user;
 GRANT USAGE ON SCHEMA public TO app_user;
 GRANT USAGE ON SCHEMA public TO analytics_user;
 
--- Future tables: app_user gets DML, analytics_user gets SELECT
+-- Future tables: app_user gets DML (analytics_user gets nothing by default)
 ALTER DEFAULT PRIVILEGES FOR ROLE migration_user IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE migration_user IN SCHEMA public
-  GRANT SELECT ON TABLES TO analytics_user;
+-- analytics_user gets no default SELECT: it may read only what a migration
+-- grants explicitly (0113, ADR-001 amendment, ADR-019).
 
 ALTER DEFAULT PRIVILEGES FOR ROLE migration_user IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO app_user;
@@ -82,7 +82,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE migration_user IN SCHEMA public
 -- ─── Row-Level Security: ensure app_user cannot bypass ───────────────────
 -- migration_user can bypass RLS (needed for migrations and cross-tenant ops)
 ALTER USER migration_user BYPASSRLS;
-ALTER USER analytics_user BYPASSRLS;
+-- analytics_user is subject to RLS (0112, ADR-019); it is never BYPASSRLS.
 -- app_user explicitly cannot bypass RLS (this is the default, but explicit)
 -- ALTER USER app_user NOBYPASSRLS; -- this is the default
 
