@@ -440,4 +440,43 @@ describe("ScheduleRulesPage", () => {
       ),
     );
   });
+
+  it("archives a rule after confirmation", async () => {
+    queueRefresh([RULE_A]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Archive rule"));
+    expect(screen.getByText("Archive schedule rule?")).toBeTruthy();
+    expect(screen.getByText(/Archived rules cannot be resumed/)).toBeTruthy();
+
+    mockFetchWithAuth.mockResolvedValueOnce({ data: {} });
+    queueRefresh([{ ...RULE_A, status: "archived" }]);
+    fireEvent.click(screen.getByText("Archive"));
+
+    await waitFor(() =>
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        "/api/admin/schedule-rules/rule-1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ status: "archived" }),
+        }),
+      ),
+    );
+  });
+
+  it("does not offer archive or resume actions for an archived rule", async () => {
+    queueRefresh([{ ...RULE_A, status: "archived" }]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    expect(screen.queryByLabelText("Archive rule")).toBeNull();
+    expect(
+      (screen.getByLabelText("Pause rule") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
 });
