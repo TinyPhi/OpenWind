@@ -218,6 +218,30 @@ describe("ScheduleRulesPage", () => {
     expect(daySelect.value).toBe("1");
     const timeInput = screen.getByLabelText("Time") as HTMLInputElement;
     expect(timeInput.value).toBe("09:00");
+    expect(
+      screen.queryByText(/cannot be represented by this picker/),
+    ).toBeNull();
+  });
+
+  it("warns when an existing cron expression cannot be represented by the picker", async () => {
+    const advancedRule = {
+      ...RULE_A,
+      cronExpr: "0 9 * * 1,3,5",
+      cronHuman: "At 09:00 on Monday, Wednesday, and Friday",
+    };
+    queueRefresh([advancedRule]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Edit rule"));
+
+    const warning = await screen.findByRole("alert");
+    expect(warning.textContent).toContain("0 9 * * 1,3,5");
+    expect(warning.textContent).toContain(
+      "cannot be represented by this picker and will be replaced on save",
+    );
   });
 
   it("computes a weekly cron expression from the frequency picker on save", async () => {

@@ -525,6 +525,8 @@ services:
       DATABASE_URL: postgres://app_user:app_user_dev_password@pgbouncer:5432/platform
       MIGRATION_DATABASE_URL: postgres://migration_user:migration_user_dev_password@postgres:5432/platform
       REDIS_URL: redis://redis:6379
+      # Synced into reporting_binding_key by the migration runner (migration 0128).
+      REPORTING_BINDING_SECRET: ${REPORTING_BINDING_SECRET:-}
       ZITADEL_EXTERNAL_DOMAIN: "${ZITADEL_EXTERNAL_DOMAIN:-localhost}"
       ZITADEL_HOST_PORT: "${ZITADEL_HOST_PORT:-8080}"
       ZITADEL_EXTERNALSECURE: "${ZITADEL_EXTERNALSECURE:-false}"
@@ -649,6 +651,7 @@ services:
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY is required — see .env.example}
       SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:?SUPERSET_GUEST_TOKEN_SECRET is required — see .env.example}
+      REPORTING_BINDING_SECRET: ${REPORTING_BINDING_SECRET:?REPORTING_BINDING_SECRET is required — see .env.example}
       SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
       # The shipped image defaults to 1 worker / 60s timeout (see its own
       # run-server.sh). Verified live: a single worker under normal browser
@@ -744,6 +747,7 @@ services:
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY is required — see .env.example}
       SUPERSET_GUEST_TOKEN_SECRET: ${SUPERSET_GUEST_TOKEN_SECRET:?SUPERSET_GUEST_TOKEN_SECRET is required — see .env.example}
+      REPORTING_BINDING_SECRET: ${REPORTING_BINDING_SECRET:?REPORTING_BINDING_SECRET is required — see .env.example}
       SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:?SUPERSET_ADMIN_PASSWORD is required — see .env.example}
       SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
       # The reporting data connection: read-only, separate from the metadata
