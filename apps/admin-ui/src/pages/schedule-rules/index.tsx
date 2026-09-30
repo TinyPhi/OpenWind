@@ -996,6 +996,17 @@ function RuleFormModal({
                 />
                 Catch up on missed fires (worker was down)
               </label>
+              {rule && !rule.catchUp && catchUp && (
+                <div
+                  role="alert"
+                  className="alert alert-warning"
+                  style={{ marginTop: 8 }}
+                >
+                  Catch-up will create one ticket for each missed fire since the
+                  rule was last active. For rules paused a long time, this can
+                  create many tickets at once.
+                </div>
+              )}
             </div>
 
             <Button type="submit" variant="primary" style={{ marginTop: 8 }}>
