@@ -32,7 +32,7 @@ vi.mock("drizzle-orm", () => {
     (_strings: TemplateStringsArray, ..._vals: unknown[]) => "sql",
     { join: vi.fn(() => "sql") },
   );
-  return { eq: noop, and: noop, isNull: noop, sql: sqlFn };
+  return { eq: noop, and: noop, inArray: noop, isNull: noop, sql: sqlFn };
 });
 
 let currentAuth: AuthContext = {
@@ -100,6 +100,9 @@ const entityInstancesTable = {
 const filesTable = { id: "files.id", tenantId: "files.tenant_id" };
 const outboxEventsTable = { id: "outbox_events.id" };
 const workflowEventsTable = { id: "workflow_events.id" };
+const tenantUsersTable = { id: "tenant_users.id" };
+// Members of the tenant, as the mention-grant membership check sees them.
+let tenantMemberIds: string[] = [];
 
 let currentFromTable: unknown;
 let currentWhereFileId: string | undefined;
@@ -117,8 +120,17 @@ const mockTx = {
   // mock above), so the fileId being queried can't be read off the where
   // clause — tests instead set `currentWhereFileId` directly before making
   // the request, matching the one fileId under test.
-  where: () => mockTx,
-  limit: () => {
+  // The mention-grant membership query awaits `.where()` directly; every
+  // other query continues to `.limit()`, so the tenant_users result is both
+  // awaitable and still chainable.
+  where: () =>
+    currentFromTable === tenantUsersTable
+      ? Object.assign(
+          Promise.resolve(tenantMemberIds.map((userId) => ({ userId }))),
+          { limit: () => mockTx.limit() },
+        )
+      : mockTx,
+  limit: (): Promise<unknown[]> => {
     if (currentFromTable === filesTable) {
       const row = currentWhereFileId ? fileRows[currentWhereFileId] : undefined;
       return Promise.resolve(row ? [row] : []);
@@ -162,7 +174,7 @@ vi.mock("@platform/db", () => ({
   workflowEvents: workflowEventsTable,
   entityInstances: entityInstancesTable,
   entityRelations: {},
-  tenantUsers: {},
+  tenantUsers: tenantUsersTable,
   files: filesTable,
   outboxEvents: outboxEventsTable,
   withTenantContext: (_tenantId: unknown, fn: (tx: unknown) => unknown) =>
@@ -191,6 +203,7 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     currentInsertTable = undefined;
     outboxInserts.length = 0;
     parentCommentActorId = null;
+    tenantMemberIds = [OTHER_USER_ID];
     instanceRow = {
       id: INST_ID,
       workflowId: "wf-1",
@@ -292,6 +305,53 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     expect(grantedUpdates.length).toBe(2);
   });
 
+  it("does not grant access to a mentioned id that is not a member of this tenant", async () => {
+    currentAuth = {
+      tenantId: "t-aaa",
+      userId: "u-admin",
+      roles: ["admin"],
+      email: "admin@example.com",
+    };
+    instanceRow!.assignedTo = "someone-else";
+    tenantMemberIds = []; // OTHER_USER_ID is not a tenant member
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_write" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    // Only the admin commenter's own read_comment entry; nothing for the non-member.
+    expect(grantedUpdates.length).toBe(1);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).not.toContain("comment.mention_access_granted");
+  });
+
+  it("never rewrites an existing access entry through a mention", async () => {
+    // u-bbb owns the record (creator + assignee), so it may grant by mention.
+    instanceRow!.fields = {
+      __accessUsers: { [OTHER_USER_ID]: { level: "read_only" } },
+    };
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_write" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    // The owner is the assignee (no self-entry) and the mentioned user already
+    // has an entry, so no ACL write happens at all.
+    expect(grantedUpdates.length).toBe(0);
+  });
+
   it("mentioning a user with no prior access fires comment.mention_access_granted, not comment.mentioned", async () => {
     currentAuth = {
       tenantId: "t-aaa",
@@ -373,6 +433,29 @@ describe("POST /entities/:id/comments — mention access grants", () => {
     expect(eventTypes).not.toContain("comment.mention_access_granted");
   });
 
+  it("does not notify a mentioned id that is not a member of this tenant", async () => {
+    instanceRow!.assignedTo = "someone-else";
+    instanceRow!.createdBy = "someone-else";
+    instanceRow!.fields = {
+      __accessUsers: { "u-bbb": { level: "read_comment" } },
+    };
+    tenantMemberIds = []; // OTHER_USER_ID is not a tenant member
+
+    const res = await makeApp().request(`/${INST_ID}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "cc @someone",
+        mentions: [{ userId: OTHER_USER_ID, level: "read_comment" }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const eventTypes = outboxInserts.map((o) => o.eventType);
+    expect(eventTypes).not.toContain("comment.mentioned");
+    expect(eventTypes).not.toContain("comment.mention_access_granted");
+  });
+
   it("replying to a comment fires comment.replied targeting the parent comment's author", async () => {
     parentCommentActorId = "u-parent-author";
 
@@ -439,6 +522,7 @@ describe("POST /entities/:id/comments — fileIds binding", () => {
     currentInsertTable = undefined;
     outboxInserts.length = 0;
     parentCommentActorId = null;
+    tenantMemberIds = [OTHER_USER_ID];
     instanceRow = {
       id: INST_ID,
       workflowId: "wf-1",

@@ -1,7 +1,7 @@
 import { zValidator } from "../../lib/validator.js";
 import { logger } from "@platform/logger";
 import { z } from "zod";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
 import {
   workflowEvents,
@@ -231,6 +231,26 @@ export const addCommentHandler = factory.createHandlers(
     }
     const canGrantAccess = isPrivileged || isOwner || isRecordWorkflowAdmin;
 
+    // Only members of this tenant are granted access or notified by @mention —
+    // the same membership rule grant-access.ts enforces. The schema only checks
+    // that a userId is a non-empty string, so without this an arbitrary id could
+    // be written into __accessUsers or get a notification row.
+    const mentionMemberIds = new Set<string>();
+    if (mentionUserIds.length > 0) {
+      const members = await withTenantContext(tenantId, (tx) =>
+        tx
+          .select({ userId: tenantUsers.userId })
+          .from(tenantUsers)
+          .where(
+            and(
+              eq(tenantUsers.tenantId, tenantId),
+              inArray(tenantUsers.userId, mentionUserIds),
+            ),
+          ),
+      );
+      for (const m of members) mentionMemberIds.add(m.userId);
+    }
+
     // Classify mentions once, up front, and reuse for both notification
     // routing (below) and the actual access grant (further down) — a mention
     // that grants brand-new access gets a distinct notification from a plain
@@ -254,10 +274,13 @@ export const addCommentHandler = factory.createHandlers(
     // "granted access" — bypassing grant-access.ts's/revoke-access.ts's own
     // authority checks via @mention is not allowed.
     const mentionsGettingNewAccess = canGrantAccess
-      ? mentionUserIds.filter((uid) => !hasExistingAccess(uid))
+      ? mentionUserIds.filter(
+          (uid) => mentionMemberIds.has(uid) && !hasExistingAccess(uid),
+        )
       : [];
+    const newAccessIds = new Set(mentionsGettingNewAccess);
     const mentionsAlreadyHavingAccess = mentionUserIds.filter(
-      (uid) => !mentionsGettingNewAccess.includes(uid),
+      (uid) => mentionMemberIds.has(uid) && !newAccessIds.has(uid),
     );
 
     const [event] = await withTenantContext(tenantId, (tx) =>
@@ -394,6 +417,10 @@ export const addCommentHandler = factory.createHandlers(
       // them access, bypassing grant-access.ts's own authority check.
       if (canGrantAccess) {
         for (const mention of mentions) {
+          // A mention only ever adds access for a tenant member who has none.
+          // It never rewrites an existing entry, which would silently raise or
+          // lower that user's level; grant-access.ts is the route for that.
+          if (!newAccessIds.has(mention.userId)) continue;
           if (!usersToGrant.some((u) => u.userId === mention.userId)) {
             usersToGrant.push({ userId: mention.userId, level: mention.level });
           }

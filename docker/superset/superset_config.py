@@ -7,6 +7,8 @@ in production — see packages/config/src/env.ts.
 Spec: docs/specs/superset-embedded-dashboarding.md
 """
 
+import hashlib
+import hmac
 import logging
 import json
 import os
@@ -22,6 +24,12 @@ logger = logging.getLogger(__name__)
 # not affect 4.0.2; shipping a default key recreates the same attack anyway).
 SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]
 GUEST_TOKEN_JWT_SECRET = os.environ["SUPERSET_GUEST_TOKEN_SECRET"]
+# Signs each reporting connection's tenant binding (see DB_CONNECTION_MUTATOR).
+# The database holds the same secret (migration 0128, synced by the migration
+# runner) and verifies the signature against the connection's *current*
+# settings, so a session that changes its tenant, scope or user after connect
+# sees no rows. No fallback: without it every reporting query returns nothing.
+REPORTING_BINDING_SECRET = os.environ["REPORTING_BINDING_SECRET"]
 
 SQLALCHEMY_DATABASE_URI = os.environ["DATABASE_URL"]
 
@@ -225,6 +233,17 @@ def _tenant_from_guest_token(security_manager):
     return getattr(guest_user, "username", None)
 
 
+def reporting_binding_sig(tenant_id, scope="tenant", user_id=""):
+    """HMAC-SHA256 hex over `tenant|scope|user_id`, as verified by the
+    database's reporting_bound_tenant() (migration 0128). The canonical string
+    must match that function exactly: scope defaults to 'tenant' and user_id to
+    '' when the connection is not narrowed to its own rows."""
+    message = f"{tenant_id}|{scope}|{user_id}".encode("utf-8")
+    return hmac.new(
+        REPORTING_BINDING_SECRET.encode("utf-8"), message, hashlib.sha256
+    ).hexdigest()
+
+
 def DB_CONNECTION_MUTATOR(  # noqa: N802  (name fixed by Superset's config contract)
     sqlalchemy_url,
     params,
@@ -290,14 +309,26 @@ def DB_CONNECTION_MUTATOR(  # noqa: N802  (name fixed by Superset's config contr
     # achieve this with a clause in the guest token, which SQL Lab has no
     # equivalent of (migration 0116).
     subject = _own_rows_subject()
+    scope, bound_user = "tenant", ""
     if subject and _PRINCIPAL_ID_RE.match(subject):
+        scope, bound_user = "own", subject
         tenant_option += (
             f" -c app.reporting_scope=own -c app.reporting_user_id={subject}"
         )
     elif subject:
         # An unusable binding must not fall back to tenant-wide: scope to a
         # subject nothing matches, so the session sees nothing at all.
+        scope, bound_user = "own", "-"
         tenant_option += " -c app.reporting_scope=own -c app.reporting_user_id=-"
+
+    # The settings above are ordinary session settings, which a session can
+    # change after connect. The signature binds all three: the database
+    # recomputes it from the current values and returns no rows on mismatch
+    # (migration 0128). Hex only, so it cannot break out of the options string.
+    tenant_option += (
+        f" -c app.reporting_binding_sig="
+        f"{reporting_binding_sig(tenant_id, scope, bound_user)}"
+    )
     connect_args["options"] = (
         f"{existing_options} {tenant_option}".strip() if existing_options else tenant_option
     )
@@ -324,6 +355,14 @@ DATA_CACHE_CONFIG = {
     "CACHE_KEY_PREFIX": "superset_data_",
     "CACHE_REDIS_URL": _REDIS_URL,
 }
+# Tenant scoping is applied by the database per connection, so it is not part
+# of Superset's chart-data cache key. Embedded (Stage 1) keys still differ per
+# tenant through the guest token's RLS clauses; logged-in Stage 2 sessions have
+# no such clause, so two tenants running the same query could share a cached
+# result. With SSO enabled, chart data is therefore not cached. Keying the cache
+# per tenant would mean patching how Superset builds its cache keys.
+if os.environ.get("SUPERSET_OAUTH_CLIENT_ID", "").strip():
+    DATA_CACHE_CONFIG = {"CACHE_TYPE": "NullCache"}
 
 # ─── Embedding origins ──────────────────────────────────────────────────────
 # The admin-ui origin that may frame a dashboard. Anything wider would let a

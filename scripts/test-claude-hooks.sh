@@ -105,6 +105,34 @@ ck 2 "prod.env (non-dotfile secret) blocked" "$(hook protected-paths.sh '{"tool_
 ck 0 ".env.example allowed" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":".env.example"}}')"
 ck 0 "modules stub index.ts allowed by config-first" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":"modules/crm/index.ts"}}')"
 ck 2 "any workflow file blocked" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":".github/workflows/deploy.yml"}}')"
+# pp <tool> <path>: build the JSON with printf, since a "{a,b}" literal inside $(...) gets split.
+pp() { printf '{"tool_name":"%s","tool_input":{"file_path":"%s"}}' "$1" "$2" | "$H/protected-paths.sh" >/dev/null 2>&1; echo $?; }
+PP_OUTSIDE="$(mktemp -d)/scratch.json"
+ck 0 "file outside every repo not governed" "$(pp Write "$PP_OUTSIDE")"
+rmdir "$(dirname "$PP_OUTSIDE")" 2>/dev/null
+PP_BASE="$(mktemp -d)"
+PP_WT="$PP_BASE/ow-hooktest-pp"
+if git show-ref --verify --quiet refs/heads/develop; then
+  echo "  skip  integration-branch worktree case (a local develop branch already exists)"
+elif ! git worktree add -q -b develop "$PP_WT" HEAD >/dev/null 2>&1; then
+  echo "  skip  integration-branch worktree case (could not create a develop worktree)"
+else
+  ck 2 "edit in a worktree on an integration branch blocked (branch read from the file's worktree)" "$(pp Write "$PP_WT/docs/x.md")"
+  ck 0 "main checkout on a work branch unaffected by that worktree" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":"docs/x.md"}}')"
+  git worktree remove --force "$PP_WT" >/dev/null 2>&1
+  git branch -q -D develop >/dev/null 2>&1
+fi
+PP_WT2="$PP_BASE/ow-hooktest-pp2"
+if git worktree add -q -b "hooktest/pp-$$" "$PP_WT2" HEAD >/dev/null 2>&1; then
+  ck 2 "ADR path rule applies inside a worktree" "$(pp Edit "$PP_WT2/docs/decisions/ADR-001-multitenancy.md")"
+  ck 2 "workflow path rule applies inside a worktree" "$(pp Write "$PP_WT2/.github/workflows/deploy.yml")"
+  ck 0 "ordinary file in a work-branch worktree allowed" "$(pp Write "$PP_WT2/docs/x.md")"
+  git worktree remove --force "$PP_WT2" >/dev/null 2>&1
+  git branch -q -D "hooktest/pp-$$" >/dev/null 2>&1
+else
+  echo "  skip  worktree path-rule cases (could not create a test worktree in this environment)"
+fi
+rmdir "$PP_BASE" 2>/dev/null
 
 echo "verify-stop (sentinel-gated):"
 ck 0 "no claimed-done sentinel -> allows stop" "$(hook verify-stop.sh '{"hook_event_name":"Stop"}')"

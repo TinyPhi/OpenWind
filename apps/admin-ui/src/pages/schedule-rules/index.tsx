@@ -132,6 +132,34 @@ function parseCronToFrequency(cronExpr: string): {
   return { ...fallback, timeOfDay };
 }
 
+function isCronRepresentableByPicker(cronExpr: string): boolean {
+  const parsed = parseCronToFrequency(cronExpr);
+  const [hourStr, minuteStr] = parsed.timeOfDay.split(":");
+  const hour = Number(hourStr);
+  const minute = Number(minuteStr);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
+  if (
+    parsed.frequency === "weekly" &&
+    (parsed.dayOfWeek < 0 || parsed.dayOfWeek > 6)
+  ) {
+    return false;
+  }
+  if (
+    parsed.frequency === "monthly" &&
+    (parsed.dayOfMonth < 1 || parsed.dayOfMonth > 31)
+  ) {
+    return false;
+  }
+  return (
+    buildCronExpr(
+      parsed.frequency,
+      parsed.timeOfDay,
+      parsed.dayOfWeek,
+      parsed.dayOfMonth,
+    ) === cronExpr.trim()
+  );
+}
+
 // Generic searchable, single-select dropdown -- same click-outside/search-
 // box/clear-button pattern as record-create.tsx's UserPicker/TeamPicker,
 // factored out here as a reusable primitive rather than a copy-paste (this
@@ -646,6 +674,8 @@ function RuleFormModal({
   const [remark, setRemark] = useState(rule?.template.remark ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const unsupportedCronExpr =
+    rule && !isCronRepresentableByPicker(rule.cronExpr) ? rule.cronExpr : null;
 
   useEffect(() => {
     if (open) {
@@ -806,6 +836,23 @@ function RuleFormModal({
 
         {step === 1 ? (
           <form onSubmit={handleNext}>
+            {unsupportedCronExpr && (
+              <div
+                role="alert"
+                style={{
+                  padding: "10px 12px",
+                  marginBottom: 16,
+                  border: "1px solid var(--warning)",
+                  borderRadius: 8,
+                  color: "var(--text-primary)",
+                  background:
+                    "color-mix(in srgb, var(--warning) 12%, transparent)",
+                }}
+              >
+                Your stored schedule (<code>{unsupportedCronExpr}</code>) cannot
+                be represented by this picker and will be replaced on save.
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label">Name *</label>
               <input
