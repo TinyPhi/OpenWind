@@ -77,7 +77,7 @@ export const orgDirectorySyncRuns = pgTable(
   },
   (t) => ({
     tenantIdx: index("org_directory_sync_runs_tenant_idx").on(t.tenantId),
-    // Per-tenant sync concurrency lock (R2) -- see migration 0128's header comment.
+    // Per-tenant sync concurrency lock (R2) -- see migration 0129's header comment.
     oneRunningPerTenant: uniqueIndex(
       "org_directory_sync_runs_one_running_per_tenant",
     )

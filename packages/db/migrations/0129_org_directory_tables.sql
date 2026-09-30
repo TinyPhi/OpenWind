@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration: 0128_org_directory_tables
+-- Migration: 0129_org_directory_tables
 -- docs/specs/org-directory.md T3 -- org-directory tree storage + sync-run tracking
 -- ============================================================
 --
@@ -33,9 +33,15 @@
 -- per-user-erasure path in user-erasure.ts), never rely on cascade/null-out here.
 --
 -- org_directory_sync_runs' partial unique index on (tenant_id) WHERE status =
--- 'running' IS the per-tenant sync concurrency lock (R2) -- a second concurrent
--- sync attempt's INSERT of a 'running' row fails on this constraint, so no
--- separate application-level mutex/advisory-lock is needed.
+-- 'running' is a secondary DB-level backstop against duplicate 'running' rows,
+-- and gives "are we already syncing?" a free indexed lookup for a future
+-- getSyncStatus (T6) -- it is NOT the primary sync concurrency lock (R2).
+-- That's a session-scoped Postgres advisory lock (acquireTenantAdvisoryLock,
+-- packages/db/src/client.ts), taken by the sync engine (packages/org-directory/
+-- src/sync.ts, PR3) before this row is ever inserted -- see that file's own
+-- header comment for why: a security review found the row-based lock alone
+-- (with a time-based stale-run reclaim) could let a second caller steal a
+-- still-healthy slow sync's lock, causing two syncs to write concurrently.
 
 CREATE TABLE "org_employees" (
   "id"          uuid PRIMARY KEY DEFAULT gen_random_uuid(),

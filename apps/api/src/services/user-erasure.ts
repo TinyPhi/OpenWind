@@ -526,6 +526,10 @@ export async function eraseUserFromTenant(
     // tenant's root rather than detaching them with a null parent_id.
     let fallbackParentId = erasedEmployee.parentId;
     if (fallbackParentId === null) {
+      // No exclusion of erasedEmployee.id needed here: it can never itself be
+      // the root, since the root row's userId is always NULL
+      // (packages/db/src/schema/org-directory.ts) while erasedEmployee was
+      // just selected by a non-null targetUserId above.
       const [root] = await tx
         .select({ id: orgEmployees.id })
         .from(orgEmployees)
@@ -536,7 +540,19 @@ export async function eraseUserFromTenant(
           ),
         )
         .limit(1);
-      fallbackParentId = root?.id ?? null;
+      // A missing root here means the org tree is already in a corrupt or
+      // never-synced state -- silently writing parent_id = NULL onto this
+      // employee's direct reports would detach them from the tree entirely
+      // (violates the "no orphaned employee" invariant, R3). Surface it as a
+      // thrown error instead: the erasure transaction rolls back and the
+      // operator has a clear signal to investigate, rather than a
+      // silently-corrupted tree discovered later.
+      if (!root) {
+        throw new Error(
+          `org-directory erasure: no root employee found for tenant ${tenantId} -- cannot reparent ${targetUserId}'s reports`,
+        );
+      }
+      fallbackParentId = root.id;
     }
     await tx
       .update(orgEmployees)
