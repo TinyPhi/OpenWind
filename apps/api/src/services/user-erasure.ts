@@ -23,6 +23,8 @@ import {
   services,
   onCallSchedules,
   scheduleRules,
+  orgEmployees,
+  orgDirectorySyncRuns,
 } from "@platform/db";
 import type { EntityField } from "@platform/entity-engine";
 
@@ -66,6 +68,8 @@ export const USER_REFERENCE_COLUMNS_HANDLED: readonly string[] = [
   "on_call_schedules.escalation_manager_user_id",
   "on_call_schedules.created_by",
   "schedule_rules.created_by",
+  "org_employees.user_id",
+  "org_directory_sync_runs.triggered_by",
 ];
 
 /** User-reference columns deliberately left untouched, with the reason. */
@@ -496,6 +500,85 @@ export async function eraseUserFromTenant(
       and(
         eq(scheduleRules.tenantId, tenantId),
         eq(scheduleRules.createdBy, targetUserId),
+      ),
+    );
+
+  // docs/specs/org-directory.md T12 -- reparent this user's direct reports one hop
+  // up to their own parent (same mechanic as R5's manager-removal reparent,
+  // simpler here since we already have the row's own parent_id on hand, no
+  // prior-tree diff needed), then delete the row itself. This table mirrors an
+  // external identity's own record, not a tenant-owned resource referencing the
+  // user, so "redact the reference" doesn't apply the way it does for the
+  // created_by-style columns above -- the whole row IS the erased user.
+  const [erasedEmployee] = await tx
+    .select({ id: orgEmployees.id, parentId: orgEmployees.parentId })
+    .from(orgEmployees)
+    .where(
+      and(
+        eq(orgEmployees.tenantId, tenantId),
+        eq(orgEmployees.userId, targetUserId),
+      ),
+    )
+    .limit(1);
+  if (erasedEmployee) {
+    // R3 fallback: a parentless non-root employee (shouldn't happen post-sync,
+    // but nothing in the schema forbids it) reparents its reports to the
+    // tenant's root rather than detaching them with a null parent_id.
+    let fallbackParentId = erasedEmployee.parentId;
+    if (fallbackParentId === null) {
+      // No exclusion of erasedEmployee.id needed here: it can never itself be
+      // the root, since the root row's userId is always NULL
+      // (packages/db/src/schema/org-directory.ts) while erasedEmployee was
+      // just selected by a non-null targetUserId above.
+      const [root] = await tx
+        .select({ id: orgEmployees.id })
+        .from(orgEmployees)
+        .where(
+          and(
+            eq(orgEmployees.tenantId, tenantId),
+            eq(orgEmployees.isRoot, true),
+          ),
+        )
+        .limit(1);
+      // A missing root here means the org tree is already in a corrupt or
+      // never-synced state -- silently writing parent_id = NULL onto this
+      // employee's direct reports would detach them from the tree entirely
+      // (violates the "no orphaned employee" invariant, R3). Surface it as a
+      // thrown error instead: the erasure transaction rolls back and the
+      // operator has a clear signal to investigate, rather than a
+      // silently-corrupted tree discovered later.
+      if (!root) {
+        throw new Error(
+          `org-directory erasure: no root employee found for tenant ${tenantId} -- cannot reparent ${targetUserId}'s reports`,
+        );
+      }
+      fallbackParentId = root.id;
+    }
+    await tx
+      .update(orgEmployees)
+      .set({ parentId: fallbackParentId })
+      .where(
+        and(
+          eq(orgEmployees.tenantId, tenantId),
+          eq(orgEmployees.parentId, erasedEmployee.id),
+        ),
+      );
+    await tx
+      .delete(orgEmployees)
+      .where(
+        and(
+          eq(orgEmployees.tenantId, tenantId),
+          eq(orgEmployees.id, erasedEmployee.id),
+        ),
+      );
+  }
+  await tx
+    .update(orgDirectorySyncRuns)
+    .set({ triggeredBy: REDACTED })
+    .where(
+      and(
+        eq(orgDirectorySyncRuns.tenantId, tenantId),
+        eq(orgDirectorySyncRuns.triggeredBy, targetUserId),
       ),
     );
 
