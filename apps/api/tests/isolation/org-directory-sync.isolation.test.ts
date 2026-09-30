@@ -23,8 +23,8 @@ import {
   type OrgSourceRecord,
 } from "@platform/org-directory";
 
-const TENANT = "aaaaaaaa-orgs-4000-a000-000000000001";
-const OTHER_TENANT = "bbbbbbbb-orgs-4000-b000-000000000002";
+const TENANT = "aaaaaaaa-0713-4000-a000-000000000001";
+const OTHER_TENANT = "bbbbbbbb-0713-4000-b000-000000000002";
 
 function fakeImporter(records: OrgSourceRecord[]): OrgSourceImporter {
   return { fetchAll: async () => records };

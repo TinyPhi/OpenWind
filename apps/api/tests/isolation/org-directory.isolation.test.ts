@@ -18,10 +18,10 @@ import {
 } from "@platform/db";
 import { eraseUserFromTenant } from "../../src/services/user-erasure.js";
 
-const TENANT_A = "aaaaaaaa-org1-4000-a000-000000000001";
-const TENANT_B = "bbbbbbbb-org1-4000-b000-000000000002";
-const USER_A = "aaaaaaaa-org1-4000-a000-000000000900";
-const USER_B = "bbbbbbbb-org1-4000-b000-000000000900";
+const TENANT_A = "aaaaaaaa-0712-4000-a000-000000000001";
+const TENANT_B = "bbbbbbbb-0712-4000-b000-000000000002";
+const USER_A = "aaaaaaaa-0712-4000-a000-000000000900";
+const USER_B = "bbbbbbbb-0712-4000-b000-000000000900";
 
 let rootAId: string;
 let rootBId: string;
@@ -224,9 +224,9 @@ describe("org_directory_sync_runs — cross-tenant READ isolation", () => {
 });
 
 describe("per-user erasure — no-root fallback (PR712 review fix)", () => {
-  const NO_ROOT_TENANT = "cccccccc-org1-4000-c000-000000000003";
-  const TARGET_USER = "cccccccc-org1-4000-c000-000000000901";
-  const REPORT_USER = "cccccccc-org1-4000-c000-000000000902";
+  const NO_ROOT_TENANT = "cccccccc-0712-4000-c000-000000000003";
+  const TARGET_USER = "cccccccc-0712-4000-c000-000000000901";
+  const REPORT_USER = "cccccccc-0712-4000-c000-000000000902";
   let employeeId: string;
 
   beforeAll(async () => {
