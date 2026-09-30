@@ -112,13 +112,15 @@ ck 0 "file outside every repo not governed" "$(pp Write "$PP_OUTSIDE")"
 rmdir "$(dirname "$PP_OUTSIDE")" 2>/dev/null
 PP_BASE="$(mktemp -d)"
 PP_WT="$PP_BASE/ow-hooktest-pp"
-if ! git show-ref --verify --quiet refs/heads/develop && git worktree add -q -b develop "$PP_WT" HEAD >/dev/null 2>&1; then
+if git show-ref --verify --quiet refs/heads/develop; then
+  echo "  skip  integration-branch worktree case (a local develop branch already exists)"
+elif ! git worktree add -q -b develop "$PP_WT" HEAD >/dev/null 2>&1; then
+  echo "  skip  integration-branch worktree case (could not create a develop worktree)"
+else
   ck 2 "edit in a worktree on an integration branch blocked (branch read from the file's worktree)" "$(pp Write "$PP_WT/docs/x.md")"
   ck 0 "main checkout on a work branch unaffected by that worktree" "$(hook protected-paths.sh '{"tool_name":"Write","tool_input":{"file_path":"docs/x.md"}}')"
   git worktree remove --force "$PP_WT" >/dev/null 2>&1
   git branch -q -D develop >/dev/null 2>&1
-else
-  echo "  skip  integration-branch worktree case (a local develop branch exists, or no worktree could be created)"
 fi
 PP_WT2="$PP_BASE/ow-hooktest-pp2"
 if git worktree add -q -b "hooktest/pp-$$" "$PP_WT2" HEAD >/dev/null 2>&1; then

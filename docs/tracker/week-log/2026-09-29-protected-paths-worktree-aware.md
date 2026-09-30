@@ -34,3 +34,14 @@ harness spawns hooks in, instead of from the file being edited. Two consequences
 - With the fix, all 68 cases pass. With the old hook, the three worktree cases fail.
 - The new cases build their JSON with `printf`, because a quoted `"{a,b}"` literal inside `$(…)`
   was split by bash at the comma.
+
+## Review round 1 (PrabhuVijit)
+
+- The integration-branch worktree case now uses an explicit `if` / `elif` / `else`: skip if
+  `develop` exists, skip if the worktree can't be created, otherwise test. Behaviour is unchanged.
+- **Kept:**
+  - The week-log stays in `docs/tracker/week-log/`. That is the tracked location (44 entries on
+    `main`, named in CLAUDE.md). `docs/sup-docs/` is gitignored and must not hold tracking
+    content.
+  - Temp-dir cleanup stays `rmdir`. CI runners are ephemeral, and the destructive guard steers
+    away from `rm -rf` on variable paths.
