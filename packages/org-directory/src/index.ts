@@ -17,3 +17,11 @@ export type {
   SyncResult,
   SyncStatus,
 } from "./types.js";
+export {
+  buildOrgTree,
+  type PriorEmployee,
+  type ResolvedEmployee,
+  type OrgTreeBuildResult,
+} from "./tree-builder.js";
+export { ZitadelOrgSourceImporter } from "./zitadel-importer.js";
+export { runOrgDirectorySync } from "./sync.js";

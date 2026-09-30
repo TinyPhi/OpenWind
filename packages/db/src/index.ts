@@ -5,8 +5,9 @@ export {
   runPluginMigration,
   purgeTenantDataFromPluginSchema,
   InvalidPluginSlugError,
+  acquireTenantAdvisoryLock,
 } from "./client.js";
-export type { Db } from "./client.js";
+export type { Db, TenantAdvisoryLock } from "./client.js";
 export {
   withTenantContext,
   withTenantAndUserContext,

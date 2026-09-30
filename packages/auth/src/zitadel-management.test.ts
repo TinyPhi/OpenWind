@@ -34,10 +34,10 @@ describe("listOrgUsers", () => {
 });
 
 describe("getOrgMetadataForUser", () => {
-  it("returns null manager/department when no service account token is configured", async () => {
+  it("returns null manager/department/title when no service account token is configured", async () => {
     const result = await getOrgMetadataForUser("user-1");
 
-    expect(result).toEqual({ managerId: null, department: null });
+    expect(result).toEqual({ managerId: null, department: null, title: null });
   });
 
   it("does not permanently cache the no-token result — retries on the next call", async () => {
@@ -60,22 +60,27 @@ describe("getOrgMetadataForUser", () => {
 describe("parseOrgMetadataEntries", () => {
   const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
 
-  it("decodes manager_id and department from base64-encoded metadata entries", () => {
+  it("decodes manager_id, department, and title from base64-encoded metadata entries", () => {
     const result = parseOrgMetadataEntries([
       { key: "manager_id", value: b64("user-42") },
       { key: "department", value: b64("Engineering") },
+      { key: "title", value: b64("Staff Engineer") },
     ]);
 
-    expect(result).toEqual({ managerId: "user-42", department: "Engineering" });
+    expect(result).toEqual({
+      managerId: "user-42",
+      department: "Engineering",
+      title: "Staff Engineer",
+    });
   });
 
-  it("ignores metadata keys outside the exact manager_id/department contract", () => {
+  it("ignores metadata keys outside the exact manager_id/department/title contract", () => {
     const result = parseOrgMetadataEntries([
       { key: "Manager_Id", value: b64("wrong-case") },
       { key: "phone_number", value: b64("unrelated") },
     ]);
 
-    expect(result).toEqual({ managerId: null, department: null });
+    expect(result).toEqual({ managerId: null, department: null, title: null });
   });
 
   it("returns null for a field whose entry is missing entirely", () => {
@@ -83,7 +88,11 @@ describe("parseOrgMetadataEntries", () => {
       { key: "department", value: b64("Sales") },
     ]);
 
-    expect(result).toEqual({ managerId: null, department: "Sales" });
+    expect(result).toEqual({
+      managerId: null,
+      department: "Sales",
+      title: null,
+    });
   });
 
   it("stores the best-effort decoded value for a malformed base64 entry, rather than skipping it", () => {
