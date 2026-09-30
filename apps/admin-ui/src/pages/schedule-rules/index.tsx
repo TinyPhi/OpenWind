@@ -137,6 +137,9 @@ function isCronRepresentableByPicker(cronExpr: string): boolean {
   const [hourStr, minuteStr] = parsed.timeOfDay.split(":");
   const hour = Number(hourStr);
   const minute = Number(minuteStr);
+  // Required, not redundant: the round-trip check below accepts out-of-range
+  // integers (e.g. "0 25 * * *" rebuilds byte-for-byte), so these bounds are
+  // what reject them.
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
   if (
     parsed.frequency === "weekly" &&
