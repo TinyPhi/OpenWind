@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
+  Button,
   Table,
   TableHeader,
   TableBody,
@@ -25,6 +26,16 @@ interface NextFire {
   fireAt: string;
 }
 
+interface ExecutionsResponse {
+  data: Execution[];
+  meta: {
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+}
+
+const EXECUTIONS_PAGE_SIZE = 50;
+
 /**
  * Schedule Rule detail — execution history + next-fires preview —
  * docs/specs/temporal-scheduler.md T16/T17, R5/R6.
@@ -40,6 +51,9 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [nextFires, setNextFires] = useState<NextFire[]>([]);
   const [timezone, setTimezone] = useState<string | null>(null);
+  const [executionsCursor, setExecutionsCursor] = useState<string | null>(null);
+  const [hasMoreExecutions, setHasMoreExecutions] = useState(false);
+  const [loadingMoreExecutions, setLoadingMoreExecutions] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback((): void => {
@@ -47,12 +61,17 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
     setLoading(true);
     Promise.all([
       fetchWithAuth(`${API_URL}/admin/schedule-rules/${id}`),
-      fetchWithAuth(`${API_URL}/admin/schedule-rules/${id}/executions`),
+      fetchWithAuth(
+        `${API_URL}/admin/schedule-rules/${id}/executions?limit=${EXECUTIONS_PAGE_SIZE}`,
+      ),
       fetchWithAuth(`${API_URL}/admin/schedule-rules/${id}/next-fires`),
     ])
       .then(([ruleRes, execRes, fireRes]) => {
         setRule((ruleRes as { data: ScheduleRule }).data);
-        setExecutions((execRes as { data: Execution[] }).data);
+        const executionData = execRes as ExecutionsResponse;
+        setExecutions(executionData.data);
+        setExecutionsCursor(executionData.meta.nextCursor);
+        setHasMoreExecutions(executionData.meta.hasMore);
         const fireData = (
           fireRes as {
             data: { timezone: string; fires: { utc: string; local: string }[] };
@@ -68,6 +87,33 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const handleLoadMore = async (): Promise<void> => {
+    if (!id || !executionsCursor || loadingMoreExecutions) return;
+
+    setLoadingMoreExecutions(true);
+    try {
+      const response = (await fetchWithAuth(
+        `${API_URL}/admin/schedule-rules/${id}/executions?limit=${EXECUTIONS_PAGE_SIZE}&cursor=${encodeURIComponent(executionsCursor)}`,
+      )) as ExecutionsResponse;
+
+      setExecutions((current) => {
+        const existingIds = new Set(current.map((execution) => execution.id));
+        return [
+          ...current,
+          ...response.data.filter(
+            (execution) => !existingIds.has(execution.id),
+          ),
+        ];
+      });
+      setExecutionsCursor(response.meta.nextCursor);
+      setHasMoreExecutions(response.meta.hasMore);
+    } catch {
+      showAlert("Failed to load more executions.");
+    } finally {
+      setLoadingMoreExecutions(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -133,48 +179,67 @@ export function ScheduleRuleDetailPage(): React.ReactElement {
             <h4>No executions yet</h4>
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Scheduled</TableHead>
-                <TableHead>Fired</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Ticket</TableHead>
-                <TableHead>Error</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {executions.map((exec) => (
-                <TableRow key={exec.id}>
-                  <TableCell>
-                    {new Date(exec.scheduledAt).toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    {exec.firedAt
-                      ? new Date(exec.firedAt).toLocaleString()
-                      : "—"}
-                  </TableCell>
-                  <TableCell>{exec.status}</TableCell>
-                  <TableCell>
-                    {exec.ticket ? (
-                      <Link to={`/records/ticket/${exec.ticket.id}`}>
-                        {exec.ticket.title ?? exec.ticket.id}
-                      </Link>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {exec.errorCode ? (
-                      <span className="alert-badge">{exec.errorCode}</span>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Scheduled</TableHead>
+                  <TableHead>Fired</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Ticket</TableHead>
+                  <TableHead>Error</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {executions.map((exec) => (
+                  <TableRow key={exec.id}>
+                    <TableCell>
+                      {new Date(exec.scheduledAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      {exec.firedAt
+                        ? new Date(exec.firedAt).toLocaleString()
+                        : "—"}
+                    </TableCell>
+                    <TableCell>{exec.status}</TableCell>
+                    <TableCell>
+                      {exec.ticket ? (
+                        <Link to={`/records/ticket/${exec.ticket.id}`}>
+                          {exec.ticket.title ?? exec.ticket.id}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {exec.errorCode ? (
+                        <span className="alert-badge">{exec.errorCode}</span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {hasMoreExecutions && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 16,
+                }}
+              >
+                <Button
+                  variant="secondary"
+                  disabled={loadingMoreExecutions}
+                  onClick={() => void handleLoadMore()}
+                >
+                  {loadingMoreExecutions ? "Loading…" : "Load more"}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
