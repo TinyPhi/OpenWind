@@ -8,7 +8,7 @@ DECLARE
   t uuid := '__TENANT__';
   u text := '__USER__';
   et uuid; wf uuid; inst uuid; inst2 uuid; rule uuid; outbox uuid; f uuid;
-  lbl uuid; team uuid; srule uuid; notif uuid; conn uuid; key uuid;
+  lbl uuid; team uuid; srule uuid; notif uuid; conn uuid; key uuid; root uuid;
 BEGIN
   -- connector_definitions is a platform catalog (no tenant_id); a fresh test
   -- database has none, so create a dedicated one idempotently.
@@ -68,7 +68,13 @@ BEGIN
     VALUES (t, 's', '0 9 * * 1', et, wf, '{"title":"x"}', u) RETURNING id INTO srule;
   INSERT INTO schedule_executions (tenant_id, rule_id, scheduled_at, status, entity_instance_id) VALUES (t, srule, now(), 'success', inst);
 
-  INSERT INTO org_employees (tenant_id, user_id, name, title, department, email) VALUES (t, u, 'Org Cov', 'Engineer', 'engineering', 'org-cov@example.invalid');
+  -- The synthetic root must exist before any real employee row -- every
+  -- tenant has exactly one (R3), and per-user erasure (user-erasure.ts)
+  -- throws if it can't find one to reparent a deleted employee's reports
+  -- onto (PR712 review fix). A fixture seeding an employee with no root
+  -- would exercise a state that can never occur in real operation.
+  INSERT INTO org_employees (tenant_id, user_id, name, is_root) VALUES (t, NULL, 'Org Cov Root', true) RETURNING id INTO root;
+  INSERT INTO org_employees (tenant_id, user_id, parent_id, name, title, department, email) VALUES (t, u, root, 'Org Cov', 'Engineer', 'engineering', 'org-cov@example.invalid');
   INSERT INTO org_directory_sync_runs (tenant_id, status, triggered_by) VALUES (t, 'completed', u);
 
   INSERT INTO admin_audit_log (tenant_id, actor_id, actor_type, resource_type, resource_id, action) VALUES (t, u, 'user', 'ticket', inst, 'created');
