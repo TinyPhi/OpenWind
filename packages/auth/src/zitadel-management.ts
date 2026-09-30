@@ -62,13 +62,8 @@ interface ZitadelMetadataEntry {
 
 // Exported (pure, no network) so the key-filtering/base64-decode contract can be unit
 // tested directly, without mocking node:http for the surrounding request plumbing.
-//
-// `userId` is unused today -- kept in the signature so a future validation step (Node's
-// base64 decoder never throws; it silently best-effort-decodes invalid input rather than
-// raising, so there is currently nothing here to log against) has an id to attach to.
 export function parseOrgMetadataEntries(
   entries: ZitadelMetadataEntry[],
-  _userId: string,
 ): OrgMetadata {
   const byKey = new Map<string, string>();
   for (const entry of entries) {
@@ -758,7 +753,7 @@ async function _fetchOrgMetadataForUser(userId: string): Promise<OrgMetadata> {
     const data = JSON.parse(result.text) as {
       metadata?: ZitadelMetadataEntry[];
     };
-    const orgMetadata = parseOrgMetadataEntries(data.metadata ?? [], userId);
+    const orgMetadata = parseOrgMetadataEntries(data.metadata ?? []);
     // TTL measured from completion, not from `now` captured before the round-trip --
     // otherwise request latency silently shrinks the effective cache lifetime.
     _orgMetadataCache.set(userId, {

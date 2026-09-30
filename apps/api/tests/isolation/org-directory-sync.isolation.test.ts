@@ -170,6 +170,68 @@ describe("runOrgDirectorySync", () => {
     expect(report?.parentId).toBe(ceo?.id);
   });
 
+  it("deletes a chain of removed employees without hitting the parent_id FK constraint (PR713 review fix)", async () => {
+    // A's parent is CEO; B's parent is A. Both A and B disappear from the
+    // next pull, and nothing else references either -- without nulling each
+    // removed row's own parent_id before deleting, deleting A first (B.parent_id
+    // still = A.id) would fail the FK check regardless of iteration order.
+    await runOrgDirectorySync(
+      TENANT,
+      fakeImporter([
+        {
+          userId: "ceo2",
+          managerId: null,
+          department: null,
+          name: "CEO",
+          title: "",
+          email: "",
+        },
+        {
+          userId: "chain-a",
+          managerId: "ceo2",
+          department: null,
+          name: "A",
+          title: "",
+          email: "",
+        },
+        {
+          userId: "chain-b",
+          managerId: "chain-a",
+          department: null,
+          name: "B",
+          title: "",
+          email: "",
+        },
+      ]),
+      null,
+    );
+
+    const result = await runOrgDirectorySync(
+      TENANT,
+      fakeImporter([
+        {
+          userId: "ceo2",
+          managerId: null,
+          department: null,
+          name: "CEO",
+          title: "",
+          email: "",
+        },
+      ]),
+      null,
+    );
+
+    expect(result.status).toBe("completed");
+
+    const rows = await db
+      .select({ userId: orgEmployees.userId })
+      .from(orgEmployees)
+      .where(eq(orgEmployees.tenantId, TENANT));
+    const userIds = rows.map((r) => r.userId);
+    expect(userIds).not.toContain("chain-a");
+    expect(userIds).not.toContain("chain-b");
+  });
+
   it("rejects a sync for a tenant that already holds the advisory lock", async () => {
     // Deterministic instead of racing two real async sync calls: acquire the
     // same advisory lock runOrgDirectorySync itself would take, directly, and
@@ -190,6 +252,27 @@ describe("runOrgDirectorySync", () => {
 
     const result = await runOrgDirectorySync(TENANT, fakeImporter([]), null);
     expect(result.status).toBe("completed");
+  });
+
+  it("reclaims a stale 'running' row left by a crashed prior sync (PR713 review fix)", async () => {
+    // Simulates a crash: a 'running' row exists with no live process holding
+    // the advisory lock (the lock itself was already freed by the crash --
+    // that part always worked). Before this fix, the next sync's own insert
+    // would fail against org_directory_sync_runs_one_running_per_tenant and
+    // the tenant would be locked out until manual DB intervention.
+    const [staleRun] = await db
+      .insert(orgDirectorySyncRuns)
+      .values({ tenantId: TENANT, status: "running" })
+      .returning({ id: orgDirectorySyncRuns.id });
+
+    const result = await runOrgDirectorySync(TENANT, fakeImporter([]), null);
+    expect(result.status).toBe("completed");
+
+    const [reclaimed] = await db
+      .select({ status: orgDirectorySyncRuns.status })
+      .from(orgDirectorySyncRuns)
+      .where(eq(orgDirectorySyncRuns.id, staleRun!.id));
+    expect(reclaimed?.status).toBe("failed");
   });
 
   it("holds the lock across the external fetch gap, not just around the DB writes", async () => {

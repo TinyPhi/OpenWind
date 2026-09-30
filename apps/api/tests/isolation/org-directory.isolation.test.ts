@@ -16,6 +16,7 @@ import {
   orgDirectorySyncRuns,
   tenants,
 } from "@platform/db";
+import { eraseUserFromTenant } from "../../src/services/user-erasure.js";
 
 const TENANT_A = "aaaaaaaa-org1-4000-a000-000000000001";
 const TENANT_B = "bbbbbbbb-org1-4000-b000-000000000002";
@@ -219,5 +220,65 @@ describe("org_directory_sync_runs — cross-tenant READ isolation", () => {
           eq(orgDirectorySyncRuns.status, "running"),
         ),
       );
+  });
+});
+
+describe("per-user erasure — no-root fallback (PR712 review fix)", () => {
+  const NO_ROOT_TENANT = "cccccccc-org1-4000-c000-000000000003";
+  const TARGET_USER = "cccccccc-org1-4000-c000-000000000901";
+  const REPORT_USER = "cccccccc-org1-4000-c000-000000000902";
+  let employeeId: string;
+
+  beforeAll(async () => {
+    await db.insert(tenants).values({
+      id: NO_ROOT_TENANT,
+      name: "No Root Erasure Test",
+      slug: `org-directory-no-root-${NO_ROOT_TENANT}`,
+    });
+
+    // Deliberately no root row -- an inconsistent/never-synced tenant state.
+    const [employee] = await db
+      .insert(orgEmployees)
+      .values({
+        tenantId: NO_ROOT_TENANT,
+        userId: TARGET_USER,
+        name: "Parentless Manager",
+      })
+      .returning({ id: orgEmployees.id });
+    employeeId = employee!.id;
+    await db.insert(orgEmployees).values({
+      tenantId: NO_ROOT_TENANT,
+      userId: REPORT_USER,
+      parentId: employeeId,
+      name: "Direct Report",
+    });
+  });
+
+  afterAll(async () => {
+    // Unconditional, unlike inline cleanup after assertions -- runs even if
+    // an expect() above fails, so a regression here doesn't also poison
+    // later runs with a leftover tenant/duplicate-key error.
+    await db
+      .delete(orgEmployees)
+      .where(eq(orgEmployees.tenantId, NO_ROOT_TENANT));
+    await db.delete(tenants).where(eq(tenants.id, NO_ROOT_TENANT));
+  });
+
+  it("throws rather than silently detaching reports when no root row exists for the tenant", async () => {
+    await expect(
+      withTenantContext(NO_ROOT_TENANT, (tx) =>
+        eraseUserFromTenant(tx, NO_ROOT_TENANT, TARGET_USER),
+      ),
+    ).rejects.toThrow(/no root employee found/);
+
+    // Nothing should have been detached -- the throw rolled back the
+    // transaction, so the report still points at the (still-present) manager.
+    const rows = await db
+      .select({ userId: orgEmployees.userId, parentId: orgEmployees.parentId })
+      .from(orgEmployees)
+      .where(eq(orgEmployees.tenantId, NO_ROOT_TENANT));
+    expect(rows).toHaveLength(2);
+    const report = rows.find((r) => r.userId === REPORT_USER);
+    expect(report?.parentId).toBe(employeeId);
   });
 });

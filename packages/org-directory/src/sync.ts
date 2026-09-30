@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   withTenantContext,
   orgEmployees,
@@ -114,12 +114,34 @@ async function runLockedSync(
   importer: OrgSourceImporter,
   triggeredBy: string | null,
 ): Promise<SyncResult> {
-  const [inserted] = await withTenantContext(tenantId, (tx) =>
-    tx
+  const [inserted] = await withTenantContext(tenantId, async (tx) => {
+    // We hold the tenant's advisory lock, so no other process can be mid-sync
+    // right now -- any 'running' row still present here was left behind by a
+    // crash between its own insert and completion/failure update. Reclaiming
+    // it unconditionally (no time-based guess needed, unlike the row-based
+    // locking this replaced) is what makes the advisory lock a complete fix
+    // rather than just closing the concurrent-syncs race: without this, a
+    // crashed run's row would permanently block every future insert via
+    // org_directory_sync_runs_one_running_per_tenant, even though the lock
+    // itself is already free.
+    await tx
+      .update(orgDirectorySyncRuns)
+      .set({
+        status: "failed",
+        completedAt: new Date(),
+        error: "interrupted -- reclaimed by a new sync holding the tenant lock",
+      })
+      .where(
+        and(
+          eq(orgDirectorySyncRuns.tenantId, tenantId),
+          eq(orgDirectorySyncRuns.status, "running"),
+        ),
+      );
+    return tx
       .insert(orgDirectorySyncRuns)
       .values({ tenantId, status: "running", triggeredBy })
-      .returning({ id: orgDirectorySyncRuns.id }),
-  );
+      .returning({ id: orgDirectorySyncRuns.id });
+  });
   if (!inserted) {
     throw new Error("org-directory sync: sync-run insert returned no row");
   }
@@ -278,14 +300,38 @@ async function runLockedSync(
           );
       }
 
-      // Employees present last sync but absent from this pull.
-      for (const userId of built.removedUserIds) {
+      // Employees present last sync but absent from this pull. parent_id has
+      // no ON DELETE action, and Postgres checks that FK per-statement -- if
+      // two removed employees were themselves in a reporting chain (one's
+      // parent_id pointed at the other), deleting them in the wrong order
+      // fails. Every FRESH employee's parentId is guaranteed clear of any
+      // removed row by Pass B's own fallback above (`?? rootId`) -- NOT by
+      // any guarantee from buildOrgTree itself: buildOrgTree's grandparent
+      // reparent can legitimately resolve a fresh node's parentUserId to a
+      // userId that also turns out to be removed this same sync (both a
+      // manager and its own prior manager gone at once), and it's Pass B's
+      // idByUserId.get(...) miss on that removed userId -- not the algorithm
+      // -- that redirects it to root. So the only remaining FK references
+      // into a removed row come from ANOTHER removed row's own (untouched,
+      // stale) parent_id. Null every removed row's own parent_id first (one
+      // batched UPDATE) -- this severs those outgoing references regardless
+      // of deletion order -- then delete (one batched DELETE).
+      if (built.removedUserIds.length > 0) {
+        await tx
+          .update(orgEmployees)
+          .set({ parentId: null })
+          .where(
+            and(
+              eq(orgEmployees.tenantId, tenantId),
+              inArray(orgEmployees.userId, built.removedUserIds),
+            ),
+          );
         await tx
           .delete(orgEmployees)
           .where(
             and(
               eq(orgEmployees.tenantId, tenantId),
-              eq(orgEmployees.userId, userId),
+              inArray(orgEmployees.userId, built.removedUserIds),
             ),
           );
       }
