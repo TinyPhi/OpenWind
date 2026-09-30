@@ -40,6 +40,16 @@ file (it will go stale exactly like the old Phase 1 list did) — instead:
 
 Issues tagged [`good first issue`](https://github.com/TinyPhi/OpenWind/issues?q=is%3Aopen+label%3A%22good+first+issue%22) are scoped to be completable without deep platform knowledge. They're a good way to get familiar with the codebase before tackling an engine component.
 
+### Claiming and assigning issues
+
+To keep work coordinated and prevent duplicate effort, open issues must be claimed before starting work:
+
+- **Self-assign (Contributors):** Leave a comment on the open issue with `/take`, `/assign`, or `.take`. The bot will automatically assign the issue to you and react with 🚀.
+- **Unassign:** If your availability changes or you can no longer work on an issue, comment `/unassign`, `/drop`, or `.drop` so someone else can pick it up.
+- **Assigning others (Maintainers & In-house devs):** Repository maintainers (`OWNER`, `MEMBER`, or `COLLABORATOR`) can assign or unassign team members directly by commenting `/assign @username` or `/unassign @username`.
+  - _Note on GitHub permissions:_ On a public repository, a user can only be assigned if they have repository collaborator/triage access, or if they have commented on that specific issue.
+- **Collision prevention:** If an issue is already assigned to another contributor, the bot blocks new claims. Please coordinate in the issue comments if you would like to collaborate.
+
 ### Proposing new work
 
 For significant contributions — new engine capabilities, new module types, changes to existing ADRs — open a discussion issue before writing code. The discussion should cover: what problem you're solving, why the current design doesn't solve it, and what you're proposing. This prevents wasted effort on approaches that conflict with existing decisions.
