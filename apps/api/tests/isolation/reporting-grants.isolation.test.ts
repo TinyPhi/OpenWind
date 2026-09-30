@@ -42,6 +42,48 @@ import {
   workflows,
   workflowEvents,
 } from "@platform/db";
+import { createHmac } from "node:crypto";
+
+// ─── Binding signature + key (migration 0128; mirrors superset_config) ──────
+const TEST_BINDING_SECRET = "reporting-binding-isolation-test-secret-0128";
+
+/** Same canonical string as reporting_bound_tenant(): tenant|scope|user_id. */
+function bindingSig(
+  tenant: string,
+  scope = "tenant",
+  userId = "",
+  secret = TEST_BINDING_SECRET,
+): string {
+  return createHmac("sha256", secret)
+    .update(`${tenant}|${scope}|${userId}`)
+    .digest("hex");
+}
+
+/**
+ * Install the test key and return a function that restores whatever key was
+ * there before (a developer's local database may already hold one).
+ */
+async function installTestBindingKey(): Promise<() => Promise<void>> {
+  const before = await db.execute<{ secret: string }>(
+    dsql`SELECT secret FROM reporting_binding_key WHERE id = 1`,
+  );
+  const previous = before[0]?.secret;
+  await setBindingKey(TEST_BINDING_SECRET);
+  return async () => {
+    if (previous === undefined) {
+      await db.execute(dsql`DELETE FROM reporting_binding_key WHERE id = 1`);
+    } else {
+      await setBindingKey(previous);
+    }
+  };
+}
+
+async function setBindingKey(secret: string): Promise<void> {
+  await db.execute(dsql`
+    INSERT INTO reporting_binding_key (id, secret, updated_at)
+    VALUES (1, ${secret}, now())
+    ON CONFLICT (id) DO UPDATE SET secret = EXCLUDED.secret, updated_at = now()`);
+}
 
 const TENANT_A = "aaaaaaaa-0000-4000-a000-000000000117";
 const TENANT_B = "bbbbbbbb-0000-4000-b000-000000000118";
@@ -66,6 +108,7 @@ function analyticsUrl(): string {
 const ANALYTICS_URL = analyticsUrl();
 
 let sql: postgres.Sql;
+let restoreBindingKey: () => Promise<void>;
 let entityTypeId: string;
 let workflowAId: string;
 
@@ -86,12 +129,23 @@ async function asAnalyst<T>(
     if (guc.userId !== undefined) {
       await tx`SELECT set_config('app.reporting_user_id', ${guc.userId}, true)`;
     }
+    // Sign the binding the way the mutator does (migration 0128); without it
+    // every reporting table returns no rows.
+    if (guc.tenant !== undefined) {
+      const sig = bindingSig(
+        guc.tenant,
+        guc.scope ?? "tenant",
+        guc.userId ?? "",
+      );
+      await tx`SELECT set_config('app.reporting_binding_sig', ${sig}, true)`;
+    }
     return run(tx);
   }) as Promise<T>;
 }
 
 beforeAll(async () => {
   sql = postgres(ANALYTICS_URL, { max: 1, onnotice: () => {} });
+  restoreBindingKey = await installTestBindingKey();
 
   await db.insert(tenants).values([
     { id: TENANT_A, name: "Reporting Iso A", slug: `rep-iso-a-${Date.now()}` },
@@ -192,6 +246,7 @@ afterAll(async () => {
   await db.delete(tenants).where(eq(tenants.id, TENANT_A));
   await db.delete(tenants).where(eq(tenants.id, TENANT_B));
   await db.delete(entityTypes).where(eq(entityTypes.id, entityTypeId));
+  await restoreBindingKey();
   await sql.end({ timeout: 5 });
 });
 
@@ -443,7 +498,7 @@ describe("record_reporting_audit cannot write another tenant's audit trail", () 
           ${TENANT_A}::uuid, 'unstamped', 'reporting.query_executed', '{}'::jsonb)
       `,
       ),
-    ).rejects.toThrow(/no session tenant/);
+    ).rejects.toThrow(/no (verified )?session tenant/);
   });
 
   it("refuses a NULL tenant from an unstamped connection", async () => {
@@ -457,7 +512,7 @@ describe("record_reporting_audit cannot write another tenant's audit trail", () 
           NULL::uuid, 'null-tenant', 'reporting.query_executed', '{}'::jsonb)
       `,
       ),
-    ).rejects.toThrow(/no session tenant/);
+    ).rejects.toThrow(/no (verified )?session tenant/);
   });
 
   it("refuses a NULL tenant from a stamped connection", async () => {
