@@ -30,9 +30,9 @@ ever touching the auth provider.
 
 | task                                                                                                                                                                                   | requirement | status |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T5: Sync triggers — first-boot auto-seed, 24h scheduled worker job, admin-only `triggerSync` route (enforces per-tenant lock from T4, returns `already_running` shape when applicable) | R2, R7      | todo   |
-| T6: Query API — `getChainToRoot`, `getReportsByLevel`, `getOrgTree`, `getSyncStatus` (never calls auth provider)                                                                       | R1, R10     | todo   |
-| T9: Isolation tests — cross-tenant tree read blocked via real routes/query API; RLS on new tables                                                                                      | R1, R7      | todo   |
+| T5: Sync triggers — first-boot auto-seed, 24h scheduled worker job, admin-only `triggerSync` route (enforces per-tenant lock from T4, returns `already_running` shape when applicable) | R2, R7      | done   |
+| T6: Query API — `getChainToRoot`, `getReportsByLevel`, `getOrgTree`, `getSyncStatus` (never calls auth provider)                                                                       | R1, R10     | done   |
+| T9: Isolation tests — cross-tenant tree read blocked via real routes/query API; RLS on new tables                                                                                      | R1, R7      | done   |
 
 ---
 
