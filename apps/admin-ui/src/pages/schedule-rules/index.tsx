@@ -837,20 +837,12 @@ function RuleFormModal({
         {step === 1 ? (
           <form onSubmit={handleNext}>
             {unsupportedCronExpr && (
-              <div
-                role="alert"
-                style={{
-                  padding: "10px 12px",
-                  marginBottom: 16,
-                  border: "1px solid var(--warning)",
-                  borderRadius: 8,
-                  color: "var(--text-primary)",
-                  background:
-                    "color-mix(in srgb, var(--warning) 12%, transparent)",
-                }}
-              >
-                Your stored schedule (<code>{unsupportedCronExpr}</code>) cannot
-                be represented by this picker and will be replaced on save.
+              <div className="form-group">
+                <div className="alert alert-warning" role="alert">
+                  Your stored schedule (<code>{unsupportedCronExpr}</code>){" "}
+                  cannot be represented by this picker and will be replaced on
+                  save.
+                </div>
               </div>
             )}
             <div className="form-group">
