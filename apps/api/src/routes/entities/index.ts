@@ -69,7 +69,7 @@ router.patch("/:id", ...updateEntityHandler);
 router.delete("/:id", ...deleteEntityHandler);
 router.post("/:id/state", ...setEntityStateHandler);
 
-// Workflow transition routes — history must be registered before the bare transitions route
+// "/:id/transitions/history" goes first so "/:id/transitions" can't shadow it.
 router.get("/:id/transitions/history", ...listWorkflowEventsHandler);
 router.get("/:id/transitions", ...listTransitionsHandler);
 router.post("/:id/transitions", ...executeTransitionHandler);

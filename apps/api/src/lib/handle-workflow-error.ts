@@ -118,7 +118,7 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
         return c.json(
           {
             error: err.code,
-            message: "You do not have permission to execute this transition",
+            message: "You do not have permission to perform this transition",
           },
           403,
         ) as Response;
@@ -157,7 +157,7 @@ export function handleWorkflowError(c: Context, err: unknown): Response {
         return c.json(
           {
             error: err.code,
-            message: "Required fields are missing",
+            message: "Required fields are missing for this transition",
             fields: Array.isArray(err.meta?.missing)
               ? err.meta.missing
               : undefined,

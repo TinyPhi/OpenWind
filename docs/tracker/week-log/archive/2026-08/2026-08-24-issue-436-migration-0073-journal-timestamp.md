@@ -27,7 +27,7 @@
   SQL targets `zitadel_client_id`, which migration 0072 renames to `oidc_client_id`. On a fresh
   DB 0071 runs before 0072 and succeeds; on any already-migrated DB where 0072 already ran,
   0071 now fails outright (column doesn't exist under that name). Filed as
-  [#474](../../../issues/474) rather than folded into this fix — needs a new forward migration,
+  [#474](https://github.com/TinyPhi/OpenWind/issues/474) rather than folded into this fix — needs a new forward migration,
   not a timestamp bump, and touches schema-contract territory a human should sign off on.
   Confirmed with the human: keep this branch scoped to 0073 only.
 - No new test added — `apps/api/tests/isolation/third-party-ticket-create.isolation.test.ts`
