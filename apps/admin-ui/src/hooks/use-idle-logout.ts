@@ -91,6 +91,11 @@ export function useIdleLogout(timeoutMs?: number): void {
     if (!enabled) return;
 
     let timer: ReturnType<typeof setTimeout>;
+    let lastActivity = Date.now();
+    const throttleMs = Math.min(
+      10_000,
+      Math.max(500, Math.floor(resolvedTimeoutMs / 5)),
+    );
 
     const handleTimeout = (): void => {
       // Always redirect, even if logout() rejects (e.g. storage unavailable)
@@ -102,13 +107,17 @@ export function useIdleLogout(timeoutMs?: number): void {
     };
 
     const resetTimer = (): void => {
+      const now = Date.now();
+      if (now - lastActivity < throttleMs) return;
+      lastActivity = now;
       clearTimeout(timer);
       timer = setTimeout(handleTimeout, resolvedTimeoutMs);
     };
 
-    resetTimer();
+    clearTimeout(timer);
+    timer = setTimeout(handleTimeout, resolvedTimeoutMs);
     for (const event of ACTIVITY_EVENTS) {
-      window.addEventListener(event, resetTimer);
+      window.addEventListener(event, resetTimer, { passive: true });
     }
 
     return () => {

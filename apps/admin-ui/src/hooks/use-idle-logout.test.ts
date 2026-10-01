@@ -72,6 +72,21 @@ describe("useIdleLogout", () => {
 
     removeSpy.mockRestore();
   });
+
+  it("registers activity listeners with passive flag", () => {
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const { unmount } = renderHook(() => useIdleLogout(5000), { wrapper });
+
+    expect(addSpy).toHaveBeenCalledWith("mousemove", expect.any(Function), {
+      passive: true,
+    });
+    expect(addSpy).toHaveBeenCalledWith("scroll", expect.any(Function), {
+      passive: true,
+    });
+
+    unmount();
+    addSpy.mockRestore();
+  });
 });
 
 describe("useIdleLogout — config-driven via env (no explicit timeoutMs override)", () => {
