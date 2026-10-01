@@ -90,7 +90,7 @@ export function useIdleLogout(timeoutMs?: number): void {
   useEffect(() => {
     if (!enabled) return;
 
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let lastActivity = Date.now();
     const throttleMs = Math.min(
       10_000,

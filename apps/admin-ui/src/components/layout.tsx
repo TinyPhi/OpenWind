@@ -350,10 +350,10 @@ function getRolesFromProfile(
 
 interface InitialsAvatarProps {
   name: string;
-  avatar?: string;
+  avatar?: string | undefined;
   size: number;
-  className?: string;
-  style?: React.CSSProperties;
+  className?: string | undefined;
+  style?: React.CSSProperties | undefined;
 }
 
 function InitialsAvatar({

@@ -99,14 +99,41 @@ export function makeCustomAccent(hex: string): AccentColor {
   return { id: CUSTOM_ACCENT_ID, label: "Custom", h, s, l };
 }
 
+function safeGetItem(key: string): string | null {
+  try {
+    if (
+      typeof localStorage !== "undefined" &&
+      typeof localStorage.getItem === "function"
+    ) {
+      return localStorage.getItem(key);
+    }
+  } catch {
+    // Ignore storage errors in test or restricted environments
+  }
+  return null;
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    if (
+      typeof localStorage !== "undefined" &&
+      typeof localStorage.setItem === "function"
+    ) {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // Ignore storage errors in test or restricted environments
+  }
+}
+
 export function getSavedTheme(): ThemeMode {
-  return (localStorage.getItem(STORAGE_THEME) as ThemeMode | null) ?? "dark";
+  return (safeGetItem(STORAGE_THEME) as ThemeMode | null) ?? "dark";
 }
 
 export function getSavedAccent(): AccentColor {
-  const id = localStorage.getItem(STORAGE_ACCENT);
+  const id = safeGetItem(STORAGE_ACCENT);
   if (id === CUSTOM_ACCENT_ID) {
-    const hex = localStorage.getItem(STORAGE_ACCENT_CUSTOM);
+    const hex = safeGetItem(STORAGE_ACCENT_CUSTOM);
     if (hex) return makeCustomAccent(hex);
   }
   const found = ACCENT_COLORS.find((c) => c.id === id);
@@ -117,7 +144,7 @@ export function getSavedAccent(): AccentColor {
 
 export function applyTheme(mode: ThemeMode): void {
   document.documentElement.setAttribute("data-theme", mode);
-  localStorage.setItem(STORAGE_THEME, mode);
+  safeSetItem(STORAGE_THEME, mode);
 }
 
 export function applyAccent(color: AccentColor): void {
