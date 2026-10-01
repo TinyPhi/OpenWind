@@ -25,3 +25,9 @@ export {
 } from "./tree-builder.js";
 export { ZitadelOrgSourceImporter } from "./zitadel-importer.js";
 export { runOrgDirectorySync } from "./sync.js";
+export {
+  getOrgTree,
+  getChainToRoot,
+  getReportsByLevel,
+  getSyncStatus,
+} from "./query.js";

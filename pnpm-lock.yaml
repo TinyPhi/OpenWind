@@ -325,6 +325,9 @@ importers:
       '@platform/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
+      '@platform/org-directory':
+        specifier: workspace:*
+        version: link:../../packages/org-directory
       '@platform/redis':
         specifier: workspace:*
         version: link:../../packages/redis
