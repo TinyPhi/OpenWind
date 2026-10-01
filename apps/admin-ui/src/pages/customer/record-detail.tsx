@@ -33,8 +33,6 @@ import {
   AlertDialogCancel,
   Button,
   DIALOG_CONTENT_RESET,
-  TOKENS,
-  useHoverStyle,
 } from "@platform/ui";
 import {
   OriginTag,
@@ -1118,11 +1116,6 @@ function AccessUserRow({
     badgeBorder = "#d1d5db";
   }
 
-  const removeHover = useHoverStyle({
-    base: { color: "var(--text-muted, #9ca3af)", borderColor: "transparent" },
-    hover: { color: TOKENS.danger, borderColor: "#fca5a5" },
-  });
-
   return (
     <div
       style={{
@@ -1213,6 +1206,7 @@ function AccessUserRow({
               isCreator,
             })
           }
+          className="record-access-remove-btn"
           style={{
             flexShrink: 0,
             background: "none",
@@ -1222,10 +1216,7 @@ function AccessUserRow({
             padding: "3px 5px",
             fontSize: "14px",
             lineHeight: 1,
-            ...removeHover.style,
           }}
-          onMouseEnter={removeHover.onMouseEnter}
-          onMouseLeave={removeHover.onMouseLeave}
         >
           <svg
             width="12"
