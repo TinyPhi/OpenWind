@@ -2900,6 +2900,11 @@ select.form-input {
   border: 1px solid hsla(350, 80%, 60%, 0.3);
   color: hsl(350, 80%, 72%);
 }
+.alert-warning {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid var(--warning);
+  color: var(--text-primary);
+}
 
 /* ── Enum options list ──────────────────────────────────────────────────── */
 .enum-opts-list { display: flex; flex-direction: column; gap: 6px; }

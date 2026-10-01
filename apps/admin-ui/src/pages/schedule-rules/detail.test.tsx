@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 const mockFetchWithAuth = vi.fn(
@@ -41,6 +47,15 @@ const EXECUTION_A = {
   errorCode: null,
 };
 
+const EXECUTION_B = {
+  id: "exec-2",
+  scheduledAt: "2026-09-08T09:00:00Z",
+  firedAt: "2026-09-08T09:00:02Z",
+  status: "success",
+  ticket: { id: "ticket-2", title: "Weekly Standup — 2026-09-08" },
+  errorCode: null,
+};
+
 function renderPage(): ReturnType<typeof render> {
   return render(
     <MemoryRouter initialEntries={["/admin/schedule-rules/rule-1"]}>
@@ -66,7 +81,10 @@ describe("ScheduleRuleDetailPage", () => {
 
   it("renders rule info, next fires, and execution history", async () => {
     mockFetchWithAuth.mockResolvedValueOnce({ data: RULE_A });
-    mockFetchWithAuth.mockResolvedValueOnce({ data: [EXECUTION_A] });
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: [EXECUTION_A],
+      meta: { hasMore: false, nextCursor: null },
+    });
     mockFetchWithAuth.mockResolvedValueOnce({
       data: {
         timezone: "America/New_York",
@@ -88,6 +106,9 @@ describe("ScheduleRuleDetailPage", () => {
     expect(mockFetchWithAuth).toHaveBeenCalledWith(
       "/api/admin/schedule-rules/rule-1/next-fires",
     );
+    expect(mockFetchWithAuth).toHaveBeenCalledWith(
+      "/api/admin/schedule-rules/rule-1/executions?limit=50",
+    );
     expect(screen.getByText("Weekly Standup — 2026-09-15")).toBeTruthy();
     // Regression guard: a wrong-shape `fires` payload renders "Invalid Date"
     // instead of a real date string.
@@ -103,7 +124,10 @@ describe("ScheduleRuleDetailPage", () => {
     mockFetchWithAuth.mockResolvedValueOnce({
       data: { ...RULE_A, status: "paused" },
     });
-    mockFetchWithAuth.mockResolvedValueOnce({ data: [] });
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: [],
+      meta: { hasMore: false, nextCursor: null },
+    });
     mockFetchWithAuth.mockResolvedValueOnce({
       data: { timezone: "America/New_York", fires: [] },
     });
@@ -114,5 +138,33 @@ describe("ScheduleRuleDetailPage", () => {
         screen.getByText("No upcoming fires (rule is paused or archived)."),
       ).toBeTruthy(),
     );
+  });
+
+  it("loads and appends another page of execution history", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({ data: RULE_A });
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: [EXECUTION_A],
+      meta: { hasMore: true, nextCursor: EXECUTION_A.id },
+    });
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: { timezone: "America/New_York", fires: [] },
+    });
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: [EXECUTION_B],
+      meta: { hasMore: false, nextCursor: null },
+    });
+    renderPage();
+
+    const loadMore = await screen.findByRole("button", { name: "Load more" });
+    fireEvent.click(loadMore);
+
+    await waitFor(() =>
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        "/api/admin/schedule-rules/rule-1/executions?limit=50&cursor=exec-1",
+      ),
+    );
+    expect(await screen.findByText("Weekly Standup — 2026-09-08")).toBeTruthy();
+    expect(screen.getByText("Weekly Standup — 2026-09-15")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 });
