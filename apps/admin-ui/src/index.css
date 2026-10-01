@@ -5046,3 +5046,23 @@ select.form-input {
   .geb-auth { background: #1e293b; }
   .geb-server { background: #7f1d1d; }
 }
+
+/* User Picker CSS Hover Performance */
+.user-picker-option-row {
+  background: none;
+  transition: background 0.1s ease;
+}
+.user-picker-option-row:hover:not(.is-selected) {
+  background: var(--bg-tertiary);
+}
+.user-picker-option-row.is-selected {
+  background: rgba(0, 170, 85, 0.1);
+}
+.user-picker-unassign-btn {
+  background: none;
+  transition: background 0.1s ease;
+}
+.user-picker-unassign-btn:hover {
+  background: var(--bg-tertiary);
+}
+
