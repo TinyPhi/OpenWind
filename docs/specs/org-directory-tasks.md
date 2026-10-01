@@ -43,8 +43,8 @@ ever touching the auth provider.
 
 | task                                                                                                                                                                                                            | requirement | status |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
-| T7: admin-ui org chart page — visual tree, depth-3 default expand, fold/unfold, search+highlight+auto-expand-ancestors, sync-status indicator, admin-only sync button, 200ms/≤500-employee interactivity target | R7, R8, R9  | todo   |
-| T10: `/security-review` pass — new tables, new routes, service-account credential path (mandatory per security.md)                                                                                              | all         | todo   |
+| T7: admin-ui org chart page — visual tree, depth-3 default expand, fold/unfold, search+highlight+auto-expand-ancestors, sync-status indicator, admin-only sync button, 200ms/≤500-employee interactivity target | R7, R8, R9  | done   |
+| T10: `/security-review` pass — new tables, new routes, service-account credential path (mandatory per security.md)                                                                                              | all         | done   |
 
 ---
 
