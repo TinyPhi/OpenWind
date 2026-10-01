@@ -16,24 +16,58 @@ interface ListResponse {
   nextCursor: string | null;
 }
 
+let inFlightInitialListPromise: Promise<ListResponse> | null = null;
+let inFlightUnreadCountPromise: Promise<number> | null = null;
+
 export async function listNotifications(
   cursor?: string,
 ): Promise<ListResponse> {
+  if (!cursor && inFlightInitialListPromise !== null) {
+    return inFlightInitialListPromise;
+  }
+
   const params = new URLSearchParams({ limit: "10" });
   if (cursor) params.set("cursor", cursor);
-  const res = (await fetchWithAuth(
+
+  const fetchPromise = fetchWithAuth(
     `${API_URL}/notifications?${params.toString()}`,
-  )) as { data: NotificationItem[]; nextCursor: string | null };
-  return { data: res.data, nextCursor: res.nextCursor };
+  ).then((res) => {
+    const r = res as { data: NotificationItem[]; nextCursor: string | null };
+    return { data: r.data, nextCursor: r.nextCursor };
+  });
+
+  if (!cursor) {
+    inFlightInitialListPromise = fetchPromise.finally(() => {
+      inFlightInitialListPromise = null;
+    });
+    return inFlightInitialListPromise;
+  }
+
+  return fetchPromise;
 }
 
 export async function getUnreadCount(): Promise<number> {
-  const res = (await fetchWithAuth(
+  if (inFlightUnreadCountPromise !== null) {
+    return inFlightUnreadCountPromise;
+  }
+
+  inFlightUnreadCountPromise = fetchWithAuth(
     `${API_URL}/notifications/unread-count`,
-  )) as {
-    data: { count: number };
-  };
-  return res.data.count;
+  )
+    .then((res) => {
+      const r = res as { data: { count: number } };
+      return r.data.count;
+    })
+    .finally(() => {
+      inFlightUnreadCountPromise = null;
+    });
+
+  return inFlightUnreadCountPromise;
+}
+
+export function clearNotificationsInFlight(): void {
+  inFlightInitialListPromise = null;
+  inFlightUnreadCountPromise = null;
 }
 
 export async function markNotificationRead(id: string): Promise<void> {

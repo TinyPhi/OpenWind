@@ -54,17 +54,20 @@ function lastInstance(): FakeWebSocket {
 
 const {
   listNotifications,
+  getUnreadCount,
+  clearNotificationsInFlight,
   markNotificationRead,
   markAllNotificationsRead,
   subscribeToNotifications,
   subscribeToTicketRoom,
 } = await import("./notifications-client.js");
 
-describe("listNotifications", () => {
-  beforeEach(() => {
-    mockFetchWithAuth.mockReset();
-  });
+beforeEach(() => {
+  clearNotificationsInFlight();
+  mockFetchWithAuth.mockReset();
+});
 
+describe("listNotifications", () => {
   it("requests the default page size and no cursor on first load", async () => {
     mockFetchWithAuth.mockResolvedValue({ data: [], nextCursor: null });
     await listNotifications();
@@ -79,6 +82,30 @@ describe("listNotifications", () => {
     expect(mockFetchWithAuth).toHaveBeenCalledWith(
       "/api/notifications?limit=10&cursor=2026-01-01T00%3A00%3A00.000Z_abc",
     );
+  });
+
+  it("deduplicates concurrent in-flight initial page requests", async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      data: [{ id: "n1", title: "Test" }],
+      nextCursor: null,
+    });
+    const [res1, res2] = await Promise.all([
+      listNotifications(),
+      listNotifications(),
+    ]);
+    expect(res1.data).toHaveLength(1);
+    expect(res2.data).toHaveLength(1);
+    expect(mockFetchWithAuth).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getUnreadCount", () => {
+  it("deduplicates concurrent in-flight requests and returns count", async () => {
+    mockFetchWithAuth.mockResolvedValue({ data: { count: 3 } });
+    const [c1, c2] = await Promise.all([getUnreadCount(), getUnreadCount()]);
+    expect(c1).toBe(3);
+    expect(c2).toBe(3);
+    expect(mockFetchWithAuth).toHaveBeenCalledTimes(1);
   });
 });
 
