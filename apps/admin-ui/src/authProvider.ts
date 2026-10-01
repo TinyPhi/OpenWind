@@ -173,9 +173,7 @@ export const authProvider: AuthProvider = {
           user.profile.email ??
           "Admin User",
         email: user.profile.email ?? "",
-        avatar:
-          user.profile.picture ??
-          `https://api.dicebear.com/7.x/initials/svg?seed=${user.profile.name ?? "Admin"}&fontSize=38&fontWeight=700&chars=2`,
+        avatar: user.profile.picture,
       };
     }
     return null;
