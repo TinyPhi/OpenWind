@@ -426,6 +426,7 @@ export function ScheduleRulesPage(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ScheduleRule | null>(null);
+  const [archiving, setArchiving] = useState<ScheduleRule | null>(null);
   const [deleting, setDeleting] = useState<ScheduleRule | null>(null);
 
   const refresh = useCallback((): void => {
@@ -475,6 +476,19 @@ export function ScheduleRulesPage(): React.ReactElement {
       refresh();
     } catch {
       showAlert("Failed to delete schedule rule.");
+    }
+  }
+
+  async function handleArchive(rule: ScheduleRule): Promise<void> {
+    try {
+      await fetchWithAuth(`${API_URL}/admin/schedule-rules/${rule.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "archived" }),
+      });
+      setArchiving(null);
+      refresh();
+    } catch {
+      showAlert("Failed to archive schedule rule.");
     }
   }
 
@@ -555,6 +569,14 @@ export function ScheduleRulesPage(): React.ReactElement {
                     >
                       ✎
                     </IconButton>
+                    {rule.status !== "archived" && (
+                      <IconButton
+                        aria-label="Archive rule"
+                        onClick={() => setArchiving(rule)}
+                      >
+                        ▣
+                      </IconButton>
+                    )}
                     <IconButton
                       aria-label="Delete rule"
                       onClick={() => setDeleting(rule)}
@@ -592,6 +614,30 @@ export function ScheduleRulesPage(): React.ReactElement {
           refresh();
         }}
       />
+
+      <AlertDialog
+        open={archiving !== null}
+        onOpenChange={(next) => {
+          if (!next) setArchiving(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Archive schedule rule?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {archiving
+              ? `"${archiving.name}" will stop firing. Archived rules cannot be resumed. Execution history is preserved.`
+              : ""}
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => archiving && void handleArchive(archiving)}
+            >
+              Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={deleting !== null}
