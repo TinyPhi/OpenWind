@@ -285,18 +285,27 @@ describe("runOrgDirectorySync", () => {
     const blockedFetch = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
+    let resolveFetchStarted: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
     const slowImporter: OrgSourceImporter = {
       fetchAll: async () => {
+        resolveFetchStarted?.();
         await blockedFetch;
         return [];
       },
     };
 
     const first = runOrgDirectorySync(TENANT, slowImporter, null);
-    // Poll for the lock to be contended rather than a fixed sleep -- avoids
-    // the flakiness the original concurrency test had, since this waits on
-    // an actual condition (the first call's lock acquisition landing) with a
-    // generous ceiling, not a fixed guess at how long that takes.
+    // fetchAll only runs once the lock is already held (it's called from
+    // inside the locked section), so waiting for it -- instead of assuming
+    // the first call's lock-acquisition round trip wins a race against the
+    // second call's -- removes the flake: under CI connection-pool
+    // contention, both calls' acquireTenantAdvisoryLock round trips can
+    // interleave, letting the second call grab the lock first if we start
+    // polling before the first call has actually secured it.
+    await fetchStarted;
     let second: Awaited<ReturnType<typeof runOrgDirectorySync>> | undefined;
     for (let attempt = 0; attempt < 50; attempt++) {
       second = await runOrgDirectorySync(TENANT, fakeImporter([]), null);
