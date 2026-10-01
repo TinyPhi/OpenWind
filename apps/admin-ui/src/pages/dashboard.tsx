@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../entity-type-context.js";
-import { useHoverStyle } from "@platform/ui";
 import {
   listNotifications,
   getUnreadCount,
@@ -461,19 +460,12 @@ function KpiTile({
   onClick?: () => void;
   active?: boolean;
 }): React.ReactElement {
-  const hover = useHoverStyle({
-    base: { borderColor: withAlpha(color, 0.25), boxShadow: "none" },
-    hover: {
-      borderColor: color,
-      boxShadow: `0 4px 20px ${withAlpha(color, 0.2)}`,
-    },
-  });
+  const isInteractive = Boolean(onClick && !active);
 
   return (
     <div
       onClick={onClick}
-      onMouseEnter={onClick && !active ? hover.onMouseEnter : undefined}
-      onMouseLeave={onClick && !active ? hover.onMouseLeave : undefined}
+      className={isInteractive ? "stat-card-interactive" : undefined}
       style={{
         background: active ? color : withAlpha(color, 0.1),
         border: "1px solid",
@@ -483,13 +475,14 @@ function KpiTile({
         display: "flex",
         alignItems: "center",
         gap: "14px",
-        transition: "border-color .15s, box-shadow .15s, background .15s",
-        ...(active
-          ? {
-              borderColor: color,
-              boxShadow: `0 4px 20px ${withAlpha(color, 0.35)}`,
-            }
-          : hover.style),
+        borderColor: active ? color : withAlpha(color, 0.25),
+        boxShadow: active ? `0 4px 20px ${withAlpha(color, 0.35)}` : "none",
+        ...(isInteractive
+          ? ({
+              ["--card-color" as string]: color,
+              ["--card-glow" as string]: withAlpha(color, 0.2),
+            } as React.CSSProperties)
+          : {}),
       }}
     >
       <div

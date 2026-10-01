@@ -5096,3 +5096,31 @@ select.form-input {
   color: var(--accent-primary);
 }
 
+.stat-card-interactive {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.stat-card-interactive:hover {
+  border-color: var(--card-color) !important;
+  box-shadow: 0 4px 20px var(--card-glow) !important;
+}
+
+.dash-perf-row {
+  transition: background 0.12s ease;
+}
+.dash-perf-row:hover {
+  background: var(--bg-secondary);
+}
+
+.analytics-quick-action {
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.analytics-quick-action:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: hsla(250, 84%, 60%, 0.06);
+}
+
+
