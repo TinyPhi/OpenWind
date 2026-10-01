@@ -88,6 +88,18 @@ router.post("/sync", requireRole("admin"), async (c) => {
       { tenantId: auth.tenantId },
       "org-directory: admin-triggered sync failed",
     );
+    // An admin-triggered write that failed is exactly the case compliance/
+    // incident review needs an audit record for -- logger output alone
+    // rotates and isn't the system of record (review finding, PR722).
+    await writeAuditEntry(db, {
+      tenantId: auth.tenantId,
+      actorId: auth.userId,
+      actorType: "user",
+      action: "sync_failed",
+      resourceType: "org_directory",
+      resourceId: auth.tenantId,
+      metadata: { trigger: "manual" },
+    });
   } else if (result.status === "completed") {
     await writeAuditEntry(db, {
       tenantId: auth.tenantId,

@@ -91,6 +91,10 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "export.requested": true,
   "export.completed": true,
   "export.failed": true,
+  // A sync the admin was entitled to trigger (requireRole("admin") already
+  // passed) that then failed mid-run -- a worker/upstream-provider outcome,
+  // not a denied caller request, same reasoning as schedule.execution_failed.
+  sync_failed: true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since

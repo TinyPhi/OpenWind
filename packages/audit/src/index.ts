@@ -157,7 +157,14 @@ export type AuditAction =
   // DB CHECK constraint in the same commit.
   | "export.requested"
   | "export.completed"
-  | "export.failed";
+  | "export.failed"
+  // docs/specs/org-directory.md — admin-triggered org-directory sync failed
+  // (PR722 review finding: a failed admin-triggered write needs a durable
+  // audit record, not just a logger.error line). "already_running" is
+  // intentionally not audited -- routine steady state, not an admin action
+  // that went wrong. Migration 0130_admin_audit_log_org_directory_actions.sql
+  // extends the DB CHECK constraint in the same commit.
+  | "sync_failed";
 
 export type AuditEntryInput = {
   tenantId: string;

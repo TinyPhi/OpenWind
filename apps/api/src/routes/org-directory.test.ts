@@ -168,4 +168,27 @@ describe("POST /org-directory/sync", () => {
     expect(body.data.status).toBe("already_running");
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
+
+  it("audits a failed sync, not just the logger (review finding: a failed admin-triggered write needs a durable audit record, not just a log line)", async () => {
+    mockAuth.roles = ["admin"];
+    mockRunOrgDirectorySync.mockResolvedValue({
+      status: "failed",
+      syncedAt: null,
+      employeeCount: 0,
+      cyclesBroken: 0,
+      reparented: 0,
+    });
+
+    const res = await buildApp().request("/org-directory/sync", {
+      method: "POST",
+    });
+    const body = (await res.json()) as { data: { status: string } };
+
+    expect(res.status).toBe(200);
+    expect(body.data.status).toBe("failed");
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sync_failed" }),
+    );
+  });
 });
