@@ -238,6 +238,7 @@ describe("ScheduleRulesPage", () => {
     fireEvent.click(screen.getByLabelText("Edit rule"));
 
     const warning = await screen.findByRole("alert");
+    expect(warning.className).toContain("alert-warning");
     expect(warning.textContent).toContain("0 9 * * 1,3,5");
     expect(warning.textContent).toContain(
       "cannot be represented by this picker and will be replaced on save",
