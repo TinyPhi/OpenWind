@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { fetchUsersShared } from "../../lib/use-users.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { FieldInput } from "../../components/field-input.js";
 import { userManager } from "../../authProvider.js";
@@ -1765,7 +1766,9 @@ export function CustomerRecordDetail(): React.ReactElement {
         return Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${rec.entityTypeId}/fields`),
           Promise.resolve(recRes),
-          fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
+          fetchUsersShared()
+            .then((users) => ({ data: users }))
+            .catch(() => ({ data: [] })),
           fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(() => ({
             data: [],
           })),
@@ -2539,11 +2542,12 @@ export function CustomerRecordDetail(): React.ReactElement {
     setError(null);
     setTags([]);
     initializedCollapse.current = false;
-    void loadRecord().then(() => {
-      void loadComments();
-      void refreshAttachments();
-      void loadTags();
-    });
+    void Promise.all([
+      loadRecord(),
+      loadComments(),
+      refreshAttachments(),
+      loadTags(),
+    ]);
   }, [id]);
 
   // Access-denied check: once both the record and OIDC identity are loaded,
