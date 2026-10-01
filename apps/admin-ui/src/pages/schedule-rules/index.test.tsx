@@ -245,6 +245,28 @@ describe("ScheduleRulesPage", () => {
     );
   });
 
+  it("warns immediately when catch-up is enabled on an existing rule", async () => {
+    queueRefresh([RULE_A]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Edit rule"));
+    const catchUpCheckbox = await screen.findByLabelText(
+      "Catch up on missed fires (worker was down)",
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    fireEvent.click(catchUpCheckbox);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Catch-up will create one ticket for each missed fire since the rule was last active.",
+    );
+
+    fireEvent.click(catchUpCheckbox);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("computes a weekly cron expression from the frequency picker on save", async () => {
     queueRefresh([RULE_A]);
     renderPage();
