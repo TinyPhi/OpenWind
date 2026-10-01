@@ -1,5 +1,36 @@
 import { describe, it, expect } from "vitest";
-import { validateCrossTenantRefs } from "./cross-tenant-ref-validator.js";
+import type { DbOrTx } from "@platform/db";
+import { services, teams } from "@platform/db";
+import {
+  lookupValidIdsInTable,
+  validateCrossTenantRefs,
+} from "./cross-tenant-ref-validator.js";
+
+// Compile-time regression coverage for issue #588. This function is never
+// executed; `pnpm typecheck` verifies that columns from another table cannot
+// be paired with the selected table.
+function verifyColumnTableAlignment(db: DbOrTx, tenantId: string): void {
+  lookupValidIdsInTable(
+    db,
+    teams,
+    teams.id,
+    teams.tenantId,
+    teams.deletedAt,
+    tenantId,
+  );
+
+  lookupValidIdsInTable(
+    db,
+    teams,
+    teams.id,
+    teams.tenantId,
+    // @ts-expect-error services.deletedAt does not belong to the teams table
+    services.deletedAt,
+    tenantId,
+  );
+}
+
+void verifyColumnTableAlignment;
 
 describe("validateCrossTenantRefs", () => {
   it("returns no errors when refs is empty", async () => {
