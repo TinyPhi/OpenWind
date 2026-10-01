@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { fetchUsersShared } from "../../lib/use-users.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { isRenderableIcon } from "../../lib/icon.js";
@@ -53,7 +54,7 @@ type EntityInstance = {
 };
 type OrgUser = {
   userId: string;
-  email: string;
+  email: string | null;
   displayName: string | null;
 };
 type WorkflowState = {
@@ -552,6 +553,7 @@ export function WorkflowRecords(): React.ReactElement {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
+  const initialLoadedWorkflowIdRef = useRef<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   // Filter panel redesign: accordion sections instead of one long stacked
   // list — each section collapses/expands independently, "Date" and
@@ -627,12 +629,14 @@ export function WorkflowRecords(): React.ReactElement {
     });
   }, []);
 
-  // Workflow shell — resolves the slug, loads workflow/states/fields/users.
+  // Workflow shell — resolves the slug, loads workflow/states/fields/users and initial records.
   // Runs once per workflowSlug change; NOT re-run on filter changes, so the
   // full-page loading state (and therefore the whole board/filter panel)
   // never unmounts just because a filter was toggled or typed into.
   useEffect(() => {
     if (!workflowSlug) return;
+    let cancelled = false;
+    const isCancelled = (): boolean => cancelled;
     setLoading(true);
     setError(null);
 
@@ -641,6 +645,7 @@ export function WorkflowRecords(): React.ReactElement {
     // caller administers, which would 404 a plain ticket assignee here.
     fetchWithAuth(`${API_URL}/workflows/slugs`)
       .then(async (listRes) => {
+        if (isCancelled()) return;
         const all =
           (
             listRes as {
@@ -655,6 +660,7 @@ export function WorkflowRecords(): React.ReactElement {
 
         // Fetch full workflow detail (states + transitions)
         const wfRes = await fetchWithAuth(`${API_URL}/workflows/${matched.id}`);
+        if (isCancelled()) return;
         const wf = (
           wfRes as {
             data: {
@@ -669,11 +675,58 @@ export function WorkflowRecords(): React.ReactElement {
           }
         ).data;
 
-        setWorkflowId(wf.id);
-        setWorkflowName(wf.name);
-        setEntityTypeId(wf.entityTypeId);
-        setWorkflowCreatedBy(wf.createdBy);
-        setWorkflowAssignedTo((wf.assignedTo as string[] | null) ?? []);
+        let userSub = currentUserId;
+        let isUser = isUserRole;
+        if (!userSub) {
+          try {
+            const u = await userManager.getUser();
+            if (u) {
+              userSub = u.profile.sub;
+              const roleClaim = u.profile[
+                "urn:zitadel:iam:org:project:roles"
+              ] as Record<string, unknown> | undefined;
+              const roles = roleClaim ? Object.keys(roleClaim) : [];
+              isUser = !roles.includes("admin") && !roles.includes("agent");
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        const isWorkflowAdminForThisWorkflow =
+          isUser &&
+          userSub !== null &&
+          (userSub === wf.createdBy ||
+            ((wf.assignedTo as string[] | null) ?? []).includes(userSub));
+        const useMyTickets = isUser && !isWorkflowAdminForThisWorkflow;
+
+        const filterParams = new URLSearchParams();
+        if (filterSeverities.size > 0) {
+          filterParams.set("severity", [...filterSeverities].join(","));
+        }
+        if (filterTag) {
+          filterParams.set("tag", filterTag);
+        }
+        if (filterOrigin) {
+          filterParams.set("origin", filterOrigin);
+        }
+        const filterQS = filterParams.toString();
+
+        const recordUrl = useMyTickets
+          ? `${API_URL}/entities/my-tickets?workflowId=${wf.id}${filterQS ? `&${filterQS}` : ""}`
+          : `${API_URL}/entities?entityTypeId=${wf.entityTypeId}&rootOnly=true${filterQS ? `&${filterQS}` : ""}`;
+
+        // Concurrently fetch fields, deduplicated users, and initial ticket records
+        const [fieldsRes, usersData, recRes] = await Promise.all([
+          fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
+          fetchUsersShared(),
+          fetchWithAuth(recordUrl),
+        ]);
+
+        if (isCancelled()) return;
+
+        // Flag that initial records for this workflow were fetched concurrently
+        initialLoadedWorkflowIdRef.current = wf.id;
 
         const loadedStates = wf.states as WorkflowState[];
         const loadedTransitions = wf.transitions as Transition[];
@@ -690,21 +743,47 @@ export function WorkflowRecords(): React.ReactElement {
           return [...kept, ...added];
         });
 
-        const [fieldsRes, usersRes] = await Promise.all([
-          fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
-          fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
-        ]);
         setFields(
           (fieldsRes as { data: EntityField[] }).data.filter(
             (f) => !f.isSystem,
           ),
         );
-        setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
+        setUsers(usersData);
+
+        if (useMyTickets) {
+          const myData =
+            (
+              recRes as {
+                data?: {
+                  parentTickets?: EntityInstance[];
+                  childTickets?: ChildTicket[];
+                };
+              }
+            ).data ?? {};
+          setRecords(myData.parentTickets ?? []);
+          setChildTickets(myData.childTickets ?? []);
+        } else {
+          setRecords((recRes as { data?: EntityInstance[] }).data ?? []);
+          setChildTickets([]);
+        }
+
+        setWorkflowId(wf.id);
+        setWorkflowName(wf.name);
+        setEntityTypeId(wf.entityTypeId);
+        setWorkflowCreatedBy(wf.createdBy);
+        setWorkflowAssignedTo((wf.assignedTo as string[] | null) ?? []);
       })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
-      )
-      .finally(() => setLoading(false));
+      .catch((err: unknown) => {
+        if (!isCancelled())
+          setError(err instanceof Error ? err.message : "Failed to load");
+      })
+      .finally(() => {
+        if (!isCancelled()) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [workflowSlug]);
 
   // Ticket list — re-fetches on its own whenever the workflow shell above
@@ -714,6 +793,10 @@ export function WorkflowRecords(): React.ReactElement {
   // drops input focus.
   useEffect(() => {
     if (!workflowId || !entityTypeId) return;
+    if (initialLoadedWorkflowIdRef.current === workflowId) {
+      initialLoadedWorkflowIdRef.current = null;
+      return;
+    }
     setRecordsRefreshing(true);
 
     // A "user"-role caller who is this workflow's creator or in its
@@ -1638,7 +1721,7 @@ export function WorkflowRecords(): React.ReactElement {
                                 (u.displayName ?? "")
                                   .toLowerCase()
                                   .includes(q) ||
-                                u.email.toLowerCase().includes(q)
+                                (u.email ?? "").toLowerCase().includes(q)
                               );
                             })
                             .map((u) => (
@@ -1655,12 +1738,12 @@ export function WorkflowRecords(): React.ReactElement {
                                 }
                               >
                                 <span className="kb-filter-assignee-avatar">
-                                  {(u.displayName ?? u.email)
+                                  {(u.displayName ?? u.email ?? "Unknown")
                                     .slice(0, 1)
                                     .toUpperCase()}
                                 </span>
                                 <span className="kb-filter-assignee-name">
-                                  {u.displayName ?? u.email}
+                                  {u.displayName ?? u.email ?? "Unknown"}
                                 </span>
                                 {filterAssignedTo === u.userId && (
                                   <svg
