@@ -22,6 +22,10 @@ overrides:
   turbo: ">=2.9.14"
   # GHSA-4x5r-pxfx-6jf8: Arbitrary File Read via sourceMappingURL Comment
   "@babel/core": ">=7.29.1"
+  # GHSA-m9gg-hp2v-232j (high): getAuthContext can return unauthorized certificates as though
+  # they were authorized. Pulled in transitively by packages/telemetry via
+  # @opentelemetry/sdk-node's *-otlp-grpc exporters -- not a direct dependency anywhere.
+  "@grpc/grpc-js": ">=1.14.5"
   # GHSA-3jxr-9vmj-r5cp + GHSA-52cp-r559-cp3m + GHSA-mh99-v99m-4gvg (#206): brace-expansion
   # DoS via unbounded expansion length. The per-major-line pins this override used to have
   # (1.1.16 / 2.1.2 / 5.0.7) are ALL <=5.0.7 — GHSA-mh99-v99m-4gvg's vulnerable range covers
