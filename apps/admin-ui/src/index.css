@@ -5066,3 +5066,33 @@ select.form-input {
   background: var(--bg-tertiary);
 }
 
+/* Interactive Table & List Row CSS Hover Performance */
+.interactive-hover-row {
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.interactive-hover-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.ticket-table-row {
+  cursor: pointer;
+  background: transparent;
+  transform: scale(1);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.ticket-table-row:hover {
+  background: var(--bg-tertiary);
+  transform: scale(1.012);
+}
+
+.user-icon-action {
+  background: transparent;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.user-icon-action:hover {
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+}
+

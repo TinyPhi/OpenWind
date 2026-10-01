@@ -394,10 +394,6 @@ function WorkloadBar({
   color: string;
   onClick: () => void;
 }): React.ReactElement {
-  const hover = useHoverStyle({
-    base: { background: "transparent" },
-    hover: { background: "var(--bg-tertiary)" },
-  });
   const pct =
     maxTotal > 0
       ? Math.max(4, Math.round((workflow.total / maxTotal) * 100))
@@ -406,13 +402,11 @@ function WorkloadBar({
   return (
     <div
       onClick={onClick}
-      onMouseEnter={hover.onMouseEnter}
-      onMouseLeave={hover.onMouseLeave}
+      className="interactive-hover-row"
       style={{
         cursor: "pointer",
         borderRadius: "var(--radius-sm)",
         padding: "8px 8px",
-        ...hover.style,
       }}
     >
       <div
@@ -624,9 +618,6 @@ export function FilterTabs({
   );
 }
 
-// Own hover state per row — a single shared useHoverStyle call at the table
-// level would highlight EVERY row together on hover (hovered is one boolean
-// for the whole table), not just the row under the cursor.
 function TicketRow({
   item,
   onOpen,
@@ -634,21 +625,10 @@ function TicketRow({
   item: TicketSummary;
   onOpen: (entityTypeId: string, entityId: string) => void;
 }): React.ReactElement {
-  const rowHover = useHoverStyle({
-    base: { background: "transparent", transform: "scale(1)" },
-    hover: { background: "var(--bg-tertiary)", transform: "scale(1.012)" },
-  });
-
   return (
     <tr
       onClick={() => onOpen(item.entityTypeId, item.entityId)}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
-      style={{
-        cursor: "pointer",
-        transition: "transform .12s ease, background .12s ease",
-        ...rowHover.style,
-      }}
+      className="ticket-table-row"
     >
       <td
         style={{
