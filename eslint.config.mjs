@@ -96,6 +96,12 @@ export default [
   // ─── Base JS rules ────────────────────────────────────────────────────────
   js.configs.recommended,
 
+  // Plain Node ESM scripts (e.g. apps/admin-ui/scripts/check-entry-size.mjs)
+  {
+    files: ["**/*.mjs"],
+    languageOptions: { globals: { ...globals.node } },
+  },
+
   // ─── TypeScript rules ─────────────────────────────────────────────────────
   {
     files: ["**/*.ts", "**/*.tsx"],
