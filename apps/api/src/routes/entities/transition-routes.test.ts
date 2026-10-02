@@ -88,8 +88,8 @@ const { executeTransitionHandler } = await import("./execute-transition.js");
 const { listTransitionsHandler } = await import("./list-transitions.js");
 const { listWorkflowEventsHandler } = await import("./list-workflow-events.js");
 
-const TENANT = "tenant-one";
-const OTHER_TENANT = "tenant-two";
+const TENANT = "aaaaaaaa-0733-4000-a000-000000000001";
+const OTHER_TENANT = "bbbbbbbb-0733-4000-b000-000000000002";
 const ACTOR = "user-actor-1";
 const RECORD_ID = "11111111-2222-4333-8444-555555555555";
 const TRANSITION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -266,6 +266,18 @@ describe("POST /:id/transitions", () => {
     expect(body).toMatchObject({ error: code });
   });
 
+  it("maps TRANSITION_LOCKED to 409 with a Retry-After header", async () => {
+    engine.executeTransition.mockRejectedValue(
+      new WorkflowError("TRANSITION_LOCKED"),
+    );
+
+    const res = await postTransition({ transitionId: TRANSITION_ID });
+
+    expect(res.status).toBe(409);
+    expect(res.headers.get("Retry-After")).toBe("5");
+    expect(await res.json()).toMatchObject({ error: "TRANSITION_LOCKED" });
+  });
+
   it("maps CONDITION_NOT_MET to 422 and passes the condition meta through", async () => {
     engine.executeTransition.mockRejectedValue(
       new WorkflowError("CONDITION_NOT_MET", { field: "priority" }),
@@ -374,6 +386,25 @@ describe("GET /:id/transitions", () => {
       RECORD_ID,
       ["user"],
     );
+  });
+
+  // RLS hides another tenant's row, so getEntity fails before transitions are read.
+  it("returns 404 for another tenant's record without querying transitions", async () => {
+    authState.current = authAs({ tenantId: OTHER_TENANT });
+    engine.getEntity.mockRejectedValue(new EntityError("ENTITY_NOT_FOUND"));
+
+    const res = await get(`/${RECORD_ID}/transitions`);
+
+    expect(res.status).toBe(404);
+    expect(engine.getEntity).toHaveBeenCalledWith(
+      fakeTx,
+      OTHER_TENANT,
+      RECORD_ID,
+    );
+    expect(engine.getAvailableTransitions).not.toHaveBeenCalled();
+    for (const call of engine.withTenantContext.mock.calls) {
+      expect(call[0]).toBe(OTHER_TENANT);
+    }
   });
 
   it("returns 404 without querying transitions when the caller lacks record access", async () => {

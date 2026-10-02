@@ -5,7 +5,7 @@
 
 status: implemented
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-02
 
 ---
 
@@ -127,3 +127,16 @@ ORDER BY tenant_id, trigger_type;
     so they never equal a real id.
 - **Follow-up:** wizard/API key mismatches (`fieldName` vs `field`, `state` vs `toState`, empty-string
   uuids) and trigger types with no emitter are filed as #684.
+- **B5 — #684 part 1 (2026-10-02).** The key mismatches are fixed. Trigger types with no
+  emitter are still open (#684 part 2).
+  - **Wizard trigger keys:** the wizard now writes `toState` for `workflow.entered_state` and
+    `field` for `field.changed`. `workflow.sla_breached` keeps `state`, which the executor
+    reads, and the API schema now accepts and validates `state` too.
+  - **Placeholders:** placeholder options remove the key instead of sending `""`. The API also
+    strips `""` values from `triggerConfig` on create and update before validating, so they are
+    never stored.
+  - **Action keys:** two actions had the same kind of drift. `set_field` now writes `field`.
+    Webhook headers stay as editable rows in the wizard and are saved as a `{name: value}`
+    record.
+  - **Split out:** the transition action asks for a free-text name, but the executor needs
+    `transitionId`. That needs a transition picker, so it is tracked separately in #760.

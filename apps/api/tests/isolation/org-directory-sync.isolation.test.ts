@@ -285,25 +285,26 @@ describe("runOrgDirectorySync", () => {
     const blockedFetch = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
+    let signalFetchStarted: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => {
+      signalFetchStarted = resolve;
+    });
     const slowImporter: OrgSourceImporter = {
       fetchAll: async () => {
+        signalFetchStarted?.();
         await blockedFetch;
         return [];
       },
     };
 
     const first = runOrgDirectorySync(TENANT, slowImporter, null);
-    // Poll for the lock to be contended rather than a fixed sleep -- avoids
-    // the flakiness the original concurrency test had, since this waits on
-    // an actual condition (the first call's lock acquisition landing) with a
-    // generous ceiling, not a fixed guess at how long that takes.
-    let second: Awaited<ReturnType<typeof runOrgDirectorySync>> | undefined;
-    for (let attempt = 0; attempt < 50; attempt++) {
-      second = await runOrgDirectorySync(TENANT, fakeImporter([]), null);
-      if (second.status === "already_running") break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    expect(second?.status).toBe("already_running");
+    // Wait until the first sync is inside fetchAll -- it can only get there
+    // after acquiring the lock. Calling the second sync any earlier races the
+    // two pg_try_advisory_lock calls: if the second wins, the first returns
+    // already_running and no sync holds the lock during the check below.
+    await fetchStarted;
+    const second = await runOrgDirectorySync(TENANT, fakeImporter([]), null);
+    expect(second.status).toBe("already_running");
 
     releaseFetch?.();
     const firstResult = await first;

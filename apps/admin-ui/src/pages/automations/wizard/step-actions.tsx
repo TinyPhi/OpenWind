@@ -136,8 +136,8 @@ function SetFieldConfig({
         <input
           className="form-input"
           placeholder="field_name"
-          value={(config.fieldName as string | undefined) ?? ""}
-          onChange={(e) => onChange({ fieldName: e.target.value })}
+          value={(config.field as string | undefined) ?? ""}
+          onChange={(e) => onChange({ field: e.target.value })}
         />
       </div>
       <div className="form-group" style={{ flex: 2, minWidth: "160px" }}>

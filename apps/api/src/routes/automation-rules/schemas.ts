@@ -144,6 +144,14 @@ export const ActionConfigSchema = z.discriminatedUnion("type", [
 // failing silently at automation worker runtime.
 // connector.event and schedule.cron are kept permissive (Phase 3 shapes TBD).
 
+// #684: a client's "any" option arrives as "", which would fail the uuid
+// checks below and, for unvalidated keys, be stored. Treat it as unset.
+export const TriggerConfigInputSchema = z
+  .record(z.unknown())
+  .transform((config) =>
+    Object.fromEntries(Object.entries(config).filter(([, v]) => v !== "")),
+  );
+
 export const TRIGGER_CONFIG_SCHEMAS = {
   "workflow.entered_state": z.object({
     workflowId: z.string().uuid().optional(),
@@ -156,6 +164,8 @@ export const TRIGGER_CONFIG_SCHEMAS = {
   }),
   "workflow.sla_breached": z.object({
     workflowId: z.string().uuid().optional(),
+    // Read by the executor since #678.
+    state: z.string().optional(),
   }),
   "field.changed": z.object({
     entityTypeId: z.string().uuid(),

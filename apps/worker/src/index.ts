@@ -53,6 +53,10 @@ import {
   startScheduleTickWorker,
   stopScheduleTickWorker,
 } from "./schedule-tick-worker.js";
+import {
+  startOrgDirectorySyncScheduler,
+  stopOrgDirectorySyncScheduler,
+} from "./org-directory-sync-scheduler.js";
 
 logger.info({}, "Worker process starting");
 
@@ -65,6 +69,7 @@ startDueDateScheduler();
 startNotificationPoller();
 startConnectorPollScheduler();
 startScheduleTickWorker();
+startOrgDirectorySyncScheduler();
 
 // Schedule recurring file cleanup (idempotent — safe to call on every restart)
 void scheduleFileCleanup();
@@ -106,6 +111,7 @@ async function shutdown(): Promise<void> {
     stopUsageMeteringWorker(),
     stopRetentionArchivalWorker(),
     stopScheduleTickWorker(),
+    stopOrgDirectorySyncScheduler(),
     closeRedis(),
   ]);
   process.exit(0);
