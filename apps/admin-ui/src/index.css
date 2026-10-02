@@ -5047,7 +5047,7 @@ select.form-input {
   .geb-server { background: #7f1d1d; }
 }
 
-/* User Picker CSS Hover Performance */
+/* Hover/selected states moved from JS to CSS (picker rows, cards, list rows) */
 .user-picker-option-row {
   background: none;
   transition: background 0.1s ease;
@@ -5056,7 +5056,7 @@ select.form-input {
   background: var(--bg-tertiary);
 }
 .user-picker-option-row.is-selected {
-  background: rgba(0, 170, 85, 0.1);
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
 }
 .user-picker-unassign-btn {
   background: none;
