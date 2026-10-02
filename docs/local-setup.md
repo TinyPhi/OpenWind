@@ -18,6 +18,7 @@ repo's compose file (there isn't one).
 ## Table of contents
 
 - [Local development](#local-development)
+  - [Running DB-backed tests locally](#running-db-backed-tests-locally)
 - [Production deployment (HTTPS)](#production-deployment-https)
 - [What setup does — step by step](#what-setup-does--step-by-step)
 - [Services reference](#services-reference)
@@ -153,6 +154,48 @@ These only affect the containers defined in this repo's `docker-compose.yml`
 (Postgres, Redis, API, frontend). Zitadel lives in the separate `../zitadel/`
 compose project and keeps running independently — `docker compose down` here
 does not touch it.
+
+### Running DB-backed tests locally
+
+`pnpm test` and `pnpm test:isolation` include suites that run against real Postgres. Two
+things make them fail on a fresh checkout even when the code is fine:
+
+- **Wrong database credentials.** If `DATABASE_URL` is unset, the vitest configs (`apps/api`,
+  `apps/worker`, `packages/audit`) fall back to `platform:platform_test_password@…/platform_test`.
+  Those are the CI service's credentials. The compose `ow-database` uses `platform_dev_password`
+  (`docker-compose.yml`), so every DB-backed test fails with
+  `28P01 password authentication failed for user "platform"`.
+- **A shared test database drifts.** A long-lived `platform_test` picks up schema and rows
+  from other branches, and that causes failures unrelated to your change.
+
+Run the suites against a fresh, fully migrated database:
+
+```bash
+DB=platform_test_$(date +%m%d%H%M)
+docker exec ow-database psql -U platform -d platform -c "CREATE DATABASE $DB"
+
+# Same shell for everything below. Change 5432 if you set POSTGRES_HOST_PORT.
+export DATABASE_URL="postgresql://platform:platform_dev_password@localhost:5432/$DB"
+pnpm db:migrate
+pnpm test && pnpm test:isolation
+```
+
+`pnpm test` also runs each package's isolation tests. If you run `pnpm test:isolation` right
+after it, create a second fresh database first. A few tests count rows or keys they wrote
+themselves and assume they start from zero.
+
+**Node version.** CI runs Node 22. On Node 25 and later, Node's own `localStorage` global
+replaces jsdom's, and `oidc-client-ts` breaks in `admin-ui` tests (for example,
+`src/pages/reporting.test.tsx` fails with `Cannot read properties of undefined (reading
+'getItem')`). Use Node 22, or set `NODE_OPTIONS=--no-webstorage` for test runs.
+
+**Clean up** throwaway databases when you're done:
+
+```bash
+docker exec ow-database psql -U platform -d platform -Atc \
+  "select 'DROP DATABASE \"'||datname||'\";' from pg_database where datname like 'platform_test_%'" \
+  | docker exec -i ow-database psql -U platform -d platform
+```
 
 ---
 
