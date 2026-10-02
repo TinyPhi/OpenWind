@@ -147,4 +147,55 @@ describe("ruleInScope", () => {
     await ruleInScope({ entityTypeId: TICKET }, created(TICKET), names);
     expect(names).not.toHaveBeenCalled();
   });
+
+  describe("entity.updated field scope (#684)", () => {
+    const updated = (changed?: Record<string, unknown>): TriggerEvent =>
+      ({
+        eventType: "entity.updated",
+        entityTypeId: TICKET,
+        ...(changed !== undefined && { changed }),
+      }) as unknown as TriggerEvent;
+    const statusChange = { status: { old: "open", new: "done" } };
+
+    it("fires when the scoped field is among the changed fields", async () => {
+      expect(
+        await ruleInScope({ field: "status" }, updated(statusChange), names),
+      ).toBe(true);
+    });
+
+    it("does not fire when a different field changed", async () => {
+      expect(
+        await ruleInScope({ field: "priority" }, updated(statusChange), names),
+      ).toBe(false);
+    });
+
+    it("does not fire when the event carries no changed map", async () => {
+      expect(await ruleInScope({ field: "status" }, updated(), names)).toBe(
+        false,
+      );
+    });
+
+    it("fires on any field change when field is unset", async () => {
+      expect(await ruleInScope({}, updated(statusChange), names)).toBe(true);
+      expect(
+        await ruleInScope({ field: "" }, updated(statusChange), names),
+      ).toBe(true);
+    });
+
+    it("combines the field scope with the entity type scope", async () => {
+      expect(
+        await ruleInScope(
+          { entityTypeId: ORDER, field: "status" },
+          updated(statusChange),
+          names,
+        ),
+      ).toBe(false);
+    });
+
+    it("ignores field on other event types", async () => {
+      expect(
+        await ruleInScope({ field: "status" }, created(TICKET), names),
+      ).toBe(true);
+    });
+  });
 });

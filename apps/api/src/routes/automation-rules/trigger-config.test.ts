@@ -91,8 +91,8 @@ beforeEach(() => {
 });
 
 describe("trigger config keys the wizard sends", () => {
-  it("accepts a state-entered rule keyed on toState", async () => {
-    const res = await create("workflow.entered_state", {
+  it("accepts a state-entered rule as a transition keyed on toState", async () => {
+    const res = await create("workflow.transitioned", {
       workflowId: WORKFLOW_ID,
       toState: "approved",
     });
@@ -100,8 +100,8 @@ describe("trigger config keys the wizard sends", () => {
     expect(res.status).toBe(201);
   });
 
-  it("accepts a field-changed rule keyed on field", async () => {
-    const res = await create("field.changed", {
+  it("accepts a field-changed rule as an update keyed on field", async () => {
+    const res = await create("entity.updated", {
       entityTypeId: ENTITY_TYPE_ID,
       field: "status",
     });
@@ -162,13 +162,14 @@ describe("empty-string trigger config values", () => {
     });
   });
 
-  it("still requires field on a field-changed rule when it arrives empty", async () => {
-    const res = await create("field.changed", {
+  it("treats an empty field on an update rule as any field", async () => {
+    const res = await create("entity.updated", {
       entityTypeId: ENTITY_TYPE_ID,
       field: "",
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
+    expect(storedConfig()).toEqual({ entityTypeId: ENTITY_TYPE_ID });
   });
 
   it("drops empty strings on update too", async () => {
