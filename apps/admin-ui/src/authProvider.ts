@@ -1,6 +1,7 @@
 import { UserManager, WebStorageStateStore } from "oidc-client-ts";
 import type { User } from "oidc-client-ts";
 import type { AuthProvider } from "@refinedev/core";
+import { emitSessionEnd } from "./lib/session-events.js";
 
 declare const window: Window & {
   __CONFIG__?: {
@@ -102,6 +103,7 @@ export const authProvider: AuthProvider = {
     return { success: true };
   },
   logout: async () => {
+    emitSessionEnd();
     const user = await userManager.getUser();
     await userManager.clearStaleState();
     try {
