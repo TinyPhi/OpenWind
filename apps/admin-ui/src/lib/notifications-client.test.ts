@@ -109,6 +109,27 @@ describe("getUnreadCount", () => {
   });
 });
 
+describe("in-flight dedup vs. mutations", () => {
+  it("does not let a post-mutation read join a pre-mutation request", async () => {
+    let resolveStale: (v: { data: { count: number } }) => void = () => {};
+    mockFetchWithAuth.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve as typeof resolveStale;
+      }),
+    );
+    const stale = getUnreadCount();
+
+    mockFetchWithAuth.mockResolvedValueOnce({});
+    await markAllNotificationsRead();
+
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { count: 0 } });
+    expect(await getUnreadCount()).toBe(0);
+
+    resolveStale({ data: { count: 5 } });
+    expect(await stale).toBe(5);
+  });
+});
+
 describe("markNotificationRead", () => {
   it("POSTs to the per-notification read endpoint", async () => {
     mockFetchWithAuth.mockResolvedValue({});

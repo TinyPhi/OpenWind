@@ -1,5 +1,6 @@
 import { userManager } from "../authProvider.js";
 import { API_URL, fetchWithAuth } from "./api.js";
+import { onSessionEnd } from "./session-events.js";
 
 export interface NotificationItem {
   id: string;
@@ -37,10 +38,13 @@ export async function listNotifications(
   });
 
   if (!cursor) {
-    inFlightInitialListPromise = fetchPromise.finally(() => {
-      inFlightInitialListPromise = null;
+    const request: Promise<ListResponse> = fetchPromise.finally(() => {
+      if (inFlightInitialListPromise === request) {
+        inFlightInitialListPromise = null;
+      }
     });
-    return inFlightInitialListPromise;
+    inFlightInitialListPromise = request;
+    return request;
   }
 
   return fetchPromise;
@@ -51,7 +55,7 @@ export async function getUnreadCount(): Promise<number> {
     return inFlightUnreadCountPromise;
   }
 
-  inFlightUnreadCountPromise = fetchWithAuth(
+  const request: Promise<number> = fetchWithAuth(
     `${API_URL}/notifications/unread-count`,
   )
     .then((res) => {
@@ -59,16 +63,21 @@ export async function getUnreadCount(): Promise<number> {
       return r.data.count;
     })
     .finally(() => {
-      inFlightUnreadCountPromise = null;
+      if (inFlightUnreadCountPromise === request) {
+        inFlightUnreadCountPromise = null;
+      }
     });
+  inFlightUnreadCountPromise = request;
 
-  return inFlightUnreadCountPromise;
+  return request;
 }
 
 export function clearNotificationsInFlight(): void {
   inFlightInitialListPromise = null;
   inFlightUnreadCountPromise = null;
 }
+
+onSessionEnd(clearNotificationsInFlight);
 
 export async function markNotificationRead(id: string): Promise<void> {
   await fetchWithAuth(
@@ -77,12 +86,16 @@ export async function markNotificationRead(id: string): Promise<void> {
       method: "POST",
     },
   );
+  // A read started before this mutation may hold pre-mutation data; make the
+  // next caller issue a fresh request instead of joining it.
+  clearNotificationsInFlight();
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
   await fetchWithAuth(`${API_URL}/notifications/mark-all-read`, {
     method: "POST",
   });
+  clearNotificationsInFlight();
 }
 
 // ── Live socket ───────────────────────────────────────────────────────────────
