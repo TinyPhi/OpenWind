@@ -689,5 +689,3 @@ function ResolveSimulator({
     </div>
   );
 }
-
-export const ResolvePreview = ResolveSimulator;
