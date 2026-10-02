@@ -245,6 +245,32 @@ describe("ScheduleRulesPage", () => {
     );
   });
 
+  it("keeps the unsupported-cron warning visible after picker interaction", async () => {
+    const advancedRule = {
+      ...RULE_A,
+      cronExpr: "0 9 * * 1,3,5",
+      cronHuman: "At 09:00 on Monday, Wednesday, and Friday",
+    };
+    queueRefresh([advancedRule]);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Weekly Standup")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Edit rule"));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "cannot be represented by this picker",
+    );
+
+    fireEvent.click(screen.getByText("monthly"));
+
+    expect(screen.getByLabelText("Day of month")).toBeTruthy();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "cannot be represented by this picker",
+    );
+  });
+
   it("warns immediately when catch-up is enabled on an existing rule", async () => {
     queueRefresh([RULE_A]);
     renderPage();
