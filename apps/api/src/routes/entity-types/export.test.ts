@@ -541,20 +541,20 @@ describe("export rate limit (#692)", () => {
   });
 
   it("returns 429 with Retry-After and reads nothing once the limit is hit", async () => {
-    const nowSeconds = Math.ceil(Date.now() / 1000);
+    // Frozen clock: a slow CI runner must not shift the computed Retry-After.
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
     mockEnforceExportRateLimit.mockResolvedValue({
       allowed: false,
       remaining: 0,
-      resetAt: nowSeconds + 42,
+      resetAt: 1_790_000_000 + 42,
     });
 
     const res = await makeApp().request(`/${TYPE_ID}/export?format=csv`);
+    now.mockRestore();
 
     expect(res.status).toBe(429);
     expect(await res.json()).toMatchObject({ error: "RATE_LIMITED" });
-    const retryAfter = Number(res.headers.get("Retry-After"));
-    expect(retryAfter).toBeGreaterThanOrEqual(41);
-    expect(retryAfter).toBeLessThanOrEqual(42);
+    expect(res.headers.get("Retry-After")).toBe("42");
     expect(mockGetEntityType).not.toHaveBeenCalled();
     expect(mockListEntities).not.toHaveBeenCalled();
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
