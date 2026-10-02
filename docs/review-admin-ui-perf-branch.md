@@ -17,6 +17,34 @@ Tests/gates on the branch: typecheck, lint, vitest (50 files, 372 tests) and bui
 
 Caveat: data and render reviewers read diffs only (did not run the app). Items marked "verify" are suspected, not reproduced.
 
+## Resolution status (follow-up commits on this branch)
+
+Fixed after this review (each as its own small commit):
+
+| Finding                                                                        | Status                                                                                                                                 |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Users cache never expires / survives logout / stale-write race                 | **Fixed**: 60 s TTL, reset on logout via `lib/session-events.ts`, generation guard, failures not cached; tests added                   |
+| Requester access-request status regression (list endpoint 404s for non-owners) | **Fixed**: confirmed real (`list-access-requests.ts` returns 404 for non-owners); local/WS-driven override restored, scoped per record |
+| workflow-records skip-ref could swallow a filter change                        | **Fixed**: marker is now the exact fetched URL and is consumed on every list-effect run                                                |
+| Suspense replaced the whole shell on first route visit                         | **Fixed**: Suspense + error boundary wrap only the `<Outlet/>` inside Layout                                                           |
+| No chunk-load failure handling                                                 | **Fixed**: `RouteErrorBoundary` plus a guarded one-time reload on `vite:preloadError`                                                  |
+| Selected picker row ignored accent colour                                      | **Fixed**: `color-mix` on `--accent-primary`                                                                                           |
+| Dead `ow-logo.png/.svg`, dead `ResolvePreview` alias                           | **Removed**                                                                                                                            |
+| Notification in-flight dedup vs. mutations                                     | **Fixed**: mutators and logout clear it; `.finally` no longer nulls a newer request                                                    |
+| Idle logout could fire up to ~10 s early                                       | **Fixed**: timeout re-checks the latest raw activity; test added                                                                       |
+| `chunkSizeWarningLimit` presented as a guard                                   | **Added** `size:check` (entry gzip ≤ 230 kB, currently ~197 kB); docs corrected                                                        |
+| Unverified/incorrect doc claims, hashes, names, AGENTS.md vs `useHoverStyle`   | **Corrected** in `docs/frontend-performance-optimizations.md` and `AGENTS.md`                                                          |
+
+Deliberately **not** changed (needs a product/design decision or is larger scope):
+
+- `Promise.all` in record-detail still fires comments/attachments/tags when the record 404s/403s, with no stale-id guard.
+- Hover rules still need `!important` because inline base styles remain; hard-coded hover colours lack a dark variant; `@media (hover: hover)` and `:focus-visible` not added.
+- `layout.tsx` unrelated logo/avatar changes not split out of history.
+- `useHoverStyle` in `packages/ui` is kept (shared primitive) but now unused by admin-ui.
+- Vendor `manualChunks`, CI wiring of `size:check`, and prefetching.
+
+The findings below are the original review text, kept for the record.
+
 ## What passes verification
 
 - typecheck / lint / vitest / build green.
