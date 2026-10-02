@@ -101,9 +101,9 @@ export async function eraseUserFromTenant(
   tenantId: string,
   targetUserId: string,
 ): Promise<UserErasureResult> {
-  // Read before tenant_users is deleted below: the text rewrite needs it.
+  // Read before tenant_users is deleted below: the text rewrite needs them.
   const [member] = await tx
-    .select({ displayName: tenantUsers.displayName })
+    .select({ displayName: tenantUsers.displayName, email: tenantUsers.email })
     .from(tenantUsers)
     .where(
       and(
@@ -112,7 +112,10 @@ export async function eraseUserFromTenant(
       ),
     )
     .limit(1);
-  await scrubComments(tx, tenantId, targetUserId, member?.displayName ?? null);
+  await scrubComments(tx, tenantId, targetUserId, {
+    displayName: member?.displayName ?? null,
+    email: member?.email ?? null,
+  });
   await scrubUserRefFields(tx, tenantId, targetUserId);
 
   // saved_views RLS also requires user_id = app.user_id, and the caller is the
@@ -675,30 +678,69 @@ async function scrubUserRefFields(
   }
 }
 
+const escapeRegex = (value: string): string =>
+  value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+
 // Comments are workflow_events with metadata {type, text, mentions[], ...}.
 // Only comments that recorded a mention of the target are touched: the id is
-// removed from mentions, and "@<display name>" in their text becomes
-// "@[REDACTED]" — a same-named person in other comments is left alone.
+// removed from mentions, and the target's identifiers in their text are
+// redacted — a same-named person in other comments is left alone.
+//   "@<display name>" -> "@[REDACTED]"   (internal comments)
+//   email, user id    -> "[REDACTED]"    (third-party comments mention by
+//                                         identifier; the worker records the
+//                                         resolved id in mentions, #689)
 async function scrubComments(
   tx: DbOrTx,
   tenantId: string,
   targetUserId: string,
-  displayName: string | null,
+  identity: { displayName: string | null; email: string | null },
 ): Promise<void> {
   // Word-boundary match: target "Ann" must not rewrite "@Anne". Very short
-  // names are too likely to collide, so their text is left alone (ids are
-  // still scrubbed from mentions).
-  const name = displayName?.trim() ?? "";
-  const pattern =
-    name.length >= 3
-      ? `@${name.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")}(?![[:alnum:]_])`
-      : null;
+  // names and ids are too likely to collide, so they are left in the text
+  // (ids are still scrubbed from mentions).
+  const name = identity.displayName?.trim() ?? "";
+  const email = identity.email?.trim() ?? "";
+  const rewrites: Array<{
+    pattern: string;
+    replacement: string;
+    flags: string;
+  }> = [];
+  if (name.length >= 3) {
+    rewrites.push({
+      pattern: `@${escapeRegex(name)}(?![[:alnum:]_])`,
+      replacement: `@${REDACTED}`,
+      flags: "g",
+    });
+  }
+  if (email.includes("@")) {
+    // Not inside a longer address: "malice@x.com" is not "alice@x.com", and
+    // "alice@x.co" is not "alice@x.co.uk" — but a sentence-ending "." after
+    // the address must still match.
+    rewrites.push({
+      pattern: `(?<![[:alnum:]._%+-])${escapeRegex(email)}(?![[:alnum:]_-]|\\.[[:alnum:]])`,
+      replacement: REDACTED,
+      flags: "gi",
+    });
+  }
+  if (targetUserId.length >= 3) {
+    rewrites.push({
+      pattern: `(?<![[:alnum:]_-])${escapeRegex(targetUserId)}(?![[:alnum:]_-])`,
+      replacement: REDACTED,
+      flags: "g",
+    });
+  }
+
   const withoutMention = sql`jsonb_set(${workflowEvents.metadata}, '{mentions}', (${workflowEvents.metadata} -> 'mentions') - ${targetUserId}::text)`;
-  const metadata = pattern
-    ? sql`CASE WHEN jsonb_typeof(${workflowEvents.metadata} -> 'text') = 'string'
-        THEN jsonb_set(${withoutMention}, '{text}', to_jsonb(regexp_replace(${workflowEvents.metadata} ->> 'text', ${pattern}::text, '@[REDACTED]', 'g')))
+  let text = sql`${workflowEvents.metadata} ->> 'text'`;
+  for (const r of rewrites) {
+    text = sql`regexp_replace(${text}, ${r.pattern}::text, ${r.replacement}::text, ${r.flags}::text)`;
+  }
+  const metadata =
+    rewrites.length > 0
+      ? sql`CASE WHEN jsonb_typeof(${workflowEvents.metadata} -> 'text') = 'string'
+        THEN jsonb_set(${withoutMention}, '{text}', to_jsonb(${text}))
         ELSE ${withoutMention} END`
-    : withoutMention;
+      : withoutMention;
   await tx
     .update(workflowEvents)
     .set({ metadata })

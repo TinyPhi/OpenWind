@@ -59,9 +59,19 @@ let onConflictReturning: unknown[] = [{ id: "req-1" }];
 let mockInsertReturning: unknown[] = [{ id: "event-1" }];
 let mockUpdateReturning: unknown[] = [{ id: "instance-1" }];
 const updateCalls: Array<{ table: unknown; setVals: unknown }> = [];
+// Raw statements — recordResolvedMention's UPDATE (#689). The mocked `sql`
+// below returns { strings, vals }, so tests read the bound values.
+const executeCalls: Array<{ strings: TemplateStringsArray; vals: unknown[] }> =
+  [];
+let executeError: Error | null = null;
 
 const mockTx = {
   select: () => nextSelect(),
+  execute: (query: { strings: TemplateStringsArray; vals: unknown[] }) => {
+    if (executeError) return Promise.reject(executeError);
+    executeCalls.push(query);
+    return Promise.resolve([]);
+  },
   insert: (table: unknown) => ({
     values: (values: unknown) => {
       insertCalls.push({ table, values });
@@ -240,6 +250,8 @@ beforeEach(() => {
   selectCallIndex = 0;
   insertCalls.length = 0;
   updateCalls.length = 0;
+  executeCalls.length = 0;
+  executeError = null;
   auditEntries.length = 0;
   emitAccessEventCalls.length = 0;
   misuseAlertCalls.length = 0;
@@ -538,5 +550,91 @@ describe("mention-resolution-worker", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(auditEntries).toHaveLength(0);
+  });
+});
+
+// ── #689: resolved mentions are recorded on the comment ────────────────────────
+
+function recordedMention(): { commentId: unknown; userId: unknown } | null {
+  const call = executeCalls.find((c) =>
+    c.strings.join("?").includes("UPDATE workflow_events"),
+  );
+  if (!call) return null;
+  // vals order: userId (append), commentId, tenantId, userId (dedup), tenantId, userId (member)
+  return { commentId: call.vals[1], userId: call.vals[0] };
+}
+
+describe("recording resolved mentions for erasure (#689)", () => {
+  it("records the resolved user on the comment when they already had access (outcome 1)", async () => {
+    selectQueue = [() => [instanceRow]];
+    mockHasEntityAccess = true;
+
+    await capturedProcessor!(baseJob());
+
+    expect(recordedMention()).toEqual({
+      commentId: COMMENT_ID,
+      userId: MENTIONED_USER_ID,
+    });
+  });
+
+  it("records the resolved user when access is requested or granted (outcome 2)", async () => {
+    selectQueue = [() => [instanceRow]];
+
+    await capturedProcessor!(baseJob());
+
+    expect(recordedMention()?.userId).toBe(MENTIONED_USER_ID);
+  });
+
+  it("records a matched person who lacks the user role (outcome 3), since their identifier is in the text", async () => {
+    selectQueue = [() => [instanceRow]];
+    mockRolesByUserId = new Map([[MENTIONED_USER_ID, ["agent"]]]);
+
+    await capturedProcessor!(baseJob());
+
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.fallback" }),
+    ]);
+    expect(recordedMention()?.userId).toBe(MENTIONED_USER_ID);
+  });
+
+  it("still runs the statement for an unresolved identifier, with an empty id that matches no member", async () => {
+    selectQueue = [() => [instanceRow]];
+    mockOrgUsers = [];
+
+    await capturedProcessor!(
+      baseJob({ mentionIdentifier: "nobody@example.com" }),
+    );
+
+    expect(recordedMention()).toEqual({ commentId: COMMENT_ID, userId: "" });
+  });
+
+  it("only records tenant members and never duplicates an id", () => {
+    selectQueue = [() => [instanceRow]];
+    return capturedProcessor!(baseJob()).then(() => {
+      const text = executeCalls[0]?.strings.join("?") ?? "";
+      expect(text).toContain("FROM tenant_users");
+      expect(text).toContain("NOT (COALESCE(metadata -> 'mentions'");
+      expect(text).toContain("metadata ->> 'type' = 'comment'");
+    });
+  });
+
+  it("finishes the tag outcome even when recording the mention fails", async () => {
+    selectQueue = [() => [instanceRow]];
+    mockHasEntityAccess = true;
+    executeError = new Error("db hiccup");
+
+    await capturedProcessor!(baseJob());
+
+    expect(auditEntries).toEqual([
+      expect.objectContaining({ action: "tag.resolved_existing_access" }),
+    ]);
+  });
+
+  it("does not record anything when the ticket is gone", async () => {
+    selectQueue = [() => []];
+
+    await capturedProcessor!(baseJob());
+
+    expect(executeCalls).toHaveLength(0);
   });
 });
