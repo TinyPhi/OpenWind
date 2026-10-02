@@ -11,13 +11,14 @@ import {
   ActionConfigSchema,
   ConditionTreeSchema,
   TRIGGER_CONFIG_SCHEMAS,
+  TriggerConfigInputSchema,
 } from "./schemas.js";
 
 const CreateAutomationRuleSchema = z
   .object({
     name: z.string().min(1).max(200),
     triggerType: TriggerTypeSchema,
-    triggerConfig: z.record(z.unknown()),
+    triggerConfig: TriggerConfigInputSchema,
     conditions: ConditionTreeSchema.nullable().optional(),
     actions: z.array(ActionConfigSchema).min(1),
     isEnabled: z.boolean().optional(),

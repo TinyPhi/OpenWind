@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { fetchWithAuth, API_URL } from "../../../lib/api.js";
 import type { TriggerType, WizardData } from "./types.js";
+import { stateKeyFor, withConfigValues } from "./payload.js";
 
 type Props = {
   data: WizardData;
@@ -147,8 +148,10 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
   }
 
   function patchConfig(patch: Record<string, unknown>): void {
-    onChange({ triggerConfig: { ...data.triggerConfig, ...patch } });
+    onChange({ triggerConfig: withConfigValues(data.triggerConfig, patch) });
   }
+
+  const stateKey = stateKeyFor(data.triggerType);
 
   const selectedWorkflow = workflows.find(
     (w) => w.id === data.triggerConfig.workflowId,
@@ -237,7 +240,7 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                   (data.triggerConfig.workflowId as string | undefined) ?? ""
                 }
                 onChange={(e) =>
-                  patchConfig({ workflowId: e.target.value, state: "" })
+                  patchConfig({ workflowId: e.target.value, [stateKey]: "" })
                 }
               >
                 <option value="">— select workflow —</option>
@@ -260,8 +263,10 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                 <label className="form-label">State</label>
                 <select
                   className="form-input"
-                  value={(data.triggerConfig.state as string | undefined) ?? ""}
-                  onChange={(e) => patchConfig({ state: e.target.value })}
+                  value={
+                    (data.triggerConfig[stateKey] as string | undefined) ?? ""
+                  }
+                  onChange={(e) => patchConfig({ [stateKey]: e.target.value })}
                 >
                   <option value="">— any state —</option>
                   {selectedWorkflow.states.map((s) => (
@@ -292,7 +297,7 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                   (data.triggerConfig.entityTypeId as string | undefined) ?? ""
                 }
                 onChange={(e) =>
-                  patchConfig({ entityTypeId: e.target.value, fieldName: "" })
+                  patchConfig({ entityTypeId: e.target.value, field: "" })
                 }
               >
                 <option value="">— select entity type —</option>
@@ -315,12 +320,10 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
               ) : (
                 <select
                   className="form-input"
-                  value={
-                    (data.triggerConfig.fieldName as string | undefined) ?? ""
-                  }
-                  onChange={(e) => patchConfig({ fieldName: e.target.value })}
+                  value={(data.triggerConfig.field as string | undefined) ?? ""}
+                  onChange={(e) => patchConfig({ field: e.target.value })}
                 >
-                  <option value="">— any field —</option>
+                  <option value="">— select field —</option>
                   {fields.map((f) => (
                     <option key={f.id} value={f.name}>
                       {f.label}

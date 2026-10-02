@@ -14,6 +14,7 @@ import {
   ActionConfigSchema,
   ConditionTreeSchema,
   TRIGGER_CONFIG_SCHEMAS,
+  TriggerConfigInputSchema,
 } from "./schemas.js";
 
 const UpdateAutomationRuleSchema = z
@@ -21,7 +22,7 @@ const UpdateAutomationRuleSchema = z
     name: z.string().min(1).max(200).optional(),
     isEnabled: z.boolean().optional(),
     triggerType: TriggerTypeSchema.optional(),
-    triggerConfig: z.record(z.unknown()).optional(),
+    triggerConfig: TriggerConfigInputSchema.optional(),
     conditions: ConditionTreeSchema.nullable().optional(),
     actions: z.array(ActionConfigSchema).min(1).optional(),
     priority: z.number().int().optional(),

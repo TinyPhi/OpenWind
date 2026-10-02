@@ -9,6 +9,7 @@ import { StepTrigger } from "./step-trigger.js";
 import { StepConditions } from "./step-conditions.js";
 import { StepActions } from "./step-actions.js";
 import { StepSave } from "./step-save.js";
+import { fromApiActions, toApiActions } from "./payload.js";
 
 const STEPS = [
   { label: "Trigger", key: "trigger" },
@@ -20,7 +21,16 @@ const STEPS = [
 type StepKey = (typeof STEPS)[number]["key"];
 
 export function canAdvance(step: StepKey, data: WizardData): boolean {
-  if (step === "trigger") return data.triggerType !== "";
+  if (step === "trigger") {
+    // The API requires both for field.changed (TRIGGER_CONFIG_SCHEMAS).
+    if (data.triggerType === "field.changed") {
+      return (
+        typeof data.triggerConfig.entityTypeId === "string" &&
+        typeof data.triggerConfig.field === "string"
+      );
+    }
+    return data.triggerType !== "";
+  }
   if (step === "actions") return data.actions.length > 0;
   if (step === "save") return data.name.trim() !== "";
   return true;
@@ -63,9 +73,10 @@ export function AutomationWizard(): React.ReactElement {
             ? (ensureIds(rule.conditions as ConditionGroup) as ConditionGroup)
             : null,
           // Server strips the local `id` field — assign fresh IDs so React keys are stable
-          actions: (
-            (rule.actions as Array<Omit<ActionItem, "id">> | undefined) ?? []
-          ).map((a) => ({ ...a, id: genId() })),
+          actions: fromApiActions(
+            (rule.actions as Array<Omit<ActionItem, "id">> | undefined) ?? [],
+            genId,
+          ),
           name: (rule.name as string | undefined) ?? "",
           priority: (rule.priority as number | undefined) ?? 0,
           isEnabled: (rule.isEnabled as boolean | undefined) ?? true,
@@ -102,7 +113,7 @@ export function AutomationWizard(): React.ReactElement {
         triggerType: data.triggerType,
         triggerConfig: data.triggerConfig,
         conditions: data.conditions,
-        actions: data.actions.map(({ id: _id, ...rest }) => rest),
+        actions: toApiActions(data.actions),
         priority: data.priority,
         isEnabled: data.isEnabled,
       };
