@@ -21,6 +21,7 @@ const DENIED: AuditAction[] = [
   "ticket.view_denied",
   "attachment.download_denied",
   "reporting.guest_token_denied",
+  "export.download_denied",
 ];
 
 describe("classifyOutcome", () => {

@@ -13,6 +13,12 @@ const mockListEntityFields = vi.fn();
 const mockListEntities = vi.fn();
 const mockExportQueueAdd = vi.fn();
 const mockWriteAuditEntry = vi.fn();
+const mockEnforceExportRateLimit = vi.fn();
+
+vi.mock("../../lib/rate-limit-tiers.js", () => ({
+  enforceExportRateLimit: (...args: unknown[]) =>
+    mockEnforceExportRateLimit(...args),
+}));
 
 let failPdfRender = false;
 vi.mock("../../lib/render-export-pdf.js", async (importOriginal) => {
@@ -155,6 +161,11 @@ beforeEach(() => {
   });
   mockExportQueueAdd.mockResolvedValue({ id: "job-async-001" });
   mockWriteAuditEntry.mockResolvedValue(undefined);
+  mockEnforceExportRateLimit.mockResolvedValue({
+    allowed: true,
+    remaining: 4,
+    resetAt: 0,
+  });
   failPdfRender = false;
 });
 
@@ -518,5 +529,47 @@ describe("export guards", () => {
     );
     const res = await makeApp().request(`/${TYPE_ID}/export?format=csv`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("export rate limit (#692)", () => {
+  it("checks the limit for the caller's tenant and user", async () => {
+    const res = await makeApp().request(`/${TYPE_ID}/export?format=csv`);
+
+    expect(res.status).toBe(200);
+    expect(mockEnforceExportRateLimit).toHaveBeenCalledWith("t-aaa", "u-bbb");
+  });
+
+  it("returns 429 with Retry-After and reads nothing once the limit is hit", async () => {
+    const nowSeconds = Math.ceil(Date.now() / 1000);
+    mockEnforceExportRateLimit.mockResolvedValue({
+      allowed: false,
+      remaining: 0,
+      resetAt: nowSeconds + 42,
+    });
+
+    const res = await makeApp().request(`/${TYPE_ID}/export?format=csv`);
+
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ error: "RATE_LIMITED" });
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    expect(retryAfter).toBeGreaterThanOrEqual(41);
+    expect(retryAfter).toBeLessThanOrEqual(42);
+    expect(mockGetEntityType).not.toHaveBeenCalled();
+    expect(mockListEntities).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("never sends a Retry-After below 1 second", async () => {
+    mockEnforceExportRateLimit.mockResolvedValue({
+      allowed: false,
+      remaining: 0,
+      resetAt: 0,
+    });
+
+    const res = await makeApp().request(`/${TYPE_ID}/export?format=csv`);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("1");
   });
 });

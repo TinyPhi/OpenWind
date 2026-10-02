@@ -158,6 +158,11 @@ export type AuditAction =
   | "export.requested"
   | "export.completed"
   | "export.failed"
+  // #693 — who fetched a finished async export's download URL, and a
+  // same-tenant poll the PII check refused. Migration 0131 extends the DB
+  // CHECK constraint in the same commit.
+  | "export.downloaded"
+  | "export.download_denied"
   // docs/specs/org-directory.md — admin-triggered org-directory sync failed
   // (PR722 review finding: a failed admin-triggered write needs a durable
   // audit record, not just a logger.error line). "already_running" is

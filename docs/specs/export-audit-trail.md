@@ -1,4 +1,4 @@
-# Export audit trail (#638)
+# Export audit trail (#638, #692, #693)
 
 > Every entity-list export, sync or async, leaves an audit record of who exported what, how
 > many rows, in which format, and whether PII/financial fields were included. That includes
@@ -6,7 +6,7 @@
 
 status: implemented
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-02
 
 ---
 
@@ -28,7 +28,7 @@ trace. That is a gap for Art. 5(2) accountability and for incident investigation
 | resource        | `resourceType: "entity_type"`, `resourceId: entityTypeId`, `actorType: "user"`, `actorId`: the requester                                                                                                                                                                                 |
 | no field values | metadata holds counts and settings only, never row data                                                                                                                                                                                                                                  |
 | writes          | through `writeAuditEntry` inside `withTenantContext` (`app_user` has INSERT on `admin_audit_log`)                                                                                                                                                                                        |
-| out of scope    | auditing the download of a finished async file (`/exports/:jobId/download` returning the URL); rejected requests (404 unknown type, 400 `EXPORT_TOO_LARGE`), which disclose no data                                                                                                      |
+| out of scope    | rejected requests (404 unknown type, 400 `EXPORT_TOO_LARGE`, 429 rate limited), which disclose no data. The async file download was added in #693 (§X)                                                                                                                                   |
 
 ## §I Interfaces
 
@@ -67,6 +67,28 @@ columns to include.
 | T3  | Worker: completed/failed around the processor, rethrow                                                                                    | R3, R4     | done   |
 | T4  | Route unit tests (`export.test.ts`) and worker processor tests assert the entries; isolation test that real rows land and the CHECK holds | R1–R6      | done   |
 | T5  | Docs: week-log; note the #681 merge-order dependency in the PR                                                                            | —          | done   |
+
+## §X Extensions (2026-10-02, #692, #693)
+
+**Download audit (#693, migration 0131).** `GET /exports/:jobId/download` writes:
+
+| action                   | when                                                                                                         | metadata                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| `export.downloaded`      | every response that hands out the presigned URL, written before the URL is returned (fail-closed, V1)        | `jobId`, `format`, `mode: "async"` |
+| `export.download_denied` | a same-tenant caller who is neither the requester nor PII-capable polls a PII export (404 is still returned) | `jobId`, `format`, `mode: "async"` |
+
+Both use the same resource as the export itself (`entity_type` / the job's `entityTypeId`), so
+one entity type's trail reads requested → completed → downloaded. The URL itself is never
+recorded. Pending, failed and expired polls write nothing. A missing job, or one belonging to
+another tenant, stays an unaudited 404, so another tenant's job ids never enter this tenant's
+log. `export.download_denied` classifies as `denied`, and both classify as `read`.
+
+**Rate limit (#692, ADR-013).** `GET /entity-types/:id/export` allows
+`RATE_LIMIT_EXPORT_PER_MIN` (default 5) requests per 60s per (tenant, user), keyed
+`rl:export:<tenant>:<user>`. The check runs after `requireAuth` and before `requireRole` or
+any DB read. Over the limit it returns 429 `RATE_LIMITED` with `Retry-After`. Like every other
+tier, it fails open on a Redis error. Refused requests are not audited; misuse alerting on them
+belongs to #641.
 
 ## §B Bugs / Backprop Log
 
