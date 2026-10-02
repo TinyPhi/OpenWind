@@ -73,6 +73,22 @@ describe("useIdleLogout", () => {
     removeSpy.mockRestore();
   });
 
+  it("measures the idle window from the latest activity even when the throttle dropped that event", async () => {
+    // timeout 5000 -> throttle window 1000ms
+    renderHook(() => useIdleLogout(5000), { wrapper });
+
+    await vi.advanceTimersByTimeAsync(1500);
+    window.dispatchEvent(new Event("mousemove")); // accepted, timer -> t=6500
+    await vi.advanceTimersByTimeAsync(500);
+    window.dispatchEvent(new Event("mousemove")); // throttled (t=2000)
+
+    await vi.advanceTimersByTimeAsync(4500); // t=6500: only 4500ms idle
+    expect(mockLogout).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(500); // t=7000: 5000ms idle
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
   it("registers activity listeners with passive flag", () => {
     const addSpy = vi.spyOn(window, "addEventListener");
     const { unmount } = renderHook(() => useIdleLogout(5000), { wrapper });

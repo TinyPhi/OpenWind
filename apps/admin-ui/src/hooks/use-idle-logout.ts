@@ -97,7 +97,18 @@ export function useIdleLogout(timeoutMs?: number): void {
       Math.max(500, Math.floor(resolvedTimeoutMs / 5)),
     );
 
+    // Updated on every event (a plain write, no timer churn). The throttled
+    // resetTimer can drop events, so the timeout re-checks this before firing:
+    // otherwise logout could land up to throttleMs early.
+    let latestActivity = lastActivity;
+
     const handleTimeout = (): void => {
+      const remaining = resolvedTimeoutMs - (Date.now() - latestActivity);
+      if (remaining > 0) {
+        lastActivity = latestActivity;
+        timer = setTimeout(handleTimeout, remaining);
+        return;
+      }
       // Always redirect, even if logout() rejects (e.g. storage unavailable)
       // — the point of this feature is to get an idle session off screen,
       // and a rejected promise must not silently cancel that.
@@ -108,6 +119,7 @@ export function useIdleLogout(timeoutMs?: number): void {
 
     const resetTimer = (): void => {
       const now = Date.now();
+      latestActivity = now;
       if (now - lastActivity < throttleMs) return;
       lastActivity = now;
       clearTimeout(timer);
