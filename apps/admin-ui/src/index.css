@@ -5197,6 +5197,13 @@ select.form-input {
   color: var(--text-primary);
 }
 
+.org-card-interactive {
+  transition: border-color 0.15s ease;
+}
+.org-card-interactive:hover {
+  border-color: var(--accent-primary) !important;
+}
+
 
 
 
