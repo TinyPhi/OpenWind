@@ -26,6 +26,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSign } from "node:crypto";
 import { request as nodeHttpRequest } from "node:http";
+import { ensureUserProjectRoles } from "./lib/zitadel-user-grants.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -886,18 +887,22 @@ async function createDemoUser(
   // Grant project roles
   const roleList = opts.roles.join(", ");
   try {
-    await zCall(`/management/v1/users/${userId}/grants`, pat, {
-      method: "POST",
-      body: { projectId, roleKeys: opts.roles },
-    });
-    ok(`  → granted roles "${roleList}"`);
-  } catch (e) {
-    const msg = String(e);
-    if (msg.includes("409") || msg.toLowerCase().includes("already exist")) {
+    const result = await ensureUserProjectRoles(
+      zCall,
+      pat,
+      userId,
+      projectId,
+      opts.roles,
+    );
+    if (result.action === "updated") {
+      ok(`  → updated roles "${result.roleKeys.join(", ")}"`);
+    } else if (result.action === "unchanged") {
       ok(`  → roles "${roleList}" already granted`);
     } else {
-      warn(`  → could not grant roles "${roleList}": ${msg}`);
+      ok(`  → granted roles "${roleList}"`);
     }
+  } catch (e) {
+    warn(`  → could not grant roles "${roleList}": ${String(e)}`);
   }
 }
 
