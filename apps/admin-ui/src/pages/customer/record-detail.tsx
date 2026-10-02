@@ -1430,6 +1430,20 @@ export function CustomerRecordDetail(): React.ReactElement {
   };
   const [accessReqList, setAccessReqList] = useState<AccessRequest[]>([]);
   const [accessReqLoaded, setAccessReqLoaded] = useState(false);
+  // The list endpoint 404s for plain requesters (owner/admin only), so their
+  // own status can't come from accessReqList: it is set locally on submit and
+  // from the websocket event instead.
+  const [myReqOverrideState, setMyReqOverrideState] = useState<{
+    recordId: string | undefined;
+    status: AccessRequest["status"];
+  } | null>(null);
+  // Scoped to the record so it can't leak when navigating between records.
+  const myReqStatusOverride =
+    myReqOverrideState !== null && myReqOverrideState.recordId === id
+      ? myReqOverrideState.status
+      : null;
+  const setMyReqStatusOverride = (status: AccessRequest["status"]): void =>
+    setMyReqOverrideState({ recordId: id, status });
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [confirmReqLevel, setConfirmReqLevel] = useState<AccessLevel | null>(
     null,
@@ -1528,8 +1542,8 @@ export function CustomerRecordDetail(): React.ReactElement {
   >(() => {
     if (!currentUserId || accessDenied) return "none";
     const mine = accessReqList.find((r) => r.requesterId === currentUserId);
-    return mine ? mine.status : "none";
-  }, [accessReqList, currentUserId, accessDenied]);
+    return mine ? mine.status : (myReqStatusOverride ?? "none");
+  }, [accessReqList, currentUserId, accessDenied, myReqStatusOverride]);
 
   // Current user's access entry (null for admins/agents — they bypass access list)
   const myAccessEntry =
@@ -2191,6 +2205,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestedLevel: level }),
       });
+      setMyReqStatusOverride("pending");
       void loadAccessRequests();
     } catch {
       /* best-effort */
@@ -2587,6 +2602,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       ) {
         if (isOwner || isAdminOrAgent) void loadAccessRequests();
         if (msg.request.requestedBy === currentUserId) {
+          setMyReqStatusOverride(msg.request.status);
           void loadAccessRequests();
         }
       }
