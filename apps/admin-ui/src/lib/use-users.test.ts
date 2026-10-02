@@ -8,8 +8,9 @@ vi.mock("./api.js", () => ({
 
 const api = await import("./api.js");
 const fetchWithAuth = vi.mocked(api.fetchWithAuth);
-const { fetchUsersShared, useUsers, clearUsersCache } =
+const { fetchUsersShared, useUsers, clearUsersCache, USERS_CACHE_TTL_MS } =
   await import("./use-users.js");
+const { emitSessionEnd } = await import("./session-events.js");
 
 describe("use-users and fetchUsersShared", () => {
   beforeEach(() => {
@@ -93,5 +94,55 @@ describe("use-users and fetchUsersShared", () => {
 
     expect(result.current.users).toHaveLength(1);
     expect(result.current.users[0]?.displayName).toBe("Alice");
+  });
+
+  it("refetches after the cache TTL expires", async () => {
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(1_000);
+    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u1" }] });
+    await fetchUsersShared();
+    await fetchUsersShared();
+    expect(fetchWithAuth).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(1_000 + USERS_CACHE_TTL_MS + 1);
+    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u2" }] });
+    const users = await fetchUsersShared();
+    expect(fetchWithAuth).toHaveBeenCalledTimes(2);
+    expect(users).toEqual([{ userId: "u2" }]);
+    now.mockRestore();
+  });
+
+  it("does not repopulate the cache from a request started before a clear", async () => {
+    let resolveStale: (v: {
+      data: Array<{ userId: string }>;
+    }) => void = () => {};
+    fetchWithAuth.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve as typeof resolveStale;
+      }),
+    );
+    const stale = fetchUsersShared();
+    clearUsersCache();
+    resolveStale({ data: [{ userId: "old-identity" }] });
+    await stale;
+
+    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "new-identity" }] });
+    const users = await fetchUsersShared();
+    expect(users).toEqual([{ userId: "new-identity" }]);
+  });
+
+  it("clears the cache when the session ends", async () => {
+    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u1" }] });
+    await fetchUsersShared();
+    emitSessionEnd();
+    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u2" }] });
+    expect(await fetchUsersShared()).toEqual([{ userId: "u2" }]);
+  });
+
+  it("does not cache failures", async () => {
+    fetchWithAuth.mockRejectedValueOnce(new Error("boom"));
+    expect(await fetchUsersShared()).toEqual([]);
+    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u1" }] });
+    expect(await fetchUsersShared()).toEqual([{ userId: "u1" }]);
   });
 });
