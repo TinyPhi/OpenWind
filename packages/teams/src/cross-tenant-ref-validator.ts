@@ -105,12 +105,14 @@ export async function validateCrossTenantRefs(
  *     lookup,
  *   );
  */
-export function lookupValidIdsInTable(
+export function lookupValidIdsInTable<TTable extends AnyPgTable>(
   db: DbOrTx,
-  table: AnyPgTable,
-  idColumn: AnyPgColumn,
-  tenantColumn: AnyPgColumn,
-  softDeleteColumn: AnyPgColumn | undefined,
+  table: TTable,
+  idColumn: AnyPgColumn<{ tableName: NoInfer<TTable["_"]["name"]> }>,
+  tenantColumn: AnyPgColumn<{ tableName: NoInfer<TTable["_"]["name"]> }>,
+  softDeleteColumn:
+    | AnyPgColumn<{ tableName: NoInfer<TTable["_"]["name"]> }>
+    | undefined,
   tenantId: string,
 ): (refIds: string[]) => Promise<Set<string>> {
   return async (refIds: string[]): Promise<Set<string>> => {
@@ -120,7 +122,9 @@ export function lookupValidIdsInTable(
     }
     const rows = await db
       .select({ id: idColumn })
-      .from(table)
+      // Keep the public signature table-aware while avoiding Drizzle's
+      // empty-selection conditional type for a generic table here.
+      .from(table as AnyPgTable)
       .where(and(...conditions));
     return new Set(rows.map((r) => r.id as string));
   };
