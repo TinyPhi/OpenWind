@@ -68,13 +68,13 @@ OpenWind is a modular, workflow-native business platform built on a config-first
   - All page components must be defined with dynamic `lazy()` imports in `src/lazy-routes.ts` and loaded through `<Suspense>`.
   - NEVER statically import page components directly in `App.tsx`.
   - Heavy specialized dependencies (e.g. `@reactflow/*`, `@dagrejs/dagre`, `d3-*`, `@dnd-kit/*`, `@superset-ui/embedded-sdk`) MUST remain isolated to their respective route chunks.
-  - The main application entry chunk must remain under 700 kB (`chunkSizeWarningLimit: 700`).
+  - The main application entry chunk must stay within the gzip budget enforced by `pnpm --filter @platform/admin-ui size:check` (run after `build`; default 230 kB). `chunkSizeWarningLimit: 700` only silences Vite's warning and is not a guard.
 - **Eliminate Network Waterfalls**:
   - NEVER trigger sequential API requests across cascaded `useEffect` cycles.
   - Consolidate data requirements and dispatch independent requests concurrently using `Promise.all` or composite endpoints.
   - Guard against duplicate fetches during component mounting with ref flags or shared promise caches.
 - **Strict Ban on JavaScript Hover State**:
-  - NEVER use React state (`useState`, `useHoverStyle`, `onMouseEnter`/`onMouseLeave`) for presentation states like hover, active, or focus.
+  - In `apps/admin-ui`, NEVER use React state (`useState`, `onMouseEnter`/`onMouseLeave`) for presentation states like hover, active, or focus. (`useHoverStyle` remains a shared primitive exported from `packages/ui`; do not use it for new admin-ui hover styling.)
   - Use native CSS pseudo-classes (`:hover`, `:focus-visible`, `:active`), CSS transitions, and CSS variables in `index.css`. Presentation styles must run on the browser compositor thread with zero React re-renders.
 - **High-Frequency Event Listener Throttling & Passive Mode**:
   - Global window event listeners (`mousemove`, `scroll`, `touchmove`, `resize`) must ALWAYS be throttled (e.g., 10 seconds for idle timers in `use-idle-logout.ts`).
@@ -82,7 +82,7 @@ OpenWind is a modular, workflow-native business platform built on a config-first
 - **Shared Request Deduplication & In-Memory Caching**:
   - Data fetched by multiple components simultaneously (e.g. `/api/users`, unread notification counts) must use single-flight promise deduplication (e.g. `fetchUsersShared()`) so only one HTTP request leaves the browser.
 - **Offline-First Assets & Zero 404s**:
-  - NEVER depend on external third-party avatar CDNs (e.g. DiceBear); use local offline SVG generators (`UserAvatarBadge`).
+  - NEVER depend on external third-party avatar CDNs (e.g. DiceBear); use local offline SVG generators (`InitialsAvatar` in `layout.tsx`).
   - Ensure all static assets in `index.html` and components point to verified files in `public/` (e.g. `/favicon.svg`).
 - **Non-Blocking Head Scripts**:
   - Scripts placed in `index.html` `<head>` (e.g. `/env.js`) MUST use the `defer` attribute to prevent DOM parser blocking.

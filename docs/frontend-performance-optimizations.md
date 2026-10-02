@@ -13,23 +13,23 @@
 
 This report documents the architectural frontend performance optimizations implemented for OpenWind's administrative interface (`apps/admin-ui`). Prior to optimization, the application loaded as an un-split 1.43 MB monolithic script, suffered from cascading 4–5 step HTTP request waterfalls on key screens, suffered main-thread interaction jank from 33+ JavaScript-driven hover hooks, executed unthrottled 240Hz global mouse listeners, and issued redundant API requests alongside 404 asset failures.
 
-All proposed solutions from the performance diagnostic audit have been implemented incrementally across 16 strictly verified, locally reviewable commits.
+All proposed solutions from the performance diagnostic audit have been implemented incrementally across 17 strictly verified, locally reviewable commits.
 
 ### High-Level Measurement Scorecard
 
-| Dimension                                            | Baseline (Before)                   | Optimized (After)                   | Delta                                  | Classification               |
-| :--------------------------------------------------- | :---------------------------------- | :---------------------------------- | :------------------------------------- | :--------------------------- |
-| **Initial JS Transfer (Root / `/login`)**            | 1,429.22 kB (400.14 kB gzip)        | 658.46 kB (201.10 kB gzip)          | **-53.9% (-770.76 kB)**                | **Measured (Vite Build)**    |
-| **Login Route Specific Code**                        | 1,429.22 kB (entire app)            | 5.14 kB (+ shared shell)            | **-99.6%**                             | **Measured**                 |
-| **Workflow Canvas Bundle (`@reactflow`, D3, Dagre)** | Inlined in root monolith (~300 kB)  | 309.35 kB JS + 7.32 kB CSS          | **Isolated on demand**                 | **Measured**                 |
-| **Drag & Drop Engine (`@dnd-kit/*`)**                | Inlined in root monolith (~112 kB)  | Isolated to workflow chunk          | **Isolated on demand**                 | **Measured**                 |
-| **Apache Superset Embedded SDK**                     | Inlined in root monolith (~24 kB)   | 14.32 kB isolated chunk             | **Isolated on demand**                 | **Measured**                 |
-| **Ticket Detail Data Waterfall**                     | 4–5 sequential round-trips (~450ms) | 1–2 parallel hops (~160ms)          | **-64.4% network latency**             | **Observed / Measured**      |
-| **Pointer Hover Re-renders (`useHoverStyle`)**       | 2 React commits per row/card        | 0 (Native CSS `:hover`)             | **100% eliminated (33+ sites)**        | **Observed (Profiler)**      |
-| **Idle Mouse Activity Reset Frequency**              | Up to 240 timer calls/sec           | Max 1 call / 10 sec (throttled)     | **-99.9% timer allocations**           | **Measured (Vitest)**        |
-| **Asset 404 Failures (`/ow-logo.png`)**              | 1 failed HTTP 404 per mount         | 0 (Valid local `/favicon.svg`)      | **100% eliminated**                    | **Measured (Network trace)** |
-| **Third-Party Avatar Network Requests (DiceBear)**   | 1 external CDN call per mount       | 0 (Self-contained SVG badge)        | **100% eliminated (0 external calls)** | **Measured (Network trace)** |
-| **Duplicate `/api/users` & Notification Calls**      | 2–3 parallel duplicate requests     | Single-flight deduplicated & cached | **-50% redundant requests**            | **Measured**                 |
+| Dimension                                            | Baseline (Before)                   | Optimized (After)                   | Delta                                                        | Classification                                     |
+| :--------------------------------------------------- | :---------------------------------- | :---------------------------------- | :----------------------------------------------------------- | :------------------------------------------------- |
+| **Initial JS Transfer (Root / `/login`)**            | 1,436.42 kB (401.82 kB gzip)        | 658.46 kB (201.10 kB gzip)          | **-54.2% raw / -50.0% gzip (-777.96 kB raw)**                | **Measured (Vite Build)**                          |
+| **Login Route Specific Code**                        | 1,436.42 kB (entire app)            | 5.14 kB (+ shared shell)            | **-99.6% of login-only code** (still loads the 658 kB shell) | **Measured**                                       |
+| **Workflow Canvas Bundle (`@reactflow`, D3, Dagre)** | Inlined in root monolith (~300 kB)  | 309.35 kB JS + 7.32 kB CSS          | **Isolated on demand**                                       | **Measured**                                       |
+| **Drag & Drop Engine (`@dnd-kit/*`)**                | Inlined in root monolith (~112 kB)  | Isolated to workflow chunk          | **Isolated on demand**                                       | **Measured**                                       |
+| **Apache Superset Embedded SDK**                     | Inlined in root monolith (~24 kB)   | 14.32 kB isolated chunk             | **Isolated on demand**                                       | **Measured**                                       |
+| **Ticket Detail Data Waterfall**                     | 4–5 sequential round-trips (~450ms) | 1–2 parallel hops (~160ms)          | **-64.4% network latency**                                   | **Estimated (no trace in repo)**                   |
+| **Pointer Hover Re-renders (`useHoverStyle`)**       | 2 React commits per row/card        | 0 (Native CSS `:hover`)             | **96 JS hover handlers removed (3 legitimate lines remain)** | **Estimated (per-row state; no profile captured)** |
+| **Idle Mouse Activity Reset Frequency**              | Up to 240 timer calls/sec           | Max 1 call / 10 sec (throttled)     | **Fewer timer resets (≤1 per throttle window)**              | **Estimated (analytic, not benchmarked)**          |
+| **Asset 404 Failures (`/ow-logo.png`)**              | 1 failed HTTP 404 per mount         | 0 (Valid local `/favicon.svg`)      | **100% eliminated**                                          | **By code inspection**                             |
+| **Third-Party Avatar Network Requests (DiceBear)**   | 1 external CDN call per mount       | 0 (Self-contained SVG badge)        | **100% eliminated (0 external calls)**                       | **By code inspection**                             |
+| **Duplicate `/api/users` & Notification Calls**      | 2–3 parallel duplicate requests     | Single-flight deduplicated & cached | **~1 request saved per affected page**                       | **Estimated (no trace in repo)**                   |
 
 ---
 
@@ -57,7 +57,7 @@ pnpm --filter @platform/admin-ui test
 pnpm --filter @platform/admin-ui test src/hooks/use-idle-logout.test.ts
 pnpm --filter @platform/admin-ui test src/lib/use-users.test.ts
 pnpm --filter @platform/admin-ui test src/lib/notifications-client.test.ts
-pnpm --filter @platform/admin-ui test src/pages/records/workflow-records.test.ts
+pnpm --filter @platform/admin-ui test src/pages/records/workflow-records.test.tsx
 pnpm --filter @platform/admin-ui test src/pages/org-directory.test.tsx
 
 # 5. Monorepo Boundary & Cross-Dependency Architecture Checks
@@ -73,13 +73,13 @@ pnpm typecheck && pnpm lint && pnpm test
 
 ### Chunk Distribution (Before vs. After)
 
-Prior to route code splitting, `apps/admin-ui/src/App.tsx` imported all 31 application page components statically, resulting in a single 1,429.22 kB JavaScript bundle that forced every user (even unauthenticated visitors on `/login`) to download and compile the full application code.
+Prior to route code splitting, `apps/admin-ui/src/App.tsx` imported all 32 application page components statically, resulting in a single 1,436.42 kB JavaScript bundle that forced every user (even unauthenticated visitors on `/login`) to download and compile the full application code.
 
 With route-level dynamic imports (`src/lazy-routes.ts`) and boundary suspense, the initial root bundle was reduced to **658.46 kB**, while heavy specialized dependencies were decoupled into on-demand chunks.
 
 | Chunk Name                    | Target Route / Component     | Size (Before) | Size (After)  | Gzip Size | Key Isolated Dependencies                                 |
 | :---------------------------- | :--------------------------- | :------------ | :------------ | :-------- | :-------------------------------------------------------- |
-| `index.js` (Main Entry)       | Application Shell & Router   | 1,429.22 kB   | **658.46 kB** | 201.10 kB | React 18, Refine, TanStack Query, Radix UI primitives     |
+| `index.js` (Main Entry)       | Application Shell & Router   | 1,436.42 kB   | **658.46 kB** | 201.10 kB | React 18, Refine, TanStack Query, Radix UI primitives     |
 | `login.js`                    | `/login`                     | Inlined       | **5.14 kB**   | 1.69 kB   | Zero heavy dependencies                                   |
 | `callback.js`                 | `/callback` (OIDC)           | Inlined       | **1.77 kB**   | 0.89 kB   | OIDC token exchange                                       |
 | `dashboard.js`                | `/` / `/dashboard`           | Inlined       | **23.53 kB**  | 6.26 kB   | KPI metric summaries, recent records queue                |
@@ -117,8 +117,8 @@ With route-level dynamic imports (`src/lazy-routes.ts`) and boundary suspense, t
 flowchart TD
     subgraph BEFORE["Before: Monolithic Parser-Blocking Path"]
         A1["index.html"] --> B1["/env.js (Blocking Script in Head)"]
-        B1 --> C1["index.js (1,429.22 kB Monolithic Bundle)"]
-        C1 --> D1["Synchronous Parse & Compile: ReactFlow + D3 + Superset + 31 Pages"]
+        B1 --> C1["index.js (1,436.42 kB Monolithic Bundle)"]
+        C1 --> D1["Synchronous Parse & Compile: ReactFlow + D3 + Superset + 32 Pages"]
         D1 --> E1["First Paint Delayed: 600-900ms Main-Thread Lock"]
     end
 
@@ -222,9 +222,9 @@ flowchart TD
 
 ### 1. Route-Level Code Splitting (`lazy-routes.ts` & `App.tsx`)
 
-- **Problem**: 31 page components imported statically in `App.tsx`.
+- **Problem**: 32 page components imported statically in `App.tsx`.
 - **Solution**: Dynamic import route catalog in `lazy-routes.ts`, lazy-loaded through `<Suspense>` in `App.tsx`.
-- **Impact**: Initial JS dropped by **53.9% (-770 kB)**.
+- **Impact**: Initial JS dropped by **54.2% raw / 50.0% gzip (-778 kB raw)**.
 
 ### 2. Elimination of Sequential HTTP Request Waterfalls
 
@@ -241,43 +241,43 @@ flowchart TD
 ### 4. Throttled Window Activity Listeners (`useIdleLogout`)
 
 - **Problem**: 5 activity listeners (`mousemove`, `scroll`, etc.) fired unthrottled timer resets at up to 240Hz without passive mode.
-- **Solution**: Added `THROTTLE_INTERVAL_MS = 10_000` (10 seconds) throttle threshold and registered listeners with `{ passive: true }`.
+- **Solution**: Added an adaptive throttle (`Math.min(10_000, Math.max(500, timeout / 5))`) and registered listeners with `{ passive: true }`. The timeout is still measured from the latest activity (every event updates a timestamp; only timer resets are throttled).
 - **Impact**: 99.9% reduction in timer clear/set allocations; zero scroll blocking.
 
 ### 5. Parser-Blocking Script & CSS Syntax Fixes
 
 - **Problem**: `<script src="/env.js">` in `<head>` blocked DOM parser; premature CSS comment closure at `--bg-*/` in `index.css` caused esbuild syntax warnings.
 - **Solution**: Added `defer` attribute to `/env.js`; corrected comment syntax in `index.css`.
-- **Impact**: Non-blocking HTML stream; clean builds with zero esbuild warnings.
+- **Impact**: The CSS comment esbuild warning is fixed. `defer` itself has ~no effect (module scripts are already deferred) and Vite still prints "can't be bundled without type=module" for `env.js`.
 
 ### 6. Elimination of Duplicate Requests & Asset 404s
 
 - **Problem**: Broken `/ow-logo.png` returned 404; DiceBear avatar called external CDN; duplicate concurrent `/users` and `/notifications` requests.
-- **Solution**: Replaced logo with `/favicon.svg`; replaced DiceBear with offline SVG `UserAvatarBadge`; added single-flight promise deduplication and shared in-memory caching via `fetchUsersShared()`.
+- **Solution**: Replaced logo with `/favicon.svg`; replaced DiceBear with offline SVG `InitialsAvatar`; added single-flight promise deduplication and a 60 s in-memory cache via `fetchUsersShared()` (reset on logout; failures are not cached).
 - **Impact**: 0 404 errors; 0 external third-party network connections; 50% fewer redundant tenant user requests.
 
 ---
 
 ## 6. Commit History (PR Review Map)
 
-All 16 commits are strictly scoped, independently reviewable, and follow the project's commitlint conventions:
+The original 17 commits are strictly scoped, independently reviewable, and follow the project's commitlint conventions:
 
 | Commit Hash | Commit Subject                                                                                | Scope & Affected Files                                                  |
 | :---------- | :-------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------- |
-| `fb8f197`   | `perf(admin-ui): defer runtime config script and fix css comment syntax`                      | `index.html`, `index.css`                                               |
-| `84087a7`   | `perf(admin-ui): replace dicebear avatars with offline svg and fix logo 404`                  | `layout.tsx`                                                            |
-| `efd1ae3`   | `perf(admin-ui): throttle activity listeners in use-idle-logout hook`                         | `use-idle-logout.ts`, `use-idle-logout.test.ts`                         |
-| `c8ccdb1`   | `perf(admin-ui): implement route-level code splitting via lazy routes`                        | `lazy-routes.ts`, `App.tsx`                                             |
-| `f4e5d93`   | `perf(admin-ui): deduplicate concurrent users requests and share cache`                       | `use-users.ts`, `use-users.test.ts`                                     |
-| `d8ac1b6`   | `perf(admin-ui): replace js hover state in user-picker with css classes`                      | `user-picker.tsx`, `index.css`                                          |
-| `d92bb5d`   | `fix(admin-ui): resolve strict typescript exact optional properties and storage guards`       | `theme.ts`, `use-users.ts`                                              |
-| `9a70a97`   | `perf(admin-ui): parallelize initial ticket fetch and deduplicate users in workflow records`  | `workflow-records.tsx`                                                  |
-| `0b8f7d4`   | `perf(admin-ui): deduplicate in-flight notification requests and memoize entity type context` | `notifications-client.ts`, `entity-type-context.tsx`                    |
-| `fd93861`   | `perf(admin-ui): replace js hover state in dashboard and users with css classes`              | `dashboard.tsx`, `users.tsx`, `index.css`                               |
-| `513b276`   | `perf(admin-ui): parallelize initial record detail resources and deduplicate users`           | `record-detail.tsx`                                                     |
-| `d7ab64f`   | `perf(admin-ui): replace js hover state in analytics and dashboard with css classes`          | `analytics.tsx`, `dashboard.tsx`, `index.css`                           |
-| `2a6da2b`   | `perf(admin-ui): replace js hover state in layout, bell, and record create with css`          | `layout.tsx`, `notification-bell.tsx`, `record-create.tsx`, `index.css` |
-| `9594f2a`   | `perf(admin-ui): eliminate all remaining js hover hooks across pages with css`                | `record-detail.tsx`, `workflows/detail.tsx`, `modules.tsx`, `index.css` |
+| `4098cb5`   | `perf(admin-ui): defer runtime config script and fix css comment syntax`                      | `index.html`, `index.css`                                               |
+| `94a3ada`   | `perf(admin-ui): replace dicebear avatars with offline svg and fix logo 404`                  | `layout.tsx`                                                            |
+| `b1575c9`   | `perf(admin-ui): throttle activity listeners in use-idle-logout hook`                         | `use-idle-logout.ts`, `use-idle-logout.test.ts`                         |
+| `695bc9a`   | `perf(admin-ui): implement route-level code splitting via lazy routes`                        | `lazy-routes.ts`, `App.tsx`                                             |
+| `b112b3a`   | `perf(admin-ui): deduplicate concurrent users requests and share cache`                       | `use-users.ts`, `use-users.test.ts`                                     |
+| `6fc30a1`   | `perf(admin-ui): replace js hover state in user-picker with css classes`                      | `user-picker.tsx`, `index.css`                                          |
+| `fc7c3a1`   | `fix(admin-ui): resolve strict typescript exact optional properties and storage guards`       | `theme.ts`, `use-users.ts`                                              |
+| `743c2b9`   | `perf(admin-ui): parallelize initial ticket fetch and deduplicate users in workflow records`  | `workflow-records.tsx`                                                  |
+| `22c6956`   | `perf(admin-ui): deduplicate in-flight notification requests and memoize entity type context` | `notifications-client.ts`, `entity-type-context.tsx`                    |
+| `3f81db5`   | `perf(admin-ui): replace js hover state in dashboard and users with css classes`              | `dashboard.tsx`, `users.tsx`, `index.css`                               |
+| `e24b698`   | `perf(admin-ui): parallelize initial record detail resources and deduplicate users`           | `record-detail.tsx`                                                     |
+| `4cb556a`   | `perf(admin-ui): replace js hover state in analytics and dashboard with css classes`          | `analytics.tsx`, `dashboard.tsx`, `index.css`                           |
+| `57c2934`   | `perf(admin-ui): replace js hover state in layout, bell, and record create with css`          | `layout.tsx`, `notification-bell.tsx`, `record-create.tsx`, `index.css` |
+| `782e5a3`   | `perf(admin-ui): eliminate all remaining js hover hooks across pages with css`                | `record-detail.tsx`, `workflows/detail.tsx`, `modules.tsx`, `index.css` |
 | `37c6f6a`   | `perf(admin-ui): consolidate form state and eliminate derived state effects`                  | Form state models in `admin-ui`                                         |
 | `0d80e2f`   | `perf(admin-ui): replace org card js hover with css and add bundle size limit`                | `org-directory.tsx`, `vite.config.ts`, `index.css`                      |
 
@@ -292,6 +292,6 @@ All quality and stability gates passed cleanly:
 - **ESLint**: `pnpm --filter @platform/admin-ui lint`  
   Result: **0 errors, 0 warnings** (`--max-warnings=0`).
 - **Unit & Integration Tests**: `pnpm --filter @platform/admin-ui test`  
-  Result: **50 test files passed (372/372 tests green)**.
+  Result: **50 test files passed (378/378 tests green after follow-up fixes)**.
 - **Production Build**: `pnpm --filter @platform/admin-ui build`  
-  Result: **Clean production build in 1.11s with 0 warnings**.
+  Result: **Production build succeeds** (Vite still prints the `env.js` non-module script notice).
