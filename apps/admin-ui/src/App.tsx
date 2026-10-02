@@ -7,11 +7,13 @@ import {
   Route,
   Outlet,
   Navigate,
+  useLocation,
 } from "react-router-dom";
 import { authProvider } from "./authProvider.js";
 import { dataProvider } from "./dataProvider.js";
 import { EntityTypeProvider } from "./entity-type-context.js";
 import { Layout } from "./components/layout.js";
+import { RouteErrorBoundary } from "./components/route-error-boundary.js";
 import { RequireAdmin } from "./components/require-admin.js";
 import {
   Login,
@@ -59,6 +61,19 @@ function AuthenticatedShell({
 }): React.ReactElement {
   useIdleLogout();
   return <>{children}</>;
+}
+
+// Suspense + error boundary live inside the Layout so a lazy route loading (or
+// failing to load) never unmounts the sidebar/header.
+function ShellOutlet(): React.ReactElement {
+  const { pathname } = useLocation();
+  return (
+    <RouteErrorBoundary resetKey={pathname}>
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <Outlet />
+      </Suspense>
+    </RouteErrorBoundary>
+  );
 }
 
 function RouteLoadingFallback(): React.ReactElement {
@@ -145,7 +160,7 @@ export function App(): React.ReactElement {
                   <AuthenticatedShell>
                     <EntityTypeProvider>
                       <Layout>
-                        <Outlet />
+                        <ShellOutlet />
                       </Layout>
                     </EntityTypeProvider>
                   </AuthenticatedShell>
