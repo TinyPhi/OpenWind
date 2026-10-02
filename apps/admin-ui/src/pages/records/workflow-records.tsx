@@ -553,7 +553,7 @@ export function WorkflowRecords(): React.ReactElement {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
-  const initialLoadedWorkflowIdRef = useRef<string | null>(null);
+  const initialLoadedUrlRef = useRef<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   // Filter panel redesign: accordion sections instead of one long stacked
   // list — each section collapses/expands independently, "Date" and
@@ -725,8 +725,9 @@ export function WorkflowRecords(): React.ReactElement {
 
         if (isCancelled()) return;
 
-        // Flag that initial records for this workflow were fetched concurrently
-        initialLoadedWorkflowIdRef.current = wf.id;
+        // Remember the exact URL fetched concurrently so the list effect can
+        // skip only an identical refetch (never a changed filter).
+        initialLoadedUrlRef.current = recordUrl;
 
         const loadedStates = wf.states as WorkflowState[];
         const loadedTransitions = wf.transitions as Transition[];
@@ -793,11 +794,6 @@ export function WorkflowRecords(): React.ReactElement {
   // drops input focus.
   useEffect(() => {
     if (!workflowId || !entityTypeId) return;
-    if (initialLoadedWorkflowIdRef.current === workflowId) {
-      initialLoadedWorkflowIdRef.current = null;
-      return;
-    }
-    setRecordsRefreshing(true);
 
     // A "user"-role caller who is this workflow's creator or in its
     // assignedTo list is a workflow admin and gets the same unrestricted
@@ -832,6 +828,13 @@ export function WorkflowRecords(): React.ReactElement {
       ? `${API_URL}/entities/my-tickets?workflowId=${workflowId}${filterQS ? `&${filterQS}` : ""}`
       : `${API_URL}/entities?entityTypeId=${entityTypeId}&rootOnly=true${filterQS ? `&${filterQS}` : ""}`;
 
+    // The shell effect already fetched this exact URL; consume the marker
+    // either way so a later change can never be skipped by a stale one.
+    const alreadyLoaded = initialLoadedUrlRef.current === url;
+    initialLoadedUrlRef.current = null;
+    if (alreadyLoaded) return;
+
+    setRecordsRefreshing(true);
     let cancelled = false;
     fetchWithAuth(url)
       .then((recRes) => {
