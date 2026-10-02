@@ -48,6 +48,21 @@ export interface NotificationPolicy {
   notifyEscalationManager: boolean;
 }
 
+export interface PolicyFormData {
+  severity: Severity;
+  teamId: string;
+  workflowTypeId: string;
+  channels: Channel[];
+  notifyBackup: boolean;
+  notifyEscalationManager: boolean;
+}
+
+export interface SimulatorFormData {
+  severity: Severity;
+  teamId: string;
+  workflowTypeId: string;
+}
+
 interface ResolveResult {
   policyId: string | null;
   matchedAt: string;
@@ -235,7 +250,7 @@ export function NotificationPoliciesPage(): React.ReactElement {
         </AlertDialogContent>
       </AlertDialog>
 
-      <ResolvePreview teams={teams} workflows={workflows} />
+      <ResolveSimulator teams={teams} workflows={workflows} />
     </div>
   );
 }
@@ -249,6 +264,23 @@ interface PolicyFormModalProps {
   onSaved: () => void;
 }
 
+function getInitialPolicyFormData(policy?: NotificationPolicy): PolicyFormData {
+  return {
+    severity: policy?.severity ?? "high",
+    teamId: policy?.teamId ?? "",
+    workflowTypeId: policy?.workflowTypeId ?? "",
+    channels: policy?.channels ? [...policy.channels] : ["email"],
+    notifyBackup: policy?.notifyBackup ?? true,
+    notifyEscalationManager: policy?.notifyEscalationManager ?? false,
+  };
+}
+
+const INITIAL_SIMULATOR_FORM_DATA: SimulatorFormData = {
+  severity: "high",
+  teamId: "",
+  workflowTypeId: "",
+};
+
 function PolicyFormModal({
   open,
   policy,
@@ -257,48 +289,31 @@ function PolicyFormModal({
   onClose,
   onSaved,
 }: PolicyFormModalProps): React.ReactElement {
-  const [severity, setSeverity] = useState<Severity>(
-    policy?.severity ?? "high",
-  );
-  const [teamId, setTeamId] = useState(policy?.teamId ?? "");
-  const [workflowTypeId, setWorkflowTypeId] = useState(
-    policy?.workflowTypeId ?? "",
-  );
-  const [channels, setChannels] = useState<Channel[]>(
-    policy?.channels ?? ["email"],
-  );
-  const [notifyBackup, setNotifyBackup] = useState(
-    policy?.notifyBackup ?? true,
-  );
-  const [notifyEscalationManager, setNotifyEscalationManager] = useState(
-    policy?.notifyEscalationManager ?? false,
+  const [formData, setFormData] = useState<PolicyFormData>(() =>
+    getInitialPolicyFormData(policy),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      setSeverity(policy?.severity ?? "high");
-      setTeamId(policy?.teamId ?? "");
-      setWorkflowTypeId(policy?.workflowTypeId ?? "");
-      setChannels(policy?.channels ?? ["email"]);
-      setNotifyBackup(policy?.notifyBackup ?? true);
-      setNotifyEscalationManager(policy?.notifyEscalationManager ?? false);
+      setFormData(getInitialPolicyFormData(policy));
       setError(null);
     }
   }, [open, policy]);
 
   function toggleChannel(channel: Channel): void {
-    setChannels((prev) =>
-      prev.includes(channel)
-        ? prev.filter((c) => c !== channel)
-        : [...prev, channel],
-    );
+    setFormData((prev) => ({
+      ...prev,
+      channels: prev.channels.includes(channel)
+        ? prev.channels.filter((c) => c !== channel)
+        : [...prev.channels, channel],
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
-    if (channels.length === 0) {
+    if (formData.channels.length === 0) {
       setError("Select at least one channel");
       return;
     }
@@ -311,12 +326,12 @@ function PolicyFormModal({
       await fetchWithAuth(path, {
         method: policy ? "PATCH" : "POST",
         body: JSON.stringify({
-          severity,
-          teamId: teamId || undefined,
-          workflowTypeId: workflowTypeId || undefined,
-          channels,
-          notifyBackup,
-          notifyEscalationManager,
+          severity: formData.severity,
+          teamId: formData.teamId || undefined,
+          workflowTypeId: formData.workflowTypeId || undefined,
+          channels: formData.channels,
+          notifyBackup: formData.notifyBackup,
+          notifyEscalationManager: formData.notifyEscalationManager,
         }),
       });
       onSaved();
@@ -376,8 +391,13 @@ function PolicyFormModal({
             <label className="form-label">Severity *</label>
             <select
               className="form-input"
-              value={severity}
-              onChange={(e) => setSeverity(e.target.value as Severity)}
+              value={formData.severity}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  severity: e.target.value as Severity,
+                }))
+              }
             >
               {SEVERITIES.map((s) => (
                 <option key={s} value={s}>
@@ -390,8 +410,13 @@ function PolicyFormModal({
             <label className="form-label">Team</label>
             <select
               className="form-input"
-              value={teamId}
-              onChange={(e) => setTeamId(e.target.value)}
+              value={formData.teamId}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  teamId: e.target.value,
+                }))
+              }
             >
               <option value="">Any team</option>
               {teams.map((t) => (
@@ -405,8 +430,13 @@ function PolicyFormModal({
             <label className="form-label">Workflow</label>
             <select
               className="form-input"
-              value={workflowTypeId}
-              onChange={(e) => setWorkflowTypeId(e.target.value)}
+              value={formData.workflowTypeId}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  workflowTypeId: e.target.value,
+                }))
+              }
             >
               <option value="">Any workflow</option>
               {workflows.map((w) => (
@@ -431,7 +461,7 @@ function PolicyFormModal({
                 >
                   <input
                     type="checkbox"
-                    checked={channels.includes(c)}
+                    checked={formData.channels.includes(c)}
                     onChange={() => toggleChannel(c)}
                   />
                   {c}
@@ -450,8 +480,13 @@ function PolicyFormModal({
             >
               <input
                 type="checkbox"
-                checked={notifyBackup}
-                onChange={(e) => setNotifyBackup(e.target.checked)}
+                checked={formData.notifyBackup}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    notifyBackup: e.target.checked,
+                  }))
+                }
               />
               Notify backup on-call
             </label>
@@ -467,8 +502,13 @@ function PolicyFormModal({
             >
               <input
                 type="checkbox"
-                checked={notifyEscalationManager}
-                onChange={(e) => setNotifyEscalationManager(e.target.checked)}
+                checked={formData.notifyEscalationManager}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    notifyEscalationManager: e.target.checked,
+                  }))
+                }
               />
               Notify escalation manager
             </label>
@@ -487,16 +527,16 @@ function PolicyFormModal({
   );
 }
 
-function ResolvePreview({
+function ResolveSimulator({
   teams,
   workflows,
 }: {
   teams: Team[];
   workflows: WorkflowOption[];
 }): React.ReactElement {
-  const [severity, setSeverity] = useState<Severity>("high");
-  const [teamId, setTeamId] = useState("");
-  const [workflowTypeId, setWorkflowTypeId] = useState("");
+  const [formData, setFormData] = useState<SimulatorFormData>(
+    INITIAL_SIMULATOR_FORM_DATA,
+  );
   const [result, setResult] = useState<ResolveResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -506,9 +546,11 @@ function ResolvePreview({
     setError(null);
     setResult(null);
     try {
-      const params = new URLSearchParams({ severity });
-      if (teamId) params.set("teamId", teamId);
-      if (workflowTypeId) params.set("workflowTypeId", workflowTypeId);
+      const params = new URLSearchParams({ severity: formData.severity });
+      if (formData.teamId) params.set("teamId", formData.teamId);
+      if (formData.workflowTypeId) {
+        params.set("workflowTypeId", formData.workflowTypeId);
+      }
       const res = await fetchWithAuth(
         `${API_URL}/admin/notification-policies/resolve?${params.toString()}`,
       );
@@ -542,8 +584,13 @@ function ResolvePreview({
           <label className="form-label">Severity</label>
           <select
             className="form-input"
-            value={severity}
-            onChange={(e) => setSeverity(e.target.value as Severity)}
+            value={formData.severity}
+            onChange={(e) =>
+              setFormData((prev) => ({
+                ...prev,
+                severity: e.target.value as Severity,
+              }))
+            }
           >
             {SEVERITIES.map((s) => (
               <option key={s} value={s}>
@@ -556,8 +603,13 @@ function ResolvePreview({
           <label className="form-label">Team</label>
           <select
             className="form-input"
-            value={teamId}
-            onChange={(e) => setTeamId(e.target.value)}
+            value={formData.teamId}
+            onChange={(e) =>
+              setFormData((prev) => ({
+                ...prev,
+                teamId: e.target.value,
+              }))
+            }
           >
             <option value="">None</option>
             {teams.map((t) => (
@@ -571,8 +623,13 @@ function ResolvePreview({
           <label className="form-label">Workflow</label>
           <select
             className="form-input"
-            value={workflowTypeId}
-            onChange={(e) => setWorkflowTypeId(e.target.value)}
+            value={formData.workflowTypeId}
+            onChange={(e) =>
+              setFormData((prev) => ({
+                ...prev,
+                workflowTypeId: e.target.value,
+              }))
+            }
           >
             <option value="">None</option>
             {workflows.map((w) => (
@@ -632,3 +689,5 @@ function ResolvePreview({
     </div>
   );
 }
+
+export const ResolvePreview = ResolveSimulator;

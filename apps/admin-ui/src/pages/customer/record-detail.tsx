@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { fetchUsersShared } from "../../lib/use-users.js";
@@ -1417,7 +1417,6 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [oidcLoaded, setOidcLoaded] = useState(false);
-  const [accessDenied, setAccessDenied] = useState(false);
 
   // Access requests
   type AccessRequest = {
@@ -1435,9 +1434,6 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [confirmReqLevel, setConfirmReqLevel] = useState<AccessLevel | null>(
     null,
   );
-  const [myAccessReqStatus, setMyAccessReqStatus] = useState<
-    "none" | "pending" | "approved" | "rejected"
-  >("none");
   // resolve popup
   const [resolveModal, setResolveModal] = useState<{
     reqId: string;
@@ -1519,6 +1515,21 @@ export function CustomerRecordDetail(): React.ReactElement {
     currentUserRoles.includes("admin") ||
     currentUserRoles.includes("agent") ||
     isWorkflowAdminOfParent;
+
+  const accessDenied = useMemo(() => {
+    if (!oidcLoaded || loading || isAdminOrAgent) return false;
+    if (currentUserId === null) return false;
+    if (accessList.length === 0) return false;
+    return !accessList.some((e) => e.userId === currentUserId);
+  }, [oidcLoaded, loading, isAdminOrAgent, currentUserId, accessList]);
+
+  const myAccessReqStatus = useMemo<
+    "none" | "pending" | "approved" | "rejected"
+  >(() => {
+    if (!currentUserId || accessDenied) return "none";
+    const mine = accessReqList.find((r) => r.requesterId === currentUserId);
+    return mine ? mine.status : "none";
+  }, [accessReqList, currentUserId, accessDenied]);
 
   // Current user's access entry (null for admins/agents — they bypass access list)
   const myAccessEntry =
@@ -2180,7 +2191,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestedLevel: level }),
       });
-      setMyAccessReqStatus("pending");
+      void loadAccessRequests();
     } catch {
       /* best-effort */
     } finally {
@@ -2529,7 +2540,6 @@ export function CustomerRecordDetail(): React.ReactElement {
     setHistoryLoaded(false);
     setAttachments([]);
     setParentRecord(null);
-    setAccessDenied(false);
     setError(null);
     setTags([]);
     initializedCollapse.current = false;
@@ -2540,17 +2550,6 @@ export function CustomerRecordDetail(): React.ReactElement {
       loadTags(),
     ]);
   }, [id]);
-
-  // Access-denied check: once both the record and OIDC identity are loaded,
-  // verify the general user is in the ticket's access list.
-  useEffect(() => {
-    if (!oidcLoaded || loading || isAdminOrAgent) return;
-    if (currentUserId === null) return;
-    if (accessList.length === 0) return;
-    if (!accessList.some((e) => e.userId === currentUserId)) {
-      setAccessDenied(true);
-    }
-  }, [oidcLoaded, loading, currentUserId, isAdminOrAgent, accessList]);
 
   // Load access requests when owner (creator/assignee) or admin/agent — must
   // match the Access Requests tab's own visibility gate below, or an
@@ -2588,7 +2587,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       ) {
         if (isOwner || isAdminOrAgent) void loadAccessRequests();
         if (msg.request.requestedBy === currentUserId) {
-          setMyAccessReqStatus(msg.request.status);
+          void loadAccessRequests();
         }
       }
     });
@@ -2599,13 +2598,6 @@ export function CustomerRecordDetail(): React.ReactElement {
     // behavior. (PR #376 review L1; this repo's eslint config doesn't enable
     // react-hooks/exhaustive-deps, so no suppression comment is needed here.)
   }, [id, isOwner, isAdminOrAgent, currentUserId]);
-
-  // Sync requester's own request status
-  useEffect(() => {
-    if (!currentUserId || accessDenied) return;
-    const mine = accessReqList.find((r) => r.requesterId === currentUserId);
-    setMyAccessReqStatus(mine ? mine.status : "none");
-  }, [accessReqList, currentUserId, accessDenied]);
 
   useEffect(() => {
     if (!record) return;
