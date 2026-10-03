@@ -6,6 +6,48 @@ import type { ActionItem, TriggerType } from "./types.js";
 
 type HeaderRow = { key: string; value: string };
 
+const WIZARD_TRIGGERS: ReadonlySet<string> = new Set<TriggerType>([
+  "workflow.entered_state",
+  "workflow.transitioned",
+  "workflow.sla_breached",
+  "field.changed",
+  "entity.created",
+  "entity.assigned",
+]);
+
+// #684: "State entered" and "Field changed" are wizard choices, not API
+// trigger types — nothing emits them. They save as the events that do fire.
+export function toApiTrigger(
+  choice: TriggerType,
+  config: Record<string, unknown>,
+): { triggerType: string; triggerConfig: Record<string, unknown> } {
+  if (choice === "workflow.entered_state") {
+    return { triggerType: "workflow.transitioned", triggerConfig: config };
+  }
+  if (choice === "field.changed") {
+    return { triggerType: "entity.updated", triggerConfig: config };
+  }
+  return { triggerType: choice, triggerConfig: config };
+}
+
+// The reverse, for editing a stored rule. A transition rule narrowed only by
+// destination state reads as "State entered". A stored type the wizard has
+// no choice for (e.g. a rule disabled by migration 0132) opens unselected.
+export function fromApiTrigger(
+  triggerType: string,
+  config: Record<string, unknown>,
+): TriggerType | "" {
+  if (
+    triggerType === "workflow.transitioned" &&
+    typeof config.toState === "string" &&
+    config.fromState === undefined
+  ) {
+    return "workflow.entered_state";
+  }
+  if (triggerType === "entity.updated") return "field.changed";
+  return WIZARD_TRIGGERS.has(triggerType) ? (triggerType as TriggerType) : "";
+}
+
 // The executor reads `state` for SLA breaches but `toState` for state entry.
 export function stateKeyFor(
   triggerType: TriggerType | "",

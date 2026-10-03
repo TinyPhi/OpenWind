@@ -84,7 +84,17 @@ async function seedTenant(tenantId: string) {
   };
 }
 
+// alertCount() counts system.error rows in outbox_events, which has no FK to
+// tenants, so deleting the tenants leaves them behind (#757). Clear them on
+// both sides so a re-run, or a run after a crashed one, starts at zero.
+async function clearAlertRows(): Promise<void> {
+  await db
+    .delete(outboxEvents)
+    .where(inArray(outboxEvents.tenantId, [TENANT, OTHER_TENANT]));
+}
+
 beforeAll(async () => {
+  await clearAlertRows();
   const main = await seedTenant(TENANT);
   ticketId = main.ticketId;
 
@@ -121,6 +131,7 @@ afterAll(async () => {
     .delete(apiKeys)
     .where(inArray(apiKeys.id, [NO_SCOPE_ACTOR_ID, VOLUME_ACTOR_ID]));
   await db.delete(tenants).where(inArray(tenants.id, [TENANT, OTHER_TENANT]));
+  await clearAlertRows();
   const redis = getRedis();
   const keys = await redis.keys(`misuse:*`);
   const relevant = keys.filter(

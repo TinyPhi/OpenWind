@@ -9,7 +9,12 @@ import { StepTrigger } from "./step-trigger.js";
 import { StepConditions } from "./step-conditions.js";
 import { StepActions } from "./step-actions.js";
 import { StepSave } from "./step-save.js";
-import { fromApiActions, toApiActions } from "./payload.js";
+import {
+  fromApiActions,
+  fromApiTrigger,
+  toApiActions,
+  toApiTrigger,
+} from "./payload.js";
 
 const STEPS = [
   { label: "Trigger", key: "trigger" },
@@ -22,12 +27,9 @@ type StepKey = (typeof STEPS)[number]["key"];
 
 export function canAdvance(step: StepKey, data: WizardData): boolean {
   if (step === "trigger") {
-    // The API requires both for field.changed (TRIGGER_CONFIG_SCHEMAS).
+    // "Field changed" without a type would fire on every record update.
     if (data.triggerType === "field.changed") {
-      return (
-        typeof data.triggerConfig.entityTypeId === "string" &&
-        typeof data.triggerConfig.field === "string"
-      );
+      return typeof data.triggerConfig.entityTypeId === "string";
     }
     return data.triggerType !== "";
   }
@@ -63,11 +65,14 @@ export function AutomationWizard(): React.ReactElement {
       .then((res) => {
         const rule = (res as { data: Record<string, unknown> }).data;
         // Server returns untyped Record — Zod schema is dynamic so TypeScript cannot narrow these
+        const triggerConfig =
+          (rule.triggerConfig as Record<string, unknown> | undefined) ?? {};
         setData({
-          triggerType:
-            (rule.triggerType as WizardData["triggerType"] | undefined) ?? "",
-          triggerConfig:
-            (rule.triggerConfig as Record<string, unknown> | undefined) ?? {},
+          triggerType: fromApiTrigger(
+            (rule.triggerType as string | undefined) ?? "",
+            triggerConfig,
+          ),
+          triggerConfig,
           // Assign stable ids to nodes loaded from server — server stores the tree without ids
           conditions: rule.conditions
             ? (ensureIds(rule.conditions as ConditionGroup) as ConditionGroup)
@@ -105,13 +110,14 @@ export function AutomationWizard(): React.ReactElement {
   }
 
   async function handleSave(): Promise<void> {
+    // canAdvance keeps an unselected trigger off the save step.
+    if (data.triggerType === "") return;
     setSaving(true);
     setSaveError(null);
     try {
       const payload = {
         name: data.name.trim(),
-        triggerType: data.triggerType,
-        triggerConfig: data.triggerConfig,
+        ...toApiTrigger(data.triggerType, data.triggerConfig),
         conditions: data.conditions,
         actions: toApiActions(data.actions),
         priority: data.priority,

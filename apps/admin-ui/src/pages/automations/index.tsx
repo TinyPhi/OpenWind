@@ -12,26 +12,17 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
+import { isRetiredTrigger, triggerLabel } from "./trigger-display.js";
 
 type AutomationRule = {
   id: string;
   name: string;
   triggerType: string;
+  triggerConfig?: Record<string, unknown>;
   actions: Array<{ type: string; config: Record<string, unknown> }>;
   isEnabled: boolean;
   priority: number;
   createdAt: string;
-};
-
-const TRIGGER_LABELS: Record<string, string> = {
-  "workflow.entered_state": "State entered",
-  "workflow.transitioned": "Transitioned",
-  "workflow.sla_breached": "SLA breached",
-  "field.changed": "Field changed",
-  "entity.created": "Record created",
-  "entity.assigned": "Record assigned",
-  "schedule.cron": "Scheduled",
-  "connector.event": "Connector event",
 };
 
 const TRIGGER_COLORS: Record<string, string> = {
@@ -41,6 +32,7 @@ const TRIGGER_COLORS: Record<string, string> = {
   "field.changed": "#f59e0b",
   "entity.created": "#10b981",
   "entity.assigned": "#3b82f6",
+  "entity.updated": "#f59e0b",
   "schedule.cron": "#6b7280",
   "connector.event": "#ec4899",
 };
@@ -204,8 +196,19 @@ export function Automations(): React.ReactElement {
                         borderRadius: "20px",
                       }}
                     >
-                      {TRIGGER_LABELS[rule.triggerType] ?? rule.triggerType}
+                      {triggerLabel(rule.triggerType, rule.triggerConfig)}
                     </span>
+                    {isRetiredTrigger(rule.triggerType) && (
+                      <div
+                        style={{
+                          color: "var(--text-muted)",
+                          fontSize: "11px",
+                          marginTop: "4px",
+                        }}
+                      >
+                        Trigger not supported
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span
@@ -243,9 +246,18 @@ export function Automations(): React.ReactElement {
                         fontSize: "12px",
                         opacity: togglingId === rule.id ? 0.5 : 1,
                       }}
-                      disabled={togglingId === rule.id}
+                      disabled={
+                        togglingId === rule.id ||
+                        (!rule.isEnabled && isRetiredTrigger(rule.triggerType))
+                      }
                       onClick={() => void handleToggle(rule)}
-                      title={rule.isEnabled ? "Disable rule" : "Enable rule"}
+                      title={
+                        !rule.isEnabled && isRetiredTrigger(rule.triggerType)
+                          ? "Trigger not supported: edit the rule and choose a new trigger"
+                          : rule.isEnabled
+                            ? "Disable rule"
+                            : "Enable rule"
+                      }
                     >
                       <span
                         style={{

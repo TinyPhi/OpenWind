@@ -323,7 +323,7 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                   value={(data.triggerConfig.field as string | undefined) ?? ""}
                   onChange={(e) => patchConfig({ field: e.target.value })}
                 >
-                  <option value="">— select field —</option>
+                  <option value="">— any field —</option>
                   {fields.map((f) => (
                     <option key={f.id} value={f.name}>
                       {f.label}

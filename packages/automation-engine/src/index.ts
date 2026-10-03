@@ -8,4 +8,5 @@ export {
   deleteAutomationRule,
 } from "./automation-crud.js";
 export { executeAutomationRules } from "./executor.js";
+export { SCOPE_KEYS as TRIGGER_SCOPE_KEYS } from "./trigger-scope.js";
 export { isOpen, recordFailure, reset } from "./circuit-breaker.js";

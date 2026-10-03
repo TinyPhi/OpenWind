@@ -6,6 +6,16 @@ import type { AuthContext } from "@platform/auth";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockGetJob = vi.fn();
+const mockWriteAuditEntry = vi.fn();
+const mockWithTenantContext = vi.fn();
+
+vi.mock("@platform/db", () => ({
+  withTenantContext: (...args: unknown[]) => mockWithTenantContext(...args),
+}));
+
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
+}));
 
 vi.mock("@platform/auth", () => ({
   requireAuth: () => async (_c: Context, next: Next) => {
@@ -24,6 +34,8 @@ vi.mock("../../lib/export-queue.js", () => ({
 const { exportsRouter } = await import("./download.js");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+const TYPE_ID = "00000000-0000-4000-a000-000000000693";
 
 function makeApp(tenantId = "tenant-aaa", userId = "u-001", roles = ["agent"]) {
   const app = new Hono<{ Variables: { auth: AuthContext } }>();
@@ -51,13 +63,39 @@ function makeJob(
     returnvalue,
   } = opts;
   return {
-    data: { tenantId, requestedBy, includePii },
+    data: {
+      tenantId,
+      requestedBy,
+      includePii,
+      entityTypeId: TYPE_ID,
+      format: "csv",
+    },
     returnvalue,
     getState: vi.fn().mockResolvedValue(state),
   };
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockWithTenantContext.mockImplementation(
+    (_tenantId: string, fn: (tx: unknown) => unknown) => fn({}),
+  );
+  mockWriteAuditEntry.mockResolvedValue(undefined);
+});
+
+// The audit entries written, in order, with the tenant context each ran under.
+function auditEntries(): Array<Record<string, unknown>> {
+  return mockWriteAuditEntry.mock.calls.map(
+    // second argument is writeAuditEntry's AuditEntryInput
+    (call) => call[1] as Record<string, unknown>,
+  );
+}
+
+const completedJob = (opts: Parameters<typeof makeJob>[1] = {}) =>
+  makeJob("completed", {
+    returnvalue: { downloadUrl: "https://s3.example.com/exports/x.csv" },
+    ...opts,
+  });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -193,5 +231,91 @@ describe("GET /exports/:jobId/download", () => {
       "/exports/job-pii/download",
     );
     expect(res.status).toBe(200);
+  });
+});
+
+// ── #693 audit trail ──────────────────────────────────────────────────────────
+
+describe("GET /exports/:jobId/download audit (#693)", () => {
+  it("records export.downloaded before handing out the URL", async () => {
+    mockGetJob.mockResolvedValue(completedJob());
+
+    const res = await makeApp().request("/exports/job-001/download");
+
+    expect(res.status).toBe(200);
+    expect(auditEntries()).toEqual([
+      expect.objectContaining({
+        tenantId: "tenant-aaa",
+        actorId: "u-001",
+        actorType: "user",
+        resourceType: "entity_type",
+        resourceId: TYPE_ID,
+        action: "export.downloaded",
+        metadata: { jobId: "job-001", format: "csv", mode: "async" },
+      }),
+    ]);
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      "tenant-aaa",
+      expect.any(Function),
+    );
+  });
+
+  it("never puts the download URL in the audit entry", async () => {
+    mockGetJob.mockResolvedValue(completedJob());
+
+    await makeApp().request("/exports/job-001/download");
+
+    expect(JSON.stringify(auditEntries())).not.toContain("s3.example.com");
+  });
+
+  it("withholds the URL when the audit write fails", async () => {
+    mockGetJob.mockResolvedValue(completedJob());
+    mockWriteAuditEntry.mockRejectedValue(new Error("db down"));
+
+    const res = await makeApp().request("/exports/job-001/download");
+
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain("s3.example.com");
+  });
+
+  it.each([
+    ["pending", () => makeJob("active")],
+    ["failed", () => makeJob("failed")],
+    ["expired", () => makeJob("completed", { returnvalue: undefined })],
+  ])("writes nothing for a %s job", async (_label, job) => {
+    mockGetJob.mockResolvedValue(job());
+
+    await makeApp().request("/exports/job-001/download");
+
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("records export.download_denied when the PII check refuses a same-tenant caller", async () => {
+    mockGetJob.mockResolvedValue(
+      completedJob({ requestedBy: "u-001", includePii: true }),
+    );
+
+    const res = await makeApp("tenant-aaa", "u-002", ["agent"]).request(
+      "/exports/job-pii/download",
+    );
+
+    expect(res.status).toBe(404);
+    expect(auditEntries()).toEqual([
+      expect.objectContaining({
+        tenantId: "tenant-aaa",
+        actorId: "u-002",
+        action: "export.download_denied",
+      }),
+    ]);
+  });
+
+  it("writes nothing for another tenant's job or a missing job", async () => {
+    mockGetJob.mockResolvedValueOnce(completedJob({ tenantId: "tenant-bbb" }));
+    await makeApp("tenant-aaa").request("/exports/job-other/download");
+
+    mockGetJob.mockResolvedValueOnce(null);
+    await makeApp("tenant-aaa").request("/exports/missing/download");
+
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
   });
 });

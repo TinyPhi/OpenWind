@@ -320,7 +320,7 @@ describe("PATCH /automation-rules/:id", () => {
   it("fetches existing rule to validate triggerConfig when triggerType is omitted from PATCH", async () => {
     mockGet.mockResolvedValue({
       ...fakeRule,
-      triggerType: "field.changed",
+      triggerType: "entity.updated",
       triggerConfig: {
         entityTypeId: "00000000-0000-0000-0000-000000000001",
         field: "status",
@@ -329,12 +329,12 @@ describe("PATCH /automation-rules/:id", () => {
     mockUpdate.mockResolvedValue(fakeRule);
 
     // PATCH only triggerConfig — must fetch existing rule's triggerType
-    // and validate the pair. Bad config for field.changed (missing required field) → 422.
+    // and validate the pair. A bad uuid for entity.updated → 422.
     const res = await makeApp().request(`/${RULE_ID}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        triggerConfig: { entityTypeId: "not-a-uuid" }, // missing `field`, bad uuid
+        triggerConfig: { entityTypeId: "not-a-uuid" },
       }),
     });
 
@@ -345,17 +345,17 @@ describe("PATCH /automation-rules/:id", () => {
   it("fetches existing rule to validate triggerConfig when only triggerType changes", async () => {
     mockGet.mockResolvedValue({
       ...fakeRule,
-      triggerType: "entity.created",
-      triggerConfig: {},
+      triggerType: "workflow.transitioned",
+      triggerConfig: { toState: "done" },
     });
     mockUpdate.mockResolvedValue(fakeRule);
 
-    // Changing triggerType to field.changed but keeping the existing empty triggerConfig.
-    // field.changed requires entityTypeId and field — existing {} is invalid → 422.
+    // Changing triggerType to entity.created but keeping the existing config:
+    // toState is not an entity.created key, and the schemas are strict → 422.
     const res = await makeApp().request(`/${RULE_ID}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ triggerType: "field.changed" }),
+      body: JSON.stringify({ triggerType: "entity.created" }),
     });
 
     expect(res.status).toBe(422);

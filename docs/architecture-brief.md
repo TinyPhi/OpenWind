@@ -352,16 +352,19 @@ Rules are tenant-scoped, versioned, and executed asynchronously via the event bu
 
 #### Trigger types
 
-| Trigger                  | Example                                               |
-| ------------------------ | ----------------------------------------------------- |
-| `workflow.entered_state` | When ticket enters `escalated`                        |
-| `workflow.transitioned`  | When expense transitions from any state to `approved` |
-| `workflow.sla_breached`  | When a deal has been in `negotiation` for > 14 days   |
-| `field.changed`          | When deal.value exceeds ₹500,000                      |
-| `entity.created`         | When a new contact is created                         |
-| `entity.assigned`        | When a ticket is assigned to an agent                 |
-| `schedule.cron`          | Every Monday at 9am                                   |
-| `connector.event`        | When Stripe fires `payment_intent.succeeded`          |
+| Trigger                 | Example                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `workflow.transitioned` | When expense transitions to `approved` (`toState` alone = "entered a state") |
+| `workflow.sla_breached` | When a deal has been in `negotiation` for > 14 days                          |
+| `entity.updated`        | When deal.value changes (`field` narrows it to one changed field)            |
+| `entity.created`        | When a new contact is created                                                |
+| `entity.assigned`       | When a ticket is assigned to an agent                                        |
+
+`workflow.entered_state`, `field.changed`, `schedule.cron` and `connector.event` were
+accepted by the API at one point, but nothing emitted them, so rules using them never fired.
+They were retired in #684 (migration 0132). Use `workflow.transitioned` + `toState`, and
+`entity.updated` + `field`. Recurring records come from schedule rules (3F), and connector
+events will arrive with the connector runtime (#368).
 
 #### Action types
 

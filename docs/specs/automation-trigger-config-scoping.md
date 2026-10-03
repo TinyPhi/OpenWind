@@ -20,15 +20,15 @@ read. Every wizard-built rule ("when a Purchase Order enters Approved → webhoo
 
 ## §C Constraints
 
-| constraint        | value                                                                                                                                                                                                                                 |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| engine            | `packages/automation-engine` only (+ the sync-path event builder in `actions/transition.ts`); dependency rule unchanged (`db, workflow-engine, entity-engine, teams, audit`)                                                          |
-| empty = any       | a missing key, `null` or `""` means "no restriction". `{}` keeps matching every event of the trigger type, which is what ~17 isolation tests and the resolve-oncall design rely on                                                    |
-| unknown keys      | ignored (not a match failure), so unrecognised or future keys never silently disable a rule                                                                                                                                           |
-| tenant isolation  | the entity-type-name lookup filters by `tenant_id` explicitly (plus RLS where run in tenant context)                                                                                                                                  |
-| order of checks   | trigger_config scope is checked **before** conditions and before an `automation_executions` row is written, so out-of-scope rules leave no execution trail                                                                            |
-| out of scope      | wizard/API key mismatches (`fieldName` vs `field`; `state` vs `toState` on `entered_state`), and trigger types with no emitter (`workflow.entered_state`, `field.changed`, `schedule.cron`, `connector.event`) — filed as a follow-up |
-| no data migration | existing rows are not rewritten; the change narrows matching to what each rule's config already says                                                                                                                                  |
+| constraint        | value                                                                                                                                                                                                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| engine            | `packages/automation-engine` only (+ the sync-path event builder in `actions/transition.ts`); dependency rule unchanged (`db, workflow-engine, entity-engine, teams, audit`)                                                                                     |
+| empty = any       | a missing key, `null` or `""` means "no restriction". `{}` keeps matching every event of the trigger type, which is what ~17 isolation tests and the resolve-oncall design rely on                                                                               |
+| unknown keys      | ignored (not a match failure), so unrecognised or future keys never silently disable a rule                                                                                                                                                                      |
+| tenant isolation  | the entity-type-name lookup filters by `tenant_id` explicitly (plus RLS where run in tenant context)                                                                                                                                                             |
+| order of checks   | trigger_config scope is checked **before** conditions and before an `automation_executions` row is written, so out-of-scope rules leave no execution trail                                                                                                       |
+| out of scope      | (resolved in #684, §B5–B6) wizard/API key mismatches (`fieldName` vs `field`; `state` vs `toState` on `entered_state`), and trigger types with no emitter (`workflow.entered_state`, `field.changed`, `schedule.cron`, `connector.event`) — filed as a follow-up |
+| no data migration | existing rows are not rewritten; the change narrows matching to what each rule's config already says                                                                                                                                                             |
 
 ## §I Interfaces
 
@@ -140,3 +140,20 @@ ORDER BY tenant_id, trigger_type;
     record.
   - **Split out:** the transition action asks for a free-text name, but the executor needs
     `transitionId`. That needs a transition picker, so it is tracked separately in #760.
+- **B6 — #684 part 2 (2026-10-02): the inert trigger types are retired.**
+  - **API:** `workflow.entered_state`, `field.changed`, `schedule.cron` and
+    `connector.event` are rejected with a 400 that names the replacement
+    (`RETIRED_TRIGGER_TYPES`). They are also gone from `@platform/automation-engine`'s
+    `TriggerType`. A PATCH can't re-enable a rule stored with one (422
+    `TRIGGER_TYPE_RETIRED`).
+  - **Executor:** `entity.updated` gains a `field` scope key, which must be in
+    `event.changed`. An event with no `changed` map doesn't match.
+  - **Strict configs:** per-type `triggerConfig` schemas reject unknown keys. Each one allows
+    its `SCOPE_KEYS` keys plus `entityType`, and a unit test keeps them aligned.
+  - **Wizard:** "State entered" saves as `workflow.transitioned` + `toState`, and "Field
+    changed" as `entity.updated` + `field` (now optional again, meaning any field). Editing
+    maps them back.
+  - **Migration 0132:** converts stored `entered_state` and `field.changed` rules, reading the
+    old `state` / `fieldName` keys and dropping `""` values. It disables `schedule.cron` and
+    `connector.event` rules, and keeps their definitions. The list page marks them "Trigger
+    not supported".

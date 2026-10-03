@@ -1,5 +1,7 @@
 // Shared types for the automation rule wizard
 
+// Wizard trigger choices. "workflow.entered_state" and "field.changed" are
+// saved as workflow.transitioned / entity.updated (payload.ts, #684).
 export type TriggerType =
   | "workflow.entered_state"
   | "workflow.transitioned"

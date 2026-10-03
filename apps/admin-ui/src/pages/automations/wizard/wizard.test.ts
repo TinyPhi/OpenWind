@@ -27,19 +27,13 @@ describe("canAdvance", () => {
       expect(canAdvance("trigger", { ...base, triggerType: "" })).toBe(false);
     });
 
-    it("blocks a field-changed trigger until both entity type and field are chosen", () => {
+    it("blocks a field-changed trigger until an entity type is chosen; the field is optional", () => {
       const fieldChanged = { ...base, triggerType: "field.changed" as const };
       expect(canAdvance("trigger", fieldChanged)).toBe(false);
       expect(
         canAdvance("trigger", {
           ...fieldChanged,
           triggerConfig: { entityTypeId: "et-1" },
-        }),
-      ).toBe(false);
-      expect(
-        canAdvance("trigger", {
-          ...fieldChanged,
-          triggerConfig: { entityTypeId: "et-1", field: "status" },
         }),
       ).toBe(true);
     });

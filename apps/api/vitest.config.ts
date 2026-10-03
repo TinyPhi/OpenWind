@@ -95,6 +95,7 @@ export default defineConfig({
       // thresholds directly against Redis rather than relying on this value.
       RATE_LIMIT_API_KEY_PER_MIN: "5000",
       RATE_LIMIT_API_KEY_PERSON_PER_MIN: "5000",
+      RATE_LIMIT_EXPORT_PER_MIN: "5000",
     },
   },
 });
