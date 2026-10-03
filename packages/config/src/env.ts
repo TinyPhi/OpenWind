@@ -91,6 +91,9 @@ const EnvSchema = z
       .int()
       .positive()
       .default(20),
+    // ADR-013, #692 — per-(tenant, user) cap on entity-list exports, which can
+    // each pull up to 10,000 rows including PII/financial fields.
+    RATE_LIMIT_EXPORT_PER_MIN: z.coerce.number().int().positive().default(5),
     // ADR-012 Phase G, spec R6 — the third-party acting-person JWT path
     // (verifyJwtWithAudience) rejects a token whose iat is older than this,
     // independent of Zitadel's own exp-based expiry. A startup warning (not
