@@ -71,6 +71,9 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "export.requested": true,
   "export.completed": true,
   "export.failed": true,
+  // #693: fetching an export's URL, or being refused it, only reads data.
+  "export.downloaded": true,
+  "export.download_denied": true,
   sync_failed: true,
 };
 

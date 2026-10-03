@@ -91,6 +91,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "export.requested": true,
   "export.completed": true,
   "export.failed": true,
+  "export.downloaded": true,
+  "export.download_denied": true,
   // A sync the admin was entitled to trigger (requireRole("admin") already
   // passed) that then failed mid-run -- a worker/upstream-provider outcome,
   // not a denied caller request, same reasoning as schedule.execution_failed.
@@ -119,6 +121,8 @@ const DENIED_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "attachment.download_denied",
   // A dashboard the caller's role does not entitle them to.
   "reporting.guest_token_denied",
+  // A PII export polled by someone who is neither its requester nor PII-capable.
+  "export.download_denied",
 ]);
 
 /**

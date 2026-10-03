@@ -18,6 +18,7 @@ import { exportQueue, PII_EXPORT_ROLES } from "../../lib/export-queue.js";
 import { writeAuditEntry } from "@platform/audit";
 import type { AuditAction } from "@platform/audit";
 import { factory } from "./factory.js";
+import { enforceExportRateLimit } from "../../lib/rate-limit-tiers.js";
 
 const SYNC_ROW_LIMIT = 5_000;
 const EXPORT_ROW_LIMIT = 10_000;
@@ -35,8 +36,26 @@ const ExportQuerySchema = z.object({
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 
+// #692: keyed on the verified identity, so it sits after requireAuth and
+// before anything touches the database.
+const exportRateLimit = factory.createMiddleware(async (c, next) => {
+  const { tenantId, userId } = c.get("auth");
+  const { allowed, resetAt } = await enforceExportRateLimit(tenantId, userId);
+  if (!allowed) {
+    const retryAfter = Math.max(1, resetAt - Math.ceil(Date.now() / 1000));
+    c.header("Retry-After", String(retryAfter));
+    return c.json(
+      { error: "RATE_LIMITED", message: "Too many export requests" },
+      429,
+    );
+  }
+  await next();
+  return;
+});
+
 export const exportEntitiesHandler = factory.createHandlers(
   requireAuth(),
+  exportRateLimit,
   requireRole("agent", "admin"),
   zValidator("query", ExportQuerySchema),
   async (c) => {

@@ -2,6 +2,9 @@ import { Hono } from "hono";
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
+import { withTenantContext } from "@platform/db";
+import { writeAuditEntry } from "@platform/audit";
+import type { AuditAction } from "@platform/audit";
 import { exportQueue, PII_EXPORT_ROLES } from "../../lib/export-queue.js";
 import type { AuthContext } from "@platform/auth";
 
@@ -44,6 +47,22 @@ router.get(
     // If the export included PII columns, require either the original requester
     // or a PII-capable role. This covers: role revoked after enqueue, and
     // within-tenant job ID enumeration by a lower-privilege user.
+    // #693: written under the caller's tenant, which the check above has
+    // already confirmed is the job's. Fail-closed: if the write fails, the
+    // handler throws and no URL leaves.
+    const audit = (action: AuditAction): Promise<void> =>
+      withTenantContext(tenantId, (tx) =>
+        writeAuditEntry(tx, {
+          tenantId,
+          actorId: userId,
+          actorType: "user",
+          resourceType: "entity_type",
+          resourceId: job.data.entityTypeId,
+          action,
+          metadata: { jobId, format: job.data.format, mode: "async" },
+        }),
+      );
+
     const jobIncludedPii =
       job.data.includePii ??
       job.data.requestedByRoles?.some((r) => PII_EXPORT_ROLES.has(r)) ??
@@ -52,6 +71,7 @@ router.get(
     if (jobIncludedPii) {
       const canSeePii = roles.some((r) => PII_EXPORT_ROLES.has(r));
       if (!canSeePii && job.data.requestedBy !== userId) {
+        await audit("export.download_denied");
         return c.json(
           { error: "NOT_FOUND", message: "Export job not found" },
           404,
@@ -78,6 +98,7 @@ router.get(
           200,
         );
       }
+      await audit("export.downloaded");
       return c.json({
         data: { status: "complete", downloadUrl: result.downloadUrl },
       });

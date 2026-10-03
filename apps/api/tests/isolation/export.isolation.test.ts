@@ -26,7 +26,7 @@ import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { db, withTenantContext } from "@platform/db";
-import { entityInstances, entityTypes } from "@platform/db";
+import { adminAuditLog, entityInstances, entityTypes } from "@platform/db";
 import {
   createEntityType,
   createEntity,
@@ -82,6 +82,8 @@ afterAll(async () => {
     .delete(entityInstances)
     .where(eq(entityInstances.entityTypeId, entityType.id));
   await db.delete(entityTypes).where(eq(entityTypes.id, entityType.id));
+  // #693: polling a completed or PII-refused job now writes audit rows.
+  await db.delete(adminAuditLog).where(eq(adminAuditLog.tenantId, TENANT_A));
 });
 
 describe("entity export — cross-tenant row isolation", () => {
@@ -152,6 +154,8 @@ function makeQueueJob(opts: {
   return {
     data: {
       tenantId: opts.tenantId,
+      entityTypeId: entityType.id,
+      format: "csv",
       requestedBy: opts.requestedBy,
       includePii: opts.includePii,
     },
