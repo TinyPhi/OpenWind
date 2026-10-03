@@ -200,6 +200,39 @@ type AddTransitionForm = {
   requiresComment: boolean;
 };
 
+interface FieldModalState {
+  showAdd: boolean;
+  editing: EntityField | null;
+  form: AddFieldForm;
+  saving: boolean;
+  error: string | null;
+  deletingId: string | null;
+}
+
+interface StateModalState {
+  showAdd: boolean;
+  editing: WorkflowState | null;
+  form: AddStateForm;
+  saving: boolean;
+  error: string | null;
+  deletingId: string | null;
+}
+
+interface TransitionModalState {
+  showAdd: boolean;
+  editing: WorkflowTransition | null;
+  form: AddTransitionForm;
+  saving: boolean;
+  error: string | null;
+  deletingId: string | null;
+}
+
+interface DeleteWorkflowModalState {
+  show: boolean;
+  deleting: boolean;
+  error: string | null;
+}
+
 const EMPTY_STATE: AddStateForm = {
   name: "",
   label: "",
@@ -1176,35 +1209,210 @@ export function WorkflowDetail(): React.ReactElement {
 
   const [fields, setFields] = useState<EntityField[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState(false);
-  const [showAddField, setShowAddField] = useState(false);
-  const [fieldForm, setFieldForm] = useState<AddFieldForm>(EMPTY_FIELD);
-  const [savingField, setSavingField] = useState(false);
-  const [fieldError, setFieldError] = useState<string | null>(null);
-  const [deletingFieldId, setDeletingFieldId] = useState<string | null>(null);
+  const [fieldModal, setFieldModal] = useState<FieldModalState>({
+    showAdd: false,
+    editing: null,
+    form: EMPTY_FIELD,
+    saving: false,
+    error: null,
+    deletingId: null,
+  });
+  const {
+    showAdd: showAddField,
+    editing: editingField,
+    form: fieldForm,
+    saving: savingField,
+    error: fieldError,
+    deletingId: deletingFieldId,
+  } = fieldModal;
 
-  const [showAddState, setShowAddState] = useState(false);
-  const [stateForm, setStateForm] = useState<AddStateForm>(EMPTY_STATE);
-  const [savingState, setSavingState] = useState(false);
-  const [stateError, setStateError] = useState<string | null>(null);
-  const [deletingStateId, setDeletingStateId] = useState<string | null>(null);
+  function setShowAddField(showAdd: boolean): void {
+    setFieldModal((prev) => ({
+      ...prev,
+      showAdd,
+      error: showAdd ? null : prev.error,
+      form: showAdd ? prev.form : EMPTY_FIELD,
+    }));
+  }
+  function setEditingField(editing: EntityField | null): void {
+    setFieldModal((prev) => ({
+      ...prev,
+      editing,
+      error: null,
+      form: editing
+        ? {
+            name: editing.name,
+            label: editing.label,
+            fieldType: editing.fieldType,
+            isRequired: editing.isRequired,
+          }
+        : EMPTY_FIELD,
+    }));
+  }
+  function setFieldForm(
+    update: AddFieldForm | ((prev: AddFieldForm) => AddFieldForm),
+  ): void {
+    setFieldModal((prev) => ({
+      ...prev,
+      form: typeof update === "function" ? update(prev.form) : update,
+    }));
+  }
+  function setSavingField(saving: boolean): void {
+    setFieldModal((prev) => ({ ...prev, saving }));
+  }
+  function setFieldError(error: string | null): void {
+    setFieldModal((prev) => ({ ...prev, error }));
+  }
+  function setDeletingFieldId(deletingId: string | null): void {
+    setFieldModal((prev) => ({ ...prev, deletingId }));
+  }
 
-  const [showAddTransition, setShowAddTransition] = useState(false);
-  const [transForm, setTransForm] =
-    useState<AddTransitionForm>(EMPTY_TRANSITION);
-  const [savingTrans, setSavingTrans] = useState(false);
-  const [transError, setTransError] = useState<string | null>(null);
-  const [deletingTransId, setDeletingTransId] = useState<string | null>(null);
+  const [stateModal, setStateModal] = useState<StateModalState>({
+    showAdd: false,
+    editing: null,
+    form: EMPTY_STATE,
+    saving: false,
+    error: null,
+    deletingId: null,
+  });
+  const {
+    showAdd: showAddState,
+    editing: editingState,
+    form: stateForm,
+    saving: savingState,
+    error: stateError,
+    deletingId: deletingStateId,
+  } = stateModal;
 
-  const [editingField, setEditingField] = useState<EntityField | null>(null);
-  const [editingState, setEditingState] = useState<WorkflowState | null>(null);
-  const [editingTransition, setEditingTransition] =
-    useState<WorkflowTransition | null>(null);
+  function setShowAddState(showAdd: boolean): void {
+    setStateModal((prev) => ({
+      ...prev,
+      showAdd,
+      error: showAdd ? null : prev.error,
+      form: showAdd ? prev.form : EMPTY_STATE,
+    }));
+  }
+  function setEditingState(editing: WorkflowState | null): void {
+    setStateModal((prev) => ({
+      ...prev,
+      editing,
+      error: null,
+      form: editing
+        ? {
+            name: editing.name,
+            label: editing.label,
+            color: editing.color ?? "",
+            isTerminal: editing.isTerminal,
+            slaHours: editing.slaHours ? String(editing.slaHours) : "",
+            sortOrder: String(editing.sortOrder),
+          }
+        : EMPTY_STATE,
+    }));
+  }
+  function setStateForm(
+    update: AddStateForm | ((prev: AddStateForm) => AddStateForm),
+  ): void {
+    setStateModal((prev) => ({
+      ...prev,
+      form: typeof update === "function" ? update(prev.form) : update,
+    }));
+  }
+  function setSavingState(saving: boolean): void {
+    setStateModal((prev) => ({ ...prev, saving }));
+  }
+  function setStateError(error: string | null): void {
+    setStateModal((prev) => ({ ...prev, error }));
+  }
+  function setDeletingStateId(deletingId: string | null): void {
+    setStateModal((prev) => ({ ...prev, deletingId }));
+  }
 
-  const [showDeleteWorkflow, setShowDeleteWorkflow] = useState(false);
-  const [deletingWorkflow, setDeletingWorkflow] = useState(false);
-  const [deleteWorkflowError, setDeleteWorkflowError] = useState<string | null>(
-    null,
-  );
+  const [transModal, setTransModal] = useState<TransitionModalState>({
+    showAdd: false,
+    editing: null,
+    form: EMPTY_TRANSITION,
+    saving: false,
+    error: null,
+    deletingId: null,
+  });
+  const {
+    showAdd: showAddTransition,
+    editing: editingTransition,
+    form: transForm,
+    saving: savingTrans,
+    error: transError,
+    deletingId: deletingTransId,
+  } = transModal;
+
+  function setShowAddTransition(showAdd: boolean): void {
+    setTransModal((prev) => ({
+      ...prev,
+      showAdd,
+      error: showAdd ? null : prev.error,
+      form: showAdd ? prev.form : EMPTY_TRANSITION,
+    }));
+  }
+  function setEditingTransition(editing: WorkflowTransition | null): void {
+    setTransModal((prev) => ({
+      ...prev,
+      editing,
+      error: null,
+      form: editing
+        ? {
+            fromState: editing.fromState,
+            toState: editing.toState,
+            label: editing.label,
+            allowedRoles: editing.allowedRoles,
+            requiresComment: editing.requiresComment,
+          }
+        : EMPTY_TRANSITION,
+    }));
+  }
+  function setTransForm(
+    update:
+      | AddTransitionForm
+      | ((prev: AddTransitionForm) => AddTransitionForm),
+  ): void {
+    setTransModal((prev) => ({
+      ...prev,
+      form: typeof update === "function" ? update(prev.form) : update,
+    }));
+  }
+  function setSavingTrans(saving: boolean): void {
+    setTransModal((prev) => ({ ...prev, saving }));
+  }
+  function setTransError(error: string | null): void {
+    setTransModal((prev) => ({ ...prev, error }));
+  }
+  function setDeletingTransId(deletingId: string | null): void {
+    setTransModal((prev) => ({ ...prev, deletingId }));
+  }
+
+  const [deleteWorkflowModal, setDeleteWorkflowModal] =
+    useState<DeleteWorkflowModalState>({
+      show: false,
+      deleting: false,
+      error: null,
+    });
+  const {
+    show: showDeleteWorkflow,
+    deleting: deletingWorkflow,
+    error: deleteWorkflowError,
+  } = deleteWorkflowModal;
+
+  function setShowDeleteWorkflow(show: boolean): void {
+    setDeleteWorkflowModal((prev) => ({
+      ...prev,
+      show,
+      error: show ? null : prev.error,
+    }));
+  }
+  function setDeletingWorkflow(deleting: boolean): void {
+    setDeleteWorkflowModal((prev) => ({ ...prev, deleting }));
+  }
+  function setDeleteWorkflowError(error: string | null): void {
+    setDeleteWorkflowModal((prev) => ({ ...prev, error }));
+  }
 
   const [activeTab, setActiveTab] = useState<
     "canvas" | "states" | "transitions" | "fields" | "settings"

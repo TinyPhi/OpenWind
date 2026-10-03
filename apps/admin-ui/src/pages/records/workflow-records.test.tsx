@@ -402,6 +402,55 @@ describe("WorkflowRecords — concurrency, appliedRecordsUrlRef dedup, and filte
     expect(calls.some((url) => url.includes("entityTypeId=et-2"))).toBe(true);
   });
 
+  it("clears all active filters atomically when Clear all button is clicked", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    mockRoutes([]);
+
+    const container = renderPage();
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".kb-card").length).toBe(2);
+    });
+
+    // Open filter panel
+    const filterBtn = container.querySelector('button[title="Filters"]');
+    expect(filterBtn).not.toBeNull();
+    if (filterBtn) {
+      fireEvent.click(filterBtn);
+    }
+
+    // Click Internal chip to activate origin filter
+    const internalChip = await screen.findByRole("button", {
+      name: /Internal/i,
+    });
+    fireEvent.click(internalChip);
+
+    // Wait for the filter to be applied
+    await waitFor(() => {
+      const calls = mockFetchWithAuth.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.includes("/entities") && !url.includes("/users"));
+      expect(calls.at(-1)).toContain("origin=internal");
+    });
+
+    // "Clear all" button should now be visible
+    const clearAllBtn = await screen.findByRole("button", {
+      name: /Clear all/i,
+    });
+    expect(clearAllBtn).toBeDefined();
+    fireEvent.click(clearAllBtn);
+
+    // Filter count badge should disappear and list refetched without origin filter
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /Clear all/i })).toBeNull();
+      const calls = mockFetchWithAuth.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.includes("/entities") && !url.includes("/users"));
+      expect(calls.at(-1)).not.toContain("origin=internal");
+    });
+  });
+
   it("surfaces an error, not an empty board, when the initial records fetch and its retry both fail", async () => {
     mockProfileRoles = ["admin"];
     mockUserId = "admin-1";
