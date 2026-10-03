@@ -24,6 +24,7 @@ vi.mock("oidc-client-ts", () => ({
 vi.mock("@refinedev/core", () => ({}));
 
 const { silentRefresh, authProvider } = await import("./authProvider.js");
+const { onSessionEnd } = await import("./lib/session-events.js");
 
 describe("silentRefresh", () => {
   beforeEach(() => {
@@ -104,5 +105,27 @@ describe("authProvider.logout", () => {
 
     expect(mockRemoveUser).toHaveBeenCalled();
     expect(result).toEqual({ success: true, redirectTo: "/login" });
+  });
+
+  it("emits session end event to clear module caches on logout", async () => {
+    const sessionEndListener = vi.fn();
+    const unsubscribe = onSessionEnd(sessionEndListener);
+    mockSignoutRedirect.mockResolvedValue(undefined);
+
+    await authProvider.logout({});
+
+    expect(sessionEndListener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("emits session end event even if signoutRedirect throws", async () => {
+    const sessionEndListener = vi.fn();
+    const unsubscribe = onSessionEnd(sessionEndListener);
+    mockSignoutRedirect.mockRejectedValue(new Error("network timeout"));
+
+    await authProvider.logout({});
+
+    expect(sessionEndListener).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 });

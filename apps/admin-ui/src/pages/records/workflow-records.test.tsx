@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, waitFor, cleanup } from "@testing-library/react";
+import {
+  render,
+  waitFor,
+  cleanup,
+  screen,
+  fireEvent,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 // A "user"-role caller who is this workflow's creator or in its assignedTo
@@ -41,7 +47,10 @@ function mockRoutes(assignedTo: string[]): void {
   mockFetchWithAuth.mockImplementation((url: string) => {
     if (url.endsWith("/workflows/slugs")) {
       return Promise.resolve({
-        data: [{ id: WORKFLOW_ID, name: "Leave Approval" }],
+        data: [
+          { id: WORKFLOW_ID, name: "Leave Approval" },
+          { id: "wf-2", name: "Incident Management" },
+        ],
       });
     }
     if (url.endsWith(`/workflows/${WORKFLOW_ID}`)) {
@@ -56,6 +65,22 @@ function mockRoutes(assignedTo: string[]): void {
           transitions: [],
         },
       });
+    }
+    if (url.endsWith("/workflows/wf-2")) {
+      return Promise.resolve({
+        data: {
+          id: "wf-2",
+          name: "Incident Management",
+          entityTypeId: "et-2",
+          createdBy: "someone-else",
+          assignedTo: [],
+          states: [],
+          transitions: [],
+        },
+      });
+    }
+    if (url.includes("/entity-types/et-2/fields")) {
+      return Promise.resolve({ data: [] });
     }
     if (url.includes(`/entity-types/${ENTITY_TYPE_ID}/fields`)) {
       return Promise.resolve({ data: [] });
@@ -74,6 +99,19 @@ function mockRoutes(assignedTo: string[]): void {
           ],
           childTickets: [],
         },
+      });
+    }
+    if (url.includes("/entities?entityTypeId=et-2")) {
+      return Promise.resolve({
+        data: [
+          {
+            id: "incident-ticket-1",
+            currentState: null,
+            fields: {},
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
       });
     }
     if (url.includes(`/entities?entityTypeId=${ENTITY_TYPE_ID}`)) {
@@ -103,9 +141,11 @@ function mockRoutes(assignedTo: string[]): void {
   });
 }
 
-function renderPage(): HTMLElement {
+function renderPage(
+  initialPath = "/workflows/leave-approval/records",
+): HTMLElement {
   const { container } = render(
-    <MemoryRouter initialEntries={["/workflows/leave-approval/records"]}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
         <Route
           path="/workflows/:workflowSlug/records"
@@ -180,5 +220,121 @@ describe("WorkflowRecords — workflow-admin ticket visibility", () => {
       .map(([url]) => String(url))
       .filter((url) => url.includes("/entities") && !url.includes("/users"));
     expect(listCalls.every((url) => !url.includes("/my-tickets"))).toBe(true);
+  });
+});
+
+describe("WorkflowRecords — concurrency, initialLoadedUrlRef dedup, and filter refetching", () => {
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+  });
+
+  it("deduplicates initial ticket load so only one /entities request is made (initialLoadedUrlRef)", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    mockRoutes([]);
+
+    const container = renderPage();
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".kb-card").length).toBe(2);
+    });
+
+    // The shell effect fetched records concurrently with fields/users and set
+    // initialLoadedUrlRef, allowing the ticket list effect to skip duplicate fetch.
+    const entityCalls = mockFetchWithAuth.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes("/entities") && !url.includes("/users"));
+
+    expect(entityCalls).toHaveLength(1);
+    expect(entityCalls[0]).toContain(
+      `/entities?entityTypeId=${ENTITY_TYPE_ID}&rootOnly=true`,
+    );
+  });
+
+  it("triggers refetch when changing severity filter (not swallowed by initialLoadedUrlRef)", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    mockRoutes([]);
+
+    const container = renderPage();
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".kb-card").length).toBe(2);
+    });
+
+    // Open filter panel
+    const filterBtn = container.querySelector('button[title="Filters"]');
+    expect(filterBtn).not.toBeNull();
+    if (filterBtn) {
+      fireEvent.click(filterBtn);
+    }
+
+    // Severity section starts open; click Critical severity chip
+    const criticalChip = await screen.findByRole("button", {
+      name: /Critical/i,
+    });
+    fireEvent.click(criticalChip);
+
+    // Verify a fresh request was issued with severity=critical
+    await waitFor(() => {
+      const entityCalls = mockFetchWithAuth.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.includes("/entities") && !url.includes("/users"));
+      expect(entityCalls.length).toBeGreaterThanOrEqual(2);
+      expect(entityCalls.at(-1)).toContain("severity=critical");
+    });
+  });
+
+  it("triggers refetch when changing origin filter (not swallowed by initialLoadedUrlRef)", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    mockRoutes([]);
+
+    const container = renderPage();
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".kb-card").length).toBe(2);
+    });
+
+    // Open filter panel
+    const filterBtn = container.querySelector('button[title="Filters"]');
+    expect(filterBtn).not.toBeNull();
+    if (filterBtn) {
+      fireEvent.click(filterBtn);
+    }
+
+    // Source section starts open; click Internal chip
+    const internalChip = await screen.findByRole("button", {
+      name: /Internal/i,
+    });
+    fireEvent.click(internalChip);
+
+    // Verify a fresh request was issued with origin=internal
+    await waitFor(() => {
+      const entityCalls = mockFetchWithAuth.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.includes("/entities") && !url.includes("/users"));
+      expect(entityCalls.length).toBeGreaterThanOrEqual(2);
+      expect(entityCalls.at(-1)).toContain("origin=internal");
+    });
+  });
+
+  it("switches workflow slug properly and fetches new workflow and tickets", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    mockRoutes([]);
+
+    const container = renderPage("/workflows/incident-management/records");
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".kb-card").length).toBe(1);
+    });
+
+    const calls = mockFetchWithAuth.mock.calls.map(([url]) => String(url));
+    expect(calls.some((url) => url.endsWith("/workflows/wf-2"))).toBe(true);
+    expect(calls.some((url) => url.includes("entityTypeId=et-2"))).toBe(true);
   });
 });

@@ -103,6 +103,61 @@ describe("useIdleLogout", () => {
     unmount();
     addSpy.mockRestore();
   });
+
+  it("resets timeout if activity occurs during rescheduled remaining window", async () => {
+    renderHook(() => useIdleLogout(5000), { wrapper });
+
+    await vi.advanceTimersByTimeAsync(1500);
+    window.dispatchEvent(new Event("mousemove")); // accepted, timer -> t=6500
+    await vi.advanceTimersByTimeAsync(500);
+    window.dispatchEvent(new Event("mousemove")); // throttled (t=2000)
+
+    await vi.advanceTimersByTimeAsync(4500); // t=6500: timer fires, reschedules for remaining 500ms (t=7000)
+    expect(mockLogout).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(200); // t=6700: user interacts during rescheduled window
+    window.dispatchEvent(new Event("keydown")); // accepted -> new timer t=11700
+
+    await vi.advanceTimersByTimeAsync(300); // t=7000: old rescheduled target passed, no logout
+    expect(mockLogout).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(4699); // t=11699: 4999ms since t=6700
+    expect(mockLogout).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1); // t=11700: 5000ms idle
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
+  it("still navigates to /login when authProvider.logout rejects", async () => {
+    mockLogout.mockRejectedValueOnce(new Error("Storage or network failure"));
+    renderHook(() => useIdleLogout(5000), { wrapper });
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(mockLogout).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith("/login");
+  });
+
+  it("sustains active session under rapid high-frequency event bursts across multiple throttle windows", async () => {
+    renderHook(() => useIdleLogout(5000), { wrapper });
+
+    // User is active for 8 seconds, dispatching an event every 200ms
+    for (let i = 0; i < 40; i++) {
+      await vi.advanceTimersByTimeAsync(200);
+      window.dispatchEvent(new Event("mousemove"));
+    }
+
+    // At t=8000, user stops. No logout yet despite 8 seconds total elapsed
+    expect(mockLogout).not.toHaveBeenCalled();
+
+    // 4000ms after last event (t=12000) -> still not logged out
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(mockLogout).not.toHaveBeenCalled();
+
+    // 5000ms after last event (t=13000) -> logged out
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mockLogout).toHaveBeenCalled();
+  });
 });
 
 describe("useIdleLogout — config-driven via env (no explicit timeoutMs override)", () => {

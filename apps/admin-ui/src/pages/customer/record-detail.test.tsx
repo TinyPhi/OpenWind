@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  cleanup,
+  fireEvent,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 // ui-feature-checklist-and-rules.md §2.9/§2.10 — an access request must
@@ -543,5 +549,154 @@ describe("CustomerRecordDetail — History tab access-event rendering (ui-featur
     // §3.4 — a file download gets its own history line, distinct from
     // attach/delete.
     expect(await screen.findByText(/downloaded/)).toBeDefined();
+  });
+});
+
+describe("CustomerRecordDetail — regression vectors: error resilience & non-owner access requests", () => {
+  beforeEach(() => {
+    capturedRoomHandler = null;
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockUnsubscribe.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("renders core record view even if comments and attachments fail with 500", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({ data: BASE_RECORD });
+      }
+      if (url === `/api/entity-types/${ENTITY_TYPE_ID}/fields`) {
+        return Promise.resolve({
+          data: [
+            {
+              id: "f-subject",
+              name: "subject",
+              label: "Subject",
+              fieldType: "text",
+              isRequired: true,
+              isSystem: false,
+              config: {},
+            },
+          ],
+        });
+      }
+      if (url === "/api/users") {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === `/api/entities/${RECORD_ID}/access`) {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith(`/api/entities/${RECORD_ID}/transitions/history`)) {
+        return Promise.reject(
+          new Error("500 Internal Server Error: comments failed"),
+        );
+      }
+      if (url === `/api/entities/${RECORD_ID}/attachments`) {
+        return Promise.reject(
+          new Error("500 Internal Server Error: attachments failed"),
+        );
+      }
+      if (url === `/api/entities/${RECORD_ID}/tags`) {
+        return Promise.reject(
+          new Error("500 Internal Server Error: tags failed"),
+        );
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    const titles = await screen.findAllByText("Test ticket");
+    expect(titles.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("restores myAccessReqStatus properly for non-owner requesters on access-denied overlay", async () => {
+    const REQUESTER_ID = "u-plain-requester";
+    mockUserId = REQUESTER_ID;
+    mockProfileRoles = ["user"];
+
+    mockFetchWithAuth.mockImplementation((url: string, init?: unknown) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: {
+            ...BASE_RECORD,
+            createdBy: "u-owner",
+          },
+        });
+      }
+      if (url === `/api/entity-types/${ENTITY_TYPE_ID}/fields`) {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === "/api/users") {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === `/api/entities/${RECORD_ID}/access`) {
+        // Owner only, REQUESTER_ID not in access list -> triggers accessDenied
+        return Promise.resolve({
+          data: [{ userId: "u-owner", level: "admin" }],
+        });
+      }
+      if (url === `/api/entities/${RECORD_ID}/access-requests`) {
+        const method = (init as { method?: string } | undefined)?.method;
+        if (method === "POST") {
+          return Promise.resolve({ data: { id: "req-1" } });
+        }
+        // Non-owner list endpoint returns 404 (caught gracefully)
+        return Promise.reject(new Error("404 Not Found"));
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    // Access restricted overlay appears
+    expect(await screen.findByText("Access Restricted")).toBeDefined();
+    const requestAccessBtn = screen.getByRole("button", {
+      name: /Request Access/i,
+    });
+    expect(requestAccessBtn).toBeDefined();
+
+    // Click "Request Access" to open confirmation modal
+    fireEvent.click(requestAccessBtn);
+
+    // Confirm sending access request
+    const sendBtn = await screen.findByRole("button", {
+      name: /Send request/i,
+    });
+    fireEvent.click(sendBtn);
+
+    // Should now display "Access request sent — waiting for owner approval."
+    expect(
+      await screen.findByText(
+        "Access request sent — waiting for owner approval.",
+      ),
+    ).toBeDefined();
+
+    // Now simulate WebSocket push indicating request was declined
+    expect(capturedRoomHandler).not.toBeNull();
+    capturedRoomHandler?.({
+      type: "access_request.updated",
+      instanceId: RECORD_ID,
+      request: {
+        id: "req-1",
+        requestedBy: REQUESTER_ID,
+        status: "rejected",
+      },
+    });
+
+    // Should now display rejection message and "Request Again" button
+    expect(
+      await screen.findByText(
+        "Your access request was declined. You may request again.",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: /Request Again/i }),
+    ).toBeDefined();
   });
 });

@@ -163,9 +163,9 @@ export function applyAccent(color: AccentColor): void {
     `hsl(${h}, ${Math.min(s + 10, 100)}%, ${Math.min(l + 8, 90)}%)`,
   );
   root.style.setProperty("--border-focus", `hsla(${h}, ${s}%, ${l}%, 0.4)`);
-  localStorage.setItem(STORAGE_ACCENT, color.id);
+  safeSetItem(STORAGE_ACCENT, color.id);
   if (color.id === CUSTOM_ACCENT_ID) {
-    localStorage.setItem(STORAGE_ACCENT_CUSTOM, hslToHex(h, s, l));
+    safeSetItem(STORAGE_ACCENT_CUSTOM, hslToHex(h, s, l));
   }
 }
 

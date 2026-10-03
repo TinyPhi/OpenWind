@@ -112,9 +112,14 @@ export function useIdleLogout(timeoutMs?: number): void {
       // Always redirect, even if logout() rejects (e.g. storage unavailable)
       // — the point of this feature is to get an idle session off screen,
       // and a rejected promise must not silently cancel that.
-      void authProvider.logout({}).finally(() => {
-        navigate("/login");
-      });
+      void authProvider
+        .logout({})
+        .catch(() => {
+          // Ignore logout errors (e.g. storage or network unavailable)
+        })
+        .finally(() => {
+          navigate("/login");
+        });
     };
 
     const resetTimer = (): void => {

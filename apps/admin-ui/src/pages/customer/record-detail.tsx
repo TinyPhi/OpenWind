@@ -1540,10 +1540,10 @@ export function CustomerRecordDetail(): React.ReactElement {
   const myAccessReqStatus = useMemo<
     "none" | "pending" | "approved" | "rejected"
   >(() => {
-    if (!currentUserId || accessDenied) return "none";
+    if (!currentUserId) return "none";
     const mine = accessReqList.find((r) => r.requesterId === currentUserId);
     return mine ? mine.status : (myReqStatusOverride ?? "none");
-  }, [accessReqList, currentUserId, accessDenied, myReqStatusOverride]);
+  }, [accessReqList, currentUserId, myReqStatusOverride]);
 
   // Current user's access entry (null for admins/agents — they bypass access list)
   const myAccessEntry =
