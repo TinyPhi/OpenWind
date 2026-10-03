@@ -59,19 +59,16 @@ let onConflictReturning: unknown[] = [{ id: "req-1" }];
 let mockInsertReturning: unknown[] = [{ id: "event-1" }];
 let mockUpdateReturning: unknown[] = [{ id: "instance-1" }];
 const updateCalls: Array<{ table: unknown; setVals: unknown }> = [];
-// Raw statements — recordResolvedMention's UPDATE (#689). The mocked `sql`
-// below returns { strings, vals }, so tests read the bound values.
-const executeCalls: Array<{ strings: TemplateStringsArray; vals: unknown[] }> =
-  [];
-let executeError: Error | null = null;
+// #689: the statement itself is covered against a real DB in
+// tests/isolation/record-resolved-mention.isolation.test.ts; here we only
+// check what the worker passes it.
+const mockRecordResolvedMention =
+  vi.fn<
+    (tenantId: string, commentId: string, userId: string) => Promise<void>
+  >();
 
 const mockTx = {
   select: () => nextSelect(),
-  execute: (query: { strings: TemplateStringsArray; vals: unknown[] }) => {
-    if (executeError) return Promise.reject(executeError);
-    executeCalls.push(query);
-    return Promise.resolve([]);
-  },
   insert: (table: unknown) => ({
     values: (values: unknown) => {
       insertCalls.push({ table, values });
@@ -202,6 +199,10 @@ vi.mock("@platform/notifications", () => ({
 
 vi.mock("./queues.js", () => ({ connection: {} }));
 
+vi.mock("./record-resolved-mention.js", () => ({
+  recordResolvedMention: mockRecordResolvedMention,
+}));
+
 const { stopMentionResolutionWorker } =
   await import("./mention-resolution-worker.js");
 void stopMentionResolutionWorker; // exercised only for import-side-effect coverage
@@ -250,8 +251,7 @@ beforeEach(() => {
   selectCallIndex = 0;
   insertCalls.length = 0;
   updateCalls.length = 0;
-  executeCalls.length = 0;
-  executeError = null;
+  mockRecordResolvedMention.mockReset().mockResolvedValue(undefined);
   auditEntries.length = 0;
   emitAccessEventCalls.length = 0;
   misuseAlertCalls.length = 0;
@@ -555,15 +555,6 @@ describe("mention-resolution-worker", () => {
 
 // ── #689: resolved mentions are recorded on the comment ────────────────────────
 
-function recordedMention(): { commentId: unknown; userId: unknown } | null {
-  const call = executeCalls.find((c) =>
-    c.strings.join("?").includes("UPDATE workflow_events"),
-  );
-  if (!call) return null;
-  // vals order: userId (append), commentId, tenantId, userId (dedup), tenantId, userId (member)
-  return { commentId: call.vals[1], userId: call.vals[0] };
-}
-
 describe("recording resolved mentions for erasure (#689)", () => {
   it("records the resolved user on the comment when they already had access (outcome 1)", async () => {
     selectQueue = [() => [instanceRow]];
@@ -571,10 +562,12 @@ describe("recording resolved mentions for erasure (#689)", () => {
 
     await capturedProcessor!(baseJob());
 
-    expect(recordedMention()).toEqual({
-      commentId: COMMENT_ID,
-      userId: MENTIONED_USER_ID,
-    });
+    expect(mockRecordResolvedMention).toHaveBeenCalledOnce();
+    expect(mockRecordResolvedMention).toHaveBeenCalledWith(
+      TENANT_ID,
+      COMMENT_ID,
+      MENTIONED_USER_ID,
+    );
   });
 
   it("records the resolved user when access is requested or granted (outcome 2)", async () => {
@@ -582,7 +575,11 @@ describe("recording resolved mentions for erasure (#689)", () => {
 
     await capturedProcessor!(baseJob());
 
-    expect(recordedMention()?.userId).toBe(MENTIONED_USER_ID);
+    expect(mockRecordResolvedMention).toHaveBeenCalledWith(
+      TENANT_ID,
+      COMMENT_ID,
+      MENTIONED_USER_ID,
+    );
   });
 
   it("records a matched person who lacks the user role (outcome 3), since their identifier is in the text", async () => {
@@ -594,10 +591,14 @@ describe("recording resolved mentions for erasure (#689)", () => {
     expect(auditEntries).toEqual([
       expect.objectContaining({ action: "tag.fallback" }),
     ]);
-    expect(recordedMention()?.userId).toBe(MENTIONED_USER_ID);
+    expect(mockRecordResolvedMention).toHaveBeenCalledWith(
+      TENANT_ID,
+      COMMENT_ID,
+      MENTIONED_USER_ID,
+    );
   });
 
-  it("still runs the statement for an unresolved identifier, with an empty id that matches no member", async () => {
+  it("still records for an unresolved identifier, with an empty id that matches no member", async () => {
     selectQueue = [() => [instanceRow]];
     mockOrgUsers = [];
 
@@ -605,23 +606,17 @@ describe("recording resolved mentions for erasure (#689)", () => {
       baseJob({ mentionIdentifier: "nobody@example.com" }),
     );
 
-    expect(recordedMention()).toEqual({ commentId: COMMENT_ID, userId: "" });
-  });
-
-  it("only records tenant members and never duplicates an id", () => {
-    selectQueue = [() => [instanceRow]];
-    return capturedProcessor!(baseJob()).then(() => {
-      const text = executeCalls[0]?.strings.join("?") ?? "";
-      expect(text).toContain("FROM tenant_users");
-      expect(text).toContain("NOT (COALESCE(metadata -> 'mentions'");
-      expect(text).toContain("metadata ->> 'type' = 'comment'");
-    });
+    expect(mockRecordResolvedMention).toHaveBeenCalledWith(
+      TENANT_ID,
+      COMMENT_ID,
+      "",
+    );
   });
 
   it("finishes the tag outcome even when recording the mention fails", async () => {
     selectQueue = [() => [instanceRow]];
     mockHasEntityAccess = true;
-    executeError = new Error("db hiccup");
+    mockRecordResolvedMention.mockRejectedValue(new Error("db hiccup"));
 
     await capturedProcessor!(baseJob());
 
@@ -635,6 +630,6 @@ describe("recording resolved mentions for erasure (#689)", () => {
 
     await capturedProcessor!(baseJob());
 
-    expect(executeCalls).toHaveLength(0);
+    expect(mockRecordResolvedMention).not.toHaveBeenCalled();
   });
 });
