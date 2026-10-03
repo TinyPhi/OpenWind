@@ -22,7 +22,7 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
-import { useModal } from "../../hooks/index.js";
+import { useModal } from "../../hooks/use-modal.js";
 import type { Team } from "../teams/index.js";
 
 export interface Service {

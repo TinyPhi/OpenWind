@@ -16,7 +16,7 @@ import {
   relativeTime,
 } from "../../lib/format.js";
 import { TransitionModal } from "../../components/transition-modal.js";
-import { useDebouncedCallback } from "../../hooks/index.js";
+import { useDebouncedCallback } from "../../hooks/use-debounce.js";
 import {
   OriginCornerBadge,
   COLOR_BY_MECHANISM,
