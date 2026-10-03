@@ -9,6 +9,9 @@ import { StepTrigger } from "./step-trigger.js";
 import { StepConditions } from "./step-conditions.js";
 import { StepActions } from "./step-actions.js";
 import { StepSave } from "./step-save.js";
+import { transitionActionProblem } from "./transition-action.js";
+import type { TransitionsState } from "./transition-action.js";
+import { useTriggerTransitions } from "./use-trigger-transitions.js";
 import {
   fromApiActions,
   fromApiTrigger,
@@ -25,7 +28,11 @@ const STEPS = [
 
 type StepKey = (typeof STEPS)[number]["key"];
 
-export function canAdvance(step: StepKey, data: WizardData): boolean {
+export function canAdvance(
+  step: StepKey,
+  data: WizardData,
+  transitions: TransitionsState = { status: "no-workflow" },
+): boolean {
   if (step === "trigger") {
     // "Field changed" without a type would fire on every record update.
     if (data.triggerType === "field.changed") {
@@ -33,7 +40,16 @@ export function canAdvance(step: StepKey, data: WizardData): boolean {
     }
     return data.triggerType !== "";
   }
-  if (step === "actions") return data.actions.length > 0;
+  if (step === "actions") {
+    return (
+      data.actions.length > 0 &&
+      data.actions.every(
+        (a) =>
+          a.type !== "transition" ||
+          transitionActionProblem(a.config, transitions) === null,
+      )
+    );
+  }
   if (step === "save") return data.name.trim() !== "";
   return true;
 }
@@ -54,6 +70,10 @@ export function AutomationWizard(): React.ReactElement {
 
   const [step, setStep] = useState<StepKey>("trigger");
   const [data, setData] = useState<WizardData>(EMPTY_WIZARD);
+  const transitions = useTriggerTransitions(
+    data.triggerConfig,
+    data.actions.some((a) => a.type === "transition"),
+  );
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -145,7 +165,7 @@ export function AutomationWizard(): React.ReactElement {
 
   const currentIndex = stepIndex(step);
   const isLast = currentIndex === STEPS.length - 1;
-  const advanceOk = canAdvance(step, data);
+  const advanceOk = canAdvance(step, data, transitions);
 
   if (loading) {
     return (
@@ -283,7 +303,9 @@ export function AutomationWizard(): React.ReactElement {
         {step === "conditions" && (
           <StepConditions data={data} onChange={patch} />
         )}
-        {step === "actions" && <StepActions data={data} onChange={patch} />}
+        {step === "actions" && (
+          <StepActions data={data} onChange={patch} transitions={transitions} />
+        )}
         {step === "save" && (
           <StepSave
             data={data}

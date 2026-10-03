@@ -2,10 +2,17 @@ import React from "react";
 import { Button, IconButton } from "@platform/ui";
 import type { WizardData, ActionItem, ActionType } from "./types.js";
 import { genId } from "./types.js";
+import {
+  restrictionReason,
+  transitionActionProblem,
+  transitionOptionLabel,
+} from "./transition-action.js";
+import type { TransitionsState } from "./transition-action.js";
 
 type Props = {
   data: WizardData;
   onChange: (patch: Partial<WizardData>) => void;
+  transitions: TransitionsState;
 };
 
 const ACTION_TYPE_LABELS: Record<ActionType, string> = {
@@ -156,28 +163,70 @@ function SetFieldConfig({
 function TransitionConfig({
   config,
   onChange,
+  transitions,
 }: {
   config: Record<string, unknown>;
   onChange: (patch: Record<string, unknown>) => void;
+  transitions: TransitionsState;
 }): React.ReactElement {
+  const problem = transitionActionProblem(config, transitions);
+  const options = transitions.status === "ready" ? transitions.transitions : [];
+  const transitionId =
+    typeof config.transitionId === "string" ? config.transitionId : "";
+  const selected = options.find((t) => t.id === transitionId);
+  const comment = typeof config.comment === "string" ? config.comment : "";
+
   return (
-    <div className="form-group">
-      <label className="form-label">Transition name</label>
-      <input
-        className="form-input"
-        placeholder="e.g. auto_approve"
-        value={(config.transitionName as string | undefined) ?? ""}
-        onChange={(e) => onChange({ transitionName: e.target.value })}
-      />
-      <p
-        style={{
-          fontSize: "11px",
-          color: "var(--text-muted)",
-          marginTop: "4px",
-        }}
-      >
-        The name of the transition to execute on the triggering record.
-      </p>
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {transitions.status === "ready" && (
+        <div className="form-group">
+          <label className="form-label" htmlFor="transition-action-select">
+            Transition
+          </label>
+          <select
+            id="transition-action-select"
+            className="form-input"
+            value={selected ? transitionId : ""}
+            onChange={(e) => onChange({ transitionId: e.target.value })}
+          >
+            <option value="">
+              {options.length === 0
+                ? "This workflow has no transitions"
+                : "Select a transition…"}
+            </option>
+            {options.map((t) => {
+              const restricted = restrictionReason(t);
+              return (
+                <option key={t.id} value={t.id} disabled={restricted !== null}>
+                  {transitionOptionLabel(t)}
+                  {restricted ? ` — ${restricted}` : ""}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
+      {selected?.requiresComment && (
+        <div className="form-group">
+          <label className="form-label" htmlFor="transition-action-comment">
+            Comment (required by this transition)
+          </label>
+          <input
+            id="transition-action-comment"
+            className="form-input"
+            value={comment}
+            onChange={(e) => onChange({ comment: e.target.value })}
+          />
+        </div>
+      )}
+      {problem && (
+        <p
+          role="status"
+          style={{ fontSize: "12px", color: "var(--text-muted)", margin: 0 }}
+        >
+          {problem}
+        </p>
+      )}
     </div>
   );
 }
@@ -314,11 +363,13 @@ function ActionCard({
   index,
   onUpdate,
   onRemove,
+  transitions,
 }: {
   action: ActionItem;
   index: number;
   onUpdate: (id: string, patch: Partial<ActionItem>) => void;
   onRemove: (id: string) => void;
+  transitions: TransitionsState;
 }): React.ReactElement {
   function patchConfig(patch: Record<string, unknown>): void {
     onUpdate(action.id, { config: { ...action.config, ...patch } });
@@ -394,7 +445,11 @@ function ActionCard({
         <SetFieldConfig config={action.config} onChange={patchConfig} />
       )}
       {action.type === "transition" && (
-        <TransitionConfig config={action.config} onChange={patchConfig} />
+        <TransitionConfig
+          config={action.config}
+          onChange={patchConfig}
+          transitions={transitions}
+        />
       )}
       {action.type === "webhook" && (
         <WebhookConfig config={action.config} onChange={patchConfig} />
@@ -403,7 +458,11 @@ function ActionCard({
   );
 }
 
-export function StepActions({ data, onChange }: Props): React.ReactElement {
+export function StepActions({
+  data,
+  onChange,
+  transitions,
+}: Props): React.ReactElement {
   function addAction(): void {
     onChange({
       actions: [...data.actions, { id: genId(), type: "notify", config: {} }],
@@ -456,6 +515,7 @@ export function StepActions({ data, onChange }: Props): React.ReactElement {
           index={i}
           onUpdate={updateAction}
           onRemove={removeAction}
+          transitions={transitions}
         />
       ))}
 
