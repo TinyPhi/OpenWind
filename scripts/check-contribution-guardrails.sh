@@ -45,7 +45,7 @@ fi
 
 echo "== isolation tests for new tables / routes =="
 NEW_TABLE=$(git diff "$BASE"...HEAD -- 'packages/db/**' | grep -iE '^\+.*CREATE TABLE' || true)
-NEW_ROUTE=$(printf '%s\n' "$ADDED" | grep -E '^apps/api/src/routes/.*\.ts$' || true)
+NEW_ROUTE=$(printf '%s\n' "$ADDED" | grep -E '^apps/api/src/routes/.*\.ts$' | grep -vE '\.(test|spec)\.[tj]sx?$' || true)
 ISO=$(printf '%s\n' "$CHANGED" | grep -E '(^|/)tests/isolation/' || true)
 if { [ -n "$NEW_TABLE" ] || [ -n "$NEW_ROUTE" ]; } && [ -z "$ISO" ]; then
   if printf '%s' "$TITLE" | grep -q '\[skip-isolation-check\]'; then
