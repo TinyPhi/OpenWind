@@ -12,6 +12,16 @@ loads all enabled rules matching the trigger type, evaluates their condition tre
 runs their action lists inside savepoints. Circuit breaker and recursion guard prevent
 runaway execution.
 
+Before conditions run, `ruleInScope()` (`trigger-scope.ts`) filters each rule by its
+`trigger_config` against the event, using `SCOPE_KEYS` (exported as `TRIGGER_SCOPE_KEYS`) plus:
+
+- `entityType`: a type name, used by seeded rules.
+- `field` on `entity.updated`: the field must be in `event.changed` (#684).
+
+The API's strict `TRIGGER_CONFIG_SCHEMAS` must allow every scope key, and a test enforces
+this. Trigger types with no emitter must not be accepted: the four retired in #684 are listed
+in `RETIRED_TRIGGER_TYPES`.
+
 ---
 
 ## Key functions

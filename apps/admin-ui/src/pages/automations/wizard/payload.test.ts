@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   fromApiActions,
+  fromApiTrigger,
   stateKeyFor,
   toApiActions,
+  toApiTrigger,
   withConfigValues,
 } from "./payload.js";
 import type { ActionItem } from "./types.js";
@@ -111,5 +113,73 @@ describe("fromApiActions", () => {
     const saved = toApiActions([webhook(rows)]);
     const [loaded] = fromApiActions(saved, () => "a-1");
     expect(loaded?.config.headers).toEqual(rows);
+  });
+});
+
+describe("toApiTrigger (#684)", () => {
+  it("saves 'State entered' as a transition narrowed by toState", () => {
+    expect(
+      toApiTrigger("workflow.entered_state", {
+        workflowId: "wf-1",
+        toState: "approved",
+      }),
+    ).toEqual({
+      triggerType: "workflow.transitioned",
+      triggerConfig: { workflowId: "wf-1", toState: "approved" },
+    });
+  });
+
+  it("saves 'Field changed' as an entity update narrowed by field", () => {
+    expect(
+      toApiTrigger("field.changed", { entityTypeId: "et-1", field: "status" }),
+    ).toEqual({
+      triggerType: "entity.updated",
+      triggerConfig: { entityTypeId: "et-1", field: "status" },
+    });
+  });
+
+  it("passes every other choice through unchanged", () => {
+    expect(toApiTrigger("entity.created", { entityTypeId: "et-1" })).toEqual({
+      triggerType: "entity.created",
+      triggerConfig: { entityTypeId: "et-1" },
+    });
+  });
+});
+
+describe("fromApiTrigger (#684)", () => {
+  it("opens a transition narrowed only by toState as 'State entered'", () => {
+    expect(
+      fromApiTrigger("workflow.transitioned", { toState: "approved" }),
+    ).toBe("workflow.entered_state");
+  });
+
+  it("opens a transition with a fromState, or no toState, as 'Transition taken'", () => {
+    expect(
+      fromApiTrigger("workflow.transitioned", {
+        fromState: "open",
+        toState: "done",
+      }),
+    ).toBe("workflow.transitioned");
+    expect(fromApiTrigger("workflow.transitioned", {})).toBe(
+      "workflow.transitioned",
+    );
+  });
+
+  it("opens an entity update as 'Field changed'", () => {
+    expect(fromApiTrigger("entity.updated", {})).toBe("field.changed");
+  });
+
+  it("opens a type the wizard can't offer unselected", () => {
+    expect(fromApiTrigger("schedule.cron", { cron: "0 9 * * *" })).toBe("");
+    expect(fromApiTrigger("comment.mentioned", {})).toBe("");
+  });
+
+  it.each([
+    ["workflow.entered_state", { workflowId: "wf-1", toState: "approved" }],
+    ["field.changed", { entityTypeId: "et-1", field: "status" }],
+    ["workflow.sla_breached", { state: "open" }],
+  ] as const)("round-trips %s through save and load", (choice, config) => {
+    const saved = toApiTrigger(choice, config);
+    expect(fromApiTrigger(saved.triggerType, saved.triggerConfig)).toBe(choice);
   });
 });

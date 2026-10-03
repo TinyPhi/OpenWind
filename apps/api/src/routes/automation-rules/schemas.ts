@@ -8,18 +8,39 @@ import type { ConditionTree } from "@platform/workflow-engine";
 // ── Trigger types ─────────────────────────────────────────────────────────────
 
 export const TRIGGER_TYPES = [
-  "workflow.entered_state",
   "workflow.transitioned",
   "workflow.sla_breached",
-  "field.changed",
   "entity.created",
   "entity.assigned",
   "entity.updated",
-  "schedule.cron",
-  "connector.event",
 ] as const;
 
-export const TriggerTypeSchema = z.enum(TRIGGER_TYPES);
+// #684: accepted once but never emitted, so rules using them were silently
+// inert. Migration 0132 converted or disabled the stored ones.
+export const RETIRED_TRIGGER_TYPES: Readonly<Record<string, string>> = {
+  "workflow.entered_state":
+    "use workflow.transitioned with triggerConfig.toState",
+  "field.changed": "use entity.updated with triggerConfig.field",
+  "schedule.cron":
+    "nothing emits it; use a schedule rule to create records on a schedule",
+  "connector.event":
+    "nothing emits it until the connector runtime ships (#368)",
+};
+
+export const TriggerTypeSchema = z.enum(TRIGGER_TYPES, {
+  errorMap: (_issue, ctx) => {
+    const hint =
+      typeof ctx.data === "string"
+        ? RETIRED_TRIGGER_TYPES[ctx.data]
+        : undefined;
+    return {
+      message:
+        hint !== undefined
+          ? `${String(ctx.data)} is no longer supported: ${hint}`
+          : ctx.defaultError,
+    };
+  },
+});
 
 // ── Action config ─────────────────────────────────────────────────────────────
 // Discriminated by `type` so `config`'s shape is actually checked per action,
@@ -142,7 +163,6 @@ export const ActionConfigSchema = z.discriminatedUnion("type", [
 // Used in create.ts and update.ts via .superRefine() so the config shape is
 // validated against the chosen triggerType at the API boundary rather than
 // failing silently at automation worker runtime.
-// connector.event and schedule.cron are kept permissive (Phase 3 shapes TBD).
 
 // #684: a client's "any" option arrives as "", which would fail the uuid
 // checks below and, for unvalidated keys, be stored. Treat it as unset.
@@ -152,36 +172,42 @@ export const TriggerConfigInputSchema = z
     Object.fromEntries(Object.entries(config).filter(([, v]) => v !== "")),
   );
 
+// Strict (#684): an unknown key is rejected rather than stored and ignored.
+// The keys mirror the executor's TRIGGER_SCOPE_KEYS, plus `entityType` (a
+// type name, used by module-seeded rules).
+const workflowId = z.string().uuid().optional();
+const entityTypeId = z.string().uuid().optional();
+const entityType = z.string().min(1).optional();
+
 export const TRIGGER_CONFIG_SCHEMAS = {
-  "workflow.entered_state": z.object({
-    workflowId: z.string().uuid().optional(),
-    toState: z.string().optional(),
-  }),
-  "workflow.transitioned": z.object({
-    workflowId: z.string().uuid().optional(),
-    fromState: z.string().optional(),
-    toState: z.string().optional(),
-  }),
-  "workflow.sla_breached": z.object({
-    workflowId: z.string().uuid().optional(),
-    // Read by the executor since #678.
-    state: z.string().optional(),
-  }),
-  "field.changed": z.object({
-    entityTypeId: z.string().uuid(),
-    field: z.string().min(1),
-  }),
-  "entity.created": z.object({
-    entityTypeId: z.string().uuid().optional(),
-  }),
-  "entity.assigned": z.object({
-    entityTypeId: z.string().uuid().optional(),
-  }),
-  "entity.updated": z.object({
-    entityTypeId: z.string().uuid().optional(),
-  }),
-  "schedule.cron": z.object({ cron: z.string().min(1) }),
-  "connector.event": z.record(z.unknown()),
+  "workflow.transitioned": z
+    .object({
+      workflowId,
+      fromState: z.string().optional(),
+      toState: z.string().optional(),
+      entityTypeId,
+      entityType,
+    })
+    .strict(),
+  "workflow.sla_breached": z
+    .object({
+      workflowId,
+      // Read by the executor since #678.
+      state: z.string().optional(),
+      entityTypeId,
+      entityType,
+    })
+    .strict(),
+  "entity.created": z.object({ entityTypeId, entityType }).strict(),
+  "entity.assigned": z.object({ entityTypeId, entityType }).strict(),
+  "entity.updated": z
+    .object({
+      entityTypeId,
+      entityType,
+      // Fires only when this field is in the event's `changed` map.
+      field: z.string().min(1).optional(),
+    })
+    .strict(),
 } satisfies Record<(typeof TRIGGER_TYPES)[number], z.ZodTypeAny>;
 
 // ── Condition tree ────────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@ export type EntityTypeNameResolver = (
 // trigger_config key → the event field it is compared against, per trigger
 // type (docs/specs/automation-trigger-config-scoping.md §I). `entityType` (a
 // name, from module seeds) is handled separately.
-const SCOPE_KEYS: Record<string, Record<string, string>> = {
+export const SCOPE_KEYS: Readonly<Record<string, Record<string, string>>> = {
   "workflow.transitioned": {
     workflowId: "workflowId",
     fromState: "fromState",
@@ -84,6 +84,20 @@ export async function ruleInScope(
     const expected = config[key];
     if (isUnset(expected)) continue;
     if (!scopeValueMatches(key, expected, fields[eventField])) return false;
+  }
+
+  // #684: "field changed" is entity.updated scoped to one changed field.
+  const expectedField = config["field"];
+  if (event.eventType === "entity.updated" && !isUnset(expectedField)) {
+    const changed = fields["changed"];
+    if (
+      typeof expectedField !== "string" ||
+      typeof changed !== "object" ||
+      changed === null ||
+      !Object.hasOwn(changed, expectedField)
+    ) {
+      return false;
+    }
   }
 
   const expectedName = config["entityType"];

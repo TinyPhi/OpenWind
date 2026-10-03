@@ -1,10 +1,11 @@
 import type { ConditionTree } from "@platform/workflow-engine";
 
+// #684: workflow.entered_state, field.changed, schedule.cron and
+// connector.event were removed — nothing emitted them. Migration 0132
+// converts or disables stored rules that used them.
 export type TriggerType =
-  | "workflow.entered_state"
   | "workflow.transitioned"
   | "workflow.sla_breached"
-  | "field.changed"
   | "entity.created"
   | "entity.assigned"
   | "entity.updated"
@@ -14,9 +15,7 @@ export type TriggerType =
   | "comment.replied"
   | "access.granted"
   | "access.revoked"
-  | "system.error"
-  | "schedule.cron"
-  | "connector.event";
+  | "system.error";
 
 export type ActionType =
   | "notify"
