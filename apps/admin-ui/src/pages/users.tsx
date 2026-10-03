@@ -10,6 +10,8 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
+import { initials } from "../lib/format.js";
+import { avatarColor } from "../lib/theme.js";
 
 function getRolesFromProfile(
   profile: Record<string, unknown> | undefined,
@@ -34,35 +36,6 @@ interface User {
   email: string;
   loginName: string;
   roles?: string[];
-}
-
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .slice(0, 2)
-    .map((p) => p.charAt(0))
-    .join("")
-    .toUpperCase();
-}
-
-const AVATAR_COLORS = [
-  "#6366f1",
-  "#8b5cf6",
-  "#ec4899",
-  "#f59e0b",
-  "#10b981",
-  "#3b82f6",
-  "#ef4444",
-  "#14b8a6",
-];
-
-function avatarColor(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = (hash << 5) - hash + userId.charCodeAt(i);
-    hash |= 0;
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? "#6366f1";
 }
 
 interface UserRowProps {

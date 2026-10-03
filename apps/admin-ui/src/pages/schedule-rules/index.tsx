@@ -23,6 +23,7 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
+import { useOutsideClick } from "../../hooks/use-outside-click.js";
 
 const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 type Severity = (typeof SEVERITIES)[number];
@@ -161,25 +162,6 @@ function isCronRepresentableByPicker(cronExpr: string): boolean {
       parsed.dayOfMonth,
     ) === cronExpr.trim()
   );
-}
-
-// Generic searchable, single-select dropdown -- same click-outside/search-
-// box/clear-button pattern as record-create.tsx's UserPicker/TeamPicker,
-// factored out here as a reusable primitive rather than a copy-paste (this
-// page needs the same UX for Workflow, not just User/Team).
-function useOutsideClick(
-  ref: React.RefObject<HTMLElement>,
-  onOutside: () => void,
-): void {
-  useEffect(() => {
-    function handler(e: MouseEvent): void {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onOutside();
-      }
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [ref, onOutside]);
 }
 
 function SearchableSelect({

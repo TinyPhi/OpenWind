@@ -46,6 +46,7 @@ import {
   SeverityDropdown,
   type Severity,
 } from "../../components/severity-tag.js";
+import { formatFieldValue } from "../../lib/format.js";
 
 type EntityField = {
   id: string;
@@ -1003,33 +1004,6 @@ function tagColor(text: string): { bg: string; border: string; fg: string } {
     border: `hsl(${hue}, ${sat}%, ${Math.max(light - 12, 0)}%)`,
     fg,
   };
-}
-
-function formatFieldValue(
-  value: unknown,
-  fieldType?: string,
-  attachments?: AttachmentFile[],
-): string {
-  if (value === null || value === undefined) return "—";
-  if (fieldType === "file" || fieldType === "files") {
-    // Stored as plain file-id string(s) - resolve against the entity's
-    // attachments list (same lookup FieldValue uses for the read-only field
-    // display) so the history diff shows names instead of raw ids.
-    const ids = Array.isArray(value) ? value : [value];
-    const names = ids
-      .filter((v): v is string => typeof v === "string")
-      .map(
-        (fid) => attachments?.find((a) => a.id === fid)?.originalName ?? fid,
-      );
-    return names.length > 0 ? names.join(", ") : "—";
-  }
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if ("amount" in obj && "currency" in obj)
-      return `${String(obj.currency)} ${String(obj.amount)}`;
-    return JSON.stringify(value);
-  }
-  return String(value);
 }
 
 const TERMINAL_SCAN_STATUSES = new Set(["clean", "quarantined", "scan_failed"]);

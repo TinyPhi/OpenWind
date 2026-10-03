@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { withAlpha } from "../lib/theme.js";
 
 // docs/specs/ticket-severity-and-tags.md §I — fixed, global, rank-ordered.
 // Never tenant-customizable. Rank is array position (low=1 ... critical=4).
@@ -22,10 +23,6 @@ export const SEVERITY_COLOR: Record<Severity, string> = {
 };
 
 export const DEFAULT_SEVERITY: Severity = "medium";
-
-function withAlpha(hslColor: string, alpha: number): string {
-  return hslColor.replace("hsl(", "hsla(").replace(")", `, ${alpha})`);
-}
 
 /**
  * Read-only colored pill — records-list card corner badge and any place that
