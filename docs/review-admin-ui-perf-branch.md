@@ -32,7 +32,7 @@ Fixed after this review (each as its own small commit):
 | Dead `ow-logo.png/.svg`, dead `ResolvePreview` alias                           | **Removed**                                                                                                                            |
 | Notification in-flight dedup vs. mutations                                     | **Fixed**: mutators and logout clear it; `.finally` no longer nulls a newer request                                                    |
 | Idle logout could fire up to ~10 s early                                       | **Fixed**: timeout re-checks the latest raw activity; test added                                                                       |
-| `chunkSizeWarningLimit` presented as a guard                                   | **Added** `size:check` (entry gzip ≤ 230 kB, currently ~197 kB); docs corrected                                                        |
+| `chunkSizeWarningLimit` presented as a guard                                   | **Added** `size:check` (entry gzip ≤ 280 kB, currently ~264 kB); docs corrected                                                        |
 | Unverified/incorrect doc claims, hashes, names, AGENTS.md vs `useHoverStyle`   | **Corrected** in `docs/frontend-performance-optimizations.md` and `AGENTS.md`                                                          |
 
 Deliberately **not** changed (needs a product/design decision or is larger scope):

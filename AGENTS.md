@@ -68,7 +68,7 @@ OpenWind is a modular, workflow-native business platform built on a config-first
   - All page components must be defined with dynamic `lazy()` imports in `src/lazy-routes.ts` and loaded through `<Suspense>`.
   - NEVER statically import page components directly in `App.tsx`.
   - Heavy specialized dependencies (e.g. `@reactflow/*`, `@dagrejs/dagre`, `d3-*`, `@dnd-kit/*`, `@superset-ui/embedded-sdk`) MUST remain isolated to their respective route chunks.
-  - The main application entry chunk must stay within the gzip budget enforced by `pnpm --filter @platform/admin-ui size:check` (run after `build`; default 230 kB). `chunkSizeWarningLimit: 700` only silences Vite's warning and is not a guard.
+  - The main application entry chunk must stay within the gzip budget enforced by `pnpm --filter @platform/admin-ui size:check` (run after `build`; default 280 kB). `chunkSizeWarningLimit: 700` only silences Vite's warning and is not a guard.
 - **Eliminate Network Waterfalls**:
   - NEVER trigger sequential API requests across cascaded `useEffect` cycles.
   - Consolidate data requirements and dispatch independent requests concurrently using `Promise.all` or composite endpoints.

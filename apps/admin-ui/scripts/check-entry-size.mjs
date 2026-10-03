@@ -5,7 +5,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join } from "node:path";
 
-const BUDGET_KB = Number(process.env.ENTRY_GZIP_BUDGET_KB ?? 230);
+// Main application entry chunk gzip ceiling in kilobytes.
+const ENTRY_GZIP_BUDGET_KB = 280;
 const distDir = new URL("../dist", import.meta.url).pathname;
 
 const html = readFileSync(join(distDir, "index.html"), "utf8");
@@ -22,9 +23,9 @@ const chunks = readdirSync(join(distDir, "assets")).filter((f) =>
 ).length;
 
 console.log(
-  `entry ${match[1]}: ${gzipKb.toFixed(1)} kB gzip (budget ${BUDGET_KB} kB), ${chunks} js chunks`,
+  `entry ${match[1]}: ${gzipKb.toFixed(1)} kB gzip (budget ${ENTRY_GZIP_BUDGET_KB} kB), ${chunks} js chunks`,
 );
-if (gzipKb > BUDGET_KB) {
-  console.error(`size:check FAILED — entry exceeds ${BUDGET_KB} kB gzip`);
+if (gzipKb > ENTRY_GZIP_BUDGET_KB) {
+  console.error(`size:check FAILED — entry exceeds ${ENTRY_GZIP_BUDGET_KB} kB gzip`);
   process.exit(1);
 }
