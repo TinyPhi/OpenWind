@@ -1,4 +1,4 @@
-# Review: `perf/admin-ui-performance-optimizations`
+# Review: `feat/PLAT-admin-ui-perf-optimizations`
 
 Reviewer assessment of 17 commits (base `origin/main`, merge-base `fc8a519`; the last 2 commits were local-only at review time). 35 files, +2086 / −740.
 Method: 4 parallel read-only reviews (bundle, data/network, render/forms, docs+verification), a before/after hook audit script (`scripts/audit-hook-delta.py`), and real builds of base vs. head.

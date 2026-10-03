@@ -2,7 +2,7 @@
 
 **Target Application**: `apps/admin-ui`  
 **Target Package**: `@platform/admin-ui` & `@platform/ui`  
-**Branch**: `perf/admin-ui-performance-optimizations`  
+**Branch**: `feat/PLAT-admin-ui-perf-optimizations`  
 **Framework**: React 18.3, Vite 6.4, Refine 4.58, Tailwind CSS, TypeScript 5.8  
 **Date**: October 2026  
 **Status**: Ready for Pull Request
