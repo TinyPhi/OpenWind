@@ -16,6 +16,7 @@ import {
   relativeTime,
 } from "../../lib/format.js";
 import { TransitionModal } from "../../components/transition-modal.js";
+import { useDebouncedCallback } from "../../hooks/index.js";
 import {
   OriginCornerBadge,
   COLOR_BY_MECHANISM,
@@ -690,23 +691,17 @@ export function WorkflowRecords(): React.ReactElement {
     userSearch,
   } = filters;
 
-  const filterTagDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
+  const debounceFilterTagUpdate = useDebouncedCallback<[string]>(
+    (val: string) => {
+      setFilters((prev) => ({ ...prev, tag: val.trim() }));
+    },
+    400,
   );
+
   function handleFilterTagInputChange(value: string): void {
     setFilters((prev) => ({ ...prev, tagInput: value }));
-    if (filterTagDebounceRef.current)
-      clearTimeout(filterTagDebounceRef.current);
-    filterTagDebounceRef.current = setTimeout(() => {
-      setFilters((prev) => ({ ...prev, tag: value.trim() }));
-    }, 400);
+    debounceFilterTagUpdate(value);
   }
-  useEffect(() => {
-    return () => {
-      if (filterTagDebounceRef.current)
-        clearTimeout(filterTagDebounceRef.current);
-    };
-  }, []);
   const filterBtnRef = useRef<HTMLButtonElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
 

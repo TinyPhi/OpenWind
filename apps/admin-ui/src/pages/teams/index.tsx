@@ -22,6 +22,7 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
+import { useModal } from "../../hooks/index.js";
 
 export interface Team {
   id: string;
@@ -39,9 +40,8 @@ export interface Team {
 export function TeamsPage(): React.ReactElement {
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Team | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [deleting, setDeleting] = useState<Team | null>(null);
+  const teamModal = useModal<Team>();
+  const deleteModal = useModal<Team>();
 
   const refresh = useCallback((): void => {
     setLoading(true);
@@ -60,7 +60,7 @@ export function TeamsPage(): React.ReactElement {
       await fetchWithAuth(`${API_URL}/admin/teams/${team.id}`, {
         method: "DELETE",
       });
-      setDeleting(null);
+      deleteModal.close();
       refresh();
     } catch {
       showAlert("Failed to delete team.");
@@ -86,7 +86,7 @@ export function TeamsPage(): React.ReactElement {
           </p>
         </div>
         <div className="wfl-header-actions">
-          <Button variant="primary" onClick={() => setCreating(true)}>
+          <Button variant="primary" onClick={teamModal.openCreate}>
             New Team
           </Button>
         </div>
@@ -115,13 +115,13 @@ export function TeamsPage(): React.ReactElement {
                   <div style={{ display: "flex", gap: 6 }}>
                     <IconButton
                       aria-label="Edit team"
-                      onClick={() => setEditing(team)}
+                      onClick={() => teamModal.openEdit(team)}
                     >
                       ✎
                     </IconButton>
                     <IconButton
                       aria-label="Delete team"
-                      onClick={() => setDeleting(team)}
+                      onClick={() => deleteModal.open(team)}
                     >
                       🗑
                     </IconButton>
@@ -134,40 +134,34 @@ export function TeamsPage(): React.ReactElement {
       )}
 
       <TeamFormModal
-        open={creating}
-        onClose={() => setCreating(false)}
+        open={teamModal.isOpen}
+        team={teamModal.item ?? undefined}
+        onClose={teamModal.close}
         onSaved={() => {
-          setCreating(false);
-          refresh();
-        }}
-      />
-      <TeamFormModal
-        open={editing !== null}
-        team={editing ?? undefined}
-        onClose={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null);
+          teamModal.close();
           refresh();
         }}
       />
 
       <AlertDialog
-        open={deleting !== null}
+        open={deleteModal.isOpen}
         onOpenChange={(next) => {
-          if (!next) setDeleting(null);
+          if (!next) deleteModal.close();
         }}
       >
         <AlertDialogContent>
           <AlertDialogTitle>Delete team?</AlertDialogTitle>
           <AlertDialogDescription>
-            {deleting
-              ? `"${deleting.name}" will be archived. On-call schedules and automation rules that route to this team will stop resolving on-call assignments. This action cannot be undone through the UI.`
+            {deleteModal.item
+              ? `"${deleteModal.item.name}" will be archived. On-call schedules and automation rules that route to this team will stop resolving on-call assignments. This action cannot be undone through the UI.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleting && void handleDelete(deleting)}
+              onClick={() => {
+                if (deleteModal.item) void handleDelete(deleteModal.item);
+              }}
             >
               Delete
             </AlertDialogAction>
