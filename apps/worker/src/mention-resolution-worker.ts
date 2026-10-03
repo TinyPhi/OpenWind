@@ -48,6 +48,7 @@ import { checkRateLimit, getRedis } from "@platform/redis";
 import { logger } from "@platform/logger";
 import { connection } from "./queues.js";
 import { validateActiveTenant } from "./tenant-guard.js";
+import { recordResolvedMention } from "./record-resolved-mention.js";
 
 export type MentionResolutionJob = {
   tenantId: string;
@@ -164,6 +165,18 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
     const hasAccess = await withTenantContext(tenantId, (tx) =>
       hasEntityAccess(tx, tenantId, instance, accessCheckTargetId, []),
     );
+
+    // Every job runs this, an unresolved identifier passing "" (which matches
+    // no tenant member), so resolution timing stays equal (R5/R6). A failure
+    // here only weakens a later erasure, so it must not stop the tag outcome.
+    try {
+      await recordResolvedMention(tenantId, commentId, resolved?.userId ?? "");
+    } catch (err) {
+      logger.error(
+        { tenantId, commentId, jobId: job.id, error: String(err) },
+        "mention-resolution: could not record the resolved mention on the comment",
+      );
+    }
 
     let outcome: Outcome;
     if (resolved?.isTenantUser && hasAccess) {
