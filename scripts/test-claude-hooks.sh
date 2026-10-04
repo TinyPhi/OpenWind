@@ -273,6 +273,27 @@ else
   echo "  skip  worktree-aware resolution (could not create a test worktree in this environment)"
 fi
 
+echo "check-contribution-guardrails.sh (isolation check, #762):"
+GR_SCRIPT="$PWD/scripts/check-contribution-guardrails.sh"
+# guardrails <files to add in one commit of a temp repo...> -> the script's exit code
+guardrails() {
+  local repo
+  repo="$(mktemp -d)"
+  (
+    cd "$repo" || exit 99
+    git init -q && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
+    for f in "$@"; do mkdir -p "$(dirname "$f")" && echo "// x" >"$f"; done
+    git add -A && git -c user.name=t -c user.email=t@t commit -q -m change
+    PR_TITLE="" bash "$GR_SCRIPT" HEAD~1 >/dev/null 2>&1
+  )
+  local rc=$?
+  rm -rf "$repo"
+  echo "$rc"
+}
+ck 0 "colocated route unit test is not treated as a new route" "$(guardrails apps/api/src/routes/foo/bar.test.ts)"
+# Paired with its unit test so only the isolation check can fail here.
+ck 1 "new route file without an isolation test still fails" "$(guardrails apps/api/src/routes/foo/bar.ts apps/api/src/routes/foo/bar.test.ts)"
+
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
