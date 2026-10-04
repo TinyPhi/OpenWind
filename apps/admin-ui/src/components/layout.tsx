@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useLogout, useGetIdentity } from "@refinedev/core";
 import { Link, useLocation } from "react-router-dom";
-import { TOKENS, useHoverStyle } from "@platform/ui";
+import { TOKENS } from "@platform/ui";
 import { userManager } from "../authProvider.js";
 import { NotificationBell } from "./notification-bell.js";
 
@@ -348,6 +348,72 @@ function getRolesFromProfile(
 
 // â”€â”€ Layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+interface InitialsAvatarProps {
+  name: string;
+  avatar?: string | undefined;
+  size: number;
+  className?: string | undefined;
+  style?: React.CSSProperties | undefined;
+}
+
+function InitialsAvatar({
+  name,
+  avatar,
+  size,
+  className,
+  style,
+}: InitialsAvatarProps): React.ReactElement {
+  if (avatar) {
+    return (
+      <img
+        src={avatar}
+        alt={name || "Avatar"}
+        className={className}
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: "50%",
+          flexShrink: 0,
+          ...style,
+        }}
+      />
+    );
+  }
+
+  const initials =
+    name
+      .split(" ")
+      .slice(0, 2)
+      .map((p) => p[0] ?? "")
+      .join("")
+      .toUpperCase() || "U";
+
+  return (
+    <div
+      role="img"
+      className={className}
+      aria-label={`${name} avatar`}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: "50%",
+        background: "var(--accent-primary, #00aa55)",
+        color: "#ffffff",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 700,
+        fontSize: size > 40 ? "20px" : "11px",
+        flexShrink: 0,
+        userSelect: "none",
+        ...style,
+      }}
+    >
+      {initials}
+    </div>
+  );
+}
+
 export function Layout({
   children,
 }: {
@@ -358,7 +424,7 @@ export function Layout({
     id: string;
     name: string;
     email: string;
-    avatar: string;
+    avatar?: string;
   }>();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -367,16 +433,6 @@ export function Layout({
   const [username, setUsername] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
-  const profileButtonHover = useHoverStyle({
-    base: { background: "transparent" },
-    hover: { background: TOKENS.bgTertiary },
-  });
-  const signOutHover = useHoverStyle({
-    base: { background: "none" },
-    hover: {
-      background: `color-mix(in srgb, ${TOKENS.danger} 10%, transparent)`,
-    },
-  });
 
   useEffect(() => {
     void userManager.getUser().then((u) => {
@@ -465,7 +521,7 @@ export function Layout({
           <span />
           <span />
         </button>
-        <img src="/ow-logo.png" alt="OpenWind" className="logo-icon" />
+        <img src="/favicon.svg" alt="OpenWind" className="logo-icon" />
         <div className="logo-text">OpenWind</div>
       </div>
 
@@ -492,23 +548,16 @@ export function Layout({
               border: `1px solid ${TOKENS.borderColor}`,
               borderRadius: "18px",
               cursor: "pointer",
-              transition: "background .15s, border-color .15s",
               maxWidth: "180px",
-              ...profileButtonHover.style,
             }}
             onClick={() => setProfileOpen((o) => !o)}
             aria-label="Open profile"
-            onMouseEnter={profileButtonHover.onMouseEnter}
-            onMouseLeave={profileButtonHover.onMouseLeave}
           >
-            <img
-              src={
-                identity?.avatar ??
-                `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&fontSize=38&fontWeight=700&chars=2`
-              }
-              alt="Avatar"
+            <InitialsAvatar
+              name={name}
+              avatar={identity?.avatar}
+              size={24}
               className="header-avatar"
-              style={{ flexShrink: 0 }}
             />
             <span
               className="header-username"
@@ -551,19 +600,11 @@ export function Layout({
                   padding: "24px 16px 16px",
                 }}
               >
-                <img
-                  src={
-                    identity?.avatar ??
-                    `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&fontSize=38&fontWeight=700&chars=2`
-                  }
-                  alt="Avatar"
-                  style={{
-                    width: "64px",
-                    height: "64px",
-                    borderRadius: "50%",
-                    flexShrink: 0,
-                    border: "2px solid var(--border-color)",
-                  }}
+                <InitialsAvatar
+                  name={name}
+                  avatar={identity?.avatar}
+                  size={64}
+                  style={{ border: "2px solid var(--border-color)" }}
                 />
                 <div
                   style={{
@@ -657,6 +698,7 @@ export function Layout({
               />
               <button
                 onClick={handleLogout}
+                className="header-sign-out-btn"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -669,10 +711,7 @@ export function Layout({
                   color: TOKENS.danger,
                   border: "none",
                   cursor: "pointer",
-                  ...signOutHover.style,
                 }}
-                onMouseEnter={signOutHover.onMouseEnter}
-                onMouseLeave={signOutHover.onMouseLeave}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"

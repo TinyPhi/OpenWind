@@ -99,14 +99,41 @@ export function makeCustomAccent(hex: string): AccentColor {
   return { id: CUSTOM_ACCENT_ID, label: "Custom", h, s, l };
 }
 
+function safeGetItem(key: string): string | null {
+  try {
+    if (
+      typeof localStorage !== "undefined" &&
+      typeof localStorage.getItem === "function"
+    ) {
+      return localStorage.getItem(key);
+    }
+  } catch {
+    // Ignore storage errors in test or restricted environments
+  }
+  return null;
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    if (
+      typeof localStorage !== "undefined" &&
+      typeof localStorage.setItem === "function"
+    ) {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // Ignore storage errors in test or restricted environments
+  }
+}
+
 export function getSavedTheme(): ThemeMode {
-  return (localStorage.getItem(STORAGE_THEME) as ThemeMode | null) ?? "dark";
+  return (safeGetItem(STORAGE_THEME) as ThemeMode | null) ?? "dark";
 }
 
 export function getSavedAccent(): AccentColor {
-  const id = localStorage.getItem(STORAGE_ACCENT);
+  const id = safeGetItem(STORAGE_ACCENT);
   if (id === CUSTOM_ACCENT_ID) {
-    const hex = localStorage.getItem(STORAGE_ACCENT_CUSTOM);
+    const hex = safeGetItem(STORAGE_ACCENT_CUSTOM);
     if (hex) return makeCustomAccent(hex);
   }
   const found = ACCENT_COLORS.find((c) => c.id === id);
@@ -117,7 +144,7 @@ export function getSavedAccent(): AccentColor {
 
 export function applyTheme(mode: ThemeMode): void {
   document.documentElement.setAttribute("data-theme", mode);
-  localStorage.setItem(STORAGE_THEME, mode);
+  safeSetItem(STORAGE_THEME, mode);
 }
 
 export function applyAccent(color: AccentColor): void {
@@ -136,13 +163,26 @@ export function applyAccent(color: AccentColor): void {
     `hsl(${h}, ${Math.min(s + 10, 100)}%, ${Math.min(l + 8, 90)}%)`,
   );
   root.style.setProperty("--border-focus", `hsla(${h}, ${s}%, ${l}%, 0.4)`);
-  localStorage.setItem(STORAGE_ACCENT, color.id);
+  safeSetItem(STORAGE_ACCENT, color.id);
   if (color.id === CUSTOM_ACCENT_ID) {
-    localStorage.setItem(STORAGE_ACCENT_CUSTOM, hslToHex(h, s, l));
+    safeSetItem(STORAGE_ACCENT_CUSTOM, hslToHex(h, s, l));
   }
 }
 
 export function initTheme(): void {
   applyTheme(getSavedTheme());
   applyAccent(getSavedAccent());
+}
+
+export function withAlpha(hslColor: string, alpha: number): string {
+  return hslColor.replace("hsl(", "hsla(").replace(")", `, ${alpha})`);
+}
+
+export function avatarColor(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const h = Math.abs(hash) % 360;
+  return `hsl(${h}, 60%, 45%)`;
 }

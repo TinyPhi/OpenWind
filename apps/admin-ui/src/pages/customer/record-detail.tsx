@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { fetchUsersShared } from "../../lib/use-users.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { FieldInput } from "../../components/field-input.js";
 import { userManager } from "../../authProvider.js";
@@ -32,8 +33,6 @@ import {
   AlertDialogCancel,
   Button,
   DIALOG_CONTENT_RESET,
-  TOKENS,
-  useHoverStyle,
 } from "@platform/ui";
 import {
   OriginTag,
@@ -47,6 +46,7 @@ import {
   SeverityDropdown,
   type Severity,
 } from "../../components/severity-tag.js";
+import { formatFieldValue } from "../../lib/format.js";
 
 type EntityField = {
   id: string;
@@ -1006,33 +1006,6 @@ function tagColor(text: string): { bg: string; border: string; fg: string } {
   };
 }
 
-function formatFieldValue(
-  value: unknown,
-  fieldType?: string,
-  attachments?: AttachmentFile[],
-): string {
-  if (value === null || value === undefined) return "—";
-  if (fieldType === "file" || fieldType === "files") {
-    // Stored as plain file-id string(s) - resolve against the entity's
-    // attachments list (same lookup FieldValue uses for the read-only field
-    // display) so the history diff shows names instead of raw ids.
-    const ids = Array.isArray(value) ? value : [value];
-    const names = ids
-      .filter((v): v is string => typeof v === "string")
-      .map(
-        (fid) => attachments?.find((a) => a.id === fid)?.originalName ?? fid,
-      );
-    return names.length > 0 ? names.join(", ") : "—";
-  }
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if ("amount" in obj && "currency" in obj)
-      return `${String(obj.currency)} ${String(obj.amount)}`;
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
-
 const TERMINAL_SCAN_STATUSES = new Set(["clean", "quarantined", "scan_failed"]);
 
 /**
@@ -1116,11 +1089,6 @@ function AccessUserRow({
     badgeColor = "#6b7280";
     badgeBorder = "#d1d5db";
   }
-
-  const removeHover = useHoverStyle({
-    base: { color: "var(--text-muted, #9ca3af)", borderColor: "transparent" },
-    hover: { color: TOKENS.danger, borderColor: "#fca5a5" },
-  });
 
   return (
     <div
@@ -1212,6 +1180,7 @@ function AccessUserRow({
               isCreator,
             })
           }
+          className="record-access-remove-btn"
           style={{
             flexShrink: 0,
             background: "none",
@@ -1221,10 +1190,7 @@ function AccessUserRow({
             padding: "3px 5px",
             fontSize: "14px",
             lineHeight: 1,
-            ...removeHover.style,
           }}
-          onMouseEnter={removeHover.onMouseEnter}
-          onMouseLeave={removeHover.onMouseLeave}
         >
           <svg
             width="12"
@@ -1425,7 +1391,6 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [currentUserRoles, setCurrentUserRoles] = useState<string[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [oidcLoaded, setOidcLoaded] = useState(false);
-  const [accessDenied, setAccessDenied] = useState(false);
 
   // Access requests
   type AccessRequest = {
@@ -1439,13 +1404,24 @@ export function CustomerRecordDetail(): React.ReactElement {
   };
   const [accessReqList, setAccessReqList] = useState<AccessRequest[]>([]);
   const [accessReqLoaded, setAccessReqLoaded] = useState(false);
+  // The list endpoint 404s for plain requesters (owner/admin only), so their
+  // own status can't come from accessReqList: it is set locally on submit and
+  // from the websocket event instead.
+  const [myReqOverrideState, setMyReqOverrideState] = useState<{
+    recordId: string | undefined;
+    status: AccessRequest["status"];
+  } | null>(null);
+  // Scoped to the record so it can't leak when navigating between records.
+  const myReqStatusOverride =
+    myReqOverrideState !== null && myReqOverrideState.recordId === id
+      ? myReqOverrideState.status
+      : null;
+  const setMyReqStatusOverride = (status: AccessRequest["status"]): void =>
+    setMyReqOverrideState({ recordId: id, status });
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [confirmReqLevel, setConfirmReqLevel] = useState<AccessLevel | null>(
     null,
   );
-  const [myAccessReqStatus, setMyAccessReqStatus] = useState<
-    "none" | "pending" | "approved" | "rejected"
-  >("none");
   // resolve popup
   const [resolveModal, setResolveModal] = useState<{
     reqId: string;
@@ -1527,6 +1503,21 @@ export function CustomerRecordDetail(): React.ReactElement {
     currentUserRoles.includes("admin") ||
     currentUserRoles.includes("agent") ||
     isWorkflowAdminOfParent;
+
+  const accessDenied = useMemo(() => {
+    if (!oidcLoaded || loading || isAdminOrAgent) return false;
+    if (currentUserId === null) return false;
+    if (accessList.length === 0) return false;
+    return !accessList.some((e) => e.userId === currentUserId);
+  }, [oidcLoaded, loading, isAdminOrAgent, currentUserId, accessList]);
+
+  const myAccessReqStatus = useMemo<
+    "none" | "pending" | "approved" | "rejected"
+  >(() => {
+    if (!currentUserId) return "none";
+    const mine = accessReqList.find((r) => r.requesterId === currentUserId);
+    return mine ? mine.status : (myReqStatusOverride ?? "none");
+  }, [accessReqList, currentUserId, myReqStatusOverride]);
 
   // Current user's access entry (null for admins/agents — they bypass access list)
   const myAccessEntry =
@@ -1745,8 +1736,8 @@ export function CustomerRecordDetail(): React.ReactElement {
     return actorDisplayName ?? fromList ?? "Unknown";
   };
 
-  function loadRecord(): Promise<void> {
-    if (!id) return Promise.resolve();
+  function loadRecord(): Promise<boolean> {
+    if (!id) return Promise.resolve(false);
     setError(null);
     setNoAccess(false);
     // Fetch the record first — its own entityTypeId is authoritative, unlike
@@ -1765,7 +1756,9 @@ export function CustomerRecordDetail(): React.ReactElement {
         return Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${rec.entityTypeId}/fields`),
           Promise.resolve(recRes),
-          fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
+          fetchUsersShared()
+            .then((users) => ({ data: users }))
+            .catch(() => ({ data: [] })),
           fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(() => ({
             data: [],
           })),
@@ -1795,6 +1788,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           return [...apiUsers, ...prev.filter((u) => !apiIds.has(u.userId))];
         });
         setAccessList((accessRes as { data?: AccessEntry[] }).data ?? []);
+        return true;
       })
       .catch((err: unknown) => {
         const status = (err as { status?: number } | undefined)?.status;
@@ -1803,6 +1797,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         } else {
           setError(err instanceof Error ? err.message : "Failed to load");
         }
+        return false;
       })
       .finally(() => setLoading(false));
   }
@@ -2186,7 +2181,8 @@ export function CustomerRecordDetail(): React.ReactElement {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestedLevel: level }),
       });
-      setMyAccessReqStatus("pending");
+      setMyReqStatusOverride("pending");
+      if (isOwner || isAdminOrAgent) void loadAccessRequests();
     } catch {
       /* best-effort */
     } finally {
@@ -2535,27 +2531,18 @@ export function CustomerRecordDetail(): React.ReactElement {
     setHistoryLoaded(false);
     setAttachments([]);
     setParentRecord(null);
-    setAccessDenied(false);
     setError(null);
     setTags([]);
     initializedCollapse.current = false;
-    void loadRecord().then(() => {
-      void loadComments();
-      void refreshAttachments();
-      void loadTags();
+    let canceled = false;
+    void loadRecord().then((ok) => {
+      if (canceled || !ok) return;
+      void Promise.all([loadComments(), refreshAttachments(), loadTags()]);
     });
+    return () => {
+      canceled = true;
+    };
   }, [id]);
-
-  // Access-denied check: once both the record and OIDC identity are loaded,
-  // verify the general user is in the ticket's access list.
-  useEffect(() => {
-    if (!oidcLoaded || loading || isAdminOrAgent) return;
-    if (currentUserId === null) return;
-    if (accessList.length === 0) return;
-    if (!accessList.some((e) => e.userId === currentUserId)) {
-      setAccessDenied(true);
-    }
-  }, [oidcLoaded, loading, currentUserId, isAdminOrAgent, accessList]);
 
   // Load access requests when owner (creator/assignee) or admin/agent — must
   // match the Access Requests tab's own visibility gate below, or an
@@ -2593,7 +2580,7 @@ export function CustomerRecordDetail(): React.ReactElement {
       ) {
         if (isOwner || isAdminOrAgent) void loadAccessRequests();
         if (msg.request.requestedBy === currentUserId) {
-          setMyAccessReqStatus(msg.request.status);
+          setMyReqStatusOverride(msg.request.status);
         }
       }
     });
@@ -2604,13 +2591,6 @@ export function CustomerRecordDetail(): React.ReactElement {
     // behavior. (PR #376 review L1; this repo's eslint config doesn't enable
     // react-hooks/exhaustive-deps, so no suppression comment is needed here.)
   }, [id, isOwner, isAdminOrAgent, currentUserId]);
-
-  // Sync requester's own request status
-  useEffect(() => {
-    if (!currentUserId || accessDenied) return;
-    const mine = accessReqList.find((r) => r.requesterId === currentUserId);
-    setMyAccessReqStatus(mine ? mine.status : "none");
-  }, [accessReqList, currentUserId, accessDenied]);
 
   useEffect(() => {
     if (!record) return;

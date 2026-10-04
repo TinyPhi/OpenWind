@@ -31,7 +31,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), envJsPlugin(env)],
-    build: { target: "es2022" },
+    build: {
+      target: "es2022",
+      chunkSizeWarningLimit: 700,
+    },
     optimizeDeps: { esbuildOptions: { target: "es2022" } },
     server: {
       port: 3001,

@@ -54,17 +54,20 @@ function lastInstance(): FakeWebSocket {
 
 const {
   listNotifications,
+  getUnreadCount,
+  clearNotificationsInFlight,
   markNotificationRead,
   markAllNotificationsRead,
   subscribeToNotifications,
   subscribeToTicketRoom,
 } = await import("./notifications-client.js");
 
-describe("listNotifications", () => {
-  beforeEach(() => {
-    mockFetchWithAuth.mockReset();
-  });
+beforeEach(() => {
+  clearNotificationsInFlight();
+  mockFetchWithAuth.mockReset();
+});
 
+describe("listNotifications", () => {
   it("requests the default page size and no cursor on first load", async () => {
     mockFetchWithAuth.mockResolvedValue({ data: [], nextCursor: null });
     await listNotifications();
@@ -79,6 +82,130 @@ describe("listNotifications", () => {
     expect(mockFetchWithAuth).toHaveBeenCalledWith(
       "/api/notifications?limit=10&cursor=2026-01-01T00%3A00%3A00.000Z_abc",
     );
+  });
+
+  it("deduplicates concurrent in-flight initial page requests", async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      data: [{ id: "n1", title: "Test" }],
+      nextCursor: null,
+    });
+    const [res1, res2] = await Promise.all([
+      listNotifications(),
+      listNotifications(),
+    ]);
+    expect(res1.data).toHaveLength(1);
+    expect(res2.data).toHaveLength(1);
+    expect(mockFetchWithAuth).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getUnreadCount", () => {
+  it("deduplicates concurrent in-flight requests and returns count", async () => {
+    mockFetchWithAuth.mockResolvedValue({ data: { count: 3 } });
+    const [c1, c2] = await Promise.all([getUnreadCount(), getUnreadCount()]);
+    expect(c1).toBe(3);
+    expect(c2).toBe(3);
+    expect(mockFetchWithAuth).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("in-flight dedup vs. mutations", () => {
+  it("does not let a post-mutation read join a pre-mutation request for unread count (markAllNotificationsRead)", async () => {
+    let resolveStale: (v: { data: { count: number } }) => void = () => {};
+    mockFetchWithAuth.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve as typeof resolveStale;
+      }),
+    );
+    const stale = getUnreadCount();
+
+    mockFetchWithAuth.mockResolvedValueOnce({});
+    await markAllNotificationsRead();
+
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { count: 0 } });
+    expect(await getUnreadCount()).toBe(0);
+
+    resolveStale({ data: { count: 5 } });
+    expect(await stale).toBe(5);
+  });
+
+  it("does not let a post-mutation read join a pre-mutation request for unread count (markNotificationRead)", async () => {
+    let resolveStale: (v: { data: { count: number } }) => void = () => {};
+    mockFetchWithAuth.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve as typeof resolveStale;
+      }),
+    );
+    const stale = getUnreadCount();
+
+    mockFetchWithAuth.mockResolvedValueOnce({});
+    await markNotificationRead("notif-1");
+
+    mockFetchWithAuth.mockResolvedValueOnce({ data: { count: 1 } });
+    expect(await getUnreadCount()).toBe(1);
+
+    resolveStale({ data: { count: 2 } });
+    expect(await stale).toBe(2);
+  });
+
+  it("does not let a post-mutation list read join a pre-mutation list request (markNotificationRead)", async () => {
+    let resolveStale: (v: {
+      data: Array<{ id: string; read: boolean }>;
+      nextCursor: null;
+    }) => void = () => {};
+    mockFetchWithAuth.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve as typeof resolveStale;
+      }),
+    );
+    const stale = listNotifications();
+
+    mockFetchWithAuth.mockResolvedValueOnce({});
+    await markNotificationRead("notif-1");
+
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: [{ id: "notif-1", read: true }],
+      nextCursor: null,
+    });
+    const fresh = await listNotifications();
+    expect(fresh.data[0]?.read).toBe(true);
+
+    resolveStale({
+      data: [{ id: "notif-1", read: false }],
+      nextCursor: null,
+    });
+    const staleResult = await stale;
+    expect(staleResult.data[0]?.read).toBe(false);
+  });
+
+  it("does not let a post-mutation list read join a pre-mutation list request (markAllNotificationsRead)", async () => {
+    let resolveStale: (v: {
+      data: Array<{ id: string; read: boolean }>;
+      nextCursor: null;
+    }) => void = () => {};
+    mockFetchWithAuth.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve as typeof resolveStale;
+      }),
+    );
+    const stale = listNotifications();
+
+    mockFetchWithAuth.mockResolvedValueOnce({});
+    await markAllNotificationsRead();
+
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: [{ id: "notif-1", read: true }],
+      nextCursor: null,
+    });
+    const fresh = await listNotifications();
+    expect(fresh.data[0]?.read).toBe(true);
+
+    resolveStale({
+      data: [{ id: "notif-1", read: false }],
+      nextCursor: null,
+    });
+    const staleResult = await stale;
+    expect(staleResult.data[0]?.read).toBe(false);
   });
 });
 

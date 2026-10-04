@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+let capturedUserUnloadedCallback: (() => void) | undefined;
+let capturedAccessTokenExpiredCallback: (() => void) | undefined;
+
 const mockSigninSilent = vi.fn();
 const mockGetUser = vi.fn().mockResolvedValue(null);
 const mockAddUserLoaded = vi.fn();
+const mockAddUserUnloaded = vi.fn((cb: () => void) => {
+  capturedUserUnloadedCallback = cb;
+});
+const mockAddAccessTokenExpired = vi.fn((cb: () => void) => {
+  capturedAccessTokenExpiredCallback = cb;
+});
 const mockSignoutRedirect = vi.fn();
 const mockRemoveUser = vi.fn();
 const mockClearStaleState = vi.fn();
@@ -15,7 +24,11 @@ vi.mock("oidc-client-ts", () => ({
       signoutRedirect: mockSignoutRedirect,
       removeUser: mockRemoveUser,
       clearStaleState: mockClearStaleState,
-      events: { addUserLoaded: mockAddUserLoaded },
+      events: {
+        addUserLoaded: mockAddUserLoaded,
+        addUserUnloaded: mockAddUserUnloaded,
+        addAccessTokenExpired: mockAddAccessTokenExpired,
+      },
     };
   }),
   WebStorageStateStore: vi.fn(),
@@ -24,6 +37,7 @@ vi.mock("oidc-client-ts", () => ({
 vi.mock("@refinedev/core", () => ({}));
 
 const { silentRefresh, authProvider } = await import("./authProvider.js");
+const { onSessionEnd } = await import("./lib/session-events.js");
 
 describe("silentRefresh", () => {
   beforeEach(() => {
@@ -38,12 +52,28 @@ describe("silentRefresh", () => {
     expect(result).toBe("tok-123");
   });
 
-  it("returns null when signinSilent rejects", async () => {
+  it("returns null and emits session end when signinSilent rejects", async () => {
+    const sessionEndListener = vi.fn();
+    const unsubscribe = onSessionEnd(sessionEndListener);
     mockSigninSilent.mockRejectedValue(new Error("refresh failed"));
 
     const result = await silentRefresh();
 
     expect(result).toBeNull();
+    expect(sessionEndListener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("returns null and emits session end when signinSilent resolves with no access token", async () => {
+    const sessionEndListener = vi.fn();
+    const unsubscribe = onSessionEnd(sessionEndListener);
+    mockSigninSilent.mockResolvedValue(null);
+
+    const result = await silentRefresh();
+
+    expect(result).toBeNull();
+    expect(sessionEndListener).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 
   it("shares one in-flight signinSilent() call across concurrent callers (single-flight)", async () => {
@@ -104,5 +134,45 @@ describe("authProvider.logout", () => {
 
     expect(mockRemoveUser).toHaveBeenCalled();
     expect(result).toEqual({ success: true, redirectTo: "/login" });
+  });
+
+  it("emits session end event to clear module caches on logout", async () => {
+    const sessionEndListener = vi.fn();
+    const unsubscribe = onSessionEnd(sessionEndListener);
+    mockSignoutRedirect.mockResolvedValue(undefined);
+
+    await authProvider.logout({});
+
+    expect(sessionEndListener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("emits session end event even if signoutRedirect throws", async () => {
+    const sessionEndListener = vi.fn();
+    const unsubscribe = onSessionEnd(sessionEndListener);
+    mockSignoutRedirect.mockRejectedValue(new Error("network timeout"));
+
+    await authProvider.logout({});
+
+    expect(sessionEndListener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+});
+
+describe("userManager events", () => {
+  it("registers listeners for addUserUnloaded and addAccessTokenExpired that emit session end", () => {
+    expect(capturedUserUnloadedCallback).toBeDefined();
+    expect(capturedAccessTokenExpiredCallback).toBeDefined();
+
+    const sessionEndListener = vi.fn();
+    const unsubscribe = onSessionEnd(sessionEndListener);
+
+    capturedUserUnloadedCallback?.();
+    expect(sessionEndListener).toHaveBeenCalledTimes(1);
+
+    capturedAccessTokenExpiredCallback?.();
+    expect(sessionEndListener).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
   });
 });

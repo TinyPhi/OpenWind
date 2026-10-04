@@ -7,9 +7,20 @@ import type * as ReactRouterDom from "react-router-dom";
 // separated from an admin-only "Admin" section (docs task: split the side
 // menu so admin-only items are easy to tell apart at a glance).
 
+let mockIdentityData: {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+} = {
+  id: "u1",
+  name: "Jane Doe",
+  email: "jane@example.com",
+};
+
 vi.mock("@refinedev/core", () => ({
   useGetIdentity: () => ({
-    data: { id: "u1", name: "Jane Doe", email: "jane@example.com" },
+    data: mockIdentityData,
   }),
   useLogout: () => ({ mutate: vi.fn() }),
 }));
@@ -94,5 +105,34 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     expect(screen.queryByText("System Logs")).toBeNull();
     expect(screen.queryByText("API Keys")).toBeNull();
     expect(screen.queryByText("On-Call")).toBeNull();
+  });
+
+  it("renders InitialsAvatar with role='img' and accessible aria-label", () => {
+    mockIdentityData = {
+      id: "u1",
+      name: "Jane Doe",
+      email: "jane@example.com",
+    };
+    mockUserWithRoles(["agent"]);
+    renderLayout();
+
+    const avatarElements = screen.getAllByRole("img", {
+      name: "Jane Doe avatar",
+    });
+    expect(avatarElements.length).toBeGreaterThan(0);
+  });
+
+  it("renders image avatar with alt={name || 'Avatar'} when avatar URL is provided", () => {
+    mockIdentityData = {
+      id: "u1",
+      name: "Jane Doe",
+      email: "jane@example.com",
+      avatar: "https://example.com/jane.png",
+    };
+    mockUserWithRoles(["agent"]);
+    renderLayout();
+
+    const avatarImages = screen.getAllByAltText("Jane Doe");
+    expect(avatarImages.length).toBeGreaterThan(0);
   });
 });

@@ -12,6 +12,7 @@ import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { UserPicker } from "../../components/user-picker.js";
 import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
+import { formatFieldValue } from "../../lib/format.js";
 
 type EntityField = {
   id: string;
@@ -53,17 +54,6 @@ type WorkflowState = {
   color: string | null;
   isTerminal: boolean;
 };
-
-function formatFieldValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if ("amount" in obj && "currency" in obj)
-      return `${String(obj.currency)} ${String(obj.amount)}`;
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
 
 export function EntityInstanceDetail(): React.ReactElement {
   const { id: entityTypeId, instanceId } = useParams<{

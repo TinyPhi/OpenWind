@@ -90,25 +90,51 @@ export function useIdleLogout(timeoutMs?: number): void {
   useEffect(() => {
     if (!enabled) return;
 
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastActivity = Date.now();
+    const throttleMs = Math.min(
+      10_000,
+      Math.max(500, Math.floor(resolvedTimeoutMs / 5)),
+    );
+
+    // Updated on every event (a plain write, no timer churn). The throttled
+    // resetTimer can drop events, so the timeout re-checks this before firing:
+    // otherwise logout could land up to throttleMs early.
+    let latestActivity = lastActivity;
 
     const handleTimeout = (): void => {
+      const remaining = resolvedTimeoutMs - (Date.now() - latestActivity);
+      if (remaining > 0) {
+        lastActivity = latestActivity;
+        timer = setTimeout(handleTimeout, remaining);
+        return;
+      }
       // Always redirect, even if logout() rejects (e.g. storage unavailable)
       // — the point of this feature is to get an idle session off screen,
       // and a rejected promise must not silently cancel that.
-      void authProvider.logout({}).finally(() => {
-        navigate("/login");
-      });
+      void authProvider
+        .logout({})
+        .catch(() => {
+          // Ignore logout errors (e.g. storage or network unavailable)
+        })
+        .finally(() => {
+          navigate("/login");
+        });
     };
 
     const resetTimer = (): void => {
+      const now = Date.now();
+      latestActivity = now;
+      if (now - lastActivity < throttleMs) return;
+      lastActivity = now;
       clearTimeout(timer);
       timer = setTimeout(handleTimeout, resolvedTimeoutMs);
     };
 
-    resetTimer();
+    clearTimeout(timer);
+    timer = setTimeout(handleTimeout, resolvedTimeoutMs);
     for (const event of ACTIVITY_EVENTS) {
-      window.addEventListener(event, resetTimer);
+      window.addEventListener(event, resetTimer, { passive: true });
     }
 
     return () => {
