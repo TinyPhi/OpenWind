@@ -70,6 +70,50 @@ describe("canAdvance", () => {
         }),
       ).toBe(true);
     });
+
+    it("blocks a transition action until the trigger pins a workflow (#760)", () => {
+      const data = {
+        ...base,
+        actions: [
+          {
+            id: "1",
+            type: "transition" as const,
+            config: { transitionId: "t1" },
+          },
+        ],
+      };
+      expect(canAdvance("actions", data, { status: "no-workflow" })).toBe(
+        false,
+      );
+    });
+
+    it("allows a transition action that names a runnable transition of the trigger's workflow (#760)", () => {
+      const data = {
+        ...base,
+        actions: [
+          {
+            id: "1",
+            type: "transition" as const,
+            config: { transitionId: "t1" },
+          },
+        ],
+      };
+      expect(
+        canAdvance("actions", data, {
+          status: "ready",
+          transitions: [
+            {
+              id: "t1",
+              fromState: "open",
+              toState: "closed",
+              label: null,
+              allowedRoles: [],
+              requiresComment: false,
+            },
+          ],
+        }),
+      ).toBe(true);
+    });
   });
 
   describe("save step", () => {

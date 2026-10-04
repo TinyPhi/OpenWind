@@ -157,3 +157,14 @@ ORDER BY tenant_id, trigger_type;
     old `state` / `fieldName` keys and dropping `""` values. It disables `schedule.cron` and
     `connector.event` rules, and keeps their definitions. The list page marks them "Trigger
     not supported".
+- **B7 — #760 (2026-10-03): the wizard's transition action picks a transition.**
+  - **Picker:** the free-text "Transition name" is replaced by a list of the workflow's
+    transitions, saved as `transitionId`. The workflow comes from the trigger's `workflowId`,
+    or from its `entityTypeId`, since workflows are 1:1 with record types
+    (`workflows_tenant_entity_type_unique`).
+  - **Blocked until runnable:** Next stays disabled while the trigger pins neither, the
+    transition isn't in that workflow, or the transition needs a comment that hasn't been
+    entered (engine `requires_comment` guard). Role-restricted transitions are listed but
+    disabled, because automations run with no actor roles and the engine's allowed-roles
+    guard rejects them.
+  - **No API or engine change:** `TransitionConfigSchema` already required `transitionId`.
