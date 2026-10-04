@@ -6,7 +6,7 @@
 
 status: implemented
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-03
 
 ---
 
@@ -20,14 +20,14 @@ Builds on #681 (`apps/api/src/services/user-erasure.ts`); this branch is stacked
 
 ## §C Constraints
 
-| constraint                  | value                                                                                                                                                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| policy (decided 2026-09-27) | Anonymize identity, keep the record. Delete only rows that are personal or ephemeral with no business value. **Not legal advice**: counsel should confirm the retention list in §I before it's relied on for compliance  |
-| placeholder                 | one flat `'[REDACTED]'` everywhere. No per-user pseudonym: linkability ("these 40 actions were one person") can re-identify, and pseudonymized data is still personal data (Recital 26)                                  |
-| same transaction            | every step runs in the route's existing `withTenantContext` transaction, with explicit `tenant_id` filters                                                                                                               |
-| display name                | read from `tenant_users.display_name` **before** that row is deleted. If none is recorded, the text rewrite is skipped (ids are still scrubbed)                                                                          |
-| text rewrite scope          | `@<display name>` becomes `@[REDACTED]` only in comments whose `metadata.mentions` contains the target, so a same-named colleague elsewhere isn't touched                                                                |
-| out of scope                | unmentioned free-text references ("spoke to Alice"), which are a manual process on request; notification titles/bodies sent to _others_ (left to the #636 retention sweep); `admin_audit_log` (unchanged, Art. 17(3)(b)) |
+| constraint                  | value                                                                                                                                                                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| policy (decided 2026-09-27) | Anonymize identity, keep the record. Delete only rows that are personal or ephemeral with no business value. **Not legal advice**: counsel should confirm the retention list in §I before it's relied on for compliance       |
+| placeholder                 | one flat `'[REDACTED]'` everywhere. No per-user pseudonym: linkability ("these 40 actions were one person") can re-identify, and pseudonymized data is still personal data (Recital 26)                                       |
+| same transaction            | every step runs in the route's existing `withTenantContext` transaction, with explicit `tenant_id` filters                                                                                                                    |
+| display name, email         | read from `tenant_users.display_name` and `.email` **before** that row is deleted. If one isn't recorded, that rewrite is skipped (ids are still scrubbed)                                                                    |
+| text rewrite scope          | only in comments whose `metadata.mentions` contains the target, so a same-named colleague elsewhere isn't touched: `@<display name>` → `@[REDACTED]`; the target's email (case-insensitive) and user id → `[REDACTED]` (#689) |
+| out of scope                | unmentioned free-text references ("spoke to Alice"), which are a manual process on request; notification titles/bodies sent to _others_ (left to the #636 retention sweep); `admin_audit_log` (unchanged, Art. 17(3)(b))      |
 
 ## §I Interfaces
 
@@ -47,7 +47,7 @@ Builds on #681 (`apps/api/src/services/user-erasure.ts`); this branch is stacked
 | `entity_instances.fields.<f>` for every tenant field of type `user_ref`  | value = target → key removed, or `'[REDACTED]'` if the field `is_required` |
 | `workflow_events.metadata.mentions`                                      | target removed from the array                                              |
 | `workflow_events.metadata.actorName` on events whose actor is the target | `'[REDACTED]'`, set in the same statement that redacts `actor_id`          |
-| `workflow_events.metadata.text` of comments mentioning the target        | `@<display name>` → `@[REDACTED]`                                          |
+| `workflow_events.metadata.text` of comments mentioning the target        | `@<display name>` → `@[REDACTED]`; email, user id → `[REDACTED]` (#689)    |
 
 **Field-type guard:** `USER_ID_FIELD_TYPES: Record<EntityField["fieldType"], boolean>` in
 `user-erasure.ts`, exhaustive at compile time. A new field type fails `tsc` until it is
@@ -119,6 +119,31 @@ classified; only `true` types are scrubbed from `fields`.
   - Users with display names under 3 characters have their id scrubbed from `mentions`, but
     `@Jo`-style text stays. This is an accepted trade-off against false positives.
 - **Follow-up:** third-party comment mentions (identifiers or emails in text, resolved later) —
-  #689.
+  #689. Resolved in B7.
+- **B7 — third-party comment mentions (#689, 2026-10-03).**
+  - **Problem:** third-party comments carry mention identifiers (email, login name, user id)
+    in their text, but never a `metadata.mentions` array. The scrub never found them, and it
+    only rewrote `@<display name>` anyway.
+  - **Worker:** when the mention-resolution worker resolves an identifier to a tenant member,
+    it now appends that user id to the comment's `metadata.mentions`
+    (`apps/worker/src/record-resolved-mention.ts`). It's one atomic, de-duplicating
+    statement. Non-members are skipped: they can't be erased from this tenant, and a user
+    erased before resolution must not be linked back. The statement runs for every job,
+    with an empty id when unresolved, so resolution timing stays equal (ADR-012 R5/R6).
+  - **Erasure:** in comments that mention the target, the scrub now also redacts their email
+    (case-insensitive, not inside a longer address) and user id (as a whole token, 3+
+    characters). V2 is unchanged.
+  - **Backfill:** migration 0133 records mentions on existing third-party comments from the
+    `tag.*` audit trail, for members only.
+  - **Security review:** the first email boundary refused a trailing `.`, so an address
+    ending a sentence kept its email. It now refuses only a dot followed by another address
+    character, so `alice@x.co` still doesn't match inside `alice@x.co.uk`.
+  - **Known gaps** (not fixed here):
+    - Login-name identifiers in text aren't redacted, because `tenant_users` doesn't store
+      them.
+    - Users erased before this shipped keep their identifiers in old third-party comments.
+      Their `tenant_users` row is gone, and only `admin_audit_log` still has the identifier.
+    - A mention resolved after the target was erased isn't recorded, so its text keeps the
+      identifier.
 - **B3 — `actorName` in the same statement as `actor_id`.** Once `actor_id` is redacted, the
   target's events can't be found again, so both are set together.
