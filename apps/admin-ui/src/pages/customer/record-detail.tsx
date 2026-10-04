@@ -1736,8 +1736,8 @@ export function CustomerRecordDetail(): React.ReactElement {
     return actorDisplayName ?? fromList ?? "Unknown";
   };
 
-  function loadRecord(): Promise<void> {
-    if (!id) return Promise.resolve();
+  function loadRecord(): Promise<boolean> {
+    if (!id) return Promise.resolve(false);
     setError(null);
     setNoAccess(false);
     // Fetch the record first — its own entityTypeId is authoritative, unlike
@@ -1788,6 +1788,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           return [...apiUsers, ...prev.filter((u) => !apiIds.has(u.userId))];
         });
         setAccessList((accessRes as { data?: AccessEntry[] }).data ?? []);
+        return true;
       })
       .catch((err: unknown) => {
         const status = (err as { status?: number } | undefined)?.status;
@@ -1796,6 +1797,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         } else {
           setError(err instanceof Error ? err.message : "Failed to load");
         }
+        return false;
       })
       .finally(() => setLoading(false));
   }
@@ -2180,7 +2182,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         body: JSON.stringify({ requestedLevel: level }),
       });
       setMyReqStatusOverride("pending");
-      void loadAccessRequests();
+      if (isOwner || isAdminOrAgent) void loadAccessRequests();
     } catch {
       /* best-effort */
     } finally {
@@ -2532,12 +2534,14 @@ export function CustomerRecordDetail(): React.ReactElement {
     setError(null);
     setTags([]);
     initializedCollapse.current = false;
-    void Promise.all([
-      loadRecord(),
-      loadComments(),
-      refreshAttachments(),
-      loadTags(),
-    ]);
+    let canceled = false;
+    void loadRecord().then((ok) => {
+      if (canceled || !ok) return;
+      void Promise.all([loadComments(), refreshAttachments(), loadTags()]);
+    });
+    return () => {
+      canceled = true;
+    };
   }, [id]);
 
   // Load access requests when owner (creator/assignee) or admin/agent — must
@@ -2577,7 +2581,6 @@ export function CustomerRecordDetail(): React.ReactElement {
         if (isOwner || isAdminOrAgent) void loadAccessRequests();
         if (msg.request.requestedBy === currentUserId) {
           setMyReqStatusOverride(msg.request.status);
-          void loadAccessRequests();
         }
       }
     });

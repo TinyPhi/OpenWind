@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor, cleanup } from "@testing-library/react";
 
+import type { TenantUser } from "./use-users.js";
+
 vi.mock("./api.js", () => ({
   fetchWithAuth: vi.fn(),
   API_URL: "/api",
@@ -11,6 +13,19 @@ const fetchWithAuth = vi.mocked(api.fetchWithAuth);
 const { fetchUsersShared, useUsers, clearUsersCache, USERS_CACHE_TTL_MS } =
   await import("./use-users.js");
 const { emitSessionEnd } = await import("./session-events.js");
+
+function createMockUser(
+  userId: string,
+  overrides?: Partial<TenantUser>,
+): TenantUser {
+  return {
+    userId,
+    email: null,
+    displayName: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 describe("use-users and fetchUsersShared", () => {
   beforeEach(() => {
@@ -23,23 +38,21 @@ describe("use-users and fetchUsersShared", () => {
   });
 
   it("fetches and returns users", async () => {
+    const user = createMockUser("u1", {
+      email: "alice@example.com",
+      displayName: "Alice",
+    });
     fetchWithAuth.mockResolvedValueOnce({
-      data: [
-        { userId: "u1", email: "alice@example.com", displayName: "Alice" },
-      ],
+      data: [user],
     });
 
     const users = await fetchUsersShared();
-    expect(users).toEqual([
-      { userId: "u1", email: "alice@example.com", displayName: "Alice" },
-    ]);
+    expect(users).toEqual([user]);
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
   });
 
   it("deduplicates concurrent in-flight requests into a single network call", async () => {
-    let resolveCall: (value: {
-      data: Array<{ userId: string; email: string; displayName: string }>;
-    }) => void;
+    let resolveCall: (value: { data: TenantUser[] }) => void;
     fetchWithAuth.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveCall = resolve;
@@ -52,10 +65,12 @@ describe("use-users and fetchUsersShared", () => {
 
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
 
+    const user = createMockUser("u1", {
+      email: "alice@example.com",
+      displayName: "Alice",
+    });
     resolveCall!({
-      data: [
-        { userId: "u1", email: "alice@example.com", displayName: "Alice" },
-      ],
+      data: [user],
     });
 
     const [r1, r2, r3] = await Promise.all([call1, call2, call3]);
@@ -65,10 +80,12 @@ describe("use-users and fetchUsersShared", () => {
   });
 
   it("reuses cached users on subsequent calls", async () => {
+    const user = createMockUser("u1", {
+      email: "alice@example.com",
+      displayName: "Alice",
+    });
     fetchWithAuth.mockResolvedValueOnce({
-      data: [
-        { userId: "u1", email: "alice@example.com", displayName: "Alice" },
-      ],
+      data: [user],
     });
 
     await fetchUsersShared();
@@ -79,10 +96,12 @@ describe("use-users and fetchUsersShared", () => {
   });
 
   it("loads users via useUsers hook", async () => {
+    const user = createMockUser("u1", {
+      email: "alice@example.com",
+      displayName: "Alice",
+    });
     fetchWithAuth.mockResolvedValueOnce({
-      data: [
-        { userId: "u1", email: "alice@example.com", displayName: "Alice" },
-      ],
+      data: [user],
     });
 
     const { result } = renderHook(() => useUsers());
@@ -94,28 +113,44 @@ describe("use-users and fetchUsersShared", () => {
 
     expect(result.current.users).toHaveLength(1);
     expect(result.current.users[0]?.displayName).toBe("Alice");
+    expect(result.current.users[0]?.createdAt).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("initializes synchronously from fresh cache without re-fetching", async () => {
+    const user = createMockUser("u1", { displayName: "Alice" });
+    fetchWithAuth.mockResolvedValueOnce({ data: [user] });
+
+    await fetchUsersShared();
+    expect(fetchWithAuth).toHaveBeenCalledTimes(1);
+
+    const { result } = renderHook(() => useUsers());
+    expect(result.current.loading).toBe(false);
+    expect(result.current.users).toEqual([user]);
+    expect(fetchWithAuth).toHaveBeenCalledTimes(1);
   });
 
   it("refetches after the cache TTL expires", async () => {
+    const u1 = createMockUser("u1");
+    const u2 = createMockUser("u2");
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(1_000);
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u1" }] });
+    fetchWithAuth.mockResolvedValueOnce({ data: [u1] });
     await fetchUsersShared();
     await fetchUsersShared();
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
 
     now.mockReturnValue(1_000 + USERS_CACHE_TTL_MS + 1);
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u2" }] });
+    fetchWithAuth.mockResolvedValueOnce({ data: [u2] });
     const users = await fetchUsersShared();
     expect(fetchWithAuth).toHaveBeenCalledTimes(2);
-    expect(users).toEqual([{ userId: "u2" }]);
+    expect(users).toEqual([u2]);
     now.mockRestore();
   });
 
   it("does not repopulate the cache from a request started before a clear", async () => {
-    let resolveStale: (v: {
-      data: Array<{ userId: string }>;
-    }) => void = () => {};
+    const oldUser = createMockUser("old-identity");
+    const newUser = createMockUser("new-identity");
+    let resolveStale: (v: { data: TenantUser[] }) => void = () => {};
     fetchWithAuth.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveStale = resolve as typeof resolveStale;
@@ -123,30 +158,34 @@ describe("use-users and fetchUsersShared", () => {
     );
     const stale = fetchUsersShared();
     clearUsersCache();
-    resolveStale({ data: [{ userId: "old-identity" }] });
+    resolveStale({ data: [oldUser] });
     await stale;
 
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "new-identity" }] });
+    fetchWithAuth.mockResolvedValueOnce({ data: [newUser] });
     const users = await fetchUsersShared();
-    expect(users).toEqual([{ userId: "new-identity" }]);
+    expect(users).toEqual([newUser]);
   });
 
   it("clears the cache when the session ends", async () => {
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u1" }] });
+    const u1 = createMockUser("u1");
+    const u2 = createMockUser("u2");
+    fetchWithAuth.mockResolvedValueOnce({ data: [u1] });
     await fetchUsersShared();
     emitSessionEnd();
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u2" }] });
-    expect(await fetchUsersShared()).toEqual([{ userId: "u2" }]);
+    fetchWithAuth.mockResolvedValueOnce({ data: [u2] });
+    expect(await fetchUsersShared()).toEqual([u2]);
   });
 
   it("does not cache failures", async () => {
+    const u1 = createMockUser("u1");
     fetchWithAuth.mockRejectedValueOnce(new Error("boom"));
     expect(await fetchUsersShared()).toEqual([]);
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u1" }] });
-    expect(await fetchUsersShared()).toEqual([{ userId: "u1" }]);
+    fetchWithAuth.mockResolvedValueOnce({ data: [u1] });
+    expect(await fetchUsersShared()).toEqual([u1]);
   });
 
   it("rejects concurrent callers cleanly on failure and allows immediate retry", async () => {
+    const u1 = createMockUser("u1");
     let rejectCall: (err: Error) => void;
     fetchWithAuth.mockReturnValueOnce(
       new Promise((_, reject) => {
@@ -165,44 +204,43 @@ describe("use-users and fetchUsersShared", () => {
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
 
     // Immediate subsequent call retries network request
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u1" }] });
+    fetchWithAuth.mockResolvedValueOnce({ data: [u1] });
     const retryResult = await fetchUsersShared();
-    expect(retryResult).toEqual([{ userId: "u1" }]);
+    expect(retryResult).toEqual([u1]);
     expect(fetchWithAuth).toHaveBeenCalledTimes(2);
   });
 
   it("respects exact TTL boundary (valid at TTL-1ms, expired at TTL)", async () => {
+    const u1 = createMockUser("u1");
+    const u2 = createMockUser("u2");
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(10_000);
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u1" }] });
+    fetchWithAuth.mockResolvedValueOnce({ data: [u1] });
     await fetchUsersShared();
 
     // 59,999 ms after caching -> still valid, hits cache
     now.mockReturnValue(10_000 + USERS_CACHE_TTL_MS - 1);
     const hit = await fetchUsersShared();
-    expect(hit).toEqual([{ userId: "u1" }]);
+    expect(hit).toEqual([u1]);
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
 
     // 60,000 ms after caching -> expired, refetches
     now.mockReturnValue(10_000 + USERS_CACHE_TTL_MS);
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "u2" }] });
+    fetchWithAuth.mockResolvedValueOnce({ data: [u2] });
     const miss = await fetchUsersShared();
-    expect(miss).toEqual([{ userId: "u2" }]);
+    expect(miss).toEqual([u2]);
     expect(fetchWithAuth).toHaveBeenCalledTimes(2);
 
     now.mockRestore();
   });
 
   it("handles multi-generation stale-write races under concurrency", async () => {
-    let resolveGen0: (v: {
-      data: Array<{ userId: string }>;
-    }) => void = () => {};
-    let resolveGen1: (v: {
-      data: Array<{ userId: string }>;
-    }) => void = () => {};
-    let resolveGen2: (v: {
-      data: Array<{ userId: string }>;
-    }) => void = () => {};
+    const gen0 = createMockUser("stale-gen-0");
+    const gen1 = createMockUser("stale-gen-1");
+    const gen2 = createMockUser("fresh-gen-2");
+    let resolveGen0: (v: { data: TenantUser[] }) => void = () => {};
+    let resolveGen1: (v: { data: TenantUser[] }) => void = () => {};
+    let resolveGen2: (v: { data: TenantUser[] }) => void = () => {};
 
     fetchWithAuth.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -230,29 +268,29 @@ describe("use-users and fetchUsersShared", () => {
     const req2 = fetchUsersShared(); // generation 2
 
     // Resolve in reverse order or arbitrary interleaving
-    resolveGen0({ data: [{ userId: "stale-gen-0" }] });
-    resolveGen1({ data: [{ userId: "stale-gen-1" }] });
-    resolveGen2({ data: [{ userId: "fresh-gen-2" }] });
+    resolveGen0({ data: [gen0] });
+    resolveGen1({ data: [gen1] });
+    resolveGen2({ data: [gen2] });
 
     const [res0, res1, res2] = await Promise.all([req0, req1, req2]);
-    expect(res0).toEqual([{ userId: "stale-gen-0" }]);
-    expect(res1).toEqual([{ userId: "stale-gen-1" }]);
-    expect(res2).toEqual([{ userId: "fresh-gen-2" }]);
+    expect(res0).toEqual([gen0]);
+    expect(res1).toEqual([gen1]);
+    expect(res2).toEqual([gen2]);
 
     // Only req2 (gen 2) should populate the cache
     const cached = await fetchUsersShared();
-    expect(cached).toEqual([{ userId: "fresh-gen-2" }]);
+    expect(cached).toEqual([gen2]);
     // No new network request since gen 2's result is in cache
     expect(fetchWithAuth).toHaveBeenCalledTimes(3);
   });
 
   it("discards slow in-flight fetch resolving after TTL expiration if cache was cleared", async () => {
+    const slowUser = createMockUser("stale-slow-user");
+    const newUser = createMockUser("new-user");
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(1_000);
 
-    let resolveSlow: (v: {
-      data: Array<{ userId: string }>;
-    }) => void = () => {};
+    let resolveSlow: (v: { data: TenantUser[] }) => void = () => {};
     fetchWithAuth.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveSlow = resolve as typeof resolveSlow;
@@ -267,25 +305,25 @@ describe("use-users and fetchUsersShared", () => {
     clearUsersCache();
 
     // Slow request resolves
-    resolveSlow({ data: [{ userId: "stale-slow-user" }] });
+    resolveSlow({ data: [slowUser] });
     await slowReq;
 
     // Cache should remain empty because generation changed
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "new-user" }] });
+    fetchWithAuth.mockResolvedValueOnce({ data: [newUser] });
     const fresh = await fetchUsersShared();
-    expect(fresh).toEqual([{ userId: "new-user" }]);
+    expect(fresh).toEqual([newUser]);
     expect(fetchWithAuth).toHaveBeenCalledTimes(2);
 
     now.mockRestore();
   });
 
   it("handles slow in-flight fetch resolving after TTL duration without clear by setting fresh timestamp", async () => {
+    const slowUser = createMockUser("slow-user");
+    const nextUser = createMockUser("next-user");
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(1_000);
 
-    let resolveSlow: (v: {
-      data: Array<{ userId: string }>;
-    }) => void = () => {};
+    let resolveSlow: (v: { data: TenantUser[] }) => void = () => {};
     fetchWithAuth.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveSlow = resolve as typeof resolveSlow;
@@ -296,30 +334,36 @@ describe("use-users and fetchUsersShared", () => {
 
     // Request takes 70 seconds
     now.mockReturnValue(71_000);
-    resolveSlow({ data: [{ userId: "slow-user" }] });
+    resolveSlow({ data: [slowUser] });
     await slowReq;
 
     // Resolution timestamp is 71,000. Cache is fresh at 72,000 (1 second after resolution)
     now.mockReturnValue(72_000);
     const hit = await fetchUsersShared();
-    expect(hit).toEqual([{ userId: "slow-user" }]);
+    expect(hit).toEqual([slowUser]);
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
 
     // Expires 60s after resolution (71,000 + 60,000 + 1 = 131,001)
     now.mockReturnValue(131_001);
-    fetchWithAuth.mockResolvedValueOnce({ data: [{ userId: "next-user" }] });
+    fetchWithAuth.mockResolvedValueOnce({ data: [nextUser] });
     const miss = await fetchUsersShared();
-    expect(miss).toEqual([{ userId: "next-user" }]);
+    expect(miss).toEqual([nextUser]);
     expect(fetchWithAuth).toHaveBeenCalledTimes(2);
 
     now.mockRestore();
   });
 
   it("ensures useUsers hook transitions across session end without leaking across accounts", async () => {
+    const u1 = createMockUser("u1", {
+      email: "user1@tenant1.com",
+      displayName: "User 1",
+    });
+    const u2 = createMockUser("u2", {
+      email: "user2@tenant2.com",
+      displayName: "User 2",
+    });
     fetchWithAuth.mockResolvedValueOnce({
-      data: [
-        { userId: "u1", email: "user1@tenant1.com", displayName: "User 1" },
-      ],
+      data: [u1],
     });
 
     const { result: session1, unmount: unmount1 } = renderHook(() =>
@@ -337,9 +381,7 @@ describe("use-users and fetchUsersShared", () => {
 
     // New user logs in
     fetchWithAuth.mockResolvedValueOnce({
-      data: [
-        { userId: "u2", email: "user2@tenant2.com", displayName: "User 2" },
-      ],
+      data: [u2],
     });
 
     const { result: session2 } = renderHook(() => useUsers());

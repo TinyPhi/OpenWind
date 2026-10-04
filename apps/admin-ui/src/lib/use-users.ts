@@ -6,7 +6,7 @@ export type TenantUser = {
   userId: string;
   email: string | null;
   displayName: string | null;
-  createdAt?: string;
+  createdAt: string;
   roles?: string[];
 };
 
@@ -71,14 +71,12 @@ export function useUsers(): { users: TenantUser[]; loading: boolean } {
   const [loading, setLoading] = useState(getFreshUsers() === null);
 
   useEffect(() => {
-    let cancelled = false;
     const fresh = getFreshUsers();
     if (fresh !== null) {
-      setUsers(fresh);
-      setLoading(false);
       return;
     }
 
+    let cancelled = false;
     void fetchUsersShared().then((data) => {
       if (!cancelled) {
         setUsers(data);

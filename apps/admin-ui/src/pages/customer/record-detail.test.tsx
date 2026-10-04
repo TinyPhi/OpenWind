@@ -698,5 +698,67 @@ describe("CustomerRecordDetail — regression vectors: error resilience & non-ow
     expect(
       screen.getByRole("button", { name: /Request Again/i }),
     ).toBeDefined();
+
+    // GET /access-requests returns 404 for plain requesters; ensure it was NEVER called
+    const getAccessReqCalls = mockFetchWithAuth.mock.calls.filter(
+      ([url, init]) =>
+        url === `/api/entities/${RECORD_ID}/access-requests` &&
+        (!init || (init as { method?: string }).method !== "POST"),
+    );
+    expect(getAccessReqCalls.length).toBe(0);
+  });
+
+  it("does not fire comments, attachments, or tags when loadRecord returns 404", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        const err = new Error("Not Found") as Error & { status: number };
+        err.status = 404;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    expect(
+      await screen.findByText("You don't have access to this record"),
+    ).toBeDefined();
+
+    const secondaryEndpoints = [
+      `/api/entities/${RECORD_ID}/transitions/history`,
+      `/api/entities/${RECORD_ID}/attachments`,
+      `/api/entities/${RECORD_ID}/tags`,
+    ];
+    for (const ep of secondaryEndpoints) {
+      expect(
+        mockFetchWithAuth.mock.calls.some(([url]) => url.startsWith(ep)),
+      ).toBe(false);
+    }
+  });
+
+  it("does not fire comments, attachments, or tags when loadRecord returns 403", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        const err = new Error("Forbidden") as Error & { status: number };
+        err.status = 403;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    expect(await screen.findByText("Forbidden")).toBeDefined();
+
+    const secondaryEndpoints = [
+      `/api/entities/${RECORD_ID}/transitions/history`,
+      `/api/entities/${RECORD_ID}/attachments`,
+      `/api/entities/${RECORD_ID}/tags`,
+    ];
+    for (const ep of secondaryEndpoints) {
+      expect(
+        mockFetchWithAuth.mock.calls.some(([url]) => url.startsWith(ep)),
+      ).toBe(false);
+    }
   });
 });

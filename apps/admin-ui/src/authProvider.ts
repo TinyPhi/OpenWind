@@ -67,6 +67,14 @@ userManager.events.addUserLoaded((_u: User) => {
   _authReadyResolve?.();
 });
 
+userManager.events.addUserUnloaded(() => {
+  emitSessionEnd();
+});
+
+userManager.events.addAccessTokenExpired(() => {
+  emitSessionEnd();
+});
+
 // 3 s safety-valve: never block requests longer than this.
 const _authTimeout = new Promise<void>((r) => setTimeout(r, 3000));
 
@@ -88,8 +96,17 @@ export function silentRefresh(): Promise<string | null> {
 
   _pendingRefresh = userManager
     .signinSilent()
-    .then((user) => user?.access_token ?? null)
-    .catch(() => null)
+    .then((user) => {
+      const token = user?.access_token ?? null;
+      if (!token) {
+        emitSessionEnd();
+      }
+      return token;
+    })
+    .catch(() => {
+      emitSessionEnd();
+      return null;
+    })
     .finally(() => {
       _pendingRefresh = undefined;
     });

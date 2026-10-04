@@ -5,15 +5,21 @@ import { RouteErrorBoundary } from "./route-error-boundary.js";
 
 interface CrashingChildProps {
   shouldThrow: boolean;
+  errorMessage?: string;
+  errorName?: string;
 }
 
 function CrashingChild({
   shouldThrow,
+  errorMessage = "Failed to fetch dynamically imported module: /assets/records-chunk-xyz.js",
+  errorName,
 }: CrashingChildProps): React.ReactElement {
   if (shouldThrow) {
-    throw new Error(
-      "Failed to fetch dynamically imported module: /assets/records-chunk-xyz.js",
-    );
+    const error = new Error(errorMessage);
+    if (errorName) {
+      error.name = errorName;
+    }
+    throw error;
   }
   return <div>Safe child content</div>;
 }
@@ -52,13 +58,32 @@ describe("RouteErrorBoundary", () => {
     expect(alert).toBeDefined();
     expect(
       screen.getByText(
-        "This page failed to load. It may have been updated — reload to get the latest version.",
+        "This page may have been updated. Reload to get the latest version.",
       ),
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "Reload" })).toBeDefined();
   });
 
-  it("triggers window.location.reload when the user clicks the Reload button", () => {
+  it("treats error with name ChunkLoadError as a chunk error", () => {
+    render(
+      <RouteErrorBoundary resetKey="/failing-chunk-name">
+        <CrashingChild
+          shouldThrow={true}
+          errorMessage="Network error"
+          errorName="ChunkLoadError"
+        />
+      </RouteErrorBoundary>,
+    );
+
+    expect(
+      screen.getByText(
+        "This page may have been updated. Reload to get the latest version.",
+      ),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeDefined();
+  });
+
+  it("triggers window.location.reload when the user clicks the Reload button for chunk error", () => {
     const reloadMock = vi.fn();
     Object.defineProperty(window, "location", {
       configurable: true,
@@ -80,6 +105,78 @@ describe("RouteErrorBoundary", () => {
       configurable: true,
       value: originalLocation,
     });
+  });
+
+  it("catches generic errors and displays a clean error card with a retry button", () => {
+    function FlakyChild({ fail }: { fail: boolean }): React.ReactElement {
+      if (fail) {
+        throw new Error("TypeError: Cannot read properties of undefined");
+      }
+      return <div>Recovered content</div>;
+    }
+
+    function Harness(): React.ReactElement {
+      const [shouldFail, setShouldFail] = useState(true);
+      return (
+        <div>
+          <button type="button" onClick={() => setShouldFail(false)}>
+            Fix issue
+          </button>
+          <RouteErrorBoundary resetKey="/generic-error">
+            <FlakyChild fail={shouldFail} />
+          </RouteErrorBoundary>
+        </div>
+      );
+    }
+
+    render(<Harness />);
+
+    expect(
+      screen.getByText("Something went wrong while loading this page."),
+    ).toBeDefined();
+    const retryButton = screen.getByRole("button", { name: "Retry" });
+    expect(retryButton).toBeDefined();
+
+    // User fixes the underlying issue and clicks retry
+    fireEvent.click(screen.getByRole("button", { name: "Fix issue" }));
+    fireEvent.click(retryButton);
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Recovered content")).toBeDefined();
+  });
+
+  it("logs caught errors and errorInfo to console.error via componentDidCatch", () => {
+    let loggedMessage: string | null = null;
+    let loggedError: Error | null = null;
+    let loggedStack: string | null = null;
+
+    vi.spyOn(console, "error").mockImplementation(
+      (
+        message?: string | Error | { componentStack?: string },
+        error?: string | Error | { componentStack?: string },
+        errorInfo?: { componentStack?: string },
+      ) => {
+        if (message === "RouteErrorBoundary caught error:") {
+          loggedMessage = message;
+          if (error instanceof Error) {
+            loggedError = error;
+          }
+          if (errorInfo && typeof errorInfo.componentStack === "string") {
+            loggedStack = errorInfo.componentStack;
+          }
+        }
+      },
+    );
+
+    render(
+      <RouteErrorBoundary resetKey="/log-test">
+        <CrashingChild shouldThrow={true} />
+      </RouteErrorBoundary>,
+    );
+
+    expect(loggedMessage).toBe("RouteErrorBoundary caught error:");
+    expect(loggedError).toBeInstanceOf(Error);
+    expect(typeof loggedStack).toBe("string");
   });
 
   it("resets error state when resetKey changes upon navigating to another route", () => {

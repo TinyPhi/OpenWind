@@ -367,7 +367,7 @@ function InitialsAvatar({
     return (
       <img
         src={avatar}
-        alt="Avatar"
+        alt={name || "Avatar"}
         className={className}
         style={{
           width: `${size}px`,
@@ -390,6 +390,7 @@ function InitialsAvatar({
 
   return (
     <div
+      role="img"
       className={className}
       aria-label={`${name} avatar`}
       style={{

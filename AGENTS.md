@@ -83,9 +83,9 @@ OpenWind is a modular, workflow-native business platform built on a config-first
   - Data fetched by multiple components simultaneously (e.g. `/api/users`, unread notification counts) must use single-flight promise deduplication (e.g. `fetchUsersShared()`) so only one HTTP request leaves the browser.
 - **Offline-First Assets & Zero 404s**:
   - NEVER depend on external third-party avatar CDNs (e.g. DiceBear); use local offline SVG generators (`InitialsAvatar` in `layout.tsx`).
-  - Ensure all static assets in `index.html` and components point to verified files in `public/` (e.g. `/favicon.svg`).
+  - Ensure all static assets in `index.html` and components point to verified files in `public/` (e.g. `/favicon.svg` replacing missing `/ow-logo.png` to eliminate 404s).
 - **Non-Blocking Head Scripts**:
-  - Scripts placed in `index.html` `<head>` (e.g. `/env.js`) MUST use the `defer` attribute to prevent DOM parser blocking.
+  - Scripts placed in `index.html` `<head>` (e.g. `/env.js`) should use the `defer` attribute to prevent blocking HTML parsing.
 
 ---
 
