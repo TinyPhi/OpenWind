@@ -176,6 +176,34 @@ export function buildRecordsRequest(
   return { url, useMyTickets };
 }
 
+interface ParsedRecords {
+  records: EntityInstance[];
+  childTickets: ChildTicket[];
+}
+
+// Shared by the shell's initial fetch and the list effect so both apply a
+// response the same way (my-tickets nests parents/children under `data`).
+function parseRecordsResponse(
+  body: unknown,
+  useMyTickets: boolean,
+): ParsedRecords {
+  const data = (body as { data?: unknown } | null)?.data;
+  if (useMyTickets) {
+    const myData = (data ?? {}) as {
+      parentTickets?: EntityInstance[];
+      childTickets?: ChildTicket[];
+    };
+    return {
+      records: myData.parentTickets ?? [],
+      childTickets: myData.childTickets ?? [],
+    };
+  }
+  return {
+    records: (data as EntityInstance[] | undefined) ?? [],
+    childTickets: [],
+  };
+}
+
 // ── Child Ticket Card ──────────────────────────────────────────────────────────
 
 function ChildTicketCard({
@@ -607,7 +635,10 @@ export function WorkflowRecords(): React.ReactElement {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
-  const initialLoadedUrlRef = useRef<string | null>(null);
+  // The records URL whose response is currently applied to `records` — set
+  // only after a successful apply, so the list effect can skip re-requesting
+  // exactly what is already shown and nothing else.
+  const appliedRecordsUrlRef = useRef<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   // Filter panel redesign: accordion sections instead of one long stacked
   // list — each section collapses/expands independently, "Date" and
@@ -693,7 +724,7 @@ export function WorkflowRecords(): React.ReactElement {
     const isCancelled = (): boolean => cancelled;
     setLoading(true);
     setError(null);
-    initialLoadedUrlRef.current = null;
+    appliedRecordsUrlRef.current = null;
 
     // Resolve slug → id via the dedicated, ownership-unfiltered lookup — the
     // ownership-filtered list/summary endpoints only include workflows the
@@ -761,19 +792,19 @@ export function WorkflowRecords(): React.ReactElement {
         });
 
         // Concurrently fetch fields, deduplicated users, and initial ticket records.
-        // Catch failures on recordUrl so that failure to fetch records does not reject
-        // the entire Promise.all or crash the workflow shell into a full-screen error state.
-        const [fieldsRes, usersData, recRes] = await Promise.all([
+        // The records request settles instead of rejecting, so its failure can't
+        // reject the entire Promise.all and crash the workflow shell into the
+        // full-page error state.
+        const [fieldsRes, usersData, recResult] = await Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
           fetchUsersShared(),
-          fetchWithAuth(recordUrl).catch(() => null),
+          fetchWithAuth(recordUrl).then(
+            (body) => ({ ok: true as const, body }),
+            () => ({ ok: false as const }),
+          ),
         ]);
 
         if (isCancelled()) return;
-
-        // Remember the exact URL fetched concurrently so the list effect can
-        // skip duplicate refetches.
-        initialLoadedUrlRef.current = recordUrl;
 
         const loadedStates = wf.states as WorkflowState[];
         const loadedTransitions = wf.transitions as Transition[];
@@ -797,24 +828,15 @@ export function WorkflowRecords(): React.ReactElement {
         );
         setUsers(usersData);
 
-        if (recRes && typeof recRes === "object" && "data" in recRes) {
-          if (useMyTickets) {
-            const myData =
-              (
-                recRes as {
-                  data?: {
-                    parentTickets?: EntityInstance[];
-                    childTickets?: ChildTicket[];
-                  };
-                }
-              ).data ?? {};
-            setRecords(myData.parentTickets ?? []);
-            setChildTickets(myData.childTickets ?? []);
-          } else {
-            setRecords((recRes as { data?: EntityInstance[] }).data ?? []);
-            setChildTickets([]);
-          }
+        if (recResult.ok) {
+          const parsed = parseRecordsResponse(recResult.body, useMyTickets);
+          setRecords(parsed.records);
+          setChildTickets(parsed.childTickets);
+          appliedRecordsUrlRef.current = recordUrl;
         } else {
+          // Left unmarked so the list effect retries this URL (and surfaces
+          // the error if that fails too) instead of presenting a failed load
+          // as an empty board.
           setRecords([]);
           setChildTickets([]);
         }
@@ -858,36 +880,31 @@ export function WorkflowRecords(): React.ReactElement {
       filterOrigin,
     });
 
-    // The shell effect already fetched this exact URL; skip duplicate fetches.
-    // If the URL changed (e.g. from filter change), update ref and fetch.
-    if (initialLoadedUrlRef.current === url) return;
-    initialLoadedUrlRef.current = url;
+    // `records` already holds this URL's data (from the shell or an earlier
+    // run), so skip the duplicate request. A run cancelled on its way to a
+    // different URL (A → B → A before B resolves) skips its own finally, so
+    // clear the indicator here or it stays on.
+    if (appliedRecordsUrlRef.current === url) {
+      setRecordsRefreshing(false);
+      return;
+    }
 
     setRecordsRefreshing(true);
     let cancelled = false;
     fetchWithAuth(url)
       .then((recRes) => {
         if (cancelled) return;
-        if (useMyTickets) {
-          const myData =
-            (
-              recRes as {
-                data?: {
-                  parentTickets?: EntityInstance[];
-                  childTickets?: ChildTicket[];
-                };
-              }
-            ).data ?? {};
-          setRecords(myData.parentTickets ?? []);
-          setChildTickets(myData.childTickets ?? []);
-        } else {
-          setRecords((recRes as { data?: EntityInstance[] }).data ?? []);
-          setChildTickets([]);
-        }
+        const parsed = parseRecordsResponse(recRes, useMyTickets);
+        setRecords(parsed.records);
+        setChildTickets(parsed.childTickets);
+        // Marked only once applied: if a dependency change keeps the URL but
+        // cancels this request, the next run must still fetch it.
+        appliedRecordsUrlRef.current = url;
       })
       .catch((err: unknown) => {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : "Failed to load");
+        if (cancelled) return;
+        appliedRecordsUrlRef.current = null;
+        setError(err instanceof Error ? err.message : "Failed to load");
       })
       .finally(() => {
         if (!cancelled) setRecordsRefreshing(false);

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  act,
   render,
   waitFor,
   cleanup,
@@ -24,17 +25,21 @@ vi.mock("../../lib/api.js", () => ({
 
 let mockProfileRoles: string[] = ["user"];
 let mockUserId = "u-random";
+function mockUser(): unknown {
+  return {
+    profile: {
+      sub: mockUserId,
+      "urn:zitadel:iam:org:project:roles": Object.fromEntries(
+        mockProfileRoles.map((r) => [r, {}]),
+      ),
+    },
+  };
+}
+const defaultGetUser = (): Promise<unknown> => Promise.resolve(mockUser());
+const mockGetUser = vi.fn(defaultGetUser);
 vi.mock("../../authProvider.js", () => ({
   userManager: {
-    getUser: () =>
-      Promise.resolve({
-        profile: {
-          sub: mockUserId,
-          "urn:zitadel:iam:org:project:roles": Object.fromEntries(
-            mockProfileRoles.map((r) => [r, {}]),
-          ),
-        },
-      } as unknown),
+    getUser: () => mockGetUser(),
   },
 }));
 
@@ -158,6 +163,63 @@ function renderPage(
   return container;
 }
 
+function ticket(id: string): Record<string, unknown> {
+  const now = new Date().toISOString();
+  return { id, currentState: null, fields: {}, createdAt: now, updatedAt: now };
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+// Layers a records-endpoint handler over the routes already installed by
+// mockRoutes(); `call` is the 1-based count of records requests so far.
+function interceptRecords(
+  handler: (url: string, call: number) => Promise<unknown>,
+): void {
+  const base = mockFetchWithAuth.getMockImplementation();
+  let call = 0;
+  mockFetchWithAuth.mockImplementation((url: string) => {
+    if (url.includes("/entities")) {
+      call += 1;
+      return handler(url, call);
+    }
+    return base ? base(url) : Promise.resolve({ data: [] });
+  });
+}
+
+function recordCalls(): string[] {
+  return mockFetchWithAuth.mock.calls
+    .map(([url]) => String(url))
+    .filter((url) => url.includes("/entities"));
+}
+
+function cardCount(container: HTMLElement): number {
+  return container.querySelectorAll(".kb-card").length;
+}
+
+function refreshingPill(container: HTMLElement): Element | null {
+  return container.querySelector(".kb-records-refreshing-pill");
+}
+
+async function toggleCriticalSeverity(container: HTMLElement): Promise<void> {
+  if (!container.querySelector(".kb-filter-panel")) {
+    const filterBtn = container.querySelector('button[title="Filters"]');
+    expect(filterBtn).not.toBeNull();
+    if (filterBtn) fireEvent.click(filterBtn);
+  }
+  fireEvent.click(await screen.findByRole("button", { name: /Critical/i }));
+}
+
 describe("WorkflowRecords — workflow-admin ticket visibility", () => {
   afterEach(() => {
     cleanup();
@@ -224,7 +286,7 @@ describe("WorkflowRecords — workflow-admin ticket visibility", () => {
   });
 });
 
-describe("WorkflowRecords — concurrency, initialLoadedUrlRef dedup, and filter refetching", () => {
+describe("WorkflowRecords — concurrency, appliedRecordsUrlRef dedup, and filter refetching", () => {
   afterEach(() => {
     cleanup();
     mockFetchWithAuth.mockReset();
@@ -232,7 +294,7 @@ describe("WorkflowRecords — concurrency, initialLoadedUrlRef dedup, and filter
     mockUserId = "admin-1";
   });
 
-  it("deduplicates initial ticket load so only one /entities request is made (initialLoadedUrlRef)", async () => {
+  it("deduplicates initial ticket load so only one /entities request is made (appliedRecordsUrlRef)", async () => {
     mockProfileRoles = ["admin"];
     mockUserId = "admin-1";
     mockRoutes([]);
@@ -244,7 +306,7 @@ describe("WorkflowRecords — concurrency, initialLoadedUrlRef dedup, and filter
     });
 
     // The shell effect fetched records concurrently with fields/users and set
-    // initialLoadedUrlRef, allowing the ticket list effect to skip duplicate fetch.
+    // appliedRecordsUrlRef, allowing the ticket list effect to skip duplicate fetch.
     const entityCalls = mockFetchWithAuth.mock.calls
       .map(([url]) => String(url))
       .filter((url) => url.includes("/entities") && !url.includes("/users"));
@@ -255,7 +317,7 @@ describe("WorkflowRecords — concurrency, initialLoadedUrlRef dedup, and filter
     );
   });
 
-  it("triggers refetch when changing severity filter (not swallowed by initialLoadedUrlRef)", async () => {
+  it("triggers refetch when changing severity filter (not swallowed by appliedRecordsUrlRef)", async () => {
     mockProfileRoles = ["admin"];
     mockUserId = "admin-1";
     mockRoutes([]);
@@ -289,7 +351,7 @@ describe("WorkflowRecords — concurrency, initialLoadedUrlRef dedup, and filter
     });
   });
 
-  it("triggers refetch when changing origin filter (not swallowed by initialLoadedUrlRef)", async () => {
+  it("triggers refetch when changing origin filter (not swallowed by appliedRecordsUrlRef)", async () => {
     mockProfileRoles = ["admin"];
     mockUserId = "admin-1";
     mockRoutes([]);
@@ -339,7 +401,7 @@ describe("WorkflowRecords — concurrency, initialLoadedUrlRef dedup, and filter
     expect(calls.some((url) => url.includes("entityTypeId=et-2"))).toBe(true);
   });
 
-  it("keeps workflow shell, states, and columns rendered if initial record fetch fails", async () => {
+  it("surfaces an error, not an empty board, when the initial records fetch and its retry both fail", async () => {
     mockProfileRoles = ["admin"];
     mockUserId = "admin-1";
     mockFetchWithAuth.mockImplementation((url: string) => {
@@ -379,14 +441,161 @@ describe("WorkflowRecords — concurrency, initialLoadedUrlRef dedup, and filter
     const container = renderPage();
 
     await waitFor(() => {
-      expect(container.querySelector(".kb-error")).toBeNull();
-      expect(container.querySelectorAll(".kb-col").length).toBe(2);
-      expect(screen.getByText("Open")).not.toBeNull();
-      expect(screen.getByText("Closed")).not.toBeNull();
+      expect(container.querySelector(".kb-error")?.textContent).toBe(
+        "Database connection timed out",
+      );
+    });
+    // The shell's own failure is not what surfaced this: it resolved the
+    // workflow, then the list effect retried the records URL and failed.
+    const calls = recordCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toBe(calls[0]);
+    expect(container.querySelector(".kb-board")).toBeNull();
+  });
+});
+
+describe("WorkflowRecords — records load retries and in-flight races", () => {
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockGetUser.mockReset();
+    mockGetUser.mockImplementation(defaultGetUser);
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+  });
+
+  it("retries a failed initial records fetch and renders the retry's records without a full-page error", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    mockRoutes([]);
+    interceptRecords((_url, call) =>
+      call === 1
+        ? Promise.reject(new Error("Database connection timed out"))
+        : Promise.resolve({ data: [ticket("t-1"), ticket("t-2")] }),
+    );
+
+    const container = renderPage();
+
+    await waitFor(() => {
+      expect(cardCount(container)).toBe(2);
+    });
+    expect(container.querySelector(".kb-error")).toBeNull();
+    expect(refreshingPill(container)).toBeNull();
+    const calls = recordCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toBe(calls[0]);
+  });
+
+  it("issues exactly one records request on a successful my-tickets load", async () => {
+    mockProfileRoles = ["user"];
+    mockUserId = "u-random";
+    mockRoutes(["some-other-admin"]);
+
+    const container = renderPage();
+
+    await waitFor(() => {
+      expect(cardCount(container)).toBe(1);
+    });
+    // Let any follow-up list-effect run (e.g. currentUserId settling) fire.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(recordCalls()).toEqual([
+      `/api/entities/my-tickets?workflowId=${WORKFLOW_ID}`,
+    ]);
+    expect(refreshingPill(container)).toBeNull();
+  });
+
+  it("toggling a filter away and back before its fetch resolves clears the refresh indicator and keeps the original records", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    mockRoutes([]);
+    const critical = deferred<unknown>();
+    interceptRecords((url) =>
+      url.includes("severity=critical")
+        ? critical.promise
+        : Promise.resolve({ data: [ticket("t-1"), ticket("t-2")] }),
+    );
+
+    const container = renderPage();
+    await waitFor(() => {
+      expect(cardCount(container)).toBe(2);
     });
 
-    expect(container.querySelectorAll(".kb-card").length).toBe(0);
-    expect(container.querySelector('button[title="Filters"]')).not.toBeNull();
+    await toggleCriticalSeverity(container);
+    await waitFor(() => {
+      expect(refreshingPill(container)).not.toBeNull();
+    });
+
+    await toggleCriticalSeverity(container);
+    await waitFor(() => {
+      expect(refreshingPill(container)).toBeNull();
+    });
+    expect(cardCount(container)).toBe(2);
+    // The unfiltered records are still applied, so going back to them must
+    // not refetch.
+    expect(recordCalls()).toHaveLength(2);
+    expect(recordCalls()[1]).toContain("severity=critical");
+
+    // The abandoned critical-only response must not overwrite them later.
+    await act(async () => {
+      critical.resolve({ data: [ticket("critical-only")] });
+      await critical.promise;
+    });
+    expect(cardCount(container)).toBe(2);
+    expect(refreshingPill(container)).toBeNull();
+  });
+
+  it("still applies records when a same-URL dependency change cancels the in-flight fetch", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    mockRoutes([]);
+    // Hold the mount-time getUser() (the first call) so currentUserId only
+    // resolves once the filtered fetch is in flight. That changes a list
+    // effect dependency without changing its URL for an admin.
+    const userGate = deferred<undefined>();
+    mockGetUser.mockImplementationOnce(() =>
+      userGate.promise.then(() => mockUser()),
+    );
+    const firstCritical = deferred<unknown>();
+    let criticalCalls = 0;
+    interceptRecords((url) => {
+      if (!url.includes("severity=critical")) {
+        return Promise.resolve({ data: [ticket("t-1"), ticket("t-2")] });
+      }
+      criticalCalls += 1;
+      return criticalCalls === 1
+        ? firstCritical.promise
+        : Promise.resolve({ data: [ticket("critical-only")] });
+    });
+
+    const container = renderPage();
+    await waitFor(() => {
+      expect(cardCount(container)).toBe(2);
+    });
+
+    await toggleCriticalSeverity(container);
+    await waitFor(() => {
+      expect(criticalCalls).toBe(1);
+    });
+
+    await act(async () => {
+      userGate.resolve(undefined);
+      await userGate.promise;
+    });
+
+    await waitFor(() => {
+      expect(cardCount(container)).toBe(1);
+    });
+    expect(refreshingPill(container)).toBeNull();
+    expect(criticalCalls).toBe(2);
+
+    // The cancelled first request resolving late is ignored.
+    await act(async () => {
+      firstCritical.resolve({ data: [ticket("stale-1"), ticket("stale-2")] });
+      await firstCritical.promise;
+    });
+    expect(cardCount(container)).toBe(1);
   });
 });
 
