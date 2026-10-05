@@ -2,12 +2,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { AuthContext } from "@platform/auth";
+import { Readable } from "node:stream";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockGetJob = vi.fn();
 const mockWriteAuditEntry = vi.fn();
 const mockWithTenantContext = vi.fn();
+const mockGetExportStream = vi.fn();
+
+vi.mock("@platform/files", () => ({
+  getExportStream: (...args: unknown[]) => mockGetExportStream(...args),
+}));
 
 vi.mock("@platform/db", () => ({
   withTenantContext: (...args: unknown[]) => mockWithTenantContext(...args),
@@ -81,6 +87,12 @@ beforeEach(() => {
     (_tenantId: string, fn: (tx: unknown) => unknown) => fn({}),
   );
   mockWriteAuditEntry.mockResolvedValue(undefined);
+  mockGetExportStream.mockResolvedValue({
+    stream: Readable.from(["csv-data"]),
+    originalName: "export-job-001.csv",
+    mimeType: "text/csv; charset=utf-8",
+    sizeBytes: 8,
+  });
 });
 
 // The audit entries written, in order, with the tenant context each ran under.
@@ -93,7 +105,10 @@ function auditEntries(): Array<Record<string, unknown>> {
 
 const completedJob = (opts: Parameters<typeof makeJob>[1] = {}) =>
   makeJob("completed", {
-    returnvalue: { downloadUrl: "https://s3.example.com/exports/x.csv" },
+    returnvalue: {
+      storageKey: "tenant-aaa/exports/job-001.csv",
+      format: "csv",
+    },
     ...opts,
   });
 
@@ -118,7 +133,7 @@ describe("GET /exports/:jobId/download", () => {
     mockGetJob.mockResolvedValue(
       makeJob("completed", {
         returnvalue: {
-          downloadUrl: "https://s3.example.com/exports/tenant-aaa/job-001.csv",
+          storageKey: "tenant-aaa/exports/job-001.csv",
           format: "csv",
           rowCount: 1234,
         },
@@ -130,7 +145,7 @@ describe("GET /exports/:jobId/download", () => {
       data: { status: string; downloadUrl: string };
     };
     expect(body.data.status).toBe("complete");
-    expect(body.data.downloadUrl).toContain("s3.example.com");
+    expect(body.data.downloadUrl).toBe("/exports/job-001/download?file=1");
   });
 
   it("returns 200 with EXPORT_EXPIRED when completed job returnvalue is null (TTL expired)", async () => {
@@ -193,7 +208,10 @@ describe("GET /exports/:jobId/download", () => {
       makeJob("completed", {
         requestedBy: "u-001",
         includePii: true,
-        returnvalue: { downloadUrl: "https://s3.example.com/pii.csv" },
+        returnvalue: {
+          storageKey: "tenant-aaa/exports/job-pii.csv",
+          format: "csv",
+        },
       }),
     );
     // u-001 with role "agent" (no pii_export) — but they are the original requester
@@ -208,7 +226,10 @@ describe("GET /exports/:jobId/download", () => {
       makeJob("completed", {
         requestedBy: "u-001",
         includePii: true,
-        returnvalue: { downloadUrl: "https://s3.example.com/pii.csv" },
+        returnvalue: {
+          storageKey: "tenant-aaa/exports/job-pii.csv",
+          format: "csv",
+        },
       }),
     );
     // u-002 with role "agent" — different user, no pii_export
@@ -223,7 +244,10 @@ describe("GET /exports/:jobId/download", () => {
       makeJob("completed", {
         requestedBy: "u-001",
         includePii: true,
-        returnvalue: { downloadUrl: "https://s3.example.com/pii.csv" },
+        returnvalue: {
+          storageKey: "tenant-aaa/exports/job-pii.csv",
+          format: "csv",
+        },
       }),
     );
     // u-002 with pii_export role — different user but holds PII role
@@ -237,10 +261,10 @@ describe("GET /exports/:jobId/download", () => {
 // ── #693 audit trail ──────────────────────────────────────────────────────────
 
 describe("GET /exports/:jobId/download audit (#693)", () => {
-  it("records export.downloaded before handing out the URL", async () => {
+  it("records export.downloaded before streaming the file", async () => {
     mockGetJob.mockResolvedValue(completedJob());
 
-    const res = await makeApp().request("/exports/job-001/download");
+    const res = await makeApp().request("/exports/job-001/download?file=1");
 
     expect(res.status).toBe(200);
     expect(auditEntries()).toEqual([
@@ -260,22 +284,22 @@ describe("GET /exports/:jobId/download audit (#693)", () => {
     );
   });
 
-  it("never puts the download URL in the audit entry", async () => {
+  it("never puts the storage key in the audit entry", async () => {
     mockGetJob.mockResolvedValue(completedJob());
 
-    await makeApp().request("/exports/job-001/download");
+    await makeApp().request("/exports/job-001/download?file=1");
 
-    expect(JSON.stringify(auditEntries())).not.toContain("s3.example.com");
+    expect(JSON.stringify(auditEntries())).not.toContain("storageKey");
   });
 
-  it("withholds the URL when the audit write fails", async () => {
+  it("withholds file bytes when the audit write fails", async () => {
     mockGetJob.mockResolvedValue(completedJob());
     mockWriteAuditEntry.mockRejectedValue(new Error("db down"));
 
-    const res = await makeApp().request("/exports/job-001/download");
+    const res = await makeApp().request("/exports/job-001/download?file=1");
 
     expect(res.status).toBe(500);
-    expect(await res.text()).not.toContain("s3.example.com");
+    expect(await res.text()).not.toContain("csv-data");
   });
 
   it.each([
