@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — admin-ui performance (#772)]
+
+### Changed
+
+- **Route-level code splitting in admin-ui** — all 32 page routes are lazy-loaded. The entry chunk
+  goes from 1,436.4 kB to 661.5 kB raw (401.8 → 197.4 kB gzip). reactflow and dagre (with their d3
+  dependencies) now load only with the workflow canvas, and the Superset embed SDK only with the
+  Reporting page.
+- **Fewer duplicate requests** — concurrent `/users` and notification requests share one in-flight
+  call, and the `/users` result is cached for 60 seconds. Both are reset on logout.
+- **Idle-logout activity listeners are passive and throttled.**
+- **Hover styles use CSS** instead of JavaScript hover handlers.
+- **User avatars are local initials** instead of images from the DiceBear CDN.
+
+### Added
+
+- **Entry bundle size gate** — `pnpm --filter @platform/admin-ui build` fails if the entry chunk
+  exceeds 210 kB gzip (`apps/admin-ui/scripts/check-entry-size.mjs`).
+
+### Fixed
+
+- **A failed page load no longer blanks the app** — the sidebar and header stay up and the page area
+  offers Retry (or Reload, for a missing chunk). A tab left open across a redeploy reloads once to
+  pick up the new chunks.
+
+---
+
 ## [Unreleased — MIS reporting (Stage 1 embedded + Stage 2 standalone)]
 
 ### Added
