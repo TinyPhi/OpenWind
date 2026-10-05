@@ -1504,6 +1504,10 @@ export function CustomerRecordDetail(): React.ReactElement {
     currentUserRoles.includes("agent") ||
     isWorkflowAdminOfParent;
 
+  // Derived (not sticky) so an approved requester's overlay lifts as soon as a
+  // refreshed access list includes them. It stays up across a failed silent
+  // refresh only because loadRecord() keeps the last good accessList when
+  // /access fails rather than replacing it with [].
   const accessDenied = useMemo(() => {
     if (!oidcLoaded || loading || isAdminOrAgent) return false;
     if (currentUserId === null) return false;
@@ -1759,9 +1763,10 @@ export function CustomerRecordDetail(): React.ReactElement {
           fetchUsersShared()
             .then((users) => ({ data: users }))
             .catch(() => ({ data: [] })),
-          fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(() => ({
-            data: [],
-          })),
+          // A failed /access fetch maps to null (not an empty list) so the
+          // setter below can tell "request failed" apart from "ticket
+          // legitimately has no access entries" -- see setAccessList below.
+          fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(() => null),
         ]);
       })
       .then(([fieldsRes, recRes, usersRes, accessRes]) => {
@@ -1787,7 +1792,15 @@ export function CustomerRecordDetail(): React.ReactElement {
           const apiIds = new Set(apiUsers.map((u) => u.userId));
           return [...apiUsers, ...prev.filter((u) => !apiIds.has(u.userId))];
         });
-        setAccessList((accessRes as { data?: AccessEntry[] }).data ?? []);
+        // Keep the previous access list when /access failed. accessDenied is
+        // derived from it, and loadRecord() also runs silently (live
+        // comment.created push, manual refresh) -- overwriting with [] on a
+        // transient failure would drop the Access Restricted overlay and
+        // reveal the ticket to a denied user. The record-id reset effect
+        // clears the list, so this can't carry one record's list onto another.
+        if (accessRes !== null) {
+          setAccessList((accessRes as { data?: AccessEntry[] }).data ?? []);
+        }
         return true;
       })
       .catch((err: unknown) => {
@@ -2533,6 +2546,9 @@ export function CustomerRecordDetail(): React.ReactElement {
     setParentRecord(null);
     setError(null);
     setTags([]);
+    // loadRecord() keeps the previous access list when /access fails, so it
+    // must be cleared here or record A's list could gate record B.
+    setAccessList([]);
     initializedCollapse.current = false;
     let canceled = false;
     void loadRecord().then((ok) => {

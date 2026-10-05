@@ -6,7 +6,7 @@ import {
   cleanup,
   fireEvent,
 } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 
 // ui-feature-checklist-and-rules.md §2.9/§2.10 — an access request must
 // reach the ticket's admin/agent/workflow-admin viewers live (WebSocket push)
@@ -760,5 +760,173 @@ describe("CustomerRecordDetail — regression vectors: error resilience & non-ow
         mockFetchWithAuth.mock.calls.some(([url]) => url.startsWith(ep)),
       ).toBe(false);
     }
+  });
+});
+
+// accessDenied is derived from accessList rather than held in sticky state,
+// so the overlay lifts as soon as an approved requester appears in a
+// refreshed list. loadRecord() also runs silently (live comment.created
+// push, manual refresh); a transient /access failure there must not wipe the
+// list to [] and drop the overlay for a denied viewer, and the list kept on
+// failure must never carry over from one record to the next.
+describe("CustomerRecordDetail — access-denied overlay across silent refreshes and record navigation", () => {
+  const PLAIN_VIEWER = "u-plain-viewer";
+  const OTHER_RECORD_ID = "rec-2";
+  const OWNER_ENTRY = {
+    userId: "u-owner",
+    level: "read_write",
+    tag: "creator",
+  };
+
+  type GateRecord = { subject: string; access: () => Promise<unknown> };
+
+  function mockAccessGateRoutes(records: Record<string, GateRecord>): void {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entity-types/${ENTITY_TYPE_ID}/fields`) {
+        return Promise.resolve({
+          data: [
+            {
+              id: "f-subject",
+              name: "subject",
+              label: "Subject",
+              fieldType: "text",
+              isRequired: true,
+              isSystem: false,
+              config: {},
+            },
+          ],
+        });
+      }
+      for (const [recId, rec] of Object.entries(records)) {
+        if (url === `/api/entities/${recId}`) {
+          return Promise.resolve({
+            data: {
+              ...BASE_RECORD,
+              id: recId,
+              createdBy: OWNER_ENTRY.userId,
+              fields: { subject: rec.subject },
+            },
+          });
+        }
+        if (url === `/api/entities/${recId}/access`) return rec.access();
+      }
+      return Promise.resolve({ data: [] });
+    });
+  }
+
+  const deniedAccess = (): Promise<unknown> =>
+    Promise.resolve({ data: [OWNER_ENTRY] });
+  const failedAccess = (): Promise<unknown> =>
+    Promise.reject(new Error("503 Service Unavailable"));
+
+  function pushCommentCreated(): void {
+    capturedRoomHandler?.({
+      type: "comment.created",
+      instanceId: RECORD_ID,
+      commentId: "c-live",
+      actorId: OWNER_ENTRY.userId,
+    });
+  }
+
+  beforeEach(() => {
+    capturedRoomHandler = null;
+    mockUserId = PLAIN_VIEWER;
+    mockProfileRoles = ["user"];
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockUnsubscribe.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("shows the Access Restricted overlay for a plain user missing from the ticket's access list", async () => {
+    mockAccessGateRoutes({
+      [RECORD_ID]: { subject: "Gated ticket", access: deniedAccess },
+    });
+
+    renderRecordDetail();
+
+    expect(await screen.findByText("Access Restricted")).toBeDefined();
+  });
+
+  it("keeps the overlay when a silent refresh's /access request fails", async () => {
+    mockAccessGateRoutes({
+      [RECORD_ID]: { subject: "Gated ticket", access: deniedAccess },
+    });
+    renderRecordDetail();
+    await screen.findByText("Access Restricted");
+    await waitFor(() => expect(capturedRoomHandler).not.toBeNull());
+
+    // Same tick as setAccessList in loadRecord(), so once the new subject
+    // renders the (skipped) access-list update has settled too.
+    mockAccessGateRoutes({
+      [RECORD_ID]: {
+        subject: "Gated ticket (refreshed)",
+        access: failedAccess,
+      },
+    });
+    pushCommentCreated();
+
+    await screen.findAllByText("Gated ticket (refreshed)");
+    expect(screen.getByText("Access Restricted")).toBeDefined();
+  });
+
+  it("lifts the overlay when a silent refresh's access list now includes the viewer", async () => {
+    mockAccessGateRoutes({
+      [RECORD_ID]: { subject: "Gated ticket", access: deniedAccess },
+    });
+    renderRecordDetail();
+    await screen.findByText("Access Restricted");
+    await waitFor(() => expect(capturedRoomHandler).not.toBeNull());
+
+    // The owner approved the request — the refreshed list now has the viewer.
+    mockAccessGateRoutes({
+      [RECORD_ID]: {
+        subject: "Gated ticket (refreshed)",
+        access: () =>
+          Promise.resolve({
+            data: [
+              OWNER_ENTRY,
+              { userId: PLAIN_VIEWER, level: "read_only", tag: "manual" },
+            ],
+          }),
+      },
+    });
+    pushCommentCreated();
+
+    await screen.findAllByText("Gated ticket (refreshed)");
+    expect(screen.queryByText("Access Restricted")).toBeNull();
+  });
+
+  it("does not carry one record's access list onto another when navigating between record ids", async () => {
+    mockAccessGateRoutes({
+      [RECORD_ID]: { subject: "Gated ticket", access: deniedAccess },
+      // Record B's /access fails: with no reset on id change, record A's
+      // list (which denies this viewer) would survive and gate record B.
+      [OTHER_RECORD_ID]: { subject: "Other ticket", access: failedAccess },
+    });
+
+    render(
+      <MemoryRouter initialEntries={[`/records/ticket/${RECORD_ID}`]}>
+        <Link to={`/records/ticket/${OTHER_RECORD_ID}`}>
+          Go to other record
+        </Link>
+        <Routes>
+          <Route
+            path="/records/:typeSlug/:id"
+            element={<CustomerRecordDetail />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("Access Restricted");
+
+    fireEvent.click(screen.getByText("Go to other record"));
+
+    await screen.findAllByText("Other ticket");
+    expect(screen.queryByText("Access Restricted")).toBeNull();
   });
 });
