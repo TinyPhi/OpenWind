@@ -74,7 +74,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // #693: fetching an export's URL, or being refused it, only reads data.
   "export.downloaded": true,
   "export.download_denied": true,
-  sync_failed: true,
+  "org_directory.sync_completed": true,
+  "org_directory.sync_failed": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -127,9 +128,10 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "schedule.rule_paused",
   "schedule.rule_resumed",
   "schedule.rule_archived",
-  // An admin-triggered tree rebuild that failed mid-run -- a mutation
-  // attempt, same reasoning as schedule.execution_failed.
-  "sync_failed",
+  // An admin-triggered tree rebuild, completed or failed mid-run -- a
+  // mutation (attempt), same reasoning as schedule.execution_failed.
+  "org_directory.sync_completed",
+  "org_directory.sync_failed",
 ]);
 
 /**
