@@ -30,6 +30,11 @@ function getFreshUsers(): TenantUser[] | null {
   return null;
 }
 
+/**
+ * Single-flight, cached `/users` fetch. Rejects when the request fails so the
+ * caller can show an error state instead of an empty list; failures are not
+ * cached, so the next caller retries.
+ */
 export async function fetchUsersShared(): Promise<TenantUser[]> {
   const fresh = getFreshUsers();
   if (fresh !== null) return fresh;
@@ -45,10 +50,6 @@ export async function fetchUsersShared(): Promise<TenantUser[]> {
         cachedAt = Date.now();
       }
       return data;
-    })
-    .catch((): TenantUser[] => {
-      // Failures are not cached, so the next caller retries.
-      return [];
     })
     .finally(() => {
       if (inFlightUsersPromise === request) inFlightUsersPromise = null;
@@ -73,9 +74,14 @@ export function clearUsersCache(): void {
 // previous identity's user list.
 onSessionEnd(clearUsersCache);
 
-export function useUsers(): { users: TenantUser[]; loading: boolean } {
+export function useUsers(): {
+  users: TenantUser[];
+  loading: boolean;
+  error: boolean;
+} {
   const [users, setUsers] = useState<TenantUser[]>(getFreshUsers() ?? []);
   const [loading, setLoading] = useState(getFreshUsers() === null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     const fresh = getFreshUsers();
@@ -84,17 +90,25 @@ export function useUsers(): { users: TenantUser[]; loading: boolean } {
     }
 
     let cancelled = false;
-    void fetchUsersShared().then((data) => {
-      if (!cancelled) {
-        setUsers(data);
-        setLoading(false);
-      }
-    });
+    fetchUsersShared().then(
+      (data) => {
+        if (!cancelled) {
+          setUsers(data);
+          setLoading(false);
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setError(true);
+          setLoading(false);
+        }
+      },
+    );
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return { users, loading };
+  return { users, loading, error };
 }

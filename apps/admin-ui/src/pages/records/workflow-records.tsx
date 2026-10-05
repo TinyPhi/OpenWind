@@ -6,7 +6,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { fetchUsersShared } from "../../lib/use-users.js";
+import { fetchUsersShared, type TenantUser } from "../../lib/use-users.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { isRenderableIcon } from "../../lib/icon.js";
@@ -797,7 +797,9 @@ export function WorkflowRecords(): React.ReactElement {
         // full-page error state.
         const [fieldsRes, usersData, recResult] = await Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
-          fetchUsersShared(),
+          // The page still works without the user list (assignee names), so a
+          // /users failure must not reject the whole shell load.
+          fetchUsersShared().catch((): TenantUser[] => []),
           fetchWithAuth(recordUrl).then(
             (body) => ({ ok: true as const, body }),
             () => ({ ok: false as const }),

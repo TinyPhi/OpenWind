@@ -45,6 +45,7 @@ vi.mock("../../authProvider.js", () => ({
 
 const { WorkflowRecords, buildRecordsRequest } =
   await import("./workflow-records.js");
+const { clearUsersCache } = await import("../../lib/use-users.js");
 
 const WORKFLOW_ID = "wf-1";
 const ENTITY_TYPE_ID = "et-1";
@@ -462,6 +463,28 @@ describe("WorkflowRecords — records load retries and in-flight races", () => {
     mockGetUser.mockImplementation(defaultGetUser);
     mockProfileRoles = ["admin"];
     mockUserId = "admin-1";
+  });
+
+  it("still renders the board when /users fails (the user list is optional for this page)", async () => {
+    mockProfileRoles = ["admin"];
+    mockUserId = "admin-1";
+    // The users cache is module-level; a hit would mask the failure.
+    clearUsersCache();
+    mockRoutes([]);
+    const base = mockFetchWithAuth.getMockImplementation();
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.includes("/users")
+        ? Promise.reject(new Error("users down"))
+        : base
+          ? base(url)
+          : Promise.resolve({ data: [] }),
+    );
+
+    const container = renderPage();
+    await waitFor(() => {
+      expect(cardCount(container)).toBe(2);
+    });
+    expect(container.querySelector(".kb-error")).toBeNull();
   });
 
   it("retries a failed initial records fetch and renders the retry's records without a full-page error", async () => {

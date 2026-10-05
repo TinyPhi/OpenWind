@@ -179,7 +179,7 @@ describe("use-users and fetchUsersShared", () => {
   it("does not cache failures", async () => {
     const u1 = createMockUser("u1");
     fetchWithAuth.mockRejectedValueOnce(new Error("boom"));
-    expect(await fetchUsersShared()).toEqual([]);
+    await expect(fetchUsersShared()).rejects.toThrow("boom");
     fetchWithAuth.mockResolvedValueOnce({ data: [u1] });
     expect(await fetchUsersShared()).toEqual([u1]);
   });
@@ -198,9 +198,8 @@ describe("use-users and fetchUsersShared", () => {
 
     rejectCall!(new Error("network error"));
 
-    const [r1, r2] = await Promise.all([call1, call2]);
-    expect(r1).toEqual([]);
-    expect(r2).toEqual([]);
+    await expect(call1).rejects.toThrow("network error");
+    await expect(call2).rejects.toThrow("network error");
     expect(fetchWithAuth).toHaveBeenCalledTimes(1);
 
     // Immediate subsequent call retries network request
@@ -208,6 +207,23 @@ describe("use-users and fetchUsersShared", () => {
     const retryResult = await fetchUsersShared();
     expect(retryResult).toEqual([u1]);
     expect(fetchWithAuth).toHaveBeenCalledTimes(2);
+  });
+
+  it("useUsers reports error (not an empty success) when the request fails, then recovers on remount", async () => {
+    const u1 = createMockUser("u1");
+    fetchWithAuth.mockRejectedValueOnce(new Error("boom"));
+
+    const failed = renderHook(() => useUsers());
+    await waitFor(() => expect(failed.result.current.loading).toBe(false));
+    expect(failed.result.current.error).toBe(true);
+    expect(failed.result.current.users).toEqual([]);
+    failed.unmount();
+
+    fetchWithAuth.mockResolvedValueOnce({ data: [u1] });
+    const retried = renderHook(() => useUsers());
+    await waitFor(() => expect(retried.result.current.loading).toBe(false));
+    expect(retried.result.current.error).toBe(false);
+    expect(retried.result.current.users).toEqual([u1]);
   });
 
   it("respects exact TTL boundary (valid at TTL-1ms, expired at TTL)", async () => {

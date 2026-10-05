@@ -29,18 +29,49 @@ export function UserRefPicker({
   disabled = false,
 }: UserRefPickerProps): React.ReactElement {
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    void loadUsers().then(setUsers);
-  }, []);
+    let cancelled = false;
+    setFailed(false);
+    loadUsers().then(
+      (loaded) => {
+        if (!cancelled) setUsers(loaded);
+      },
+      () => {
+        if (!cancelled) setFailed(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
 
   return (
-    <UserPicker
-      users={users}
-      value={value}
-      onChange={onChange}
-      placeholder="Select a user…"
-      disabled={disabled}
-    />
+    <>
+      <UserPicker
+        users={users}
+        value={value}
+        onChange={onChange}
+        placeholder="Select a user…"
+        disabled={disabled}
+      />
+      {failed && (
+        <div
+          role="alert"
+          style={{ fontSize: "12px", color: "var(--text-muted)" }}
+        >
+          Couldn&apos;t load users.{" "}
+          <button
+            type="button"
+            onClick={() => setAttempt((n) => n + 1)}
+            style={{ cursor: "pointer" }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+    </>
   );
 }
