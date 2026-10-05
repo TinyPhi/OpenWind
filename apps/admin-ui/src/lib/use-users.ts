@@ -14,6 +14,9 @@ export type TenantUser = {
 // hard reload, while still collapsing the burst of mounts on one page.
 export const USERS_CACHE_TTL_MS = 60_000;
 
+// Not keyed by tenant: assumes one identity per tab. Switching tenant/identity
+// requires a full logout, which clears this via onSessionEnd. If in-session
+// tenant switching is ever added, key this cache by tenant.
 let inFlightUsersPromise: Promise<TenantUser[]> | null = null;
 let cachedUsers: TenantUser[] | null = null;
 let cachedAt = 0;
@@ -55,6 +58,10 @@ export async function fetchUsersShared(): Promise<TenantUser[]> {
   return request;
 }
 
+// Callers already awaiting the abandoned in-flight promise still get its
+// result; the generation bump only stops it re-populating the cache. Benign:
+// logout navigates to /login and unmounts them, and useUsers ignores results
+// after unmount via its cancelled flag.
 export function clearUsersCache(): void {
   generation += 1;
   cachedUsers = null;

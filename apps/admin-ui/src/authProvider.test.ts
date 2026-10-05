@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type * as OidcClient from "oidc-client-ts";
 
 let capturedUserUnloadedCallback: (() => void) | undefined;
 let capturedAccessTokenExpiredCallback: (() => void) | undefined;
@@ -16,28 +17,35 @@ const mockSignoutRedirect = vi.fn();
 const mockRemoveUser = vi.fn();
 const mockClearStaleState = vi.fn();
 
-vi.mock("oidc-client-ts", () => ({
-  UserManager: vi.fn().mockImplementation(function UserManager() {
-    return {
-      signinSilent: mockSigninSilent,
-      getUser: mockGetUser,
-      signoutRedirect: mockSignoutRedirect,
-      removeUser: mockRemoveUser,
-      clearStaleState: mockClearStaleState,
-      events: {
-        addUserLoaded: mockAddUserLoaded,
-        addUserUnloaded: mockAddUserUnloaded,
-        addAccessTokenExpired: mockAddAccessTokenExpired,
-      },
-    };
-  }),
-  WebStorageStateStore: vi.fn(),
-}));
+vi.mock("oidc-client-ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof OidcClient>();
+  return {
+    // Real error classes so authProvider's `instanceof` checks behave as in prod.
+    ErrorResponse: actual.ErrorResponse,
+    ErrorTimeout: actual.ErrorTimeout,
+    UserManager: vi.fn().mockImplementation(function UserManager() {
+      return {
+        signinSilent: mockSigninSilent,
+        getUser: mockGetUser,
+        signoutRedirect: mockSignoutRedirect,
+        removeUser: mockRemoveUser,
+        clearStaleState: mockClearStaleState,
+        events: {
+          addUserLoaded: mockAddUserLoaded,
+          addUserUnloaded: mockAddUserUnloaded,
+          addAccessTokenExpired: mockAddAccessTokenExpired,
+        },
+      };
+    }),
+    WebStorageStateStore: vi.fn(),
+  };
+});
 
 vi.mock("@refinedev/core", () => ({}));
 
 const { silentRefresh, authProvider } = await import("./authProvider.js");
 const { onSessionEnd } = await import("./lib/session-events.js");
+const { ErrorResponse, ErrorTimeout } = await import("oidc-client-ts");
 
 describe("silentRefresh", () => {
   beforeEach(() => {
@@ -52,10 +60,12 @@ describe("silentRefresh", () => {
     expect(result).toBe("tok-123");
   });
 
-  it("returns null and emits session end when signinSilent rejects", async () => {
+  it("returns null and emits session end when the authorization server rejects the refresh (ErrorResponse)", async () => {
     const sessionEndListener = vi.fn();
     const unsubscribe = onSessionEnd(sessionEndListener);
-    mockSigninSilent.mockRejectedValue(new Error("refresh failed"));
+    mockSigninSilent.mockRejectedValue(
+      new ErrorResponse({ error: "invalid_grant" }),
+    );
 
     const result = await silentRefresh();
 
@@ -63,6 +73,25 @@ describe("silentRefresh", () => {
     expect(sessionEndListener).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
+
+  it.each([
+    ["a plain network Error", () => new Error("Network error")],
+    ["a fetch TypeError", () => new TypeError("Failed to fetch")],
+    ["an ErrorTimeout", () => new ErrorTimeout("IFrame timed out")],
+  ])(
+    "returns null without emitting session end when signinSilent rejects with %s (transient failure)",
+    async (_label, makeError) => {
+      const sessionEndListener = vi.fn();
+      const unsubscribe = onSessionEnd(sessionEndListener);
+      mockSigninSilent.mockRejectedValue(makeError());
+
+      const result = await silentRefresh();
+
+      expect(result).toBeNull();
+      expect(sessionEndListener).not.toHaveBeenCalled();
+      unsubscribe();
+    },
+  );
 
   it("returns null and emits session end when signinSilent resolves with no access token", async () => {
     const sessionEndListener = vi.fn();

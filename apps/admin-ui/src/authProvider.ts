@@ -1,4 +1,8 @@
-import { UserManager, WebStorageStateStore } from "oidc-client-ts";
+import {
+  ErrorResponse,
+  UserManager,
+  WebStorageStateStore,
+} from "oidc-client-ts";
 import type { User } from "oidc-client-ts";
 import type { AuthProvider } from "@refinedev/core";
 import { emitSessionEnd } from "./lib/session-events.js";
@@ -103,8 +107,13 @@ export function silentRefresh(): Promise<string | null> {
       }
       return token;
     })
-    .catch(() => {
-      emitSessionEnd();
+    .catch((err: unknown) => {
+      // Only an OAuth error from the server (invalid_grant, login_required, …)
+      // proves the session is gone. Network errors and timeouts are transient
+      // and must not flush caches for a session that may still be valid.
+      if (err instanceof ErrorResponse) {
+        emitSessionEnd();
+      }
       return null;
     })
     .finally(() => {
@@ -120,6 +129,9 @@ export const authProvider: AuthProvider = {
     return { success: true };
   },
   logout: async () => {
+    // Deliberately first: clearing tenant-scoped caches before the async
+    // sign-out steps means no request finishing mid-logout can be served from
+    // the previous identity's cache. If logout then fails, it costs a refetch.
     emitSessionEnd();
     const user = await userManager.getUser();
     await userManager.clearStaleState();
