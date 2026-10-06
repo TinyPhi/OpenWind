@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — admin-ui startup and idle-logout hardening (5 of 5, split from #772)]
+
+### Changed
+
+- **Idle-logout activity listeners are passive and throttled** — the timer resets at most once per
+  throttle window (up to 10 s) instead of on every mouse, scroll, touch or resize event, and the
+  timeout is still measured from the latest activity, so a dropped event can't log a user out early.
+  A rejected `logout()` still redirects to `/login`.
+- **User avatars are local initials** instead of images from the DiceBear CDN, and the sidebar logo
+  uses the existing `/favicon.svg` (the old `/ow-logo.png` was never in `public/`, so it 404'd).
+- **`/env.js` loads with `defer`** so it no longer blocks HTML parsing.
+
+### Fixed
+
+- **A browser with blocked storage no longer breaks startup** — theme and accent reads and writes
+  fall back to defaults, and a failing initial `getUser()` is caught instead of surfacing as an
+  unhandled rejection.
+- **A malformed CSS comment** that produced a `css-syntax-error` build warning.
+
+---
+
 ## [Unreleased — MIS reporting (Stage 1 embedded + Stage 2 standalone)]
 
 ### Added
