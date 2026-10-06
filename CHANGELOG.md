@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — admin-ui refactors: shared helpers, form state, access state (4 of 5, split from #772)]
+
+### Changed
+
+- **Shared helpers** — `withAlpha` and `avatarColor` (`lib/theme.ts`), `toWorkflowSlug`, `initials`,
+  `singularize` and `formatFieldValue` (`lib/format.ts`) and a `useOutsideClick` hook replace
+  copy-pasted private versions across admin-ui. The users and roster pages' avatar backgrounds now
+  come from the shared `avatarColor`, so they change colour.
+- **Form state** — ticket creation, the schedule-rule editor and the notification-policy editor and
+  simulator each hold their fields in one typed object instead of one `useState` per field. No
+  behaviour change. `ResolvePreview` is renamed `ResolveSimulator`.
+- **Ticket access state** — `accessDenied` and the requester's own access-request status are
+  derived during render instead of synced by effects, so an approved requester's overlay lifts on the
+  next refresh. A failed background `/access` refresh keeps the last good list so the Access
+  Restricted overlay can't drop for a denied viewer.
+
+---
+
 ## [Unreleased — MIS reporting (Stage 1 embedded + Stage 2 standalone)]
 
 ### Added
