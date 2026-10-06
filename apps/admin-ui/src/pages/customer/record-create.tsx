@@ -520,6 +520,36 @@ type WorkflowDef = {
   states?: Array<{ id: string; name: string; label: string }>;
 };
 
+export interface RecordCreateFormData {
+  fieldValues: Record<string, unknown>;
+  workflowId: string;
+  currentState: string;
+  assignMode: "user" | "team";
+  assignedTo: string;
+  teamId: string;
+  severity: Severity;
+  dueDate: string;
+  remark: string;
+}
+
+const INITIAL_FORM_DATA: RecordCreateFormData = {
+  fieldValues: {},
+  workflowId: "",
+  currentState: "",
+  // docs/specs/team-assign-oncall-fallback.md R1 — exactly one of user/team;
+  // teamId is only ever sent when mode is "team" (assignedTo cleared, and
+  // vice versa) so the payload always matches the server's exactly-one-of
+  // contract regardless of which mode the ticket creator last touched.
+  assignMode: "user",
+  assignedTo: "",
+  teamId: "",
+  // docs/specs/ticket-severity-and-tags.md R1 — pre-filled Medium, always
+  // required at submit; the create form never lets this go null.
+  severity: DEFAULT_SEVERITY,
+  dueDate: "",
+  remark: "",
+};
+
 export function CustomerRecordCreate(): React.ReactElement {
   const { typeSlug } = useParams<{ typeSlug: string }>();
   const navigate = useNavigate();
@@ -552,21 +582,40 @@ export function CustomerRecordCreate(): React.ReactElement {
   const [workflows, setWorkflows] = useState<WorkflowDef[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [teams, setTeams] = useState<TeamOption[]>([]);
-  const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
-  const [workflowId, setWorkflowId] = useState("");
-  const [currentState, setCurrentState] = useState("");
-  const [assignedTo, setAssignedTo] = useState("");
-  // docs/specs/team-assign-oncall-fallback.md R1 — exactly one of user/team;
-  // teamId is only ever sent when mode is "team" (assignedTo cleared, and
-  // vice versa) so the payload always matches the server's exactly-one-of
-  // contract regardless of which mode the ticket creator last touched.
-  const [assignMode, setAssignMode] = useState<"user" | "team">("user");
-  const [teamId, setTeamId] = useState("");
-  // docs/specs/ticket-severity-and-tags.md R1 — pre-filled Medium, always
-  // required at submit; the create form never lets this go null.
-  const [severity, setSeverity] = useState<Severity>(DEFAULT_SEVERITY);
-  const [dueDate, setDueDate] = useState("");
-  const [remark, setRemark] = useState("");
+  const [formData, setFormData] =
+    useState<RecordCreateFormData>(INITIAL_FORM_DATA);
+
+  function updateFormField<K extends keyof RecordCreateFormData>(
+    key: K,
+    val:
+      | RecordCreateFormData[K]
+      | ((prev: RecordCreateFormData[K]) => RecordCreateFormData[K]),
+  ): void {
+    setFormData((prev) => {
+      const nextVal =
+        typeof val === "function"
+          ? (
+              val as (
+                prevVal: RecordCreateFormData[K],
+              ) => RecordCreateFormData[K]
+            )(prev[key])
+          : val;
+      if (prev[key] === nextVal) return prev;
+      return { ...prev, [key]: nextVal };
+    });
+  }
+
+  const {
+    fieldValues,
+    workflowId,
+    currentState,
+    assignedTo,
+    assignMode,
+    teamId,
+    severity,
+    dueDate,
+    remark,
+  } = formData;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -591,18 +640,19 @@ export function CustomerRecordCreate(): React.ReactElement {
     if (workflowId) {
       const wf = workflows.find((w) => w.id === workflowId);
       if (wf) {
-        const isValid = wf.states?.some((s) => s.name === currentState);
-        if (!isValid) {
+        updateFormField("currentState", (prev) => {
+          const isValid = wf.states?.some((s) => s.name === prev);
+          if (isValid) return prev;
           // Only use initialState if it still exists; otherwise pick first state
           const fallback =
             wf.states?.find((s) => s.name === wf.initialState)?.name ??
             wf.states?.[0]?.name ??
             "";
-          setCurrentState(fallback);
-        }
+          return fallback;
+        });
       }
     } else {
-      setCurrentState("");
+      updateFormField("currentState", "");
     }
   }, [workflowId, workflows]);
 
@@ -632,16 +682,16 @@ export function CustomerRecordCreate(): React.ReactElement {
             }
           }
           if (Object.keys(matched).length > 0) {
-            setFieldValues((prev) => ({ ...prev, ...matched }));
+            updateFormField("fieldValues", (prev) => ({ ...prev, ...matched }));
           }
         }
         const wfs = (wfRes as { data?: WorkflowDef[] }).data ?? [];
         setWorkflows(wfs);
         const preselect = routeState.workflowId;
         if (preselect && wfs.some((w) => w.id === preselect)) {
-          setWorkflowId(preselect);
+          updateFormField("workflowId", preselect);
         } else if (wfs.length === 1 && wfs[0]) {
-          setWorkflowId(wfs[0].id);
+          updateFormField("workflowId", wfs[0].id);
         }
         const usrs = (usersRes as { data?: UserOption[] }).data ?? [];
         setUsers(usrs);
@@ -765,7 +815,7 @@ export function CustomerRecordCreate(): React.ReactElement {
             <select
               className="portal-input"
               value={workflowId}
-              onChange={(e) => setWorkflowId(e.target.value)}
+              onChange={(e) => updateFormField("workflowId", e.target.value)}
             >
               <option value="">No workflow</option>
               {workflows.map((wf) => (
@@ -856,7 +906,10 @@ export function CustomerRecordCreate(): React.ReactElement {
                   moduleSlug={typeSlug ?? "unknown"}
                   entityId={undefined}
                   onChange={(v) =>
-                    setFieldValues((p) => ({ ...p, [field.name]: v }))
+                    updateFormField("fieldValues", (p) => ({
+                      ...p,
+                      [field.name]: v,
+                    }))
                   }
                 />
               </div>
@@ -877,7 +930,7 @@ export function CustomerRecordCreate(): React.ReactElement {
               >
                 <button
                   type="button"
-                  onClick={() => setAssignMode("user")}
+                  onClick={() => updateFormField("assignMode", "user")}
                   style={{
                     padding: "5px 12px",
                     fontSize: "12.5px",
@@ -897,7 +950,7 @@ export function CustomerRecordCreate(): React.ReactElement {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAssignMode("team")}
+                  onClick={() => updateFormField("assignMode", "team")}
                   style={{
                     padding: "5px 12px",
                     fontSize: "12.5px",
@@ -920,10 +973,14 @@ export function CustomerRecordCreate(): React.ReactElement {
                 <UserPicker
                   users={users}
                   value={assignedTo}
-                  onChange={setAssignedTo}
+                  onChange={(val) => updateFormField("assignedTo", val)}
                 />
               ) : (
-                <TeamPicker teams={teams} value={teamId} onChange={setTeamId} />
+                <TeamPicker
+                  teams={teams}
+                  value={teamId}
+                  onChange={(val) => updateFormField("teamId", val)}
+                />
               )}
             </div>
             <div className="portal-field-group" style={{ margin: 0 }}>
@@ -934,14 +991,17 @@ export function CustomerRecordCreate(): React.ReactElement {
                 type="datetime-local"
                 className="portal-input"
                 value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                onChange={(e) => updateFormField("dueDate", e.target.value)}
               />
             </div>
             <div className="portal-field-group" style={{ margin: 0 }}>
               <label className="portal-field-label">
                 Severity<span className="portal-required">*</span>
               </label>
-              <SeverityDropdown value={severity} onChange={setSeverity} />
+              <SeverityDropdown
+                value={severity}
+                onChange={(val) => updateFormField("severity", val)}
+              />
             </div>
             <div
               className="portal-field-group"
@@ -955,7 +1015,7 @@ export function CustomerRecordCreate(): React.ReactElement {
                 rows={3}
                 maxLength={4000}
                 value={remark}
-                onChange={(e) => setRemark(e.target.value)}
+                onChange={(e) => updateFormField("remark", e.target.value)}
               />
             </div>
           </div>
@@ -972,7 +1032,10 @@ export function CustomerRecordCreate(): React.ReactElement {
                 moduleSlug={typeSlug ?? "unknown"}
                 entityId={undefined}
                 onChange={(v) =>
-                  setFieldValues((p) => ({ ...p, [field.name]: v }))
+                  updateFormField("fieldValues", (p) => ({
+                    ...p,
+                    [field.name]: v,
+                  }))
                 }
               />
             </div>
