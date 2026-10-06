@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — admin-ui route-level code splitting (1 of 5, split from #772)]
+
+### Changed
+
+- **All 32 admin-ui page routes are lazy-loaded** (`apps/admin-ui/src/lazy-routes.ts`). The entry
+  chunk goes from about 1,436 kB to about 660 kB raw (about 402 kB to about 202 kB gzip, Vite's
+  units). reactflow and dagre (with their d3 dependencies) now load only with the workflow canvas,
+  and the Superset embed SDK only with the Reporting page. The sidebar and header stay mounted
+  while a route loads.
+
+### Added
+
+- **Route error boundary** — a page that fails to render or whose chunk fails to load shows a
+  message inside the page area instead of blanking the app. A missing chunk offers Reload; any other
+  error offers Retry and is logged. A tab left open across a redeploy reloads once to pick up the
+  new chunks (guarded against a reload loop).
+- **Entry bundle size gate** — `pnpm --filter @platform/admin-ui build` fails if the entry chunk
+  exceeds 210 kB gzip (`apps/admin-ui/scripts/check-entry-size.mjs`). Vite's chunk-size warning
+  limit drops from 700 to 680 kB raw.
+
+---
+
 ## [Unreleased — MIS reporting (Stage 1 embedded + Stage 2 standalone)]
 
 ### Added
