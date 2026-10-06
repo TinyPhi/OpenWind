@@ -5046,3 +5046,164 @@ select.form-input {
   .geb-auth { background: #1e293b; }
   .geb-server { background: #7f1d1d; }
 }
+
+/* Hover/selected states moved from JS to CSS (picker rows, cards, list rows) */
+.user-picker-option-row {
+  background: none;
+  transition: background 0.1s ease;
+}
+.user-picker-option-row:hover:not(.is-selected) {
+  background: var(--bg-tertiary);
+}
+.user-picker-option-row.is-selected {
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+}
+.user-picker-unassign-btn {
+  background: none;
+  transition: background 0.1s ease;
+}
+.user-picker-unassign-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Interactive Table & List Row CSS Hover Performance */
+.interactive-hover-row {
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.interactive-hover-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.ticket-table-row {
+  cursor: pointer;
+  background: transparent;
+  transform: scale(1);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.ticket-table-row:hover {
+  background: var(--bg-tertiary);
+  transform: scale(1.012);
+}
+
+.user-icon-action {
+  background: transparent;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.user-icon-action:hover {
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+}
+
+.stat-card-interactive {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.stat-card-interactive:hover {
+  border-color: var(--card-color) !important;
+  box-shadow: 0 4px 20px var(--card-glow) !important;
+}
+
+.dash-perf-row {
+  transition: background 0.12s ease;
+}
+.dash-perf-row:hover {
+  background: var(--bg-secondary);
+}
+
+.analytics-quick-action {
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.analytics-quick-action:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: hsla(250, 84%, 60%, 0.06);
+}
+
+.header-profile-btn {
+  background: transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.header-profile-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.header-sign-out-btn {
+  background: none;
+  transition: background 0.15s ease;
+}
+.header-sign-out-btn:hover {
+  background: color-mix(in srgb, var(--danger, #ef4444) 10%, transparent);
+}
+
+.notification-bell-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.notification-bell-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.record-access-remove-btn {
+  color: var(--text-muted, #9ca3af);
+  border-color: transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.record-access-remove-btn:hover {
+  color: var(--danger, #ef4444);
+  border-color: #fca5a5;
+}
+
+.workflow-drag-handle {
+  box-shadow: none;
+  transition: box-shadow 0.15s ease;
+}
+.workflow-drag-handle:hover {
+  box-shadow: 0 0 0 3px var(--drag-glow) !important;
+}
+
+.workflow-pill-remove-btn {
+  background: none;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.workflow-pill-remove-btn:hover {
+  background: hsla(0, 84%, 60%, 0.12);
+  color: var(--danger, #ef4444);
+}
+
+.module-card-interactive {
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.module-card-interactive:hover {
+  border: 1px solid color-mix(in srgb, var(--mod-accent) 33%, transparent) !important;
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--mod-accent) 13%, transparent) !important;
+}
+
+.module-preview-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.module-preview-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.org-card-interactive {
+  transition: border-color 0.15s ease;
+}
+.org-card-interactive:hover {
+  border-color: var(--accent-primary) !important;
+}
+
+
+
+

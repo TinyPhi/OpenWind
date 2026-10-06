@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import type * as ReactRouterDom from "react-router-dom";
 
 // ── docs/specs/personal-dashboard.md R4 regression guard ──────────────────────
@@ -97,6 +97,10 @@ beforeAll(() => {
     removeItem: (key: string) => store.delete(key),
     clear: () => store.clear(),
   });
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe("Analytics (renamed from Dashboard — R4 regression guard)", () => {

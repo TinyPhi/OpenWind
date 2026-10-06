@@ -7,7 +7,6 @@ import {
   TableHead,
   TableCell,
   TOKENS,
-  useHoverStyle,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
@@ -73,21 +72,9 @@ interface UserRowProps {
 
 function UserRow({ user, isAdmin }: UserRowProps): React.ReactElement {
   const color = avatarColor(user.userId);
-  const rowHover = useHoverStyle({
-    base: { background: "" },
-    hover: { background: TOKENS.bgTertiary },
-  });
-  const iconHover = useHoverStyle({
-    base: { background: "", color: TOKENS.textMuted },
-    hover: { background: TOKENS.bgTertiary, color: TOKENS.accentPrimary },
-  });
 
   return (
-    <TableRow
-      style={rowHover.style}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
-    >
+    <TableRow className="interactive-hover-row">
       <TableCell style={{ padding: "12px 16px" }}>
         <div
           style={{
@@ -196,6 +183,7 @@ function UserRow({ user, isAdmin }: UserRowProps): React.ReactElement {
             target="_blank"
             rel="noreferrer"
             title="Open in Zitadel"
+            className="user-icon-action"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -204,11 +192,7 @@ function UserRow({ user, isAdmin }: UserRowProps): React.ReactElement {
               height: "28px",
               borderRadius: "6px",
               textDecoration: "none",
-              transition: "background 0.15s, color 0.15s",
-              ...iconHover.style,
             }}
-            onMouseEnter={iconHover.onMouseEnter}
-            onMouseLeave={iconHover.onMouseLeave}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
