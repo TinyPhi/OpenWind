@@ -16,6 +16,8 @@
 - `index.html` loads `/env.js` with `defer` (deferred and module scripts run in document order, so
   `window.__CONFIG__` is still set before the app reads it). A CSS comment that closed early and
   caused a `css-syntax-error` warning is fixed.
+- `EntityTypeProvider` memoizes its context value (`useCallback` / `useMemo`), so consumers don't
+  re-render on every provider render.
 - Tests: `use-idle-logout`, `theme` (throwing and undefined storage) and `layout` (avatar) suites.
 - Not in this slice: lazy routes, request dedup, hover-to-CSS and the refactors (the other four
   PRs from the #772 split).

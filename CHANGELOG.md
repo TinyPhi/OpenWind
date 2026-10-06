@@ -16,6 +16,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **User avatars are local initials** instead of images from the DiceBear CDN, and the sidebar logo
   uses the existing `/favicon.svg` (the old `/ow-logo.png` was never in `public/`, so it 404'd).
 - **`/env.js` loads with `defer`** so it no longer blocks HTML parsing.
+- **The entity-type context value is memoized**, so its consumers no longer re-render on every
+  provider render.
 
 ### Fixed
 
