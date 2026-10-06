@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { fetchUsersShared } from "../../lib/use-users.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { FieldInput } from "../../components/field-input.js";
 import { userManager } from "../../authProvider.js";
@@ -1745,8 +1746,8 @@ export function CustomerRecordDetail(): React.ReactElement {
     return actorDisplayName ?? fromList ?? "Unknown";
   };
 
-  function loadRecord(): Promise<void> {
-    if (!id) return Promise.resolve();
+  function loadRecord(): Promise<boolean> {
+    if (!id) return Promise.resolve(false);
     setError(null);
     setNoAccess(false);
     // Fetch the record first — its own entityTypeId is authoritative, unlike
@@ -1765,7 +1766,9 @@ export function CustomerRecordDetail(): React.ReactElement {
         return Promise.all([
           fetchWithAuth(`${API_URL}/entity-types/${rec.entityTypeId}/fields`),
           Promise.resolve(recRes),
-          fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
+          fetchUsersShared()
+            .then((users) => ({ data: users }))
+            .catch(() => ({ data: [] })),
           fetchWithAuth(`${API_URL}/entities/${id}/access`).catch(() => ({
             data: [],
           })),
@@ -1795,6 +1798,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           return [...apiUsers, ...prev.filter((u) => !apiIds.has(u.userId))];
         });
         setAccessList((accessRes as { data?: AccessEntry[] }).data ?? []);
+        return true;
       })
       .catch((err: unknown) => {
         const status = (err as { status?: number } | undefined)?.status;
@@ -1803,6 +1807,7 @@ export function CustomerRecordDetail(): React.ReactElement {
         } else {
           setError(err instanceof Error ? err.message : "Failed to load");
         }
+        return false;
       })
       .finally(() => setLoading(false));
   }
@@ -2539,11 +2544,14 @@ export function CustomerRecordDetail(): React.ReactElement {
     setError(null);
     setTags([]);
     initializedCollapse.current = false;
-    void loadRecord().then(() => {
-      void loadComments();
-      void refreshAttachments();
-      void loadTags();
+    let canceled = false;
+    void loadRecord().then((ok) => {
+      if (canceled || !ok) return;
+      void Promise.all([loadComments(), refreshAttachments(), loadTags()]);
     });
+    return () => {
+      canceled = true;
+    };
   }, [id]);
 
   // Access-denied check: once both the record and OIDC identity are loaded,
