@@ -1426,6 +1426,11 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [oidcLoaded, setOidcLoaded] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
+  const accessDeniedTitleRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (accessDenied) accessDeniedTitleRef.current?.focus();
+  }, [accessDenied]);
 
   // Access requests
   type AccessRequest = {
@@ -3556,11 +3561,26 @@ export function CustomerRecordDetail(): React.ReactElement {
     <div className="rcd-page">
       {/* ── Access-denied overlay ────────────────────────── */}
       {accessDenied && (
-        <div className="rcd-access-overlay">
+        <div
+          className="rcd-access-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="access-restricted-title"
+          aria-describedby="access-restricted-description"
+        >
           <div className="rcd-access-modal">
-            <div className="rcd-access-icon">🔒</div>
-            <h3 className="rcd-access-title">Access Restricted</h3>
-            <p className="rcd-access-body">
+            <div className="rcd-access-icon" aria-hidden="true">
+              🔒
+            </div>
+            <h3
+              id="access-restricted-title"
+              ref={accessDeniedTitleRef}
+              className="rcd-access-title"
+              tabIndex={-1}
+            >
+              Access Restricted
+            </h3>
+            <p id="access-restricted-description" className="rcd-access-body">
               You don't have access to this ticket. You can request access from
               the ticket owner.
             </p>
