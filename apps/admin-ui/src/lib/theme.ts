@@ -146,3 +146,16 @@ export function initTheme(): void {
   applyTheme(getSavedTheme());
   applyAccent(getSavedAccent());
 }
+
+export function withAlpha(hslColor: string, alpha: number): string {
+  return hslColor.replace("hsl(", "hsla(").replace(")", `, ${alpha})`);
+}
+
+export function avatarColor(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const h = Math.abs(hash) % 360;
+  return `hsl(${h}, 60%, 45%)`;
+}

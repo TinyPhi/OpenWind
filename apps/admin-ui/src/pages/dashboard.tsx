@@ -10,7 +10,8 @@ import {
   markNotificationRead,
   type NotificationItem,
 } from "../lib/notifications-client.js";
-import { relativeTime } from "../lib/format.js";
+import { relativeTime, toWorkflowSlug } from "../lib/format.js";
+import { withAlpha } from "../lib/theme.js";
 
 // ── Personal dashboard ("My View") — docs/specs/personal-dashboard.md ─────────
 // Reachable by every authenticated role. Gives the logged-in user a status
@@ -139,21 +140,6 @@ const CATEGORY_COLORS = [
   "hsl(185,80%,40%)",
 ];
 const OTHER_COLOR = "hsl(222,10%,55%)";
-
-// Same slugification workflow-scoped pages already use (records/index.tsx,
-// entities/my-tickets.ts) — no shared export exists across the two apps, so
-// this is duplicated rather than newly centralized (out of scope here).
-function toWorkflowSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
-
-function withAlpha(color: string, alpha: number): string {
-  const match = /^hsl\(([^)]+)\)$/.exec(color);
-  return match ? `hsla(${match[1]}, ${alpha})` : color;
-}
 
 function daysUntil(iso: string): number {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);

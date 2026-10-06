@@ -9,7 +9,11 @@ import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { isRenderableIcon } from "../../lib/icon.js";
-import { humanizeWorkflowName } from "../../lib/format.js";
+import {
+  humanizeWorkflowName,
+  toWorkflowSlug,
+  relativeTime,
+} from "../../lib/format.js";
 import { TransitionModal } from "../../components/transition-modal.js";
 import {
   OriginCornerBadge,
@@ -83,13 +87,6 @@ type ChildTicket = {
   severity?: Severity | null;
 };
 
-function toWorkflowSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
-
 // ── Module-level drag state ────────────────────────────────────────────────────
 let _activeDragType: "card" | "column" | null = null;
 let _activeDragId: string | null = null;
@@ -109,16 +106,6 @@ function fieldDisplay(value: unknown, fieldType: string): string {
     return `${cv.currency ?? ""} ${cv.amount ?? ""}`.trim();
   }
   return String(value);
-}
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 }
 
 // ── Child Ticket Card ──────────────────────────────────────────────────────────

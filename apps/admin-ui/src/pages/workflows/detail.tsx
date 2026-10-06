@@ -112,13 +112,7 @@ import { useEntityTypes } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { MultiUserPicker } from "../../components/user-picker.js";
 import type { UserOption } from "../../components/user-picker.js";
-
-function toWorkflowSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
+import { toWorkflowSlug } from "../../lib/format.js";
 
 type WorkflowState = {
   id: string;

@@ -1,19 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { humanizeWorkflowName } from "../../lib/format.js";
+import { humanizeWorkflowName, toWorkflowSlug } from "../../lib/format.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import type { EntityType } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { resolveCardIcon } from "../../lib/icon.js";
 import { Button } from "@platform/ui";
-
-function toWorkflowSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
