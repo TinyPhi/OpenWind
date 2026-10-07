@@ -939,6 +939,13 @@
       "when": 1789033322000,
       "tag": "0133_workflow_events_backfill_third_party_mentions",
       "breakpoints": false
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1789033323000,
+      "tag": "0134_admin_audit_log_org_directory_action_rename",
+      "breakpoints": false
     }
   ]
 }
