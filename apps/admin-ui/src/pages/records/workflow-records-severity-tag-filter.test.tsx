@@ -111,6 +111,20 @@ function renderPage(): HTMLElement {
   return container;
 }
 
+async function waitForCardCount(
+  container: HTMLElement,
+  expected: number,
+): Promise<void> {
+  // Full monorepo runs contend with the other workspace test processes, so
+  // retain polling against the rendered cards without the 1s default timeout.
+  await waitFor(
+    () => {
+      expect(container.querySelectorAll(".kb-card")).toHaveLength(expected);
+    },
+    { timeout: 5_000 },
+  );
+}
+
 describe("WorkflowRecords — severity filter (server-side)", () => {
   afterEach(() => {
     cleanup();
@@ -120,24 +134,18 @@ describe("WorkflowRecords — severity filter (server-side)", () => {
   it("shows both tickets before any severity filter is applied", async () => {
     mockRoutes();
     const container = renderPage();
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(2);
-    });
+    await waitForCardCount(container, 2);
   });
 
   it('selecting "Critical" re-fetches with severity=critical and shows only that ticket', async () => {
     mockRoutes();
     const container = renderPage();
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(2);
-    });
+    await waitForCardCount(container, 2);
 
     fireEvent.click(screen.getByTitle("Filters"));
     fireEvent.click(screen.getByRole("button", { name: /Critical/ }));
 
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(1);
-    });
+    await waitForCardCount(container, 1);
     expect(
       mockFetchWithAuth.mock.calls.some(([url]) =>
         String(url).includes("severity=critical"),
