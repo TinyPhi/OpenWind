@@ -154,4 +154,58 @@ describe("sendDirectNotification", () => {
       }),
     ).rejects.toThrow("500");
   });
+
+  it("clears the cached token on a 401 so the next call re-fetches instead of retrying the same rejected token (review finding, PR #803)", async () => {
+    envOverrides.NOTIFICATION_SERVICE_URL =
+      "https://notify.example.com/deliver";
+    envOverrides.NOTIFICATION_ZITADEL_KEY_JSON = JSON.stringify(VALID_KEY);
+    envOverrides.NOTIFICATION_ZITADEL_AUDIENCE = "proj-1";
+
+    const { sendDirectNotification } = await freshModule();
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: "tok-stale", expires_in: 3600 }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve("token revoked"),
+      });
+
+    await expect(
+      sendDirectNotification({
+        notificationId: "n-1",
+        title: "t",
+        body: "b",
+        recipients: [{ userId: "pa-1", email: "pa@example.com" }],
+      }),
+    ).rejects.toThrow("401");
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: "tok-fresh", expires_in: 3600 }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    await sendDirectNotification({
+      notificationId: "n-2",
+      title: "t",
+      body: "b",
+      recipients: [{ userId: "pa-1", email: "pa@example.com" }],
+    });
+
+    // 4 total calls (2 per attempt) -- the second attempt re-exchanged for a token instead
+    // of skipping straight to the outbound POST with the stale, already-rejected one.
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    const [, secondPostInit] = mockFetch.mock.calls[3] as [
+      string,
+      { headers: Record<string, string> },
+    ];
+    expect(secondPostInit.headers["Authorization"]).toBe("Bearer tok-fresh");
+  });
 });
