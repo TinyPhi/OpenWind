@@ -113,7 +113,7 @@ GUEST_TOKEN_JWT_EXP_SECONDS = 60
 # Two properties make this safe, both verified against this image's source
 # rather than assumed:
 #
-#  1. No connection is reused across tenants. `get_sqla_engine_with_context()`
+#  1. No connection is reused across tenants. `get_sqla_engine()`
 #     takes `nullpool: bool = True` by default, so NullPool is used: a fresh
 #     physical connection per query, closed after. A stamped connection cannot
 #     be handed to a different tenant's request later.
@@ -123,6 +123,152 @@ GUEST_TOKEN_JWT_EXP_SECONDS = 60
 #     token our mint endpoint issues — before it ever looks at
 #     `impersonate_user`.
 #
+# Property 1 is a behaviour of the Superset image, not a setting here, so a
+# version bump could change it without anyone touching this file. The assertion
+# below checks it against the installed Superset source and stops startup if it
+# no longer holds. Once the CI job that runs it against the built image lands,
+# that together turns "NullPool is the default" from a comment into a gate (#729).
+# Only the public surface is checked. `get_sqla_engine()` passes `nullpool`
+# explicitly into Superset's private `_get_sqla_engine()`, so the private
+# method's own default cannot change what a caller of the public API gets, and
+# Superset gives no stability promise for private names. A rename there must not
+# stop Superset starting. (A default of `nullpool: bool = False` anywhere in
+# models/core.py would still be refused, by the opt-out scan below.)
+_POOLED_ENTRYPOINTS = ("get_sqla_engine", "get_raw_connection")
+
+
+def _nullpool_default_is_true(func):
+    """True when `func` has a `nullpool` parameter whose default is the constant True."""
+    import ast
+
+    a = func.args
+    positional = a.posonlyargs + a.args
+    defaults = [None] * (len(positional) - len(a.defaults)) + list(a.defaults)
+    for arg, default in list(zip(positional, defaults)) + list(zip(a.kwonlyargs, a.kw_defaults)):
+        if arg.arg == "nullpool":
+            return isinstance(default, ast.Constant) and default.value is True
+    return False
+
+
+def _sets_poolclass_to_nullpool(tree):
+    """True when some `if nullpool:` block assigns `...["poolclass"] = NullPool`.
+
+    Read from the parsed syntax tree, so the one-liner form, comments between the
+    `if` and its body, and any formatting all count the same.
+    """
+    import ast
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "nullpool"):
+            continue
+        for stmt in node.body:
+            for sub in ast.walk(stmt):
+                if (
+                    isinstance(sub, ast.Assign)
+                    and isinstance(sub.value, ast.Name)
+                    and sub.value.id == "NullPool"
+                    and any(
+                        isinstance(t, ast.Subscript)
+                        and isinstance(t.slice, ast.Constant)
+                        and t.slice.value == "poolclass"
+                        for t in sub.targets
+                    )
+                ):
+                    return True
+    return False
+
+
+def assert_connections_not_pooled(superset_dir: "str | os.PathLike | None" = None) -> None:
+    """Refuse to start if reporting connections could be reused across tenants.
+
+    `Database.get_sqla_engine()` and `get_raw_connection()` must default to
+    `nullpool=True`, an `if nullpool:` block must set `poolclass = NullPool`, and
+    nothing in Superset may opt out with `nullpool=False` passed by keyword. Any
+    of those failing means a connection stamped with one tenant's `app.tenant_id`
+    can be handed to another tenant's query.
+
+    The first two checks read the parsed syntax tree of `models/core.py`. The
+    opt-out check is a source-text scan for the keyword form, not a syntax-tree
+    walk: a positional or indirectly-computed opt-out would not be caught, and,
+    being a substring match, it can also conservatively fail startup on a mere
+    comment or docstring that mentions `nullpool=False`.
+
+    Reads source text only and imports nothing from Superset, so it is safe to
+    run while Superset is still loading this config. A source tree it cannot
+    find, read or parse is a failure too: an unverifiable guarantee is not a
+    guarantee.
+
+    Startup cost: the opt-out scan reads every `.py` file under the Superset
+    package, about 0.2 to 0.6 s on Superset 6.1.0 (1,176 files, measured on a developer
+    machine, warm cache), once per process start.
+    """
+    import ast
+    import importlib.util
+    from pathlib import Path
+
+    if superset_dir is None:
+        spec = importlib.util.find_spec("superset")
+        locations = list(getattr(spec, "submodule_search_locations", None) or [])
+        if not locations:
+            raise RuntimeError(
+                "NullPool guard: the superset package was not found, so the "
+                "connection-pooling guarantee cannot be verified"
+            )
+        superset_dir = locations[0]
+    root = Path(superset_dir)
+
+    core_path = root / "models" / "core.py"
+    try:
+        core = core_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RuntimeError(
+            f"NullPool guard: cannot read {core_path} to verify pooling ({exc})"
+        ) from exc
+    try:
+        tree = ast.parse(core)
+    except SyntaxError as exc:
+        raise RuntimeError(
+            f"NullPool guard: cannot parse {core_path} to verify pooling ({exc})"
+        ) from exc
+
+    problems = []
+    for name in _POOLED_ENTRYPOINTS:
+        defs = [
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name
+        ]
+        if not defs or not all(_nullpool_default_is_true(d) for d in defs):
+            problems.append(f"{name}() no longer defaults to nullpool=True")
+    if not _sets_poolclass_to_nullpool(tree):
+        problems.append("`if nullpool:` no longer sets poolclass = NullPool")
+
+    opt_out = re.compile(r"nullpool\s*(?::\s*bool\s*)?=\s*False\b")
+    for path in root.rglob("*.py"):
+        rel = path.relative_to(root)
+        if "tests" in rel.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RuntimeError(
+                f"NullPool guard: cannot read {rel} to verify it has no "
+                f"nullpool=False opt-out ({exc})"
+            ) from exc
+        if opt_out.search(text):
+            problems.append(f"{rel} opts out with nullpool=False")
+
+    if problems:
+        raise RuntimeError(
+            "NullPool guard: Superset may reuse database connections across "
+            "tenants, which would let one tenant's app.tenant_id reach another "
+            "tenant's query. Re-verify tenant isolation before changing this "
+            "check (ADR-019, #729): " + "; ".join(problems)
+        )
+
+
+assert_connections_not_pooled()
+
 # Fails closed. If the identity is absent or not a tenant id (an admin browsing
 # Superset directly, say), the setting is left unset. `current_setting(...,
 # true)` then returns NULL, every RLS policy evaluates false, and the query
