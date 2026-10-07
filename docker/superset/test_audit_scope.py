@@ -190,7 +190,9 @@ class AuditScope(unittest.TestCase):
         detail = self.config.chart_export_detail(record, 0, record["result_format"])
         self.assertIsNone(detail["slice_id"])
         self.assertIsNone(detail["datasource"])
-        self.assertLessEqual(len(detail["format"]), 10)
+        # Not csv/xlsx, so it is labelled unknown and clipped, never recorded as a clean value.
+        self.assertTrue(detail["format"].startswith("unknown:"))
+        self.assertLessEqual(len(detail["format"]), len("unknown:") + 10)
 
     def test_an_sql_lab_export_is_not_labelled_a_chart_export(self):
         rows = [FakeQuery("q1", USER_B, "SELECT 1")]
@@ -249,6 +251,14 @@ class AuditScope(unittest.TestCase):
             detail = self.config.chart_export_detail(dict(self.REAL_BUTTON_RECORD), 0, "csv")
         self.assertIsNone(detail["slice_id"])
         self.assertIsNone(detail["datasource"])
+
+    def test_the_export_format_is_allowlisted(self):
+        label = self.config._export_format_label
+        self.assertEqual(label("csv"), "csv")
+        self.assertEqual(label("XLSX"), "xlsx")
+        self.assertEqual(label("arrow"), "unknown:arrow")
+        self.assertEqual(label(None), "unknown:")
+        self.assertEqual(label("csv; DROP TABLE x"), "unknown:csv; drop ")
 
     def test_an_unsaved_chart_has_a_dataset_but_no_chart_id(self):
         ctx = self.app.test_request_context(

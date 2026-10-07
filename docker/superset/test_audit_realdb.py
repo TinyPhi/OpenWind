@@ -52,6 +52,13 @@ class Role:
         self.name = name
 
 
+class Unauthenticated:
+    """flask_login's `current_user` while SQL Lab runs a query: nobody."""
+
+    is_authenticated = False
+    roles = []
+
+
 class User:
     is_authenticated = True
 
@@ -93,17 +100,37 @@ class AuditAgainstRealDatabase(unittest.TestCase):
         cls.tenant = os.environ["REPORTING_TEST_TENANT"]
         cls.admin = create_engine(os.environ["REPORTING_TEST_ADMIN_DATABASE_URL"])
 
+    # The two states a request can be in when Superset writes an audit event:
+    #   sql_lab   `g.user` is the user and `current_user` is unauthenticated (the state
+    #             #716 is about; the writer must not depend on `current_user`)
+    #   ordinary  `current_user` is the user and `g.user` is not set
+    STATES = ("sql_lab", "ordinary")
+
+    def new_subject(self):
+        subject = f"T3TEST{uuid.uuid4().hex[:12]}"
+        self._subjects.append(subject)
+        return subject
+
     def setUp(self):
-        # One actor per test, so the rows counted are this test's and nobody else's.
-        self.subject = f"T3TEST{uuid.uuid4().hex[:12]}"
+        # One actor per scenario, so the rows counted are this scenario's and nobody
+        # else's, and a row recorded under the wrong actor is simply not found.
+        self._subjects = []
+        self.subject = self.new_subject()
+
+    def each_state(self):
+        for state in self.STATES:
+            self.subject = self.new_subject()
+            with self.subTest(state=state):
+                yield state
 
     def tearDown(self):
-        # Only rows this test wrote, found by its own unique actor.
+        # Only rows this test wrote, found by its own unique actors.
         with contextlib.suppress(Exception):
             from sqlalchemy import text
 
             with self.admin.begin() as conn:
-                conn.execute(text("DELETE FROM admin_audit_log WHERE actor_id = :a"), {"a": self.subject})
+                for subject in self._subjects:
+                    conn.execute(text("DELETE FROM admin_audit_log WHERE actor_id = :a"), {"a": subject})
 
     @classmethod
     def tearDownClass(cls):
@@ -151,8 +178,8 @@ class AuditAgainstRealDatabase(unittest.TestCase):
 
         return FakeDatabase()
 
-    def drive(self, request_ctx, action, record, roles=None):
-        """Run one Superset event through the real logger."""
+    def drive(self, request_ctx, action, record, roles=None, state="sql_lab"):
+        """Run one Superset event through the real logger, in one of the two request states."""
         from flask import g
 
         user = User(roles if roles is not None else [
@@ -168,12 +195,16 @@ class AuditAgainstRealDatabase(unittest.TestCase):
         models_core.Database = type("Database", (), {})
         models.core = models_core
         stubs = {"superset.models": models, "superset.models.core": models_core}
+        current = Unauthenticated() if state == "sql_lab" else user
         with mock.patch("superset.utils.log.DBEventLogger.log"), mock.patch(
             "superset.db", fake_db
         ), mock.patch.dict(sys.modules, stubs), mock.patch(
-            "flask_login.current_user", user
+            "flask_login.current_user", current
         ), request_ctx:
-            g.user = user
+            if state == "sql_lab":
+                g.user = user
+            else:
+                g.pop("user", None)
             self.config.EVENT_LOGGER.log(7, action, records=[record])
 
     def form_post(self, result_format):
@@ -184,25 +215,35 @@ class AuditAgainstRealDatabase(unittest.TestCase):
         )
 
     def test_a_sql_lab_query_writes_exactly_one_query_row(self):
-        self.drive(self.app.test_request_context("/api/v1/sqllab/execute/", method="POST"),
-                   *SQLLAB_EXECUTE)
-        rows = self.rows("reporting.query_executed")
-        self.assertEqual(rows, [(self.tenant, self.subject)])
+        for state in self.each_state():
+            self.drive(self.app.test_request_context("/api/v1/sqllab/execute/", method="POST"),
+                       *SQLLAB_EXECUTE, state=state)
+            self.assertEqual(self.rows("reporting.query_executed"), [(self.tenant, self.subject)])
 
     def test_the_chart_csv_button_writes_exactly_one_export_row(self):
-        self.drive(self.form_post("csv"), "ChartDataRestApi.data", CHART_BUTTON_RECORD)
-        rows = self.rows("reporting.exported")
-        self.assertEqual(rows, [(self.tenant, self.subject)])
+        for state in self.each_state():
+            self.drive(self.form_post("csv"), "ChartDataRestApi.data", CHART_BUTTON_RECORD, state=state)
+            self.assertEqual(self.rows("reporting.exported"), [(self.tenant, self.subject)])
 
     def test_a_json_chart_call_writes_nothing(self):
-        self.drive(self.form_post("json"), "ChartDataRestApi.data", CHART_BUTTON_RECORD)
-        self.assertEqual(self.rows("reporting.exported"), [])
-        self.assertEqual(self.rows("reporting.query_executed"), [])
+        for state in self.each_state():
+            self.drive(self.form_post("json"), "ChartDataRestApi.data", CHART_BUTTON_RECORD, state=state)
+            self.assertEqual(self.rows("reporting.exported"), [])
+            self.assertEqual(self.rows("reporting.query_executed"), [])
 
     def test_a_session_with_no_tenant_writes_nothing(self):
-        self.drive(self.form_post("csv"), "ChartDataRestApi.data", CHART_BUTTON_RECORD,
-                   roles=["ReportingAnalyst", f"owsub:{self.subject}"])
-        self.assertEqual(self.rows("reporting.exported"), [])
+        for state in self.each_state():
+            self.drive(self.form_post("csv"), "ChartDataRestApi.data", CHART_BUTTON_RECORD,
+                       roles=["ReportingAnalyst", f"owsub:{self.subject}"], state=state)
+            self.assertEqual(self.rows("reporting.exported"), [])
+
+    def test_a_request_with_no_user_at_all_writes_nothing(self):
+        # Neither state names anyone: no tenant can be resolved, so nothing is written.
+        from flask import g
+
+        with mock.patch("flask_login.current_user", Unauthenticated()), self.app.test_request_context("/") as ctx:
+            g.pop("user", None)
+            self.assertIsNone(self.config._session_user())
 
 
 if __name__ == "__main__":

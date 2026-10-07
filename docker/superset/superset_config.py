@@ -405,6 +405,16 @@ _CHART_PATH_RE = re.compile(r"/chart/(\d+)/data")
 _DATASOURCE_RE = re.compile(r"^\d+__[a-z_]+$")
 
 
+def _export_format_label(fmt):
+    """The export format for the audit row: `csv` or `xlsx`, else `unknown:<start>`.
+
+    Allowlisted, not just truncated, so an unexpected value from a later Superset
+    version is visibly unknown instead of landing as a clipped fragment.
+    """
+    label = str(fmt or "").lower()
+    return label if label in _EXPORT_FORMATS else f"unknown:{label[:10]}"
+
+
 def _as_datasource(value):
     """`8__table` from either `{"id": 8, "type": "table"}` or `"8__table"`, else None."""
     if isinstance(value, dict) and str(value.get("id", "")).isdigit() and value.get("type"):
@@ -452,7 +462,7 @@ def chart_export_detail(record, slice_id, fmt, body=None):
 
     return {
         "kind": "chart",
-        "format": str(fmt or "")[:10],
+        "format": _export_format_label(fmt),
         "slice_id": sid,
         "datasource": ds,
     }
@@ -1327,7 +1337,6 @@ if _OAUTH_CLIENT_ID:
             return payload
 
         def _append_platform_audit(self, action, record, kwargs):
-            from flask_login import current_user
             from sqlalchemy import text as _text
             from superset import db as _db
             from superset.models.core import Database
@@ -1338,8 +1347,12 @@ if _OAUTH_CLIENT_ID:
                 # there is no tenant to attribute the record to.
                 return
 
-            actor = audit_actor(current_user)
-            payload = self.build_audit_payload(action, record, kwargs, current_user)
+            # The same resolver as the tenant above and the own-rows narrowing, so
+            # the three can never come from different users in one request. Not
+            # `current_user`, which is unauthenticated while SQL Lab runs a query.
+            user = _session_user()
+            actor = audit_actor(user)
+            payload = self.build_audit_payload(action, record, kwargs, user)
 
             database = (
                 _db.session.query(Database)
