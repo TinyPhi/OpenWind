@@ -17,7 +17,7 @@ export type ExportJobPayload = {
 export const PII_EXPORT_ROLES = new Set(["pii_export", "admin", "superadmin"]);
 
 export type ExportJobResult = {
-  downloadUrl: string;
+  storageKey?: string;
   format: "csv" | "xlsx" | "pdf";
   rowCount: number;
   error?: string;
