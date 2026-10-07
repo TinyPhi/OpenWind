@@ -25,6 +25,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   exceeds 210 kB gzip (`apps/admin-ui/scripts/check-entry-size.mjs`). Vite's chunk-size warning
   limit drops from 700 to 680 kB raw.
 
+## [Unreleased — admin-ui request deduplication and session-scoped caches (2 of 5, split from #772)]
+
+### Changed
+
+- **One `/users` request is shared and cached for 60 seconds** (`fetchUsersShared`). Concurrent
+  callers share a single in-flight request. It rejects when the request fails, so callers can show
+  an error instead of an empty list; `useUsers()` returns `error`, and `UserRefPicker` shows
+  "Couldn't load users" with a Retry button. The workflow records page and ticket detail keep
+  falling back to an empty list.
+- **Concurrent notification list (first page) and unread-count requests share one in-flight call.**
+  A read issued after marking notifications read never joins a request that started before it.
+- **The workflow records page fetches its first page of tickets together with the fields and
+  users** (one round-trip fewer). A failed first load is retried and then shown as an error rather
+  than as an empty board, and a dependency change or a filter toggled away and back no longer drops
+  the response or leaves the refreshing indicator on.
+- **Ticket detail** reads users from the shared cache and no longer requests comments, attachments
+  or tags after a record that failed to load (403/404).
+
+### Added
+
+- **A session-end signal** (`lib/session-events.ts`) emitted on logout, user unload, access-token
+  expiry and a refresh the authorization server rejected. The users cache and the notification
+  dedup reset on it, so a new login in the same tab never sees the previous identity's data. A
+  network error or timeout during a silent refresh does not emit, so a flaky connection doesn't
+  flush caches.
+
 ---
 
 ## [Unreleased — MIS reporting (Stage 1 embedded + Stage 2 standalone)]
