@@ -138,7 +138,11 @@ describe("sendDirectNotification", () => {
   it("throws when the outbound service responds with a non-2xx status", async () => {
     envOverrides.NOTIFICATION_SERVICE_URL =
       "https://notify.example.com/deliver";
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve("internal error"),
+    });
 
     const { sendDirectNotification } = await freshModule();
     await expect(
