@@ -201,6 +201,48 @@ describe("CustomerRecordDetail — team_id field shows the resolved team name (2
   });
 });
 
+describe("CustomerRecordDetail — access denied accessibility", () => {
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("announces the blocking state as a labelled modal and moves focus to its title", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({ data: BASE_RECORD });
+      }
+      if (url === `/api/entities/${RECORD_ID}/access`) {
+        return Promise.resolve({
+          data: [
+            {
+              userId: "u-authorized-viewer",
+              level: "read_only",
+              tag: "manual",
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Access Restricted",
+    });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.textContent).toContain(
+      "You don't have access to this ticket.",
+    );
+    expect(screen.getByRole("heading", { name: "Access Restricted" })).toBe(
+      document.activeElement,
+    );
+  });
+});
+
 describe("CustomerRecordDetail — Access Requests tab (ui-feature-checklist §2.9/§2.10)", () => {
   beforeEach(() => {
     capturedRoomHandler = null;
