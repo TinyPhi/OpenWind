@@ -9,6 +9,7 @@ import { invalidateTenantStatusCache } from "./tenant-status-cache.js";
 // (org-id -> tenant mapping) without affecting the rest of the suite.
 let mockNodeEnv: string | undefined;
 let mockTrustProxy = "true";
+let mockMfaDevBypass = false;
 vi.mock("@platform/config", () => ({
   env: {
     ZITADEL_ISSUER: "https://zitadel.example.com",
@@ -20,6 +21,9 @@ vi.mock("@platform/config", () => ({
     RATE_LIMIT_TENANT_PER_MIN: 100,
     RATE_LIMIT_API_KEY_PER_MIN: 200,
     RATE_LIMIT_API_KEY_PERSON_PER_MIN: 20,
+    get PLATFORM_ADMIN_MFA_DEV_BYPASS() {
+      return mockMfaDevBypass;
+    },
     get NODE_ENV() {
       return mockNodeEnv;
     },
@@ -94,9 +98,17 @@ vi.mock("@node-rs/argon2", () => ({
 
 const mockVerifyJwt = vi.fn();
 const mockExtractAuthContext = vi.fn();
+const mockExtractPlatformAdminContext = vi.fn();
+const mockIsMfaVerified = vi.fn();
 vi.mock("./jwks.js", () => ({
   verifyJwt: (...args: unknown[]) => mockVerifyJwt(...args),
   extractAuthContext: (...args: unknown[]) => mockExtractAuthContext(...args),
+  extractPlatformAdminContext: (...args: unknown[]) =>
+    mockExtractPlatformAdminContext(...args),
+}));
+
+vi.mock("./platform-admin-mfa.js", () => ({
+  isMfaVerified: (...args: unknown[]) => mockIsMfaVerified(...args),
 }));
 
 const mockIntrospectToken = vi.fn();
@@ -199,8 +211,13 @@ vi.mock("drizzle-orm", () => ({
   sql: (...args: unknown[]) => ({ sql: args }),
 }));
 
-const { requireAuth, requireRole, requireIntrospection } =
-  await import("./middleware.js");
+const {
+  requireAuth,
+  requireRole,
+  requireIntrospection,
+  requirePlatformAdmin,
+  requirePlatformAdminIdentity,
+} = await import("./middleware.js");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -229,6 +246,7 @@ beforeEach(() => {
   mockExistingTenantUser = undefined;
   mockNodeEnv = undefined;
   mockTrustProxy = "true";
+  mockMfaDevBypass = false;
   mockRemoteAddress = undefined;
   mockTenantRow = { status: "active", zitadelOrgId: "org-ccc" };
   mockCheckRateLimit.mockResolvedValue({
@@ -1311,5 +1329,130 @@ describe("fetchUserInfo caching", () => {
       });
       expect(resBlocked.status).toBe(403);
     });
+  });
+});
+
+// ── requirePlatformAdmin ────────────────────────────────────────────────────────
+
+describe("requirePlatformAdmin", () => {
+  const PLATFORM_ADMIN_CTX = {
+    userId: "pa-user-1",
+    roles: ["platform_admin"],
+    email: "ops@openwind.io",
+    displayName: "Ops",
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const app = makeApp([requirePlatformAdmin()]);
+    const res = await get(app);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 401 when JWT verification fails", async () => {
+    mockVerifyJwt.mockResolvedValueOnce(null);
+    const app = makeApp([requirePlatformAdmin()]);
+    const res = await get(app, "bad.jwt.token");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when the token lacks the platform_admin role claim", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(null);
+    const app = makeApp([requirePlatformAdmin()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "FORBIDDEN" });
+  });
+
+  it("returns 403 when MFA has not been verified and the dev bypass is off", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+    mockIsMfaVerified.mockResolvedValueOnce(false);
+    mockMfaDevBypass = false;
+    const app = makeApp([requirePlatformAdmin()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "MFA_REQUIRED" });
+  });
+
+  it("allows a platform_admin token with MFA verified", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+    mockIsMfaVerified.mockResolvedValueOnce(true);
+    mockMfaDevBypass = false;
+    const app = makeApp([requirePlatformAdmin()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(200);
+  });
+
+  it("allows a platform_admin token with MFA unverified when the dev bypass is on", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+    mockIsMfaVerified.mockResolvedValueOnce(false);
+    mockMfaDevBypass = true;
+    const app = makeApp([requirePlatformAdmin()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("requirePlatformAdminIdentity", () => {
+  const PLATFORM_ADMIN_CTX = {
+    userId: "pa-user-1",
+    roles: ["platform_admin"],
+    email: "ops@openwind.io",
+    displayName: "Ops",
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const app = makeApp([requirePlatformAdminIdentity()]);
+    const res = await get(app);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when the token lacks the platform_admin role claim", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(null);
+    const app = makeApp([requirePlatformAdminIdentity()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(403);
+  });
+
+  it("allows a valid platform_admin token WITHOUT checking MFA at all", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+    mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+    const app = makeApp([requirePlatformAdminIdentity()]);
+    const res = await get(app, "valid.jwt.token");
+    expect(res.status).toBe(200);
+    expect(mockIsMfaVerified).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the userinfo endpoint when the access token has no email claim", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ name: "Platform Admin", email: "pa@real.com" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce({
+        ...PLATFORM_ADMIN_CTX,
+        email: "",
+      });
+      const app = new Hono<{
+        Variables: { platformAdmin: typeof PLATFORM_ADMIN_CTX };
+      }>();
+      app.get("/test", requirePlatformAdminIdentity(), (c) =>
+        c.json(c.get("platformAdmin")),
+      );
+      const res = await app.request("/test", {
+        headers: { Authorization: "Bearer some-token" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ email: "pa@real.com" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -7,7 +7,16 @@ import {
   assertExternalIssuerEgressAllowed,
   SsrfGuardError,
 } from "./ssrf-guard.js";
-import type { ZitadelClaims, AuthContext } from "./types.js";
+import type {
+  ZitadelClaims,
+  AuthContext,
+  PlatformAdminAuthContext,
+} from "./types.js";
+
+// Zitadel role name for the Multi-Org Sandbox System's cross-tenant operator
+// (docs/specs/multi-org-sandbox.md, ADR-022). Issued the same way as every other role --
+// a Zitadel project role claim -- never a separate auth mechanism.
+export const PLATFORM_ADMIN_ROLE = "platform_admin";
 
 type JwksGetter = ReturnType<typeof createRemoteJWKSet>;
 
@@ -306,4 +315,51 @@ export function extractAuthContext(
     displayName,
     orgId,
   };
+}
+
+/**
+ * Separate from extractAuthContext on purpose (T2, docs/specs/multi-org-sandbox.md): a
+ * platform_admin token has no `urn:zitadel:iam:user:resourceowner:id` mapped to any
+ * OpenWind tenant, and never should -- there is no lookupTenantIdByOrgId resolution step
+ * for this role at all, not a bypassed or defaulted one. Returns null for any token that
+ * doesn't carry the platform_admin role claim, so requirePlatformAdmin() can reject a
+ * normal admin/agent/user token with the same generic 403 it gives a malformed one.
+ */
+export function extractPlatformAdminContext(
+  claims: JWTPayload & ZitadelClaims,
+): PlatformAdminAuthContext | null {
+  const userId = claims.sub;
+  if (!userId) return null;
+
+  const rolesMap = claims["urn:zitadel:iam:org:project:roles"] ?? {};
+  const roles = Object.keys(rolesMap);
+  if (!roles.includes(PLATFORM_ADMIN_ROLE)) return null;
+
+  const displayName =
+    claims.name ??
+    ([claims.given_name, claims.family_name].filter(Boolean).join(" ") ||
+      null) ??
+    claims.email ??
+    userId;
+
+  return { userId, roles, email: claims.email ?? "", displayName };
+}
+
+const MFA_AMR_VALUES = new Set(["mfa", "otp", "totp"]);
+
+/**
+ * R1's required-MFA criterion, checked server-side in addition to whatever the Zitadel
+ * org/login policy itself enforces before issuing the token -- this is the actual manual
+ * setup step (configure the platform_admin org's login policy to force a second factor;
+ * see docs/decisions/ADR-022-sandboxing.md's Zitadel-console prerequisites) that no code in
+ * this repo can perform, since it lives in Zitadel's own console/Management API, not in a
+ * migration or application config. This function is the defense-in-depth layer underneath
+ * that policy, same posture as every other "two layers, not alternatives" rule in this
+ * codebase (security.md's tenant-isolation rule being the other example) -- it fails closed
+ * if the amr claim is ever absent or the policy is ever misconfigured.
+ */
+export function hasMfaFactor(claims: JWTPayload & ZitadelClaims): boolean {
+  const amr = claims.amr;
+  if (!Array.isArray(amr)) return false;
+  return amr.some((m) => MFA_AMR_VALUES.has(m));
 }

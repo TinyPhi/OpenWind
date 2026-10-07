@@ -62,6 +62,29 @@ export async function setScheduleSweeperRole(tx: Tx): Promise<void> {
   await tx.execute(sql`SET LOCAL ROLE schedule_sweeper`);
 }
 
+/**
+ * Runs `fn` as platform_admin_role (column-scoped GRANT on `tenants` only, see
+ * 0134_platform_admin_sandbox_columns.sql and ADR-022 Decision 1) instead of app_user +
+ * a tenant_id GUC. There is no tenant to scope to -- a platform_admin request is
+ * cross-tenant by design (docs/specs/multi-org-sandbox.md R1/R2). Unlike
+ * setOutboxSweeperRole/setScheduleSweeperRole, platform_admin_role is NOT BYPASSRLS: it
+ * has no grant on any business-data table at all, so a query against one fails with a
+ * permission error rather than silently returning rows regardless of RLS.
+ *
+ * Every route reachable by the platform_admin auth path (packages/auth's
+ * requirePlatformAdmin) must read through this helper, never withTenantContext or the
+ * plain `db` export -- using plain `db` would run as whatever role owns the pool
+ * connection (often a superuser in local/dev), which bypasses this restriction entirely.
+ */
+export async function withPlatformAdminContext<T>(
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL ROLE platform_admin_role`);
+    return fn(tx);
+  });
+}
+
 export async function withTenantAndUserContext<T>(
   tenantId: string,
   userId: string,
