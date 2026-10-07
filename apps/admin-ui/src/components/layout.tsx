@@ -382,7 +382,8 @@ function InitialsAvatar({
 
   const initials =
     name
-      .split(" ")
+      .split(/\s+/)
+      .filter(Boolean)
       .slice(0, 2)
       .map((p) => p[0] ?? "")
       .join("")

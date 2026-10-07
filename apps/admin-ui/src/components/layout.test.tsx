@@ -135,4 +135,28 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     const avatarImages = screen.getAllByAltText("Jane Doe");
     expect(avatarImages.length).toBeGreaterThan(0);
   });
+
+  describe("initials derivation", () => {
+    const initialsFor = (name: string): string => {
+      mockIdentityData = { id: "u1", name, email: "u@example.com" };
+      mockUserWithRoles(["agent"]);
+      renderLayout();
+      const avatar = screen
+        .getAllByRole("img")
+        .find((el) => el.getAttribute("aria-label")?.endsWith(" avatar"));
+      return avatar?.textContent ?? "";
+    };
+
+    it.each([
+      ["Jane Doe", "JD"],
+      ["John  Doe", "JD"],
+      ["  John Doe  ", "JD"],
+      ["madonna", "M"],
+      ["Mary Jane Watson", "MJ"],
+      ["", "U"],
+      ["   ", "U"],
+    ])("derives initials for %j as %s", (name, expected) => {
+      expect(initialsFor(name)).toBe(expected);
+    });
+  });
 });
