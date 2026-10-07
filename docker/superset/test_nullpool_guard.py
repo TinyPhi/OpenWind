@@ -51,8 +51,15 @@ ENV = {
 }
 
 
-def make_tree(core: str, extra: dict | None = None) -> Path:
-    root = Path(tempfile.mkdtemp()) / "superset"
+def scratch_dir(case: unittest.TestCase) -> Path:
+    """A temp directory that is removed when the test ends, pass or fail."""
+    d = Path(tempfile.mkdtemp())
+    case.addCleanup(shutil.rmtree, d, True)
+    return d
+
+
+def make_tree(case: unittest.TestCase, core: str, extra: dict | None = None) -> Path:
+    root = scratch_dir(case) / "superset"
     (root / "models").mkdir(parents=True)
     (root / "__init__.py").write_text("")
     (root / "models" / "core.py").write_text(core)
@@ -111,7 +118,7 @@ class NullPoolGuard(unittest.TestCase):
                 os.environ[k] = v
 
     def test_starts_when_nullpool_is_the_default(self):
-        load_config(make_tree(GOOD_CORE))
+        load_config(make_tree(self, GOOD_CORE))
 
     def test_refuses_when_entrypoint_default_flips_to_false(self):
         core = GOOD_CORE.replace(
@@ -119,7 +126,7 @@ class NullPoolGuard(unittest.TestCase):
             "def get_sqla_engine(self, catalog=None, schema=None, nullpool: bool = False",
         )
         with self.assertRaisesRegex(RuntimeError, r"get_sqla_engine\(\) no longer defaults"):
-            load_config(make_tree(core))
+            load_config(make_tree(self, core))
 
     def test_refuses_when_raw_connection_default_flips(self):
         core = GOOD_CORE.replace(
@@ -127,15 +134,16 @@ class NullPoolGuard(unittest.TestCase):
             "def get_raw_connection(self, catalog=None, schema=None, nullpool: bool = False",
         )
         with self.assertRaisesRegex(RuntimeError, r"get_raw_connection\(\) no longer defaults"):
-            load_config(make_tree(core))
+            load_config(make_tree(self, core))
 
     def test_refuses_when_poolclass_is_no_longer_nullpool(self):
         core = GOOD_CORE.replace("NullPool", "QueuePool")
         with self.assertRaisesRegex(RuntimeError, "poolclass = NullPool"):
-            load_config(make_tree(core))
+            load_config(make_tree(self, core))
 
     def test_refuses_when_something_opts_out_with_nullpool_false(self):
         tree = make_tree(
+            self,
             GOOD_CORE,
             {"sql_lab.py": "def run(db):\n    return db.get_sqla_engine(nullpool=False)\n"},
         )
@@ -144,17 +152,102 @@ class NullPoolGuard(unittest.TestCase):
 
     def test_ignores_opt_out_in_tests_directory(self):
         tree = make_tree(
+            self,
             GOOD_CORE,
             {"tests/test_x.py": "db.get_sqla_engine(nullpool=False)\n"},
         )
         load_config(tree)
 
     def test_refuses_when_core_source_is_missing(self):
-        root = Path(tempfile.mkdtemp()) / "superset"
+        root = scratch_dir(self) / "superset"
         (root / "models").mkdir(parents=True)
         (root / "__init__.py").write_text("")
         with self.assertRaisesRegex(RuntimeError, "cannot read"):
             load_config(root)
+
+    # --- the `if nullpool:` check reads the syntax tree, not the formatting ---
+
+    def test_accepts_the_one_liner_form(self):
+        core = GOOD_CORE.replace(
+            'if nullpool:\n            engine_kwargs["poolclass"] = NullPool',
+            'if nullpool: engine_kwargs["poolclass"] = NullPool',
+        )
+        self.assertIn("if nullpool: engine_kwargs", core)
+        load_config(make_tree(self, core))
+
+    def test_accepts_a_comment_between_the_if_and_its_body(self):
+        core = GOOD_CORE.replace(
+            'if nullpool:\n            engine_kwargs["poolclass"] = NullPool',
+            'if nullpool:\n            # keep NullPool: one connection per query\n'
+            '            engine_kwargs["poolclass"] = NullPool',
+        )
+        self.assertIn("# keep NullPool", core)
+        load_config(make_tree(self, core))
+
+    def test_refuses_when_the_if_nullpool_block_is_removed_entirely(self):
+        core = GOOD_CORE.replace(
+            '        if nullpool:\n            engine_kwargs["poolclass"] = NullPool\n', ""
+        )
+        self.assertNotIn("poolclass", core)
+        with self.assertRaisesRegex(RuntimeError, "poolclass = NullPool"):
+            load_config(make_tree(self, core))
+
+    def test_refuses_when_the_block_assigns_a_pooling_class_instead(self):
+        core = GOOD_CORE.replace("engine_kwargs[\"poolclass\"] = NullPool", "engine_kwargs[\"poolclass\"] = QueuePool")
+        with self.assertRaisesRegex(RuntimeError, "poolclass = NullPool"):
+            load_config(make_tree(self, core))
+
+    def test_accepts_a_keyword_only_nullpool_default(self):
+        core = GOOD_CORE.replace(
+            "def get_raw_connection(self, catalog=None, schema=None, nullpool: bool = True):",
+            "def get_raw_connection(self, catalog=None, *, nullpool: bool = True):",
+        )
+        load_config(make_tree(self, core))
+
+    def test_refuses_when_the_entrypoint_is_renamed_away(self):
+        core = GOOD_CORE.replace("def get_raw_connection(", "def open_raw_connection(")
+        with self.assertRaisesRegex(RuntimeError, r"get_raw_connection\(\) no longer defaults"):
+            load_config(make_tree(self, core))
+
+    def test_refuses_when_core_source_cannot_be_parsed(self):
+        with self.assertRaisesRegex(RuntimeError, "cannot parse"):
+            load_config(make_tree(self, "def broken(:\n"))
+
+    # --- only the public surface is checked ---
+
+    def test_renaming_the_private_method_does_not_stop_startup(self):
+        # get_sqla_engine() passes nullpool explicitly, so the private method is an
+        # implementation detail: renaming or restructuring it must not stop Superset.
+        core = GOOD_CORE.replace("def _get_sqla_engine(", "def _build_engine(").replace(
+            "self._get_sqla_engine(", "self._build_engine("
+        )
+        self.assertNotIn("_get_sqla_engine", core)
+        load_config(make_tree(self, core))
+
+    def test_a_private_default_of_false_is_still_caught_by_the_text_scan(self):
+        # Not by the entrypoint check (the private method is not on that list) but by
+        # the opt-out scan, which matches `nullpool: bool = False` anywhere.
+        core = GOOD_CORE.replace(
+            "        nullpool: bool = True,\n        source=None,\n    ):",
+            "        nullpool: bool = False,\n        source=None,\n    ):",
+        )
+        self.assertIn("nullpool: bool = False", core)
+        with self.assertRaisesRegex(RuntimeError, r"core\.py opts out with nullpool=False"):
+            load_config(make_tree(self, core))
+
+    # --- the known limit of the text scan, written down as a test ---
+
+    def test_a_comment_mentioning_the_opt_out_is_a_known_false_positive(self):
+        # The opt-out scan is a substring match, not a syntax-tree walk, so it also
+        # refuses on a comment. Accepted: a spurious refusal is visible and cheap to
+        # fix, a missed opt-out is not.
+        tree = make_tree(
+            self,
+            GOOD_CORE,
+            {"utils/helper.py": "# we deliberately never pass nullpool=False here\ndef f():\n    pass\n"},
+        )
+        with self.assertRaisesRegex(RuntimeError, r"helper\.py opts out with nullpool=False"):
+            load_config(tree)
 
 
 @unittest.skipUnless(
@@ -190,7 +283,7 @@ class RealSupersetPatched(unittest.TestCase):
         importlib.import_module("superset.config")
         spec = importlib.util.find_spec("superset")
         real = Path(spec.submodule_search_locations[0])
-        self.copy = Path(tempfile.mkdtemp()) / "superset"
+        self.copy = scratch_dir(self) / "superset"
         shutil.copytree(
             real,
             self.copy,
