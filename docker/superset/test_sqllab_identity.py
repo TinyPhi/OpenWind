@@ -16,6 +16,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 TENANT = "00000000-0000-0000-0000-000000000001"
@@ -108,6 +109,30 @@ class SqlLabIdentity(unittest.TestCase):
         ghost = User("ghost", [f"tenant:{TENANT}"], authenticated=False)
         self.assertIsNone(self.run_as(ghost, self.config._tenant_from_user_roles))
         self.assertIsNone(self.run_as(ghost, self.config._own_rows_subject))
+
+    def test_ordinary_request_falls_back_to_current_user(self):
+        # The chart and dashboard path: `g.user` is not set, flask_login's
+        # `current_user` is the authenticated user (#807). Both lookups must use it.
+        analyst = User("ana", ["ReportingAnalyst", f"tenant:{TENANT}", "owuser:386221898641440771"])
+        with self.app.test_request_context("/"), mock.patch("flask_login.current_user", analyst):
+            from flask import g
+
+            self.assertIsNone(g.get("user"))
+            self.assertEqual(self.config._tenant_from_user_roles(), TENANT)
+            self.assertEqual(self.config._own_rows_subject(), "386221898641440771")
+
+    def test_an_unexpected_error_is_logged_and_fails_closed(self):
+        # #806: an error inside the resolver must not look like "no tenant role".
+        # It still yields no user (fail closed), but leaves a warning with the trace.
+        with self.app.test_request_context("/"), mock.patch(
+            "flask.has_app_context", side_effect=RuntimeError("resolver broke")
+        ):
+            with self.assertLogs(self.config.logger, level="WARNING") as logs:
+                self.assertIsNone(self.config._session_user())
+                self.assertIsNone(self.config._tenant_from_user_roles())
+        self.assertIn("failing closed", logs.output[0])
+        self.assertIsNotNone(logs.records[0].exc_info)
+        self.assertIn("resolver broke", str(logs.records[0].exc_info[1]))
 
     def test_no_user_yields_nothing(self):
         self.assertIsNone(self.run_as(None, self.config._tenant_from_user_roles))
