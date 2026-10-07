@@ -72,16 +72,27 @@ no second isolation mechanism to keep in sync with the first.
 
 The tenant comes from, in order: the guest-pass username the API mints (embedded), the verified
 guest token on the request (dashboard-level queries Superset runs as the owner), and the user's
-`tenant:<uuid>` role bound at login (Stage 2). The value must match `_TENANT_ID_RE` (`docker/superset/superset_config.py:128`, an anchored
+`tenant:<uuid>` role bound at login (Stage 2). The value must match `_TENANT_ID_RE` (`docker/superset/superset_config.py:219`, an anchored
 `^…$` 8-4-4-4-12 hex UUID pattern) before it reaches the connection string; that regex is the
 whole defence against injecting further startup options. Subject ids used for own-rows scoping
-match the anchored `_PRINCIPAL_ID_RE` (`:126`).
+match the anchored `_PRINCIPAL_ID_RE` (`:217`).
 
 Two properties this relies on, both verified against the image's source. They cover the chart and
 embedded paths; for Stage 2 SQL Lab the outcome is recorded after the pending review (OQ-6):
 
 1. **No connection is reused across tenants.** Superset uses `NullPool` by default — a fresh
-   physical connection per query, closed after.
+   physical connection per query, closed after. This is enforced, not assumed:
+   `docker/superset/superset_config.py` runs `assert_connections_not_pooled()` at startup and
+   refuses to start if the installed Superset no longer defaults to `nullpool=True`, no longer
+   sets `poolclass = NullPool`, or anything opts out with `nullpool=False` passed by keyword
+   (#729). The opt-out check is a source-text scan for that keyword form, not an AST walk, so a
+   positional or indirectly-computed opt-out would not be caught. Superset 6.1.0 has no
+   `SQLALCHEMY_POOL_CLASS` setting to assert, so the guard verifies the source that decides
+   pooling (`Database.get_sqla_engine`). It does not inspect live engines; once the CI smoke test
+   (a running Superset container starts) lands, that is meant to be the runtime counterpart.
+   Whether a database's `engine_params` can reintroduce pooling is out of scope unless separately
+   tested.
+   Tests: `docker/superset/test_nullpool_guard.py`, including patched copies of the real source.
 2. **`analytics_user` cannot bypass RLS.** Migration 0112 sets `NOBYPASSRLS`, and reporting
    views are `security_invoker`, so the caller's privileges and policies apply through them.
 
@@ -143,11 +154,12 @@ Non-staff users are narrowed to their own tickets by a `RESTRICTIVE` policy on `
 and `workflow_events` (0116), scoped to `analytics_user` alone and keyed on
 `app.reporting_scope = 'own'` plus `app.reporting_user_id`. Restrictive, so it ANDs with the tenant
 policy instead of offering another way in. The mutator stamps these for any non-staff Stage 2
-session. If a session's own-rows binding is unusable — more than one `owuser:` role, or a subject
-that fails `_PRINCIPAL_ID_RE` — it is stamped with `app.reporting_user_id=-`, a subject no ticket
-can have, so the session sees nothing rather than falling back to tenant-wide
-(`superset_config.py:195`, `:300`). As with Decision 2, the Stage 2 outcome is recorded after the
-pending review (OQ-6).
+session. If a session's own-rows binding is unusable, it is stamped with a subject no ticket can
+have, so the session sees nothing rather than falling back to tenant-wide: more than one `owuser:`
+role resolves to the literal sentinel `__ambiguous__` (`superset_config.py:291`, stamped at
+`:396`-`:400` since the sentinel itself passes `_PRINCIPAL_ID_RE`), and a subject that fails
+`_PRINCIPAL_ID_RE` is stamped with `app.reporting_user_id=-` (`:405`). As with Decision 2, the
+Stage 2 outcome is recorded after the pending review (OQ-6).
 
 When the scope setting is absent the policy is tenant-wide; the embedded path and staff
 (`admin`, `agent`, `superadmin`) rely on that. On the embedded path a customer asking for the
