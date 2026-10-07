@@ -52,12 +52,12 @@ export const tenants = pgTable("tenants", {
 });
 
 // docs/specs/multi-org-sandbox.md T8/T21, ADR-022 -- platform-level job tracking, not
-// tenant-scoped data. See migration 0136 for why this is `resultTenantId`, not
+// tenant-scoped data. See migration 0137 for why this is `resultTenantId`, not
 // `tenantId`: the row exists before any tenant does, and this table never holds a
 // tenant's business data in the first place. Deliberately holds no credentials -- T21's
 // handover artifact (seeded usernames + the shared password) lives in Redis with a 7-day
 // TTL (packages/auth/src/sandbox-handover-store.ts), not a durable column here; see
-// migration 0136's comment for why.
+// migration 0137's comment for why.
 export const sandboxProvisioningJobs = pgTable("sandbox_provisioning_jobs", {
   id: uuid("id").primaryKey(),
   resultTenantId: uuid("result_tenant_id"),

@@ -72,7 +72,7 @@ export const createSandboxHandler = platformAdminFactory.createHandlers(
     }
 
     // Inserted via plain `db`, not withPlatformAdminContext -- platform_admin_role has only
-    // SELECT on this table (migration 0136); writes are apps/api's own bookkeeping, same
+    // SELECT on this table (migration 0137); writes are apps/api's own bookkeeping, same
     // reasoning as the worker inserting the `tenants` row via plain `db` in
     // sandbox-provisioning-worker.ts. The id is generated here (not DB-defaulted) so it can
     // be passed to BullMQ as the job's own id, giving the progress/handover routes below a
@@ -138,7 +138,7 @@ export const sandboxProgressHandler = platformAdminFactory.createHandlers(
  * handing off to the prospect. 404 if no completed job exists for this tenant, or if the
  * credentials have since expired (security review: the handover artifact lives in Redis
  * with a 7-day TTL, packages/auth/src/sandbox-handover-store.ts, not a durable DB column —
- * see migration 0136's comment for why). 409 if the job exists but hasn't completed yet (an
+ * see migration 0137's comment for why). 409 if the job exists but hasn't completed yet (an
  * existence leak would be the wrong classification here since platform_admin is the one who
  * created the tenant in the first place).
  */

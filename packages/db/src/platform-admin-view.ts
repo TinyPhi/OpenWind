@@ -23,7 +23,7 @@ export interface PlatformAdminSandboxView {
   trialStatus: "none" | "active" | "expired";
 }
 
-/** The only columns toPlatformAdminSandboxView reads -- matches the GRANT in 0134_platform_admin_sandbox_columns.sql exactly. */
+/** The only columns toPlatformAdminSandboxView reads -- matches the GRANT in 0135_platform_admin_sandbox_columns.sql exactly. */
 export interface PlatformAdminSandboxRow {
   id: string;
   name: string;
@@ -113,7 +113,7 @@ function asProgressStatus(status: string): ProvisioningProgressView["status"] {
     status === "failed"
   )
     return status;
-  // The DB CHECK constraint (migration 0136) already guarantees this is unreachable --
+  // The DB CHECK constraint (migration 0137) already guarantees this is unreachable --
   // narrowing defensively here so the view's type stays a closed union rather than
   // widening to `string` the moment a route reads a row back.
   throw new Error(`unexpected sandbox_provisioning_jobs.status: ${status}`);
@@ -137,7 +137,7 @@ export function toProvisioningProgressView(
  * hands to a prospect. Deliberately a SEPARATE type from ProvisioningProgressView (never
  * widen that one to carry credentials). Unlike the progress view, this isn't built from a
  * single DB row: the credentials live in Redis with a TTL, not in this table (security
- * review, migration 0136's comment) -- the route combines a DB status check (job exists and
+ * review, migration 0137's comment) -- the route combines a DB status check (job exists and
  * is completed) with a Redis read (packages/auth's getSandboxHandoverCredentials) itself,
  * since packages/db has no reason to depend on packages/auth for a Redis-backed type.
  */

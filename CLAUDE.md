@@ -32,6 +32,7 @@ TypeScript in `modules/` (ADR-004). Full architecture: `docs/architecture-brief.
 | Rate limiting (`packages/redis/src/rate-limit.ts`, api middleware, auth middleware)                  | ADR-013                                                                              |
 | `apps/worker/src/notification-*.ts`, `alert-worker.ts`                                               | ADR-014                                                                              |
 | `packages/telemetry`, retention/erasure sweeps                                                       | ADR-015                                                                              |
+| Production TLS/HSTS, storage and backup encryption, production OpenBao                               | `docs/deployment-hardening.md`, `docs/local-setup.md`                                |
 | Teams/services, on-call schedules, severity + labels, `resolve_oncall`, notification policies (3E)   | ADR-016, `docs/oncall-routing-design.md`                                             |
 | `schedule_rules` / `schedule_executions`, scheduler tick (3F)                                        | ADR-017, `docs/temporal-scheduler-design.md`                                         |
 | Reporting: `analytics_user` grants, Superset connection mutator, guest tokens, reporting audit (3G)  | ADR-019 (Proposed), ADR-001                                                          |

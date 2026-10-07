@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { fetchWithAuth, API_URL } from "../lib/api.js";
+import { fetchUsersShared } from "../lib/use-users.js";
 import { UserPicker, type UserOption } from "./user-picker.js";
 
 /**
@@ -8,19 +8,13 @@ import { UserPicker, type UserOption } from "./user-picker.js";
  * the assignee pickers), so this wrapper owns the one-time `/users` fetch.
  */
 
-let cachedUsers: UserOption[] | null = null;
-
 async function loadUsers(): Promise<UserOption[]> {
-  if (cachedUsers) return cachedUsers;
-  const res = (await fetchWithAuth(`${API_URL}/users`)) as {
-    data?: Array<{ userId: string; email: string; displayName: string | null }>;
-  };
-  cachedUsers = (res.data ?? []).map((u) => ({
+  const data = await fetchUsersShared();
+  return data.map((u) => ({
     userId: u.userId,
-    displayName: u.displayName ?? u.email,
-    email: u.email,
+    displayName: u.displayName ?? u.email ?? "Unknown",
+    email: u.email ?? "",
   }));
-  return cachedUsers;
 }
 
 export interface UserRefPickerProps {
@@ -35,18 +29,49 @@ export function UserRefPicker({
   disabled = false,
 }: UserRefPickerProps): React.ReactElement {
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    void loadUsers().then(setUsers);
-  }, []);
+    let cancelled = false;
+    setFailed(false);
+    loadUsers().then(
+      (loaded) => {
+        if (!cancelled) setUsers(loaded);
+      },
+      () => {
+        if (!cancelled) setFailed(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
 
   return (
-    <UserPicker
-      users={users}
-      value={value}
-      onChange={onChange}
-      placeholder="Select a user…"
-      disabled={disabled}
-    />
+    <>
+      <UserPicker
+        users={users}
+        value={value}
+        onChange={onChange}
+        placeholder="Select a user…"
+        disabled={disabled}
+      />
+      {failed && (
+        <div
+          role="alert"
+          style={{ fontSize: "12px", color: "var(--text-muted)" }}
+        >
+          Couldn&apos;t load users.{" "}
+          <button
+            type="button"
+            onClick={() => setAttempt((n) => n + 1)}
+            style={{ cursor: "pointer" }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+    </>
   );
 }

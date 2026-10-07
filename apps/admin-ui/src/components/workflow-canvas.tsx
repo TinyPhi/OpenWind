@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -586,7 +587,7 @@ type TransPanelData = {
   requiresComment: boolean;
 };
 
-function TransitionPanel({
+export function TransitionPanel({
   data,
   onConfirm,
   onCancel,
@@ -598,6 +599,9 @@ function TransitionPanel({
   onDelete?: () => void;
 }): React.ReactElement {
   const [form, setForm] = useState(data);
+  const titleId = useId();
+  const labelInputId = useId();
+  const rolesInputId = useId();
 
   function submit(e: React.FormEvent): void {
     e.preventDefault();
@@ -606,6 +610,8 @@ function TransitionPanel({
 
   return (
     <div
+      role="region"
+      aria-labelledby={titleId}
       style={{
         position: "absolute",
         top: 0,
@@ -623,9 +629,9 @@ function TransitionPanel({
         boxShadow: "-4px 0 16px rgba(0,0,0,.06)",
       }}
     >
-      <div style={{ ...overlayTitleStyle, marginBottom: 0 }}>
+      <h2 id={titleId} style={{ ...overlayTitleStyle, marginBottom: 0 }}>
         {form.mode === "new" ? "New Transition" : "Edit Transition"}
-      </div>
+      </h2>
       <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
         {form.fromState} → {form.toState}
       </div>
@@ -634,8 +640,11 @@ function TransitionPanel({
         style={{ display: "flex", flexDirection: "column", gap: "10px" }}
       >
         <div>
-          <label style={labelStyle}>Label</label>
+          <label htmlFor={labelInputId} style={labelStyle}>
+            Label
+          </label>
           <input
+            id={labelInputId}
             value={form.label}
             onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
             placeholder="e.g. Approve"
@@ -644,8 +653,11 @@ function TransitionPanel({
           />
         </div>
         <div>
-          <label style={labelStyle}>Allowed roles (comma-separated)</label>
+          <label htmlFor={rolesInputId} style={labelStyle}>
+            Allowed roles (comma-separated)
+          </label>
           <input
+            id={rolesInputId}
             value={form.allowedRoles}
             onChange={(e) =>
               setForm((f) => ({ ...f, allowedRoles: e.target.value }))

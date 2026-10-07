@@ -67,6 +67,8 @@ const {
   deleteFile,
   deleteTenantFiles,
   resolveStoragePath,
+  saveExport,
+  getExportStream,
   FileError,
 } = await import("./index.js");
 
@@ -576,5 +578,34 @@ describe("resolveStoragePath", () => {
         `${TENANT_ID}/../../../../../../tmp/pwned/unattached/${FILE_ID}.pdf`,
       ),
     ).toThrow(FileError);
+  });
+});
+
+describe("async export storage", () => {
+  it("atomically stores and streams a tenant-scoped export", async () => {
+    const bytes = Buffer.from("id,name\n1,Ada\n");
+    const storageKey = await saveExport(TENANT_ID, "job-123", "csv", bytes);
+    expect(storageKey).toBe(`${TENANT_ID}/exports/job-123.csv`);
+
+    const result = await getExportStream(
+      TENANT_ID,
+      "job-123",
+      "csv",
+      storageKey,
+    );
+    expect(result.mimeType).toBe("text/csv; charset=utf-8");
+    expect(result.sizeBytes).toBe(bytes.length);
+    await expect(readStreamToBuffer(result.stream)).resolves.toEqual(bytes);
+  });
+
+  it("rejects a storage key that does not match the tenant and job", async () => {
+    await expect(
+      getExportStream(
+        TENANT_ID,
+        "job-123",
+        "csv",
+        "tenant-other/exports/job-123.csv",
+      ),
+    ).rejects.toMatchObject({ code: "STORAGE_PATH_ESCAPE" });
   });
 });

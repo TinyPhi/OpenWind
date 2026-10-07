@@ -64,7 +64,7 @@ export async function setScheduleSweeperRole(tx: Tx): Promise<void> {
 
 /**
  * Runs `fn` as platform_admin_role (column-scoped GRANT on `tenants` only, see
- * 0134_platform_admin_sandbox_columns.sql and ADR-022 Decision 1) instead of app_user +
+ * 0135_platform_admin_sandbox_columns.sql and ADR-022 Decision 1) instead of app_user +
  * a tenant_id GUC. There is no tenant to scope to -- a platform_admin request is
  * cross-tenant by design (docs/specs/multi-org-sandbox.md R1/R2). Unlike
  * setOutboxSweeperRole/setScheduleSweeperRole, platform_admin_role is NOT BYPASSRLS: it
