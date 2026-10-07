@@ -12,8 +12,10 @@ vi.mock("../lib/api.js", () => ({ fetchWithAuth: vi.fn(), API_URL: "" }));
 const api = await import("../lib/api.js");
 const fetchWithAuth = vi.mocked(api.fetchWithAuth);
 const { UserRefPicker } = await import("./user-ref-picker.js");
+const { clearUsersCache } = await import("../lib/use-users.js");
 
 beforeEach(() => {
+  clearUsersCache();
   fetchWithAuth.mockReset();
   fetchWithAuth.mockResolvedValue({
     data: [
@@ -47,5 +49,19 @@ describe("UserRefPicker", () => {
     await waitFor(() => screen.getByText("Alice"));
     fireEvent.click(screen.getByText("Alice"));
     expect(onChange).toHaveBeenCalledWith("u1");
+  });
+
+  it("shows an error with Retry instead of a silently empty list when /users fails, and recovers on Retry", async () => {
+    fetchWithAuth.mockRejectedValueOnce(new Error("boom"));
+    render(<UserRefPicker value="u1" onChange={vi.fn()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't load users");
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => {
+      expect(screen.getByText("Alice")).not.toBeNull();
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

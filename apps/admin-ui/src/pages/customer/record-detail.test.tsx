@@ -545,3 +545,121 @@ describe("CustomerRecordDetail — History tab access-event rendering (ui-featur
     expect(await screen.findByText(/downloaded/)).toBeDefined();
   });
 });
+
+describe("CustomerRecordDetail — regression vectors: error resilience & non-owner access requests", () => {
+  beforeEach(() => {
+    capturedRoomHandler = null;
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockUnsubscribe.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("renders core record view even if comments and attachments fail with 500", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({ data: BASE_RECORD });
+      }
+      if (url === `/api/entity-types/${ENTITY_TYPE_ID}/fields`) {
+        return Promise.resolve({
+          data: [
+            {
+              id: "f-subject",
+              name: "subject",
+              label: "Subject",
+              fieldType: "text",
+              isRequired: true,
+              isSystem: false,
+              config: {},
+            },
+          ],
+        });
+      }
+      if (url === "/api/users") {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === `/api/entities/${RECORD_ID}/access`) {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith(`/api/entities/${RECORD_ID}/transitions/history`)) {
+        return Promise.reject(
+          new Error("500 Internal Server Error: comments failed"),
+        );
+      }
+      if (url === `/api/entities/${RECORD_ID}/attachments`) {
+        return Promise.reject(
+          new Error("500 Internal Server Error: attachments failed"),
+        );
+      }
+      if (url === `/api/entities/${RECORD_ID}/tags`) {
+        return Promise.reject(
+          new Error("500 Internal Server Error: tags failed"),
+        );
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    const titles = await screen.findAllByText("Test ticket");
+    expect(titles.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not fire comments, attachments, or tags when loadRecord returns 404", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        const err = new Error("Not Found") as Error & { status: number };
+        err.status = 404;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    expect(
+      await screen.findByText("You don't have access to this record"),
+    ).toBeDefined();
+
+    const secondaryEndpoints = [
+      `/api/entities/${RECORD_ID}/transitions/history`,
+      `/api/entities/${RECORD_ID}/attachments`,
+      `/api/entities/${RECORD_ID}/tags`,
+    ];
+    for (const ep of secondaryEndpoints) {
+      expect(
+        mockFetchWithAuth.mock.calls.some(([url]) => url.startsWith(ep)),
+      ).toBe(false);
+    }
+  });
+
+  it("does not fire comments, attachments, or tags when loadRecord returns 403", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        const err = new Error("Forbidden") as Error & { status: number };
+        err.status = 403;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    expect(await screen.findByText("Forbidden")).toBeDefined();
+
+    const secondaryEndpoints = [
+      `/api/entities/${RECORD_ID}/transitions/history`,
+      `/api/entities/${RECORD_ID}/attachments`,
+      `/api/entities/${RECORD_ID}/tags`,
+    ];
+    for (const ep of secondaryEndpoints) {
+      expect(
+        mockFetchWithAuth.mock.calls.some(([url]) => url.startsWith(ep)),
+      ).toBe(false);
+    }
+  });
+});
