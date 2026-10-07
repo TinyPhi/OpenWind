@@ -1,5 +1,6 @@
 import { userManager } from "../authProvider.js";
 import { API_URL, fetchWithAuth } from "./api.js";
+import { onSessionEnd } from "./session-events.js";
 
 export interface NotificationItem {
   id: string;
@@ -16,25 +17,67 @@ interface ListResponse {
   nextCursor: string | null;
 }
 
+let inFlightInitialListPromise: Promise<ListResponse> | null = null;
+let inFlightUnreadCountPromise: Promise<number> | null = null;
+
 export async function listNotifications(
   cursor?: string,
 ): Promise<ListResponse> {
+  if (!cursor && inFlightInitialListPromise !== null) {
+    return inFlightInitialListPromise;
+  }
+
   const params = new URLSearchParams({ limit: "10" });
   if (cursor) params.set("cursor", cursor);
-  const res = (await fetchWithAuth(
+
+  const fetchPromise = fetchWithAuth(
     `${API_URL}/notifications?${params.toString()}`,
-  )) as { data: NotificationItem[]; nextCursor: string | null };
-  return { data: res.data, nextCursor: res.nextCursor };
+  ).then((res) => {
+    const r = res as { data: NotificationItem[]; nextCursor: string | null };
+    return { data: r.data, nextCursor: r.nextCursor };
+  });
+
+  if (!cursor) {
+    const request: Promise<ListResponse> = fetchPromise.finally(() => {
+      if (inFlightInitialListPromise === request) {
+        inFlightInitialListPromise = null;
+      }
+    });
+    inFlightInitialListPromise = request;
+    return request;
+  }
+
+  return fetchPromise;
 }
 
 export async function getUnreadCount(): Promise<number> {
-  const res = (await fetchWithAuth(
+  if (inFlightUnreadCountPromise !== null) {
+    return inFlightUnreadCountPromise;
+  }
+
+  const request: Promise<number> = fetchWithAuth(
     `${API_URL}/notifications/unread-count`,
-  )) as {
-    data: { count: number };
-  };
-  return res.data.count;
+  )
+    .then((res) => {
+      const r = res as { data: { count: number } };
+      return r.data.count;
+    })
+    .finally(() => {
+      if (inFlightUnreadCountPromise === request) {
+        inFlightUnreadCountPromise = null;
+      }
+    });
+  inFlightUnreadCountPromise = request;
+
+  return request;
 }
+
+export function clearNotificationsInFlight(): void {
+  inFlightInitialListPromise = null;
+  inFlightUnreadCountPromise = null;
+}
+
+onSessionEnd(clearNotificationsInFlight);
 
 export async function markNotificationRead(id: string): Promise<void> {
   await fetchWithAuth(
@@ -43,12 +86,16 @@ export async function markNotificationRead(id: string): Promise<void> {
       method: "POST",
     },
   );
+  // A read started before this mutation may hold pre-mutation data; make the
+  // next caller issue a fresh request instead of joining it.
+  clearNotificationsInFlight();
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
   await fetchWithAuth(`${API_URL}/notifications/mark-all-read`, {
     method: "POST",
   });
+  clearNotificationsInFlight();
 }
 
 // ── Live socket ───────────────────────────────────────────────────────────────

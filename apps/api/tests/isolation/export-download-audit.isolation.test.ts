@@ -25,7 +25,6 @@ import type { AuthContext } from "@platform/auth";
 const TENANT = "aaaaaaaa-0693-4000-a000-000000000001";
 const OTHER = "bbbbbbbb-0693-4000-b000-000000000002";
 const TYPE_ID = "cccccccc-0693-4000-c000-000000000003";
-const URL = "https://s3.example.com/exports/0693.csv";
 
 const mockGetJob = vi.fn();
 
@@ -42,6 +41,18 @@ vi.mock("../../src/lib/export-queue.js", () => ({
   exportQueue: { getJob: (...args: unknown[]) => mockGetJob(...args) },
   PII_EXPORT_ROLES: new Set(["pii_export", "admin", "superadmin"]),
 }));
+
+vi.mock("@platform/files", async () => {
+  const { Readable } = await import("node:stream");
+  return {
+    getExportStream: vi.fn().mockResolvedValue({
+      stream: Readable.from(["id,name\n1,Example\n"]),
+      mimeType: "text/csv; charset=utf-8",
+      originalName: "job-0693.csv",
+      sizeBytes: 18,
+    }),
+  };
+});
 
 const { exportsRouter } = await import("../../src/routes/exports/download.js");
 
@@ -72,7 +83,10 @@ function completedJob(includePii = false): unknown {
       requestedBy: "u-requester",
       includePii,
     },
-    returnvalue: { downloadUrl: URL },
+    returnvalue: {
+      storageKey: `${TENANT}/exports/job-0693.csv`,
+      format: "csv",
+    },
     getState: () => Promise.resolve("completed"),
   };
 }
@@ -125,7 +139,7 @@ describe("export download audit trail (#693)", () => {
     mockGetJob.mockResolvedValue(completedJob());
 
     const res = await app(TENANT, "u-requester").request(
-      "/exports/job-0693/download",
+      "/exports/job-0693/download?file=1",
     );
     expect(res.status).toBe(200);
 
@@ -137,7 +151,7 @@ describe("export download audit trail (#693)", () => {
         metadata: { jobId: "job-0693", format: "csv", mode: "async" },
       },
     ]);
-    expect(JSON.stringify(rows)).not.toContain(URL);
+    expect(JSON.stringify(rows)).not.toContain("storageKey");
 
     // Read as the other tenant under RLS (app_user), not through an explicit
     // filter — the polling tenant's row must be invisible.

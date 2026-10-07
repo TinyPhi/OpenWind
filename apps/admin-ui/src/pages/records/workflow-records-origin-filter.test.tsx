@@ -137,6 +137,20 @@ function renderPage(): HTMLElement {
   return container;
 }
 
+async function waitForCardCount(
+  container: HTMLElement,
+  expected: number,
+): Promise<void> {
+  // Full monorepo runs contend with the other workspace test processes, so
+  // retain polling against the rendered cards without the 1s default timeout.
+  await waitFor(
+    () => {
+      expect(container.querySelectorAll(".kb-card")).toHaveLength(expected);
+    },
+    { timeout: 5_000 },
+  );
+}
+
 describe("WorkflowRecords — Source filter (Internal / External / Redirected)", () => {
   afterEach(() => {
     cleanup();
@@ -146,55 +160,41 @@ describe("WorkflowRecords — Source filter (Internal / External / Redirected)",
   it("shows all three tickets before any Source filter is applied", async () => {
     mockRoutes();
     const container = renderPage();
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(3);
-    });
+    await waitForCardCount(container, 3);
   });
 
   it('selecting "External" shows only api-origin tickets', async () => {
     mockRoutes();
     const container = renderPage();
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(3);
-    });
+    await waitForCardCount(container, 3);
 
     fireEvent.click(screen.getByTitle("Filters"));
     fireEvent.click(screen.getByRole("button", { name: "External" }));
 
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(1);
-    });
+    await waitForCardCount(container, 1);
     expect(container.textContent).toContain("api-ticket".slice(0, 8));
   });
 
   it('selecting "Redirected" shows only handoff-origin tickets', async () => {
     mockRoutes();
     const container = renderPage();
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(3);
-    });
+    await waitForCardCount(container, 3);
 
     fireEvent.click(screen.getByTitle("Filters"));
     fireEvent.click(screen.getByRole("button", { name: "Redirected" }));
 
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(1);
-    });
+    await waitForCardCount(container, 1);
   });
 
   it('selecting "Internal" shows only tickets with no origin tag', async () => {
     mockRoutes();
     const container = renderPage();
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(3);
-    });
+    await waitForCardCount(container, 3);
 
     fireEvent.click(screen.getByTitle("Filters"));
     fireEvent.click(screen.getByRole("button", { name: "Internal" }));
 
-    await waitFor(() => {
-      expect(container.querySelectorAll(".kb-card").length).toBe(1);
-    });
+    await waitForCardCount(container, 1);
     expect(container.querySelectorAll(".kb-card-origin-corner").length).toBe(0);
   });
 });

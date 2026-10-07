@@ -171,7 +171,10 @@ describe("GET /exports/:jobId/download — polling access control", () => {
         tenantId: TENANT_A,
         requestedBy: "u-aaa",
         includePii: false,
-        returnvalue: { downloadUrl: "https://s3.example.com/export.csv" },
+        returnvalue: {
+          storageKey: `${TENANT_A}/exports/job-tenant-a.csv`,
+          format: "csv",
+        },
       }),
     );
 
@@ -191,7 +194,10 @@ describe("GET /exports/:jobId/download — polling access control", () => {
         tenantId: TENANT_A,
         requestedBy: "u-aaa",
         includePii: true,
-        returnvalue: { downloadUrl: "https://s3.example.com/pii.csv" },
+        returnvalue: {
+          storageKey: `${TENANT_A}/exports/job-pii.csv`,
+          format: "csv",
+        },
       }),
     );
 
@@ -211,7 +217,10 @@ describe("GET /exports/:jobId/download — polling access control", () => {
         tenantId: TENANT_A,
         requestedBy: "u-aaa",
         includePii: true,
-        returnvalue: { downloadUrl: "https://s3.example.com/pii.csv" },
+        returnvalue: {
+          storageKey: `${TENANT_A}/exports/job-pii.csv`,
+          format: "csv",
+        },
       }),
     );
 

@@ -288,6 +288,65 @@ export type FileStreamResult = {
   sizeBytes: number;
 };
 
+export type ExportFormat = "csv" | "xlsx" | "pdf";
+
+const EXPORT_CONTENT_TYPES: Record<ExportFormat, string> = {
+  csv: "text/csv; charset=utf-8",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pdf: "application/pdf",
+};
+
+function exportStorageKey(
+  tenantId: string,
+  jobId: string,
+  format: ExportFormat,
+): string {
+  const safeSegment = /^[a-zA-Z0-9:_-]+$/;
+  if (!safeSegment.test(tenantId) || !safeSegment.test(jobId)) {
+    throw new FileError("STORAGE_PATH_ESCAPE", { tenantId, jobId });
+  }
+  return `${tenantId}/exports/${jobId}.${format}`;
+}
+
+export async function saveExport(
+  tenantId: string,
+  jobId: string,
+  format: ExportFormat,
+  bytes: Buffer,
+): Promise<string> {
+  const storageKey = exportStorageKey(tenantId, jobId, format);
+  await writeFileAtomic(resolveStoragePath(storageKey), bytes);
+  return storageKey;
+}
+
+export async function getExportStream(
+  tenantId: string,
+  jobId: string,
+  format: ExportFormat,
+  storageKey: string,
+): Promise<FileStreamResult> {
+  const expectedKey = exportStorageKey(tenantId, jobId, format);
+  if (storageKey !== expectedKey) {
+    throw new FileError("STORAGE_PATH_ESCAPE", { storageKey });
+  }
+  const absPath = resolveStoragePath(storageKey);
+  try {
+    const stat = await fsp.stat(absPath);
+    await fsp.access(absPath, fs.constants.R_OK);
+    return {
+      stream: fs.createReadStream(absPath),
+      originalName: `export-${jobId}.${format}`,
+      mimeType: EXPORT_CONTENT_TYPES[format],
+      sizeBytes: stat.size,
+    };
+  } catch (err) {
+    throw new FileError("STORAGE_READ_FAILED", {
+      jobId,
+      err: String(err),
+    });
+  }
+}
+
 /**
  * Open a readable stream for a clean file.
  * Throws for pending, quarantined, scan_failed, or deleted files.
