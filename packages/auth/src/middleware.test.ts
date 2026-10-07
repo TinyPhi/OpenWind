@@ -1355,6 +1355,18 @@ describe("requirePlatformAdmin", () => {
     expect(res.status).toBe(401);
   });
 
+  it("rejects an OpenWind API key (sk_...) with 401 -- resolvePlatformAdmin has no API-key path at all, unlike requireAuth", async () => {
+    // requirePlatformAdmin never calls the API-key lookup requireAuth uses -- it only ever
+    // calls verifyJwt on whatever follows "Bearer ", so an sk_... string is handed to the JWT
+    // verifier (and mocked here to reject it, same as any other malformed token) rather than
+    // being routed to a separate API-key code path that could mistakenly accept it.
+    mockVerifyJwt.mockResolvedValueOnce(null);
+    const app = makeApp([requirePlatformAdmin()]);
+    const res = await get(app, "sk_live_abcdef1234567890");
+    expect(res.status).toBe(401);
+    expect(mockVerifyJwt).toHaveBeenCalledWith("sk_live_abcdef1234567890");
+  });
+
   it("returns 403 when the token lacks the platform_admin role claim", async () => {
     mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
     mockExtractPlatformAdminContext.mockReturnValueOnce(null);

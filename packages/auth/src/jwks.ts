@@ -357,6 +357,12 @@ const MFA_AMR_VALUES = new Set(["mfa", "otp", "totp"]);
  * that policy, same posture as every other "two layers, not alternatives" rule in this
  * codebase (security.md's tenant-isolation rule being the other example) -- it fails closed
  * if the amr claim is ever absent or the policy is ever misconfigured.
+ *
+ * Currently dormant: `requirePlatformAdmin` (packages/auth/src/middleware.ts) does not call
+ * this -- see that function's own doc comment for why (no Zitadel MFA method is usable on
+ * this hosted instance, so MFA is enforced via an OpenWind-owned email-code step instead).
+ * Exported and tested so it's ready to wire back in (or layer alongside the email-code step)
+ * once a real Zitadel MFA method becomes available; do not delete it as "unused".
  */
 export function hasMfaFactor(claims: JWTPayload & ZitadelClaims): boolean {
   const amr = claims.amr;
