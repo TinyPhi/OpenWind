@@ -98,7 +98,7 @@ describe("useExport", () => {
     mockPoll.mockResolvedValue({
       data: {
         status: "complete",
-        downloadUrl: "https://s3.example.com/export.csv",
+        downloadUrl: "/exports/job-abc/download?file=1",
       },
     });
 
@@ -114,7 +114,7 @@ describe("useExport", () => {
 
     expect(result.current.exportStatus).toBe("ready");
     expect(result.current.exportDownloadUrl).toBe(
-      "https://s3.example.com/export.csv",
+      "/exports/job-abc/download?file=1",
     );
   });
 
@@ -146,7 +146,7 @@ describe("useExport", () => {
       .mockResolvedValueOnce({
         data: {
           status: "complete",
-          downloadUrl: "https://s3.example.com/export.csv",
+          downloadUrl: "/exports/job-abc/download?file=1",
         },
       });
 
@@ -264,7 +264,7 @@ describe("useExport", () => {
     mockPoll.mockResolvedValue({
       data: {
         status: "complete",
-        downloadUrl: "https://s3.example.com/export.csv",
+        downloadUrl: "/exports/job-abc/download?file=1",
       },
     });
 
@@ -277,15 +277,20 @@ describe("useExport", () => {
     });
     expect(result.current.exportStatus).toBe("ready");
 
+    mockInitiate.mockResolvedValue(syncResponse(200) as Response);
+
     const mockClick = vi.fn();
     vi.spyOn(document, "createElement").mockReturnValueOnce(
       Object.assign(document.createElement("a"), { click: mockClick }),
     );
 
-    act(() => {
-      result.current.triggerAsyncDownload();
+    await act(async () => {
+      await result.current.triggerAsyncDownload();
     });
 
+    expect(mockInitiate).toHaveBeenCalledWith(
+      "http://api.test/exports/job-abc/download?file=1",
+    );
     expect(mockClick).toHaveBeenCalled();
     expect(result.current.exportStatus).toBe("idle");
     expect(result.current.exportDownloadUrl).toBeNull();
