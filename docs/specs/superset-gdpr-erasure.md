@@ -68,16 +68,28 @@ They are out of scope here, each with where it goes:
   `nullpool` argument of `Database.get_sqla_engine()` (default `True`).
 - F10: Stage 2 is off by default; no production Superset users exist yet.
 
+- F11 (tested 2026-10-07 on a throwaway Superset 6.1.0 under gunicorn, a scratch database copy and its own
+  Redis database): a config-registered endpoint verifies Superset's JWT and accepts only the
+  `ReportingServiceAccount` role (an analyst and `Admin` get 403); with CSRF on, the service account's real
+  login, CSRF token and session cookie are enough to call it over HTTP; erasing a real user deleted all owned
+  rows with no foreign-key errors and anonymised the account; a second call was a no-op; that user's open
+  browser session and API token were refused on their next request; 500,000 log rows were erased in 28.5 s in
+  batches of 5,000 (slowest batch 0.65 s); other users' rows and the platform's Redis were untouched.
+- F12: the worker container reaches Superset over the compose network, but `docker-compose.yml` gives the
+  Superset service-account variables only to the API today, so the worker would fall back to the development
+  default (refused in production by `@platform/config`).
+
 ## §C Constraints
 
-| constraint                    | value                                                                                                                                           |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| where Superset data is erased | **inside Superset**, which already reaches its own DB and Redis. The platform only asks. No Superset DB credential goes to the API or worker.   |
-| match key                     | the `owsub:<subject>` role added at every login **and** the `tenant:<uuid>` role must match the request. Never username, email or display name. |
-| payloads and logs             | ids only. No name, email or SQL in a job, log line, response or audit metadata written by this feature.                                         |
-| Superset DB shape             | rows wholly the user's are deleted; `ab_user` is anonymised (51 author-pointer columns reference it).                                           |
-| delivery process              | spec → `/spec-tasks` → human `approve-plan` before any edit under `apps/`, `packages/`, `modules/` (`agent-behaviour.md`).                      |
-| never autonomous              | `.github/workflows/` and ADR edits. CI jobs are proposed as patches; ADR-019 is updated by a human.                                             |
+| constraint                    | value                                                                                                                                                                                                                                     |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| where Superset data is erased | **inside Superset**, which already reaches its own DB and Redis. The platform only asks. No Superset DB credential goes to the API or worker.                                                                                             |
+| match key                     | the `owsub:<subject>` role added at every login **and** the `tenant:<uuid>` role must match the request. Never username, email or display name.                                                                                           |
+| payloads and logs             | ids only. No name, email or SQL in a job, log line, response or audit metadata written by this feature.                                                                                                                                   |
+| Superset DB shape             | rows wholly the user's are deleted; `ab_user` is anonymised (51 author-pointer columns reference it).                                                                                                                                     |
+| delivery process              | spec → `/spec-tasks` → human `approve-plan` before any edit under `apps/`, `packages/`, `modules/` (`agent-behaviour.md`).                                                                                                                |
+| worker credentials            | **no new secret.** The worker reuses the existing `SUPERSET_INTERNAL_URL`, `SUPERSET_SERVICE_ACCOUNT_USER` and `SUPERSET_SERVICE_ACCOUNT_PASSWORD`; `docker-compose.yml` passes them to the worker exactly as it already does to the API. |
+| never autonomous              | `.github/workflows/` and ADR edits. CI jobs are proposed as patches; ADR-019 is updated by a human.                                                                                                                                       |
 
 ## §D Decisions
 
@@ -114,8 +126,14 @@ data on request. These questions decide how long the rest is kept when nobody ha
 - `POST /openwind/erasure/user` `{tenantId, subject}` and `POST /openwind/erasure/tenant` `{tenantId}`.
   Authenticated with the service account's normal login token. The endpoint accepts only a caller holding
   the `ReportingServiceAccount` role (provisioned by `bootstrap.py`); the Superset container is not given the
-  service account's username, so it is not matched by name. Any other caller, including `Admin`, gets 403; no
-  token gets 401. Returns counts only: `{matchedUsers, deletedRows, cacheKeysRemoved}`.
+  service account's username, so it is not matched by name. Any other authenticated caller, including `Admin`, gets 403. CSRF protection stays on: the caller fetches a CSRF
+  token and its session cookie first, as `superset-client.ts` already does, and a request without them is refused
+  (400) before authentication. Each call does a bounded amount of work (about 20 s, well under the server's 120 s
+  request limit) and returns counts only: `{matchedUsers, deletedRows, cacheKeysRemoved, more}`. The worker calls
+  again while `more` is true; the user row is anonymised only in the call that finishes. Fallback if the CSRF flow
+  ever fails: list the endpoint in `WTF_CSRF_EXEMPT_LIST` as `superset_config.<function>` (tested).
+- Operator fallback: a `superset openwind-erase --tenant <uuid> --subject <id>` command registered from
+  `superset_config.py` runs the same erase inside the container, for a job that keeps failing (runbook).
 - Login (`auth_user_oauth`): adds `owsub:<subject>`; refreshes an existing user's first name, last name
   and email from the claims (R9).
 - Exported maps `ERASURE_HANDLED` and `ERASURE_EXEMPT` (`table.column` → class / reason) for the guard.
@@ -126,7 +144,7 @@ data on request. These questions decide how long the rest is kept when nobody ha
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `delete` (owned data)   | `logs.user_id`, `query.user_id`, `saved_query.user_id`, `tab_state.user_id`, `favstar.user_id`, `user_attribute.user_id`, `user_favorite_tag.user_id`, `database_user_oauth2_tokens.user_id`, `task_subscribers.user_id`, `tasks.user_id`                             |
 | `delete` (links)        | `ab_user_role.user_id`, `ab_user_group.user_id`, `dashboard_user.user_id`, `slice_user.user_id`, `sqlatable_user.user_id`, `report_schedule_user.user_id` (an object may lose its last owner; accepted)                                                               |
-| `delete` (cached state) | `key_value` rows created by the user with `resource = 'superset_metastore_cache'`: saved dashboard filter state and Explore form data                                                                                                                                 |
+| `delete` (cached state) | `key_value` rows created **or** last changed by the user with `resource = 'superset_metastore_cache'`: saved dashboard filter state and Explore form data                                                                                                             |
 | `author_pointer` (keep) | the `created_by_fk` / `changed_by_fk` / `last_saved_by_fk` columns (51), apart from the `key_value` cache rows above: they point at the anonymised `ab_user`, so they name no one. Shared permalinks in `key_value` are kept, so links other people hold keep working |
 
 **Platform side:**
@@ -192,7 +210,8 @@ prefixes); no user or DB erasure runs, because guests are not stored as Superset
 ✓ with Stage 2 on, the full user erasure runs and flushes the cache as part of it.
 
 R8: The erase endpoints cannot be used by anyone but the platform.
-✓ no token → 401; `Admin` or any other non-service-account token → 403; wrong tenant role → no match.
+✓ no token, or no CSRF token, → refused (400 before authentication); `Admin` or any other caller without the
+`ReportingServiceAccount` role → 403; wrong tenant role → no match.
 ✓ `/security-review` on the diff, findings triaged.
 
 R9: A name or email changed at the source reaches Superset (correction).
@@ -222,6 +241,11 @@ R15: The cost of a cache flush is stated and bounded.
 ✓ one erasure event causes exactly one prefix flush: a tenant purge flushes once, not once per user.
 ✓ the runbook states the impact: because cache keys are not tenant-namespaced, every flush makes the next load of every tenant's cached results a cold query. Cached results expire after 300 s anyway, so a flush shortens that window and does not lengthen any outage. With Stage 2 on, chart data is not cached at all (`NullCache`, F2), so a flush only drops Superset's own metadata cache; with Stage 2 off, embedded dashboards pay the cold loads.
 
+R16: An erasure of any size completes without hitting a request time limit.
+✓ each call does bounded work and reports `more`; the worker repeats until it is false; the user row is
+anonymised only in the finishing call. Test with 500,000 log rows for one user (measured locally: 28.5 s in 101
+batches of 5,000, slowest batch 0.65 s).
+
 ## §V Invariants
 
 - V1: every Superset-side statement is scoped by the tenant role as well as the subject.
@@ -239,20 +263,31 @@ switch (D8).
 
 ## §S Security
 
-| threat                                              | control                                                                                                                                               |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| caller abuses the erase endpoints                   | service-account token only (V5); every call logged with ids and counts; protected accounts refused; `/openwind/` blocked at the proxy (residual risk) |
-| wrong user erased (name or UUID-username collision) | match on `owsub` + `tenant` roles, never username (R3, R14)                                                                                           |
-| tenant A erases tenant B's user                     | tenant role must equal the request's tenant (V1)                                                                                                      |
-| personal data leaks through job, logs or responses  | ids and counts only (V2)                                                                                                                              |
-| erasure silently fails                              | retries, final-failure audit row, alert after 7 days (R4)                                                                                             |
-| Superset upgrade adds a user-referencing table      | coverage guard (R6)                                                                                                                                   |
-| large table stalls the DB                           | bounded batches with a statement timeout                                                                                                              |
+| threat                                                              | control                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| caller abuses the erase endpoints                                   | only a caller holding the `ReportingServiceAccount` role (V5); CSRF protection stays on (token and session cookie); every call logged with ids and counts; protected accounts refused; `/openwind/` blocked at the proxy (residual risk)                                                                                                                                                                  |
+| the service-account credential leaks from the API **or the worker** | no new secret: the worker reuses the existing variables; they live only in the environment of the two containers that call Superset and are never logged; production refuses the development default (`@platform/config`); rotating it is one change on the server, picked up by both containers on restart; inside Superset the account can mint guest tokens and call the erase endpoints, nothing else |
+| wrong user erased (name or UUID-username collision)                 | match on `owsub` + `tenant` roles, never username (R3, R14)                                                                                                                                                                                                                                                                                                                                               |
+| tenant A erases tenant B's user                                     | tenant role must equal the request's tenant (V1)                                                                                                                                                                                                                                                                                                                                                          |
+| personal data leaks through job, logs or responses                  | ids and counts only (V2)                                                                                                                                                                                                                                                                                                                                                                                  |
+| erasure silently fails                                              | retries, final-failure audit row, alert after 7 days (R4)                                                                                                                                                                                                                                                                                                                                                 |
+| Superset upgrade adds a user-referencing table                      | coverage guard (R6)                                                                                                                                                                                                                                                                                                                                                                                       |
+| a large history stalls the DB or times out                          | bounded batches, and a per-call work cap with continuation (R16)                                                                                                                                                                                                                                                                                                                                          |
 
-Residual risks, stated: Stage 2 publishes Superset to users, so the endpoints share their origin and the
-service-account token is the only gate unless the proxy blocks `/openwind/` (deployment must do this; code
-does not enforce it). The service account also mints guest tokens, so a leak reaches the erase endpoints too.
-Exports a user already downloaded cannot be recalled.
+Residual risks, stated:
+
+- **The worker now holds the service-account password as well as the API.** A compromise of either container
+  gives the same Superset access: minting guest tokens for any tenant and calling the erase endpoints. This
+  widens where the credential lives (one more container), not what it can do. No new secret is introduced.
+- Stage 2 publishes Superset to users, so the endpoints share their origin, and the role check is the only gate
+  unless the proxy blocks `/openwind/` (deployment must do this; code does not enforce it).
+- Exports a user already downloaded cannot be recalled.
+
+**Security documentation to update in the PR that gives the worker these variables** (task T28, not before,
+because until then it would not be true): `superset-embedded-dashboarding.md` §C "auth (machine)", which says
+the service account is "backend-only, able to mint embed passes and nothing else", its environment table row
+("mint-only service account"), and its threat row E; plus `docs/local-setup.md` if it lists which services read
+these variables.
 
 ## §D2 DPDP view (short; section numbers from a reading of the 2023 Act and the 2025 Rules; counsel confirms)
 
@@ -272,14 +307,14 @@ Commencement dates: Legal to confirm (§Q).
 
 Full breakdown with verify commands, owners and the proposed plan-lock: [superset-gdpr-erasure-tasks.md](superset-gdpr-erasure-tasks.md).
 
-| id      | task                                                                                           | req               | phase | status | depends |
-| ------- | ---------------------------------------------------------------------------------------------- | ----------------- | ----- | ------ | ------- |
-| H1–H3   | Human: D1–D3, D5, D8 decided 2026-10-07; Legal / DPO on D4, D6, D7 (§Q); `approve-plan`        | —                 | 0     | open   | —       |
-| T1–T12  | Prove and finish #729, #709, #716, abuse tests ST17; correct standalone spec T11               | R11–R14           | A     | todo   | H3      |
-| T13–T20 | Superset side of #728                                                                          | R1,R3,R5,R6,R8,R9 | B     | todo   | T12     |
-| T21–T26 | Platform side of #728 (gated paths)                                                            | R2,R4,R7          | C     | todo   | T20     |
-| T27–T28 | ADR-019 gate text draft, docs and runbook                                                      | R10, #731         | D     | todo   | T26     |
-| H4–H9   | Human: CI patch, ADR-019 update, proxy rule, export-route decision, breach link, sign the gate | —                 | D     | open   | —       |
+| id      | task                                                                                           | req                   | phase | status | depends |
+| ------- | ---------------------------------------------------------------------------------------------- | --------------------- | ----- | ------ | ------- |
+| H1–H3   | Human: D1–D3, D5, D8 decided 2026-10-07; Legal / DPO on D4, D6, D7 (§Q); `approve-plan`        | —                     | 0     | open   | —       |
+| T1–T12  | Prove and finish #729, #709, #716, abuse tests ST17; correct standalone spec T11               | R11–R14               | A     | todo   | H3      |
+| T13–T20 | Superset side of #728                                                                          | R1,R3,R5,R6,R8,R9,R16 | B     | todo   | T12     |
+| T21–T26 | Platform side of #728 (gated paths)                                                            | R2,R4,R7              | C     | todo   | T20     |
+| T27–T28 | ADR-019 gate text draft, docs and runbook                                                      | R10, #731             | D     | todo   | T26     |
+| H4–H9   | Human: CI patch, ADR-019 update, proxy rule, export-route decision, breach link, sign the gate | —                     | D     | open   | —       |
 
 Order: #728 is built after #799 merges; it relies on the `owsub:` marker and the audit writer from #799.
 
