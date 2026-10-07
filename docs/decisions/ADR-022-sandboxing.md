@@ -1,6 +1,6 @@
 ﻿# ADR-022: Platform Admin — Cross-Tenant Sandbox Lifecycle Role
 
-**Status:** Proposed — revised after @PrabhuVijit's review; blockers addressed below, pending re-review.
+**Status:** Proposed
 **Date:** 2026-10-06
 **Deciders:** Tushar Sharma (Engineering Lead). Reviewed by: @PrabhuVijit.
 **Related to:** ADR-001 (multitenancy/RLS — this role is the first intentional exception to
@@ -31,8 +31,9 @@ pattern, which is why CLAUDE.md requires a dedicated ADR before any code lands.
 Settled across three `/interview-me` rounds and an external review from @PrabhuVijit:
 
 - Platform admin is issued by Zitadel as a role claim, same OIDC mechanism as every other role.
-- Dedicated `/platform-admin` login route, separate dashboard, required MFA (see Decision 1's
-  addendum below — the mechanism changed from the originally planned Zitadel TOTP).
+- Dedicated `/platform-admin` login route, separate dashboard, required MFA (Decision 10 records
+  the mechanism change from the originally planned Zitadel TOTP to an OpenWind-owned email OTP,
+  and the security trade-off that change accepts).
 - Powers limited to: create / list / read-metadata / reset / delete sandboxes. Never business
   data (tickets, org chart contents, audit entries).
 - `tenants.is_sandbox` flags sandboxes for internal tooling.
@@ -82,6 +83,13 @@ all, found and fixed during security review. Regression-guarded by
 `apps/api/tests/isolation/platform-admin-role.isolation.test.ts` against a real Postgres
 (confirms the role cannot SELECT from `entity_instances`, cannot SELECT a non-allow-listed
 `tenants` column, and that the inherit flag is `false`).
+
+**Process note (review feedback):** this and every "Implemented" note below describes the
+intended design and names the PR that built it; it is not itself the verification. The named PR
+(`feat/sandbox-01-platform-admin-foundation`) is raised and reviewed on its own merits once this
+ADR is accepted — if its implementation changes before merge, the PR review (not this ADR) is
+where that discrepancy is caught. This ADR gates what the design must guarantee, not a snapshot
+of unreviewed code.
 
 ### Decision 2 — Where the role claim is recognized in the auth path
 
@@ -179,6 +187,79 @@ credentials are untouched. It is not a `DROP CASCADE` or a full re-provision. Co
 reset/delete on the same sandbox is rejected (409), not interleaved, enforced by a per-sandbox
 lock (§V, Decision 4's enumerated invariants) — tracked as T22 in the spec, not yet implemented.
 
+### Decision 10 — MFA mechanism change (Zitadel TOTP → OpenWind email OTP) and verification-window justification
+
+**Context for the change.** The original plan was Zitadel-enforced TOTP. During implementation
+this turned out to be unimplementable on this project's hosted Zitadel instance/plan: no SMTP
+configured (rules out OTP-by-email at the IdP level), no SMS gateway, and TOTP is not offered as
+an enrollment option at all. This is a platform constraint, not a design preference — confirmed
+by direct testing against the live instance before committing to the alternative below.
+
+**Decision.** MFA for `/platform-admin` is implemented as an OpenWind-owned, application-layer
+one-time-code step, independent of Zitadel's own second-factor support: `POST
+/platform-admin/mfa/request` emails a 6-digit code; `POST /platform-admin/mfa/verify` checks it
+and marks the admin verified for a bounded window (see below). Built:
+`packages/auth/src/platform-admin-mfa.ts`.
+
+**Security trade-off, stated explicitly (review finding A).** This is a materially weaker
+second-factor design than TOTP. TOTP is device-bound and never transits the network after
+enrollment; an email OTP depends on the security of the admin's email account and the delivery
+channel, and is defeated if either is compromised or intercepted. We accept this trade-off for v1
+on the current hosted Zitadel plan, with the following mitigations as the compensating controls:
+
+- The code is hashed at rest (SHA-256) — never stored or logged in plaintext.
+- 10-minute TTL on the code itself.
+- 5-attempt lockout per code (`MAX_VERIFY_ATTEMPTS`), closing the brute-force window.
+- A Redis outage or error while checking verification state always fails closed (denies access),
+  never fails open (§V) — an availability problem on our side can never become an auth bypass.
+- The outbound email path is OpenWind's own existing notification infrastructure, not a new
+  untested delivery mechanism.
+
+**Future path.** If the Zitadel plan/instance is upgraded to support TOTP or another IdP-native
+second factor, migrating `/platform-admin` to it is the expected follow-up — this decision is not
+a permanent rejection of IdP-enforced MFA, it is an accepted interim position forced by the
+current hosted instance's capabilities.
+
+**Verification-window justification (review finding B).** The 12-hour verification window is
+unusually long for the single highest-privilege role in the system (the one role that can delete
+tenants), and is deliberately shorter-lived protections are the norm for comparable privileged
+step-up flows elsewhere. It is justified here by the operating model, not left as an oversight:
+`platform_admin` is a single-trusted-operator role (§C) used in bursts across a working day —
+creating a sandbox ahead of a demo, checking on it, resetting it, handing it off — rather than a
+single discrete transaction the way a payment confirmation is. Re-requiring a fresh OTP on every
+lifecycle call would add friction with no corresponding benefit for this threat model.
+
+This is a deliberate choice, not an unqualified one — two concrete compensating controls apply
+specifically to the most destructive actions:
+
+- **Reset and delete require re-verification regardless of the 12-hour window.** A fresh,
+  successful `POST /platform-admin/mfa/verify` call is required immediately before a reset or
+  delete is accepted — the 12-hour verified flag unlocks read/list/create, not the two
+  irreversible-data operations. This is tracked as part of T22 (per-sandbox lifecycle-action
+  lock) in the spec, alongside the concurrency guard it already covers.
+- **No standing invalidation mechanism for a suspected-compromised session exists yet** — if a
+  platform_admin believes their session is compromised, the operational mitigation today is
+  revoking the Zitadel session/token directly (existing IdP-level capability), not a
+  feature-specific kill switch. A dedicated invalidation endpoint is a reasonable Phase 3
+  addition but is not required to accept this ADR.
+
+**Storage backend (review finding F).** Both the hashed OTP (10-minute TTL) and the
+verified-session flag (12-hour TTL) are stored in Redis, keyed per platform-admin user id — not
+Postgres. This is why §V's "Redis outage fails closed" invariant covers both the request and
+verify paths: a Redis outage after a successful `/mfa/verify` call but before the 12-hour flag
+would be durably set manifests as "admin must re-authenticate," never as "admin is treated as
+verified when they are not."
+
+**Seeded-account credential pattern (review finding D).** R3/R5's seeded accounts (10-20 per
+sandbox, `changeRequired: false`) share a predictable, template-based password pattern by design
+— this is an accepted trade-off, not an oversight, because a sandbox contains no real customer
+data and most of those accounts exist only to populate the org chart and are never logged into.
+The 1-2 accounts actually handed off to a prospect are the only ones expected to be used, and a
+prospect who wants a unique real identity is expected to change the credential themselves (a
+manual follow-up, not something provisioning automates — see spec R3). This acceptance is scoped
+strictly to sandbox tenants (`is_sandbox = true`); it must never be read as precedent for any
+real customer tenant's credential policy.
+
 ---
 
 ## Consequences
@@ -192,7 +273,12 @@ Decision 7 (audit trail) is finalized, not automatically on this ADR's acceptanc
 feature — the one piece of code allowed to deliberately cross the tenant-isolation boundary every
 other ADR in this repo treats as absolute. `/security-review` has already run once against PR1's
 implementation and found one real issue (the `WITH INHERIT FALSE` gap, Decision 1) — fixed and
-regression-tested before commit.
+regression-tested before commit. A second `/security-review` ran against Phase 2's provisioning
+job (PR2, `feat/sandbox-02-org-template-and-provisioning-job`) and found and fixed two further
+issues: an audit-coverage gap on org-creation/tenant-insert failure, and a missing per-operation
+rate-limit override on the provisioning route (narrower than Decision 8's general treatment,
+folded into that PR rather than this ADR since it's route-specific implementation detail, not a
+new architectural decision).
 
 **Follow-up:** `/spec-tasks` runs for real against `docs/specs/multi-org-sandbox.md` once this
 ADR is accepted, to freeze Phase 2's plan-lock.
