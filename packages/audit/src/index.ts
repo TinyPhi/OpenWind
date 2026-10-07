@@ -169,7 +169,14 @@ export type AuditAction =
   // intentionally not audited -- routine steady state, not an admin action
   // that went wrong. Migration 0130_admin_audit_log_org_directory_actions.sql
   // extends the DB CHECK constraint in the same commit.
-  | "sync_failed";
+  | "sync_failed"
+  // docs/specs/multi-org-sandbox.md T7 — sandbox provisioning job outcomes,
+  // audited under the newly-created tenant's own id (job-level, like
+  // export.completed/export.failed — not one entry per seeded account).
+  // Migration 0135_admin_audit_log_sandbox_provisioning_actions.sql extends
+  // the DB CHECK constraint in the same commit.
+  | "sandbox.provisioning_completed"
+  | "sandbox.provisioning_failed";
 
 export type AuditEntryInput = {
   tenantId: string;

@@ -94,6 +94,17 @@ const EnvSchema = z
     // ADR-013, #692 — per-(tenant, user) cap on entity-list exports, which can
     // each pull up to 10,000 rows including PII/financial fields.
     RATE_LIMIT_EXPORT_PER_MIN: z.coerce.number().int().positive().default(5),
+    // docs/specs/multi-org-sandbox.md T7, security review — per-platform_admin cap on
+    // POST /platform-admin/sandboxes. The generic global rate limit (500/min/IP) is sized
+    // for ordinary CRUD, not for a route whose happy path drives ~21+ outbound Zitadel
+    // calls (1 org + up to 20 accounts) and a real tenant insert per accepted request.
+    // Deliberately low -- a single trusted operator (§C) has no legitimate reason to
+    // create sandboxes faster than this.
+    RATE_LIMIT_SANDBOX_PROVISIONING_PER_MIN: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(3),
     // docs/specs/multi-org-sandbox.md R11, ADR-022 — caps how many concurrently-active
     // (non-deleted) sandboxes a single platform_admin can have open at once, so a
     // compromised/scripted/fat-fingered platform_admin account can't spin up an unbounded

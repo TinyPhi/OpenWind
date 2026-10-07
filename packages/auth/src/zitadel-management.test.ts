@@ -54,6 +54,8 @@ const {
   getOrgMetadataForUser,
   parseOrgMetadataEntries,
   parseProvisioningServiceAccountKey,
+  createOrg,
+  createHumanUser,
 } = await import("./zitadel-management.js");
 
 describe("listOrgUsers", () => {
@@ -257,5 +259,136 @@ describe("parseProvisioningServiceAccountKey", () => {
     mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = "{not valid json";
     expect(parseProvisioningServiceAccountKey()).toBeNull();
     expect(mockLoggerError).toHaveBeenCalled();
+  });
+});
+
+// ── createOrg / createHumanUser (T7) ────────────────────────────────────────────
+// Both exchange the provisioning credential for a token (first mockHttpRequest call),
+// then make the actual Management API call (second). mockEnv's provisioning key is set
+// here so getProvisioningAccessToken's parse step succeeds.
+
+function queueJsonResponse(status: number, body: unknown): void {
+  const response = new EventEmitter() as EventEmitter & { statusCode: number };
+  response.statusCode = status;
+  mockHttpRequest.mockImplementationOnce(
+    (_options: unknown, callback: (res: IncomingMessage) => void) => {
+      const req: Partial<ClientRequest> = {
+        setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+        on: vi.fn() as unknown as ClientRequest["on"],
+        write: vi.fn() as unknown as ClientRequest["write"],
+        end: vi.fn() as unknown as ClientRequest["end"],
+      };
+      queueMicrotask(() => {
+        callback(response as IncomingMessage);
+        response.emit("data", Buffer.from(JSON.stringify(body)));
+        response.emit("end");
+      });
+      return req as ClientRequest;
+    },
+  );
+}
+
+function setProvisioningKey(): void {
+  mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = JSON.stringify({
+    type: "serviceaccount",
+    keyId: "key-provisioning",
+    key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+    userId: "sa-provisioning",
+  });
+}
+
+// discoverIssuer() makes its own httpGet call before every token exchange and is never
+// left cached-successful by an earlier test in this file (see the getOrgMetadataForUser
+// network-error test above) -- queue its failure first so getAccessToken/
+// getProvisioningAccessToken fall back to ZITADEL_ISSUER, same pattern as that test.
+function queueFailedIssuerDiscovery(): void {
+  mockHttpRequest.mockImplementationOnce(() => {
+    const req: Partial<ClientRequest> = {
+      setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+      write: vi.fn() as unknown as ClientRequest["write"],
+      end: vi.fn() as unknown as ClientRequest["end"],
+      on: vi.fn((event: string, handler: (err: Error) => void) => {
+        if (event === "error")
+          queueMicrotask(() => handler(new Error("ECONNRESET")));
+        return req as ClientRequest;
+      }) as unknown as ClientRequest["on"],
+    };
+    return req as ClientRequest;
+  });
+}
+
+describe("createOrg", () => {
+  it("returns the new org id on success", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(200, { organizationId: "org-123" });
+
+    const result = await createOrg("Acme Sandbox");
+
+    expect(result).toEqual({ ok: true, orgId: "org-123" });
+  });
+
+  it("reports a conflict (not a generic failure) on a 409 name collision", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(409, { message: "already exists" });
+
+    const result = await createOrg("Taken Name");
+
+    expect(result).toEqual({ ok: false, conflict: true });
+  });
+
+  it("returns a non-conflict failure when no provisioning credential is configured", async () => {
+    mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = undefined;
+    mockEnv.ZITADEL_PROVISIONING_KEY_JSON = undefined;
+
+    const result = await createOrg("No Credential Org");
+
+    expect(result).toEqual({ ok: false, conflict: false });
+  });
+
+  it("also reports a conflict on Zitadel's own gRPC-gateway AlreadyExists shape (code 6), not just a plain 409", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(400, { code: 6, message: "Organisation already exists" });
+
+    const result = await createOrg("Taken Name 2");
+
+    expect(result).toEqual({ ok: false, conflict: true });
+  });
+});
+
+describe("createHumanUser", () => {
+  const input = {
+    orgId: "org-123",
+    email: "olivia.smith@example.com",
+    givenName: "Olivia",
+    familyName: "Smith",
+    password: "Ow-abc123-9!",
+  };
+
+  it("returns the new user id on success", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(200, { userId: "user-456" });
+
+    const result = await createHumanUser(input);
+
+    expect(result).toEqual({ ok: true, userId: "user-456" });
+  });
+
+  it("reports a conflict (not a generic failure) on a 409 email collision", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(409, { message: "already exists" });
+
+    const result = await createHumanUser(input);
+
+    expect(result).toEqual({ ok: false, conflict: true });
   });
 });

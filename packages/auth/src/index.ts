@@ -62,12 +62,30 @@ export {
   invalidateUserCache,
   deleteUser,
   parseProvisioningServiceAccountKey,
+  createOrg,
+  createHumanUser,
 } from "./zitadel-management.js";
 export type {
   OrgUser,
   OrgMetadata,
   ServiceAccountKey,
+  CreateOrgResult,
+  CreateOrgConflict,
+  CreateOrgFailure,
+  CreateHumanUserInput,
+  CreateHumanUserResult,
+  CreateHumanUserConflict,
+  CreateHumanUserFailure,
 } from "./zitadel-management.js";
+export {
+  generateSandboxOrgTemplate,
+  nextEmailCandidate,
+} from "./sandbox-org-template.js";
+export type {
+  SandboxAccountTemplate,
+  SandboxAccountRole,
+  SandboxOrgTemplate,
+} from "./sandbox-org-template.js";
 export {
   detectScopesFormat,
   unknownTicketActionScopes,
