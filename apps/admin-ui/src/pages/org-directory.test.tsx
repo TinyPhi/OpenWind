@@ -226,5 +226,35 @@ describe("OrgDirectoryPage", () => {
       const vpCard = screen.getByText("VP Person").parentElement;
       expect(vpCard?.getAttribute("style")).not.toContain("2px solid");
     });
+
+    it("keeps the highlighted card's border orange when it isn't hovered (#755)", async () => {
+      render(<OrgDirectoryPage />);
+
+      await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+
+      fireEvent.change(
+        screen.getByPlaceholderText("Search by name or email…"),
+        { target: { value: "CEO" } },
+      );
+
+      // jsdom normalizes hsl() to rgb(), so let it normalize the expected
+      // colour the same way instead of hard-coding the rgb() triple.
+      const probe = document.createElement("div");
+      probe.style.borderColor = "hsl(35,90%,50%)";
+      await waitFor(() => {
+        const ceoCard = screen.getByText("CEO Person").parentElement;
+        expect(ceoCard?.getAttribute("style")).toContain("2px solid");
+      });
+
+      // React only re-applies changed style keys, so a card that turns
+      // highlighted keeps the shorthand's colour until hover state changes;
+      // a hover-out is what re-applies the base borderColor over it.
+      const ceoCard = screen.getByText("CEO Person").parentElement;
+      if (!ceoCard) throw new Error("CEO card not rendered");
+      fireEvent.mouseEnter(ceoCard);
+      fireEvent.mouseLeave(ceoCard);
+
+      expect(ceoCard.style.borderColor).toBe(probe.style.borderColor);
+    });
   });
 });

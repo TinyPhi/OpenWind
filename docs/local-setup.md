@@ -20,6 +20,7 @@ repo's compose file (there isn't one).
 - [Local development](#local-development)
   - [Running DB-backed tests locally](#running-db-backed-tests-locally)
 - [Production deployment (HTTPS)](#production-deployment-https)
+  - [Production hardening checklist](deployment-hardening.md)
 - [What setup does — step by step](#what-setup-does--step-by-step)
 - [Services reference](#services-reference)
 - [Environment variables reference](#environment-variables-reference)
@@ -200,6 +201,12 @@ docker exec ow-database psql -U platform -d platform -Atc \
 ---
 
 ## Production deployment (HTTPS)
+
+Before exposing a deployment publicly, also complete the
+[production hardening checklist](deployment-hardening.md). It covers the
+infrastructure controls this repository cannot configure: HSTS, encrypted
+database/file/backup storage, production OpenBao, key custody and restore
+testing.
 
 Production uses the same `setup.sh` script as local dev — you configure it via
 environment variables instead of a different flow. The one thing that differs

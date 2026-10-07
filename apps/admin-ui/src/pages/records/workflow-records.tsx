@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { fetchUsersShared, type TenantUser } from "../../lib/use-users.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { isRenderableIcon } from "../../lib/icon.js";
@@ -57,7 +58,7 @@ type EntityInstance = {
 };
 type OrgUser = {
   userId: string;
-  email: string;
+  email: string | null;
   displayName: string | null;
 };
 type WorkflowState = {
@@ -106,6 +107,101 @@ function fieldDisplay(value: unknown, fieldType: string): string {
     return `${cv.currency ?? ""} ${cv.amount ?? ""}`.trim();
   }
   return String(value);
+}
+
+export interface BuildRecordsRequestParams {
+  entityTypeId: string;
+  workflowId: string;
+  workflowCreatedBy: string | null;
+  workflowAssignedTo: string[];
+  userSub: string | null;
+  isUserRole: boolean;
+  filterSeverities: Set<string> | Set<Severity>;
+  filterTag: string;
+  filterOrigin: string;
+}
+
+export interface BuildRecordsRequestResult {
+  url: string;
+  useMyTickets: boolean;
+}
+
+export function buildRecordsRequest(
+  params: BuildRecordsRequestParams,
+): BuildRecordsRequestResult {
+  const {
+    entityTypeId,
+    workflowId,
+    workflowCreatedBy,
+    workflowAssignedTo,
+    userSub,
+    isUserRole,
+    filterSeverities,
+    filterTag,
+    filterOrigin,
+  } = params;
+
+  // A "user"-role caller who is this workflow's creator or in its
+  // assignedTo list is a workflow admin and gets the same unrestricted
+  // list access as admin/agent (mirrors apps/api/src/routes/entities/
+  // list.ts's isWorkflowAdmin check) - isUserRole alone only reflects
+  // the raw admin/agent role, so without this a workflow admin was
+  // silently routed through /entities/my-tickets and only ever saw
+  // their own tickets.
+  const isWorkflowAdminForThisWorkflow =
+    isUserRole &&
+    userSub !== null &&
+    (userSub === workflowCreatedBy || workflowAssignedTo.includes(userSub));
+  const useMyTickets = isUserRole && !isWorkflowAdminForThisWorkflow;
+
+  // docs/specs/ticket-severity-and-tags.md T16 — severity/tag/origin all
+  // filter server-side, shared by both fetch paths (list.ts's own params
+  // and my-tickets.ts's mirrored ones).
+  const filterParams = new URLSearchParams();
+  if (filterSeverities.size > 0) {
+    filterParams.set("severity", [...filterSeverities].join(","));
+  }
+  if (filterTag) {
+    filterParams.set("tag", filterTag);
+  }
+  if (filterOrigin) {
+    filterParams.set("origin", filterOrigin);
+  }
+  const filterQS = filterParams.toString();
+
+  const url = useMyTickets
+    ? `${API_URL}/entities/my-tickets?workflowId=${workflowId}${filterQS ? `&${filterQS}` : ""}`
+    : `${API_URL}/entities?entityTypeId=${entityTypeId}&rootOnly=true${filterQS ? `&${filterQS}` : ""}`;
+
+  return { url, useMyTickets };
+}
+
+interface ParsedRecords {
+  records: EntityInstance[];
+  childTickets: ChildTicket[];
+}
+
+// Shared by the shell's initial fetch and the list effect so both apply a
+// response the same way (my-tickets nests parents/children under `data`).
+function parseRecordsResponse(
+  body: unknown,
+  useMyTickets: boolean,
+): ParsedRecords {
+  const data = (body as { data?: unknown } | null)?.data;
+  if (useMyTickets) {
+    const myData = (data ?? {}) as {
+      parentTickets?: EntityInstance[];
+      childTickets?: ChildTicket[];
+    };
+    return {
+      records: myData.parentTickets ?? [],
+      childTickets: myData.childTickets ?? [],
+    };
+  }
+  return {
+    records: (data as EntityInstance[] | undefined) ?? [],
+    childTickets: [],
+  };
 }
 
 // ── Child Ticket Card ──────────────────────────────────────────────────────────
@@ -539,6 +635,10 @@ export function WorkflowRecords(): React.ReactElement {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
+  // The records URL whose response is currently applied to `records` — set
+  // only after a successful apply, so the list effect can skip re-requesting
+  // exactly what is already shown and nothing else.
+  const appliedRecordsUrlRef = useRef<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   // Filter panel redesign: accordion sections instead of one long stacked
   // list — each section collapses/expands independently, "Date" and
@@ -614,20 +714,24 @@ export function WorkflowRecords(): React.ReactElement {
     });
   }, []);
 
-  // Workflow shell — resolves the slug, loads workflow/states/fields/users.
+  // Workflow shell — resolves the slug, loads workflow/states/fields/users and initial records.
   // Runs once per workflowSlug change; NOT re-run on filter changes, so the
   // full-page loading state (and therefore the whole board/filter panel)
   // never unmounts just because a filter was toggled or typed into.
   useEffect(() => {
     if (!workflowSlug) return;
+    let cancelled = false;
+    const isCancelled = (): boolean => cancelled;
     setLoading(true);
     setError(null);
+    appliedRecordsUrlRef.current = null;
 
     // Resolve slug → id via the dedicated, ownership-unfiltered lookup — the
     // ownership-filtered list/summary endpoints only include workflows the
     // caller administers, which would 404 a plain ticket assignee here.
     fetchWithAuth(`${API_URL}/workflows/slugs`)
       .then(async (listRes) => {
+        if (isCancelled()) return;
         const all =
           (
             listRes as {
@@ -642,6 +746,7 @@ export function WorkflowRecords(): React.ReactElement {
 
         // Fetch full workflow detail (states + transitions)
         const wfRes = await fetchWithAuth(`${API_URL}/workflows/${matched.id}`);
+        if (isCancelled()) return;
         const wf = (
           wfRes as {
             data: {
@@ -656,11 +761,52 @@ export function WorkflowRecords(): React.ReactElement {
           }
         ).data;
 
-        setWorkflowId(wf.id);
-        setWorkflowName(wf.name);
-        setEntityTypeId(wf.entityTypeId);
-        setWorkflowCreatedBy(wf.createdBy);
-        setWorkflowAssignedTo((wf.assignedTo as string[] | null) ?? []);
+        let userSub = currentUserId;
+        let isUser = isUserRole;
+        if (!userSub) {
+          try {
+            const u = await userManager.getUser();
+            if (u) {
+              userSub = u.profile.sub;
+              const roleClaim = u.profile[
+                "urn:zitadel:iam:org:project:roles"
+              ] as Record<string, unknown> | undefined;
+              const roles = roleClaim ? Object.keys(roleClaim) : [];
+              isUser = !roles.includes("admin") && !roles.includes("agent");
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        const { url: recordUrl, useMyTickets } = buildRecordsRequest({
+          entityTypeId: wf.entityTypeId,
+          workflowId: wf.id,
+          workflowCreatedBy: wf.createdBy,
+          workflowAssignedTo: (wf.assignedTo as string[] | null) ?? [],
+          userSub,
+          isUserRole: isUser,
+          filterSeverities,
+          filterTag,
+          filterOrigin,
+        });
+
+        // Concurrently fetch fields, deduplicated users, and initial ticket records.
+        // The records request settles instead of rejecting, so its failure can't
+        // reject the entire Promise.all and crash the workflow shell into the
+        // full-page error state.
+        const [fieldsRes, usersData, recResult] = await Promise.all([
+          fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
+          // The page still works without the user list (assignee names), so a
+          // /users failure must not reject the whole shell load.
+          fetchUsersShared().catch((): TenantUser[] => []),
+          fetchWithAuth(recordUrl).then(
+            (body) => ({ ok: true as const, body }),
+            () => ({ ok: false as const }),
+          ),
+        ]);
+
+        if (isCancelled()) return;
 
         const loadedStates = wf.states as WorkflowState[];
         const loadedTransitions = wf.transitions as Transition[];
@@ -677,21 +823,43 @@ export function WorkflowRecords(): React.ReactElement {
           return [...kept, ...added];
         });
 
-        const [fieldsRes, usersRes] = await Promise.all([
-          fetchWithAuth(`${API_URL}/entity-types/${wf.entityTypeId}/fields`),
-          fetchWithAuth(`${API_URL}/users`).catch(() => ({ data: [] })),
-        ]);
         setFields(
           (fieldsRes as { data: EntityField[] }).data.filter(
             (f) => !f.isSystem,
           ),
         );
-        setUsers((usersRes as { data?: OrgUser[] }).data ?? []);
+        setUsers(usersData);
+
+        if (recResult.ok) {
+          const parsed = parseRecordsResponse(recResult.body, useMyTickets);
+          setRecords(parsed.records);
+          setChildTickets(parsed.childTickets);
+          appliedRecordsUrlRef.current = recordUrl;
+        } else {
+          // Left unmarked so the list effect retries this URL (and surfaces
+          // the error if that fails too) instead of presenting a failed load
+          // as an empty board.
+          setRecords([]);
+          setChildTickets([]);
+        }
+
+        setWorkflowId(wf.id);
+        setWorkflowName(wf.name);
+        setEntityTypeId(wf.entityTypeId);
+        setWorkflowCreatedBy(wf.createdBy);
+        setWorkflowAssignedTo((wf.assignedTo as string[] | null) ?? []);
       })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load"),
-      )
-      .finally(() => setLoading(false));
+      .catch((err: unknown) => {
+        if (!isCancelled())
+          setError(err instanceof Error ? err.message : "Failed to load");
+      })
+      .finally(() => {
+        if (!isCancelled()) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [workflowSlug]);
 
   // Ticket list — re-fetches on its own whenever the workflow shell above
@@ -701,65 +869,44 @@ export function WorkflowRecords(): React.ReactElement {
   // drops input focus.
   useEffect(() => {
     if (!workflowId || !entityTypeId) return;
+
+    const { url, useMyTickets } = buildRecordsRequest({
+      entityTypeId,
+      workflowId,
+      workflowCreatedBy,
+      workflowAssignedTo,
+      userSub: currentUserId,
+      isUserRole,
+      filterSeverities,
+      filterTag,
+      filterOrigin,
+    });
+
+    // `records` already holds this URL's data (from the shell or an earlier
+    // run), so skip the duplicate request. A run cancelled on its way to a
+    // different URL (A → B → A before B resolves) skips its own finally, so
+    // clear the indicator here or it stays on.
+    if (appliedRecordsUrlRef.current === url) {
+      setRecordsRefreshing(false);
+      return;
+    }
+
     setRecordsRefreshing(true);
-
-    // A "user"-role caller who is this workflow's creator or in its
-    // assignedTo list is a workflow admin and gets the same unrestricted
-    // list access as admin/agent (mirrors apps/api/src/routes/entities/
-    // list.ts's isWorkflowAdmin check) - isUserRole alone only reflects
-    // the raw admin/agent role, so without this a workflow admin was
-    // silently routed through /entities/my-tickets and only ever saw
-    // their own tickets.
-    const isWorkflowAdminForThisWorkflow =
-      isUserRole &&
-      currentUserId !== null &&
-      (currentUserId === workflowCreatedBy ||
-        workflowAssignedTo.includes(currentUserId));
-    const useMyTickets = isUserRole && !isWorkflowAdminForThisWorkflow;
-
-    // docs/specs/ticket-severity-and-tags.md T16 — severity/tag/origin all
-    // filter server-side, shared by both fetch paths (list.ts's own params
-    // and my-tickets.ts's mirrored ones).
-    const filterParams = new URLSearchParams();
-    if (filterSeverities.size > 0) {
-      filterParams.set("severity", [...filterSeverities].join(","));
-    }
-    if (filterTag) {
-      filterParams.set("tag", filterTag);
-    }
-    if (filterOrigin) {
-      filterParams.set("origin", filterOrigin);
-    }
-    const filterQS = filterParams.toString();
-
-    const url = useMyTickets
-      ? `${API_URL}/entities/my-tickets?workflowId=${workflowId}${filterQS ? `&${filterQS}` : ""}`
-      : `${API_URL}/entities?entityTypeId=${entityTypeId}&rootOnly=true${filterQS ? `&${filterQS}` : ""}`;
-
     let cancelled = false;
     fetchWithAuth(url)
       .then((recRes) => {
         if (cancelled) return;
-        if (useMyTickets) {
-          const myData =
-            (
-              recRes as {
-                data?: {
-                  parentTickets?: EntityInstance[];
-                  childTickets?: ChildTicket[];
-                };
-              }
-            ).data ?? {};
-          setRecords(myData.parentTickets ?? []);
-          setChildTickets(myData.childTickets ?? []);
-        } else {
-          setRecords((recRes as { data?: EntityInstance[] }).data ?? []);
-          setChildTickets([]);
-        }
+        const parsed = parseRecordsResponse(recRes, useMyTickets);
+        setRecords(parsed.records);
+        setChildTickets(parsed.childTickets);
+        // Marked only once applied: if a dependency change keeps the URL but
+        // cancels this request, the next run must still fetch it.
+        appliedRecordsUrlRef.current = url;
       })
       .catch((err: unknown) => {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : "Failed to load");
+        if (cancelled) return;
+        appliedRecordsUrlRef.current = null;
+        setError(err instanceof Error ? err.message : "Failed to load");
       })
       .finally(() => {
         if (!cancelled) setRecordsRefreshing(false);
@@ -1625,7 +1772,7 @@ export function WorkflowRecords(): React.ReactElement {
                                 (u.displayName ?? "")
                                   .toLowerCase()
                                   .includes(q) ||
-                                u.email.toLowerCase().includes(q)
+                                (u.email ?? "").toLowerCase().includes(q)
                               );
                             })
                             .map((u) => (
@@ -1642,12 +1789,12 @@ export function WorkflowRecords(): React.ReactElement {
                                 }
                               >
                                 <span className="kb-filter-assignee-avatar">
-                                  {(u.displayName ?? u.email)
+                                  {(u.displayName ?? u.email ?? "Unknown")
                                     .slice(0, 1)
                                     .toUpperCase()}
                                 </span>
                                 <span className="kb-filter-assignee-name">
-                                  {u.displayName ?? u.email}
+                                  {u.displayName ?? u.email ?? "Unknown"}
                                 </span>
                                 {filterAssignedTo === u.userId && (
                                   <svg

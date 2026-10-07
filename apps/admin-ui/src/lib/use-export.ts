@@ -11,7 +11,7 @@ export type UseExportReturn = {
   formatPickerRef: RefObject<HTMLDivElement>;
   setShowFormatPicker: (v: boolean) => void;
   handleExport: (format: "csv" | "xlsx" | "pdf") => Promise<void>;
-  triggerAsyncDownload: () => void;
+  triggerAsyncDownload: () => Promise<void>;
   resetExport: () => void;
 };
 
@@ -114,16 +114,27 @@ export function useExport(entityTypeId: string | undefined): UseExportReturn {
     }
   }
 
-  function triggerAsyncDownload(): void {
+  async function triggerAsyncDownload(): Promise<void> {
     if (!exportDownloadUrl) return;
-    const a = document.createElement("a");
-    a.href = exportDownloadUrl;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setExportStatus("idle");
-    setExportDownloadUrl(null);
-    setExportJobId(null);
+    try {
+      const response = await fetchRawWithAuth(`${API_URL}${exportDownloadUrl}`);
+      if (!response.ok) throw new Error("Export download failed");
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+      setExportStatus("idle");
+      setExportDownloadUrl(null);
+      setExportJobId(null);
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : "Export download failed",
+      );
+      setExportStatus("error");
+    }
   }
 
   function resetExport(): void {
