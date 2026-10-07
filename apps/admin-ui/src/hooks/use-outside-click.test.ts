@@ -91,4 +91,73 @@ describe("useOutsideClick", () => {
     );
     expect(onOutside).not.toHaveBeenCalled();
   });
+
+  describe("across re-renders with a new inline callback", () => {
+    function mousedownCalls(spy: { mock: { calls: unknown[][] } }): number {
+      return spy.mock.calls.filter((c) => c[0] === "mousedown").length;
+    }
+
+    it("registers the mousedown listener once however often it re-renders", () => {
+      const addSpy = vi.spyOn(document, "addEventListener");
+      const removeSpy = vi.spyOn(document, "removeEventListener");
+      const ref = { current: insideElement };
+
+      const { rerender } = renderHook(() => useOutsideClick(ref, () => {}));
+      rerender();
+      rerender();
+      rerender();
+
+      expect(mousedownCalls(addSpy)).toBe(1);
+      expect(mousedownCalls(removeSpy)).toBe(0);
+    });
+
+    it("invokes the latest callback after a re-render, not a stale one", () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const ref = { current: insideElement };
+
+      const { rerender } = renderHook(
+        ({ cb }: { cb: () => void }) => useOutsideClick(ref, cb),
+        { initialProps: { cb: first } },
+      );
+      rerender({ cb: second });
+
+      outsideElement.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true }),
+      );
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it("removes the listener exactly once on unmount", () => {
+      const removeSpy = vi.spyOn(document, "removeEventListener");
+      const ref = { current: insideElement };
+
+      const { rerender, unmount } = renderHook(() =>
+        useOutsideClick(ref, () => {}),
+      );
+      rerender();
+      unmount();
+
+      expect(mousedownCalls(removeSpy)).toBe(1);
+    });
+
+    it("does not call the latest callback for an inside click after a re-render", () => {
+      const latest = vi.fn();
+      const ref = { current: insideElement };
+
+      const { rerender } = renderHook(
+        ({ cb }: { cb: () => void }) => useOutsideClick(ref, cb),
+        { initialProps: { cb: vi.fn() } },
+      );
+      rerender({ cb: latest });
+
+      insideElement.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true }),
+      );
+
+      expect(latest).not.toHaveBeenCalled();
+    });
+  });
 });
