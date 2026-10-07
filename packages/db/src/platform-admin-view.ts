@@ -78,3 +78,71 @@ export async function checkSandboxQuota(
   const current = Number(rows[0]?.count ?? "0");
   return { allowed: current < limit, current, limit };
 }
+
+// ── Provisioning job progress / handover (T8, T21) ──────────────────────────────────────
+
+/**
+ * R5's polled progress view. Deliberately excludes seededAccounts/defaultPassword (the T21
+ * handover artifact) -- the progress endpoint is polled continuously while a job runs and
+ * has no business reason to carry credentials; handover is a separate, explicit fetch
+ * (toProvisioningHandoverView below) once the job is actually complete.
+ */
+export interface ProvisioningProgressView {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  currentStep: string | null;
+  completedSteps: number;
+  totalSteps: number;
+  error: string | null;
+}
+
+export interface ProvisioningProgressRow {
+  id: string;
+  status: string;
+  currentStep: string | null;
+  completedSteps: number;
+  totalSteps: number;
+  error: string | null;
+}
+
+function asProgressStatus(status: string): ProvisioningProgressView["status"] {
+  if (
+    status === "pending" ||
+    status === "running" ||
+    status === "completed" ||
+    status === "failed"
+  )
+    return status;
+  // The DB CHECK constraint (migration 0136) already guarantees this is unreachable --
+  // narrowing defensively here so the view's type stays a closed union rather than
+  // widening to `string` the moment a route reads a row back.
+  throw new Error(`unexpected sandbox_provisioning_jobs.status: ${status}`);
+}
+
+export function toProvisioningProgressView(
+  row: ProvisioningProgressRow,
+): ProvisioningProgressView {
+  return {
+    id: row.id,
+    status: asProgressStatus(row.status),
+    currentStep: row.currentStep,
+    completedSteps: row.completedSteps,
+    totalSteps: row.totalSteps,
+    error: row.error,
+  };
+}
+
+/**
+ * T21's handover artifact shape -- the actual usernames + shared password a platform admin
+ * hands to a prospect. Deliberately a SEPARATE type from ProvisioningProgressView (never
+ * widen that one to carry credentials). Unlike the progress view, this isn't built from a
+ * single DB row: the credentials live in Redis with a TTL, not in this table (security
+ * review, migration 0136's comment) -- the route combines a DB status check (job exists and
+ * is completed) with a Redis read (packages/auth's getSandboxHandoverCredentials) itself,
+ * since packages/db has no reason to depend on packages/auth for a Redis-backed type.
+ */
+export interface ProvisioningHandoverView {
+  tenantId: string;
+  seededAccounts: { email: string; role: "admin" | "member" }[];
+  defaultPassword: string;
+}

@@ -20,9 +20,16 @@ vi.mock("bullmq", () => ({
 const mockReturning = vi.fn();
 const mockValues = vi.fn(() => ({ returning: mockReturning }));
 const mockInsert = vi.fn(() => ({ values: mockValues }));
+const mockWhere = vi.fn().mockResolvedValue(undefined);
+const mockSet = vi.fn(() => ({ where: mockWhere }));
+const mockUpdate = vi.fn(() => ({ set: mockSet }));
 vi.mock("@platform/db", () => ({
-  db: { insert: (...args: unknown[]) => mockInsert(...args) },
+  db: {
+    insert: (...args: unknown[]) => mockInsert(...args),
+    update: (...args: unknown[]) => mockUpdate(...args),
+  },
   tenants: {},
+  sandboxProvisioningJobs: {},
 }));
 
 const mockWriteAuditEntry = vi.fn().mockResolvedValue(undefined);
@@ -33,6 +40,9 @@ vi.mock("@platform/audit", () => ({
 const mockCreateOrg = vi.fn();
 const mockCreateHumanUser = vi.fn();
 const mockGenerateSandboxOrgTemplate = vi.fn();
+const mockStoreSandboxHandoverCredentials = vi
+  .fn()
+  .mockResolvedValue(undefined);
 vi.mock("@platform/auth", () => ({
   createOrg: (...args: unknown[]) => mockCreateOrg(...args),
   createHumanUser: (...args: unknown[]) => mockCreateHumanUser(...args),
@@ -45,6 +55,8 @@ vi.mock("@platform/auth", () => ({
     attempt === 0
       ? `${template.emailLocalPart}@${domain}`
       : `${template.emailLocalPart}${attempt}@${domain}`,
+  storeSandboxHandoverCredentials: (...args: unknown[]) =>
+    mockStoreSandboxHandoverCredentials(...args),
 }));
 
 const mockRunOrgDirectorySync = vi.fn();
@@ -86,6 +98,7 @@ function makeTemplate(memberCount: number) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockReturning.mockResolvedValue([{ id: "tenant-1" }]);
+  mockWhere.mockResolvedValue(undefined);
   mockCreateOrg.mockResolvedValue({ ok: true, orgId: "org-1" });
   mockRunOrgDirectorySync.mockResolvedValue({
     status: "ok",
@@ -95,6 +108,12 @@ beforeEach(() => {
     reparented: 0,
   });
 });
+
+function lastProgressUpdate(): Record<string, unknown> {
+  const call = mockSet.mock.calls.at(-1);
+  if (!call) throw new Error("db.update(...).set(...) was never called");
+  return call[0] as Record<string, unknown>;
+}
 
 describe("processSandboxProvisioningJob", () => {
   it("creates the org, the tenant row, every seeded account, and runs the directory sync", async () => {
@@ -125,6 +144,27 @@ describe("processSandboxProvisioningJob", () => {
         tenantId: result.tenantId,
         action: "sandbox.provisioning_completed",
       }),
+    );
+
+    // T8: the final progress row is just a bare "done" status -- no credentials (security
+    // review: those live in Redis, not this table, see storeSandboxHandoverCredentials).
+    const finalUpdate = lastProgressUpdate();
+    expect(finalUpdate.status).toBe("completed");
+    expect(finalUpdate.completedSteps).toBe(2 + 4); // makeTemplate(2) -> totalSteps = members.length + 4
+    expect(finalUpdate).not.toHaveProperty("defaultPassword");
+    expect(finalUpdate).not.toHaveProperty("seededAccounts");
+    expect(mockUpdate).toHaveBeenCalledWith(expect.anything());
+
+    // T21: the handover artifact goes to Redis (7-day TTL) instead.
+    expect(mockStoreSandboxHandoverCredentials).toHaveBeenCalledWith(
+      result.tenantId,
+      {
+        defaultPassword: result.defaultPassword,
+        seededAccounts: expect.arrayContaining([
+          expect.objectContaining({ role: "admin" }),
+          expect.objectContaining({ role: "member" }),
+        ]),
+      },
     );
   });
 
@@ -190,6 +230,11 @@ describe("processSandboxProvisioningJob", () => {
       }),
     );
     expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
+
+    // T8: a failure partway through still durably records where it got to.
+    const finalUpdate = lastProgressUpdate();
+    expect(finalUpdate.status).toBe("failed");
+    expect(finalUpdate.error).toContain("SANDBOX_ADMIN_ACCOUNT_CREATE_FAILED");
   });
 
   it("throws when the Zitadel org can never be created (every name candidate conflicts), and still writes a failure audit entry (security review fix)", async () => {
