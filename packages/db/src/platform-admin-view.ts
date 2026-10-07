@@ -23,7 +23,7 @@ export interface PlatformAdminSandboxView {
   trialStatus: "none" | "active" | "expired";
 }
 
-/** The only columns toPlatformAdminSandboxView reads -- matches the GRANT in 0134_platform_admin_sandbox_columns.sql exactly. */
+/** The only columns toPlatformAdminSandboxView reads -- matches the GRANT in 0135_platform_admin_sandbox_columns.sql exactly. */
 export interface PlatformAdminSandboxRow {
   id: string;
   name: string;

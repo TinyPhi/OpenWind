@@ -2,7 +2,7 @@
  * export-worker.test.ts
  *
  * Unit tests for CSV/XLSX formula-injection sanitization (security fix).
- * The BullMQ worker, DB, and S3 client are mocked purely so the module can be
+ * The BullMQ worker, DB, and local file store are mocked purely so the module can be
  * imported -- these tests exercise the exported renderCsv/renderXlsx/
  * sanitizeSpreadsheetCell functions directly against real csv-stringify /
  * exceljs output, not the queue processor itself.
@@ -42,25 +42,9 @@ vi.mock("@platform/audit", () => ({
   writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
 }));
 
-vi.mock("@aws-sdk/client-s3", () => ({
-  S3Client: vi.fn().mockImplementation(function () {
-    return { send: vi.fn().mockResolvedValue({}) };
-  }),
-  PutObjectCommand: vi.fn(),
-  GetObjectCommand: vi.fn(),
-}));
-
-vi.mock("@aws-sdk/s3-request-presigner", () => ({
-  getSignedUrl: vi.fn().mockResolvedValue("https://example.com/signed"),
-}));
-
-vi.mock("@platform/config", () => ({
-  env: {
-    S3_ENDPOINT: "http://localhost:9000",
-    S3_BUCKET: "test",
-    S3_ACCESS_KEY: "key",
-    S3_SECRET_KEY: "secret",
-  },
+const mockSaveExport = vi.fn().mockResolvedValue("t-aaa/exports/job-1.csv");
+vi.mock("@platform/files", () => ({
+  saveExport: (...args: unknown[]) => mockSaveExport(...args),
 }));
 
 vi.mock("@platform/logger", () => ({
@@ -207,6 +191,13 @@ describe("processExportJob — audit trail", () => {
   it("audits export.completed with row count and includePii on success", async () => {
     const result = await processExportJob(job(["admin"]));
     expect(result.rowCount).toBe(2);
+    expect(result.storageKey).toBe("t-aaa/exports/job-1.csv");
+    expect(mockSaveExport).toHaveBeenCalledWith(
+      "t-aaa",
+      "job-1",
+      "csv",
+      expect.any(Buffer),
+    );
     expect(actions()).toEqual(["export.completed"]);
     expect(mockWriteAuditEntry.mock.calls[0]?.[1]).toMatchObject({
       tenantId: "t-aaa",

@@ -91,6 +91,9 @@ overrides:
   # GHSA-9mqv-5hh9-4cgg (memory-leak DoS via aborted WebSocket handshake) — pulled in by
   # apps/api, apps/worker, and packages/auth
   "@hono/node-server": ">=2.0.10"
+  # GHSA-68fv-2mgg-jv7q: source-map-js event-loop DoS via indexed source-map section offsets
+  # — pulled in via postcss, vite, jsdom (100+ paths in admin-ui devDependencies)
+  "source-map-js": ">=1.2.2"
   #
   # Deferred — NOT overridden, need major-version coordination first:
   # - uuid GHSA-w5hq-g745-h8pq (buffer bounds check in v3/v5/v6 when `buf` is provided): fix is

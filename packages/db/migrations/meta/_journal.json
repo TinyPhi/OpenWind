@@ -944,7 +944,21 @@
       "idx": 134,
       "version": "7",
       "when": 1789033323000,
-      "tag": "0134_platform_admin_sandbox_columns",
+      "tag": "0134_admin_audit_log_org_directory_action_rename",
+      "breakpoints": false
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1789033324000,
+      "tag": "0135_platform_admin_sandbox_columns",
+      "breakpoints": false
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1789033325000,
+      "tag": "0136_admin_audit_log_sandbox_provisioning_actions",
       "breakpoints": false
     }
   ]

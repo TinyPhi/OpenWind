@@ -7,19 +7,12 @@
  *  1. Fetch entity type + fields from the DB (honouring includePii from payload)
  *  2. Stream entity rows up to EXPORT_ROW_LIMIT
  *  3. Render CSV, xlsx, or PDF into a Buffer
- *  4. Upload to S3 at exports/{tenantId}/{jobId}.{format}
- *  5. Generate a presigned GET URL valid for 1 h
- *  6. Return { downloadUrl, format, rowCount } as the job return value
+ *  4. Save it atomically under the tenant's local file-storage tree
+ *  5. Return { storageKey, format, rowCount } as the job return value
  *     — the polling endpoint reads this via queue.getJob(id).returnvalue
  */
 
 import { Worker } from "@platform/telemetry";
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import ExcelJS from "exceljs";
 import { stringify } from "csv-stringify/sync";
 import { withTenantContext } from "@platform/db";
@@ -36,52 +29,11 @@ import {
   PII_EXPORT_ROLES,
 } from "@platform/entity-engine";
 import { renderExportPdf } from "./render-export-pdf.js";
-import { env } from "@platform/config";
+import { saveExport } from "@platform/files";
 import { logger } from "@platform/logger";
 import { connection } from "./queues.js";
 
 const EXPORT_ROW_LIMIT = 10_000;
-const DOWNLOAD_URL_TTL_SECONDS = 3_600; // 1 h
-
-// ── S3 clients ────────────────────────────────────────────────────────────────
-// Two clients are needed when S3_ENDPOINT is an internal Docker hostname:
-//   getS3()          — internal endpoint, used for the PutObjectCommand upload
-//   getS3ForSigning() — public endpoint (S3_PUBLIC_URL ?? S3_ENDPOINT), used only
-//                       for presigning so the signature embeds the browser-accessible
-//                       host. Matches packages/files/src/index.ts's identical fix —
-//                       signing against the internal endpoint produced download URLs
-//                       unreachable from the browser wherever the two endpoints differ.
-
-let _s3: S3Client | undefined;
-function getS3(): S3Client {
-  _s3 ??= new S3Client({
-    endpoint: env.S3_ENDPOINT,
-    region: "us-east-1",
-    credentials: {
-      accessKeyId: env.S3_ACCESS_KEY,
-      secretAccessKey: env.S3_SECRET_KEY,
-    },
-    forcePathStyle: true,
-  });
-  return _s3;
-}
-
-let _s3Signing: S3Client | undefined;
-function getS3ForSigning(): S3Client {
-  const publicEndpoint = env.S3_PUBLIC_URL ?? env.S3_ENDPOINT;
-  if (_s3Signing === undefined || publicEndpoint !== env.S3_ENDPOINT) {
-    _s3Signing = new S3Client({
-      endpoint: publicEndpoint,
-      region: "us-east-1",
-      credentials: {
-        accessKeyId: env.S3_ACCESS_KEY,
-        secretAccessKey: env.S3_SECRET_KEY,
-      },
-      forcePathStyle: true,
-    });
-  }
-  return _s3Signing;
-}
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
 
@@ -210,7 +162,6 @@ async function runExportJob(job: ExportJob): Promise<ExportJobResult> {
   });
   if (!active) {
     return {
-      downloadUrl: "",
       error: "TENANT_DEACTIVATED",
       format,
       rowCount: 0,
@@ -248,47 +199,23 @@ async function runExportJob(job: ExportJob): Promise<ExportJobResult> {
   const dataRows = rows.map((r) => buildExportRow(r, fields));
 
   let fileBuffer: Buffer;
-  let contentType: string;
-  let ext: string;
-
   if (format === "csv") {
     fileBuffer = renderCsv(headers, dataRows);
-    contentType = "text/csv";
-    ext = "csv";
   } else if (format === "pdf") {
     fileBuffer = await renderExportPdf(headers, dataRows, entityType.plural);
-    contentType = "application/pdf";
-    ext = "pdf";
   } else {
     fileBuffer = await renderXlsx(headers, dataRows, entityType.plural);
-    contentType =
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    ext = "xlsx";
   }
 
-  const storageKey = `exports/${tenantId}/${job.id}.${ext}`;
-
-  await getS3().send(
-    new PutObjectCommand({
-      Bucket: env.S3_BUCKET,
-      Key: storageKey,
-      Body: fileBuffer,
-      ContentType: contentType,
-    }),
-  );
-
-  const downloadUrl = await getSignedUrl(
-    getS3ForSigning(),
-    new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: storageKey }),
-    { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
-  );
+  if (!job.id) throw new Error("Export job is missing an id");
+  const storageKey = await saveExport(tenantId, job.id, format, fileBuffer);
 
   logger.info(
     { tenantId, entityTypeId, jobId: job.id, rowCount: rows.length },
     "export job completed",
   );
 
-  return { downloadUrl, format, rowCount: rows.length };
+  return { storageKey, format, rowCount: rows.length };
 }
 
 export const exportWorker = new Worker<ExportJobPayload, ExportJobResult>(

@@ -93,14 +93,15 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "export.failed": true,
   "export.downloaded": true,
   "export.download_denied": true,
+  "org_directory.sync_completed": true,
   // A sync the admin was entitled to trigger (requireRole("admin") already
   // passed) that then failed mid-run -- a worker/upstream-provider outcome,
   // not a denied caller request, same reasoning as schedule.execution_failed.
-  sync_failed: true,
+  "org_directory.sync_failed": true,
   // Worker outcomes of a job the platform_admin was already entitled to start
   // (requirePlatformAdmin already passed, R11's quota already checked) --
-  // same reasoning as schedule.execution_failed/sync_failed above, not a
-  // denied caller request.
+  // same reasoning as schedule.execution_failed above, not a denied caller
+  // request.
   "sandbox.provisioning_completed": true,
   "sandbox.provisioning_failed": true,
 };

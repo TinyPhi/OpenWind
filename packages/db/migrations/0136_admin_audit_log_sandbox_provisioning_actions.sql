@@ -5,6 +5,11 @@
 -- constraint change together). packages/audit's AuditAction gains the same two values in
 -- this commit.
 --
+-- Must apply after 0134 (admin_audit_log_org_directory_action_rename), whose own CHECK
+-- constraint this one is built on top of -- 0134 dropped the bare 'sync_failed' in favor of
+-- 'org_directory.sync_completed'/'org_directory.sync_failed'; this migration must not
+-- reintroduce the old bare value.
+--
 -- Rollback (fails if sandbox.provisioning_completed/sandbox.provisioning_failed rows
 -- exist — delete or keep them first):
 --   ALTER TABLE admin_audit_log DROP CONSTRAINT audit_log_action_check;
@@ -26,7 +31,8 @@
 --     'schedule.rule_resumed', 'schedule.rule_archived', 'reporting.query_executed',
 --     'reporting.exported', 'reporting.guest_token_issued',
 --     'reporting.guest_token_denied', 'export.requested', 'export.completed',
---     'export.failed', 'export.downloaded', 'export.download_denied', 'sync_failed'
+--     'export.failed', 'export.downloaded', 'export.download_denied',
+--     'org_directory.sync_completed', 'org_directory.sync_failed'
 --     ]));
 
 ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS audit_log_action_check;
@@ -49,7 +55,8 @@ ALTER TABLE admin_audit_log ADD CONSTRAINT audit_log_action_check CHECK (
         'schedule.rule_paused', 'schedule.rule_resumed', 'schedule.rule_archived',
         'reporting.query_executed', 'reporting.exported', 'reporting.guest_token_issued',
         'reporting.guest_token_denied', 'export.requested', 'export.completed',
-        'export.failed', 'export.downloaded', 'export.download_denied', 'sync_failed',
+        'export.failed', 'export.downloaded', 'export.download_denied',
+        'org_directory.sync_completed', 'org_directory.sync_failed',
         'sandbox.provisioning_completed', 'sandbox.provisioning_failed'
     ])
 );

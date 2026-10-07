@@ -15,6 +15,7 @@ import {
   orgEmployees,
   orgDirectorySyncRuns,
   tenants,
+  adminAuditLog,
 } from "@platform/db";
 import { eraseUserFromTenant } from "../../src/services/user-erasure.js";
 
@@ -280,5 +281,131 @@ describe("per-user erasure — no-root fallback (PR712 review fix)", () => {
     expect(rows).toHaveLength(2);
     const report = rows.find((r) => r.userId === REPORT_USER);
     expect(report?.parentId).toBe(employeeId);
+  });
+});
+
+describe("per-user erasure — manager reparenting (#727)", () => {
+  // root -> director -> manager -> report, plus a sibling of the manager.
+  // Erasing the manager must move the report up exactly one hop (to the
+  // director, not the root) and leave the sibling where it was.
+  const CHAIN_TENANT = "dddddddd-0727-4000-d000-000000000004";
+  const DIRECTOR_USER = "dddddddd-0727-4000-d000-000000000901";
+  const MANAGER_USER = "dddddddd-0727-4000-d000-000000000902";
+  const REPORT_USER = "dddddddd-0727-4000-d000-000000000903";
+  const SIBLING_USER = "dddddddd-0727-4000-d000-000000000904";
+  let rootId: string;
+  let directorId: string;
+  let managerId: string;
+  let reportId: string;
+  let siblingId: string;
+
+  async function insertEmployee(
+    userId: string | null,
+    parentId: string | null,
+    name: string,
+    isRoot = false,
+  ): Promise<string> {
+    const [row] = await db
+      .insert(orgEmployees)
+      .values({ tenantId: CHAIN_TENANT, userId, parentId, name, isRoot })
+      .returning({ id: orgEmployees.id });
+    return row!.id;
+  }
+
+  beforeAll(async () => {
+    await db.insert(tenants).values({
+      id: CHAIN_TENANT,
+      name: "Manager Erasure Test",
+      slug: `org-directory-manager-erasure-${CHAIN_TENANT}`,
+    });
+    rootId = await insertEmployee(null, null, "Root", true);
+    directorId = await insertEmployee(DIRECTOR_USER, rootId, "Director");
+    managerId = await insertEmployee(MANAGER_USER, directorId, "Manager");
+    reportId = await insertEmployee(REPORT_USER, managerId, "Report");
+    siblingId = await insertEmployee(SIBLING_USER, directorId, "Sibling");
+    await db.insert(orgDirectorySyncRuns).values({
+      tenantId: CHAIN_TENANT,
+      status: "completed",
+      triggeredBy: MANAGER_USER,
+    });
+  });
+
+  afterAll(async () => {
+    await db
+      .delete(orgDirectorySyncRuns)
+      .where(eq(orgDirectorySyncRuns.tenantId, CHAIN_TENANT));
+    // Leaves first -- parentId has no ON DELETE action.
+    for (const id of [reportId, siblingId, managerId, directorId, rootId]) {
+      await db.delete(orgEmployees).where(eq(orgEmployees.id, id));
+    }
+    await db.delete(tenants).where(eq(tenants.id, CHAIN_TENANT));
+  });
+
+  it("reparents the erased manager's reports to the manager's own parent before deleting the manager", async () => {
+    await withTenantContext(CHAIN_TENANT, (tx) =>
+      eraseUserFromTenant(tx, CHAIN_TENANT, MANAGER_USER),
+    );
+
+    const rows = await db
+      .select({ id: orgEmployees.id, parentId: orgEmployees.parentId })
+      .from(orgEmployees)
+      .where(eq(orgEmployees.tenantId, CHAIN_TENANT));
+    const parentOf = new Map(rows.map((r) => [r.id, r.parentId]));
+
+    expect(parentOf.has(managerId)).toBe(false);
+    expect(parentOf.get(reportId)).toBe(directorId);
+    expect(parentOf.get(siblingId)).toBe(directorId);
+    expect(parentOf.get(directorId)).toBe(rootId);
+
+    const runs = await db
+      .select({ triggeredBy: orgDirectorySyncRuns.triggeredBy })
+      .from(orgDirectorySyncRuns)
+      .where(eq(orgDirectorySyncRuns.tenantId, CHAIN_TENANT));
+    expect(runs.map((r) => r.triggeredBy)).toEqual(["[REDACTED]"]);
+  });
+});
+
+describe("admin_audit_log — org-directory sync actions (#745, #754)", () => {
+  async function insertAction(action: string): Promise<unknown> {
+    return db
+      .insert(adminAuditLog)
+      .values({
+        tenantId: TENANT_A,
+        actorId: USER_A,
+        actorType: "user",
+        resourceType: "org_directory",
+        resourceId: TENANT_A,
+        // raw string so the constraint, not the TS union, is what's tested
+        action: action as never,
+      })
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+  }
+
+  afterAll(async () => {
+    await db
+      .delete(adminAuditLog)
+      .where(
+        and(
+          eq(adminAuditLog.tenantId, TENANT_A),
+          eq(adminAuditLog.resourceType, "org_directory"),
+        ),
+      );
+  });
+
+  it.each(["org_directory.sync_completed", "org_directory.sync_failed"])(
+    "the audit constraint accepts %s",
+    async (action) => {
+      expect(await insertAction(action)).toBeNull();
+    },
+  );
+
+  it("the audit constraint rejects the retired bare sync_failed action", async () => {
+    const err = await insertAction("sync_failed");
+    expect(String((err as { cause?: unknown })?.cause ?? err)).toContain(
+      "audit_log_action_check",
+    );
   });
 });
