@@ -284,6 +284,37 @@ _TENANT_ID_RE = re.compile(
 )
 
 
+def _session_user():
+    """The authenticated Superset user a query is running for, or None.
+
+    Read from `flask.g.user`, which is what Superset itself authorises with and
+    what it sets for the duration of SQL Lab execution (`override_user`). It is
+    NOT read from flask_login's `current_user`: while SQL Lab runs a query that is
+    unauthenticated, so a lookup through it found nobody, stamped no tenant, and
+    SQL Lab returned zero rows (#716). Every identity lookup below shares this
+    one resolver, so the tenant and the own-rows narrowing can never be resolved
+    from different users.
+
+    Falls back to `current_user` only when `g.user` is absent, which is an
+    ordinary request. No user at all, or one who is not authenticated, is None.
+    """
+    try:
+        from flask import g, has_app_context
+
+        if not has_app_context():
+            return None
+        user = g.get("user", None)
+        if user is None:
+            from flask_login import current_user
+
+            user = current_user
+        if not getattr(user, "is_authenticated", False):
+            return None
+        return user
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _tenant_from_user_roles():
     """The tenant bound to the logged-in user, from their `tenant:<uuid>` role.
 
@@ -295,16 +326,14 @@ def _tenant_from_user_roles():
     and guessing between them would be choosing whose data to show, so it
     refuses instead.
     """
+    user = _session_user()
+    if user is None:
+        return None
     try:
-        from flask import has_request_context
-        from flask_login import current_user
-
-        if not has_request_context() or not getattr(current_user, "is_authenticated", False):
-            return None
         prefix = "tenant:"
         found = [
             r.name[len(prefix):]
-            for r in getattr(current_user, "roles", []) or []
+            for r in getattr(user, "roles", []) or []
             if r.name.startswith(prefix)
         ]
     except Exception:  # noqa: BLE001
@@ -328,16 +357,14 @@ def _own_rows_subject():
     its *absence* means tenant-wide — a lookup that fails therefore widens
     nothing, it simply leaves the session as broad as the tenant filter allows.
     """
+    user = _session_user()
+    if user is None:
+        return None
     try:
-        from flask import has_request_context
-        from flask_login import current_user
-
-        if not has_request_context() or not getattr(current_user, "is_authenticated", False):
-            return None
         prefix = "owuser:"
         found = [
             r.name[len(prefix):]
-            for r in getattr(current_user, "roles", []) or []
+            for r in getattr(user, "roles", []) or []
             if r.name.startswith(prefix)
         ]
     except Exception:  # noqa: BLE001
