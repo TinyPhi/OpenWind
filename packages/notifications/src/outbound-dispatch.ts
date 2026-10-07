@@ -161,6 +161,14 @@ export async function sendDirectNotification(
 
   if (!res.ok) {
     const bodyText = await res.text().catch(() => "");
+    // Review finding (PR #803): a 401 here means the cached token is no longer accepted
+    // (rotated/revoked on the Novu side) -- without clearing it, every call for the rest of
+    // this token's cached lifetime would keep sending the same stale, already-rejected
+    // token instead of re-fetching a fresh one on the next call.
+    if (res.status === 401) {
+      _cachedToken = null;
+      _tokenExpiresAt = 0;
+    }
     logger.error(
       { status: res.status, body: bodyText },
       "outbound-dispatch: non-2xx response",

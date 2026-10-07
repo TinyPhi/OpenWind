@@ -84,6 +84,16 @@ export async function verifyMfaCode(
   const storedHash = await redis.get(otpKey(userId));
   if (!storedHash) return false;
 
+  // Review finding (PR #803): INCR is atomic so concurrent calls always get distinct,
+  // strictly-increasing counts -- no two requests can ever read the same attempt number.
+  // The remaining (accepted) slack is timing, not a shared counter race: several concurrent
+  // guesses can each observe a count <= MAX_VERIFY_ATTEMPTS and reach the comparison below
+  // before any of them has deleted the code, so a burst of truly simultaneous requests can
+  // land marginally more than MAX_VERIFY_ATTEMPTS comparisons before lockout takes effect.
+  // For a 6-digit numeric OTP this does not materially change the brute-force odds (roughly
+  // 2x MAX_VERIFY_ATTEMPTS guesses worst-case out of 1,000,000 is still ~0.001%), and this is
+  // a single-trusted-operator role (spec §C), so a Lua-script atomic increment-check-compare
+  // is not worth the added complexity here.
   const attempts = await redis.incr(attemptsKey(userId));
   if (attempts === 1) {
     await redis.expire(attemptsKey(userId), OTP_TTL_SECONDS);
