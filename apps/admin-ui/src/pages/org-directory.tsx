@@ -109,7 +109,9 @@ function OrgCard({
         minWidth: "180px",
         maxWidth: "220px",
         boxShadow: highlighted ? "0 0 0 3px hsla(35,90%,50%,.25)" : "none",
-        ...hover.style,
+        // The highlight owns the border colour; spreading the hover style
+        // after the `border` shorthand would override it with grey (#755).
+        ...(highlighted ? {} : hover.style),
       }}
     >
       <div

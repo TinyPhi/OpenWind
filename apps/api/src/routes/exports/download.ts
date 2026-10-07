@@ -7,6 +7,8 @@ import { writeAuditEntry } from "@platform/audit";
 import type { AuditAction } from "@platform/audit";
 import { exportQueue, PII_EXPORT_ROLES } from "../../lib/export-queue.js";
 import type { AuthContext } from "@platform/auth";
+import { Readable } from "node:stream";
+import { getExportStream } from "@platform/files";
 
 const JobIdParamSchema = z.object({
   jobId: z
@@ -83,11 +85,12 @@ router.get(
 
     if (state === "completed") {
       const result = job.returnvalue as {
-        downloadUrl?: string;
+        storageKey?: string;
+        format?: "csv" | "xlsx" | "pdf";
         error?: string;
       } | null;
       // returnvalue is null when removeOnComplete TTL has expired
-      if (!result?.downloadUrl) {
+      if (!result?.storageKey || !result.format) {
         return c.json(
           {
             data: {
@@ -98,9 +101,30 @@ router.get(
           200,
         );
       }
-      await audit("export.downloaded");
+
+      if (c.req.query("file") === "1") {
+        const file = await getExportStream(
+          tenantId,
+          jobId,
+          result.format,
+          result.storageKey,
+        );
+        // Fail closed: record the actual download before any bytes leave.
+        await audit("export.downloaded");
+        c.header("Content-Type", file.mimeType);
+        c.header("Content-Length", String(file.sizeBytes));
+        c.header(
+          "Content-Disposition",
+          `attachment; filename="${file.originalName}"`,
+        );
+        return c.body(Readable.toWeb(file.stream) as ReadableStream);
+      }
+
       return c.json({
-        data: { status: "complete", downloadUrl: result.downloadUrl },
+        data: {
+          status: "complete",
+          downloadUrl: `/exports/${jobId}/download?file=1`,
+        },
       });
     }
 

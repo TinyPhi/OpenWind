@@ -194,14 +194,6 @@ const EnvSchema = z
     // human end-user's own access token can never satisfy the outbound
     // service's audience check (see docs/notification-outbound-contract.md).
     NOTIFICATION_ZITADEL_AUDIENCE: z.string().optional(),
-    S3_ENDPOINT: z.string().url(),
-    // Public URL browsers use to reach MinIO. In Docker the internal endpoint is
-    // http://minio:9000 but presigned URLs must resolve from the browser, so set
-    // this to http://localhost:9000 (or the CDN/proxy URL in production).
-    S3_PUBLIC_URL: z.string().url().optional(),
-    S3_BUCKET: z.string(),
-    S3_ACCESS_KEY: z.string(),
-    S3_SECRET_KEY: z.string(),
     // Local-disk file storage (replaces presigned S3 URLs — see
     // docs/specs/local-disk-file-storage.md). In-container path only; the
     // host-side bind-mount source is FILES_STORAGE_PATH_HOST, a

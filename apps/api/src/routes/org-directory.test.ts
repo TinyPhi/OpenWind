@@ -146,7 +146,13 @@ describe("POST /org-directory/sync", () => {
 
     expect(res.status).toBe(200);
     expect(body.data.status).toBe("completed");
-    expect(mockWriteAuditEntry).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "org_directory.sync_completed",
+        resourceType: "org_directory",
+      }),
+    );
   });
 
   it("returns already_running as a normal 200, not an error", async () => {
@@ -188,7 +194,7 @@ describe("POST /org-directory/sync", () => {
     expect(body.data.status).toBe("failed");
     expect(mockWriteAuditEntry).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ action: "sync_failed" }),
+      expect.objectContaining({ action: "org_directory.sync_failed" }),
     );
   });
 });
