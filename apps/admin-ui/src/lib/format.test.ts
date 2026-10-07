@@ -54,10 +54,15 @@ describe("format utilities", () => {
       expect(toWorkflowSlug("Customer Support Workflow #42")).toBe(
         "customer-support-workflow-42",
       );
-      expect(toWorkflowSlug("--Special & Characters--")).toBe(
-        "special-characters",
-      );
       expect(toWorkflowSlug("")).toBe("");
+    });
+
+    it("keeps the exact algorithm the API's my-tickets route uses (whitespace -> '-', drop other symbols)", () => {
+      expect(toWorkflowSlug("Leave & Approval")).toBe("leave--approval");
+      expect(toWorkflowSlug("Sales  Pipeline")).toBe("sales-pipeline");
+      expect(toWorkflowSlug("--Special & Characters--")).toBe(
+        "--special--characters--",
+      );
     });
   });
 

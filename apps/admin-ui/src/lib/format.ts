@@ -23,11 +23,14 @@ export function relativeTime(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+// Must match apps/api/src/routes/entities/my-tickets.ts's toWorkflowSlug exactly
+// (whitespace runs -> "-", then drop anything outside [a-z0-9-]): the API and
+// the UI compare slugs derived from the same workflow name.
 export function toWorkflowSlug(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
 }
 
 export function singularize(plural: string): string {
