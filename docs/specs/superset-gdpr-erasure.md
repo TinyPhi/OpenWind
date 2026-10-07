@@ -112,25 +112,30 @@ data on request. These questions decide how long the rest is kept when nobody ha
 **Superset side (new, in `docker/superset/superset_config.py`):**
 
 - `POST /openwind/erasure/user` `{tenantId, subject}` and `POST /openwind/erasure/tenant` `{tenantId}`.
-  Authenticated as the service account through its normal login token; any other caller, including
-  `Admin`, gets 403; no token gets 401. Returns counts only: `{matchedUsers, deletedRows, cacheKeysRemoved}`.
+  Authenticated with the service account's normal login token. The endpoint accepts only a caller holding
+  the `ReportingServiceAccount` role (provisioned by `bootstrap.py`); the Superset container is not given the
+  service account's username, so it is not matched by name. Any other caller, including `Admin`, gets 403; no
+  token gets 401. Returns counts only: `{matchedUsers, deletedRows, cacheKeysRemoved}`.
 - Login (`auth_user_oauth`): adds `owsub:<subject>`; refreshes an existing user's first name, last name
   and email from the claims (R9).
 - Exported maps `ERASURE_HANDLED` and `ERASURE_EXEMPT` (`table.column` → class / reason) for the guard.
 
 **Classification of `ab_user` references (confirmed by a human before T14 builds on it):**
 
-| class                   | columns                                                                                                                                                                                                                                   |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `delete` (owned data)   | `logs.user_id`, `query.user_id`, `saved_query.user_id`, `tab_state.user_id`, `favstar.user_id`, `user_attribute.user_id`, `user_favorite_tag.user_id`, `database_user_oauth2_tokens.user_id`, `task_subscribers.user_id`, `tasks.user_id` |
-| `delete` (links)        | `ab_user_role.user_id`, `ab_user_group.user_id`, `dashboard_user.user_id`, `slice_user.user_id`, `sqlatable_user.user_id`, `report_schedule_user.user_id` (an object may lose its last owner; accepted)                                   |
-| `author_pointer` (keep) | the 51 `created_by_fk` / `changed_by_fk` / `last_saved_by_fk` columns: they point at the anonymised `ab_user`, so they name no one                                                                                                        |
+| class                   | columns                                                                                                                                                                                                                                                               |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `delete` (owned data)   | `logs.user_id`, `query.user_id`, `saved_query.user_id`, `tab_state.user_id`, `favstar.user_id`, `user_attribute.user_id`, `user_favorite_tag.user_id`, `database_user_oauth2_tokens.user_id`, `task_subscribers.user_id`, `tasks.user_id`                             |
+| `delete` (links)        | `ab_user_role.user_id`, `ab_user_group.user_id`, `dashboard_user.user_id`, `slice_user.user_id`, `sqlatable_user.user_id`, `report_schedule_user.user_id` (an object may lose its last owner; accepted)                                                               |
+| `delete` (cached state) | `key_value` rows created by the user with `resource = 'superset_metastore_cache'`: saved dashboard filter state and Explore form data                                                                                                                                 |
+| `author_pointer` (keep) | the `created_by_fk` / `changed_by_fk` / `last_saved_by_fk` columns (51), apart from the `key_value` cache rows above: they point at the anonymised `ab_user`, so they name no one. Shared permalinks in `key_value` are kept, so links other people hold keep working |
 
 **Platform side:**
 
 - Queue `superset-erasure` (worker). Job `{kind: "user"|"tenant"|"cache", tenantId, subject?}`, deterministic job
   id. Enqueued by `DELETE /users/:userId` **after** the Postgres commit and by the tenant purge worker
-  after the DB purge. Exponential back-off, attempts spanning at least 24 h.
+  after the DB purge. Exponential back-off, attempts spanning at least 24 h. The worker calls Superset with its
+  own small client (login, CSRF token, one POST): the dependency rule forbids `apps/worker` importing the API's
+  `superset-client.ts`, and the client is too small to justify a new package.
 - What an erasure enqueues (D8), so the setting can never silently skip a Stage 2 erasure:
 
   | Stage 2 on (`SUPERSET_OAUTH_CLIENT_ID` set) | `SUPERSET_ERASURE_ENABLED`       | enqueued         |
@@ -141,13 +146,17 @@ data on request. These questions decide how long the rest is kept when nobody ha
 
 - Audit actions `superset_erasure.completed` / `.failed` (final attempt, `actorType: "system"`, counts
   only). Needs a migration extending `audit_log_action_check` (as 0115 did) and the exhaustiveness maps in
-  `packages/audit`.
+  `packages/audit`. The migration is numbered and written at build time, after rebasing: open PRs #803–#805 also
+  rewrite this constraint, and each rewrite lists every action, so the later one must include the other's.
 - Metrics and alerts: a failed job; an erasure request with no `completed` row after 7 days (an
   operational default, a setting, not a legal deadline).
 
 **What "erase" does in Superset:** find users holding `owsub:<subject>` and `tenant:<tenantId>` (refuse
-`admin` and the service account) → delete the `delete`-class rows in bounded batches → delete the user's
-`owsub:`/`owuser:` roles → anonymise `ab_user` → remove every Redis key under `superset_` and
+`admin` and the service account) → delete the `delete`-class rows in bounded batches, including the user's
+`key_value` cache rows → clear any `rls_filter_roles` reference to the roles about to go (the foreign key is
+`NO ACTION`; none exist today) → delete the user's `owsub:`/`owuser:` roles (a tenant purge also deletes the
+`tenant:<uuid>` role) → anonymise `ab_user` with unique placeholders (`username` and `email` are both unique
+in Superset), for example `erased-<id>` and `erased-<id>@erased.invalid` → remove every Redis key under `superset_` and
 `superset_data_` in Superset's Redis db (prefix scan + unlink). The keys are not namespaced, so this clears every tenant's cached results; R15 states the cost.
 
 ## §R Requirements
@@ -219,7 +228,7 @@ R15: The cost of a cache flush is stated and bounded.
 - V2: no personal data in a queue payload, log line, response or audit row written by this feature.
 - V3: tests call the real route, real purge function and real Superset endpoint, never a copied subset.
 - V4: the Superset erasure never runs inside the Postgres erasure transaction.
-- V5: the erase endpoints accept only the service account.
+- V5: the erase endpoints accept only a caller holding the `ReportingServiceAccount` role.
 - V6: the cache is cleared by prefix scan (no `KEYS`, no `FLUSHDB`, no other Redis db).
 - V7: Stage 2 is never enabled while a §G item is open.
 
@@ -271,6 +280,8 @@ Full breakdown with verify commands, owners and the proposed plan-lock: [superse
 | T21–T26 | Platform side of #728 (gated paths)                                                            | R2,R4,R7          | C     | todo   | T20     |
 | T27–T28 | ADR-019 gate text draft, docs and runbook                                                      | R10, #731         | D     | todo   | T26     |
 | H4–H9   | Human: CI patch, ADR-019 update, proxy rule, export-route decision, breach link, sign the gate | —                 | D     | open   | —       |
+
+Order: #728 is built after #799 merges; it relies on the `owsub:` marker and the audit writer from #799.
 
 phase gate: tests of the phase pass before the next phase starts.
 
