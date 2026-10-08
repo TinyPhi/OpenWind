@@ -233,15 +233,15 @@ ADR-022-sandboxing.md's review history).
 
 ### Phase 2 — Provisioning
 
-| id  | task                                                                                                                            | depends |
-| --- | ------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| T6  | Fixed org template + randomized realistic-name generator + hit-and-retry collision handling                                     | T4, T5  |
-| T7  | Provisioning job: create org, create accounts (isEmailVerified: true, changeRequired: false per R3), trigger org-directory sync | T6      |
-| T8  | Trackable job progress persistence + polling endpoint (R5)                                                                      | T7      |
-| T21 | Handover endpoint: seeded username list + default-password pattern (R5)                                                         | T7      |
-| T9  | Module-seed data across workflow states, per selectable core module                                                             | T7      |
-| T10 | Per-module automation-rule seeding (split per module if effort runs long)                                                       | T9      |
-| T11 | Retry-vs-rollback decision + implementation for partial provisioning failure                                                    | T8      |
+| id  | task                                                                                                                                                                                                                                                                                                                                                                  | depends |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| T6  | Fixed org template + randomized realistic-name generator + hit-and-retry collision handling                                                                                                                                                                                                                                                                           | T4, T5  |
+| T7  | Provisioning job: create org, create accounts (isEmailVerified: true, changeRequired: false per R3), trigger org-directory sync                                                                                                                                                                                                                                       | T6      |
+| T8  | Trackable job progress persistence + polling endpoint (R5)                                                                                                                                                                                                                                                                                                            | T7      |
+| T21 | Handover endpoint: seeded username list + default-password pattern (R5)                                                                                                                                                                                                                                                                                               | T7      |
+| T9  | Module-seed data across workflow states, per selectable core module                                                                                                                                                                                                                                                                                                   | T7      |
+| T10 | Per-module automation-rule seeding (split per module if effort runs long) — **done** (PR4, `feat/sandbox-04-automation-rule-seeding`) — implemented ahead of/independent of T9: it extends the existing raw-SQL seed pattern (already shipped for helpdesk/tender/vendor-approval) to the remaining 6 core modules, which needed no module-data seeding to land first | T9      |
+| T11 | Retry-vs-rollback decision + implementation for partial provisioning failure                                                                                                                                                                                                                                                                                          | T8      |
 
 ### Phase 3 — Lifecycle & Admin Surface
 
