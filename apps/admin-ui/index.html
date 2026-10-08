@@ -7,7 +7,9 @@
     <title>OpenWind</title>
     <!-- Runtime config injected by the container entrypoint (env.js).
          Falls back to empty strings if missing — local dev uses .env.local via Vite define. -->
-    <script src="/env.js" onerror="window.__CONFIG__={}"></script>
+    <!-- onerror is an inline handler: if a strict CSP is added, move this fallback
+         out of the attribute (e.g. into @platform/config). -->
+    <script defer src="/env.js" onerror="window.__CONFIG__ = {}"></script>
   </head>
   <body>
     <div id="root"></div>
