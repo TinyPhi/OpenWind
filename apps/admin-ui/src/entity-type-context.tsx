@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
 import { fetchWithAuth, API_URL } from "./lib/api.js";
 
 export type EntityType = {
@@ -90,28 +97,41 @@ export function EntityTypeProvider({
     };
   }, [tick]);
 
-  function getTypeBySlug(slug: string): EntityType | undefined {
-    return entityTypes.find(
-      (et) =>
-        toTypeSlug(et.name) === slug ||
-        toTypeSlug(et.plural || et.name) === slug,
-    );
-  }
+  const getTypeBySlug = useCallback(
+    (slug: string): EntityType | undefined => {
+      return entityTypes.find(
+        (et) =>
+          toTypeSlug(et.name) === slug ||
+          toTypeSlug(et.plural || et.name) === slug,
+      );
+    },
+    [entityTypes],
+  );
 
-  function getTypeById(id: string): EntityType | undefined {
-    return entityTypes.find((et) => et.id === id);
-  }
+  const getTypeById = useCallback(
+    (id: string): EntityType | undefined => {
+      return entityTypes.find((et) => et.id === id);
+    },
+    [entityTypes],
+  );
+
+  const reload = useCallback((): void => {
+    setTick((t) => t + 1);
+  }, []);
+
+  const contextValue = useMemo(
+    (): EntityTypeContextValue => ({
+      entityTypes,
+      modules,
+      getTypeBySlug,
+      getTypeById,
+      reload,
+    }),
+    [entityTypes, modules, getTypeBySlug, getTypeById, reload],
+  );
 
   return (
-    <EntityTypeContext.Provider
-      value={{
-        entityTypes,
-        modules,
-        getTypeBySlug,
-        getTypeById,
-        reload: () => setTick((t) => t + 1),
-      }}
-    >
+    <EntityTypeContext.Provider value={contextValue}>
       {children}
     </EntityTypeContext.Provider>
   );
