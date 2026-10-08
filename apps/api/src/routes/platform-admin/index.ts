@@ -17,6 +17,6 @@ router.post("/mfa/request", ...mfaRequestHandler);
 router.post("/mfa/verify", ...mfaVerifyHandler);
 router.post("/sandboxes", ...createSandboxHandler);
 router.get("/sandboxes/:jobId/progress", ...sandboxProgressHandler);
-router.get("/sandboxes/:tenantId/handover", ...sandboxHandoverHandler);
+router.get("/sandboxes/:jobId/handover", ...sandboxHandoverHandler);
 
 export { router as platformAdminRouter };

@@ -173,6 +173,30 @@ describe("processSandboxProvisioningJob", () => {
         ]),
       },
     );
+
+    // Review finding (PR #805): zitadelOrgId was never written to the row -- always NULL.
+    expect(finalUpdate.zitadelOrgId).toBe("org-1");
+  });
+
+  it("still completes the job when storeSandboxHandoverCredentials fails (review finding, PR #805) -- a Redis blip on the last step must not fail an otherwise-successful run", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(0));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "admin-user" });
+    mockStoreSandboxHandoverCredentials.mockRejectedValueOnce(
+      new Error("redis unavailable"),
+    );
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-handover-fail",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(result.tenantId).toEqual(expect.any(String));
+    const finalUpdate = lastProgressUpdate();
+    expect(finalUpdate.status).toBe("completed");
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.provisioning_completed" }),
+    );
   });
 
   it("retries a seeded account's email on a Zitadel uniqueness conflict", async () => {
