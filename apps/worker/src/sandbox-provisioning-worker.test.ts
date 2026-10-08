@@ -23,10 +23,13 @@ const mockInsert = vi.fn(() => ({ values: mockValues }));
 const mockWhere = vi.fn().mockResolvedValue(undefined);
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
+const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
+const mockDelete = vi.fn(() => ({ where: mockDeleteWhere }));
 vi.mock("@platform/db", () => ({
   db: {
     insert: (...args: unknown[]) => mockInsert(...args),
     update: (...args: unknown[]) => mockUpdate(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
   },
   tenants: {},
   sandboxProvisioningJobs: {},
@@ -38,6 +41,7 @@ vi.mock("@platform/audit", () => ({
 }));
 
 const mockCreateOrg = vi.fn();
+const mockDeleteOrg = vi.fn().mockResolvedValue(true);
 const mockCreateHumanUser = vi.fn();
 const mockGenerateSandboxOrgTemplate = vi.fn();
 const mockStoreSandboxHandoverCredentials = vi
@@ -45,6 +49,7 @@ const mockStoreSandboxHandoverCredentials = vi
   .mockResolvedValue(undefined);
 vi.mock("@platform/auth", () => ({
   createOrg: (...args: unknown[]) => mockCreateOrg(...args),
+  deleteOrg: (...args: unknown[]) => mockDeleteOrg(...args),
   createHumanUser: (...args: unknown[]) => mockCreateHumanUser(...args),
   generateSandboxOrgTemplate: () => mockGenerateSandboxOrgTemplate(),
   nextEmailCandidate: (
@@ -100,7 +105,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockReturning.mockResolvedValue([{ id: "tenant-1" }]);
   mockWhere.mockResolvedValue(undefined);
+  mockDeleteWhere.mockResolvedValue(undefined);
   mockCreateOrg.mockResolvedValue({ ok: true, orgId: "org-1" });
+  mockDeleteOrg.mockResolvedValue(true);
   mockRunOrgDirectorySync.mockResolvedValue({
     status: "ok",
     syncedAt: new Date(),
@@ -259,6 +266,7 @@ describe("processSandboxProvisioningJob", () => {
         tenantId: expect.any(String),
         action: "sandbox.provisioning_failed",
         actorId: "admin-1",
+        metadata: expect.objectContaining({ rolledBack: true }),
       }),
     );
     expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
@@ -267,6 +275,11 @@ describe("processSandboxProvisioningJob", () => {
     const finalUpdate = lastProgressUpdate();
     expect(finalUpdate.status).toBe("failed");
     expect(finalUpdate.error).toContain("SANDBOX_ADMIN_ACCOUNT_CREATE_FAILED");
+
+    // T11: the org was created before the admin-account step failed, and the tenant row
+    // was inserted before that -- both must be rolled back automatically.
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
+    expect(mockDelete).toHaveBeenCalled();
   });
 
   it("throws when the Zitadel org can never be created (every name candidate conflicts), and still writes a failure audit entry (security review fix)", async () => {
@@ -293,9 +306,17 @@ describe("processSandboxProvisioningJob", () => {
         tenantId: expect.any(String),
         action: "sandbox.provisioning_failed",
         actorId: "admin-1",
-        metadata: expect.objectContaining({ zitadelOrgId: null }),
+        metadata: expect.objectContaining({
+          zitadelOrgId: null,
+          rolledBack: true,
+        }),
       }),
     );
+
+    // T11: no org was ever created and no tenant row was ever inserted -- nothing to
+    // roll back, trivially "rolled back".
+    expect(mockDeleteOrg).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("writes a failure audit entry when the tenant insert itself throws (e.g. a slug collision)", async () => {
@@ -318,9 +339,51 @@ describe("processSandboxProvisioningJob", () => {
       expect.objectContaining({
         action: "sandbox.provisioning_failed",
         actorId: "admin-1",
-        metadata: expect.objectContaining({ zitadelOrgId: "org-1" }),
+        metadata: expect.objectContaining({
+          zitadelOrgId: "org-1",
+          rolledBack: true,
+        }),
       }),
     );
     expect(mockCreateHumanUser).not.toHaveBeenCalled();
+
+    // T11: the org was created before the tenant insert failed -- it must still be
+    // rolled back even though the tenant row never ended up existing.
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
+    // The tenant row never existed (insert itself threw), so there is nothing to delete.
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("leaves the tenant row in place when org deletion fails during rollback, so it (and its zitadel_org_id) remain a manual-cleanup breadcrumb", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(0));
+    mockCreateHumanUser.mockResolvedValue({ ok: false, conflict: true });
+    mockDeleteOrg.mockResolvedValue(false);
+
+    await expect(
+      processSandboxProvisioningJob({
+        id: "job-7",
+        data: {
+          orgName: "Acme Sandbox",
+          trialDays: 14,
+          requestedBy: "admin-1",
+        },
+      }),
+    ).rejects.toThrow("SANDBOX_ADMIN_ACCOUNT_CREATE_FAILED");
+
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
+    // Org deletion failed -- the tenant row must NOT be deleted, so it (plus its
+    // zitadel_org_id) remains as the manual-cleanup breadcrumb instead of orphaning a
+    // live Zitadel org with zero local trace of it.
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "sandbox.provisioning_failed",
+        metadata: expect.objectContaining({
+          zitadelOrgId: "org-1",
+          rolledBack: false,
+        }),
+      }),
+    );
   });
 });
