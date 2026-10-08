@@ -28,10 +28,19 @@
  *     review found a durable, ungated Postgres column here would hand every current and
  *     future platform_admin an indefinitely-valid credential dump. See
  *     packages/auth/src/sandbox-handover-store.ts.
+ *  8. (T11) On ANY failure, automatically roll back: delete the Zitadel org if one was
+ *     created (its v2 DeleteOrganization call cascades to delete every account created
+ *     under it -- no per-account cleanup needed here), then delete the `tenants` row.
+ *     Chosen over a retry (BullMQ's `attempts: 1` is deliberate -- see below) and over
+ *     manual-only cleanup: a failed job should leave zero footprint by default. If the
+ *     org deletion itself fails, the tenant row is deliberately left in place (not
+ *     deleted) so it plus its `zitadel_org_id` remain as a manual-cleanup breadcrumb
+ *     instead of orphaning a live Zitadel org with no local trace of it at all. The
+ *     failure audit entry's `rolledBack` field records which case occurred.
  *
- * Deliberately NOT yet built here: T9/T10 (module data/automation seeding), T11
- * (retry-vs-rollback on partial failure — a failed job here leaves whatever Zitadel
- * org/accounts were already created in place; nothing cleans them up).
+ * Deliberately NOT yet built here: T9 (module data seeding across workflow states --
+ * scoped as a separate, larger follow-up; T10's automation-rule seeding already shipped
+ * independently of it).
  */
 
 import { randomBytes, randomUUID } from "node:crypto";
@@ -41,6 +50,7 @@ import { eq } from "drizzle-orm";
 import { writeAuditEntry } from "@platform/audit";
 import {
   createOrg,
+  deleteOrg,
   createHumanUser,
   generateSandboxOrgTemplate,
   nextEmailCandidate,
@@ -201,6 +211,7 @@ export async function processSandboxProvisioningJob(
   // this id is safe even on the path where the tenant row never ends up existing.
   const tenantId = randomUUID();
   let zitadelOrgId: string | undefined;
+  let tenantInserted = false;
 
   // Generated upfront so totalSteps (org + tenant + 1-per-account + sync) is known before
   // the first progress write -- the wait-screen (R5) needs a real denominator from the
@@ -252,6 +263,7 @@ export async function processSandboxProvisioningJob(
     if (!tenantRow) {
       throw new Error("SANDBOX_TENANT_INSERT_FAILED");
     }
+    tenantInserted = true;
     await updateJobProgress(jobId, {
       currentStep:
         "creating accounts (1/" + (template.members.length + 1) + ")",
@@ -360,9 +372,48 @@ export async function processSandboxProvisioningJob(
         );
       },
     );
+
+    // T11: automatic rollback. deleteOrg cascades to delete all of the org's accounts
+    // in one call (confirmed against Zitadel's v2 API docs), so there is no per-account
+    // cleanup step here. The tenants row is only deleted AFTER a successful org deletion
+    // (or when no org was ever created) -- if org deletion itself fails, the tenant row
+    // and its zitadelOrgId are deliberately left in place as the pre-existing
+    // manual-cleanup breadcrumb (the audit entry below), rather than destroying that
+    // trail while a live, orphaned Zitadel org still exists.
+    let rolledBack = true;
+    if (zitadelOrgId) {
+      const orgDeleted = await deleteOrg(zitadelOrgId).catch((err: unknown) => {
+        logger.error(
+          { err, zitadelOrgId, tenantId },
+          "sandbox provisioning rollback: failed to delete Zitadel org",
+        );
+        return false;
+      });
+      if (!orgDeleted) {
+        rolledBack = false;
+        logger.error(
+          { zitadelOrgId, tenantId, jobId },
+          "sandbox provisioning rollback: org deletion failed -- tenant row left in place for manual cleanup",
+        );
+      }
+    }
+    if (rolledBack && tenantInserted) {
+      await db
+        .delete(tenants)
+        .where(eq(tenants.id, tenantId))
+        .catch((deleteErr: unknown) => {
+          rolledBack = false;
+          logger.error(
+            { err: deleteErr, tenantId, jobId },
+            "sandbox provisioning rollback: failed to delete tenant row",
+          );
+        });
+    }
+
     await auditOutcome(job, tenantId, "sandbox.provisioning_failed", {
       zitadelOrgId: zitadelOrgId ?? null,
       error: message,
+      rolledBack,
     }).catch((auditErr: unknown) => {
       logger.error(
         { err: auditErr, tenantId, jobId: jobId },

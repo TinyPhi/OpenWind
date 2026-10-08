@@ -200,6 +200,42 @@ function httpGet(
   });
 }
 
+function httpDelete(
+  url: string,
+  host: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const isHttps = parsed.protocol === "https:";
+    const requestFn = isHttps ? nodeHttpsRequest : nodeHttpRequest;
+    const req = requestFn(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port ? parseInt(parsed.port, 10) : isHttps ? 443 : 80,
+        path: parsed.pathname + parsed.search,
+        method: "DELETE",
+        headers: {
+          ...headers,
+          Host: host,
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, text: data }),
+        );
+      },
+    );
+    req.setTimeout(10_000, () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 let _discoveredIssuer: string | null = null;
 
 async function discoverIssuer(): Promise<string> {
@@ -505,6 +541,29 @@ export async function createOrg(
   } catch (err) {
     logger.error({ err, name }, "Failed to create Zitadel organization");
     return { ok: false, conflict: false };
+  }
+}
+
+/**
+ * T11 (docs/specs/multi-org-sandbox.md) — rollback for partial provisioning failure.
+ * `DELETE /v2/organizations/{organization_id}` (Zitadel's v2 Organization Service,
+ * confirmed via https://zitadel.com/docs/reference/api/org/zitadel.org.v2.OrganizationService.DeleteOrganization)
+ * deletes the org AND all its resources (users, projects, grants) in one call -- so the
+ * caller never needs to delete the admin/member accounts individually before this.
+ */
+export async function deleteOrg(orgId: string): Promise<boolean> {
+  const token = await getProvisioningAccessToken();
+  if (!token) return false;
+
+  try {
+    const url = `${internalBase()}/v2/organizations/${orgId}`;
+    const result = await httpDelete(url, issuerHost(), {
+      Authorization: `Bearer ${token}`,
+    });
+    return result.status >= 200 && result.status < 300;
+  } catch (err) {
+    logger.error({ err, orgId }, "Failed to delete Zitadel organization");
+    return false;
   }
 }
 

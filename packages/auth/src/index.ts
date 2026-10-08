@@ -63,6 +63,7 @@ export {
   deleteUser,
   parseProvisioningServiceAccountKey,
   createOrg,
+  deleteOrg,
   createHumanUser,
 } from "./zitadel-management.js";
 export type {
