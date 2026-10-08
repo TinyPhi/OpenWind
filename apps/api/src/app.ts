@@ -38,6 +38,7 @@ import { notificationsRouter } from "./routes/notifications/index.js";
 import { exportsRouter } from "./routes/exports/download.js";
 import { dashboardRouter } from "./routes/dashboard/index.js";
 import { webhooksRouter } from "./routes/webhooks/index.js";
+import { platformAdminRouter } from "./routes/platform-admin/index.js";
 import { connectorsRouter } from "./routes/connectors/index.js";
 import { thirdPartyRouter } from "./routes/third-party/index.js";
 import { openApiSpec } from "./openapi.js";
@@ -166,6 +167,9 @@ export function createApp(): Hono<AppVars> {
   app.route("/users", usersRouter);
   app.route("/files", filesRouter);
   app.route("/admin", adminRouter);
+  // Never shared with any admin/user route tree above -- requirePlatformAdmin() (not
+  // requireAuth()) is this tree's only auth check (docs/specs/multi-org-sandbox.md R1).
+  app.route("/platform-admin", platformAdminRouter);
   app.route("/preferences", preferencesRouter);
   app.route("/saved-views", savedViewsRouter);
   app.route("/superset", reportingRouter);

@@ -76,6 +76,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "export.download_denied": true,
   "org_directory.sync_completed": true,
   "org_directory.sync_failed": true,
+  "sandbox.provisioning_completed": true,
+  "sandbox.provisioning_failed": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -132,6 +134,10 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   // mutation (attempt), same reasoning as schedule.execution_failed.
   "org_directory.sync_completed",
   "org_directory.sync_failed",
+  // Provisioning creates a tenant row + Zitadel org/accounts -- a mutation
+  // regardless of whether the job ultimately succeeded or failed partway.
+  "sandbox.provisioning_completed",
+  "sandbox.provisioning_failed",
 ]);
 
 /**

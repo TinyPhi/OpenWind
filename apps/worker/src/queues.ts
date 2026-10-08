@@ -190,3 +190,14 @@ export const mentionResolutionQueue = new Queue("mention-resolution", {
     backoff: { type: "exponential", delay: 1_000 },
   },
 });
+
+// docs/specs/multi-org-sandbox.md T7/R5 — sandbox provisioning (~21+ Zitadel calls: 1 org +
+// 1-20 accounts + org-directory sync). API enqueues via
+// apps/api/src/lib/sandbox-provisioning-queue.ts using the same queue name.
+// attempts: 1 (no automatic retry) — a partial provisioning failure must be visible to the
+// platform admin via R5's progress UI, not silently retried from scratch with a second set
+// of (possibly already-created) Zitadel resources. Retry-vs-rollback is T11, not yet built.
+export const sandboxProvisioningQueue = new Queue("sandbox-provisioning", {
+  connection,
+  defaultJobOptions: { attempts: 1 },
+});

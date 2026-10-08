@@ -14,9 +14,14 @@ import {
 } from "@platform/db";
 import { logger } from "@platform/logger";
 import { getRedis, checkRateLimit } from "@platform/redis";
-import { verifyJwt, extractAuthContext } from "./jwks.js";
+import {
+  verifyJwt,
+  extractAuthContext,
+  extractPlatformAdminContext,
+} from "./jwks.js";
 import { introspectToken } from "./introspection.js";
-import type { AuthContext } from "./types.js";
+import type { AuthContext, PlatformAdminAuthContext } from "./types.js";
+import { isMfaVerified } from "./platform-admin-mfa.js";
 import {
   getCachedTenantStatus,
   setCachedTenantStatus,
@@ -409,6 +414,123 @@ async function fetchUserInfo(
     _userInfoPending.delete(key);
   }
 }
+
+type PlatformAdminAuthVariables = {
+  Variables: { platformAdmin: PlatformAdminAuthContext };
+};
+
+async function resolvePlatformAdmin(
+  c: Context<PlatformAdminAuthVariables>,
+): Promise<PlatformAdminAuthContext | Response> {
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return c.json({ error: "UNAUTHORIZED", message: "Missing token" }, 401);
+  }
+
+  const claims = await verifyJwt(authHeader.slice(7));
+  if (!claims) {
+    return c.json({ error: "UNAUTHORIZED", message: "Invalid token" }, 401);
+  }
+
+  let platformAdmin = extractPlatformAdminContext(claims);
+  // Same generic 403 whether the token is well-formed but lacks the platform_admin role, or
+  // is missing `sub` entirely -- this route tree never distinguishes "wrong role" from
+  // "malformed token" to the caller (security.md's 404-not-403 rule's own reasoning: don't
+  // hand an attacker information about why a request failed).
+  if (!platformAdmin) {
+    return c.json({ error: "FORBIDDEN", message: "Not authorized" }, 403);
+  }
+
+  // Zitadel only puts profile claims (email, name) in the id_token by default, not the
+  // access token this route tree verifies -- same gap requireAuth's JWT path already
+  // handles below via fetchUserInfo. Needed here specifically because the MFA email
+  // (platform-admin-mfa.ts's requestMfaCode) has nowhere else to get an address from; a
+  // platform_admin token has no tenant_users row to fall back to the way a normal user's
+  // does.
+  if (!platformAdmin.email) {
+    const info = await fetchUserInfo(authHeader.slice(7));
+    if (info?.email) {
+      platformAdmin = { ...platformAdmin, email: info.email };
+    }
+  }
+  return platformAdmin;
+}
+
+/**
+ * requirePlatformAdminIdentity — validates Bearer JWT + platform_admin role claim ONLY, no
+ * MFA check. Exists solely for the two routes that must be reachable BEFORE MFA is verified
+ * (POST /platform-admin/mfa/request, POST /platform-admin/mfa/verify) -- requirePlatformAdmin
+ * below would otherwise make MFA verification itself unreachable. Never mount this on any
+ * other route; every other platform-admin route must use requirePlatformAdmin.
+ */
+export const requirePlatformAdminIdentity = (): MiddlewareHandler =>
+  createMiddleware<PlatformAdminAuthVariables>(
+    async (
+      c: Context<PlatformAdminAuthVariables>,
+      next: Next,
+    ): Promise<Response | void> => {
+      const result = await resolvePlatformAdmin(c);
+      if (result instanceof Response) return result;
+      c.set("platformAdmin", result);
+      await next();
+    },
+  );
+
+/**
+ * requirePlatformAdmin — validates Bearer JWT (Zitadel JWKS), the platform_admin role claim,
+ * and MFA. Deliberately NOT built on top of requireAuth: that function's JWT path always runs
+ * tenant resolution (lookupTenantIdByOrgId in production), tenant status/IP/rate-limit/
+ * billing checks, and a tenant_users upsert -- none of which apply to a cross-tenant
+ * platform_admin request, and none of which this function calls. T2
+ * (docs/specs/multi-org-sandbox.md) skips tenant-resolution for platform_admin by never
+ * entering that code path, not by special-casing it inside the tenant-scoped one.
+ *
+ * MFA is an OpenWind-owned email-code step (packages/auth/src/platform-admin-mfa.ts), not a
+ * check of the token's own `amr` claim -- found during implementation that no Zitadel MFA
+ * method is usable on this hosted instance (no SMTP, no SMS gateway, TOTP not offered).
+ * jwks.ts's hasMfaFactor/PLATFORM_ADMIN_ROLE-adjacent amr check is left in place, unused here,
+ * in case a real Zitadel MFA method becomes available later and this reverts or layers on it.
+ *
+ * API keys are never accepted here -- platform_admin is a human-operator role (ADR-022), not
+ * a machine-to-machine one, and `/platform-admin` routes have no API key surface.
+ *
+ * Mounted only on the dedicated `/platform-admin/*` route tree (docs/specs/
+ * multi-org-sandbox.md R1) -- never on any `admin`/`agent`/`user` route.
+ */
+export const requirePlatformAdmin = (): MiddlewareHandler =>
+  createMiddleware<PlatformAdminAuthVariables>(
+    async (
+      c: Context<PlatformAdminAuthVariables>,
+      next: Next,
+    ): Promise<Response | void> => {
+      const result = await resolvePlatformAdmin(c);
+      if (result instanceof Response) return result;
+      const platformAdmin = result;
+
+      // R1: MFA is required to use this role. env.PLATFORM_ADMIN_MFA_DEV_BYPASS can only be
+      // true outside production (packages/config's Zod refine makes that structurally
+      // impossible), so this check is unconditionally enforced wherever it actually matters.
+      if (!env.PLATFORM_ADMIN_MFA_DEV_BYPASS) {
+        const verified = await isMfaVerified(platformAdmin.userId);
+        if (!verified) {
+          logger.warn(
+            { userId: platformAdmin.userId },
+            "platform_admin request missing verified MFA",
+          );
+          return c.json(
+            {
+              error: "MFA_REQUIRED",
+              message: "Multi-factor authentication required",
+            },
+            403,
+          );
+        }
+      }
+
+      c.set("platformAdmin", platformAdmin);
+      await next();
+    },
+  );
 
 /**
  * requireAuth — validates Bearer JWT (Zitadel JWKS) or API key (sk_... prefix).
