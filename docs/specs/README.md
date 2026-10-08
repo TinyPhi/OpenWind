@@ -37,6 +37,7 @@ Last reconciled: 2026-09-28 (#694).
 | [schedule-rules-mandate-fields](schedule-rules-mandate-fields.md)                           | ✓     | #659                                                                             |
 | [superset-embedded-dashboarding](superset-embedded-dashboarding.md)                         | —     | 3G Stage 1 (#663–#671)                                                           |
 | [superset-standalone-with-zitadel](superset-standalone-with-zitadel.md)                     | —     | 3G Stage 2 (#663–#671)                                                           |
+| [superset-gdpr-erasure](superset-gdpr-erasure.md)                                           | —     | 3G Stage 2 gate (#728, #709, #716, #729, #731); draft                            |
 | [team-assign-oncall-fallback](team-assign-oncall-fallback.md)                               | —     | #659                                                                             |
 | [temporal-scheduler](temporal-scheduler.md)                                                 | —     | 3F Phases 1–4 (ADR-017; design: `docs/temporal-scheduler-design.md`); gap #580   |
 | [tender-management](tender-management.md)                                                   | —     | `modules/tender` (ADR-005)                                                       |
