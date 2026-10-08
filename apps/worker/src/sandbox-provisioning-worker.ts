@@ -60,7 +60,6 @@ export interface SandboxProvisioningJobResult {
   tenantId: string;
   zitadelOrgId: string;
   adminEmail: string;
-  defaultPassword: string;
   seededAccountCount: number;
   failedAccountCount: number;
 }
@@ -252,6 +251,17 @@ export async function processSandboxProvisioningJob(
       "sandbox provisioning job completed",
     );
 
+    // Review finding (PR #804): BullMQ's removeOnComplete persists this function's return
+    // value in Redis for 1h -- defaultPassword must never be part of it. T21 (the real,
+    // gated handover retrieval path) is not built yet at this point in the stack, so this
+    // WARN-level log is the interim retrieval channel (accessible via log infrastructure,
+    // not an indefinitely-queryable Redis key); it is removed once T21's dedicated handover
+    // store lands downstream.
+    logger.warn(
+      { tenantId, jobId: job.id, adminEmail: admin.email, defaultPassword },
+      "sandbox provisioning: default password (interim retrieval -- no handover endpoint yet)",
+    );
+
     await auditOutcome(job, tenantId, "sandbox.provisioning_completed", {
       zitadelOrgId: org.orgId,
       seededAccountCount,
@@ -262,7 +272,6 @@ export async function processSandboxProvisioningJob(
       tenantId,
       zitadelOrgId: org.orgId,
       adminEmail: admin.email,
-      defaultPassword,
       seededAccountCount,
       failedAccountCount,
     };

@@ -160,6 +160,17 @@ describe("POST /platform-admin/sandboxes", () => {
     expect(mockQueueAdd).not.toHaveBeenCalled();
   });
 
+  it("returns 400 for an all-symbol orgName, which would otherwise produce a leading-dash slug (review finding, PR #804)", async () => {
+    const res = await makeApp().request("/sandboxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgName: "!!!", trialDays: 14 }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
   it("returns 503 when the provisioning queue is unreachable (review finding, PR #804)", async () => {
     mockQueueAdd.mockRejectedValueOnce(new Error("redis down"));
 

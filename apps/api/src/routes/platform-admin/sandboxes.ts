@@ -28,7 +28,14 @@ import { platformAdminFactory } from "./factory.js";
  * dozens of Zitadel calls faster than this.
  */
 const CreateSandboxSchema = z.object({
-  orgName: z.string().min(1).max(255),
+  // Review finding (PR #804): without this, an all-symbol orgName (e.g. "!!!") would pass
+  // .min(1) and make the worker's slugify() produce a leading-dash-only slug ("-1234") --
+  // reject it here with a clear 400 instead of letting a malformed slug reach the DB.
+  orgName: z
+    .string()
+    .min(1)
+    .max(255)
+    .regex(/[a-zA-Z0-9]/, "must contain at least one letter or digit"),
   trialDays: z.number().int().positive().max(365).default(14),
 });
 

@@ -53,8 +53,9 @@ vi.mock("@platform/org-directory", () => ({
   ZitadelOrgSourceImporter: vi.fn(),
 }));
 
+const { mockLoggerWarn } = vi.hoisted(() => ({ mockLoggerWarn: vi.fn() }));
 vi.mock("@platform/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { info: vi.fn(), warn: mockLoggerWarn, error: vi.fn() },
 }));
 
 vi.mock("@platform/config", () => ({
@@ -124,7 +125,21 @@ describe("processSandboxProvisioningJob", () => {
       expect.objectContaining({
         tenantId: result.tenantId,
         action: "sandbox.provisioning_completed",
+        actorId: "admin-1",
       }),
+    );
+
+    // Review finding (PR #804): defaultPassword must never be part of the job's return
+    // value -- BullMQ's removeOnComplete persists it in Redis for 1h with no application
+    // retrieval path at this point in the stack. The interim retrieval channel is a WARN
+    // log instead.
+    expect(result).not.toHaveProperty("defaultPassword");
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: result.tenantId,
+        defaultPassword: expect.any(String),
+      }),
+      expect.stringContaining("default password"),
     );
   });
 
@@ -187,6 +202,7 @@ describe("processSandboxProvisioningJob", () => {
       expect.objectContaining({
         tenantId: expect.any(String),
         action: "sandbox.provisioning_failed",
+        actorId: "admin-1",
       }),
     );
     expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
@@ -215,6 +231,7 @@ describe("processSandboxProvisioningJob", () => {
       expect.objectContaining({
         tenantId: expect.any(String),
         action: "sandbox.provisioning_failed",
+        actorId: "admin-1",
         metadata: expect.objectContaining({ zitadelOrgId: null }),
       }),
     );
@@ -239,6 +256,7 @@ describe("processSandboxProvisioningJob", () => {
       expect.anything(),
       expect.objectContaining({
         action: "sandbox.provisioning_failed",
+        actorId: "admin-1",
         metadata: expect.objectContaining({ zitadelOrgId: "org-1" }),
       }),
     );
