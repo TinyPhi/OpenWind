@@ -65,8 +65,9 @@ vi.mock("@platform/org-directory", () => ({
   ZitadelOrgSourceImporter: vi.fn(),
 }));
 
+const { mockLoggerWarn } = vi.hoisted(() => ({ mockLoggerWarn: vi.fn() }));
 vi.mock("@platform/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { info: vi.fn(), warn: mockLoggerWarn, error: vi.fn() },
 }));
 
 vi.mock("@platform/config", () => ({
@@ -143,6 +144,7 @@ describe("processSandboxProvisioningJob", () => {
       expect.objectContaining({
         tenantId: result.tenantId,
         action: "sandbox.provisioning_completed",
+        actorId: "admin-1",
       }),
     );
 
@@ -155,11 +157,16 @@ describe("processSandboxProvisioningJob", () => {
     expect(finalUpdate).not.toHaveProperty("seededAccounts");
     expect(mockUpdate).toHaveBeenCalledWith(expect.anything());
 
+    // Review finding (PR #804): defaultPassword must never be part of the job's return
+    // value -- BullMQ's removeOnComplete would otherwise persist it in Redis for 1h.
+    // storeSandboxHandoverCredentials (T21, below) is the one and only place it goes.
+    expect(result).not.toHaveProperty("defaultPassword");
+
     // T21: the handover artifact goes to Redis (7-day TTL) instead.
     expect(mockStoreSandboxHandoverCredentials).toHaveBeenCalledWith(
       result.tenantId,
       {
-        defaultPassword: result.defaultPassword,
+        defaultPassword: expect.any(String),
         seededAccounts: expect.arrayContaining([
           expect.objectContaining({ role: "admin" }),
           expect.objectContaining({ role: "member" }),
@@ -227,6 +234,7 @@ describe("processSandboxProvisioningJob", () => {
       expect.objectContaining({
         tenantId: expect.any(String),
         action: "sandbox.provisioning_failed",
+        actorId: "admin-1",
       }),
     );
     expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
@@ -260,6 +268,7 @@ describe("processSandboxProvisioningJob", () => {
       expect.objectContaining({
         tenantId: expect.any(String),
         action: "sandbox.provisioning_failed",
+        actorId: "admin-1",
         metadata: expect.objectContaining({ zitadelOrgId: null }),
       }),
     );
@@ -284,6 +293,7 @@ describe("processSandboxProvisioningJob", () => {
       expect.anything(),
       expect.objectContaining({
         action: "sandbox.provisioning_failed",
+        actorId: "admin-1",
         metadata: expect.objectContaining({ zitadelOrgId: "org-1" }),
       }),
     );
