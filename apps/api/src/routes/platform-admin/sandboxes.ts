@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { env } from "@platform/config";
 import { sandboxProvisioningQueue } from "../../lib/sandbox-provisioning-queue.js";
 import { enforceSandboxProvisioningRateLimit } from "../../lib/rate-limit-tiers.js";
+import { logger } from "@platform/logger";
 import { platformAdminFactory } from "./factory.js";
 
 /**
@@ -85,11 +86,34 @@ export const createSandboxHandler = platformAdminFactory.createHandlers(
       status: "pending",
     });
 
-    await sandboxProvisioningQueue.add(
-      "provision",
-      { orgName, trialDays, requestedBy: userId },
-      { jobId },
-    );
+    // Review finding (PR #804/#805): an unhandled queue.add() throw (Redis/BullMQ down)
+    // would otherwise leave the row above stuck at "pending" forever -- no worker would ever
+    // pick it up, so the progress endpoint would report "pending" indefinitely with no signal
+    // anything is wrong. Deleting the row on failure means a retried request starts clean
+    // rather than accumulating orphaned rows, and the caller gets an actionable 503 instead
+    // of a stuck job id.
+    try {
+      await sandboxProvisioningQueue.add(
+        "provision",
+        { orgName, trialDays, requestedBy: userId },
+        { jobId },
+      );
+    } catch (err) {
+      await db
+        .delete(sandboxProvisioningJobs)
+        .where(eq(sandboxProvisioningJobs.id, jobId));
+      logger.error(
+        { err, userId, jobId },
+        "platform-admin sandboxes: failed to enqueue provisioning job",
+      );
+      return c.json(
+        {
+          error: "ENQUEUE_FAILED",
+          message: "Could not start sandbox provisioning — try again shortly",
+        },
+        503,
+      );
+    }
 
     return c.json({ data: { jobId } }, 202);
   },
@@ -141,6 +165,14 @@ export const sandboxProgressHandler = platformAdminFactory.createHandlers(
  * see migration 0137's comment for why). 409 if the job exists but hasn't completed yet (an
  * existence leak would be the wrong classification here since platform_admin is the one who
  * created the tenant in the first place).
+ *
+ * Review finding (PR #805): this does NOT filter by `requestedBy` -- any platform_admin can
+ * read any sandbox's handover credentials given the tenantId, since `platform_admin_role`
+ * grants blanket SELECT on this table (migration 0137). Acceptable under the spec's §C
+ * single-trusted-operator model; would become an IDOR once a second platform_admin exists.
+ * `sandboxProvisioningJobs.requestedBy` already exists and is populated on insert, so adding
+ * a `requestedBy = userId` filter here is a one-line change when multi-admin support lands --
+ * deliberately not done now, to avoid scoping a real access-control feature ahead of need.
  */
 const TenantIdParamSchema = z.object({ tenantId: z.string().uuid() });
 

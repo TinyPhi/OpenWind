@@ -30,6 +30,8 @@ vi.mock("@platform/auth", () => ({
 const mockCheckSandboxQuota = vi.fn();
 const mockDbInsertValues = vi.fn().mockResolvedValue(undefined);
 const mockDbInsert = vi.fn(() => ({ values: mockDbInsertValues }));
+const mockDbDeleteWhere = vi.fn().mockResolvedValue(undefined);
+const mockDbDelete = vi.fn(() => ({ where: mockDbDeleteWhere }));
 // select().from().where().limit() chain for the progress/handover routes' reads.
 const mockSelectRows = vi.fn();
 const mockTx = {
@@ -43,7 +45,10 @@ const mockTx = {
 };
 
 vi.mock("@platform/db", () => ({
-  db: { insert: (...args: unknown[]) => mockDbInsert(...args) },
+  db: {
+    insert: (...args: unknown[]) => mockDbInsert(...args),
+    delete: (...args: unknown[]) => mockDbDelete(...args),
+  },
   sandboxProvisioningJobs: {
     id: "id",
     status: "status",
@@ -92,6 +97,10 @@ const mockEnforceSandboxProvisioningRateLimit = vi.fn();
 vi.mock("../../lib/rate-limit-tiers.js", () => ({
   enforceSandboxProvisioningRateLimit: (...args: unknown[]) =>
     mockEnforceSandboxProvisioningRateLimit(...args),
+}));
+
+vi.mock("@platform/logger", () => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
 }));
 
 const { createSandboxHandler, sandboxProgressHandler, sandboxHandoverHandler } =
@@ -221,6 +230,25 @@ describe("POST /platform-admin/sandboxes", () => {
 
     expect(res.status).toBe(400);
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 and deletes the pending job row when enqueuing fails (review finding, PR #804/#805)", async () => {
+    mockQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+
+    const res = await makeApp().request("/sandboxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgName: "Acme Sandbox", trialDays: 14 }),
+    });
+
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: "ENQUEUE_FAILED",
+    });
+    // The row inserted before the failed enqueue must not remain orphaned at "pending".
+    expect(mockDbInsertValues).toHaveBeenCalledTimes(1);
+    expect(mockDbDelete).toHaveBeenCalledTimes(1);
+    expect(mockDbDeleteWhere).toHaveBeenCalledTimes(1);
   });
 });
 
