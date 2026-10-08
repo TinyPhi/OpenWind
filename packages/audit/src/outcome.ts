@@ -104,6 +104,11 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // request.
   "sandbox.provisioning_completed": true,
   "sandbox.provisioning_failed": true,
+  // Same reasoning as sandbox.provisioning_completed/.failed above -- a worker outcome of
+  // a job the platform_admin was already entitled to start (requirePlatformAdmin already
+  // passed, the sandbox-lifecycle lock already acquired), not a denied caller request.
+  "sandbox.reset_completed": true,
+  "sandbox.reset_failed": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since
