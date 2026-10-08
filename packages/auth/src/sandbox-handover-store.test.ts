@@ -2,17 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockRedisGet = vi.fn();
 const mockRedisSet = vi.fn();
+const mockRedisDel = vi.fn();
 
 vi.mock("@platform/redis", () => ({
-  getRedis: () => ({ get: mockRedisGet, set: mockRedisSet }),
+  getRedis: () => ({ get: mockRedisGet, set: mockRedisSet, del: mockRedisDel }),
 }));
 
-const { storeSandboxHandoverCredentials, getSandboxHandoverCredentials } =
-  await import("./sandbox-handover-store.js");
+const {
+  storeSandboxHandoverCredentials,
+  getSandboxHandoverCredentials,
+  deleteSandboxHandoverCredentials,
+} = await import("./sandbox-handover-store.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockRedisSet.mockResolvedValue("OK");
+  mockRedisDel.mockResolvedValue(1);
 });
 
 describe("storeSandboxHandoverCredentials", () => {
@@ -68,5 +73,23 @@ describe("getSandboxHandoverCredentials", () => {
     const result = await getSandboxHandoverCredentials("tenant-1");
 
     expect(result).toBeNull();
+  });
+});
+
+describe("deleteSandboxHandoverCredentials", () => {
+  it("deletes the key for the given tenant id (T14, so a purged sandbox's credentials are not retrievable until the TTL passes)", async () => {
+    await deleteSandboxHandoverCredentials("tenant-1");
+
+    expect(mockRedisDel).toHaveBeenCalledWith(
+      "platform-admin:sandbox-handover:tenant-1",
+    );
+  });
+
+  it("is a no-op (does not throw) when nothing was ever stored for this tenant", async () => {
+    mockRedisDel.mockResolvedValueOnce(0);
+
+    await expect(
+      deleteSandboxHandoverCredentials("tenant-never-provisioned"),
+    ).resolves.toBeUndefined();
   });
 });

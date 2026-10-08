@@ -103,5 +103,6 @@ export {
 export {
   storeSandboxHandoverCredentials,
   getSandboxHandoverCredentials,
+  deleteSandboxHandoverCredentials,
 } from "./sandbox-handover-store.js";
 export type { SandboxHandoverCredentials } from "./sandbox-handover-store.js";

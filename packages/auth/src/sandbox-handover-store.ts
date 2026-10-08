@@ -55,3 +55,17 @@ export async function getSandboxHandoverCredentials(
     return null;
   }
 }
+
+/**
+ * T14 (docs/specs/multi-org-sandbox.md) -- without this, a purged sandbox's handover
+ * credentials (its seeded admin password) stay retrievable from Redis for up to 7 more
+ * days, relying solely on the TTL -- R8's "delete this org's data" means now, not
+ * eventually. Called from apps/worker/src/tenant-purge.ts; a no-op if nothing was ever
+ * stored for this tenant (real tenants never have a handover key in the first place).
+ */
+export async function deleteSandboxHandoverCredentials(
+  tenantId: string,
+): Promise<void> {
+  const redis = getRedis();
+  await redis.del(handoverKey(tenantId));
+}
