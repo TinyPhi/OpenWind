@@ -91,4 +91,14 @@ describe("POST /platform-admin/mfa/verify", () => {
     expect(res.status).toBe(400);
     expect(mockVerifyMfaCode).not.toHaveBeenCalled();
   });
+
+  it("returns 400 for a non-numeric 6-character code, without consuming a verify attempt (review finding, PR #804)", async () => {
+    const res = await makeApp().request("/mfa/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "aaaaaa" }),
+    });
+    expect(res.status).toBe(400);
+    expect(mockVerifyMfaCode).not.toHaveBeenCalled();
+  });
 });

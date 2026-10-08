@@ -44,7 +44,9 @@ export const mfaRequestHandler = platformAdminFactory.createHandlers(
   },
 );
 
-const VerifyMfaSchema = z.object({ code: z.string().length(6) });
+// Review finding (PR #804): length(6) alone let non-numeric strings through, each wasting an
+// attempt against verifyMfaCode's lockout cap even though they can never hash-match a real code.
+const VerifyMfaSchema = z.object({ code: z.string().regex(/^\d{6}$/) });
 
 export const mfaVerifyHandler = platformAdminFactory.createHandlers(
   requirePlatformAdminIdentity(),

@@ -953,6 +953,13 @@
       "when": 1789033324000,
       "tag": "0135_platform_admin_sandbox_columns",
       "breakpoints": false
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1789033325000,
+      "tag": "0136_admin_audit_log_sandbox_provisioning_actions",
+      "breakpoints": false
     }
   ]
 }

@@ -72,3 +72,34 @@ export async function enforceExportRateLimit(
     };
   }
 }
+
+const SANDBOX_PROVISIONING_RATE_LIMIT_WINDOW_SECONDS = 60;
+
+/**
+ * docs/specs/multi-org-sandbox.md T7, security review — per-platform_admin cap on
+ * POST /platform-admin/sandboxes, tighter than the generic global 500/min/IP limit this
+ * route would otherwise inherit. Keyed on the platform_admin's own userId (not tenantId --
+ * platform_admin tokens never resolve to one, per R1). Fails open like every other tier.
+ */
+export async function enforceSandboxProvisioningRateLimit(
+  userId: string,
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  try {
+    return await checkRateLimit(
+      getRedis(),
+      `rl:sandbox-provisioning:${userId}`,
+      env.RATE_LIMIT_SANDBOX_PROVISIONING_PER_MIN,
+      SANDBOX_PROVISIONING_RATE_LIMIT_WINDOW_SECONDS,
+    );
+  } catch (err) {
+    logger.warn(
+      { err, userId },
+      "rate-limit-tiers: sandbox provisioning check failed unexpectedly — failing open",
+    );
+    return {
+      allowed: true,
+      remaining: env.RATE_LIMIT_SANDBOX_PROVISIONING_PER_MIN,
+      resetAt: 0,
+    };
+  }
+}

@@ -170,7 +170,14 @@ export type AuditAction =
   // that went wrong. Migration 0134 replaces 0130's bare "sync_failed" with
   // these resource.verb values (#745, #754).
   | "org_directory.sync_completed"
-  | "org_directory.sync_failed";
+  | "org_directory.sync_failed"
+  // docs/specs/multi-org-sandbox.md T7 — sandbox provisioning job outcomes,
+  // audited under the newly-created tenant's own id (job-level, like
+  // export.completed/export.failed — not one entry per seeded account).
+  // Migration 0136_admin_audit_log_sandbox_provisioning_actions.sql extends
+  // the DB CHECK constraint in the same commit.
+  | "sandbox.provisioning_completed"
+  | "sandbox.provisioning_failed";
 
 export type AuditEntryInput = {
   tenantId: string;
