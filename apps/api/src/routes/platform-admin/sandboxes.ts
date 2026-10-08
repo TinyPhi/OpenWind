@@ -5,6 +5,7 @@ import { withPlatformAdminContext, checkSandboxQuota } from "@platform/db";
 import { env } from "@platform/config";
 import { sandboxProvisioningQueue } from "../../lib/sandbox-provisioning-queue.js";
 import { enforceSandboxProvisioningRateLimit } from "../../lib/rate-limit-tiers.js";
+import { logger } from "@platform/logger";
 import { platformAdminFactory } from "./factory.js";
 
 /**
@@ -62,11 +63,28 @@ export const createSandboxHandler = platformAdminFactory.createHandlers(
       );
     }
 
-    const job = await sandboxProvisioningQueue.add("provision", {
-      orgName,
-      trialDays,
-      requestedBy: userId,
-    });
+    // Review finding (PR #804): an unhandled queue.add() throw (Redis/BullMQ down) would
+    // otherwise propagate as a generic 500 with no actionable signal for the caller.
+    let job;
+    try {
+      job = await sandboxProvisioningQueue.add("provision", {
+        orgName,
+        trialDays,
+        requestedBy: userId,
+      });
+    } catch (err) {
+      logger.error(
+        { err, userId },
+        "platform-admin sandboxes: failed to enqueue provisioning job",
+      );
+      return c.json(
+        {
+          error: "ENQUEUE_FAILED",
+          message: "Could not start sandbox provisioning — try again shortly",
+        },
+        503,
+      );
+    }
 
     return c.json({ data: { jobId: job.id } }, 202);
   },

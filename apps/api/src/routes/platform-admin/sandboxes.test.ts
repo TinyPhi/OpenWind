@@ -47,6 +47,10 @@ vi.mock("../../lib/rate-limit-tiers.js", () => ({
     mockEnforceSandboxProvisioningRateLimit(...args),
 }));
 
+vi.mock("@platform/logger", () => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
+}));
+
 const { createSandboxHandler } = await import("./sandboxes.js");
 
 function makeApp() {
@@ -154,5 +158,20 @@ describe("POST /platform-admin/sandboxes", () => {
 
     expect(res.status).toBe(400);
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when the provisioning queue is unreachable (review finding, PR #804)", async () => {
+    mockQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+
+    const res = await makeApp().request("/sandboxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgName: "Acme Sandbox", trialDays: 14 }),
+    });
+
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: "ENQUEUE_FAILED",
+    });
   });
 });
