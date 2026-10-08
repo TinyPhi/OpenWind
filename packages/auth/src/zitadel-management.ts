@@ -24,7 +24,7 @@ const ServiceAccountKeySchema = z.object({
   expirationDate: z.string().optional(),
 });
 
-type ServiceAccountKey = z.infer<typeof ServiceAccountKeySchema>;
+export type ServiceAccountKey = z.infer<typeof ServiceAccountKeySchema>;
 
 interface ZitadelRole {
   key: string;
@@ -246,6 +246,39 @@ function parseServiceAccountKey(): ServiceAccountKey | null {
   }
 }
 
+/**
+ * T4 (docs/specs/multi-org-sandbox.md, ADR-022) -- the sandbox-provisioning credential,
+ * deliberately separate from parseServiceAccountKey() above (which backs every
+ * read-oriented Management API call in this file: listOrgUsers, listUserRolesByUserId,
+ * getOrgMetadataForUser, etc). Provisioning needs to CREATE orgs and human users, a strictly
+ * more dangerous capability than the read-only calls the other key is used for -- a
+ * compromise or bug in one credential's usage should not carry the other's scope for free.
+ *
+ * This function only parses the key; it does not yet exchange it for an access token or
+ * cache one (unlike getAccessToken above) -- that lives with Phase 2's T7 provisioning job,
+ * the first and only caller. Returns null (never throws) the same way
+ * parseServiceAccountKey does, so a missing/misconfigured credential surfaces as "cannot
+ * provision" rather than crashing whatever process checks for it.
+ */
+export function parseProvisioningServiceAccountKey(): ServiceAccountKey | null {
+  const rawDirect = env.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY;
+  const rawB64 = env.ZITADEL_PROVISIONING_KEY_JSON;
+  const raw =
+    rawDirect ??
+    (rawB64 ? Buffer.from(rawB64, "base64").toString("utf8") : undefined);
+  if (!raw) return null;
+
+  try {
+    return ServiceAccountKeySchema.parse(JSON.parse(raw));
+  } catch {
+    logger.error(
+      { keyConfigured: !!raw },
+      "Failed to parse provisioning service account key — invalid JSON or missing fields",
+    );
+    return null;
+  }
+}
+
 // ── Get access token (JWT bearer → OAuth token exchange) ──────────────────────
 
 async function getAccessToken(): Promise<string | null> {
@@ -315,6 +348,238 @@ async function getAccessToken(): Promise<string | null> {
   } catch (err) {
     logger.error({ err }, "Failed to obtain Zitadel service account token");
     return null;
+  }
+}
+
+// ── Get provisioning access token (T7) ──────────────────────────────────────────
+// Deliberately its own cache, separate from getAccessToken's — the provisioning
+// credential (parseProvisioningServiceAccountKey) is a strictly more dangerous scope
+// (can CREATE orgs/users) than the read-only one, so a bug in one token's caching must
+// never bleed into the other's lifetime.
+
+let _cachedProvisioningToken: string | null = null;
+let _provisioningTokenExpiresAt = 0;
+
+async function getProvisioningAccessToken(): Promise<string | null> {
+  const now = Date.now();
+  if (_cachedProvisioningToken && now < _provisioningTokenExpiresAt - 30_000)
+    return _cachedProvisioningToken;
+
+  const keyConfig = parseProvisioningServiceAccountKey();
+  if (!keyConfig) return null;
+
+  try {
+    const exportedKey = keyConfig.key.includes("BEGIN PRIVATE KEY")
+      ? keyConfig.key
+      : createPrivateKey(keyConfig.key).export({
+          type: "pkcs8",
+          format: "pem",
+        });
+    const keyPem =
+      typeof exportedKey === "string"
+        ? exportedKey
+        : (exportedKey as Buffer).toString("utf8");
+    const issuer = await discoverIssuer();
+    const privateKey = await importPKCS8(keyPem, "RS256");
+    const assertion = await new SignJWT({})
+      .setProtectedHeader({ alg: "RS256", kid: keyConfig.keyId })
+      .setIssuedAt()
+      .setIssuer(keyConfig.userId)
+      .setSubject(keyConfig.userId)
+      .setAudience(issuer)
+      .setExpirationTime("1h")
+      .sign(privateKey);
+
+    const tokenUrl = `${internalBase()}/oauth/v2/token`;
+    const result = await httpPost(
+      tokenUrl,
+      issuerHost(),
+      { "Content-Type": "application/x-www-form-urlencoded" },
+      new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        scope:
+          "openid profile email urn:zitadel:iam:org:project:id:zitadel:aud",
+        assertion,
+      }).toString(),
+    );
+
+    if (result.status < 200 || result.status >= 300) {
+      // Never log the raw response body -- it's an unvetted external payload.
+      logger.error(
+        { status: result.status },
+        "Zitadel provisioning token exchange failed",
+      );
+      return null;
+    }
+
+    const data = JSON.parse(result.text) as {
+      access_token: string;
+      expires_in: number;
+    };
+    _cachedProvisioningToken = data.access_token;
+    _provisioningTokenExpiresAt = now + data.expires_in * 1000;
+    return _cachedProvisioningToken;
+  } catch (err) {
+    logger.error(
+      { err },
+      "Failed to obtain Zitadel provisioning service account token",
+    );
+    return null;
+  }
+}
+
+// ── Create org / human user (T7) ─────────────────────────────────────────────────
+// Both use the provisioning credential above, never the read-only one. Zitadel org
+// uniqueness is instance-wide for the org name and per-org for usernames/emails -- an
+// "already exists"/"already taken" response is surfaced as a typed conflict so T7's
+// provisioning job can retry with a fresh candidate from sandbox-org-template.ts,
+// rather than this function retrying internally (the caller owns the retry budget and
+// the candidate generation, this function only reports what happened).
+//
+// isConflictResponse checks both the plain REST 409 and Zitadel's own gRPC-gateway
+// error shape (`code: 6` / FailedPrecondition, or an AlreadyExists message), since T5's
+// password-policy spike (still open) hasn't confirmed which shape this instance
+// actually returns for a uniqueness collision on the v2 API -- treating either as a
+// conflict is the safer default: worst case is an extra, harmless retry with a fresh
+// candidate, whereas under-detecting a conflict would surface a real collision as a
+// hard failure instead of a retry.
+function isConflictResponse(status: number, text: string): boolean {
+  if (status === 409) return true;
+  if (status < 400 || status >= 500) return false;
+  try {
+    const body = JSON.parse(text) as { code?: number; message?: string };
+    if (body.code === 6) return true;
+    if (
+      typeof body.message === "string" &&
+      /already ?exists/i.test(body.message)
+    )
+      return true;
+  } catch {
+    // Non-JSON body -- fall through to "not a conflict".
+  }
+  return false;
+}
+
+export interface CreateOrgResult {
+  ok: true;
+  orgId: string;
+}
+export interface CreateOrgConflict {
+  ok: false;
+  conflict: true;
+}
+export interface CreateOrgFailure {
+  ok: false;
+  conflict: false;
+}
+
+export async function createOrg(
+  name: string,
+): Promise<CreateOrgResult | CreateOrgConflict | CreateOrgFailure> {
+  const token = await getProvisioningAccessToken();
+  if (!token) return { ok: false, conflict: false };
+
+  try {
+    const url = `${internalBase()}/v2/organizations`;
+    const result = await httpPost(
+      url,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify({ name }),
+    );
+
+    if (isConflictResponse(result.status, result.text))
+      return { ok: false, conflict: true };
+    if (result.status < 200 || result.status >= 300) {
+      // Never log the raw response body -- see comment in getAccessToken.
+      logger.error(
+        { status: result.status, name },
+        "createOrg: Zitadel org creation failed",
+      );
+      return { ok: false, conflict: false };
+    }
+
+    const data = JSON.parse(result.text) as { organizationId?: string };
+    if (!data.organizationId) return { ok: false, conflict: false };
+    return { ok: true, orgId: data.organizationId };
+  } catch (err) {
+    logger.error({ err, name }, "Failed to create Zitadel organization");
+    return { ok: false, conflict: false };
+  }
+}
+
+export interface CreateHumanUserInput {
+  orgId: string;
+  email: string;
+  givenName: string;
+  familyName: string;
+  password: string;
+}
+
+export interface CreateHumanUserResult {
+  ok: true;
+  userId: string;
+}
+export interface CreateHumanUserConflict {
+  ok: false;
+  conflict: true;
+}
+export interface CreateHumanUserFailure {
+  ok: false;
+  conflict: false;
+}
+
+/**
+ * isEmailVerified: true, changeRequired: false -- R3's revised criterion (2026-10-07):
+ * seeded accounts are never forced through a password-change screen, since most of them
+ * exist only to populate the org chart and are never logged into.
+ */
+export async function createHumanUser(
+  input: CreateHumanUserInput,
+): Promise<
+  CreateHumanUserResult | CreateHumanUserConflict | CreateHumanUserFailure
+> {
+  const token = await getProvisioningAccessToken();
+  if (!token) return { ok: false, conflict: false };
+
+  try {
+    const url = `${internalBase()}/v2/users/human`;
+    const payload = {
+      organization: { orgId: input.orgId },
+      profile: {
+        givenName: input.givenName,
+        familyName: input.familyName,
+      },
+      email: { email: input.email, isVerified: true },
+      password: { password: input.password, changeRequired: false },
+    };
+    const result = await httpPost(
+      url,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify(payload),
+    );
+
+    if (isConflictResponse(result.status, result.text))
+      return { ok: false, conflict: true };
+    if (result.status < 200 || result.status >= 300) {
+      // Never log the raw response body -- see comment in getAccessToken.
+      logger.error(
+        { status: result.status, orgId: input.orgId },
+        "createHumanUser: Zitadel user creation failed",
+      );
+      return { ok: false, conflict: false };
+    }
+
+    const data = JSON.parse(result.text) as { userId?: string };
+    if (!data.userId) return { ok: false, conflict: false };
+    return { ok: true, userId: data.userId };
+  } catch (err) {
+    logger.error(
+      { err, orgId: input.orgId },
+      "Failed to create Zitadel human user",
+    );
+    return { ok: false, conflict: false };
   }
 }
 

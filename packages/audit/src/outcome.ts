@@ -98,6 +98,12 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // passed) that then failed mid-run -- a worker/upstream-provider outcome,
   // not a denied caller request, same reasoning as schedule.execution_failed.
   "org_directory.sync_failed": true,
+  // Worker outcomes of a job the platform_admin was already entitled to start
+  // (requirePlatformAdmin already passed, R11's quota already checked) --
+  // same reasoning as schedule.execution_failed above, not a denied caller
+  // request.
+  "sandbox.provisioning_completed": true,
+  "sandbox.provisioning_failed": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since

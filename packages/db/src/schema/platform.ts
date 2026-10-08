@@ -34,6 +34,15 @@ export const tenants = pgTable("tenants", {
   deletionScheduledAt: timestamp("deletion_scheduled_at", {
     withTimezone: true,
   }),
+  // Multi-Org Sandbox System (docs/specs/multi-org-sandbox.md, ADR-022). False/absent for
+  // every real customer tenant. platform_admin_role (migration 0134) has column-scoped
+  // SELECT on exactly these three columns plus id/name/createdAt -- never on any other
+  // tenants column or any other table.
+  isSandbox: boolean("is_sandbox").default(false).notNull(),
+  /** Past this timestamp, login + all background jobs for this tenant stop (R6). Never set for real tenants. */
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+  /** Zitadel user id of the platform_admin who created this sandbox. NULL for real tenants. */
+  createdByPlatformAdmin: text("created_by_platform_admin"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

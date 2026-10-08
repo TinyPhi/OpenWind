@@ -57,9 +57,14 @@ const _authReady = new Promise<void>((resolve) => {
 });
 
 // Check localStorage immediately (page reload path).
-void userManager.getUser().then((u) => {
-  if (u && !u.expired) _authReadyResolve?.();
-});
+void userManager
+  .getUser()
+  .then((u) => {
+    if (u && !u.expired) _authReadyResolve?.();
+  })
+  .catch(() => {
+    // Ignore storage errors in test or restricted environments
+  });
 
 // Resolve whenever a user is stored (initial login path).
 userManager.events.addUserLoaded((_u: User) => {
@@ -204,9 +209,7 @@ export const authProvider: AuthProvider = {
           user.profile.email ??
           "Admin User",
         email: user.profile.email ?? "",
-        avatar:
-          user.profile.picture ??
-          `https://api.dicebear.com/7.x/initials/svg?seed=${user.profile.name ?? "Admin"}&fontSize=38&fontWeight=700&chars=2`,
+        avatar: user.profile.picture,
       };
     }
     return null;

@@ -348,6 +348,73 @@ function getRolesFromProfile(
 
 // â”€â”€ Layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+interface InitialsAvatarProps {
+  name: string;
+  avatar?: string | undefined;
+  size: number;
+  className?: string | undefined;
+  style?: React.CSSProperties | undefined;
+}
+
+function InitialsAvatar({
+  name,
+  avatar,
+  size,
+  className,
+  style,
+}: InitialsAvatarProps): React.ReactElement {
+  if (avatar) {
+    return (
+      <img
+        src={avatar}
+        alt={name || "Avatar"}
+        className={className}
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: "50%",
+          flexShrink: 0,
+          ...style,
+        }}
+      />
+    );
+  }
+
+  const initials =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0] ?? "")
+      .join("")
+      .toUpperCase() || "U";
+
+  return (
+    <div
+      role="img"
+      className={className}
+      aria-label={`${name.trim() || "User"} avatar`}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: "50%",
+        background: "var(--accent-primary, #00aa55)",
+        color: "#ffffff",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 700,
+        fontSize: size > 40 ? "20px" : "11px",
+        flexShrink: 0,
+        userSelect: "none",
+        ...style,
+      }}
+    >
+      {initials}
+    </div>
+  );
+}
+
 export function Layout({
   children,
 }: {
@@ -358,7 +425,7 @@ export function Layout({
     id: string;
     name: string;
     email: string;
-    avatar: string;
+    avatar?: string;
   }>();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -455,7 +522,7 @@ export function Layout({
           <span />
           <span />
         </button>
-        <img src="/ow-logo.png" alt="OpenWind" className="logo-icon" />
+        <img src="/favicon.svg" alt="OpenWind" className="logo-icon" />
         <div className="logo-text">OpenWind</div>
       </div>
 
@@ -487,14 +554,11 @@ export function Layout({
             onClick={() => setProfileOpen((o) => !o)}
             aria-label="Open profile"
           >
-            <img
-              src={
-                identity?.avatar ??
-                `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&fontSize=38&fontWeight=700&chars=2`
-              }
-              alt="Avatar"
+            <InitialsAvatar
+              name={name}
+              avatar={identity?.avatar}
+              size={24}
               className="header-avatar"
-              style={{ flexShrink: 0 }}
             />
             <span
               className="header-username"
@@ -537,19 +601,11 @@ export function Layout({
                   padding: "24px 16px 16px",
                 }}
               >
-                <img
-                  src={
-                    identity?.avatar ??
-                    `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}&fontSize=38&fontWeight=700&chars=2`
-                  }
-                  alt="Avatar"
-                  style={{
-                    width: "64px",
-                    height: "64px",
-                    borderRadius: "50%",
-                    flexShrink: 0,
-                    border: "2px solid var(--border-color)",
-                  }}
+                <InitialsAvatar
+                  name={name}
+                  avatar={identity?.avatar}
+                  size={64}
+                  style={{ border: "2px solid var(--border-color)" }}
                 />
                 <div
                   style={{

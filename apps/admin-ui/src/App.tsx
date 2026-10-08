@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { Refine, Authenticated } from "@refinedev/core";
 import routerProvider from "@refinedev/react-router-v6";
 import {
@@ -7,44 +7,48 @@ import {
   Route,
   Outlet,
   Navigate,
+  useLocation,
 } from "react-router-dom";
 import { authProvider } from "./authProvider.js";
 import { dataProvider } from "./dataProvider.js";
 import { EntityTypeProvider } from "./entity-type-context.js";
 import { Layout } from "./components/layout.js";
-import { Login } from "./pages/login.js";
-import { AuthCallback } from "./pages/callback.js";
-import { Dashboard } from "./pages/dashboard.js";
-import { Analytics } from "./pages/analytics.js";
-import { ReportingPage } from "./pages/reporting.js";
-import { Modules } from "./pages/modules.js";
-import { Plugins } from "./pages/plugins.js";
-import { EntityTypeDetail } from "./pages/entity-types/detail.js";
-import { EntityInstanceCreate } from "./pages/entity-types/instance-create.js";
-import { Workflows } from "./pages/workflows/index.js";
-import { WorkflowDetail } from "./pages/workflows/detail.js";
-import { CreateWorkflow } from "./pages/workflows/create.js";
-import { AdminRecords } from "./pages/records/index.js";
-import { WorkflowRecords } from "./pages/records/workflow-records.js";
-import { Settings } from "./pages/settings.js";
-import { UsersPage } from "./pages/users.js";
-import { OrgDirectoryPage } from "./pages/org-directory.js";
-import { CustomerRecordCreate } from "./pages/customer/record-create.js";
-import { CustomerRecordDetail } from "./pages/customer/record-detail.js";
-import { Automations } from "./pages/automations/index.js";
-import { AutomationWizard } from "./pages/automations/wizard/wizard.js";
+import { RouteErrorBoundary } from "./components/route-error-boundary.js";
 import { RequireAdmin } from "./components/require-admin.js";
-import { SystemLogsPage } from "./pages/system-logs.js";
-import { ThirdPartyAccessLogsPage } from "./pages/third-party-access-logs.js";
-import { ApiKeysPage } from "./pages/api-keys/page.js";
-import { ApiKeyApplicationDetail } from "./pages/api-keys/detail.js";
-import { ScheduleRulesPage } from "./pages/schedule-rules/index.js";
-import { ScheduleRuleDetailPage } from "./pages/schedule-rules/detail.js";
-import { TeamsPage } from "./pages/teams/index.js";
-import { ServicesPage } from "./pages/services/index.js";
-import { RosterPage } from "./pages/roster/index.js";
-import { NotificationPoliciesPage } from "./pages/notification-policies/index.js";
-import { OnCallAdminPage } from "./pages/admin-oncall/index.js";
+import {
+  Login,
+  AuthCallback,
+  Dashboard,
+  Analytics,
+  ReportingPage,
+  Modules,
+  Plugins,
+  EntityTypeDetail,
+  EntityInstanceCreate,
+  Workflows,
+  WorkflowDetail,
+  CreateWorkflow,
+  AdminRecords,
+  WorkflowRecords,
+  Settings,
+  UsersPage,
+  OrgDirectoryPage,
+  CustomerRecordCreate,
+  CustomerRecordDetail,
+  Automations,
+  AutomationWizard,
+  SystemLogsPage,
+  ThirdPartyAccessLogsPage,
+  ApiKeysPage,
+  ApiKeyApplicationDetail,
+  ScheduleRulesPage,
+  ScheduleRuleDetailPage,
+  TeamsPage,
+  ServicesPage,
+  RosterPage,
+  NotificationPoliciesPage,
+  OnCallAdminPage,
+} from "./lazy-routes.js";
 import { GlobalErrorBanner } from "./components/global-error-banner.js";
 import { GlobalAlertDialog } from "./components/global-alert-dialog.js";
 import { useIdleLogout } from "./hooks/use-idle-logout.js";
@@ -57,6 +61,37 @@ function AuthenticatedShell({
 }): React.ReactElement {
   useIdleLogout();
   return <>{children}</>;
+}
+
+// Suspense + error boundary live inside the Layout so a lazy route loading (or
+// failing to load) never unmounts the sidebar/header.
+function ShellOutlet(): React.ReactElement {
+  const { pathname } = useLocation();
+  return (
+    <RouteErrorBoundary resetKey={pathname}>
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <Outlet />
+      </Suspense>
+    </RouteErrorBoundary>
+  );
+}
+
+function RouteLoadingFallback(): React.ReactElement {
+  return (
+    <div
+      style={{
+        padding: "32px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "200px",
+        color: "var(--text-muted)",
+        fontSize: "14px",
+      }}
+    >
+      Loading…
+    </div>
+  );
 }
 
 export function App(): React.ReactElement {
@@ -109,132 +144,140 @@ export function App(): React.ReactElement {
           },
         ]}
       >
-        <Routes>
-          {/* Auth routes */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
+        <Suspense fallback={<RouteLoadingFallback />}>
+          <Routes>
+            {/* Auth routes */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
 
-          {/* Protected routes */}
-          <Route
-            element={
-              <Authenticated
-                key="protected"
-                fallback={<Navigate to="/login" />}
-              >
-                <AuthenticatedShell>
-                  <EntityTypeProvider>
-                    <Layout>
-                      <Outlet />
-                    </Layout>
-                  </EntityTypeProvider>
-                </AuthenticatedShell>
-              </Authenticated>
-            }
-          >
-            {/* All authenticated users */}
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/reporting" element={<ReportingPage />} />
-            <Route path="/records" element={<AdminRecords />} />
+            {/* Protected routes */}
             <Route
-              path="/workflows/:workflowSlug/records"
-              element={<WorkflowRecords />}
-            />
+              element={
+                <Authenticated
+                  key="protected"
+                  fallback={<Navigate to="/login" />}
+                >
+                  <AuthenticatedShell>
+                    <EntityTypeProvider>
+                      <Layout>
+                        <ShellOutlet />
+                      </Layout>
+                    </EntityTypeProvider>
+                  </AuthenticatedShell>
+                </Authenticated>
+              }
+            >
+              {/* All authenticated users */}
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/reporting" element={<ReportingPage />} />
+              <Route path="/records" element={<AdminRecords />} />
+              <Route
+                path="/workflows/:workflowSlug/records"
+                element={<WorkflowRecords />}
+              />
 
-            {/* Automation rules */}
-            <Route path="/automations" element={<Automations />} />
-            <Route path="/automations/new" element={<AutomationWizard />} />
-            <Route
-              path="/automations/:id/edit"
-              element={<AutomationWizard />}
-            />
+              {/* Automation rules */}
+              <Route path="/automations" element={<Automations />} />
+              <Route path="/automations/new" element={<AutomationWizard />} />
+              <Route
+                path="/automations/:id/edit"
+                element={<AutomationWizard />}
+              />
 
-            {/* Customer routes */}
-            <Route
-              path="/records/:typeSlug/new"
-              element={<CustomerRecordCreate />}
-            />
-            <Route
-              path="/records/:typeSlug/:id"
-              element={<CustomerRecordDetail />}
-            />
+              {/* Customer routes */}
+              <Route
+                path="/records/:typeSlug/new"
+                element={<CustomerRecordCreate />}
+              />
+              <Route
+                path="/records/:typeSlug/:id"
+                element={<CustomerRecordDetail />}
+              />
 
-            <Route path="/settings" element={<Settings />} />
+              <Route path="/settings" element={<Settings />} />
 
-            <Route path="/modules" element={<Modules />} />
-            <Route path="/plugins" element={<Plugins />} />
+              <Route path="/modules" element={<Modules />} />
+              <Route path="/plugins" element={<Plugins />} />
 
-            {/* Workflow detail — access checked inside component (admin or workflow assignee) */}
-            <Route
-              path="/workflows/:workflowSlug"
-              element={<WorkflowDetail />}
-            />
+              {/* Workflow detail — access checked inside component (admin or workflow assignee) */}
+              <Route
+                path="/workflows/:workflowSlug"
+                element={<WorkflowDetail />}
+              />
 
-            {/* Workflow list — any authenticated user; the API filters the
+              {/* Workflow list — any authenticated user; the API filters the
                 list to workflows they admin. Creating a new one (POST
                 /entity-types + /workflows) is admin-only — see
                 /workflows/new below. */}
-            <Route path="/workflows" element={<Workflows />} />
+              <Route path="/workflows" element={<Workflows />} />
 
-            {/* Org member list — any authenticated user (admin, agent, or
+              {/* Org member list — any authenticated user (admin, agent, or
                 customer); the API already allows the "user" role since
                 customers need it to resolve assignee display names. */}
-            <Route path="/users" element={<UsersPage />} />
+              <Route path="/users" element={<UsersPage />} />
 
-            {/* Org chart — any authenticated user can view (docs/specs/
+              {/* Org chart — any authenticated user can view (docs/specs/
                 org-directory.md R7); the manual sync button inside is
                 admin-gated client-side, and the sync route itself is
                 admin-only server-side. */}
-            <Route path="/org-directory" element={<OrgDirectoryPage />} />
+              <Route path="/org-directory" element={<OrgDirectoryPage />} />
 
-            {/* Admin-only routes */}
-            <Route element={<RequireAdmin />}>
-              <Route path="/workflows/new" element={<CreateWorkflow />} />
-              <Route path="/entity-types/:id" element={<EntityTypeDetail />} />
-              <Route
-                path="/entity-types/:id/records/new"
-                element={<EntityInstanceCreate />}
-              />
-              <Route path="/admin/system-logs" element={<SystemLogsPage />} />
-              <Route
-                path="/admin/third-party-access-logs"
-                element={<ThirdPartyAccessLogsPage />}
-              />
-              <Route path="/admin/api-keys" element={<ApiKeysPage />} />
-              <Route
-                path="/admin/api-keys/:slug"
-                element={<ApiKeyApplicationDetail />}
-              />
-              <Route
-                path="/admin/schedule-rules"
-                element={<ScheduleRulesPage />}
-              />
-              <Route
-                path="/admin/schedule-rules/:id"
-                element={<ScheduleRuleDetailPage />}
-              />
-              {/* Combined tabbed hub (Teams | Services | Roster | Notification
+              {/* Admin-only routes */}
+              <Route element={<RequireAdmin />}>
+                <Route path="/workflows/new" element={<CreateWorkflow />} />
+                <Route
+                  path="/entity-types/:id"
+                  element={<EntityTypeDetail />}
+                />
+                <Route
+                  path="/entity-types/:id/records/new"
+                  element={<EntityInstanceCreate />}
+                />
+                <Route path="/admin/system-logs" element={<SystemLogsPage />} />
+                <Route
+                  path="/admin/third-party-access-logs"
+                  element={<ThirdPartyAccessLogsPage />}
+                />
+                <Route path="/admin/api-keys" element={<ApiKeysPage />} />
+                <Route
+                  path="/admin/api-keys/:slug"
+                  element={<ApiKeyApplicationDetail />}
+                />
+                <Route
+                  path="/admin/schedule-rules"
+                  element={<ScheduleRulesPage />}
+                />
+                <Route
+                  path="/admin/schedule-rules/:id"
+                  element={<ScheduleRuleDetailPage />}
+                />
+                {/* Combined tabbed hub (Teams | Services | Roster | Notification
                   Policies) — the sidebar links here now. The 4 individual
                   routes below stay mounted so existing bookmarks/direct
                   links to e.g. /admin/teams keep working. */}
-              <Route path="/admin/on-call" element={<OnCallAdminPage />} />
-              <Route path="/admin/teams" element={<TeamsPage />} />
-              <Route path="/admin/services" element={<ServicesPage />} />
-              <Route path="/admin/roster" element={<RosterPage />} />
+                <Route path="/admin/on-call" element={<OnCallAdminPage />} />
+                <Route path="/admin/teams" element={<TeamsPage />} />
+                <Route path="/admin/services" element={<ServicesPage />} />
+                <Route path="/admin/roster" element={<RosterPage />} />
+                <Route
+                  path="/admin/notification-policies"
+                  element={<NotificationPoliciesPage />}
+                />
+              </Route>
+
               <Route
-                path="/admin/notification-policies"
-                element={<NotificationPoliciesPage />}
+                path="/home"
+                element={<Navigate to="/records" replace />}
               />
-            </Route>
 
-            <Route path="/home" element={<Navigate to="/records" replace />} />
-
-            {/* Catch-all — an unmatched path (removed route, typo, stale
+              {/* Catch-all — an unmatched path (removed route, typo, stale
                 bookmark) redirects to Records instead of rendering blank. */}
-            <Route path="*" element={<Navigate to="/records" replace />} />
-          </Route>
-        </Routes>
+              <Route path="*" element={<Navigate to="/records" replace />} />
+            </Route>
+          </Routes>
+        </Suspense>
       </Refine>
     </BrowserRouter>
   );

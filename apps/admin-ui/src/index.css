@@ -1003,7 +1003,7 @@ button.menu-item.sidebar-logout {
    toggle in .lp-topbar - and only restyles the card interior: a
    breadcrumb-style header instead of the stacked logo/title/description
    block, and a rounder card. Every value below reads from the same
-   --bg-*/--text-*/--accent-primary/--border-color tokens the rest of the
+   --bg-* / --text-* / --accent-primary / --border-color tokens the rest of the
    page already uses, so it follows the light/dark toggle and saved accent
    color with no theme-specific overrides needed. */
 .lp-card-notebook {

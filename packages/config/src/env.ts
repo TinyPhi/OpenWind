@@ -94,6 +94,32 @@ const EnvSchema = z
     // ADR-013, #692 — per-(tenant, user) cap on entity-list exports, which can
     // each pull up to 10,000 rows including PII/financial fields.
     RATE_LIMIT_EXPORT_PER_MIN: z.coerce.number().int().positive().default(5),
+    // docs/specs/multi-org-sandbox.md T7, security review — per-platform_admin cap on
+    // POST /platform-admin/sandboxes. The generic global rate limit (500/min/IP) is sized
+    // for ordinary CRUD, not for a route whose happy path drives ~21+ outbound Zitadel
+    // calls (1 org + up to 20 accounts) and a real tenant insert per accepted request.
+    // Deliberately low -- a single trusted operator (§C) has no legitimate reason to
+    // create sandboxes faster than this.
+    RATE_LIMIT_SANDBOX_PROVISIONING_PER_MIN: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(3),
+    // docs/specs/multi-org-sandbox.md R11, ADR-022 — caps how many concurrently-active
+    // (non-deleted) sandboxes a single platform_admin can have open at once, so a
+    // compromised/scripted/fat-fingered platform_admin account can't spin up an unbounded
+    // number of real Zitadel orgs + accounts. Config value, not hardcoded in route logic.
+    PLATFORM_ADMIN_MAX_ACTIVE_SANDBOXES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(10),
+    // docs/specs/multi-org-sandbox.md R1, ADR-022 — local-dev-only bypass for the TOTP MFA
+    // requirement on platform_admin login (setting up a real authenticator app against
+    // every local Zitadel instance is impractical for day-to-day dev). Same safety bar as
+    // DEV_TENANT_ID/SKIP_AV_SCAN below: the refine makes it structurally impossible to
+    // enable in production, not just discouraged by convention.
+    PLATFORM_ADMIN_MFA_DEV_BYPASS: z.coerce.boolean().default(false),
     // ADR-012 Phase G, spec R6 — the third-party acting-person JWT path
     // (verifyJwtWithAudience) rejects a token whose iat is older than this,
     // independent of Zitadel's own exp-based expiry. A startup warning (not
@@ -130,6 +156,19 @@ const EnvSchema = z
     // Base64-encoded service account key — written by bootstrap.
     // Fallback when ZITADEL_SERVICE_ACCOUNT_KEY is absent.
     ZITADEL_KEY_JSON: z.string().optional(),
+    // docs/specs/multi-org-sandbox.md T4, ADR-022 — a SEPARATE service account from
+    // ZITADEL_SERVICE_ACCOUNT_KEY/ZITADEL_KEY_JSON above, used only by sandbox
+    // provisioning (Phase 2: create org, create accounts, assign roles). Deliberately not
+    // the same credential as the read-oriented management key those two serve (listOrgUsers,
+    // listUserRolesByUserId, getOrgMetadataForUser) -- a bug or compromise in provisioning
+    // code should not inherit whatever scope the general management key carries, and vice
+    // versa. The Zitadel-console side of this (creating this service account/machine user
+    // with the narrowest role that still permits org + human-user creation, e.g. "Org
+    // Manager" scoped to this project, not instance-wide "IAM Owner") is a manual setup
+    // step outside this repo -- no code here can create a Zitadel service account on its
+    // own behalf. Same raw-JSON-or-base64 shape as the pair above.
+    ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY: z.string().optional(),
+    ZITADEL_PROVISIONING_KEY_JSON: z.string().optional(),
     // Project ID — defaults to ZITADEL_AUDIENCE which is the project ID in this setup.
     ZITADEL_PROJECT_ID: z.string().optional(),
     // Token introspection — used for sensitive ops that require active-token verification
@@ -312,6 +351,13 @@ const EnvSchema = z
     message:
       "SKIP_AV_SCAN must not be true in production — it marks every upload clean without running antivirus scanning",
   })
+  .refine(
+    (v) => !(v.NODE_ENV === "production" && v.PLATFORM_ADMIN_MFA_DEV_BYPASS),
+    {
+      message:
+        "PLATFORM_ADMIN_MFA_DEV_BYPASS must not be true in production — it bypasses the platform_admin TOTP MFA requirement",
+    },
+  )
   // Reporting (3G) — a development default reaching production means the guest
   // token signing key is public knowledge, so passes can be forged offline
   // without touching the deployment. Each secret is guarded separately so the
