@@ -98,3 +98,8 @@ export {
   verifyMfaCode,
   isMfaVerified,
 } from "./platform-admin-mfa.js";
+export {
+  storeSandboxHandoverCredentials,
+  getSandboxHandoverCredentials,
+} from "./sandbox-handover-store.js";
+export type { SandboxHandoverCredentials } from "./sandbox-handover-store.js";

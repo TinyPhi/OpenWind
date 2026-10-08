@@ -140,6 +140,14 @@ wait-screen polls this job rather than holding one HTTP connection open for the 
 default-password pattern used, for handing off to the prospect — this is the actual handover
 artifact, not just a "done" status (`GET /platform-admin/sandboxes/:tenantId/handover`).
 
+Operational note (review finding, PR #805): the handover artifact (usernames + shared password)
+lives in Redis with a 7-day TTL, not a durable DB column — see migration 0137's comment. If a
+platform admin misses that window, the endpoint returns 404 ("Handover window has expired"); the
+sandbox's Zitadel accounts still exist and are unaffected. Recovery is manual and out-of-band: the
+platform admin resets the affected accounts' passwords via the Zitadel console and re-issues
+credentials to the prospect directly. There is no in-app re-issue flow — re-running provisioning
+would create a second, duplicate org, and extending the Redis TTL after the fact is not supported.
+
 R6: Trial expiry stops everything for that tenant, without deleting data.
 ✓ `trial_ends_at` is stored per tenant.
 ✓ Every login attempt, every authenticated API request, and every background job touching a
