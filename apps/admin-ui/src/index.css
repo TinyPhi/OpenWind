@@ -5120,7 +5120,7 @@ select.form-input {
 .analytics-quick-action:hover {
   border-color: var(--accent-primary);
   color: var(--accent-primary);
-  background: hsla(250, 84%, 60%, 0.06);
+  background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
 }
 
 .header-profile-btn {
