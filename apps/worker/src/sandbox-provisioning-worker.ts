@@ -69,7 +69,6 @@ export interface SandboxProvisioningJobResult {
   tenantId: string;
   zitadelOrgId: string;
   adminEmail: string;
-  defaultPassword: string;
   seededAccountCount: number;
   failedAccountCount: number;
 }
@@ -322,6 +321,11 @@ export async function processSandboxProvisioningJob(
     );
 
     // Credentials go to Redis (7-day TTL), never this table -- see module doc comment.
+    // Review finding (PR #804): this is also why defaultPassword is never part of this
+    // function's return value below -- BullMQ's removeOnComplete would otherwise persist
+    // it a second time, in Redis's job-result store, with no gating at all. This dedicated
+    // handover store (behind requirePlatformAdmin + MFA + the handover route's own status
+    // check) is the only place it's retrievable from.
     await storeSandboxHandoverCredentials(tenantId, {
       seededAccounts,
       defaultPassword,
@@ -343,7 +347,6 @@ export async function processSandboxProvisioningJob(
       tenantId,
       zitadelOrgId: org.orgId,
       adminEmail: admin.email,
-      defaultPassword,
       seededAccountCount,
       failedAccountCount,
     };
