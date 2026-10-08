@@ -312,6 +312,12 @@ def _session_user():
             return None
         return user
     except Exception:  # noqa: BLE001
+        # Still fails closed (no user, so no tenant is stamped), but logged, so an
+        # unexpected error here is not mistaken for "this user has no tenant".
+        logger.warning(
+            "could not resolve the Superset user for this request; failing closed",
+            exc_info=True,
+        )
         return None
 
 
