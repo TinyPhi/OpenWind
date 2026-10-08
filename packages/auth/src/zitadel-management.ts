@@ -24,7 +24,7 @@ const ServiceAccountKeySchema = z.object({
   expirationDate: z.string().optional(),
 });
 
-type ServiceAccountKey = z.infer<typeof ServiceAccountKeySchema>;
+export type ServiceAccountKey = z.infer<typeof ServiceAccountKeySchema>;
 
 interface ZitadelRole {
   key: string;
@@ -241,6 +241,39 @@ function parseServiceAccountKey(): ServiceAccountKey | null {
     logger.error(
       { keyConfigured: !!raw },
       "Failed to parse service account key — invalid JSON or missing fields",
+    );
+    return null;
+  }
+}
+
+/**
+ * T4 (docs/specs/multi-org-sandbox.md, ADR-022) -- the sandbox-provisioning credential,
+ * deliberately separate from parseServiceAccountKey() above (which backs every
+ * read-oriented Management API call in this file: listOrgUsers, listUserRolesByUserId,
+ * getOrgMetadataForUser, etc). Provisioning needs to CREATE orgs and human users, a strictly
+ * more dangerous capability than the read-only calls the other key is used for -- a
+ * compromise or bug in one credential's usage should not carry the other's scope for free.
+ *
+ * This function only parses the key; it does not yet exchange it for an access token or
+ * cache one (unlike getAccessToken above) -- that lives with Phase 2's T7 provisioning job,
+ * the first and only caller. Returns null (never throws) the same way
+ * parseServiceAccountKey does, so a missing/misconfigured credential surfaces as "cannot
+ * provision" rather than crashing whatever process checks for it.
+ */
+export function parseProvisioningServiceAccountKey(): ServiceAccountKey | null {
+  const rawDirect = env.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY;
+  const rawB64 = env.ZITADEL_PROVISIONING_KEY_JSON;
+  const raw =
+    rawDirect ??
+    (rawB64 ? Buffer.from(rawB64, "base64").toString("utf8") : undefined);
+  if (!raw) return null;
+
+  try {
+    return ServiceAccountKeySchema.parse(JSON.parse(raw));
+  } catch {
+    logger.error(
+      { keyConfigured: !!raw },
+      "Failed to parse provisioning service account key — invalid JSON or missing fields",
     );
     return null;
   }

@@ -31,7 +31,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), envJsPlugin(env)],
-    build: { target: "es2022" },
+    build: {
+      target: "es2022",
+      // Warning only (raw kB); the gate is the gzip budget in scripts/check-entry-size.mjs, run by `build`.
+      chunkSizeWarningLimit: 680,
+    },
     optimizeDeps: { esbuildOptions: { target: "es2022" } },
     server: {
       port: 3001,

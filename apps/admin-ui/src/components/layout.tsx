@@ -393,7 +393,7 @@ function InitialsAvatar({
     <div
       role="img"
       className={className}
-      aria-label={`${name} avatar`}
+      aria-label={`${name.trim() || "User"} avatar`}
       style={{
         width: `${size}px`,
         height: `${size}px`,

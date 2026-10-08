@@ -122,6 +122,19 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     expect(avatarElements.length).toBeGreaterThan(0);
   });
 
+  it.each(["", "   "])(
+    "labels the avatar 'User avatar' when the name is %j",
+    (name) => {
+      mockIdentityData = { id: "u1", name, email: "u@example.com" };
+      mockUserWithRoles(["agent"]);
+      renderLayout();
+
+      expect(
+        screen.getAllByRole("img", { name: "User avatar" }).length,
+      ).toBeGreaterThan(0);
+    },
+  );
+
   it("renders image avatar with alt={name || 'Avatar'} when avatar URL is provided", () => {
     mockIdentityData = {
       id: "u1",

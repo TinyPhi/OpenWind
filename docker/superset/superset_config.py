@@ -277,6 +277,197 @@ assert_connections_not_pooled()
 # Subject ids reach a connection string, so only characters that cannot
 # terminate an option or start another are permitted. Zitadel issues numeric
 # subjects; the wider set matches what the API already accepts as a principal.
+# ─── Which Superset events are audited ──────────────────────────────────────
+# Superset names each logged event after the REST handler that served it, and
+# logs the request's own fields (path, sql, client_id, result_format) in the
+# record. The names below are Superset 6.1.0's, read off the events it actually
+# writes. They are not the older sql_json / csv names an earlier version of this
+# file mapped, which 6.1.0 never emits — so SQL Lab queries and exports left no
+# platform audit row at all (#709). A Superset upgrade that renames them fails
+# test_audit_mapping.py, which pins these against real recorded events.
+#
+# Chart queries (`execute_sql`, `ChartDataRestApi.data` as JSON) are NOT audited:
+# a dashboard fires many per view and they are not user-written SQL. Only the
+# two things the spec names are: a query typed into SQL Lab, and an export.
+# ─── Who an audit row is about ──────────────────────────────────────────────
+# The standalone spec (T11) keys the audit trail to the Zitadel subject, not to
+# a login name: a login name is mutable and not unique across tenants, and the
+# platform's other audit rows already use the subject as actor. Every login
+# carries `owsub:<subject>` (staff included, unlike `owuser:`, which also
+# narrows what a session may see and so exists for non-staff only). `owsub:`
+# grants no permission and is never read by the isolation code.
+SUBJECT_ROLE_PREFIX = "owsub:"
+_OWN_ROWS_PREFIX = "owuser:"
+
+
+def audit_actor(user):
+    """The identifier an audit row records for `user`: never the login name.
+
+    Order: the `owsub:` subject, then the `owuser:` subject (a user who has not
+    logged in since `owsub:` was introduced), then Superset's own numeric user
+    id. More than one subject of a kind is a broken account, so that kind is
+    skipped rather than guessed between.
+    """
+    names = [getattr(r, "name", "") or "" for r in (getattr(user, "roles", None) or [])]
+    for prefix in (SUBJECT_ROLE_PREFIX, _OWN_ROWS_PREFIX):
+        found = [n[len(prefix):] for n in names if n.startswith(prefix)]
+        if len(found) == 1 and _PRINCIPAL_ID_RE.match(found[0]):
+            return found[0]
+    uid = getattr(user, "id", None)
+    return f"superset-user:{uid}" if uid is not None else "unknown"
+
+
+_SQLLAB_EXECUTE_PATH = "/api/v1/sqllab/execute"
+_EXPORT_FORMATS = ("csv", "xlsx")
+
+
+def classify_audit_event(action, record):
+    """The reporting audit action for one Superset event, or None to skip it."""
+    path = str((record or {}).get("path") or "").rstrip("/")
+    # Superset labels the execute handler `get_results`; the path tells it apart
+    # from the real results fetch (/api/v1/sqllab/results/).
+    if action == "SqlLabRestApi.get_results" and path == _SQLLAB_EXECUTE_PATH:
+        return "reporting.query_executed"
+    # Streaming and plain SQL Lab exports are two handlers for the same act. The
+    # plain one is refused for Stage 2 roles today (can_export_csv is withheld,
+    # ADR-019 OQ-1), but is audited all the same: a role change must not open an
+    # export route that leaves no record.
+    if action in ("SqlLabRestApi.export_streaming_csv", "SqlLabRestApi.export_csv"):
+        return "reporting.exported"
+    if action == "ChartDataRestApi.data":
+        # POST /chart/data carries result_format in the body; GET
+        # /chart/<id>/data/ carries it as ?format=.
+        fmt = (record or {}).get("result_format") or (record or {}).get("format")
+        if str(fmt or "").lower() in _EXPORT_FORMATS:
+            return "reporting.exported"
+    return None
+
+
+def posted_chart_body():
+    """The chart-data request body as the browser sent it, or {} when there is none.
+
+    Superset's own log record for the chart "Export to .CSV" form post is reduced
+    to the first query's parameters: the dataset and the saved chart's id, which
+    sit in the posted body, are gone from it. The body is read here instead, once
+    per request and cached on `g`. A JSON post is read through Flask's own cached
+    parse (`collect_request_payload` already called `get_json(cache=True)`); a form
+    post carries the same document as a JSON string in `form_data`.
+    """
+    try:
+        from flask import g, has_request_context, request
+
+        if not has_request_context():
+            return {}
+        cached = g.get("_ow_chart_body")
+        if cached is not None:
+            return cached
+        body = {}
+        if request.is_json:
+            parsed = request.get_json(silent=True)
+            body = parsed if isinstance(parsed, dict) else {}
+        elif request.form.get("form_data"):
+            parsed = json.loads(request.form["form_data"])
+            body = parsed if isinstance(parsed, dict) else {}
+        g._ow_chart_body = body
+        return body
+    except Exception:  # noqa: BLE001 - never let this break the request
+        return {}
+
+
+def requested_result_format():
+    """The export format the current request asked for, or "" when it asked for none.
+
+    `GET /chart/<id>/data/` carries it as `?format=`; a JSON or form post carries
+    `result_format` in its body. Superset's own log record cannot tell an export
+    from a normal dashboard load, so the request is read here.
+
+    Kept cheap on purpose: this runs for every chart-data event, which is the
+    most frequent one on a dashboard. A query argument is read first; the body is
+    parsed at most once per request (see `posted_chart_body`) and the answer is
+    cached on `g`.
+    """
+    try:
+        from flask import g, has_request_context, request
+
+        if not has_request_context():
+            return ""
+        cached = g.get("_ow_export_format")
+        if cached is not None:
+            return cached
+        fmt = request.args.get("format") or posted_chart_body().get("result_format") or ""
+        g._ow_export_format = str(fmt).lower()
+        return g._ow_export_format
+    except Exception:  # noqa: BLE001 - never let this break the request
+        return ""
+
+
+_CHART_PATH_RE = re.compile(r"/chart/(\d+)/data")
+_DATASOURCE_RE = re.compile(r"^\d+__[a-z_]+$")
+
+
+def _export_format_label(fmt):
+    """The export format for the audit row: `csv` or `xlsx`, else `unknown:<start>`.
+
+    Allowlisted, not just truncated, so an unexpected value from a later Superset
+    version is visibly unknown instead of landing as a clipped fragment.
+    """
+    label = str(fmt or "").lower()
+    return label if label in _EXPORT_FORMATS else f"unknown:{label[:10]}"
+
+
+def _as_datasource(value):
+    """`8__table` from either `{"id": 8, "type": "table"}` or `"8__table"`, else None."""
+    if isinstance(value, dict) and str(value.get("id", "")).isdigit() and value.get("type"):
+        value = f"{int(value['id'])}__{value['type']}"
+    return value if isinstance(value, str) and _DATASOURCE_RE.match(value) else None
+
+
+def _as_chart_id(value):
+    try:
+        return int(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def chart_export_detail(record, slice_id, fmt, body=None):
+    """What a chart export exported, for the audit row.
+
+    A chart has no SQL text the request carries, so the row says which chart and
+    dataset instead (spec T11: "what was exported"). `record` is Superset's log
+    record, `body` the posted request body (read from the request when omitted).
+    Only identifiers and the format are kept, each shape-checked, so nothing a
+    caller types can reach the audit table through this.
+    """
+    record = record if isinstance(record, dict) else {}
+    body = body if isinstance(body, dict) else posted_chart_body()
+    rec_form = record.get("form_data") if isinstance(record.get("form_data"), dict) else {}
+    body_form = body.get("form_data") if isinstance(body.get("form_data"), dict) else {}
+
+    sid = None
+    for candidate in (slice_id, rec_form.get("slice_id"), record.get("slice_id"),
+                      body_form.get("slice_id"), body.get("slice_id")):
+        sid = _as_chart_id(candidate)
+        if sid:
+            break
+    if not sid:
+        m = _CHART_PATH_RE.search(str(record.get("path") or ""))
+        sid = _as_chart_id(m.group(1)) if m else None
+
+    ds = None
+    for candidate in (record.get("datasource"), body.get("datasource"),
+                      rec_form.get("datasource"), body_form.get("datasource")):
+        ds = _as_datasource(candidate)
+        if ds:
+            break
+
+    return {
+        "kind": "chart",
+        "format": _export_format_label(fmt),
+        "slice_id": sid,
+        "datasource": ds,
+    }
+
+
 _PRINCIPAL_ID_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,255}$")
 
 _TENANT_ID_RE = re.compile(
@@ -312,6 +503,12 @@ def _session_user():
             return None
         return user
     except Exception:  # noqa: BLE001
+        # Still fails closed (no user, so no tenant is stamped), but logged, so an
+        # unexpected error here is not mistaken for "this user has no tenant".
+        logger.warning(
+            "could not resolve the Superset user for this request; failing closed",
+            exc_info=True,
+        )
         return None
 
 
@@ -793,7 +990,7 @@ if _OAUTH_CLIENT_ID:
     # tickets they raised or were assigned — the same rule the embedded
     # "My Performance" dashboard applies, moved somewhere SQL Lab cannot avoid.
     STAFF_ROLE_KEYS = {"admin", "agent", "superadmin"}
-    OWN_ROWS_ROLE_PREFIX = "owuser:"
+    OWN_ROWS_ROLE_PREFIX = _OWN_ROWS_PREFIX
 
     _OAUTH_ISSUER = os.environ.get("SUPERSET_OAUTH_ISSUER", "http://localhost:8080")
     # The browser is redirected to the public issuer; the container fetches
@@ -971,6 +1168,12 @@ if _OAUTH_CLIENT_ID:
                 r for r in user.roles
                 if not r.name.startswith(OWN_ROWS_ROLE_PREFIX)
             ]
+            # The subject marker is rebuilt each login too, so it can never
+            # point at a subject the account no longer has.
+            user.roles = [
+                r for r in user.roles
+                if not r.name.startswith(SUBJECT_ROLE_PREFIX)
+            ]
             # The registration role is a starting point, not a permanent mark.
             # AUTH_USER_REGISTRATION_ROLE puts every first-time login into
             # ReportingNoAccess, and FAB's role sync adds the mapped roles
@@ -1003,6 +1206,13 @@ if _OAUTH_CLIENT_ID:
                 own_role_name = f"{OWN_ROWS_ROLE_PREFIX}{subject}"
                 own_role = self.find_role(own_role_name) or self.add_role(own_role_name)
                 user.roles.append(own_role)
+
+            if subject and _PRINCIPAL_ID_RE.match(subject):
+                # Every user, staff included: the audit trail is keyed to this.
+                # It carries no permissions, so adding it cannot widen access.
+                marker_name = f"{SUBJECT_ROLE_PREFIX}{subject}"
+                marker = self.find_role(marker_name) or self.add_role(marker_name)
+                user.roles.append(marker)
 
             if tenant_id and _TENANT_ID_RE.match(tenant_id):
                 role_name = f"{TENANT_ROLE_PREFIX}{tenant_id}"
@@ -1045,14 +1255,6 @@ if _OAUTH_CLIENT_ID:
     # decision for whoever owns the compliance requirement, not a default.
     from superset.utils.log import DBEventLogger
 
-    _AUDITED_ACTIONS = {
-        "sql_json": "reporting.query_executed",
-        "sqllab_viz": "reporting.query_executed",
-        "csv": "reporting.exported",
-        "export_csv": "reporting.exported",
-        "csv_endpoint": "reporting.exported",
-    }
-
     class PlatformAuditEventLogger(DBEventLogger):
         """Superset's own logger, plus an append to the platform audit store."""
 
@@ -1061,18 +1263,86 @@ if _OAUTH_CLIENT_ID:
             # does not, and losing it would make Superset harder to debug.
             super().log(user_id, action, *args, **kwargs)
 
-            mapped = _AUDITED_ACTIONS.get(action)
+            # One Superset event is one record here; `records` only holds more
+            # for bulk client logging, which is never a query or an export.
+            records = kwargs.get("records") or [{}]
+            record = records[0] if isinstance(records[0], dict) else {}
+            if action == "ChartDataRestApi.data" and not (
+                record.get("result_format") or record.get("format")
+            ):
+                fmt = requested_result_format()
+                if fmt:
+                    record = {**record, "result_format": fmt}
+            mapped = classify_audit_event(action, record)
             if mapped is None:
                 return
             try:
-                self._append_platform_audit(mapped, kwargs)
+                self._append_platform_audit(mapped, record, kwargs)
             except Exception:  # noqa: BLE001
                 logger.exception(
                     "failed to record '%s' in the platform audit store", mapped
                 )
 
-        def _append_platform_audit(self, action, kwargs):
-            from flask_login import current_user
+        def _lookup_export_sql(self, client_id, user):
+            """The SQL behind an SQL Lab export, which the request does not carry.
+
+            Only a query the caller ran themselves. `client_id` is supplied by
+            the caller, and Superset's export checks access to the database, not
+            who owns the query, so a forged id naming another tenant's query
+            would otherwise copy that tenant's SQL into this tenant's audit row.
+            Returns None when there is no such query *of theirs*; the caller
+            records that nothing was withheld silently.
+            """
+            uid = getattr(user, "id", None)
+            if not client_id or uid is None:
+                return None
+            from superset import db as _db
+            from superset.models.sql_lab import Query
+
+            query = (
+                _db.session.query(Query)
+                .filter_by(client_id=client_id, user_id=uid)
+                .first()
+            )
+            return None if query is None else (query.sql or "")
+
+        def build_audit_payload(self, action, record, kwargs, user):
+            """The `metadata` of one audit row. No database access of its own."""
+            sql = record.get("sql")
+            withheld = False
+            if not sql and record.get("client_id"):
+                found = self._lookup_export_sql(record.get("client_id"), user)
+                if found is None:
+                    sql, withheld = "", True
+                else:
+                    sql = found
+            payload = {
+                "action": action,
+                # SQL Lab: the query text is the point of the record, "who
+                # exported what", not just "who exported". Truncated so one
+                # pathological query cannot bloat the audit table. Never taken
+                # from a query the caller does not own (see _lookup_export_sql).
+                "sql": str(sql or "")[:4000],
+                "database_id": record.get("database_id") or kwargs.get("database_id"),
+                "schema": record.get("schema"),
+                "client_id": record.get("client_id"),
+                "slice_id": kwargs.get("slice_id"),
+                "duration_ms": kwargs.get("duration_ms"),
+            }
+            if withheld:
+                payload["sql_withheld"] = True
+            if action == "reporting.exported" and not record.get("client_id"):
+                # A chart export: say which chart and dataset, since it has no SQL.
+                payload["export"] = chart_export_detail(
+                    record,
+                    kwargs.get("slice_id"),
+                    # POST shapes carry `result_format`; the GET carries `format`; the
+                    # real button's logged record carries neither, so ask the request.
+                    record.get("result_format") or record.get("format") or requested_result_format(),
+                )
+            return payload
+
+        def _append_platform_audit(self, action, record, kwargs):
             from sqlalchemy import text as _text
             from superset import db as _db
             from superset.models.core import Database
@@ -1083,18 +1353,12 @@ if _OAUTH_CLIENT_ID:
                 # there is no tenant to attribute the record to.
                 return
 
-            actor = getattr(current_user, "username", None) or "unknown"
-            payload = {
-                "action": action,
-                # The query text is the point of the record — "who exported
-                # what", not just "who exported". Truncated so one pathological
-                # query cannot bloat the audit table.
-                "sql": str(kwargs.get("sql") or "")[:4000],
-                "database": kwargs.get("database_name"),
-                "schema": kwargs.get("schema"),
-                "rows": kwargs.get("rows"),
-                "duration_ms": kwargs.get("duration_ms"),
-            }
+            # The same resolver as the tenant above and the own-rows narrowing, so
+            # the three can never come from different users in one request. Not
+            # `current_user`, which is unauthenticated while SQL Lab runs a query.
+            user = _session_user()
+            actor = audit_actor(user)
+            payload = self.build_audit_payload(action, record, kwargs, user)
 
             database = (
                 _db.session.query(Database)

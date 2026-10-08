@@ -1,5 +1,7 @@
 export {
   requireAuth,
+  requirePlatformAdmin,
+  requirePlatformAdminIdentity,
   requireRole,
   requireIntrospection,
   hashApiKey,
@@ -29,6 +31,7 @@ export {
 } from "./tenant-rate-limit.js";
 export type {
   AuthContext,
+  PlatformAdminAuthContext,
   ZitadelClaims,
   IntrospectionResult,
 } from "./types.js";
@@ -36,6 +39,8 @@ export {
   verifyJwt,
   verifyJwtWithAudience,
   extractAuthContext,
+  extractPlatformAdminContext,
+  PLATFORM_ADMIN_ROLE,
 } from "./jwks.js";
 export {
   assertExternalIssuerEgressAllowed,
@@ -56,8 +61,13 @@ export {
   getOrgMetadataForUser,
   invalidateUserCache,
   deleteUser,
+  parseProvisioningServiceAccountKey,
 } from "./zitadel-management.js";
-export type { OrgUser, OrgMetadata } from "./zitadel-management.js";
+export type {
+  OrgUser,
+  OrgMetadata,
+  ServiceAccountKey,
+} from "./zitadel-management.js";
 export {
   detectScopesFormat,
   unknownTicketActionScopes,
@@ -65,3 +75,8 @@ export {
 } from "./scopes.js";
 export type { ScopesFormat, TicketActionVerb } from "./scopes.js";
 export { applicationActorIdFromUserId } from "./application-actor-id.js";
+export {
+  requestMfaCode,
+  verifyMfaCode,
+  isMfaVerified,
+} from "./platform-admin-mfa.js";

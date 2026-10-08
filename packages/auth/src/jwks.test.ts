@@ -39,6 +39,8 @@ vi.mock("./ssrf-guard.js", () => ({
 
 const {
   extractAuthContext,
+  extractPlatformAdminContext,
+  hasMfaFactor,
   verifyJwt,
   verifyJwtWithAudience,
   verifyJwtForIssuer,
@@ -538,5 +540,61 @@ describe("verifyJwtForIssuer (#docs/specs/third-party-key-external-org-mapping.m
     );
 
     expect(result).toBeNull();
+  });
+});
+
+describe("extractPlatformAdminContext", () => {
+  it("returns null when the token lacks the platform_admin role", () => {
+    expect(extractPlatformAdminContext(BASE_CLAIMS)).toBeNull();
+  });
+
+  it("returns null when sub is missing", () => {
+    const claims = {
+      ...BASE_CLAIMS,
+      sub: undefined as unknown as string,
+      "urn:zitadel:iam:org:project:roles": {
+        platform_admin: { "": "" },
+      },
+    };
+    expect(extractPlatformAdminContext(claims)).toBeNull();
+  });
+
+  it("extracts userId/roles/email when platform_admin role is present", () => {
+    const claims: Claims = {
+      ...BASE_CLAIMS,
+      sub: "pa-1",
+      "urn:zitadel:iam:org:project:roles": {
+        platform_admin: { "": "" },
+      },
+    };
+    const result = extractPlatformAdminContext(claims);
+    expect(result).not.toBeNull();
+    expect(result?.userId).toBe("pa-1");
+    expect(result?.roles).toContain("platform_admin");
+    expect(result?.email).toBe("alice@example.com");
+  });
+
+  it("never includes a tenantId field, even if the claims carry resourceowner info", () => {
+    const claims: Claims = {
+      ...BASE_CLAIMS,
+      sub: "pa-1",
+      "urn:zitadel:iam:org:project:roles": { platform_admin: { "": "" } },
+    };
+    const result = extractPlatformAdminContext(claims);
+    expect(result).not.toHaveProperty("tenantId");
+  });
+});
+
+describe("hasMfaFactor", () => {
+  it("returns false when amr is absent", () => {
+    expect(hasMfaFactor(BASE_CLAIMS)).toBe(false);
+  });
+
+  it("returns false when amr has no MFA-qualifying value", () => {
+    expect(hasMfaFactor({ ...BASE_CLAIMS, amr: ["pwd"] })).toBe(false);
+  });
+
+  it("returns true when amr includes a recognized MFA factor", () => {
+    expect(hasMfaFactor({ ...BASE_CLAIMS, amr: ["pwd", "otp"] })).toBe(true);
   });
 });
