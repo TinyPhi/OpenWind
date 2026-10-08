@@ -7,6 +7,8 @@ const { mockEnv } = vi.hoisted(() => ({
     ZITADEL_ISSUER: "http://localhost:8080",
     ZITADEL_INTROSPECTION_URL: "http://zitadel:8080/oauth/v2/introspect",
     ZITADEL_SERVICE_ACCOUNT_KEY: undefined as string | undefined,
+    ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY: undefined as string | undefined,
+    ZITADEL_PROVISIONING_KEY_JSON: undefined as string | undefined,
   },
 }));
 vi.mock("@platform/config", () => ({ env: mockEnv }));
@@ -47,8 +49,12 @@ vi.mock("jose", () => ({
   },
 }));
 
-const { listOrgUsers, getOrgMetadataForUser, parseOrgMetadataEntries } =
-  await import("./zitadel-management.js");
+const {
+  listOrgUsers,
+  getOrgMetadataForUser,
+  parseOrgMetadataEntries,
+  parseProvisioningServiceAccountKey,
+} = await import("./zitadel-management.js");
 
 describe("listOrgUsers", () => {
   it("fails closed and returns [] when orgId is undefined — never falls through to an unfiltered instance-wide query", async () => {
@@ -211,5 +217,45 @@ describe("parseOrgMetadataEntries", () => {
     expect(result.managerId).toBe(
       Buffer.from(malformed, "base64").toString("utf8"),
     );
+  });
+});
+
+describe("parseProvisioningServiceAccountKey", () => {
+  it("returns null when neither env var is set", () => {
+    mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = undefined;
+    mockEnv.ZITADEL_PROVISIONING_KEY_JSON = undefined;
+    expect(parseProvisioningServiceAccountKey()).toBeNull();
+  });
+
+  it("parses a valid key from the raw JSON env var", () => {
+    mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = JSON.stringify({
+      type: "serviceaccount",
+      keyId: "key-1",
+      key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+      userId: "sa-provisioning",
+    });
+    const result = parseProvisioningServiceAccountKey();
+    expect(result?.userId).toBe("sa-provisioning");
+  });
+
+  it("falls back to the base64-encoded env var when the raw one is absent", () => {
+    mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = undefined;
+    mockEnv.ZITADEL_PROVISIONING_KEY_JSON = Buffer.from(
+      JSON.stringify({
+        type: "serviceaccount",
+        keyId: "key-2",
+        key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+        userId: "sa-provisioning-b64",
+      }),
+      "utf8",
+    ).toString("base64");
+    const result = parseProvisioningServiceAccountKey();
+    expect(result?.userId).toBe("sa-provisioning-b64");
+  });
+
+  it("returns null and logs an error on malformed JSON, never throws", () => {
+    mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = "{not valid json";
+    expect(parseProvisioningServiceAccountKey()).toBeNull();
+    expect(mockLoggerError).toHaveBeenCalled();
   });
 });

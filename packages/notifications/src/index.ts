@@ -25,6 +25,8 @@ import type { NotificationPreferences } from "./preferences.js";
 export { NotificationError } from "./errors.js";
 export type { NotificationPreferences } from "./preferences.js";
 export { fireMisuseAlert } from "./misuse-alert.js";
+export { sendDirectNotification } from "./outbound-dispatch.js";
+export type { DirectNotificationPayload } from "./outbound-dispatch.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

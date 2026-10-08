@@ -53,6 +53,20 @@ vi.mock("@platform/auth", () => ({
     async (c: Context, next: Next): Promise<void> => {
       await next();
     },
+  // Not exercised by this suite (it never hits /platform-admin routes) --
+  // a no-op stub avoids app.ts's full route tree (which imports
+  // requirePlatformAdmin, docs/specs/multi-org-sandbox.md) failing this
+  // mock's strict shape.
+  requirePlatformAdmin:
+    () =>
+    async (c: Context, next: Next): Promise<void> => {
+      await next();
+    },
+  requirePlatformAdminIdentity:
+    () =>
+    async (c: Context, next: Next): Promise<void> => {
+      await next();
+    },
 }));
 
 describe("Module System Integration Tests", () => {
