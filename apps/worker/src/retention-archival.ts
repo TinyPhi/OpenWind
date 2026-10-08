@@ -18,6 +18,7 @@ import { logger } from "@platform/logger";
 import { Worker, Queue } from "bullmq";
 import { connection } from "./queues.js";
 import { getRedis } from "@platform/redis";
+import { isTenantTrialActive } from "@platform/auth";
 
 const QUEUE_NAME = "retention-archival";
 const DEFAULT_RETENTION_DAYS = 90;
@@ -38,10 +39,20 @@ export async function runRetentionArchivalSweep(): Promise<void> {
     logger.info({}, "retention-archival: starting daily cleanup sweep");
 
     // 1. Get all active tenants
-    const activeTenants = await db
-      .select({ id: tenants.id, config: tenants.config })
+    const allTenants = await db
+      .select({
+        id: tenants.id,
+        config: tenants.config,
+        trialEndsAt: tenants.trialEndsAt,
+      })
       .from(tenants)
       .where(ne(tenants.status, "deleted"));
+
+    // T12 (docs/specs/multi-org-sandbox.md R6): an expired sandbox trial stops
+    // background jobs too, checked fresh against Date.now() every sweep.
+    const activeTenants = allTenants.filter((tenant) =>
+      isTenantTrialActive(tenant.trialEndsAt?.getTime() ?? null),
+    );
 
     logger.info(
       { tenantCount: activeTenants.length },

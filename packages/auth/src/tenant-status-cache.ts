@@ -23,6 +23,11 @@ const _cache = new Map<
     status: string;
     plan?: string | undefined;
     ipAllowlist?: string[] | undefined;
+    /** Epoch ms, or null if the tenant has no trial. Immutable once set at
+     * provisioning -- safe to cache. Callers must still compare it against
+     * Date.now() fresh on every use (docs/specs/multi-org-sandbox.md R6
+     * forbids caching the *expired* boolean itself, only the raw timestamp). */
+    trialEndsAt?: number | null | undefined;
     exp: number;
   }
 >();
@@ -37,14 +42,39 @@ export function getCachedTenantStatus(tenantId: string): string | undefined {
   return entry.status;
 }
 
-export function setCachedTenantStatus(tenantId: string, status: string): void {
+export function setCachedTenantStatus(
+  tenantId: string,
+  status: string,
+  trialEndsAt?: number | null,
+): void {
   const existing = _cache.get(tenantId);
   _cache.set(tenantId, {
     status,
     plan: existing?.plan,
     ipAllowlist: existing?.ipAllowlist,
+    trialEndsAt:
+      trialEndsAt !== undefined ? trialEndsAt : existing?.trialEndsAt,
     exp: Date.now() + TTL_MS,
   });
+}
+
+/**
+ * The raw trial_ends_at timestamp (epoch ms), cached because it's immutable
+ * once set -- NOT the expiry boolean, which callers must compute fresh
+ * against Date.now() every time (R6, see the cache entry's own comment).
+ * `undefined` means cache miss (go read the DB); `null` means cache hit, no
+ * trial set.
+ */
+export function getCachedTenantTrialEndsAt(
+  tenantId: string,
+): number | null | undefined {
+  const entry = _cache.get(tenantId);
+  if (!entry) return undefined;
+  if (Date.now() > entry.exp) {
+    _cache.delete(tenantId);
+    return undefined;
+  }
+  return entry.trialEndsAt;
 }
 
 export function getCachedTenantPlan(tenantId: string): string | undefined {
@@ -63,6 +93,7 @@ export function setCachedTenantPlan(tenantId: string, plan: string): void {
     status: existing?.status ?? "active",
     plan,
     ipAllowlist: existing?.ipAllowlist,
+    trialEndsAt: existing?.trialEndsAt,
     exp: Date.now() + TTL_MS,
   });
 }
@@ -88,6 +119,7 @@ export function setCachedTenantIpAllowlist(
     status: existing?.status ?? "active",
     plan: existing?.plan,
     ipAllowlist,
+    trialEndsAt: existing?.trialEndsAt,
     exp: Date.now() + TTL_MS,
   });
 }

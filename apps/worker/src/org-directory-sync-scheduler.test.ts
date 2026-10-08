@@ -8,14 +8,19 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-let tenantRows: Array<{ id: string }>;
+let tenantRows: Array<{ id: string; trialEndsAt?: Date | null }>;
 const mockDbWhere = vi.fn(() => Promise.resolve(tenantRows));
 const mockDbFrom = vi.fn(() => ({ where: mockDbWhere }));
 const mockDbSelect = vi.fn(() => ({ from: mockDbFrom }));
 
 vi.mock("@platform/db", () => ({
   db: { select: (...args: unknown[]) => mockDbSelect(...args) },
-  tenants: { id: "id", status: "status" },
+  tenants: { id: "id", status: "status", trialEndsAt: "trial_ends_at" },
+}));
+
+vi.mock("@platform/auth", () => ({
+  isTenantTrialActive: (trialEndsAt: number | null) =>
+    trialEndsAt === null || trialEndsAt > Date.now(),
 }));
 
 const mockGetSyncStatus = vi.fn();
@@ -108,6 +113,33 @@ describe("org-directory-sync-scheduler reconcile", () => {
     await reconcile();
 
     expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
+  });
+
+  it("skips a sandbox tenant whose trial has expired (T12, R6)", async () => {
+    tenantRows = [
+      { id: "tenant-expired", trialEndsAt: new Date(Date.now() - 60_000) },
+    ];
+    mockGetSyncStatus.mockResolvedValue(NEVER_SYNCED);
+
+    await reconcile();
+
+    expect(mockGetSyncStatus).not.toHaveBeenCalled();
+    expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
+  });
+
+  it("still syncs a sandbox tenant whose trial has not expired yet", async () => {
+    tenantRows = [
+      { id: "tenant-active-trial", trialEndsAt: new Date(Date.now() + 60_000) },
+    ];
+    mockGetSyncStatus.mockResolvedValue(NEVER_SYNCED);
+
+    await reconcile();
+
+    expect(mockRunOrgDirectorySync).toHaveBeenCalledWith(
+      "tenant-active-trial",
+      expect.anything(),
+      null,
+    );
   });
 
   it("isolates one tenant's failure from the rest of the reconcile batch", async () => {

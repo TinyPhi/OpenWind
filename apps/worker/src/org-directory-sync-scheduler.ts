@@ -22,6 +22,7 @@ import {
   getSyncStatus,
   ZitadelOrgSourceImporter,
 } from "@platform/org-directory";
+import { isTenantTrialActive } from "@platform/auth";
 import { logger } from "@platform/logger";
 
 const DEFAULT_RECONCILE_INTERVAL_MS = 60 * 60 * 1000; // hourly tick, 24h staleness threshold below
@@ -32,15 +33,22 @@ const importer = new ZitadelOrgSourceImporter();
 export async function reconcile(): Promise<void> {
   try {
     const activeTenants = await db
-      .select({ id: tenants.id })
+      .select({ id: tenants.id, trialEndsAt: tenants.trialEndsAt })
       .from(tenants)
       .where(eq(tenants.status, "active"));
+
+    // T12 (docs/specs/multi-org-sandbox.md R6): an expired sandbox trial stops
+    // background jobs too, checked fresh against Date.now() every tick --
+    // never a precomputed flag.
+    const eligibleTenants = activeTenants.filter((tenant) =>
+      isTenantTrialActive(tenant.trialEndsAt?.getTime() ?? null),
+    );
 
     // Per-tenant isolation (allSettled) -- one tenant's Zitadel/DB failure
     // must not stop the reconcile tick from reaching the rest, same pattern
     // as due-date-scheduler.ts/alert-scheduler.ts.
     const results = await Promise.allSettled(
-      activeTenants.map(async (tenant) => {
+      eligibleTenants.map(async (tenant) => {
         const status = await getSyncStatus(tenant.id);
         if (status.syncInProgress) return "skipped" as const;
 
