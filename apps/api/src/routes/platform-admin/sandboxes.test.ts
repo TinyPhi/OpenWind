@@ -112,7 +112,7 @@ function makeApp() {
   }>();
   app.post("/sandboxes", ...createSandboxHandler);
   app.get("/sandboxes/:jobId/progress", ...sandboxProgressHandler);
-  app.get("/sandboxes/:tenantId/handover", ...sandboxHandoverHandler);
+  app.get("/sandboxes/:jobId/handover", ...sandboxHandoverHandler);
   return app;
 }
 
@@ -266,7 +266,6 @@ describe("POST /platform-admin/sandboxes", () => {
 const JOB_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_JOB_ID = "22222222-2222-4222-8222-222222222222";
 const TENANT_ID = "33333333-3333-4333-8333-333333333333";
-const OTHER_TENANT_ID = "44444444-4444-4444-8444-444444444444";
 
 describe("GET /platform-admin/sandboxes/:jobId/progress", () => {
   it("returns the progress view for an existing job", async () => {
@@ -312,8 +311,8 @@ describe("GET /platform-admin/sandboxes/:jobId/progress", () => {
   });
 });
 
-describe("GET /platform-admin/sandboxes/:tenantId/handover", () => {
-  it("returns the handover artifact once the job has completed and Redis still has it", async () => {
+describe("GET /platform-admin/sandboxes/:jobId/handover", () => {
+  it("returns the handover artifact once the job has completed and Redis still has it (review finding, PR #805: keyed on jobId, not tenantId)", async () => {
     mockSelectRows.mockResolvedValueOnce([
       { resultTenantId: TENANT_ID, status: "completed" },
     ]);
@@ -322,7 +321,7 @@ describe("GET /platform-admin/sandboxes/:tenantId/handover", () => {
       defaultPassword: "Ow-abc-9!",
     });
 
-    const res = await makeApp().request(`/sandboxes/${TENANT_ID}/handover`);
+    const res = await makeApp().request(`/sandboxes/${JOB_ID}/handover`);
 
     expect(res.status).toBe(200);
     expect(mockGetSandboxHandoverCredentials).toHaveBeenCalledWith(TENANT_ID);
@@ -340,18 +339,27 @@ describe("GET /platform-admin/sandboxes/:tenantId/handover", () => {
       { resultTenantId: TENANT_ID, status: "running" },
     ]);
 
-    const res = await makeApp().request(`/sandboxes/${TENANT_ID}/handover`);
+    const res = await makeApp().request(`/sandboxes/${JOB_ID}/handover`);
 
     expect(res.status).toBe(409);
     expect(mockGetSandboxHandoverCredentials).not.toHaveBeenCalled();
   });
 
-  it("returns 404 when no provisioning job exists for this (validly-shaped) tenant id", async () => {
+  it("returns 409 when the job row has no resultTenantId yet, without reading Redis", async () => {
+    mockSelectRows.mockResolvedValueOnce([
+      { resultTenantId: null, status: "running" },
+    ]);
+
+    const res = await makeApp().request(`/sandboxes/${JOB_ID}/handover`);
+
+    expect(res.status).toBe(409);
+    expect(mockGetSandboxHandoverCredentials).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when no provisioning job exists for this (validly-shaped) job id", async () => {
     mockSelectRows.mockResolvedValueOnce([]);
 
-    const res = await makeApp().request(
-      `/sandboxes/${OTHER_TENANT_ID}/handover`,
-    );
+    const res = await makeApp().request(`/sandboxes/${OTHER_JOB_ID}/handover`);
 
     expect(res.status).toBe(404);
   });
@@ -362,12 +370,12 @@ describe("GET /platform-admin/sandboxes/:tenantId/handover", () => {
     ]);
     mockGetSandboxHandoverCredentials.mockResolvedValueOnce(null);
 
-    const res = await makeApp().request(`/sandboxes/${TENANT_ID}/handover`);
+    const res = await makeApp().request(`/sandboxes/${JOB_ID}/handover`);
 
     expect(res.status).toBe(404);
   });
 
-  it("returns 400 for a malformed tenant id, never reaching the database", async () => {
+  it("returns 400 for a malformed job id, never reaching the database", async () => {
     const res = await makeApp().request("/sandboxes/not-a-uuid/handover");
 
     expect(res.status).toBe(400);

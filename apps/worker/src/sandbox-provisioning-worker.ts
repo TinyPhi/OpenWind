@@ -91,6 +91,7 @@ async function updateJobProgress(
     completedSteps: number;
     totalSteps: number;
     resultTenantId: string;
+    zitadelOrgId: string;
     error: string;
   }>,
 ): Promise<void> {
@@ -326,15 +327,35 @@ export async function processSandboxProvisioningJob(
     // it a second time, in Redis's job-result store, with no gating at all. This dedicated
     // handover store (behind requirePlatformAdmin + MFA + the handover route's own status
     // check) is the only place it's retrievable from.
-    await storeSandboxHandoverCredentials(tenantId, {
-      seededAccounts,
-      defaultPassword,
-    });
+    //
+    // Review finding (PR #805): wrapped in its own try/catch -- a transient Redis write
+    // failure here must not fail the whole job. The Zitadel org, tenant row, and every
+    // account already exist and are fully usable at this point; failing the job over this
+    // last step alone would mark a genuinely-successful provisioning run as "failed" with
+    // no automatic recovery path. The trade-off (accepted deliberately, not by omission):
+    // if this does fail, the handover credentials are unrecoverable from Redis and must be
+    // reset via the Zitadel console out-of-band -- same recovery path already documented
+    // in the spec for an expired 7-day handover window.
+    try {
+      await storeSandboxHandoverCredentials(tenantId, {
+        seededAccounts,
+        defaultPassword,
+      });
+    } catch (err) {
+      logger.error(
+        { err, tenantId, jobId },
+        "sandbox provisioning: failed to store handover credentials -- job still completes, but credentials are unrecoverable until reset via the Zitadel console",
+      );
+    }
 
     await updateJobProgress(jobId, {
       status: "completed",
       currentStep: null,
       completedSteps: totalSteps,
+      // Review finding (PR #805): previously never written, leaving this column always
+      // NULL -- useful for manual recovery lookups (e.g. the Redis-handover-failure case
+      // just above, or before T11's automatic rollback existed).
+      zitadelOrgId: org.orgId,
     });
 
     await auditOutcome(job, tenantId, "sandbox.provisioning_completed", {

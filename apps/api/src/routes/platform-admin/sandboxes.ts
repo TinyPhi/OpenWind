@@ -180,14 +180,19 @@ export const sandboxProgressHandler = platformAdminFactory.createHandlers(
  * `sandboxProvisioningJobs.requestedBy` already exists and is populated on insert, so adding
  * a `requestedBy = userId` filter here is a one-line change when multi-admin support lands --
  * deliberately not done now, to avoid scoping a real access-control feature ahead of need.
+ *
+ * Review finding (PR #805): keyed on jobId, not tenantId -- the caller only ever receives
+ * jobId (from the initial POST and from the progress endpoint above), never the internal
+ * tenant UUID, so a `:tenantId` route was unreachable from any real client. The handler
+ * looks up the job row by its own id and reads resultTenantId internally instead.
  */
-const TenantIdParamSchema = z.object({ tenantId: z.string().uuid() });
+const JobIdHandoverParamSchema = z.object({ jobId: z.string().uuid() });
 
 export const sandboxHandoverHandler = platformAdminFactory.createHandlers(
   requirePlatformAdmin(),
-  zValidator("param", TenantIdParamSchema),
+  zValidator("param", JobIdHandoverParamSchema),
   async (c) => {
-    const { tenantId } = c.req.valid("param");
+    const { jobId } = c.req.valid("param");
     const row = await withPlatformAdminContext((tx) =>
       tx
         .select({
@@ -195,26 +200,26 @@ export const sandboxHandoverHandler = platformAdminFactory.createHandlers(
           status: sandboxProvisioningJobs.status,
         })
         .from(sandboxProvisioningJobs)
-        .where(eq(sandboxProvisioningJobs.resultTenantId, tenantId))
+        .where(eq(sandboxProvisioningJobs.id, jobId))
         .limit(1),
     );
     const job = row[0];
     if (!job) {
       return c.json(
-        { error: "NOT_FOUND", message: "No provisioning job for this tenant" },
+        { error: "NOT_FOUND", message: "No such provisioning job" },
         404,
       );
     }
-    if (job.status !== "completed") {
+    if (job.status !== "completed" || !job.resultTenantId) {
       return c.json(
         {
           error: "NOT_READY",
-          message: "Provisioning has not completed for this tenant yet",
+          message: "Provisioning has not completed for this job yet",
         },
         409,
       );
     }
-    const credentials = await getSandboxHandoverCredentials(tenantId);
+    const credentials = await getSandboxHandoverCredentials(job.resultTenantId);
     if (!credentials) {
       return c.json(
         {
@@ -224,6 +229,6 @@ export const sandboxHandoverHandler = platformAdminFactory.createHandlers(
         404,
       );
     }
-    return c.json({ data: { tenantId, ...credentials } });
+    return c.json({ data: { tenantId: job.resultTenantId, ...credentials } });
   },
 );
