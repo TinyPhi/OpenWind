@@ -15,9 +15,14 @@ import { EntityTypeProvider } from "./entity-type-context.js";
 import { Layout } from "./components/layout.js";
 import { RouteErrorBoundary } from "./components/route-error-boundary.js";
 import { RequireAdmin } from "./components/require-admin.js";
+import { RequirePlatformAdmin } from "./components/require-platform-admin.js";
+import { RequirePlatformAdminMfa } from "./components/require-platform-admin-mfa.js";
 import {
   Login,
   AuthCallback,
+  PlatformAdminLogin,
+  PlatformAdminMfa,
+  PlatformAdminDashboard,
   Dashboard,
   Analytics,
   ReportingPage,
@@ -149,6 +154,28 @@ export function App(): React.ReactElement {
             {/* Auth routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+
+            {/* Platform Admin (docs/specs/multi-org-sandbox.md T17) — its own route
+              tree, entirely outside <Authenticated>/Layout/EntityTypeProvider: a
+              platform admin never resolves a tenant and must never see the tenant
+              sidebar/header. RequirePlatformAdmin handles both "not logged in" and
+              "logged in without the role" by redirecting to its own login page. */}
+            <Route
+              path="/platform-admin/login"
+              element={<PlatformAdminLogin />}
+            />
+            <Route element={<RequirePlatformAdmin />}>
+              <Route
+                path="/platform-admin/mfa"
+                element={<PlatformAdminMfa />}
+              />
+              <Route element={<RequirePlatformAdminMfa />}>
+                <Route
+                  path="/platform-admin/dashboard"
+                  element={<PlatformAdminDashboard />}
+                />
+              </Route>
+            </Route>
 
             {/* Protected routes */}
             <Route
