@@ -23,9 +23,12 @@ own task tables, which are stale (the org-directory table still says `todo` thro
   Rahul's refactor PRs (#789, #810, #825, #843, #849, #850) and #724 (Tushar's #711) now show their
   assignees.
 
-**Not changed here (human or owner call):** `CLAUDE.md` still lists the Phase 3 track table without
-these two efforts and still says async exports use S3 (#697, closed by #787). Both are worth a one-line
-fix by a human.
+**`CLAUDE.md` (updated at the owner's request, narrowly):** the repository layout now lists
+`packages/org-directory` and says async exports moved to local storage (#787, which closed #697); the
+"Read before touching" table gains rows for the multi-org sandbox (ADR-022, still `Proposed`) and the org
+directory; a short note under the Phase 3 table points at the two efforts that have no track ID; and the
+3H headline now says "ADR-020 in review (#702)" instead of "ADR pending (#622)" (#622 closed 2026-09-30).
+No track IDs were added and the Off-limits line is untouched.
 
 **Previous tracker header, preserved verbatim:**
 
