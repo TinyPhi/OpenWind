@@ -47,7 +47,7 @@ describe("StepTrigger — 'any field' warning (#767)", () => {
       />,
     );
 
-    const note = await screen.findByRole("note");
+    const note = await screen.findByRole("status");
     expect(note.textContent).toContain("every update to every ticket record");
   });
 
@@ -61,7 +61,7 @@ describe("StepTrigger — 'any field' warning (#767)", () => {
     );
 
     await screen.findByText("Priority");
-    expect(screen.queryByRole("note")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("shows no warning before an entity type is chosen", async () => {
@@ -69,6 +69,6 @@ describe("StepTrigger — 'any field' warning (#767)", () => {
     render(<StepTrigger data={fieldChanged({})} onChange={vi.fn()} />);
 
     await screen.findByText("Entity Type");
-    expect(screen.queryByRole("note")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

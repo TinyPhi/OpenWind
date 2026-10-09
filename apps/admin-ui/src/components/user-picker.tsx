@@ -1,20 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { initials } from "../lib/format.js";
 
 export interface UserOption {
   userId: string;
   displayName: string;
   email: string;
   loginName?: string;
-}
-
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .slice(0, 2)
-    .map((p) => p[0] ?? "")
-    .join("")
-    .toUpperCase();
 }
 
 interface Props {

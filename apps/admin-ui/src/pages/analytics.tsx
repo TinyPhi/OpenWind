@@ -3,6 +3,7 @@ import { useGetIdentity } from "@refinedev/core";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { relativeTime } from "../lib/format.js";
+import { withAlpha } from "../lib/theme.js";
 import { userManager } from "../authProvider.js";
 import { Button } from "@platform/ui";
 
@@ -77,15 +78,6 @@ function getTodayLabel(): string {
     month: "long",
     year: "numeric",
   });
-}
-
-// `color` is always an `hsl(h, s%, l%)` literal from WORKFLOW_COLORS / KpiCard
-// callers — this turns it into an `hsla(...)` with the given alpha so it can
-// be used as a translucent fill (string-concat like `${color}33` is invalid
-// on hsl() values, only on hex).
-function withAlpha(color: string, alpha: number): string {
-  const match = /^hsl\(([^)]+)\)$/.exec(color);
-  return match ? `hsla(${match[1]}, ${alpha})` : color;
 }
 
 // Zitadel role claims are internal identifiers, not product terminology —

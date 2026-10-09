@@ -337,7 +337,7 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
               )}
               {!loadingFields && !data.triggerConfig.field && (
                 <p
-                  role="note"
+                  role="status"
                   style={{
                     fontSize: "12px",
                     color: "var(--text-muted)",

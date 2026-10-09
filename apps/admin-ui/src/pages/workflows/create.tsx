@@ -2,13 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-
-function toWorkflowSlug(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
+import { toWorkflowSlug } from "../../lib/format.js";
 
 function toSnake(s: string): string {
   return s
