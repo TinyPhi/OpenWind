@@ -195,7 +195,7 @@ Open items (owner decisions, not guessed):
 - **O5** migration numbers are taken at implementation time (next free after open PRs; journal-merge trap).
 - **O6 (decided).** Pause flag is module-level, in `platform_settings`.
 - **O7 `department` instance backfill** for existing tickets: separate task, owner approval needed.
-- **O8** whether the separate non-live instance was installed before 2026-08-07 (its state would be older than the git baseline) and whether its module entity types all have `module_id` set.
+- **O8 (decided, 2026-10-09).** The separate non-live instance was installed after 2026-08-07, so the git baseline covers it. Every module seed has set `entity_types.module_id` from `{MODULE_ID}` since the first commit (9192d9e), so the `module_id` lookup holds for every existing tenant.
 - **O9** install becomes a single all-or-nothing transaction (needed for the shared lock). Owner to confirm.
 - **O10** lint runs in CI/packaging with a manifest, not as a runtime parser in the worker image. Owner to confirm.
 - **O11** CLI audit actor: `system` + required `--operator`. Owner to confirm.
