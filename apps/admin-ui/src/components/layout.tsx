@@ -363,11 +363,14 @@ function InitialsAvatar({
   className,
   style,
 }: InitialsAvatarProps): React.ReactElement {
-  if (avatar) {
+  const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
+
+  if (avatar && avatar !== failedAvatar) {
     return (
       <img
         src={avatar}
-        alt={name || "Avatar"}
+        alt={name.trim() || "Avatar"}
+        onError={() => setFailedAvatar(avatar)}
         className={className}
         style={{
           width: `${size}px`,
