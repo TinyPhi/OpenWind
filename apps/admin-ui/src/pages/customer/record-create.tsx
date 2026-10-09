@@ -8,7 +8,6 @@ import {
   AttachmentUploadZone,
   StagedFileChip,
 } from "../../components/file-attachment.js";
-import { TOKENS, useHoverStyle } from "@platform/ui";
 import {
   SeverityDropdown,
   DEFAULT_SEVERITY,
@@ -71,14 +70,10 @@ function UnassignedRow({
 }: {
   onSelect: () => void;
 }): React.ReactElement {
-  const rowHover = useHoverStyle({
-    base: { background: "" },
-    hover: { background: TOKENS.bgSecondary },
-  });
-
   return (
     <div
       onClick={onSelect}
+      className="user-picker-unassign-btn"
       style={{
         display: "flex",
         alignItems: "center",
@@ -88,10 +83,7 @@ function UnassignedRow({
         color: "var(--text-tertiary)",
         fontSize: "13px",
         borderBottom: "1px solid var(--border-primary)",
-        ...rowHover.style,
       }}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
     >
       Unassigned
     </div>
@@ -107,24 +99,17 @@ function UserOptionRow({
   isSelected: boolean;
   onSelect: () => void;
 }): React.ReactElement {
-  const rowHover = useHoverStyle({
-    base: { background: isSelected ? TOKENS.bgSecondary : "" },
-    hover: { background: TOKENS.bgSecondary },
-  });
-
   return (
     <div
       onClick={onSelect}
+      className={`user-picker-option-row${isSelected ? " is-selected" : ""}`}
       style={{
         display: "flex",
         alignItems: "center",
         gap: "10px",
         padding: "9px 12px",
         cursor: "pointer",
-        ...rowHover.style,
       }}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
     >
       <span
         style={{

@@ -99,6 +99,8 @@ vi.mock("@platform/files", () => ({
 const mockListUserIdsWithRole = vi.fn();
 vi.mock("@platform/auth", () => ({
   listUserIdsWithRole: (...args: unknown[]) => mockListUserIdsWithRole(...args),
+  isTenantTrialActive: (trialEndsAt: number | null) =>
+    trialEndsAt === null || trialEndsAt > Date.now(),
 }));
 
 // mock notifications

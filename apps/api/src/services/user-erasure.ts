@@ -80,6 +80,8 @@ export const USER_REFERENCE_COLUMNS_EXEMPT: Readonly<Record<string, string>> = {
     "append-only security audit trail, kept under Art. 17(3)(b); anonymized only on tenant purge",
   "admin_audit_log.acting_person_id":
     "append-only security audit trail, kept under Art. 17(3)(b); anonymized only on tenant purge",
+  "sandbox_provisioning_jobs.requested_by":
+    "platform_admin who requested provisioning, not a tenant member -- table is platform-level (no tenant_id column by design, migration 0137) and is never purged/erased per-tenant",
 };
 
 /**

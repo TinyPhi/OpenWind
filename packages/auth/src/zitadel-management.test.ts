@@ -55,6 +55,7 @@ const {
   parseOrgMetadataEntries,
   parseProvisioningServiceAccountKey,
   createOrg,
+  deleteOrg,
   createHumanUser,
 } = await import("./zitadel-management.js");
 
@@ -390,5 +391,38 @@ describe("createHumanUser", () => {
     const result = await createHumanUser(input);
 
     expect(result).toEqual({ ok: false, conflict: true });
+  });
+});
+
+describe("deleteOrg", () => {
+  it("returns true on a successful deletion", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(200, { deletionDate: "2023-01-15T01:30:15.01Z" });
+
+    const result = await deleteOrg("org-123");
+
+    expect(result).toBe(true);
+  });
+
+  it("returns false on a non-2xx response", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(404, { message: "not found" });
+
+    const result = await deleteOrg("org-does-not-exist");
+
+    expect(result).toBe(false);
+  });
+
+  it("returns false when no provisioning credential is configured", async () => {
+    mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = undefined;
+    mockEnv.ZITADEL_PROVISIONING_KEY_JSON = undefined;
+
+    const result = await deleteOrg("org-123");
+
+    expect(result).toBe(false);
   });
 });

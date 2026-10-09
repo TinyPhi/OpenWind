@@ -201,3 +201,15 @@ export const sandboxProvisioningQueue = new Queue("sandbox-provisioning", {
   connection,
   defaultJobOptions: { attempts: 1 },
 });
+
+// docs/specs/multi-org-sandbox.md T13/R7 — sandbox reset (wipe+reseed module data, cancel
+// queued background work). API enqueues via apps/api/src/lib/sandbox-reset-queue.ts using
+// the same queue name, then awaits the job's completion (BullMQ waitUntilFinished) before
+// responding -- the sandbox-lifecycle advisory lock (T22) is acquired by the API route
+// before enqueueing and held for the job's full duration, so this worker does not need to
+// acquire it itself. attempts: 1, same reasoning as provisioning: a partial reset failure
+// must surface to the platform admin, not silently retry against a half-wiped tenant.
+export const sandboxResetQueue = new Queue("sandbox-reset", {
+  connection,
+  defaultJobOptions: { attempts: 1 },
+});

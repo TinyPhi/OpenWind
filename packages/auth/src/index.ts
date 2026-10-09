@@ -14,6 +14,7 @@ export {
   resolveTenantPlan,
   resolveTenantIpAllowlist,
   checkIpInAllowlist,
+  isTenantTrialActive,
 } from "./middleware.js";
 export {
   invalidateTenantStatusCache,
@@ -63,6 +64,7 @@ export {
   deleteUser,
   parseProvisioningServiceAccountKey,
   createOrg,
+  deleteOrg,
   createHumanUser,
 } from "./zitadel-management.js";
 export type {
@@ -98,3 +100,9 @@ export {
   verifyMfaCode,
   isMfaVerified,
 } from "./platform-admin-mfa.js";
+export {
+  storeSandboxHandoverCredentials,
+  getSandboxHandoverCredentials,
+  deleteSandboxHandoverCredentials,
+} from "./sandbox-handover-store.js";
+export type { SandboxHandoverCredentials } from "./sandbox-handover-store.js";

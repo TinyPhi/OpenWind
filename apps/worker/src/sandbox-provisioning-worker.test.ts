@@ -20,9 +20,19 @@ vi.mock("bullmq", () => ({
 const mockReturning = vi.fn();
 const mockValues = vi.fn(() => ({ returning: mockReturning }));
 const mockInsert = vi.fn(() => ({ values: mockValues }));
+const mockWhere = vi.fn().mockResolvedValue(undefined);
+const mockSet = vi.fn(() => ({ where: mockWhere }));
+const mockUpdate = vi.fn(() => ({ set: mockSet }));
+const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
+const mockDelete = vi.fn(() => ({ where: mockDeleteWhere }));
 vi.mock("@platform/db", () => ({
-  db: { insert: (...args: unknown[]) => mockInsert(...args) },
+  db: {
+    insert: (...args: unknown[]) => mockInsert(...args),
+    update: (...args: unknown[]) => mockUpdate(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
+  },
   tenants: {},
+  sandboxProvisioningJobs: {},
 }));
 
 const mockWriteAuditEntry = vi.fn().mockResolvedValue(undefined);
@@ -31,10 +41,15 @@ vi.mock("@platform/audit", () => ({
 }));
 
 const mockCreateOrg = vi.fn();
+const mockDeleteOrg = vi.fn().mockResolvedValue(true);
 const mockCreateHumanUser = vi.fn();
 const mockGenerateSandboxOrgTemplate = vi.fn();
+const mockStoreSandboxHandoverCredentials = vi
+  .fn()
+  .mockResolvedValue(undefined);
 vi.mock("@platform/auth", () => ({
   createOrg: (...args: unknown[]) => mockCreateOrg(...args),
+  deleteOrg: (...args: unknown[]) => mockDeleteOrg(...args),
   createHumanUser: (...args: unknown[]) => mockCreateHumanUser(...args),
   generateSandboxOrgTemplate: () => mockGenerateSandboxOrgTemplate(),
   nextEmailCandidate: (
@@ -45,6 +60,8 @@ vi.mock("@platform/auth", () => ({
     attempt === 0
       ? `${template.emailLocalPart}@${domain}`
       : `${template.emailLocalPart}${attempt}@${domain}`,
+  storeSandboxHandoverCredentials: (...args: unknown[]) =>
+    mockStoreSandboxHandoverCredentials(...args),
 }));
 
 const mockRunOrgDirectorySync = vi.fn();
@@ -63,6 +80,19 @@ vi.mock("@platform/config", () => ({
 }));
 
 vi.mock("./queues.js", () => ({ connection: {} }));
+
+const mockInstallCoreModulesForSandbox = vi
+  .fn()
+  .mockResolvedValue({ succeeded: [], failed: [] });
+vi.mock("./sandbox-module-install.js", () => ({
+  installCoreModulesForSandbox: (...args: unknown[]) =>
+    mockInstallCoreModulesForSandbox(...args),
+}));
+
+const mockSeedAllModulesData = vi.fn().mockResolvedValue(undefined);
+vi.mock("./sandbox-module-data-seed.js", () => ({
+  seedAllModulesData: (...args: unknown[]) => mockSeedAllModulesData(...args),
+}));
 
 const { processSandboxProvisioningJob } =
   await import("./sandbox-provisioning-worker.js");
@@ -87,7 +117,23 @@ function makeTemplate(memberCount: number) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockReturning.mockResolvedValue([{ id: "tenant-1" }]);
+  mockWhere.mockResolvedValue(undefined);
+  mockDeleteWhere.mockResolvedValue(undefined);
   mockCreateOrg.mockResolvedValue({ ok: true, orgId: "org-1" });
+  mockDeleteOrg.mockResolvedValue(true);
+  mockInstallCoreModulesForSandbox.mockResolvedValue({
+    succeeded: [
+      "helpdesk",
+      "crm",
+      "hrms",
+      "reimbursements",
+      "projects",
+      "invoicing",
+      "procurement",
+    ],
+    failed: [],
+  });
+  mockSeedAllModulesData.mockResolvedValue(undefined);
   mockRunOrgDirectorySync.mockResolvedValue({
     status: "ok",
     syncedAt: new Date(),
@@ -96,6 +142,12 @@ beforeEach(() => {
     reparented: 0,
   });
 });
+
+function lastProgressUpdate(): Record<string, unknown> {
+  const call = mockSet.mock.calls.at(-1);
+  if (!call) throw new Error("db.update(...).set(...) was never called");
+  return call[0] as Record<string, unknown>;
+}
 
 describe("processSandboxProvisioningJob", () => {
   it("creates the org, the tenant row, every seeded account, and runs the directory sync", async () => {
@@ -129,18 +181,91 @@ describe("processSandboxProvisioningJob", () => {
       }),
     );
 
+    // T8: the final progress row is just a bare "done" status -- no credentials (security
+    // review: those live in Redis, not this table, see storeSandboxHandoverCredentials).
+    const finalUpdate = lastProgressUpdate();
+    expect(finalUpdate.status).toBe("completed");
+    expect(finalUpdate.completedSteps).toBe(2 + 5); // makeTemplate(2) -> totalSteps = members.length + 5
+    expect(finalUpdate).not.toHaveProperty("defaultPassword");
+    expect(finalUpdate).not.toHaveProperty("seededAccounts");
+    expect(mockUpdate).toHaveBeenCalledWith(expect.anything());
+
     // Review finding (PR #804): defaultPassword must never be part of the job's return
-    // value -- BullMQ's removeOnComplete persists it in Redis for 1h with no application
-    // retrieval path at this point in the stack. The interim retrieval channel is a WARN
-    // log instead.
+    // value -- BullMQ's removeOnComplete would otherwise persist it in Redis for 1h.
+    // storeSandboxHandoverCredentials (T21, below) is the one and only place it goes.
     expect(result).not.toHaveProperty("defaultPassword");
-    expect(mockLoggerWarn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: result.tenantId,
+
+    // T21: the handover artifact goes to Redis (7-day TTL) instead.
+    expect(mockStoreSandboxHandoverCredentials).toHaveBeenCalledWith(
+      result.tenantId,
+      {
         defaultPassword: expect.any(String),
-      }),
-      expect.stringContaining("default password"),
+        seededAccounts: expect.arrayContaining([
+          expect.objectContaining({ role: "admin" }),
+          expect.objectContaining({ role: "member" }),
+        ]),
+      },
     );
+
+    // Review finding (PR #805): zitadelOrgId was never written to the row -- always NULL.
+    expect(finalUpdate.zitadelOrgId).toBe("org-1");
+
+    // T9/T10: core modules are installed, then data is seeded only for the modules
+    // that installed successfully.
+    expect(mockInstallCoreModulesForSandbox).toHaveBeenCalledWith(
+      result.tenantId,
+    );
+    expect(mockSeedAllModulesData).toHaveBeenCalledWith(result.tenantId, [
+      "helpdesk",
+      "crm",
+      "hrms",
+      "reimbursements",
+      "projects",
+      "invoicing",
+      "procurement",
+    ]);
+  });
+
+  it("still completes the job when storeSandboxHandoverCredentials fails (review finding, PR #805) -- a Redis blip on the last step must not fail an otherwise-successful run", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(0));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "admin-user" });
+    mockStoreSandboxHandoverCredentials.mockRejectedValueOnce(
+      new Error("redis unavailable"),
+    );
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-handover-fail",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(result.tenantId).toEqual(expect.any(String));
+    const finalUpdate = lastProgressUpdate();
+    expect(finalUpdate.status).toBe("completed");
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.provisioning_completed" }),
+    );
+  });
+
+  it("still seeds the directory sync and completes even when module install/data-seed partially fails", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(0));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "admin-user" });
+    mockInstallCoreModulesForSandbox.mockResolvedValueOnce({
+      succeeded: ["helpdesk"],
+      failed: [{ slug: "crm", error: "boom" }],
+    });
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-8",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(mockSeedAllModulesData).toHaveBeenCalledWith(result.tenantId, [
+      "helpdesk",
+    ]);
+    expect(mockRunOrgDirectorySync).toHaveBeenCalled();
+    const finalUpdate = lastProgressUpdate();
+    expect(finalUpdate.status).toBe("completed");
   });
 
   it("retries a seeded account's email on a Zitadel uniqueness conflict", async () => {
@@ -203,9 +328,20 @@ describe("processSandboxProvisioningJob", () => {
         tenantId: expect.any(String),
         action: "sandbox.provisioning_failed",
         actorId: "admin-1",
+        metadata: expect.objectContaining({ rolledBack: true }),
       }),
     );
     expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
+
+    // T8: a failure partway through still durably records where it got to.
+    const finalUpdate = lastProgressUpdate();
+    expect(finalUpdate.status).toBe("failed");
+    expect(finalUpdate.error).toContain("SANDBOX_ADMIN_ACCOUNT_CREATE_FAILED");
+
+    // T11: the org was created before the admin-account step failed, and the tenant row
+    // was inserted before that -- both must be rolled back automatically.
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
+    expect(mockDelete).toHaveBeenCalled();
   });
 
   it("throws when the Zitadel org can never be created (every name candidate conflicts), and still writes a failure audit entry (security review fix)", async () => {
@@ -232,9 +368,17 @@ describe("processSandboxProvisioningJob", () => {
         tenantId: expect.any(String),
         action: "sandbox.provisioning_failed",
         actorId: "admin-1",
-        metadata: expect.objectContaining({ zitadelOrgId: null }),
+        metadata: expect.objectContaining({
+          zitadelOrgId: null,
+          rolledBack: true,
+        }),
       }),
     );
+
+    // T11: no org was ever created and no tenant row was ever inserted -- nothing to
+    // roll back, trivially "rolled back".
+    expect(mockDeleteOrg).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("writes a failure audit entry when the tenant insert itself throws (e.g. a slug collision)", async () => {
@@ -257,9 +401,51 @@ describe("processSandboxProvisioningJob", () => {
       expect.objectContaining({
         action: "sandbox.provisioning_failed",
         actorId: "admin-1",
-        metadata: expect.objectContaining({ zitadelOrgId: "org-1" }),
+        metadata: expect.objectContaining({
+          zitadelOrgId: "org-1",
+          rolledBack: true,
+        }),
       }),
     );
     expect(mockCreateHumanUser).not.toHaveBeenCalled();
+
+    // T11: the org was created before the tenant insert failed -- it must still be
+    // rolled back even though the tenant row never ended up existing.
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
+    // The tenant row never existed (insert itself threw), so there is nothing to delete.
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("leaves the tenant row in place when org deletion fails during rollback, so it (and its zitadel_org_id) remain a manual-cleanup breadcrumb", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(0));
+    mockCreateHumanUser.mockResolvedValue({ ok: false, conflict: true });
+    mockDeleteOrg.mockResolvedValue(false);
+
+    await expect(
+      processSandboxProvisioningJob({
+        id: "job-7",
+        data: {
+          orgName: "Acme Sandbox",
+          trialDays: 14,
+          requestedBy: "admin-1",
+        },
+      }),
+    ).rejects.toThrow("SANDBOX_ADMIN_ACCOUNT_CREATE_FAILED");
+
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
+    // Org deletion failed -- the tenant row must NOT be deleted, so it (plus its
+    // zitadel_org_id) remains as the manual-cleanup breadcrumb instead of orphaning a
+    // live Zitadel org with zero local trace of it.
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "sandbox.provisioning_failed",
+        metadata: expect.objectContaining({
+          zitadelOrgId: "org-1",
+          rolledBack: false,
+        }),
+      }),
+    );
   });
 });

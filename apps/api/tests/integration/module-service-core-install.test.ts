@@ -9,6 +9,7 @@ import {
   workflowStates,
   workflowTransitions,
   modules,
+  automationRules,
 } from "@platform/db";
 import { ModuleService } from "../../src/services/module-service.js";
 
@@ -52,6 +53,9 @@ describe("ModuleService.installCoreModules", () => {
         .where(eq(workflowStates.workflowId, wf.id));
     }
     await db.delete(workflows).where(eq(workflows.tenantId, TENANT_ID));
+    await db
+      .delete(automationRules)
+      .where(eq(automationRules.tenantId, TENANT_ID));
     await db.delete(entityFields).where(eq(entityFields.tenantId, TENANT_ID));
     await db.delete(entityTypes).where(eq(entityTypes.tenantId, TENANT_ID));
     await db.delete(tenants).where(eq(tenants.id, TENANT_ID));
@@ -87,6 +91,31 @@ describe("ModuleService.installCoreModules", () => {
     expect(installed).not.toContain("tender");
     expect(installed).not.toContain("vendor-approval");
     expect(installed).toContain("helpdesk");
+
+    // T10 (docs/specs/multi-org-sandbox.md) — every one of the 6 core modules that
+    // previously shipped zero automation rules (crm, hrms, reimbursements, projects,
+    // invoicing, procurement) now seeds exactly one on install.
+    const seededRules = await db
+      .select({ name: automationRules.name })
+      .from(automationRules)
+      .where(eq(automationRules.tenantId, TENANT_ID));
+    const seededNames = seededRules.map((r) => r.name);
+    expect(seededNames).toContain(
+      "Auto-set default lead source on deal creation",
+    );
+    expect(seededNames).toContain(
+      "Auto-fill default reason on leave request creation",
+    );
+    expect(seededNames).toContain(
+      "Auto-fill default description on expense claim creation",
+    );
+    expect(seededNames).toContain("Auto-set default priority on task creation");
+    expect(seededNames).toContain(
+      "Auto-fill default description on invoice creation",
+    );
+    expect(seededNames).toContain(
+      "Auto-set default category on purchase order creation",
+    );
   });
 
   it("continues installing remaining core modules when one module's slug is invalid, and reports it as failed", async () => {

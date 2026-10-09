@@ -6,7 +6,7 @@ import { connection } from "./queues.js";
 import { PLAN_LIMITS } from "@platform/config";
 import type { PlanLimits } from "@platform/config";
 import { getTenantUsedBytes } from "@platform/files";
-import { listUserIdsWithRole } from "@platform/auth";
+import { listUserIdsWithRole, isTenantTrialActive } from "@platform/auth";
 import { sendNotification } from "@platform/notifications";
 import { getRedis } from "@platform/redis";
 
@@ -26,10 +26,20 @@ export async function runUsageMeteringSweep(): Promise<void> {
 
   try {
     // 1. Get all active tenants
-    const activeTenants = await db
-      .select({ id: tenants.id, plan: tenants.plan })
+    const allTenants = await db
+      .select({
+        id: tenants.id,
+        plan: tenants.plan,
+        trialEndsAt: tenants.trialEndsAt,
+      })
       .from(tenants)
       .where(ne(tenants.status, "deleted"));
+
+    // T12 (docs/specs/multi-org-sandbox.md R6): an expired sandbox trial stops
+    // background jobs too, checked fresh against Date.now() every sweep.
+    const activeTenants = allTenants.filter((tenant) =>
+      isTenantTrialActive(tenant.trialEndsAt?.getTime() ?? null),
+    );
 
     const today = new Date();
     const todayStr = today.toISOString().split("T")[0] as string;

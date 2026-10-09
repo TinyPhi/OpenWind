@@ -6,6 +6,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Main application entry chunk gzip ceiling in kB of 1024 bytes (Vite's build
 // output uses 1000, so it prints ~202 kB for the same file). Set to the measured
@@ -13,7 +14,7 @@ import { join } from "node:path";
 // the entry past this, raise the number in the same PR and say why in the PR
 // description; prefer lazy-loading the new code instead.
 const ENTRY_GZIP_BUDGET_KB = 210;
-const distDir = new URL("../dist", import.meta.url).pathname;
+const distDir = fileURLToPath(new URL("../dist", import.meta.url));
 
 const html = readFileSync(join(distDir, "index.html"), "utf8");
 const match = html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/);

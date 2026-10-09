@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useLogout, useGetIdentity } from "@refinedev/core";
 import { Link, useLocation } from "react-router-dom";
-import { TOKENS, useHoverStyle } from "@platform/ui";
+import { TOKENS } from "@platform/ui";
 import { userManager } from "../authProvider.js";
 import { NotificationBell } from "./notification-bell.js";
 
@@ -363,11 +363,14 @@ function InitialsAvatar({
   className,
   style,
 }: InitialsAvatarProps): React.ReactElement {
-  if (avatar) {
+  const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
+
+  if (avatar && avatar !== failedAvatar) {
     return (
       <img
         src={avatar}
-        alt={name || "Avatar"}
+        alt={name.trim() || "Avatar"}
+        onError={() => setFailedAvatar(avatar)}
         className={className}
         style={{
           width: `${size}px`,
@@ -434,16 +437,6 @@ export function Layout({
   const [username, setUsername] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
-  const profileButtonHover = useHoverStyle({
-    base: { background: "transparent" },
-    hover: { background: TOKENS.bgTertiary },
-  });
-  const signOutHover = useHoverStyle({
-    base: { background: "none" },
-    hover: {
-      background: `color-mix(in srgb, ${TOKENS.danger} 10%, transparent)`,
-    },
-  });
 
   useEffect(() => {
     void userManager.getUser().then((u) => {
@@ -559,14 +552,10 @@ export function Layout({
               border: `1px solid ${TOKENS.borderColor}`,
               borderRadius: "18px",
               cursor: "pointer",
-              transition: "background .15s, border-color .15s",
               maxWidth: "180px",
-              ...profileButtonHover.style,
             }}
             onClick={() => setProfileOpen((o) => !o)}
             aria-label="Open profile"
-            onMouseEnter={profileButtonHover.onMouseEnter}
-            onMouseLeave={profileButtonHover.onMouseLeave}
           >
             <InitialsAvatar
               name={name}
@@ -713,6 +702,7 @@ export function Layout({
               />
               <button
                 onClick={handleLogout}
+                className="header-sign-out-btn"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -725,10 +715,7 @@ export function Layout({
                   color: TOKENS.danger,
                   border: "none",
                   cursor: "pointer",
-                  ...signOutHover.style,
                 }}
-                onMouseEnter={signOutHover.onMouseEnter}
-                onMouseLeave={signOutHover.onMouseLeave}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"

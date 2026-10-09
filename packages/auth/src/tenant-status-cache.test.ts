@@ -79,6 +79,37 @@ describe("tenant status cache", () => {
     vi.useRealTimers();
   });
 
+  it("caches trialEndsAt alongside status and returns it", async () => {
+    const { getCachedTenantTrialEndsAt, setCachedTenantStatus } =
+      await import("./tenant-status-cache.js");
+    const trialEndsAt = Date.now() + 60_000;
+    setCachedTenantStatus("t-1", "active", trialEndsAt);
+    expect(getCachedTenantTrialEndsAt("t-1")).toBe(trialEndsAt);
+  });
+
+  it("caches a null trialEndsAt distinctly from an uncached (undefined) one", async () => {
+    const { getCachedTenantTrialEndsAt, setCachedTenantStatus } =
+      await import("./tenant-status-cache.js");
+    setCachedTenantStatus("t-1", "active", null);
+    expect(getCachedTenantTrialEndsAt("t-1")).toBeNull();
+    expect(getCachedTenantTrialEndsAt("t-unset")).toBeUndefined();
+  });
+
+  it("preserves the cached trialEndsAt when setCachedTenantPlan/setCachedTenantIpAllowlist overwrite the entry", async () => {
+    const {
+      getCachedTenantTrialEndsAt,
+      setCachedTenantStatus,
+      setCachedTenantPlan,
+      setCachedTenantIpAllowlist,
+    } = await import("./tenant-status-cache.js");
+    const trialEndsAt = Date.now() + 60_000;
+    setCachedTenantStatus("t-1", "active", trialEndsAt);
+    setCachedTenantPlan("t-1", "standard");
+    expect(getCachedTenantTrialEndsAt("t-1")).toBe(trialEndsAt);
+    setCachedTenantIpAllowlist("t-1", ["1.2.3.4"]);
+    expect(getCachedTenantTrialEndsAt("t-1")).toBe(trialEndsAt);
+  });
+
   it("invalidateTenantStatusCache clears the local cache immediately", async () => {
     const {
       getCachedTenantStatus,

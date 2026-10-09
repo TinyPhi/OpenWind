@@ -78,6 +78,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "org_directory.sync_failed": true,
   "sandbox.provisioning_completed": true,
   "sandbox.provisioning_failed": true,
+  "sandbox.reset_completed": true,
+  "sandbox.reset_failed": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -138,6 +140,10 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   // regardless of whether the job ultimately succeeded or failed partway.
   "sandbox.provisioning_completed",
   "sandbox.provisioning_failed",
+  // Reset wipes and re-seeds a tenant's business data -- a mutation regardless of whether
+  // the job ultimately succeeded or failed partway, same reasoning as provisioning above.
+  "sandbox.reset_completed",
+  "sandbox.reset_failed",
 ]);
 
 /**
