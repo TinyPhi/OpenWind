@@ -13,9 +13,10 @@ Last reconciled: 2026-09-28 (#694).
 
 ## Open
 
-| Spec                                                                | Status | Notes                                                           |
-| ------------------------------------------------------------------- | ------ | --------------------------------------------------------------- |
-| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md) | draft  | Not started — dashboard has no severity/tags/origin widgets yet |
+| Spec                                                                  | Status   | Notes                                                                                                   |
+| --------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md)   | draft    | Not started — dashboard has no severity/tags/origin widgets yet                                         |
+| [advisory-lock-direct-connection](advisory-lock-direct-connection.md) | approved | #752 — session advisory locks on a direct Postgres connection; repro: 40/40 double-grants via PgBouncer |
 
 ## Implemented
 

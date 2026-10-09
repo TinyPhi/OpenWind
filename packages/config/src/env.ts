@@ -60,6 +60,12 @@ const EnvSchema = z
     DATABASE_URL: z.string().url(),
     DATABASE_POOL_MIN: z.coerce.number().int().min(1).default(2),
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).default(10),
+    // Session-scoped advisory locks (acquireTenantAdvisoryLock) need one client
+    // to stay on one Postgres backend, which PgBouncer transaction pooling
+    // cannot promise (#752). Set this to a direct (non-PgBouncer) app_user URL
+    // wherever DATABASE_URL goes through PgBouncer; unset, locks use the main client.
+    DATABASE_DIRECT_URL: z.string().url().optional(),
+    DATABASE_LOCK_POOL_MAX: z.coerce.number().int().min(1).default(5),
     REDIS_URL: z.string().url(),
     // Post-auth, tenant-scoped rate limit (#195) — requireAuth() (@platform/auth)
     // enforces this per verified auth.tenantId, independent of the pre-auth

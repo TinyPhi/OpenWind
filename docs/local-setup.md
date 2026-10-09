@@ -495,6 +495,7 @@ refuses to start if any required variable is missing or malformed.
 | ------------------------------------- | ----------------- | ------------------------------------------------------------------------------- |
 | `DATABASE_URL`                        | `.env.example`    | App connection via PgBouncer (transaction mode, required for RLS)               |
 | `MIGRATION_DATABASE_URL`              | `.env.example`    | Direct Postgres for DDL — bypasses PgBouncer                                    |
+| `DATABASE_DIRECT_URL`                 | `.env.example`    | Direct Postgres as `app_user` for advisory locks (#752)                         |
 | `ZITADEL_MASTERKEY`                   | `setup.sh`/`.ps1` | Zitadel's own encryption key — generated once, reused on re-run                 |
 | `ZITADEL_ADMIN_PASSWORD`              | `setup.sh`/`.ps1` | Password for `owZitadelAdmin@openwind.local` — generated once, reused on re-run |
 | `ZITADEL_ISSUER`                      | bootstrap         | OIDC issuer URL — must match JWT `iss` claim exactly                            |

@@ -3,6 +3,11 @@ import postgres from "postgres";
 import { env } from "@platform/config";
 import { eq, and } from "drizzle-orm";
 import * as schema from "./schema/index.js";
+import {
+  acquireAdvisoryLock,
+  reserveWithTimeout,
+  type TenantAdvisoryLock,
+} from "./advisory-lock.js";
 
 const queryClient = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -158,60 +163,41 @@ export async function purgeTenantDataFromPluginSchema(
 // lock classes can never collide even if their key strings ever coincided.
 const TENANT_ADVISORY_LOCK_SEED = 1;
 
-export interface TenantAdvisoryLock {
-  acquired: boolean;
-  release(): Promise<void>;
+export type { TenantAdvisoryLock } from "./advisory-lock.js";
+
+// Session advisory locks need a connection that pins one Postgres backend, which
+// PgBouncer transaction pooling cannot provide (#752). With DATABASE_DIRECT_URL
+// set, locks use their own small pool straight to Postgres; unset, they share
+// the main client exactly as before. Created lazily so a process that never
+// takes a lock never opens the extra connections.
+let lockClient: postgres.Sql | undefined;
+
+function getLockClient(): postgres.Sql {
+  if (!env.DATABASE_DIRECT_URL) return queryClient;
+  lockClient ??= postgres(env.DATABASE_DIRECT_URL, {
+    max: env.DATABASE_LOCK_POOL_MAX,
+    idle_timeout: 30,
+    prepare: false,
+  });
+  return lockClient;
 }
 
-/**
- * Session-scoped advisory lock keyed by (namespace, tenantId), held on a
- * single reserved connection across multiple statements AND transactions --
- * unlike pg_advisory_xact_lock (see automation-engine/src/executor.ts), this
- * survives an external network call made between DB operations, because it
- * isn't tied to any one transaction's lifetime. It IS tied to the reserved
- * connection's lifetime: if the holding process crashes, Postgres releases
- * the lock the moment that connection drops -- no stale-lock timeout guess
- * needed, unlike a row-flag-based lock (docs/specs/org-directory.md T4's
- * runOrgDirectorySync — a security review of that PR found the row-based
- * stale-reclaim approach could steal a still-healthy sync's lock out from
- * under it; this replaced it).
- *
- * Non-blocking (pg_try_advisory_lock): if another session already holds the
- * lock for this key, `acquired` is false and the reserved connection is
- * released immediately -- callers should treat that as "already in progress"
- * and not retry in a loop.
- */
-export async function acquireTenantAdvisoryLock(
+export function acquireTenantAdvisoryLock(
   tenantId: string,
   namespace: string,
 ): Promise<TenantAdvisoryLock> {
-  const reserved = await queryClient.reserve();
-  const key = `${namespace}:${tenantId}`;
-  let row: { locked: boolean } | undefined;
-  try {
-    [row] = await reserved<{ locked: boolean }[]>`
-      SELECT pg_try_advisory_lock(hashtextextended(${key}, ${TENANT_ADVISORY_LOCK_SEED})) AS locked
-    `;
-  } catch (err) {
-    // Never leak the reserved connection -- a blip between reserve() and this
-    // query must still hand the connection back to the pool.
-    reserved.release();
-    throw err;
-  }
-  if (!row?.locked) {
-    reserved.release();
-    return { acquired: false, release: async () => {} };
-  }
-  return {
-    acquired: true,
-    release: async () => {
-      try {
-        await reserved`SELECT pg_advisory_unlock(hashtextextended(${key}, ${TENANT_ADVISORY_LOCK_SEED}))`;
-      } finally {
-        reserved.release();
-      }
-    },
-  };
+  return acquireAdvisoryLock(
+    // The bounded wait applies only to the dedicated pool: on the shared main
+    // client reserve() keeps queueing exactly as before, so an unset
+    // DATABASE_DIRECT_URL changes nothing.
+    () =>
+      env.DATABASE_DIRECT_URL
+        ? reserveWithTimeout(getLockClient())
+        : queryClient.reserve(),
+    tenantId,
+    namespace,
+    TENANT_ADVISORY_LOCK_SEED,
+  );
 }
 
 const UUID_REGEX =
