@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useHoverStyle } from "@platform/ui";
 import { userManager } from "../authProvider.js";
 import {
   getOrgTree,
@@ -86,15 +85,9 @@ function OrgCard({
   node: OrgNode;
   highlighted: boolean;
 }): React.ReactElement {
-  const hover = useHoverStyle({
-    base: { borderColor: "var(--border-color)" },
-    hover: { borderColor: "var(--accent-primary)" },
-  });
-
   return (
     <div
-      onMouseEnter={hover.onMouseEnter}
-      onMouseLeave={hover.onMouseLeave}
+      className={highlighted ? undefined : "org-card-interactive"}
       style={{
         borderRadius: "var(--radius-md)",
         border: highlighted
@@ -109,9 +102,6 @@ function OrgCard({
         minWidth: "180px",
         maxWidth: "220px",
         boxShadow: highlighted ? "0 0 0 3px hsla(35,90%,50%,.25)" : "none",
-        // The highlight owns the border colour; spreading the hover style
-        // after the `border` shorthand would override it with grey (#755).
-        ...(highlighted ? {} : hover.style),
       }}
     >
       <div
