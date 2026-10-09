@@ -107,7 +107,7 @@ export function EntityInstanceDetail(): React.ReactElement {
         body: JSON.stringify({ assignedTo: userId }),
       });
       setLoading(true);
-      void loadRecord();
+      await loadRecord();
     } catch {
       // ignore — record stays as-is
     } finally {
@@ -133,7 +133,7 @@ export function EntityInstanceDetail(): React.ReactElement {
         }),
       });
       setLoading(true);
-      void loadRecord();
+      await loadRecord();
     } catch {
       // ignore — record stays as-is
     } finally {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 
 export interface UseDebouncedCallbackControls {
   readonly cancel: () => void;
@@ -83,6 +83,7 @@ export function useDebouncedCallback<TArgs extends readonly unknown[]>(
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
         hasPendingRef.current = false;
+        pendingArgsRef.current = null;
         callbackRef.current(...args);
       }, delayMs);
     },
@@ -91,11 +92,17 @@ export function useDebouncedCallback<TArgs extends readonly unknown[]>(
 
   useEffect(() => {
     return () => {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-      }
+      cancel();
     };
-  }, []);
+  }, [cancel]);
 
-  return Object.assign(debounced, { cancel, flush, isPending });
+  const controls = useMemo(
+    () => ({ cancel, flush, isPending }),
+    [cancel, flush, isPending],
+  );
+
+  return useMemo(
+    () => Object.assign(debounced, controls),
+    [debounced, controls],
+  );
 }

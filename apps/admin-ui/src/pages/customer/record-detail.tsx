@@ -2864,7 +2864,7 @@ export function CustomerRecordDetail(): React.ReactElement {
           dueDate: value ? new Date(value).toISOString() : null,
         }),
       });
-      void loadRecord();
+      await loadRecord();
     } finally {
       setQuickSettingDueDate(false);
     }

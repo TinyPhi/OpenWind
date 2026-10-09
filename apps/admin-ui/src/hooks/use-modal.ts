@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 
 export type ModalMode = "create" | "edit";
 
@@ -25,49 +25,47 @@ export interface UseModalReturn<TItem> {
 export function useModal<TItem = void>(
   options?: UseModalOptions<TItem>,
 ): UseModalReturn<TItem> {
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
   const [isOpen, setIsOpen] = useState(options?.initialOpen ?? false);
   const [item, setItem] = useState<TItem | null>(options?.initialItem ?? null);
   const [mode, setMode] = useState<ModalMode>(
     options?.initialItem ? "edit" : "create",
   );
 
-  const open = useCallback(
-    (targetItem?: TItem): void => {
-      if (targetItem !== undefined) {
-        setItem(targetItem);
-        setMode("edit");
-      } else {
-        setItem(null);
-        setMode("create");
-      }
-      setIsOpen(true);
-      options?.onOpen?.(targetItem);
-    },
-    [options],
-  );
+  const open = useCallback((targetItem?: TItem): void => {
+    if (targetItem !== undefined && targetItem !== null) {
+      setItem(targetItem);
+      setMode("edit");
+    } else {
+      setItem(null);
+      setMode("create");
+    }
+    setIsOpen(true);
+    optionsRef.current?.onOpen?.(targetItem);
+  }, []);
 
   const openCreate = useCallback((): void => {
     setItem(null);
     setMode("create");
     setIsOpen(true);
-    options?.onOpen?.(undefined);
-  }, [options]);
+    optionsRef.current?.onOpen?.(undefined);
+  }, []);
 
-  const openEdit = useCallback(
-    (targetItem: TItem): void => {
-      setItem(targetItem);
-      setMode("edit");
-      setIsOpen(true);
-      options?.onOpen?.(targetItem);
-    },
-    [options],
-  );
+  const openEdit = useCallback((targetItem: TItem): void => {
+    setItem(targetItem);
+    setMode("edit");
+    setIsOpen(true);
+    optionsRef.current?.onOpen?.(targetItem);
+  }, []);
 
   const close = useCallback((): void => {
     setIsOpen(false);
     setItem(null);
-    options?.onClose?.();
-  }, [options]);
+    setMode("create");
+    optionsRef.current?.onClose?.();
+  }, []);
 
   const toggle = useCallback((): void => {
     setIsOpen((prev) => !prev);

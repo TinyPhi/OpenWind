@@ -1,4 +1,11 @@
-import { useState, useCallback, useMemo, type ChangeEvent } from "react";
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 
 export interface UseFormStateOptions<TForm extends object> {
   readonly initialValues: TForm | (() => TForm);
@@ -23,17 +30,21 @@ export interface UseFormStateReturn<TForm extends object> {
   readonly handleCheckboxChange: (
     field: keyof TForm,
   ) => (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly handleSubmit: (event?: FormEvent) => Promise<void>;
   readonly reset: (nextValues?: TForm) => void;
 }
 
 export function useFormState<TForm extends object>(
   options: UseFormStateOptions<TForm>,
 ): UseFormStateReturn<TForm> {
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
   const getInitial = useCallback((): TForm => {
-    return typeof options.initialValues === "function"
-      ? (options.initialValues as () => TForm)()
-      : options.initialValues;
-  }, [options.initialValues]);
+    return typeof optionsRef.current.initialValues === "function"
+      ? (optionsRef.current.initialValues as () => TForm)()
+      : optionsRef.current.initialValues;
+  }, []);
 
   const [initialSnapshot, setInitialSnapshot] = useState<TForm>(getInitial);
   const [values, setFormValues] = useState<TForm>(initialSnapshot);
@@ -62,10 +73,13 @@ export function useFormState<TForm extends object>(
   const setValues = useCallback(
     (next: Partial<TForm> | ((prev: TForm) => TForm)): void => {
       setFormValues((prev) => {
-        if (typeof next === "function") {
-          return next(prev);
-        }
-        return { ...prev, ...next };
+        const incoming = typeof next === "function" ? next(prev) : next;
+        const hasChanges = Object.keys(incoming).some((k) => {
+          const key = k as keyof TForm;
+          return prev[key] !== incoming[key];
+        });
+        if (!hasChanges) return prev;
+        return { ...prev, ...incoming };
       });
     },
     [],
@@ -93,6 +107,14 @@ export function useFormState<TForm extends object>(
     [setFieldValue],
   );
 
+  const handleSubmit = useCallback(
+    async (event?: FormEvent): Promise<void> => {
+      event?.preventDefault();
+      await optionsRef.current.onSubmit?.(values);
+    },
+    [values],
+  );
+
   const reset = useCallback(
     (nextValues?: TForm): void => {
       const target = nextValues ?? getInitial();
@@ -109,6 +131,7 @@ export function useFormState<TForm extends object>(
     setValues,
     handleChange,
     handleCheckboxChange,
+    handleSubmit,
     reset,
   };
 }

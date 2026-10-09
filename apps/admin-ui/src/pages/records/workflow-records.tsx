@@ -1394,6 +1394,7 @@ export function WorkflowRecords(): React.ReactElement {
                       type="button"
                       className="kb-filter-clear-all"
                       onClick={() => {
+                        debounceFilterTagUpdate.cancel();
                         setFilters(DEFAULT_FILTERS);
                       }}
                     >

@@ -50,10 +50,16 @@ export function EntityTypes(): React.ReactElement {
   const navigate = useNavigate();
   const types = data?.data ?? [];
 
-  const createModal = useModal();
   const [form, setForm] = useState<CreateEntityTypeForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const createModal = useModal({
+    onClose: () => {
+      setForm(EMPTY_FORM);
+      setError(null);
+    },
+  });
 
   const byModule = types.reduce<Record<string, EntityType[]>>((acc, t) => {
     const key = t.moduleId ?? "__custom__";
@@ -77,7 +83,6 @@ export function EntityTypes(): React.ReactElement {
         }),
       });
       createModal.close();
-      setForm(EMPTY_FORM);
       void refetch();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create");

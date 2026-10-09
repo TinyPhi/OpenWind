@@ -847,14 +847,14 @@ export function WorkflowCanvas({
     [draftStates],
   );
 
+  const draftStatesRef = useRef(draftStates);
+  draftStatesRef.current = draftStates;
+
   // ── Node/edge callbacks (stable refs for NODE_TYPES) ────────────────────
   const handleNodeDoubleClick = useCallback(
     (id: string) => {
-      setDraftStates((ss) => {
-        const s = ss.find((x) => x.id === id);
-        if (s) editStateModal.open(s);
-        return ss;
-      });
+      const s = draftStatesRef.current.find((x) => x.id === id);
+      if (s) editStateModal.open(s);
     },
     [editStateModal],
   );
@@ -862,11 +862,8 @@ export function WorkflowCanvas({
   const handleNodeContextMenu = useCallback(
     (e: React.MouseEvent, id: string) => {
       e.preventDefault();
-      setDraftStates((ss) => {
-        const s = ss.find((x) => x.id === id);
-        if (s) editStateModal.open(s);
-        return ss;
-      });
+      const s = draftStatesRef.current.find((x) => x.id === id);
+      if (s) editStateModal.open(s);
     },
     [editStateModal],
   );
@@ -966,12 +963,13 @@ export function WorkflowCanvas({
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
 
-      if (selection.edgeIds.length > 0) {
+      const deleteSelectedEdges = (): void => {
+        if (selection.edgeIds.length === 0) return;
         const toDelete = selection.edgeIds;
         setDraftTransitions((ts) => ts.filter((t) => !toDelete.includes(t.id)));
         setSelection((prev) => ({ ...prev, edgeIds: [] }));
         markDirty();
-      }
+      };
 
       if (selection.nodeIds.length > 0) {
         const [nodeId] = selection.nodeIds;
@@ -985,14 +983,19 @@ export function WorkflowCanvas({
           confirmDeleteModal.open({
             message: `Delete "${state.label}"? This will also remove ${affectedTransitions.length} transition${affectedTransitions.length !== 1 ? "s" : ""}.`,
             onConfirm: () => {
+              deleteSelectedEdges();
               deleteState(nodeId);
               confirmDeleteModal.close();
             },
           });
-        } else {
-          deleteState(nodeId);
+          return;
         }
+        deleteSelectedEdges();
+        deleteState(nodeId);
+        return;
       }
+
+      deleteSelectedEdges();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1058,6 +1061,10 @@ export function WorkflowCanvas({
     setDraftTransitions((ts) =>
       ts.filter((t) => t.fromState !== state.name && t.toState !== state.name),
     );
+    setSelection((prev) => ({
+      ...prev,
+      nodeIds: prev.nodeIds.filter((nid) => nid !== id),
+    }));
     markDirty();
   }
 
