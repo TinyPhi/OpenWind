@@ -53,6 +53,37 @@ describe("AuthCallback", () => {
     expect(fetchWithAuth).not.toHaveBeenCalled();
   });
 
+  // T17 (docs/specs/multi-org-sandbox.md) -- a platform_admin token must land on the
+  // platform-admin dashboard, not the tenant one it would otherwise always fall through to.
+  it("with a platform_admin role claim, navigates to /platform-admin/dashboard instead of /dashboard", async () => {
+    signinCallback.mockResolvedValue({
+      state: undefined,
+      profile: {
+        "urn:zitadel:iam:org:project:roles": { platform_admin: {} },
+      },
+    });
+    renderCallback();
+
+    await waitFor(() => {
+      expect(navigateSpy).toHaveBeenCalledWith("/platform-admin/dashboard");
+    });
+    expect(navigateSpy).not.toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("with a normal (non-platform_admin) role claim, still navigates to /dashboard", async () => {
+    signinCallback.mockResolvedValue({
+      state: undefined,
+      profile: {
+        "urn:zitadel:iam:org:project:roles": { admin: {} },
+      },
+    });
+    renderCallback();
+
+    await waitFor(() => {
+      expect(navigateSpy).toHaveBeenCalledWith("/dashboard");
+    });
+  });
+
   it("with no user resolved, navigates back to /login", async () => {
     signinCallback.mockResolvedValue(null);
     renderCallback();

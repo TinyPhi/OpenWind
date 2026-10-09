@@ -50,6 +50,20 @@ export function AuthCallback(): React.ReactElement {
           return;
         }
 
+        // Platform Admin (docs/specs/multi-org-sandbox.md T17) -- checked before the
+        // handoff branch below (a platform_admin token never carries handoff state,
+        // but checking role first keeps this the one unconditional branch). Same
+        // Object.keys(rolesMap) check as authProvider.ts's getPermissions() and
+        // packages/auth/src/jwks.ts's extractPlatformAdminContext (server-side) --
+        // never duplicated as a separate parsing implementation.
+        const profile = user.profile as Record<string, unknown> | undefined;
+        const rolesMap = (profile?.["urn:zitadel:iam:org:project:roles"] ??
+          {}) as Record<string, unknown>;
+        if (Object.keys(rolesMap).includes("platform_admin")) {
+          navigate("/platform-admin/dashboard");
+          return;
+        }
+
         // Hosted ticket-create handoff (docs/specs/hosted-ticket-create-handoff.md,
         // T2/T3) -- resolved via a direct fetchWithAuth call, NOT
         // EntityTypeProvider's context, which does not wrap this route.
