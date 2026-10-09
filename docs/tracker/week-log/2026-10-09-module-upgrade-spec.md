@@ -35,3 +35,8 @@
 - Added a Deferred items register (D1-D18) to the spec so every cut item has a reason, a revisit trigger
   and a home. D8 (`department` backfill), D6 (platform-admin HTTP routes, blocked on ADR-022) and D1
   (workflow state/transition upgrades) are the ones most likely to be pulled forward.
+- T0 drafted in place: ADR-004 CF-03 and CF-04 are now Resolved, scoped to module-seed versioning.
+  CF-03 records the per-tenant version table, SQL-only delta upgrade files and the one-time `0.0.2`
+  catch-up exception, and explicitly leaves platform-wide versioning (ADR-001 MT-04, ADR-002 WE-01)
+  open. CF-04 records "tenant row wins". ADRs are human-owned; the owner asked for the draft, and it
+  needs human review in the PR.

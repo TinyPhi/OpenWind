@@ -3,7 +3,7 @@
 > Versioned, additive upgrades that carry new module seed config (fields, rules, view configs) to
 > tenants that already have the module installed. For platform operators; fixes #673.
 
-status: draft (round 2 addressed, open decisions accepted; T0 pending)
+status: draft (round 2 addressed, open decisions accepted; T0 drafted, awaiting human review)
 created: 2026-10-09
 updated: 2026-10-09
 
@@ -172,7 +172,7 @@ P0 PR slices (each independently reviewable): S1 = T1; S2 = T2; S3 = T3; S4 = T4
 
 | id  | task                                                                                                                                                                                                                                                                  | phase  | status                           | depends  |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------- | -------- |
-| T0  | HUMAN: author the ADR-004 follow-up accepting CF-03 (versioned additive delta) and CF-04 (tenant row wins), scoped to module-seed versioning only; MT-04 and WE-01 (platform-wide versioning) explicitly parked (D16). I can draft the text                           | 0      | todo (human)                     | —        |
+| T0  | ADR-004 follow-up accepting CF-03 (versioned additive delta) and CF-04 (tenant row wins), scoped to module-seed versioning only; MT-04 and WE-01 parked (D16). **Drafted in place in ADR-004 on 2026-10-09 at the owner's request; needs human review in this PR**    | 0      | drafted, awaiting human review   | —        |
 | T1  | Migrations: `tenant_module_versions` + RLS + `app_user` grants + indexes + analytics annotation + down migration; `admin_audit_log` CHECK + `AuditAction` for `module_upgrade.*`; tenant-purge + erasure-coverage rows; STRIDE table; isolation tests (as `app_user`) | 1 (P0) | todo                             | T0       |
 | T2  | `@platform/db` primitive: xact advisory lock + N SQL strings + Drizzle-callback in one tenant-context txn, dry-run rollback (additive API, surface in PR per agent-behaviour)                                                                                         | 1 (P0) | todo                             | T0       |
 | T3  | Upgrade file format + loader (semver ordering, `module_id` tokens) + allowlist lint + packaging manifest + `seedRegistry` version derivation; parser chosen via `source-driven-development`                                                                           | 1 (P0) | todo                             | T0       |
