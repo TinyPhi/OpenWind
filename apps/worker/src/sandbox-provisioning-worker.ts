@@ -10,6 +10,14 @@
  *     exist yet (no withTenantContext is possible until it does)
  *  3. Create 1 admin + 10-20 member accounts from the fixed org template, retrying each
  *     account's email on conflict
+ *  3b. (T9/T10) Install every core module's schema/workflow/automation-rule seed SQL
+ *      (sandbox-module-install.ts -- duplicates apps/api/src/services/module-service.ts's
+ *      ModuleService.installModule rather than importing it; apps/worker cannot import
+ *      from apps/api), then seed a small fixed set of real records per module across its
+ *      actual workflow states, driven through real executeTransition calls
+ *      (sandbox-module-data-seed.ts). A failure in either step is caught per-module
+ *      internally and does not fail the whole job -- a sandbox with some modules
+ *      partially seeded is still useful, unlike a partially created org/tenant/accounts.
  *  4. Call runOrgDirectorySync() unmodified (R3) so the chart seeds with the admin at the
  *     top, under the synthetic root
  *  5. Audit the outcome (sandbox.provisioning_completed / .failed), once per job, the same
@@ -37,10 +45,6 @@
  *     deleted) so it plus its `zitadel_org_id` remain as a manual-cleanup breadcrumb
  *     instead of orphaning a live Zitadel org with no local trace of it at all. The
  *     failure audit entry's `rolledBack` field records which case occurred.
- *
- * Deliberately NOT yet built here: T9 (module data seeding across workflow states --
- * scoped as a separate, larger follow-up; T10's automation-rule seeding already shipped
- * independently of it).
  */
 
 import { randomBytes, randomUUID } from "node:crypto";
@@ -64,6 +68,8 @@ import {
 import { logger } from "@platform/logger";
 import { env } from "@platform/config";
 import { connection } from "./queues.js";
+import { installCoreModulesForSandbox } from "./sandbox-module-install.js";
+import { seedAllModulesData } from "./sandbox-module-data-seed.js";
 
 const MAX_NAME_CONFLICT_ATTEMPTS = 5;
 const MAX_ACCOUNT_CONFLICT_ATTEMPTS = 5;
@@ -220,7 +226,7 @@ export async function processSandboxProvisioningJob(
   const template = generateSandboxOrgTemplate();
   const domain = sandboxEmailDomain();
   const defaultPassword = generateSandboxPassword();
-  const totalSteps = template.members.length + 4; // org, tenant, admin, members..., sync
+  const totalSteps = template.members.length + 5; // org, tenant, admin, members..., modules, sync
 
   try {
     await updateJobProgress(jobId, {
@@ -309,6 +315,20 @@ export async function processSandboxProvisioningJob(
         completedSteps: 2 + index + 1,
       });
     }
+
+    await updateJobProgress(jobId, {
+      currentStep: "seeding_modules",
+      completedSteps: totalSteps - 2,
+    });
+
+    // T9/T10 -- install every core module's schema/workflow/automation-rule seed SQL,
+    // then seed a small set of real records across each module's workflow states. A
+    // module install or data-seed failure here is caught per-module inside each
+    // function (continues with the rest), not surfaced as a job-level failure -- a
+    // sandbox with some modules only partially seeded is still useful; a partially
+    // created ORG/tenant/accounts is not, which is what T11's rollback guards against.
+    const coreModuleInstall = await installCoreModulesForSandbox(tenantId);
+    await seedAllModulesData(tenantId, coreModuleInstall.succeeded);
 
     await updateJobProgress(jobId, {
       currentStep: "syncing_directory",
