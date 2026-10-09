@@ -5,8 +5,17 @@
  * working state without disturbing its identity. For each job:
  *  1. Verify the tenant still exists and is a sandbox (defensive, same convention as
  *     tenant-purge.ts's own idempotency guard -- the real check already happened in the API
- *     route before this job was enqueued, under the sandbox-lifecycle advisory lock (T22)
- *     the route holds for this job's full duration).
+ *     route before this job was enqueued).
+ *  1b. Acquire the sandbox-lifecycle advisory lock (T22) and hold it for the rest of this
+ *      function's work, released in a finally block. Review finding (PR #832): the lock
+ *      was previously acquired and held by the API route across its
+ *      `job.waitUntilFinished` call, tied to that call's TTL -- a reset that outran the
+ *      TTL released the lock while the job kept running, letting a second concurrent
+ *      request enqueue a second reset against the same tenant. The lock's critical
+ *      section must match the job's actual execution, not the HTTP route's wait window,
+ *      so the worker (which actually performs the wipe) now owns it. The route still does
+ *      its own quick acquire-check-release before enqueueing, purely to return 409 fast in
+ *      the common case -- the lock acquired here is what's actually authoritative.
  *  2. Cancel queued-but-not-yet-processed jobs for this tenant in the queues that could
  *     otherwise fire after reset and reference wiped data: automation follow-ups, SLA
  *     breach timers, and due-date reminders. Only waiting/delayed jobs are removed -- a job
@@ -31,7 +40,12 @@
  */
 
 import { eq } from "drizzle-orm";
-import { db, withTenantContext, tenants } from "@platform/db";
+import {
+  db,
+  withTenantContext,
+  tenants,
+  acquireTenantAdvisoryLock,
+} from "@platform/db";
 import {
   entityInstances,
   entityRelations,
@@ -106,6 +120,13 @@ type JobLike = { id?: string | undefined; data: ResetJobData };
  * otherwise fire after reset and reference data this job is about to wipe. BullMQ has no
  * built-in "remove by tenantId" -- each queue's own jobs are inspected and filtered by
  * `job.data.tenantId`. Active jobs are left alone (see module doc comment).
+ *
+ * Deliberately scoped to automation/SLA/due-date queues only (review finding, PR #832) --
+ * notification and outbox-delivery queues are NOT scanned here. A queued notification job
+ * referencing a row this reset is about to wipe simply fails gracefully (row not found) and
+ * logs an error; that's acceptable noise for an infrequent admin action, and R7 only names
+ * "scheduled notifications, automation follow-ups" (the delayed/recurring kind these four
+ * queues hold), not immediate dispatch jobs.
  */
 async function cancelQueuedJobsForTenant(tenantId: string): Promise<number> {
   const queues = [
@@ -171,85 +192,114 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
       throw new Error("SANDBOX_RESET_NOT_A_SANDBOX");
     }
 
-    const cancelledJobCount = await cancelQueuedJobsForTenant(tenantId);
-    logger.info(
-      { tenantId, cancelledJobCount },
-      "sandbox reset: jobs cancelled",
-    );
+    const lock = await acquireTenantAdvisoryLock(tenantId, "sandbox-lifecycle");
+    if (!lock.acquired) {
+      logger.warn(
+        { tenantId },
+        "sandbox reset: sandbox-lifecycle lock already held -- another lifecycle action is in progress",
+      );
+      throw new Error("SANDBOX_RESET_LOCK_NOT_ACQUIRED");
+    }
 
-    // Privileged pre-step, same reasoning as tenant-purge.ts: schedule_executions is
-    // append-only (INSERT+SELECT grant) and saved_views' RLS policy requires
-    // user_id = app.user_id, which a tenant-wide reset has no single value for. Both are
-    // deleted on the worker's privileged `db` connection with an explicit tenant_id filter.
-    await db
-      .delete(scheduleExecutions)
-      .where(eq(scheduleExecutions.tenantId, tenantId));
-    await db.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
+    let cancelledJobCount: number;
+    try {
+      cancelledJobCount = await cancelQueuedJobsForTenant(tenantId);
+      logger.info(
+        { tenantId, cancelledJobCount },
+        "sandbox reset: jobs cancelled",
+      );
 
-    await withTenantContext(tenantId, async (tx) => {
-      await tx
-        .delete(notificationRecipients)
-        .where(eq(notificationRecipients.tenantId, tenantId));
-      await tx
-        .delete(notifications)
-        .where(eq(notifications.tenantId, tenantId));
+      // Privileged pre-step, same reasoning as tenant-purge.ts: schedule_executions is
+      // append-only (INSERT+SELECT grant) and saved_views' RLS policy requires
+      // user_id = app.user_id, which a tenant-wide reset has no single value for. Both are
+      // deleted on the worker's privileged `db` connection with an explicit tenant_id filter.
+      await db
+        .delete(scheduleExecutions)
+        .where(eq(scheduleExecutions.tenantId, tenantId));
+      await db.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
 
-      await tx.delete(ticketLabels).where(eq(ticketLabels.tenantId, tenantId));
-      await tx.delete(labels).where(eq(labels.tenantId, tenantId));
-      await tx
-        .delete(entityInstanceTags)
-        .where(eq(entityInstanceTags.tenantId, tenantId));
-      await tx.delete(ticketAlerts).where(eq(ticketAlerts.tenantId, tenantId));
-      await tx
-        .delete(accessRequests)
-        .where(eq(accessRequests.tenantId, tenantId));
+      await withTenantContext(tenantId, async (tx) => {
+        await tx
+          .delete(notificationRecipients)
+          .where(eq(notificationRecipients.tenantId, tenantId));
+        await tx
+          .delete(notifications)
+          .where(eq(notifications.tenantId, tenantId));
 
-      // attachments → files is NO ACTION, so attachments go first
-      await tx.delete(attachments).where(eq(attachments.tenantId, tenantId));
-      await tx.delete(files).where(eq(files.tenantId, tenantId));
+        await tx
+          .delete(ticketLabels)
+          .where(eq(ticketLabels.tenantId, tenantId));
+        await tx.delete(labels).where(eq(labels.tenantId, tenantId));
+        await tx
+          .delete(entityInstanceTags)
+          .where(eq(entityInstanceTags.tenantId, tenantId));
+        await tx
+          .delete(ticketAlerts)
+          .where(eq(ticketAlerts.tenantId, tenantId));
+        await tx
+          .delete(accessRequests)
+          .where(eq(accessRequests.tenantId, tenantId));
 
-      // workflow_events / entity_relations are FK children of entity_instances
-      await tx
-        .delete(workflowEvents)
-        .where(eq(workflowEvents.tenantId, tenantId));
-      await tx
-        .delete(entityRelations)
-        .where(eq(entityRelations.tenantId, tenantId));
-      await tx
-        .delete(entityInstances)
-        .where(eq(entityInstances.tenantId, tenantId));
+        // attachments → files is NO ACTION, so attachments go first
+        await tx.delete(attachments).where(eq(attachments.tenantId, tenantId));
+        await tx.delete(files).where(eq(files.tenantId, tenantId));
 
-      await tx
-        .delete(automationExecutions)
-        .where(eq(automationExecutions.tenantId, tenantId));
+        // workflow_events / entity_relations are FK children of entity_instances
+        await tx
+          .delete(workflowEvents)
+          .where(eq(workflowEvents.tenantId, tenantId));
+        await tx
+          .delete(entityRelations)
+          .where(eq(entityRelations.tenantId, tenantId));
+        await tx
+          .delete(entityInstances)
+          .where(eq(entityInstances.tenantId, tenantId));
 
-      await tx
-        .delete(deadLetterEvents)
-        .where(eq(deadLetterEvents.tenantId, tenantId));
-      await tx.delete(outboxEvents).where(eq(outboxEvents.tenantId, tenantId));
-      await tx
-        .delete(connectorDeliveryAttempts)
-        .where(eq(connectorDeliveryAttempts.tenantId, tenantId));
+        await tx
+          .delete(automationExecutions)
+          .where(eq(automationExecutions.tenantId, tenantId));
 
-      await tx
-        .delete(idempotencyKeys)
-        .where(eq(idempotencyKeys.tenantId, tenantId));
-    });
-    logger.info({ tenantId }, "sandbox reset: business data wiped");
+        await tx
+          .delete(deadLetterEvents)
+          .where(eq(deadLetterEvents.tenantId, tenantId));
+        await tx
+          .delete(outboxEvents)
+          .where(eq(outboxEvents.tenantId, tenantId));
+        await tx
+          .delete(connectorDeliveryAttempts)
+          .where(eq(connectorDeliveryAttempts.tenantId, tenantId));
 
-    const config = (tenant.config ?? {}) as Record<string, unknown>;
-    const installedModules = Array.isArray(config["installed_modules"])
-      ? (config["installed_modules"] as string[])
-      : [];
-    await seedAllModulesData(tenantId, installedModules);
-    logger.info(
-      { tenantId, installedModules },
-      "sandbox reset: module data reseeded",
-    );
+        await tx
+          .delete(idempotencyKeys)
+          .where(eq(idempotencyKeys.tenantId, tenantId));
+      });
+      logger.info({ tenantId }, "sandbox reset: business data wiped");
 
-    // Best-effort, outside the DB transaction -- same convention as tenant-purge.ts's
-    // deleteTenantFiles call.
-    await deleteTenantFiles(tenantId);
+      const config = (tenant.config ?? {}) as Record<string, unknown>;
+      const installedModules = Array.isArray(config["installed_modules"])
+        ? (config["installed_modules"] as string[])
+        : [];
+      await seedAllModulesData(tenantId, installedModules);
+      logger.info(
+        { tenantId, installedModules },
+        "sandbox reset: module data reseeded",
+      );
+
+      // Best-effort, outside the DB transaction -- same convention as tenant-purge.ts's
+      // deleteTenantFiles call.
+      await deleteTenantFiles(tenantId);
+    } finally {
+      // Swallow a release failure rather than letting it mask the real result/error above --
+      // same reasoning as packages/org-directory/src/sync.ts's identical pattern.
+      try {
+        await lock.release();
+      } catch (releaseErr) {
+        logger.error(
+          { tenantId, releaseErr },
+          "sandbox reset: failed to release sandbox-lifecycle lock",
+        );
+      }
+    }
 
     await auditOutcome(job, "sandbox.reset_completed", { cancelledJobCount });
     logger.info({ tenantId }, "sandbox reset: complete");

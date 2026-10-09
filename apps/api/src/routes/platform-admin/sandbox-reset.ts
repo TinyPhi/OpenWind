@@ -23,11 +23,16 @@ import { platformAdminFactory } from "./factory.js";
  * tenant the dashboard (T17) already knows the id of, rather than a job this route itself
  * created.
  *
- * Concurrency (T22, R7's third acceptance criterion): the sandbox-lifecycle advisory lock is
- * acquired here, BEFORE enqueueing, and held for the job's entire duration (the route awaits
- * the job's completion before releasing) — a second reset or delete call on the same tenant
- * while one is already in flight gets a 409, never left to the dashboard UI to prevent by
- * disabling a button. Reused verbatim by T15's eventual delete route.
+ * Concurrency (T22, R7's third acceptance criterion): the AUTHORITATIVE sandbox-lifecycle
+ * advisory lock is acquired and held by the worker itself, for the job's actual execution
+ * (apps/worker/src/sandbox-reset-worker.ts), not by this route -- review finding (PR #832):
+ * holding it here across `job.waitUntilFinished`'s TTL let the lock release mid-job on a
+ * slow reset, defeating the point of it. This route's own acquire-check-release below is
+ * only a fast pre-check, purely to return 409 quickly in the common case without
+ * enqueueing a job that's certain to fail its own lock acquisition -- never relied on for
+ * correctness. A race between this check and the worker's real acquisition is possible and
+ * fine: the worker's own acquisition is what actually prevents two resets from running
+ * concurrently against the same tenant.
  */
 const TenantIdParamSchema = z.object({ tenantId: z.string().uuid() });
 
@@ -55,8 +60,13 @@ export const sandboxResetHandler = platformAdminFactory.createHandlers(
       return c.json({ error: "NOT_FOUND", message: "No such sandbox" }, 404);
     }
 
-    const lock = await acquireTenantAdvisoryLock(tenantId, "sandbox-lifecycle");
-    if (!lock.acquired) {
+    // Fast pre-check only -- see module doc comment. Released immediately; the worker
+    // reacquires this same lock for the job's actual duration.
+    const precheckLock = await acquireTenantAdvisoryLock(
+      tenantId,
+      "sandbox-lifecycle",
+    );
+    if (!precheckLock.acquired) {
       return c.json(
         {
           error: "LIFECYCLE_ACTION_IN_PROGRESS",
@@ -65,61 +75,56 @@ export const sandboxResetHandler = platformAdminFactory.createHandlers(
         409,
       );
     }
+    try {
+      await precheckLock.release();
+    } catch (releaseErr) {
+      logger.error(
+        { tenantId, releaseErr },
+        "platform-admin sandbox reset: failed to release pre-check lock",
+      );
+    }
+
+    const jobId = randomUUID();
+    let job;
+    try {
+      job = await sandboxResetQueue.add(
+        "reset",
+        { tenantId, requestedBy: userId },
+        { jobId },
+      );
+    } catch (err) {
+      logger.error(
+        { err, tenantId, userId },
+        "platform-admin sandbox reset: failed to enqueue reset job",
+      );
+      return c.json(
+        {
+          error: "ENQUEUE_FAILED",
+          message: "Could not start sandbox reset — try again shortly",
+        },
+        503,
+      );
+    }
 
     try {
-      const jobId = randomUUID();
-      let job;
-      try {
-        job = await sandboxResetQueue.add(
-          "reset",
-          { tenantId, requestedBy: userId },
-          { jobId },
-        );
-      } catch (err) {
-        logger.error(
-          { err, tenantId, userId },
-          "platform-admin sandbox reset: failed to enqueue reset job",
-        );
-        return c.json(
-          {
-            error: "ENQUEUE_FAILED",
-            message: "Could not start sandbox reset — try again shortly",
-          },
-          503,
-        );
-      }
-
-      try {
-        await job.waitUntilFinished(
-          sandboxResetQueueEvents,
-          WAIT_FOR_RESET_TTL_MS,
-        );
-      } catch (err) {
-        logger.error(
-          { err, tenantId, userId, jobId },
-          "platform-admin sandbox reset: reset job failed",
-        );
-        return c.json(
-          {
-            error: "RESET_FAILED",
-            message: "Sandbox reset did not complete successfully",
-          },
-          500,
-        );
-      }
-
-      return c.json({ data: { tenantId } }, 200);
-    } finally {
-      // Swallow a release failure rather than letting it mask the response above --
-      // same reasoning as packages/org-directory/src/sync.ts's identical pattern.
-      try {
-        await lock.release();
-      } catch (releaseErr) {
-        logger.error(
-          { tenantId, releaseErr },
-          "platform-admin sandbox reset: failed to release sandbox-lifecycle lock",
-        );
-      }
+      await job.waitUntilFinished(
+        sandboxResetQueueEvents,
+        WAIT_FOR_RESET_TTL_MS,
+      );
+    } catch (err) {
+      logger.error(
+        { err, tenantId, userId, jobId },
+        "platform-admin sandbox reset: reset job failed",
+      );
+      return c.json(
+        {
+          error: "RESET_FAILED",
+          message: "Sandbox reset did not complete successfully",
+        },
+        500,
+      );
     }
+
+    return c.json({ data: { tenantId } }, 200);
   },
 );

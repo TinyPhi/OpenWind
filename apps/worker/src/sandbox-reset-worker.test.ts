@@ -24,6 +24,10 @@ const mockTx = { delete: mockDelete };
 const mockWithTenantContext = vi.fn(
   (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTx),
 );
+const mockLockRelease = vi.fn().mockResolvedValue(undefined);
+const mockAcquireTenantAdvisoryLock = vi
+  .fn()
+  .mockResolvedValue({ acquired: true, release: mockLockRelease });
 
 vi.mock("@platform/db", () => ({
   db: {
@@ -32,6 +36,8 @@ vi.mock("@platform/db", () => ({
   },
   withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
     mockWithTenantContext(...args),
+  acquireTenantAdvisoryLock: (...args: unknown[]) =>
+    mockAcquireTenantAdvisoryLock(...args),
   tenants: { id: "id", isSandbox: "isSandbox", config: "config" },
   entityInstances: { tenantId: "tenantId" },
   entityRelations: { tenantId: "tenantId" },
@@ -119,7 +125,9 @@ vi.mock("./queues.js", () => ({
   },
 }));
 
-const { processSandboxResetJob } = await import("./sandbox-reset-worker.js");
+const { processSandboxResetJob, RESET_TENANT_TABLES } =
+  await import("./sandbox-reset-worker.js");
+const { PURGED_TENANT_TABLES } = await import("./tenant-purge.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -130,6 +138,10 @@ beforeEach(() => {
   mockSelectLimit.mockResolvedValue([
     { isSandbox: true, config: { installed_modules: ["helpdesk", "crm"] } },
   ]);
+  mockAcquireTenantAdvisoryLock.mockResolvedValue({
+    acquired: true,
+    release: mockLockRelease,
+  });
 });
 
 describe("processSandboxResetJob", () => {
@@ -249,5 +261,50 @@ describe("processSandboxResetJob", () => {
       }),
     );
     expect(mockSeedAllModulesData).not.toHaveBeenCalled();
+  });
+
+  it("throws and writes a failed audit entry when the sandbox-lifecycle lock is already held (review finding, PR #832)", async () => {
+    mockAcquireTenantAdvisoryLock.mockResolvedValue({
+      acquired: false,
+      release: vi.fn(),
+    });
+
+    await expect(
+      processSandboxResetJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("SANDBOX_RESET_LOCK_NOT_ACQUIRED");
+
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_failed" }),
+    );
+    expect(mockWithTenantContext).not.toHaveBeenCalled();
+  });
+
+  it("acquires the sandbox-lifecycle lock before wiping and releases it after a successful reset", async () => {
+    await processSandboxResetJob(
+      makeJob(TENANT_ID, { requestedBy: "admin-1" }),
+    );
+
+    expect(mockAcquireTenantAdvisoryLock).toHaveBeenCalledWith(
+      TENANT_ID,
+      "sandbox-lifecycle",
+    );
+    expect(mockLockRelease).toHaveBeenCalled();
+  });
+
+  it("still releases the lock when the wipe fails partway through", async () => {
+    mockWithTenantContext.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      processSandboxResetJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("db down");
+
+    expect(mockLockRelease).toHaveBeenCalled();
+  });
+
+  it("RESET_TENANT_TABLES is a strict subset of PURGED_TENANT_TABLES (review finding, PR #832)", () => {
+    for (const table of RESET_TENANT_TABLES) {
+      expect(PURGED_TENANT_TABLES).toContain(table);
+    }
   });
 });
