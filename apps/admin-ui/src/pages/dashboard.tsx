@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useEntityTypes, toTypeSlug } from "../entity-type-context.js";
-import { useHoverStyle } from "@platform/ui";
 import {
   listNotifications,
   getUnreadCount,
@@ -394,10 +393,6 @@ function WorkloadBar({
   color: string;
   onClick: () => void;
 }): React.ReactElement {
-  const hover = useHoverStyle({
-    base: { background: "transparent" },
-    hover: { background: "var(--bg-tertiary)" },
-  });
   const pct =
     maxTotal > 0
       ? Math.max(4, Math.round((workflow.total / maxTotal) * 100))
@@ -406,13 +401,11 @@ function WorkloadBar({
   return (
     <div
       onClick={onClick}
-      onMouseEnter={hover.onMouseEnter}
-      onMouseLeave={hover.onMouseLeave}
+      className="interactive-hover-row"
       style={{
         cursor: "pointer",
         borderRadius: "var(--radius-sm)",
         padding: "8px 8px",
-        ...hover.style,
       }}
     >
       <div
@@ -467,19 +460,12 @@ function KpiTile({
   onClick?: () => void;
   active?: boolean;
 }): React.ReactElement {
-  const hover = useHoverStyle({
-    base: { borderColor: withAlpha(color, 0.25), boxShadow: "none" },
-    hover: {
-      borderColor: color,
-      boxShadow: `0 4px 20px ${withAlpha(color, 0.2)}`,
-    },
-  });
+  const isInteractive = Boolean(onClick && !active);
 
   return (
     <div
       onClick={onClick}
-      onMouseEnter={onClick && !active ? hover.onMouseEnter : undefined}
-      onMouseLeave={onClick && !active ? hover.onMouseLeave : undefined}
+      className={isInteractive ? "stat-card-interactive" : undefined}
       style={{
         background: active ? color : withAlpha(color, 0.1),
         border: "1px solid",
@@ -489,13 +475,14 @@ function KpiTile({
         display: "flex",
         alignItems: "center",
         gap: "14px",
-        transition: "border-color .15s, box-shadow .15s, background .15s",
-        ...(active
-          ? {
-              borderColor: color,
-              boxShadow: `0 4px 20px ${withAlpha(color, 0.35)}`,
-            }
-          : hover.style),
+        borderColor: active ? color : withAlpha(color, 0.25),
+        boxShadow: active ? `0 4px 20px ${withAlpha(color, 0.35)}` : "none",
+        ...(isInteractive
+          ? ({
+              ["--card-color" as string]: color,
+              ["--card-glow" as string]: withAlpha(color, 0.2),
+            } as React.CSSProperties)
+          : {}),
       }}
     >
       <div
@@ -624,9 +611,6 @@ export function FilterTabs({
   );
 }
 
-// Own hover state per row — a single shared useHoverStyle call at the table
-// level would highlight EVERY row together on hover (hovered is one boolean
-// for the whole table), not just the row under the cursor.
 function TicketRow({
   item,
   onOpen,
@@ -634,21 +618,10 @@ function TicketRow({
   item: TicketSummary;
   onOpen: (entityTypeId: string, entityId: string) => void;
 }): React.ReactElement {
-  const rowHover = useHoverStyle({
-    base: { background: "transparent", transform: "scale(1)" },
-    hover: { background: "var(--bg-tertiary)", transform: "scale(1.012)" },
-  });
-
   return (
     <tr
       onClick={() => onOpen(item.entityTypeId, item.entityId)}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
-      style={{
-        cursor: "pointer",
-        transition: "transform .12s ease, background .12s ease",
-        ...rowHover.style,
-      }}
+      className="ticket-table-row"
     >
       <td
         style={{

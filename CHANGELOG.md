@@ -17,6 +17,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`openwind_mention_record_failure_total` metric** counts resolved mentions the
   mention-resolution worker failed to record on a comment, so incomplete erasure scrubs can be
   alerted on (#769).
+## [Unreleased — admin-ui CSS hover states (3 of 5, split from #772)]
+
+### Changed
+
+- **Hover effects in admin-ui are CSS, not React state.** The 24 `useHoverStyle` calls (48
+  `onMouseEnter` / `onMouseLeave` props) in the layout, notification bell, pickers, ticket
+  create/detail, dashboard, analytics, users, modules, workflow designer and org directory are
+  replaced by `:hover` rules in `index.css`, so hovering no longer re-renders components. Accent
+  colours still follow the theme through CSS variables and `color-mix()`. `useHoverStyle` stays
+  exported from `@platform/ui`; admin-ui no longer uses it.
+
+---
 
 ## [Unreleased — admin-ui startup and idle-logout hardening (5 of 5, split from #772)]
 
