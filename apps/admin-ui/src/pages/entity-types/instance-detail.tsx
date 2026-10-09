@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   Dialog,
@@ -13,6 +13,7 @@ import { UserPicker } from "../../components/user-picker.js";
 import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { formatFieldValue } from "../../lib/format.js";
+import { useDebouncedCallback } from "../../hooks/use-debounce.js";
 
 type EntityField = {
   id: string;
@@ -116,7 +117,10 @@ export function EntityInstanceDetail(): React.ReactElement {
 
   const [savingDueDate, setSavingDueDate] = useState(false);
   const [dueDateInput, setDueDateInput] = useState("");
-  const dueDateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedHandleDueDate = useDebouncedCallback(
+    (value: string) => void handleDueDate(value),
+    400,
+  );
 
   async function handleDueDate(value: string): Promise<void> {
     if (!instanceId) return;
@@ -143,17 +147,8 @@ export function EntityInstanceDetail(): React.ReactElement {
   // typing feels instant.
   function handleDueDateInputChange(value: string): void {
     setDueDateInput(value);
-    if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
-    dueDateDebounceRef.current = setTimeout(() => {
-      void handleDueDate(value);
-    }, 400);
+    debouncedHandleDueDate(value);
   }
-
-  useEffect(() => {
-    return () => {
-      if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     if (savingDueDate) return;

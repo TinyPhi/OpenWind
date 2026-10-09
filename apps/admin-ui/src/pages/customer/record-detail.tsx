@@ -10,6 +10,7 @@ import {
   showConfirm,
 } from "../../components/global-alert-dialog.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
+import { useDebouncedCallback } from "../../hooks/use-debounce.js";
 import { subscribeToTicketRoom } from "../../lib/notifications-client.js";
 import {
   type AttachmentFile,
@@ -1264,7 +1265,10 @@ export function CustomerRecordDetail(): React.ReactElement {
   const [quickAssigning, setQuickAssigning] = useState(false);
   const [quickSettingDueDate, setQuickSettingDueDate] = useState(false);
   const [dueDateInput, setDueDateInput] = useState("");
-  const dueDateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedQuickSetDueDate = useDebouncedCallback(
+    (val: string) => void quickSetDueDate(val),
+    400,
+  );
   const [replyTo, setReplyTo] = useState<WorkflowEvent | null>(null);
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(
     new Set(),
@@ -1773,7 +1777,9 @@ export function CustomerRecordDetail(): React.ReactElement {
           // A failed /access fetch maps to null (not an empty list) so the
           // setter below can tell "request failed" apart from "ticket
           // legitimately has no access entries" -- see setAccessList below.
-          fetchWithAuth(`${API_URL}/entities/${targetId}/access`).catch(() => null),
+          fetchWithAuth(`${API_URL}/entities/${targetId}/access`).catch(
+            () => null,
+          ),
         ]);
       })
       .then((results) => {
@@ -2611,7 +2617,8 @@ export function CustomerRecordDetail(): React.ReactElement {
     }
 
     void loadRecord(currentId).then((success) => {
-      if (canceled || !success || activeTicketIdRef.current !== currentId) return;
+      if (canceled || !success || activeTicketIdRef.current !== currentId)
+        return;
       void Promise.all([
         loadComments(currentId),
         refreshAttachments(currentId),
@@ -2869,17 +2876,8 @@ export function CustomerRecordDetail(): React.ReactElement {
   // typing feels instant.
   function handleDueDateInputChange(value: string): void {
     setDueDateInput(value);
-    if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
-    dueDateDebounceRef.current = setTimeout(() => {
-      void quickSetDueDate(value);
-    }, 400);
+    debouncedQuickSetDueDate(value);
   }
-
-  useEffect(() => {
-    return () => {
-      if (dueDateDebounceRef.current) clearTimeout(dueDateDebounceRef.current);
-    };
-  }, []);
 
   async function executeTransition(
     transition: Transition,
