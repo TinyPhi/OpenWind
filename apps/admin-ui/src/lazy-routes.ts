@@ -143,3 +143,20 @@ export const OnCallAdminPage = lazy(() =>
     default: m.OnCallAdminPage,
   })),
 );
+
+// Platform Admin (docs/specs/multi-org-sandbox.md T17)
+export const PlatformAdminLogin = lazy(() =>
+  import("./pages/platform-admin/login.js").then((m) => ({
+    default: m.PlatformAdminLogin,
+  })),
+);
+export const PlatformAdminMfa = lazy(() =>
+  import("./pages/platform-admin/mfa.js").then((m) => ({
+    default: m.PlatformAdminMfa,
+  })),
+);
+export const PlatformAdminDashboard = lazy(() =>
+  import("./pages/platform-admin/dashboard.js").then((m) => ({
+    default: m.PlatformAdminDashboard,
+  })),
+);
