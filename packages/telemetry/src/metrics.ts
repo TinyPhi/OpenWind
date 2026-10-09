@@ -240,4 +240,15 @@ export const scheduleCatchUpTotal = meter.createCounter(
   },
 );
 
+// docs/specs/user-erasure-anonymization.md §B7 — a failed recordResolvedMention
+// leaves a mention unrecorded, so a later erasure scrubs that comment
+// incompletely. Deliberately unlabelled: tenantId stays in the log line.
+export const mentionRecordFailureTotal = meter.createCounter(
+  "openwind_mention_record_failure_total",
+  {
+    description:
+      "Resolved mentions the mention-resolution worker failed to record on a comment",
+  },
+);
+
 export { meter };

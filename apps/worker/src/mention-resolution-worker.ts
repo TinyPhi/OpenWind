@@ -26,7 +26,7 @@
  * Access Logs screen exists (see the Phase C spec's §C "new schema" row).
  */
 
-import { Worker } from "@platform/telemetry";
+import { Worker, mentionRecordFailureTotal } from "@platform/telemetry";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import {
   entityInstances,
@@ -172,6 +172,7 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
     try {
       await recordResolvedMention(tenantId, commentId, resolved?.userId ?? "");
     } catch (err) {
+      mentionRecordFailureTotal.add(1);
       logger.error(
         { tenantId, commentId, jobId: job.id, error: String(err) },
         "mention-resolution: could not record the resolved mention on the comment",
