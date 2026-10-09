@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { relativeTime } from "../lib/format.js";
 import { userManager } from "../authProvider.js";
-import { Button, TOKENS, useHoverStyle } from "@platform/ui";
+import { Button } from "@platform/ui";
 
 type WorkflowState = {
   name: string;
@@ -180,33 +180,32 @@ function KpiCard({
   onClick?: () => void;
   spark?: number[];
 }): React.ReactElement {
-  const cardHover = useHoverStyle({
-    base: { borderColor: withAlpha(color, 0.25), boxShadow: "none" },
-    hover: {
-      borderColor: color,
-      boxShadow: `0 4px 20px ${withAlpha(color, 0.2)}`,
-    },
-  });
+  const isInteractive = Boolean(onClick);
 
   return (
     <div
       onClick={onClick}
+      className={isInteractive ? "stat-card-interactive" : undefined}
       style={{
         background: withAlpha(color, 0.1),
         border: "1px solid",
+        borderColor: withAlpha(color, 0.25),
+        boxShadow: "none",
         borderRadius: "var(--radius-md)",
         padding: "20px 22px",
         cursor: onClick ? "pointer" : "default",
         display: "flex",
         alignItems: "flex-start",
         gap: "16px",
-        transition: "border-color .15s, box-shadow .15s",
         position: "relative",
         overflow: "hidden",
-        ...cardHover.style,
+        ...(isInteractive
+          ? ({
+              ["--card-color" as string]: color,
+              ["--card-glow" as string]: withAlpha(color, 0.2),
+            } as React.CSSProperties)
+          : {}),
       }}
-      onMouseEnter={onClick ? cardHover.onMouseEnter : undefined}
-      onMouseLeave={onClick ? cardHover.onMouseLeave : undefined}
     >
       {/* icon */}
       <div
@@ -525,10 +524,6 @@ function WorkflowPerfRow({
   onClick: () => void;
 }): React.ReactElement {
   const palette = WORKFLOW_COLORS[index % WORKFLOW_COLORS.length];
-  const rowHover = useHoverStyle({
-    base: { background: "transparent" },
-    hover: { background: TOKENS.bgSecondary },
-  });
 
   return (
     <div
@@ -541,12 +536,8 @@ function WorkflowPerfRow({
         padding: "12px 10px",
         borderBottom: "1px solid var(--border-color)",
         cursor: "pointer",
-        transition: "background .12s",
         alignItems: "center",
-        ...rowHover.style,
       }}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
     >
       {/* name + states */}
       <div>
@@ -695,13 +686,9 @@ function RecentRecordRow({
   isLast: boolean;
   onClick: () => void;
 }): React.ReactElement {
-  const rowHover = useHoverStyle({
-    base: { background: "transparent" },
-    hover: { background: TOKENS.bgSecondary },
-  });
-
   return (
     <div
+      className="interactive-hover-row"
       onClick={onClick}
       style={{
         display: "flex",
@@ -710,12 +697,8 @@ function RecentRecordRow({
         padding: "10px 8px",
         borderBottom: isLast ? "none" : "1px solid var(--border-color)",
         cursor: "pointer",
-        transition: "background .1s",
         borderRadius: "4px",
-        ...rowHover.style,
       }}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
     >
       {/* state dot */}
       <div
@@ -826,13 +809,9 @@ function SummaryLinkRow({
   loading: boolean;
   onClick: () => void;
 }): React.ReactElement {
-  const rowHover = useHoverStyle({
-    base: { background: "transparent" },
-    hover: { background: TOKENS.bgSecondary },
-  });
-
   return (
     <div
+      className="interactive-hover-row"
       onClick={onClick}
       style={{
         display: "flex",
@@ -841,12 +820,8 @@ function SummaryLinkRow({
         padding: "10px 6px",
         borderBottom: "1px solid var(--border-color)",
         cursor: "pointer",
-        transition: "background .1s",
         borderRadius: "4px",
-        ...rowHover.style,
       }}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
     >
       <span style={{ fontSize: "16px", flexShrink: 0 }}>{icon}</span>
       <span
@@ -880,21 +855,10 @@ function QuickActionButton({
   label: string;
   onClick: () => void;
 }): React.ReactElement {
-  const buttonHover = useHoverStyle({
-    base: {
-      borderColor: TOKENS.borderColor,
-      color: TOKENS.textSecondary,
-      background: TOKENS.bgSecondary,
-    },
-    hover: {
-      borderColor: TOKENS.accentPrimary,
-      color: TOKENS.accentPrimary,
-      background: "hsla(250,84%,60%,.06)",
-    },
-  });
-
   return (
     <button
+      type="button"
+      className="analytics-quick-action"
       onClick={onClick}
       style={{
         display: "flex",
@@ -902,17 +866,12 @@ function QuickActionButton({
         gap: "10px",
         padding: "9px 12px",
         borderRadius: "var(--radius-sm)",
-        border: "1px solid",
         fontSize: "13px",
         fontWeight: 500,
         cursor: "pointer",
         textAlign: "left",
-        transition: "border-color .12s, color .12s, background .12s",
         width: "100%",
-        ...buttonHover.style,
       }}
-      onMouseEnter={buttonHover.onMouseEnter}
-      onMouseLeave={buttonHover.onMouseLeave}
     >
       <span style={{ fontSize: "15px" }}>{icon}</span>
       {label}
