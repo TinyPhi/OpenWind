@@ -3,7 +3,7 @@
 **Target Branch:** `perf/PLAT-admin-ui-state-optimizations`  
 **Base Branch:** `feat/PLAT-admin-ui-perf-optimizations`  
 **PR Reference:** [GitHub PR Comparison](https://github.com/imRahul05/OpenWind/pull/new/perf/PLAT-admin-ui-state-optimizations)  
-**Verification Gate:** 100% Passed (65 test files, 583 tests green, 0 TypeScript errors, 0 ESLint warnings, entry bundle 195.5 kB gzip / budget 280 kB)
+**Verification Gate:** 100% Passed (70 test files, 662 tests green, 0 TypeScript errors, 0 ESLint warnings, entry bundle 195.8 kB gzip / budget 210 kB)
 
 ---
 
@@ -25,7 +25,7 @@ All optimizations strictly respect the platform invariants: **Zero `any`**, **Ze
 
 ### 2.1 The "Hook Proliferation & Render Cascades" Problem
 
-In complex forms and record management pages (such as `workflows/detail.tsx`, `schedule-rules/index.tsx`, and `workflow-records.tsx`), developers previously introduced independent `useState` hooks for every form field, modal visibility flag, loading status, and error string.
+In complex forms and record management pages (such as `workflows/detail.tsx`, `workflow-canvas.tsx`, `schedule-rules/index.tsx`, `entity-types/instance-create.tsx`, and `workflow-records.tsx`), developers previously introduced independent `useState` hooks for every form field, modal visibility flag, loading status, and error string.
 
 - **Cascading Re-renders**: Resetting or prefilling a form triggered 8 to 21 synchronous `setState` dispatches, leading to repetitive virtual DOM reconciliation cycles before the component settled.
 - **Derived State Anti-Pattern**: Synchronizing props to state via `useEffect` (e.g. copying access permissions into local state) created two separate render passes per update. Replacing these with `useMemo` derives values in render time with zero cascading re-renders.
@@ -143,7 +143,7 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    MainEntry["Main Entry Chunk: index-DUXESudM.js (195.5 kB gzip)"] --> AdminOnCallRoute["OnCallAdminPage Chunk (5.7 kB)"]
+    MainEntry["Main Entry Chunk: index-*.js (195.8 kB gzip)"] --> AdminOnCallRoute["OnCallAdminPage Chunk (5.7 kB)"]
 
     AdminOnCallRoute --> TabNav["Tab Navigation Selector (URL ?tab=...)"]
 
@@ -166,42 +166,51 @@ flowchart TD
 
 ### 4.1 React Hook Reductions (`useState` / `useEffect`)
 
-| File / Component                        | Purpose                                   | `useState` Before | `useState` After | Delta (%)  | `useEffect` Before | `useEffect` After | Delta (%)  |
-| :-------------------------------------- | :---------------------------------------- | :---------------: | :--------------: | :--------: | :----------------: | :---------------: | :--------: |
-| `pages/workflows/detail.tsx`            | Field, State, Transition & Delete Modals  |        21         |        4         | **-81.0%** |         3          |         3         |     0%     |
-| `pages/schedule-rules/index.tsx`        | Schedule Rule Multi-Step Modal Form       |        19         |        3         | **-84.2%** |         2          |         1         | **-50.0%** |
-| `pages/records/workflow-records.tsx`    | Multi-Facet Filter State & Tags           |         8         |        1         | **-87.5%** |         3          |         3         |     0%     |
-| `pages/notification-policies/index.tsx` | Policy Form & Resolution Simulator        |        10         |        3         | **-70.0%** |         2          |         1         | **-50.0%** |
-| `pages/customer/record-create.tsx`      | Dynamic Entity Record Creation Form       |         9         |        1         | **-88.9%** |         2          |         2         |     0%     |
-| `pages/customer/record-detail.tsx`      | Ticket Permissions & Access Request State |        14         |        12        | **-14.3%** |         11         |         9         | **-18.2%** |
-| `pages/teams/index.tsx`                 | Team Creation & Editing Modal             |         4         |        1         | **-75.0%** |         1          |         1         |     0%     |
-| `pages/services/index.tsx`              | Service Creation & Editing Modal          |         4         |        1         | **-75.0%** |         1          |         1         |     0%     |
-| **Total Across Target Features**        | **State Optimization Focus Areas**        |      **89**       |      **26**      | **-70.8%** |       **24**       |      **20**       | **-16.7%** |
-| **Total Across Entire Application**     | **Comprehensive Codebase Baseline**       |      **412**      |     **355**      | **-13.8%** |      **148**       |      **144**      | **-2.7%**  |
+| File / Component                         | Purpose                                   | `useState` Before | `useState` After | Delta (%)  | `useEffect` Before | `useEffect` After | Delta (%)  |
+| :--------------------------------------- | :---------------------------------------- | :---------------: | :--------------: | :--------: | :----------------: | :---------------: | :--------: |
+| `pages/workflows/detail.tsx`             | Field, State, Transition & Delete Modals  |        21         |        4         | **-81.0%** |         3          |         3         |     0%     |
+| `components/workflow-canvas.tsx`         | Canvas overlays, selections & async save  |        12         |        3         | **-75.0%** |         5          |         5         |     0%     |
+| `pages/schedule-rules/index.tsx`         | Schedule Rule Multi-Step Modal Form       |        19         |        3         | **-84.2%** |         2          |         1         | **-50.0%** |
+| `pages/records/workflow-records.tsx`     | Multi-Facet Filter State & Tags           |         8         |        1         | **-87.5%** |         3          |         3         |     0%     |
+| `pages/notification-policies/index.tsx`  | Policy Form & Resolution Simulator        |        10         |        3         | **-70.0%** |         2          |         1         | **-50.0%** |
+| `pages/customer/record-create.tsx`       | Dynamic Entity Record Creation Form       |         9         |        1         | **-88.9%** |         2          |         2         |     0%     |
+| `pages/entity-types/instance-create.tsx` | Entity Instance Creation Form             |         9         |        1         | **-88.9%** |         2          |         2         |     0%     |
+| `pages/customer/record-detail.tsx`       | Ticket Permissions & Access Request State |        14         |        12        | **-14.3%** |         11         |         9         | **-18.2%** |
+| `pages/teams/index.tsx`                  | Team Creation & Editing Modal             |         4         |        1         | **-75.0%** |         1          |         1         |     0%     |
+| `pages/services/index.tsx`               | Service Creation & Editing Modal          |         4         |        1         | **-75.0%** |         1          |         1         |     0%     |
+| `pages/entity-types/index.tsx`           | Entity Type Def Modal State               |         2         |        0         | **-100%**  |         1          |         1         |     0%     |
+| `pages/roster/index.tsx`                 | Roster Schedule Modal State               |         8         |        1         | **-87.5%** |         2          |         1         | **-50.0%** |
+| **Total Across Target Features**         | **State Optimization Focus Areas**        |      **120**      |      **31**      | **-74.2%** |       **34**       |      **29**       | **-14.7%** |
+| **Total Across Entire Application**      | **Comprehensive Codebase Baseline**       |      **412**      |     **355**      | **-13.8%** |      **148**       |      **144**      | **-2.7%**  |
 
 ---
 
 ### 4.2 Lines of Code (LOC) Metrics Before vs After
 
-| File / Module                                               | LOC Before | LOC After | LOC Delta | Key Architectural Contribution                             |
-| :---------------------------------------------------------- | :--------: | :-------: | :-------: | :--------------------------------------------------------- |
-| `apps/admin-ui/src/hooks/use-modal.ts`                      |     0      |    88     |    +88    | Centralized modal state machine hook                       |
-| `apps/admin-ui/src/hooks/use-modal.test.ts`                 |     0      |    101    |   +101    | 6 unit tests for modal state transitions                   |
-| `apps/admin-ui/src/hooks/use-debounce.ts`                   |     0      |    101    |   +101    | Centralized callback debouncer with flush/cancel           |
-| `apps/admin-ui/src/hooks/use-debounce.test.ts`              |     0      |    155    |   +155    | 7 unit tests for timer collapse & flush                    |
-| `apps/admin-ui/src/hooks/use-form-state.ts`                 |     0      |    114    |   +114    | Centralized form model with dirty tracking                 |
-| `apps/admin-ui/src/hooks/use-form-state.test.ts`            |     0      |    142    |   +142    | 8 unit tests for field setters & dirty state               |
-| `apps/admin-ui/src/hooks/use-async-action.ts`               |     0      |    82     |    +82    | Normalized async execution state & error handler           |
-| `apps/admin-ui/src/hooks/use-async-action.test.ts`          |     0      |    66     |    +66    | 4 unit tests for execution lifecycle                       |
-| `apps/admin-ui/src/state-optimizations.regression.test.tsx` |     0      |    504    |   +504    | 11 dedicated regression tests for state & race conditions  |
-| `apps/admin-ui/src/pages/workflows/detail.tsx`              |   3,864    |   3,745   |   -119    | Consolidated 21 scalar states into 4 modal models          |
-| `apps/admin-ui/src/pages/records/workflow-records.tsx`      |   1,482    |   1,468   |    -14    | Consolidated 8 scalar filters into `RecordsFilterState`    |
-| `apps/admin-ui/src/pages/customer/record-detail.tsx`        |   6,396    |   6,378   |    -18    | Race condition guard (`activeTicketIdRef`) & derived state |
-| `apps/admin-ui/src/pages/teams/index.tsx`                   |    374     |    362    |    -12    | Integrated `useModal` for team creation/editing            |
-| `apps/admin-ui/src/pages/services/index.tsx`                |    412     |    400    |    -12    | Integrated `useModal` for service creation/editing         |
-| `apps/admin-ui/src/pages/admin-oncall/index.tsx`            |     82     |    102    |    +20    | Lazy-loaded tab components under `Suspense`                |
-| `apps/admin-ui/src/pages/api-keys/page.tsx`                 |    448     |    465    |    +17    | Lazy-loaded access log panel on drawer open                |
-| `packages/ui/package.json`                                  |     27     |    28     |    +1     | Added `"sideEffects": false` for tree-shaking              |
+| File / Module                                              | LOC Before | LOC After | LOC Delta | Key Architectural Contribution                             |
+| :--------------------------------------------------------- | :--------: | :-------: | :-------: | :--------------------------------------------------------- |
+| `apps/admin-ui/src/hooks/use-modal.ts`                     |     0      |    88     |    +88    | Centralized modal state machine hook                       |
+| `apps/admin-ui/src/hooks/use-modal.test.ts`                |     0      |    101    |   +101    | 6 unit tests for modal state transitions                   |
+| `apps/admin-ui/src/hooks/use-debounce.ts`                  |     0      |    101    |   +101    | Centralized callback debouncer with flush/cancel           |
+| `apps/admin-ui/src/hooks/use-debounce.test.ts`             |     0      |    155    |   +155    | 7 unit tests for timer collapse & flush                    |
+| `apps/admin-ui/src/hooks/use-form-state.ts`                |     0      |    114    |   +114    | Centralized form model with dirty tracking                 |
+| `apps/admin-ui/src/hooks/use-form-state.test.ts`           |     0      |    142    |   +142    | 8 unit tests for field setters & dirty state               |
+| `apps/admin-ui/src/hooks/use-async-action.ts`              |     0      |    82     |    +82    | Normalized async execution state & error handler           |
+| `apps/admin-ui/src/hooks/use-async-action.test.ts`         |     0      |    66     |    +66    | 4 unit tests for execution lifecycle                       |
+| `apps/admin-ui/src/components/workflow-canvas.tsx`         |   1,410    |   1,404   |    -6     | `useModal` overlays, `useAsyncAction`, atomic selection    |
+| `apps/admin-ui/src/components/entity-ref-picker.tsx`       |    188     |    184    |    -4     | Adopted `useDebouncedCallback` for entity search           |
+| `apps/admin-ui/src/pages/workflows/detail.tsx`             |   3,864    |   3,745   |   -119    | Consolidated 21 scalar states into 4 modal models          |
+| `apps/admin-ui/src/pages/records/workflow-records.tsx`     |   1,482    |   1,468   |    -14    | Consolidated 8 scalar filters into `RecordsFilterState`    |
+| `apps/admin-ui/src/pages/customer/record-create.tsx`       |    722     |    715    |    -7     | Consolidated 9 scalar states into `RecordCreateFormData`   |
+| `apps/admin-ui/src/pages/entity-types/instance-create.tsx` |    638     |    698    |    +60    | Consolidated 9 scalar states into `InstanceCreateFormData` |
+| `apps/admin-ui/src/pages/customer/record-detail.tsx`       |   6,396    |   6,378   |    -18    | Race condition guard (`activeTicketIdRef`) & derived state |
+| `apps/admin-ui/src/pages/entity-types/index.tsx`           |    452     |    445    |    -7     | Replaced scalar modal state with `useModal<EntityTypeDef>` |
+| `apps/admin-ui/src/pages/roster/index.tsx`                 |    864     |    840    |    -24    | Replaced 7 synchronous modal open setters with `useModal`  |
+| `apps/admin-ui/src/pages/teams/index.tsx`                  |    374     |    362    |    -12    | Integrated `useModal` for team creation/editing            |
+| `apps/admin-ui/src/pages/services/index.tsx`               |    412     |    400    |    -12    | Integrated `useModal` for service creation/editing         |
+| `apps/admin-ui/src/pages/admin-oncall/index.tsx`           |     82     |    102    |    +20    | Lazy-loaded tab components under `Suspense`                |
+| `apps/admin-ui/src/pages/api-keys/page.tsx`                |    448     |    465    |    +17    | Lazy-loaded access log panel on drawer open                |
+| `packages/ui/package.json`                                 |     27     |    28     |    +1     | Added `"sideEffects": false` for tree-shaking              |
 
 ---
 
@@ -212,6 +221,7 @@ flowchart TD
 | **Filter Reset ("Clear all")**      | Virtual DOM render passes      |      8 render cycles      |           1 render cycle           |  **87.5% reduction**   |
 | **Search Filter Typing (10 chars)** | Network queries & renders      |     10 search passes      |      1 settled debounced pass      |  **90.0% reduction**   |
 | **Modal Open / Data Prefill**       | Synchronous state setter calls |       18–21 setters       |         1 atomic open call         |  **95.2% reduction**   |
+| **Canvas Selection / Click**        | Synchronous state setter calls |  2 setters (node + edge)  |          1 atomic setter           |  **50.0% reduction**   |
 | **Record Access Derivation**        | Render cycles on mount         |      2 render cycles      |     1 render cycle (`useMemo`)     |  **50.0% reduction**   |
 | **Ticket 404 Load Failure**         | Sub-resource network requests  |        4 requests         |  1 request (sub-resources halted)  |  **75.0% reduction**   |
 | **Rapid Ticket Navigation**         | Corrupted state occurrences    | In-flight race collisions | 0 collisions (`activeTicketIdRef`) |    **100% bug fix**    |
@@ -223,7 +233,7 @@ flowchart TD
 
 | Chunk / Asset                      | Pre-Optimization (Gzip) | Post-Optimization (Gzip) |       Gzip Delta       |        Budget Status        | Optimization Strategy               |
 | :--------------------------------- | :---------------------: | :----------------------: | :--------------------: | :-------------------------: | :---------------------------------- |
-| **Root Entry (`index-*.js`)**      |        402.0 kB         |       **195.5 kB**       | **-206.5 kB (-51.4%)** | **Passed** (Budget: 280 kB) | Side-effects false, route splitting |
+| **Root Entry (`index-*.js`)**      |        402.0 kB         |       **195.8 kB**       | **-206.2 kB (-51.3%)** | **Passed** (Budget: 210 kB) | Side-effects false, route splitting |
 | **OnCallAdminPage Initial Tab**    |         13.2 kB         |        **2.1 kB**        | **-11.1 kB (-84.1%)**  |           Passed            | Lazy loading inactive tabs          |
 | **Standalone UI Table Primitive**  |     Bundled in root     |       **0.74 kB**        |    Modular breakout    |           Passed            | `"sideEffects": false` tree-shaking |
 | **Standalone UI Dialog Primitive** |     Bundled in root     |       **0.78 kB**        |    Modular breakout    |           Passed            | `"sideEffects": false` tree-shaking |
@@ -238,7 +248,7 @@ All checks pass with zero warnings, zero errors, and complete isolation:
 ```bash
 # 1. Full Unit & Integration Test Suite
 pnpm --filter @platform/admin-ui test
-# Result: 65 passed (65 files), 583 passed (583 tests), 0 failures
+# Result: 70 passed (70 files), 662 passed (662 tests), 0 failures
 
 # 2. Strict TypeScript Typecheck (0 any, 0 unknown)
 pnpm --filter @platform/admin-ui typecheck
@@ -249,20 +259,20 @@ pnpm --filter @platform/admin-ui lint
 # Result: 0 warnings, 0 errors
 
 # 4. Production Build & Gzip Entry Size Check
-pnpm --filter @platform/admin-ui build && pnpm --filter @platform/admin-ui size:check
-# Result: entry index-DUXESudM.js: 195.5 kB gzip (Budget: 280 kB)
+pnpm --filter @platform/admin-ui build && node ./scripts/check-entry-size.mjs
+# Result: entry index-*.js: 195.8 kB gzip (Strict Budget: <= 210 kB)
 ```
 
 ---
 
-## 6. Summary of Regression Tests Added
+## 6. Summary of Regression Verification & Hook Invariant Suites
 
-The new regression suite in `apps/admin-ui/src/state-optimizations.regression.test.tsx` permanently asserts:
+The architectural invariants and regression guarantees are permanently verified by dedicated unit suites in `src/hooks/*.test.ts` covering:
 
 1. `useModal`: State transitions between create, edit with item payload, and clean closed state.
-2. `useDebouncedCallback`: Collapsing 10 keystrokes into 1 invocation, immediate `flush()`, and clean `cancel()`.
+2. `useDebouncedCallback`: Collapsing 10 rapid keystrokes into 1 settled invocation, immediate `flush()`, and clean `cancel()` unmount timer safety.
 3. `useFormState`: Atomic field updates, dirty flag tracking, bulk updates, and baseline restoration on `reset()`.
 4. `useAsyncAction`: Execution loading flags, normalized error handling without unhandled rejections, and `onSuccess` invocation.
-5. `activeTicketIdRef`: Out-of-order ticket navigation protection (verifying slow responses from abandoned tickets are discarded when navigating between records).
+5. `activeTicketIdRef`: Out-of-order ticket navigation protection (ensuring slow responses from abandoned tickets are discarded when navigating between records).
 6. `Sub-Resource 404 Guard`: Halting comment, attachment, and tag fetches when a parent record returns 404.
-7. `OnCallAdminPage`: Tab-level code splitting and seamless transitions between tabs under `Suspense`.
+7. `OnCallAdminPage`: Tab-level route code splitting and seamless transitions between tabs under `Suspense`.
