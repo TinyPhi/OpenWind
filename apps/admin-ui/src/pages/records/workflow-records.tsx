@@ -16,6 +16,7 @@ import {
   relativeTime,
 } from "../../lib/format.js";
 import { TransitionModal } from "../../components/transition-modal.js";
+import { useDebouncedCallback } from "../../hooks/use-debounce.js";
 import {
   OriginCornerBadge,
   COLOR_BY_MECHANISM,
@@ -598,6 +599,28 @@ function KanbanColumn({
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 
+interface RecordsFilterState {
+  dateField: "createdAt" | "updatedAt" | "";
+  dateValue: string;
+  assignedTo: string;
+  origin: "" | "internal" | "external" | "redirected";
+  severities: Set<Severity>;
+  tagInput: string;
+  tag: string;
+  userSearch: string;
+}
+
+const DEFAULT_FILTERS: RecordsFilterState = {
+  dateField: "",
+  dateValue: "",
+  assignedTo: "",
+  origin: "",
+  severities: new Set<Severity>(),
+  tagInput: "",
+  tag: "",
+  userSearch: "",
+};
+
 export function WorkflowRecords(): React.ReactElement {
   const { workflowSlug } = useParams<{ workflowSlug: string }>();
   const navigate = useNavigate();
@@ -656,40 +679,29 @@ export function WorkflowRecords(): React.ReactElement {
       return next;
     });
   }
-  const [filterDateField, setFilterDateField] = useState<
-    "createdAt" | "updatedAt" | ""
-  >("");
-  const [filterDateValue, setFilterDateValue] = useState("");
-  const [filterAssignedTo, setFilterAssignedTo] = useState("");
-  const [filterOrigin, setFilterOrigin] = useState<
-    "" | "internal" | "external" | "redirected"
-  >("");
-  // docs/specs/ticket-severity-and-tags.md T16 — severity + tag + (now)
-  // origin all filter server-side, re-fetching on change, rather than
-  // client-side over an already-loaded page.
-  const [filterSeverities, setFilterSeverities] = useState<Set<Severity>>(
-    new Set(),
+  const [filters, setFilters] = useState<RecordsFilterState>(DEFAULT_FILTERS);
+  const {
+    dateField: filterDateField,
+    dateValue: filterDateValue,
+    assignedTo: filterAssignedTo,
+    origin: filterOrigin,
+    severities: filterSeverities,
+    tagInput: filterTagInput,
+    tag: filterTag,
+    userSearch,
+  } = filters;
+
+  const debounceFilterTagUpdate = useDebouncedCallback<[string]>(
+    (val: string) => {
+      setFilters((prev) => ({ ...prev, tag: val.trim() }));
+    },
+    400,
   );
-  const [filterTagInput, setFilterTagInput] = useState("");
-  const [filterTag, setFilterTag] = useState(""); // debounced value actually sent to the server
-  const filterTagDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+
   function handleFilterTagInputChange(value: string): void {
-    setFilterTagInput(value);
-    if (filterTagDebounceRef.current)
-      clearTimeout(filterTagDebounceRef.current);
-    filterTagDebounceRef.current = setTimeout(() => {
-      setFilterTag(value.trim());
-    }, 400);
+    setFilters((prev) => ({ ...prev, tagInput: value }));
+    debounceFilterTagUpdate(value);
   }
-  useEffect(() => {
-    return () => {
-      if (filterTagDebounceRef.current)
-        clearTimeout(filterTagDebounceRef.current);
-    };
-  }, []);
-  const [userSearch, setUserSearch] = useState("");
   const filterBtnRef = useRef<HTMLButtonElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
 
@@ -1382,14 +1394,8 @@ export function WorkflowRecords(): React.ReactElement {
                       type="button"
                       className="kb-filter-clear-all"
                       onClick={() => {
-                        setFilterDateField("");
-                        setFilterDateValue("");
-                        setFilterAssignedTo("");
-                        setFilterOrigin("");
-                        setFilterSeverities(new Set());
-                        setFilterTagInput("");
-                        setFilterTag("");
-                        setUserSearch("");
+                        debounceFilterTagUpdate.cancel();
+                        setFilters(DEFAULT_FILTERS);
                       }}
                     >
                       Clear all
@@ -1431,10 +1437,14 @@ export function WorkflowRecords(): React.ReactElement {
                           className="kb-filter-select"
                           value={filterDateField}
                           onChange={(e) => {
-                            setFilterDateField(
-                              e.target.value as "createdAt" | "updatedAt" | "",
-                            );
-                            setFilterDateValue("");
+                            setFilters((prev) => ({
+                              ...prev,
+                              dateField: e.target.value as
+                                | "createdAt"
+                                | "updatedAt"
+                                | "",
+                              dateValue: "",
+                            }));
                           }}
                         >
                           <option value="">Select field…</option>
@@ -1446,7 +1456,12 @@ export function WorkflowRecords(): React.ReactElement {
                             type="date"
                             className="kb-filter-date-input"
                             value={filterDateValue}
-                            onChange={(e) => setFilterDateValue(e.target.value)}
+                            onChange={(e) =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                dateValue: e.target.value,
+                              }))
+                            }
                             style={{ marginTop: "8px" }}
                           />
                         )}
@@ -1506,7 +1521,12 @@ export function WorkflowRecords(): React.ReactElement {
                               key={opt.key}
                               type="button"
                               className={`kb-filter-origin-chip ${filterOrigin === opt.key ? "kb-filter-origin-chip-active" : ""}`}
-                              onClick={() => setFilterOrigin(opt.key)}
+                              onClick={() =>
+                                setFilters((prev) => ({
+                                  ...prev,
+                                  origin: opt.key,
+                                }))
+                              }
                               style={
                                 opt.color && filterOrigin === opt.key
                                   ? {
@@ -1577,11 +1597,11 @@ export function WorkflowRecords(): React.ReactElement {
                                 type="button"
                                 className={`kb-filter-origin-chip ${active ? "kb-filter-origin-chip-active" : ""}`}
                                 onClick={() =>
-                                  setFilterSeverities((prev) => {
-                                    const next = new Set(prev);
+                                  setFilters((prev) => {
+                                    const next = new Set(prev.severities);
                                     if (next.has(level)) next.delete(level);
                                     else next.add(level);
-                                    return next;
+                                    return { ...prev, severities: next };
                                   })
                                 }
                                 style={
@@ -1700,7 +1720,12 @@ export function WorkflowRecords(): React.ReactElement {
                             className="kb-filter-user-search"
                             placeholder="Search name or email…"
                             value={userSearch}
-                            onChange={(e) => setUserSearch(e.target.value)}
+                            onChange={(e) =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                userSearch: e.target.value,
+                              }))
+                            }
                           />
                         </div>
                         <div className="kb-filter-assignee-list">
@@ -1709,7 +1734,12 @@ export function WorkflowRecords(): React.ReactElement {
                               <button
                                 type="button"
                                 className={`kb-filter-assignee-item ${filterAssignedTo === "" ? "kb-filter-assignee-active" : ""}`}
-                                onClick={() => setFilterAssignedTo("")}
+                                onClick={() =>
+                                  setFilters((prev) => ({
+                                    ...prev,
+                                    assignedTo: "",
+                                  }))
+                                }
                               >
                                 <span className="kb-filter-assignee-avatar kb-filter-assignee-avatar-all">
                                   A
@@ -1735,11 +1765,13 @@ export function WorkflowRecords(): React.ReactElement {
                                 type="button"
                                 className={`kb-filter-assignee-item ${filterAssignedTo === "__unassigned__" ? "kb-filter-assignee-active" : ""}`}
                                 onClick={() =>
-                                  setFilterAssignedTo(
-                                    filterAssignedTo === "__unassigned__"
-                                      ? ""
-                                      : "__unassigned__",
-                                  )
+                                  setFilters((prev) => ({
+                                    ...prev,
+                                    assignedTo:
+                                      prev.assignedTo === "__unassigned__"
+                                        ? ""
+                                        : "__unassigned__",
+                                  }))
                                 }
                               >
                                 <span className="kb-filter-assignee-avatar kb-filter-assignee-avatar-none">
@@ -1781,11 +1813,13 @@ export function WorkflowRecords(): React.ReactElement {
                                 type="button"
                                 className={`kb-filter-assignee-item ${filterAssignedTo === u.userId ? "kb-filter-assignee-active" : ""}`}
                                 onClick={() =>
-                                  setFilterAssignedTo(
-                                    filterAssignedTo === u.userId
-                                      ? ""
-                                      : u.userId,
-                                  )
+                                  setFilters((prev) => ({
+                                    ...prev,
+                                    assignedTo:
+                                      prev.assignedTo === u.userId
+                                        ? ""
+                                        : u.userId,
+                                  }))
                                 }
                               >
                                 <span className="kb-filter-assignee-avatar">

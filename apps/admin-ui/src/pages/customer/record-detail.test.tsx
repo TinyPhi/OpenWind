@@ -985,4 +985,36 @@ describe("CustomerRecordDetail — access-denied overlay across silent refreshes
     await screen.findAllByText("Other ticket");
     expect(screen.queryByText("Access Restricted")).toBeNull();
   });
+
+  it("does not fire comments, attachments, or tags when record returns 404", async () => {
+    const requestedUrls: string[] = [];
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      requestedUrls.push(url);
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.reject({ status: 404, message: "Record not found" });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    expect(
+      await screen.findByText("You don't have access to this record"),
+    ).toBeDefined();
+
+    expect(requestedUrls).toContain(`/api/entities/${RECORD_ID}`);
+    expect(
+      requestedUrls.some((u) =>
+        u.includes("/transitions/history?eventType=comment"),
+      ),
+    ).toBe(false);
+    expect(
+      requestedUrls.some((u) =>
+        u.includes(`/api/entities/${RECORD_ID}/attachments`),
+      ),
+    ).toBe(false);
+    expect(
+      requestedUrls.some((u) => u.includes(`/api/entities/${RECORD_ID}/tags`)),
+    ).toBe(false);
+  });
 });

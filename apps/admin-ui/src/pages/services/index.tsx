@@ -22,6 +22,7 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
+import { useModal } from "../../hooks/use-modal.js";
 import type { Team } from "../teams/index.js";
 
 export interface Service {
@@ -42,9 +43,8 @@ export function ServicesPage(): React.ReactElement {
   const [services, setServices] = useState<Service[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Service | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [deleting, setDeleting] = useState<Service | null>(null);
+  const serviceModal = useModal<Service>();
+  const deleteModal = useModal<Service>();
 
   const refresh = useCallback((): void => {
     setLoading(true);
@@ -72,7 +72,7 @@ export function ServicesPage(): React.ReactElement {
       await fetchWithAuth(`${API_URL}/admin/services/${service.id}`, {
         method: "DELETE",
       });
-      setDeleting(null);
+      deleteModal.close();
       refresh();
     } catch {
       showAlert("Failed to delete service.");
@@ -98,7 +98,7 @@ export function ServicesPage(): React.ReactElement {
           </p>
         </div>
         <div className="wfl-header-actions">
-          <Button variant="primary" onClick={() => setCreating(true)}>
+          <Button variant="primary" onClick={serviceModal.openCreate}>
             New Service
           </Button>
         </div>
@@ -129,13 +129,13 @@ export function ServicesPage(): React.ReactElement {
                   <div style={{ display: "flex", gap: 6 }}>
                     <IconButton
                       aria-label="Edit service"
-                      onClick={() => setEditing(service)}
+                      onClick={() => serviceModal.openEdit(service)}
                     >
                       ✎
                     </IconButton>
                     <IconButton
                       aria-label="Delete service"
-                      onClick={() => setDeleting(service)}
+                      onClick={() => deleteModal.open(service)}
                     >
                       🗑
                     </IconButton>
@@ -148,40 +148,35 @@ export function ServicesPage(): React.ReactElement {
       )}
 
       <ServiceFormModal
-        open={creating}
+        open={serviceModal.isOpen}
+        service={serviceModal.item ?? undefined}
         teams={teams}
-        onClose={() => setCreating(false)}
+        onClose={serviceModal.close}
         onSaved={() => {
-          setCreating(false);
-          refresh();
-        }}
-      />
-      <ServiceFormModal
-        open={editing !== null}
-        service={editing ?? undefined}
-        teams={teams}
-        onClose={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null);
+          serviceModal.close();
           refresh();
         }}
       />
 
       <AlertDialog
-        open={deleting !== null}
+        open={deleteModal.isOpen}
         onOpenChange={(next) => {
-          if (!next) setDeleting(null);
+          if (!next) deleteModal.close();
         }}
       >
         <AlertDialogContent>
           <AlertDialogTitle>Delete service?</AlertDialogTitle>
           <AlertDialogDescription>
-            {deleting ? `"${deleting.name}" will be archived.` : ""}
+            {deleteModal.item
+              ? `"${deleteModal.item.name}" will be archived.`
+              : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleting && void handleDelete(deleting)}
+              onClick={() => {
+                if (deleteModal.item) void handleDelete(deleteModal.item);
+              }}
             >
               Delete
             </AlertDialogAction>
