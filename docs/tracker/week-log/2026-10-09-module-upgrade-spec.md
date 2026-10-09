@@ -23,7 +23,7 @@
   locks nothing when the row is absent), installers moved onto the single-transaction primitive,
   audit-action migration moved into T1, lazy baseline (no backfill), fixtures inside a workspace,
   `0.0.2` limited to helpdesk and the six core modules, minimal CLI pulled into P0 so #673 closes
-  there, P0 split into named PR slices. New owner confirmations: O9 (all-or-nothing install),
+  there, P0 split into named PR slices. New owner confirmations: O9 (all-or-nothing install, later dropped),
   O10 (lint in CI with a manifest, not a runtime parser), O11 (CLI operator identity).
 - Cons review of the open items; owner accepted the outcome. Two of my own recommendations changed:
   O3 (unique keys on workflow states/transitions) moved out of #673 into a follow-up spec, because a
@@ -45,7 +45,7 @@
   carry the old text under `History:`; the tenant-active rule is spelled out as a concrete predicate
   (both helpers exist: `isTenantActive` in `@platform/db`, `isTenantTrialActive` in `@platform/auth`,
   and the trial check is not sandbox-specific); the broken locking row is now a plain row plus a fenced
-  SQL snippet (Prettier unescapes `\|` inside code spans in tables, so escaping did not hold);
+  SQL snippet (Prettier rewrote the doubled `\|\|` in the SQL expression into raw pipes; single `\|` escapes elsewhere in the spec render correctly on GitHub, confirmed with GitHub's GFM renderer);
   `next_attempt_at` and `last_error` clear on success; `status` and the sweep ignore uninstalled
   modules; every `SET`/`RESET` form is rejected by the lint; T5 names the seven core modules; the
   resurrection exception is bounded to "no live tenant yet"; the source-of-truth invariant and the
@@ -53,3 +53,13 @@
   already exists as `(tenant_id, entity_type_slug)` (migration 0012), so the spec now cites the keys
   instead of adding one; the `platform_settings` PATCH route already writes an explicit column list,
   so T10 gets a guard test, not a schema change.
+- Round 3 (same Opus 5.5 reviewer, after Prabhu's fixes): NEEDS CHANGES. It confirmed Prabhu was wrong on
+  three points (helpers exist, `view_configs` key exists, lock seed 2 is correct) and found real gaps,
+  checked against the code before applying: the failure write happened outside the lock (now a
+  compare-and-set in a second locked transaction); the sandbox installer has no final transaction and
+  its writes lack tenant context (now wrapped in `withTenantContext`, a small change recorded as O14);
+  audit writes need tenant context and `outcome.ts` has an exhaustive `Record<AuditAction, true>`;
+  version discovery needs a shared package (`@platform/module-upgrades`); rules were not gated on their
+  entity type; a lazy baseline breaks the resurrection bound after go-live (now a go-live `baseline`
+  step, O12); the PATCH response leaked the new flags. ADR-001 MT-04 / ADR-002 WE-01 cross-reference
+  notes are left to a human (O13).
