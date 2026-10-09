@@ -1,0 +1,69 @@
+# 2026-10-09 — module upgrade workflow spec (#673)
+
+**Session type:** Spec
+**Branch:** `docs/PLAT-673-module-upgrade-workflow-spec`
+**Spec:** `docs/specs/module-upgrade-workflow.md` (draft)
+
+- Interviewed the owner on scope, trigger, constraints, verification, edge cases and priority.
+  Decisions: delta-based versioned upgrade files (`modules/<slug>/upgrades/<version>/`, SQL only),
+  automatic sweep plus operator CLI, new RLS table `tenant_module_versions`, additive scope
+  (fields, rules, new view-config rows).
+- Independent review by Opus 5.5 returned BLOCKED. All five top findings were re-checked against the
+  code before acting: session advisory lock vs PgBouncer transaction pooling (#752), per-call
+  transactions in `executeRawInTenantContext`, ADR-022's sandbox-only platform-admin scope, and no
+  unique keys on `workflow_states` / `workflow_transitions`.
+- Spec revised: transaction-scoped row lock, a single-transaction `@platform/db` primitive,
+  CLI-only v1 (HTTP blocked on a human ADR-022 amendment), workflow states/transitions deferred,
+  baseline fixtures and the history catch-up moved into P0, CI guard moved into P0.
+- Needs a human before implementation: ADR-004 follow-up accepting CF-03 and CF-04 (T0), and the
+  O3 decision on unique keys for states/transitions.
+- Round 2 (same Opus 5.5 reviewer) returned NEEDS CHANGES. Re-verified before applying: the worker
+  connects as `app_user` in compose but CI uses the superuser, no SQL parser exists in the repo, and
+  `platform_settings` is a single-row table. Fixes: a transaction-scoped advisory lock (a row lock
+  locks nothing when the row is absent), installers moved onto the single-transaction primitive,
+  audit-action migration moved into T1, lazy baseline (no backfill), fixtures inside a workspace,
+  `0.0.2` limited to helpdesk and the six core modules, minimal CLI pulled into P0 so #673 closes
+  there, P0 split into named PR slices. New owner confirmations: O9 (all-or-nothing install, later dropped),
+  O10 (lint in CI with a manifest, not a runtime parser), O11 (CLI operator identity).
+- Cons review of the open items; owner accepted the outcome. Two of my own recommendations changed:
+  O3 (unique keys on workflow states/transitions) moved out of #673 into a follow-up spec, because a
+  transition unique key is a workflow-engine behaviour change and tenants may legitimately have several
+  transitions between two states; O9 (all-or-nothing installers) was dropped, because `installed_modules`
+  is written last and the sweep only touches installed modules, so the overlap is rare and the restructure
+  put the freshly shipped sandbox installer at risk. O10 (CI lint with manifest) and O11 (`--operator` plus
+  `--reason`) were accepted.
+- Added a Deferred items register (D1-D18) to the spec so every cut item has a reason, a revisit trigger
+  and a home. D8 (`department` backfill), D6 (platform-admin HTTP routes, blocked on ADR-022) and D1
+  (workflow state/transition upgrades) are the ones most likely to be pulled forward.
+- T0 drafted in place: ADR-004 CF-03 and CF-04 are now Resolved, scoped to module-seed versioning.
+  CF-03 records the per-tenant version table, SQL-only delta upgrade files and the one-time `0.0.2`
+  catch-up exception, and explicitly leaves platform-wide versioning (ADR-001 MT-04, ADR-002 WE-01)
+  open. CF-04 records "tenant row wins". ADRs are human-owned; the owner asked for the draft, and it
+  needs human review in the PR.
+- PrabhuVijit's review of #851 (CHANGES_REQUESTED, 8 fix items and 4 suggestions) was checked claim by
+  claim against the code before applying. Applied: ADR-004 CF-03/CF-04 now lead with the resolution and
+  carry the old text under `History:`; the tenant-active rule is spelled out as a concrete predicate
+  (both helpers exist: `isTenantActive` in `@platform/db`, `isTenantTrialActive` in `@platform/auth`,
+  and the trial check is not sandbox-specific); the broken locking row is now a plain row plus a fenced
+  SQL snippet (Prettier rewrote the doubled `\|\|` in the SQL expression into raw pipes; single `\|` escapes elsewhere in the spec render correctly on GitHub, confirmed with GitHub's GFM renderer);
+  `next_attempt_at` and `last_error` clear on success; `status` and the sweep ignore uninstalled
+  modules; every `SET`/`RESET` form is rejected by the lint; T5 names the seven core modules; the
+  resurrection exception is bounded to "no live tenant yet"; the source-of-truth invariant and the
+  accepted repudiation gap are explicit. Not applied as written: the `view_configs` unique index
+  already exists as `(tenant_id, entity_type_slug)` (migration 0012), so the spec now cites the keys
+  instead of adding one; the `platform_settings` PATCH route already writes an explicit column list,
+  so T10 gets a guard test, not a schema change.
+- Round 3 (same Opus 5.5 reviewer, after Prabhu's fixes): NEEDS CHANGES. It confirmed Prabhu was wrong on
+  three points (helpers exist, `view_configs` key exists, lock seed 2 is correct) and found real gaps,
+  checked against the code before applying: the failure write happened outside the lock (now a
+  compare-and-set in a second locked transaction); the sandbox installer has no final transaction and
+  its writes lack tenant context (now wrapped in `withTenantContext`, a small change recorded as O14);
+  audit writes need tenant context and `outcome.ts` has an exhaustive `Record<AuditAction, true>`;
+  version discovery needs a shared package (`@platform/module-upgrades`); rules were not gated on their
+  entity type; a lazy baseline breaks the resurrection bound after go-live (now a go-live `baseline`
+  step, O12); the PATCH response leaked the new flags. ADR-001 MT-04 / ADR-002 WE-01 cross-reference
+  notes are left to a human (O13).
+- Owner agreed the round-3 proposals (O12 go-live baseline step, O14 sandbox installer wrapper and the
+  new package, O15 operator runs ignore the sweep pause); each now records its reasoning in the spec.
+  ADR-001 MT-04 and ADR-002 WE-01 got dated update notes in the same PR as CF-03 (O13); both stay
+  "Still open".
