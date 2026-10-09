@@ -967,6 +967,13 @@
       "when": 1789033326000,
       "tag": "0137_sandbox_provisioning_jobs",
       "breakpoints": false
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1789033327000,
+      "tag": "0138_admin_audit_log_sandbox_reset_actions",
+      "breakpoints": false
     }
   ]
 }

@@ -7,6 +7,7 @@ import {
   sandboxProgressHandler,
   sandboxHandoverHandler,
 } from "./sandboxes.js";
+import { sandboxResetHandler } from "./sandbox-reset.js";
 
 const router = new Hono<{
   Variables: { platformAdmin: PlatformAdminAuthContext };
@@ -18,5 +19,6 @@ router.post("/mfa/verify", ...mfaVerifyHandler);
 router.post("/sandboxes", ...createSandboxHandler);
 router.get("/sandboxes/:jobId/progress", ...sandboxProgressHandler);
 router.get("/sandboxes/:jobId/handover", ...sandboxHandoverHandler);
+router.post("/sandboxes/:tenantId/reset", ...sandboxResetHandler);
 
 export { router as platformAdminRouter };
