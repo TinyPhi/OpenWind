@@ -17,6 +17,7 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { isRenderableIcon } from "../../lib/icon.js";
+import { useModal } from "../../hooks/use-modal.js";
 
 type EntityType = {
   id: string;
@@ -49,7 +50,7 @@ export function EntityTypes(): React.ReactElement {
   const navigate = useNavigate();
   const types = data?.data ?? [];
 
-  const [showModal, setShowModal] = useState(false);
+  const createModal = useModal();
   const [form, setForm] = useState<CreateEntityTypeForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export function EntityTypes(): React.ReactElement {
           allowCustomFields: form.allowCustomFields,
         }),
       });
-      setShowModal(false);
+      createModal.close();
       setForm(EMPTY_FORM);
       void refetch();
     } catch (err) {
@@ -113,7 +114,7 @@ export function EntityTypes(): React.ReactElement {
         </div>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <div className="stat-pill">{types.length} types</div>
-          <Button variant="primary" onClick={() => setShowModal(true)}>
+          <Button variant="primary" onClick={() => createModal.open()}>
             + New Entity Type
           </Button>
         </div>
@@ -259,9 +260,9 @@ export function EntityTypes(): React.ReactElement {
       )}
 
       <Dialog
-        open={showModal}
+        open={createModal.isOpen}
         onOpenChange={(next) => {
-          if (!next) setShowModal(false);
+          if (!next) createModal.close();
         }}
       >
         <DialogContent
@@ -346,7 +347,7 @@ export function EntityTypes(): React.ReactElement {
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setShowModal(false)}
+                onClick={createModal.close}
               >
                 Cancel
               </Button>
