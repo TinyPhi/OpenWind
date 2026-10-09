@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  cleanup,
+  fireEvent,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type * as ReactRouterDom from "react-router-dom";
 
@@ -135,7 +141,7 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
     },
   );
 
-  it("renders image avatar with alt={name || 'Avatar'} when avatar URL is provided", () => {
+  it("renders an image avatar with the user's name when a URL is provided", () => {
     mockIdentityData = {
       id: "u1",
       name: "Jane Doe",
@@ -147,6 +153,43 @@ describe("Layout sidebar — workspace vs admin-only sections", () => {
 
     const avatarImages = screen.getAllByAltText("Jane Doe");
     expect(avatarImages.length).toBeGreaterThan(0);
+  });
+
+  it.each(["", "   "])(
+    "uses fallback alt text for an image avatar when the name is %j",
+    (name) => {
+      mockIdentityData = {
+        id: "u1",
+        name,
+        email: "u@example.com",
+        avatar: "https://example.com/avatar.png",
+      };
+      mockUserWithRoles(["agent"]);
+      renderLayout();
+
+      expect(screen.getAllByAltText("Avatar").length).toBeGreaterThan(0);
+    },
+  );
+
+  it("falls back to initials when an avatar image fails to load", () => {
+    mockIdentityData = {
+      id: "u1",
+      name: "Jane Doe",
+      email: "jane@example.com",
+      avatar: "https://example.com/broken.png",
+    };
+    mockUserWithRoles(["agent"]);
+    renderLayout();
+
+    for (const avatarImage of screen.getAllByAltText("Jane Doe")) {
+      fireEvent.error(avatarImage);
+    }
+
+    const fallbacks = screen.getAllByRole("img", {
+      name: "Jane Doe avatar",
+    });
+    expect(fallbacks.length).toBeGreaterThan(0);
+    expect(fallbacks.every((avatar) => avatar.textContent === "JD")).toBe(true);
   });
 
   describe("initials derivation", () => {
