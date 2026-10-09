@@ -43,7 +43,7 @@ Specifically:
 
 2. **The engine API is the module API.** There are no module-specific routes. A helpdesk ticket is created via `POST /entities` with `entity_type = ticket`. A workflow transition is executed via `POST /entities/:id/transitions`. These endpoints serve every module.
 
-3. **Business rules are automation rules.** "Notify the assignee when a ticket is escalated" is not code in `modules/helpdesk/` — it is an `automation_rules` row with `trigger = workflow.entered_state`, `conditions = [{state: "escalated"}]`, `actions = [{type: "notify", ...}]`.
+3. **Business rules are automation rules.** "Notify the assignee when a ticket is escalated" is not code in `modules/helpdesk/` — it is an `automation_rules` row with `trigger = workflow.transitioned` scoped to `toState = "escalated"`, `actions = [{type: "notify", ...}]`.
 
 4. **Workflow definitions are database rows.** The states, transitions, role guards, SLA hours, and condition expressions for every workflow live in `workflow_states` and `workflow_transitions`. They are edited through the workflow builder UI, not via code changes.
 

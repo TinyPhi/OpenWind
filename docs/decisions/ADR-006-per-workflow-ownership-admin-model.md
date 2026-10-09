@@ -84,10 +84,11 @@ live in `entity_instances.fields.__accessUsers` (a JSONB map of `userId → {lev
 by an `access_requests` table for the request/approve flow. Resolving an access request
 (`apps/api/src/routes/entities/resolve-access-request.ts`) accepts three equally-valid approvers:
 the record's own owner, a global admin/agent, **or** the workflow admin — the same three-way
-composition used throughout. Direct grants (`grant-access.ts`, bypassing the request flow) are
-the one inconsistency found during this review: they're gated `requireRole("admin", "agent")`
-only — a workflow admin cannot directly grant access the way they can approve a _requested_ grant.
-Worth resolving (see Questions and resolutions), but not blocking this ADR.
+composition used throughout. Direct grants (`grant-access.ts`, bypassing the request flow) were
+the one inconsistency found during this review: they were gated `requireRole("admin", "agent")`
+only, so a workflow admin could not directly grant access the way they could approve a _requested_
+grant. Resolved since: the route now takes `requireRole("admin", "agent", "user")` plus an
+`isWorkflowAdmin` check (PR #179; see Questions and resolutions, WA-03 and WA-06).
 
 ### Known gap #1 — transition guards don't consult it (accepted "v1 limitation")
 
@@ -185,8 +186,9 @@ scoped alternative to global RBAC roles, not a workaround or a bug. Specifically
 4. **#136 (RLS on `entity_types`/`workflows`/`workflow_states`/`workflow_transitions`) is
    reclassified from generic hardening to a dependency of this model's integrity.** It should be
    scheduled with that framing, not left indefinitely deferred.
-5. **`grant-access.ts`'s inconsistency (workflow admins can approve a _request_ but not issue a
-   _direct_ grant) is noted as a follow-up, not fixed by this ADR.** See Questions and resolutions (WA-03).
+5. **`grant-access.ts`'s inconsistency (workflow admins could approve a _request_ but not issue a
+   _direct_ grant) was noted as a follow-up, not fixed by this ADR, and has since been fixed in
+   PR #179.** See Questions and resolutions (WA-03, WA-06).
 6. **#168 (Known gap #3 — `createWorkflow` doesn't check the entity type isn't already governed)
    is accepted as a real, unresolved gap, tracked and prioritized, not blocking this ADR's
    acceptance.** Ratifying the ownership model does not mean ratifying this specific gap in how a
@@ -250,4 +252,4 @@ The questions below were raised during drafting and resolved with the human deci
 | WA-03 | Should `grant-access.ts` accept workflow-admin callers the same way `resolve-access-request.ts` does?                   | Resolved | **Resolved: yes.** Filed as a small, low-risk follow-up (workflow admins already have equivalent-to-`admin`/`agent` access on these records under this ADR's ratified model, so letting them direct-grant too closes a consistency gap without creating new escalation surface). See the tracked issue filed alongside this ADR.                                                                                                                                                                                                                                                                                                                                                                                  |
 | WA-04 | Should `docs/specs/workflow-ownership-admin.md` be written now, retroactively?                                          | Resolved | **Resolved: yes.** Drafted alongside this ADR at `docs/specs/workflow-ownership-admin.md`, referencing it, so migration `0035`'s dangling reference now points at a real document and the spec/ADR/code triangle is complete.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | WA-05 | Should this ADR's acceptance be delayed until #168 (Known gap #3, found by this ADR's own adversarial review) is fixed? | Resolved | **Resolved: no — proceed now, fix separately, tracked, not swept under anything.** The human decider's explicit call: ratifying the ownership model as an architecture decision and fixing a bug in how workflow↔entity-type governance gets established are separate concerns. Delaying this ADR wouldn't make #168 get fixed any faster, and leaving the model undocumented while #168 is worked is strictly worse than documenting it now with the gap tracked in the open. #168 is filed, referenced from Known gap #3/Decision/Consequences above, and carries its own urgency recommendation (before Phase 3A) independent of this ADR's acceptance timeline.                                               |
-| WA-06 | Was the WA-03 follow-up (workflow admins may issue a direct grant via `grant-access.ts`) actually shipped?              | Resolved | Yes. Issue #167 (`gh issue view 167`) closed 2026-07-24 via PR #179 ("allow workflow admins to grant direct access on their own records"). `apps/api/src/routes/entities/grant-access.ts` now takes `requireRole("admin", "agent", "user")` plus an `isWorkflowAdmin` check on the record's workflow; covered by `apps/api/tests/isolation/grant-access-workflow-admin.isolation.test.ts`. The Context paragraph and Decision item 5 above describe the pre-#179 state (admin/agent only) and are left as written. Surfaced as ADR-021 OQ-11 (2026-09-28).                                                                                                                                                        |
+| WA-06 | Was the WA-03 follow-up (workflow admins may issue a direct grant via `grant-access.ts`) actually shipped?              | Resolved | Yes. Issue #167 (`gh issue view 167`) closed 2026-07-24 via PR #179 ("allow workflow admins to grant direct access on their own records"). `apps/api/src/routes/entities/grant-access.ts` now takes `requireRole("admin", "agent", "user")` plus an `isWorkflowAdmin` check on the record's workflow; covered by `apps/api/tests/isolation/grant-access-workflow-admin.isolation.test.ts`. The Context paragraph and Decision item 5 above were reworded on 2026-10-09 (#703) to say the gap is resolved. Surfaced as ADR-021 OQ-11 (2026-09-28).                                                                                                                                                                 |
