@@ -25,3 +25,13 @@
   `0.0.2` limited to helpdesk and the six core modules, minimal CLI pulled into P0 so #673 closes
   there, P0 split into named PR slices. New owner confirmations: O9 (all-or-nothing install),
   O10 (lint in CI with a manifest, not a runtime parser), O11 (CLI operator identity).
+- Cons review of the open items; owner accepted the outcome. Two of my own recommendations changed:
+  O3 (unique keys on workflow states/transitions) moved out of #673 into a follow-up spec, because a
+  transition unique key is a workflow-engine behaviour change and tenants may legitimately have several
+  transitions between two states; O9 (all-or-nothing installers) was dropped, because `installed_modules`
+  is written last and the sweep only touches installed modules, so the overlap is rare and the restructure
+  put the freshly shipped sandbox installer at risk. O10 (CI lint with manifest) and O11 (`--operator` plus
+  `--reason`) were accepted.
+- Added a Deferred items register (D1-D18) to the spec so every cut item has a reason, a revisit trigger
+  and a home. D8 (`department` backfill), D6 (platform-admin HTTP routes, blocked on ADR-022) and D1
+  (workflow state/transition upgrades) are the ones most likely to be pulled forward.
