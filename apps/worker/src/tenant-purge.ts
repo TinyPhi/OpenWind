@@ -18,6 +18,7 @@
  *   [admin_audit_log rows anonymized in place, not deleted -- spec R9]
  *   → tenant.status = 'purged'
  *   then on-disk files purged (best-effort, outside DB transaction)
+ *   then sandbox handover Redis key deleted (T14, best-effort, no-op for a real tenant)
  *
  * Plugin data (3B, docs/specs/plugin-system.md R13): plugin-authored tables live
  * in per-plugin Postgres schemas (plugin_<slug>), not in this file's own FK
@@ -81,6 +82,7 @@ import {
 import { logger } from "@platform/logger";
 import { writeAuditEntry, anonymizeAuditLogForTenant } from "@platform/audit";
 import { deleteTenantFiles } from "@platform/files";
+import { deleteSandboxHandoverCredentials } from "@platform/auth";
 import { connection } from "./queues.js";
 
 import {
@@ -432,8 +434,35 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       "tenant-purge: DB purge complete — tenant marked purged",
     );
 
-    // M3: delete on-disk files after DB transaction commits (best-effort)
-    await deleteTenantFiles(tenantId);
+    // M3: delete on-disk files after DB transaction commits (best-effort). Wrapped so a
+    // transient failure here (review finding, PR #828) doesn't fail the job and leave the
+    // already-committed DB purge + audit entry above looking like a failed run -- the
+    // on-disk bytes are genuinely best-effort, not part of the transactional guarantee.
+    try {
+      await deleteTenantFiles(tenantId);
+    } catch (err) {
+      logger.error(
+        { tenantId, err },
+        "tenant-purge: file deletion failed (best-effort, continuing)",
+      );
+    }
+
+    // T14 (docs/specs/multi-org-sandbox.md) -- the sandbox handover artifact (seeded admin
+    // password) lives in Redis with its own 7-day TTL (packages/auth/src/
+    // sandbox-handover-store.ts), outside this function's DB transaction entirely. Without
+    // this, a purged sandbox's credentials would stay retrievable from Redis for up to 7
+    // more days, relying solely on the TTL -- R8's "delete this org's data" means now. A
+    // no-op for a real (non-sandbox) tenant, which never had a handover key in the first
+    // place. Wrapped for the same reason as deleteTenantFiles above (review finding, PR
+    // #828) -- a Redis blip here must not fail a purge whose DB work already succeeded.
+    try {
+      await deleteSandboxHandoverCredentials(tenantId);
+    } catch (err) {
+      logger.error(
+        { tenantId, err },
+        "tenant-purge: handover credentials deletion failed (best-effort, continuing)",
+      );
+    }
 
     logger.info({ tenantId }, "tenant-purge: complete");
   },
