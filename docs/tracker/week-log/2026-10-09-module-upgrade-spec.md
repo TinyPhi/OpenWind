@@ -40,3 +40,16 @@
   catch-up exception, and explicitly leaves platform-wide versioning (ADR-001 MT-04, ADR-002 WE-01)
   open. CF-04 records "tenant row wins". ADRs are human-owned; the owner asked for the draft, and it
   needs human review in the PR.
+- PrabhuVijit's review of #851 (CHANGES_REQUESTED, 8 fix items and 4 suggestions) was checked claim by
+  claim against the code before applying. Applied: ADR-004 CF-03/CF-04 now lead with the resolution and
+  carry the old text under `History:`; the tenant-active rule is spelled out as a concrete predicate
+  (both helpers exist: `isTenantActive` in `@platform/db`, `isTenantTrialActive` in `@platform/auth`,
+  and the trial check is not sandbox-specific); the broken locking row is now a plain row plus a fenced
+  SQL snippet (Prettier unescapes `\|` inside code spans in tables, so escaping did not hold);
+  `next_attempt_at` and `last_error` clear on success; `status` and the sweep ignore uninstalled
+  modules; every `SET`/`RESET` form is rejected by the lint; T5 names the seven core modules; the
+  resurrection exception is bounded to "no live tenant yet"; the source-of-truth invariant and the
+  accepted repudiation gap are explicit. Not applied as written: the `view_configs` unique index
+  already exists as `(tenant_id, entity_type_slug)` (migration 0012), so the spec now cites the keys
+  instead of adding one; the `platform_settings` PATCH route already writes an explicit column list,
+  so T10 gets a guard test, not a schema change.
