@@ -57,6 +57,11 @@ vi.mock("@platform/db", () => ({
 
 vi.mock("./queues.js", () => ({ connection: {} }));
 
+vi.mock("@platform/auth", () => ({
+  isTenantTrialActive: (trialEndsAt: number | null) =>
+    trialEndsAt === null || trialEndsAt > Date.now(),
+}));
+
 // mock redis
 const mockRedisSet = vi.fn().mockResolvedValue("OK");
 const mockRedisDel = vi.fn().mockResolvedValue(1);

@@ -128,12 +128,14 @@ let mockTenantRow:
       plan?: string;
       config?: Record<string, unknown>;
       zitadelOrgId?: string | null;
+      trialEndsAt?: Date | null;
     }
   | undefined = {
   status: "active",
   plan: "standard",
   config: { ip_allowlist: [] },
   zitadelOrgId: "org-ccc",
+  trialEndsAt: null,
 };
 const mockModuleDbSelect = vi.fn(() => ({
   from: vi.fn(() => ({
@@ -165,6 +167,7 @@ vi.mock("@platform/db", () => ({
     plan: "tenants.plan",
     config: "tenants.config",
     zitadelOrgId: "tenants.zitadel_org_id",
+    trialEndsAt: "tenants.trial_ends_at",
   },
   tenantUsers: {
     tenantId: "tenant_users.tenant_id",
@@ -217,6 +220,7 @@ const {
   requireIntrospection,
   requirePlatformAdmin,
   requirePlatformAdminIdentity,
+  isTenantTrialActive,
 } = await import("./middleware.js");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -257,6 +261,20 @@ beforeEach(() => {
   mockArgon2Verify.mockResolvedValue(true);
 });
 
+describe("isTenantTrialActive", () => {
+  it("returns true when trialEndsAt is null (no trial)", () => {
+    expect(isTenantTrialActive(null)).toBe(true);
+  });
+
+  it("returns true when trialEndsAt is in the future", () => {
+    expect(isTenantTrialActive(Date.now() + 60_000)).toBe(true);
+  });
+
+  it("returns false when trialEndsAt is in the past", () => {
+    expect(isTenantTrialActive(Date.now() - 60_000)).toBe(false);
+  });
+});
+
 // ── requireAuth ───────────────────────────────────────────────────────────────
 
 describe("requireAuth", () => {
@@ -291,6 +309,75 @@ describe("requireAuth", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as unknown;
     expect(body).toEqual({ ok: true });
+  });
+
+  // T12 (docs/specs/multi-org-sandbox.md R6): trial expiry must block login,
+  // computed fresh every request against Date.now() -- never a precomputed
+  // status flag.
+  describe("trial expiry (T12)", () => {
+    const tenantId = "tenant-trial-test";
+
+    beforeEach(() => {
+      invalidateTenantStatusCache(tenantId);
+      mockVerifyJwt.mockResolvedValue({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValue({
+        ...VALID_AUTH,
+        tenantId,
+      });
+    });
+
+    it("returns 403 TENANT_TRIAL_EXPIRED when trial_ends_at is in the past", async () => {
+      mockTenantRow = {
+        status: "active",
+        trialEndsAt: new Date(Date.now() - 60_000),
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("TENANT_TRIAL_EXPIRED");
+    });
+
+    it("allows the request when trial_ends_at is in the future", async () => {
+      mockTenantRow = {
+        status: "active",
+        trialEndsAt: new Date(Date.now() + 60_000),
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+    });
+
+    it("allows the request when trial_ends_at is null (no trial, e.g. a real tenant)", async () => {
+      mockTenantRow = { status: "active", trialEndsAt: null };
+
+      const app = makeApp([requireAuth()]);
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+    });
+
+    it("checks expiry fresh on every request rather than caching the expired boolean", async () => {
+      mockTenantRow = {
+        status: "active",
+        trialEndsAt: new Date(Date.now() + 50),
+      };
+
+      const app = makeApp([requireAuth()]);
+      const res1 = await get(app, "valid.jwt");
+      expect(res1.status).toBe(200);
+
+      // Same cached trialEndsAt timestamp, but enough wall-clock time has
+      // passed that it's now in the past -- must be rejected without
+      // needing invalidateTenantStatusCache to be called in between.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const res2 = await get(app, "valid.jwt");
+      expect(res2.status).toBe(403);
+    });
   });
 
   // #124: the tenant_users sync must not write on every request — only

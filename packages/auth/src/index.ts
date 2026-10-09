@@ -14,6 +14,7 @@ export {
   resolveTenantPlan,
   resolveTenantIpAllowlist,
   checkIpInAllowlist,
+  isTenantTrialActive,
 } from "./middleware.js";
 export {
   invalidateTenantStatusCache,

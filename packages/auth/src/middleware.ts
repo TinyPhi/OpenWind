@@ -29,6 +29,7 @@ import {
   setCachedTenantPlan,
   getCachedTenantIpAllowlist,
   setCachedTenantIpAllowlist,
+  getCachedTenantTrialEndsAt,
 } from "./tenant-status-cache.js";
 import * as ipaddr from "ipaddr.js";
 import { getConnInfo } from "@hono/node-server/conninfo";
@@ -584,8 +585,8 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
             401,
           );
         }
-        const apiKeyTenantStatus = await resolveTenantStatus(auth.tenantId, db);
-        if (apiKeyTenantStatus === "suspended") {
+        const apiKeyTenant = await resolveTenantStatus(auth.tenantId, db);
+        if (apiKeyTenant.status === "suspended") {
           return c.json(
             {
               error: "TENANT_SUSPENDED",
@@ -596,12 +597,22 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           );
         }
         if (
-          apiKeyTenantStatus === "deleted" ||
-          apiKeyTenantStatus === "purged"
+          apiKeyTenant.status === "deleted" ||
+          apiKeyTenant.status === "purged"
         ) {
           return c.json(
             { error: "TENANT_NOT_FOUND", message: "Not found" },
             404,
+          );
+        }
+        if (!isTenantTrialActive(apiKeyTenant.trialEndsAt)) {
+          return c.json(
+            {
+              error: "TENANT_TRIAL_EXPIRED",
+              message:
+                "This sandbox's trial has ended. Contact your OpenWind administrator.",
+            },
+            403,
           );
         }
         c.set("auth", auth);
@@ -694,8 +705,8 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
       c.set("auth", auth);
 
       // Check that the tenant is active before proceeding.
-      const tenantStatus = await resolveTenantStatus(auth.tenantId, db);
-      if (tenantStatus === "suspended") {
+      const tenantResolved = await resolveTenantStatus(auth.tenantId, db);
+      if (tenantResolved.status === "suspended") {
         return c.json(
           {
             error: "TENANT_SUSPENDED",
@@ -704,8 +715,21 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
           403,
         );
       }
-      if (tenantStatus === "deleted" || tenantStatus === "purged") {
+      if (
+        tenantResolved.status === "deleted" ||
+        tenantResolved.status === "purged"
+      ) {
         return c.json({ error: "TENANT_NOT_FOUND", message: "Not found" }, 404);
+      }
+      if (!isTenantTrialActive(tenantResolved.trialEndsAt)) {
+        return c.json(
+          {
+            error: "TENANT_TRIAL_EXPIRED",
+            message:
+              "This sandbox's trial has ended. Contact your OpenWind administrator.",
+          },
+          403,
+        );
       }
 
       const ipBlocked = await enforceTenantIpAllowlist(c, auth.tenantId);
@@ -870,27 +894,47 @@ export const requireIntrospection = (): MiddlewareHandler =>
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /**
- * Return the tenant's current status, using a 30 s in-process cache.
- * The tenants table has no RLS, so we query with the plain db instance.
- * Returns "deleted" if the tenant row does not exist.
+ * Return the tenant's current status plus its trial_ends_at, using a 30 s
+ * in-process cache. The tenants table has no RLS, so we query with the plain
+ * db instance. Returns status "deleted" if the tenant row does not exist.
+ *
+ * trialEndsAt is cached as the raw timestamp (immutable once set at
+ * provisioning), never as a precomputed "expired" boolean -- R6
+ * (docs/specs/multi-org-sandbox.md) requires the expiry comparison itself to
+ * run fresh against Date.now() on every call, which isTenantTrialActive does.
  */
 async function resolveTenantStatus(
   tenantId: string,
   dbHandle?: DbOrTx,
-): Promise<string> {
-  const cached = getCachedTenantStatus(tenantId);
-  if (cached !== undefined) return cached;
+): Promise<{ status: string; trialEndsAt: number | null }> {
+  const cachedStatus = getCachedTenantStatus(tenantId);
+  const cachedTrialEndsAt = getCachedTenantTrialEndsAt(tenantId);
+  if (cachedStatus !== undefined && cachedTrialEndsAt !== undefined) {
+    return { status: cachedStatus, trialEndsAt: cachedTrialEndsAt };
+  }
 
   const activeDb = dbHandle ?? db;
   const [row] = await activeDb
-    .select({ status: tenants.status })
+    .select({ status: tenants.status, trialEndsAt: tenants.trialEndsAt })
     .from(tenants)
     .where(eq(tenants.id, tenantId))
     .limit(1);
 
   const status = row?.status ?? "deleted";
-  setCachedTenantStatus(tenantId, status);
-  return status;
+  const trialEndsAt = row?.trialEndsAt ? row.trialEndsAt.getTime() : null;
+  setCachedTenantStatus(tenantId, status, trialEndsAt);
+  return { status, trialEndsAt };
+}
+
+/**
+ * R6 (docs/specs/multi-org-sandbox.md): a tenant with no trial (trialEndsAt
+ * null) is always active. One that has one is active until that timestamp
+ * passes -- always computed fresh against Date.now(), never read from a
+ * precomputed/cached boolean flag that a scheduled job would otherwise need
+ * to flip.
+ */
+export function isTenantTrialActive(trialEndsAt: number | null): boolean {
+  return trialEndsAt === null || trialEndsAt > Date.now();
 }
 
 /**
