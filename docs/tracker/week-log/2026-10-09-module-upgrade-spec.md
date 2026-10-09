@@ -63,3 +63,7 @@
   entity type; a lazy baseline breaks the resurrection bound after go-live (now a go-live `baseline`
   step, O12); the PATCH response leaked the new flags. ADR-001 MT-04 / ADR-002 WE-01 cross-reference
   notes are left to a human (O13).
+- Owner agreed the round-3 proposals (O12 go-live baseline step, O14 sandbox installer wrapper and the
+  new package, O15 operator runs ignore the sweep pause); each now records its reasoning in the spec.
+  ADR-001 MT-04 and ADR-002 WE-01 got dated update notes in the same PR as CF-03 (O13); both stay
+  "Still open".
