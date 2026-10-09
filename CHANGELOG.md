@@ -17,6 +17,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`openwind_mention_record_failure_total` metric** counts resolved mentions the
   mention-resolution worker failed to record on a comment, so incomplete erasure scrubs can be
   alerted on (#769).
+
 ## [Unreleased — admin-ui CSS hover states (3 of 5, split from #772)]
 
 ### Changed
