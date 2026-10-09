@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — "any field" trigger warning (#767)]
+
+### Changed
+
+- **The automation wizard warns when a "Field changed" trigger is scoped to "— any field —"** — an
+  inline note says the rule fires on every update to every record of the chosen entity type.
+
+### Added
+
+- **`openwind_mention_record_failure_total` metric** counts resolved mentions the
+  mention-resolution worker failed to record on a comment, so incomplete erasure scrubs can be
+  alerted on (#769).
+
 ## [Unreleased — admin-ui refactors: shared helpers, form state, access state (4 of 5, split from #772)]
 
 ### Changed

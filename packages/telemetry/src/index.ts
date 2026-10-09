@@ -7,6 +7,7 @@ export {
   scheduleCatchUpTotal,
   oncallResolutionsTotal,
   notificationDispatchTotal,
+  mentionRecordFailureTotal,
   getSerializedMetrics,
 } from "./metrics.js";
 export { Queue, Worker } from "./bullmq.js";
