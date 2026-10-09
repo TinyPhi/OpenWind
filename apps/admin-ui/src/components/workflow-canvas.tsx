@@ -30,6 +30,8 @@ import "reactflow/dist/style.css";
 import dagre from "@dagrejs/dagre";
 import { Dialog, DialogContent, DialogTitle } from "@platform/ui";
 import { ConfirmDeleteDialog } from "./confirm-delete-dialog.js";
+import { useModal } from "../hooks/use-modal.js";
+import { useAsyncAction } from "../hooks/use-async-action.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -793,8 +795,21 @@ export function WorkflowCanvas({
   const [draftTransitions, setDraftTransitions] =
     useState<WorkflowTransition[]>(transitions);
   const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const {
+    isLoading: saving,
+    error: saveError,
+    execute: executeSave,
+    reset: resetSaveAction,
+  } = useAsyncAction(
+    async () => {
+      if (!onSave) return;
+      await onSave({ states: draftStates, transitions: draftTransitions });
+      setDirty(false);
+      onDirtyChange?.(false);
+    },
+    { errorMessageFallback: "Save failed" },
+  );
 
   // Reset draft when workflowId changes (navigating to different workflow)
   useEffect(() => {
@@ -804,17 +819,19 @@ export function WorkflowCanvas({
   }, [workflowId]); // intentionally excludes states/transitions — only reset on workflow navigation
 
   // ── Overlay state ────────────────────────────────────────────────────────
-  const [showAddState, setShowAddState] = useState(false);
-  const [editingState, setEditingState] = useState<WorkflowState | null>(null);
-  const [transPanel, setTransPanel] = useState<TransPanelData | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<{
-    message: string;
-    onConfirm: () => void;
-  } | null>(null);
+  const addStateModal = useModal<{ readonly x: number; readonly y: number }>();
+  const editStateModal = useModal<WorkflowState>();
+  const transPanelModal = useModal<TransPanelData>();
+  const confirmDeleteModal = useModal<{
+    readonly message: string;
+    readonly onConfirm: () => void;
+  }>();
 
   // ── Selection tracking (for Delete key) ─────────────────────────────────
-  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
-  const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
+  const [selection, setSelection] = useState<{
+    readonly nodeIds: readonly string[];
+    readonly edgeIds: readonly string[];
+  }>({ nodeIds: [], edgeIds: [] });
 
   // ── Dirty tracking ───────────────────────────────────────────────────────
   function markDirty(): void {
@@ -831,24 +848,27 @@ export function WorkflowCanvas({
   );
 
   // ── Node/edge callbacks (stable refs for NODE_TYPES) ────────────────────
-  const handleNodeDoubleClick = useCallback((id: string) => {
-    setDraftStates((ss) => {
-      const s = ss.find((x) => x.id === id);
-      if (s) setEditingState(s);
-      return ss;
-    });
-  }, []);
+  const handleNodeDoubleClick = useCallback(
+    (id: string) => {
+      setDraftStates((ss) => {
+        const s = ss.find((x) => x.id === id);
+        if (s) editStateModal.open(s);
+        return ss;
+      });
+    },
+    [editStateModal],
+  );
 
   const handleNodeContextMenu = useCallback(
     (e: React.MouseEvent, id: string) => {
       e.preventDefault();
       setDraftStates((ss) => {
         const s = ss.find((x) => x.id === id);
-        if (s) setEditingState(s);
+        if (s) editStateModal.open(s);
         return ss;
       });
     },
-    [],
+    [editStateModal],
   );
 
   const nodeCallbacks = useMemo(
@@ -946,15 +966,15 @@ export function WorkflowCanvas({
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
 
-      if (selectedEdgeIds.length > 0) {
-        const toDelete = selectedEdgeIds;
+      if (selection.edgeIds.length > 0) {
+        const toDelete = selection.edgeIds;
         setDraftTransitions((ts) => ts.filter((t) => !toDelete.includes(t.id)));
-        setSelectedEdgeIds([]);
+        setSelection((prev) => ({ ...prev, edgeIds: [] }));
         markDirty();
       }
 
-      if (selectedNodeIds.length > 0) {
-        const [nodeId] = selectedNodeIds;
+      if (selection.nodeIds.length > 0) {
+        const [nodeId] = selection.nodeIds;
         if (!nodeId) return;
         const state = draftStates.find((s) => s.id === nodeId);
         if (!state) return;
@@ -962,11 +982,11 @@ export function WorkflowCanvas({
           (t) => t.fromState === state.name || t.toState === state.name,
         );
         if (affectedTransitions.length > 0) {
-          setConfirmDelete({
+          confirmDeleteModal.open({
             message: `Delete "${state.label}"? This will also remove ${affectedTransitions.length} transition${affectedTransitions.length !== 1 ? "s" : ""}.`,
             onConfirm: () => {
               deleteState(nodeId);
-              setConfirmDelete(null);
+              confirmDeleteModal.close();
             },
           });
         } else {
@@ -976,13 +996,7 @@ export function WorkflowCanvas({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [
-    isAdmin,
-    selectedNodeIds,
-    selectedEdgeIds,
-    draftStates,
-    draftTransitions,
-  ]);
+  }, [isAdmin, selection, draftStates, draftTransitions, confirmDeleteModal]);
 
   // ── State operations ─────────────────────────────────────────────────────
   function addState(
@@ -1097,7 +1111,7 @@ export function WorkflowCanvas({
       const srcState = draftStates.find((s) => s.id === conn.source);
       const tgtState = draftStates.find((s) => s.id === conn.target);
       if (!srcState || !tgtState) return;
-      setTransPanel({
+      transPanelModal.open({
         mode: "new",
         fromState: srcState.name,
         toState: tgtState.name,
@@ -1106,7 +1120,7 @@ export function WorkflowCanvas({
         requiresComment: false,
       });
     },
-    [draftStates],
+    [draftStates, transPanelModal],
   );
 
   // ── onEdgeClick (edit transition) ────────────────────────────────────────
@@ -1115,7 +1129,7 @@ export function WorkflowCanvas({
       if (!isAdmin) return;
       const t = draftTransitions.find((x) => x.id === edge.id);
       if (!t) return;
-      setTransPanel({
+      transPanelModal.open({
         mode: "edit",
         id: t.id,
         fromState: t.fromState,
@@ -1125,31 +1139,15 @@ export function WorkflowCanvas({
         requiresComment: t.requiresComment,
       });
     },
-    [isAdmin, draftTransitions],
+    [isAdmin, draftTransitions, transPanelModal],
   );
-
-  // ── Save / discard ───────────────────────────────────────────────────────
-  async function handleSave(): Promise<void> {
-    if (!onSave) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await onSave({ states: draftStates, transitions: draftTransitions });
-      setDirty(false);
-      onDirtyChange?.(false);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   function handleDiscard(): void {
     setDraftStates(states);
     setDraftTransitions(transitions);
     setDirty(false);
     onDirtyChange?.(false);
-    setSaveError(null);
+    resetSaveAction();
     // Rebuild RF nodes/edges from original props
     const raw = buildNodes(states, initialState, isAdmin, nodeCallbacks);
     const edgesRaw = buildEdges(
@@ -1176,10 +1174,6 @@ export function WorkflowCanvas({
   }
 
   // ── Double-click on pane to add state ────────────────────────────────────
-  const [pendingAddPos, setPendingAddPos] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
   const rfWrapperRef = useRef<HTMLDivElement>(null);
 
   function onPaneDoubleClick(e: React.MouseEvent): void {
@@ -1189,8 +1183,7 @@ export function WorkflowCanvas({
     // Convert screen coords to RF canvas coords (rough — good enough for placement)
     const x = e.clientX - rect.left - NODE_W / 2;
     const y = e.clientY - rect.top - NODE_H / 2;
-    setPendingAddPos({ x, y });
-    setShowAddState(true);
+    addStateModal.open({ x, y });
   }
 
   return (
@@ -1227,7 +1220,7 @@ export function WorkflowCanvas({
               </span>
             )}
             <button
-              onClick={() => void handleSave()}
+              onClick={() => void executeSave()}
               disabled={saving}
               style={{
                 ...btnPrimaryStyle,
@@ -1288,12 +1281,13 @@ export function WorkflowCanvas({
         onConnect={isAdmin ? onConnect : undefined}
         onEdgeClick={isAdmin ? onEdgeClick : undefined}
         onPaneClick={() => {
-          setSelectedNodeIds([]);
-          setSelectedEdgeIds([]);
+          setSelection({ nodeIds: [], edgeIds: [] });
         }}
         onSelectionChange={({ nodes: ns, edges: es }) => {
-          setSelectedNodeIds(ns.map((n) => n.id));
-          setSelectedEdgeIds(es.map((e) => e.id));
+          setSelection({
+            nodeIds: ns.map((n) => n.id),
+            edgeIds: es.map((e) => e.id),
+          });
         }}
         onDoubleClick={onPaneDoubleClick}
         nodeTypes={NODE_TYPES}
@@ -1329,42 +1323,42 @@ export function WorkflowCanvas({
       </ReactFlow>
 
       {/* Overlays */}
-      {showAddState && (
+      {addStateModal.isOpen && (
         <AddStateDialog
           onConfirm={(form) => {
-            addState(form, pendingAddPos ?? { x: 80, y: 80 });
-            setShowAddState(false);
-            setPendingAddPos(null);
+            addState(form, addStateModal.item ?? { x: 80, y: 80 });
+            addStateModal.close();
           }}
-          onCancel={() => {
-            setShowAddState(false);
-            setPendingAddPos(null);
-          }}
+          onCancel={addStateModal.close}
         />
       )}
 
-      {editingState && (
+      {editStateModal.isOpen && editStateModal.item && (
         <EditStateDialog
-          state={editingState}
+          state={editStateModal.item}
           onConfirm={(form) => {
-            updateState(editingState.id, form);
-            setEditingState(null);
+            if (editStateModal.item) {
+              updateState(editStateModal.item.id, form);
+              editStateModal.close();
+            }
           }}
-          onCancel={() => setEditingState(null)}
+          onCancel={editStateModal.close}
           onDelete={() => {
+            const currentItem = editStateModal.item;
+            if (!currentItem) return;
             const affectedTransitions = draftTransitions.filter(
               (t) =>
-                t.fromState === editingState.name ||
-                t.toState === editingState.name,
+                t.fromState === currentItem.name ||
+                t.toState === currentItem.name,
             );
             const doDelete = (): void => {
-              deleteState(editingState.id);
-              setEditingState(null);
-              setConfirmDelete(null);
+              deleteState(currentItem.id);
+              editStateModal.close();
+              confirmDeleteModal.close();
             };
             if (affectedTransitions.length > 0) {
-              setConfirmDelete({
-                message: `Delete "${editingState.label}"? This will also remove ${affectedTransitions.length} transition${affectedTransitions.length !== 1 ? "s" : ""}.`,
+              confirmDeleteModal.open({
+                message: `Delete "${currentItem.label}"? This will also remove ${affectedTransitions.length} transition${affectedTransitions.length !== 1 ? "s" : ""}.`,
                 onConfirm: doDelete,
               });
             } else {
@@ -1374,22 +1368,22 @@ export function WorkflowCanvas({
         />
       )}
 
-      {transPanel && (
+      {transPanelModal.isOpen && transPanelModal.item && (
         <TransitionPanel
-          data={transPanel}
+          data={transPanelModal.item}
           onConfirm={(d) => {
             if (d.mode === "new") addTransition(d);
             else updateTransition(d);
-            setTransPanel(null);
+            transPanelModal.close();
           }}
-          onCancel={() => setTransPanel(null)}
-          {...(transPanel.mode === "edit" && transPanel.id
+          onCancel={transPanelModal.close}
+          {...(transPanelModal.item.mode === "edit" && transPanelModal.item.id
             ? (() => {
-                const tid = transPanel.id;
+                const tid = transPanelModal.item.id;
                 return {
                   onDelete: () => {
                     deleteTransition(tid);
-                    setTransPanel(null);
+                    transPanelModal.close();
                   },
                 };
               })()
@@ -1398,11 +1392,11 @@ export function WorkflowCanvas({
       )}
 
       <ConfirmDeleteDialog
-        open={confirmDelete !== null}
-        message={confirmDelete?.message ?? ""}
+        open={confirmDeleteModal.isOpen}
+        message={confirmDeleteModal.item?.message ?? ""}
         busy={false}
-        onConfirm={() => confirmDelete?.onConfirm()}
-        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => confirmDeleteModal.item?.onConfirm()}
+        onCancel={confirmDeleteModal.close}
       />
     </div>
   );
