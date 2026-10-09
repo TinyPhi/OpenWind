@@ -80,7 +80,7 @@ once in [.claude/README.md](.claude/README.md). The completion contract is
 [definition-of-done.md](.claude/references/definition-of-done.md). The hooks are guardrails, not a
 security boundary; CI plus human PR review is the real gate.
 
-**Off-limits (never touch autonomously):** parallel approval code (#65) · ADR files in
+**Off-limits (never touch autonomously):** ADR files in
 `docs/decisions/` (humans write them) · schema cache / `redis.keys()` fix (deferred to load
 testing, #4).
 
