@@ -161,7 +161,7 @@ already closed, no IDOR found. That review did not specifically stress-test the 
 own blast radius — a follow-up adversarial pass on this ADR itself (2026-07-23) is what found
 Known gap #3 above and the creator-removal overstatement, both independently verified against the
 code, not inferred. Recommend the tracked follow-up (#168) get its own `/security-review` pass
-when picked up, alongside the `updateWorkflow`/`grant-access.ts` items already noted.
+when picked up, alongside the `updateWorkflow` item already noted (the `grant-access.ts` item was fixed in PR #179).
 
 ---
 
@@ -236,7 +236,7 @@ scoped alternative to global RBAC roles, not a workaround or a bug. Specifically
   recommend fixing before Phase 3A given the escalation potential.
 - **No dedicated security review of the ownership model's own escalation surface.** Mitigation:
   recommend a follow-up `/security-review` pass specifically on `updateWorkflow`'s `assignedTo`
-  edit guard and the `grant-access.ts` asymmetry noted above.
+  edit guard and the workflow-admin check added to `grant-access.ts` in PR #179.
 
 ---
 

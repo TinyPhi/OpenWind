@@ -12,4 +12,8 @@
 - ADR-006's Context paragraph and Decision item 5 described `grant-access.ts` as admin/agent
   only. Both now say the gap was resolved by PR #179 (`requireRole("admin", "agent", "user")` plus
   an `isWorkflowAdmin` check). The WA-06 row's "left as written" note is updated to match.
+- ADR-006's two later pointers to the `grant-access.ts` asymmetry (the follow-up `/security-review`
+  recommendation in Known gap #3 and the Consequences bullet) now say it was fixed in PR #179.
+- ADR-021 OQ-11 still says the ADR-006 edit is outstanding. Left alone: it is a Proposed ADR and a
+  status change there is the owner's call.
 - ADRs are normally human-written. The owner asked for these edits in-session.
