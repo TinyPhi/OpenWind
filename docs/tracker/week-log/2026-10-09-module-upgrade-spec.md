@@ -17,3 +17,11 @@
   baseline fixtures and the history catch-up moved into P0, CI guard moved into P0.
 - Needs a human before implementation: ADR-004 follow-up accepting CF-03 and CF-04 (T0), and the
   O3 decision on unique keys for states/transitions.
+- Round 2 (same Opus 5.5 reviewer) returned NEEDS CHANGES. Re-verified before applying: the worker
+  connects as `app_user` in compose but CI uses the superuser, no SQL parser exists in the repo, and
+  `platform_settings` is a single-row table. Fixes: a transaction-scoped advisory lock (a row lock
+  locks nothing when the row is absent), installers moved onto the single-transaction primitive,
+  audit-action migration moved into T1, lazy baseline (no backfill), fixtures inside a workspace,
+  `0.0.2` limited to helpdesk and the six core modules, minimal CLI pulled into P0 so #673 closes
+  there, P0 split into named PR slices. New owner confirmations: O9 (all-or-nothing install),
+  O10 (lint in CI with a manifest, not a runtime parser), O11 (CLI operator identity).
