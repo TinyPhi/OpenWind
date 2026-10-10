@@ -185,6 +185,10 @@ pnpm test && pnpm test:isolation
 after it, create a second fresh database first. A few tests count rows or keys they wrote
 themselves and assume they start from zero.
 
+**Advisory-lock integration test.** `packages/db/src/advisory-lock.integration.test.ts` is opt-in.
+Set `ADVISORY_LOCK_TEST_URL` to a direct Postgres URL (port 5432, not PgBouncer) to run it. Point it
+at PgBouncer instead to reproduce #752.
+
 **Node version.** CI runs Node 22. On Node 25 and later, Node's own `localStorage` global
 replaces jsdom's, and `oidc-client-ts` breaks in `admin-ui` tests (for example,
 `src/pages/reporting.test.tsx` fails with `Cannot read properties of undefined (reading
@@ -496,6 +500,7 @@ refuses to start if any required variable is missing or malformed.
 | `DATABASE_URL`                        | `.env.example`    | App connection via PgBouncer (transaction mode, required for RLS)               |
 | `MIGRATION_DATABASE_URL`              | `.env.example`    | Direct Postgres for DDL — bypasses PgBouncer                                    |
 | `DATABASE_DIRECT_URL`                 | `.env.example`    | Direct Postgres as `app_user` for advisory locks (#752)                         |
+| `DATABASE_LOCK_POOL_MAX`              | `.env.example`    | Direct lock pool size per process (default 5); counts toward `max_connections`  |
 | `ZITADEL_MASTERKEY`                   | `setup.sh`/`.ps1` | Zitadel's own encryption key — generated once, reused on re-run                 |
 | `ZITADEL_ADMIN_PASSWORD`              | `setup.sh`/`.ps1` | Password for `owZitadelAdmin@openwind.local` — generated once, reused on re-run |
 | `ZITADEL_ISSUER`                      | bootstrap         | OIDC issuer URL — must match JWT `iss` claim exactly                            |

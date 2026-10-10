@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { env } from "@platform/config";
+import { logger } from "@platform/logger";
 import { eq, and } from "drizzle-orm";
 import * as schema from "./schema/index.js";
 import {
@@ -174,11 +175,17 @@ let lockClient: postgres.Sql | undefined;
 
 function getLockClient(): postgres.Sql {
   if (!env.DATABASE_DIRECT_URL) return queryClient;
-  lockClient ??= postgres(env.DATABASE_DIRECT_URL, {
-    max: env.DATABASE_LOCK_POOL_MAX,
-    idle_timeout: 30,
-    prepare: false,
-  });
+  if (!lockClient) {
+    lockClient = postgres(env.DATABASE_DIRECT_URL, {
+      max: env.DATABASE_LOCK_POOL_MAX,
+      idle_timeout: 30,
+      prepare: false,
+    });
+    logger.info(
+      { max: env.DATABASE_LOCK_POOL_MAX },
+      "advisory lock pool created",
+    );
+  }
   return lockClient;
 }
 

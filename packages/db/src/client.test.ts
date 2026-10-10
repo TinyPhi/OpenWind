@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockLoggerError = vi.fn();
+const mockLoggerInfo = vi.fn();
 vi.mock("@platform/logger", () => ({
-  logger: { error: (...a: unknown[]) => mockLoggerError(...a), warn: vi.fn() },
+  logger: {
+    error: (...a: unknown[]) => mockLoggerError(...a),
+    warn: vi.fn(),
+    info: (...a: unknown[]) => mockLoggerInfo(...a),
+  },
 }));
 
 const MAIN_URL = "postgres://app_user:pw@pgbouncer:5432/platform";
@@ -56,6 +61,7 @@ vi.mock("postgres", () => ({
 beforeEach(() => {
   created.length = 0;
   mockLoggerError.mockReset();
+  mockLoggerInfo.mockReset();
   vi.resetModules();
 });
 
@@ -97,6 +103,11 @@ describe("acquireTenantAdvisoryLock wiring (#752)", { timeout: 30_000 }, () => {
     await (await acquireTenantAdvisoryLock(TENANT, "ns")).release();
 
     expect(created.filter((c) => c.url === DIRECT_URL)).toHaveLength(1);
+    expect(mockLoggerInfo).toHaveBeenCalledTimes(1);
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      { max: mockEnv.DATABASE_LOCK_POOL_MAX },
+      "advisory lock pool created",
+    );
   });
 
   it("opens no direct pool in a process that never takes a lock", async () => {

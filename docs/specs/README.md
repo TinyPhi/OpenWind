@@ -13,15 +13,15 @@ Last reconciled: 2026-09-28 (#694).
 
 ## Open
 
-| Spec                                                                  | Status   | Notes                                                                                                   |
-| --------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md)   | draft    | Not started — dashboard has no severity/tags/origin widgets yet                                         |
-| [advisory-lock-direct-connection](advisory-lock-direct-connection.md) | approved | #752 — session advisory locks on a direct Postgres connection; repro: 40/40 double-grants via PgBouncer |
+| Spec                                                                | Status | Notes                                                           |
+| ------------------------------------------------------------------- | ------ | --------------------------------------------------------------- |
+| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md) | draft  | Not started — dashboard has no severity/tags/origin widgets yet |
 
 ## Implemented
 
 | Spec                                                                                        | Tasks | Shipped via                                                                      |
 | ------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------- |
+| [advisory-lock-direct-connection](advisory-lock-direct-connection.md)                       | —     | #853                                                                             |
 | [automation-trigger-config-scoping](automation-trigger-config-scoping.md)                   | —     | see header                                                                       |
 | [backup-dr-runbook](backup-dr-runbook.md)                                                   | —     | #482                                                                             |
 | [export-audit-trail](export-audit-trail.md)                                                 | —     | #687                                                                             |

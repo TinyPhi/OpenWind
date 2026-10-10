@@ -26,3 +26,10 @@
   gave 40/40 double-grants; set, 0 double-grants and 40/40 second holders refused.
 - Deferred: a lock-pool counter metric (needs a telemetry dependency edge from `@platform/db`), a CI
   job with PgBouncer in front, and hosted-provider guidance for `DATABASE_DIRECT_URL`.
+
+## Review follow-up (2026-10-10)
+
+- Added `server.deps.inline` for `@platform/*` to `packages/db/vitest.config.ts`, matching sibling packages.
+- Log `advisory lock pool created` (with `max`, no URL) on first lock-pool creation; covered in `client.test.ts`.
+- Moved the spec to Implemented in `docs/specs/README.md`; documented `DATABASE_LOCK_POOL_MAX` and `ADVISORY_LOCK_TEST_URL` in `docs/local-setup.md`.
+- Not changed: the suggested `result?.unlocked` in `release()`. `switchedBackend` is already true when the unlock returns no row, so `!result.unlocked` is never evaluated then, and eslint `no-unnecessary-condition` rejects the optional chain.
