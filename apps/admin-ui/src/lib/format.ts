@@ -39,13 +39,18 @@ export function singularize(plural: string): string {
   return plural;
 }
 
+// Blank names deliberately collapse to "U", matching InitialsAvatar so shared
+// avatar callers never render empty text. This stateless fallback also treats
+// whitespace-only names as missing; punctuation-only names remain unchanged.
 export function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? "")
+      .join("") || "U"
+  );
 }
 
 export interface AttachmentLike {

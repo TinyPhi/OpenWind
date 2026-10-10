@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — admin-ui blank-name initials fallback (#850)]
+
+### Fixed
+
+- **Blank or whitespace-only display names now render a `U` avatar initial** consistently across
+  shared admin-ui avatar callers instead of producing empty avatar text.
+
+---
+
 ## [Unreleased — "any field" trigger warning (#767)]
 
 ### Changed
