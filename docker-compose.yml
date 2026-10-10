@@ -374,6 +374,9 @@ services:
         required: false
     environment:
       DATABASE_URL: postgres://app_user:app_user_dev_password@pgbouncer:5432/platform
+      # Session advisory locks (org-directory sync, sandbox reset) must pin one Postgres
+      # backend; PgBouncer transaction pooling cannot, so locks go straight to Postgres (#752).
+      DATABASE_DIRECT_URL: postgres://app_user:app_user_dev_password@postgres:5432/platform
       REDIS_URL: redis://redis:6379
       # Zitadel connection — if ZITADEL_URL is set in .env.local (production / custom deploy)
       # the backend uses that public URL for JWKS and introspection.
@@ -451,6 +454,9 @@ services:
         required: false
     environment:
       DATABASE_URL: postgres://app_user:app_user_dev_password@pgbouncer:5432/platform
+      # Session advisory locks (org-directory sync, sandbox reset) must pin one Postgres
+      # backend; PgBouncer transaction pooling cannot, so locks go straight to Postgres (#752).
+      DATABASE_DIRECT_URL: postgres://app_user:app_user_dev_password@postgres:5432/platform
       MIGRATION_DATABASE_URL: postgresql://migration_user:migration_user_dev_password@postgres:5432/platform
       REDIS_URL: redis://redis:6379
       ZITADEL_JWKS_URL: ${ZITADEL_URL:-http://zitadel:8080}/oauth/v2/keys
