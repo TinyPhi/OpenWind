@@ -189,6 +189,12 @@ themselves and assume they start from zero.
 Set `ADVISORY_LOCK_TEST_URL` to a direct Postgres URL (port 5432, not PgBouncer) to run it. Point it
 at PgBouncer instead to reproduce #752.
 
+**Locked-transaction integration test.** `packages/db/src/locked-tenant-transaction.integration.test.ts`
+runs whenever `DATABASE_URL` is set. To prove the lock holds under PgBouncer transaction pooling, set
+`LOCKED_TX_TEST_URL` to the `app_user` PgBouncer URL (port 6432, database `platform`) and
+`LOCKED_TX_ADMIN_URL` to a direct privileged URL for the same database, which the test needs to
+create and drop its scratch table.
+
 **Node version.** CI runs Node 22. On Node 25 and later, Node's own `localStorage` global
 replaces jsdom's, and `oidc-client-ts` breaks in `admin-ui` tests (for example,
 `src/pages/reporting.test.tsx` fails with `Cannot read properties of undefined (reading

@@ -9,6 +9,12 @@ import {
   reserveWithTimeout,
   type TenantAdvisoryLock,
 } from "./advisory-lock.js";
+import {
+  runLockedTenantTransaction,
+  type LockedTenantTransactionContext,
+  type LockedTenantTransactionOptions,
+  type LockedTenantTransactionResult,
+} from "./locked-tenant-transaction.js";
 
 const queryClient = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -36,6 +42,18 @@ export async function executeRawInTenantContext(
     await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
     await tx.unsafe(rawSql);
   });
+}
+
+/**
+ * One transaction holding a transaction-scoped advisory lock, running as
+ * app_user under the tenant's RLS context, with raw SQL and Drizzle sharing it
+ * (docs/specs/module-upgrade-workflow.md T2). See runLockedTenantTransaction.
+ */
+export function withLockedTenantTransaction<T>(
+  options: LockedTenantTransactionOptions,
+  fn: (ctx: LockedTenantTransactionContext) => Promise<T>,
+): Promise<LockedTenantTransactionResult<T>> {
+  return runLockedTenantTransaction(queryClient, options, fn);
 }
 
 const PLUGIN_SLUG_RE = /^[a-z][a-z0-9_]{2,40}$/;
