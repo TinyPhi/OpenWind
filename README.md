@@ -81,24 +81,30 @@ storage with async ClamAV malware scanning, an append-only audit log, secrets
 management (OpenBao), API gateway, background job queue (BullMQ), a connector
 runtime with an inbound webhook gateway and polling-connector framework, and a
 plugin system (Module Federation). Shared by every module — no module reinvents
-these. Observability (OpenTelemetry, Prometheus, Sentry) and GDPR-relevant
-controls (tenant/per-user erasure, configurable retention, IP allowlisting) are
-built in, not bolted on.
+these. Also built in: on-call routing with severity-based notification
+dispatch, a cron-style schedule-rule scheduler that auto-creates tickets, an
+org directory (org chart synced from Zitadel user metadata), embedded Superset
+reporting with tenant isolation (opt-in, `--profile reporting`), and
+multi-org sandboxes for trials (provision, reset, handover, expiry).
+Observability (OpenTelemetry, Prometheus, Sentry) and GDPR-relevant controls
+(tenant/per-user erasure, configurable retention, IP allowlisting) are built in,
+not bolted on.
 
 ### Standard modules
 
 Pre-built applications that install on top of the engines:
 
-| Module             | What it does                                               |
-| ------------------ | ---------------------------------------------------------- |
-| **CRM**            | Contacts, companies, deals, pipeline, activities           |
-| **Helpdesk**       | Tickets, SLA, assignments, knowledge base, customer portal |
-| **HRMS**           | Employees, org chart, leaves, attendance, onboarding       |
-| **Reimbursements** | Expense claims, multi-level approvals, receipt management  |
-| **Projects**       | Tasks, milestones, sprints, kanban, time tracking          |
-| **Invoicing**      | Invoices, quotes, payment links, recurring billing         |
-| **Procurement**    | Purchase orders, vendor management, approval chains        |
-| **Tender**         | Tender/bid tracking, costing sub-tasks, approval workflow  |
+| Module              | What it does                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| **CRM**             | Contacts, companies, deals, pipeline, activities                                           |
+| **Helpdesk**        | Tickets, SLA, assignments, knowledge base, customer portal                                 |
+| **HRMS**            | Employees, org chart, leaves, attendance, onboarding                                       |
+| **Reimbursements**  | Expense claims, multi-level approvals, receipt management                                  |
+| **Projects**        | Tasks, milestones, sprints, kanban, time tracking                                          |
+| **Invoicing**       | Invoices, quotes, payment links, recurring billing                                         |
+| **Procurement**     | Purchase orders, vendor management, approval chains                                        |
+| **Tender**          | Tender/bid tracking, costing sub-tasks, approval workflow                                  |
+| **Vendor Approval** | Sequential IT Security → Legal → Finance vendor review with SLAs (seed config, 3H Phase 1) |
 
 ### Ticket & record features
 
@@ -108,6 +114,7 @@ Cross-cutting capabilities available to any entity-engine-backed module (helpdes
 - **Access requests** — a non-privileged user can request read/comment/write access to a record they don't own; an admin, agent, or the record's owner can approve or reject the request, with a full history event either way.
 - **Attachments** — file uploads on tickets and comments, backed by tenant-scoped local-disk storage with async ClamAV malware scanning and per-tenant storage quotas.
 - **My Tickets** — a user-scoped view combining a customer's own tickets, tickets they're mentioned/granted access on, and their children — with per-workflow counts.
+- **Severity and tags** — tickets carry a severity and free-form tags; severity drives on-call routing and notification policy.
 - **Multiple workflow admins** — a workflow can have more than one designated admin (`assigned_to` is a list, not a single user), each with settings access.
 
 ### Connectors
@@ -116,7 +123,7 @@ A connector runtime (inbound webhook gateway with HMAC verification, plus a
 polling-connector framework for systems with no webhook support) and a
 tenant-scoped connector credential store, both built and merged. Slack
 notifications ship today; email (SMTP/IMAP), WhatsApp Business, and a
-connector marketplace UI are in progress — see
+connector marketplace UI are not started yet — see
 [`docs/tracker/roadmap-tracker.md`](docs/tracker/roadmap-tracker.md) (track 3A)
 for current status before assuming a specific integration is ready to use.
 
@@ -163,6 +170,7 @@ Full architecture documentation: [`docs/architecture-brief.md`](docs/architectur
 | Auth          | [Zitadel](https://zitadel.com/)                                     | OIDC/SAML, org model maps to multi-tenancy                                                                                                             |
 | Notifications | [Novu](https://novu.co/)                                            | Multi-channel, templates, user preferences                                                                                                             |
 | Admin UI      | [Refine](https://refine.dev/) + [shadcn/ui](https://ui.shadcn.com/) | CRUD framework + polished components                                                                                                                   |
+| Reporting     | [Apache Superset](https://superset.apache.org/)                     | Embedded dashboards behind guest tokens, tenant-isolated via a restricted reporting role (opt-in)                                                      |
 | Secrets       | [OpenBao](https://openbao.org/)                                     | Self-hosted secrets management (Vault fork)                                                                                                            |
 | Monorepo      | [Turborepo](https://turbo.build/) + [pnpm](https://pnpm.io/)        | Cached builds, clean workspace management                                                                                                              |
 | AI            | [Claude](https://www.anthropic.com/) (Anthropic)                    | Primary development tooling today; platform AI features (automation-rule generation, digests) are early/in-progress, not yet shipped — see the roadmap |
@@ -287,7 +295,8 @@ OpenWind/
 │   ├── logger/       # Structured pino logger
 │   ├── telemetry/    # OTel/Prometheus/Sentry, usage metering
 │   ├── teams/        # Teams/services/on-call-schedule primitives
-│   ├── scheduler/    # Temporal scheduler primitives
+│   ├── scheduler/    # Schedule-rule cron/next-fire primitives
+│   ├── org-directory/# Org chart: importer, tree build, sync, query API
 │   ├── ai/           # Anthropic SDK wrapper (early — see roadmap)
 │   └── ui/           # Shared design system
 ├── modules/          # Seed SQL + a one-line stub index.ts per module —
@@ -298,10 +307,11 @@ OpenWind/
 │   ├── projects/
 │   ├── invoicing/
 │   ├── procurement/
-│   └── tender/
+│   ├── tender/
+│   └── vendor-approval/
 └── docs/
     ├── architecture-brief.md
-    ├── decisions/     # Architecture Decision Records (ADR-001–017)
+    ├── decisions/     # Architecture Decision Records (ADR-001–022)
     └── tracker/roadmap-tracker.md  # live phase/track status
 ```
 
@@ -318,11 +328,15 @@ Helpdesk, reimbursements, CRM, HRMS, projects, invoicing, procurement, tender,
 admin UI + customer portal views, notification layer, no-code builders.
 
 **Phase 3 — Scale & extensibility** 🟡 in progress
-Eight parallel tracks — connector runtime & marketplace (3A), plugin system
-(3B, ✅ done), AI layer (3C, not started), observability & GDPR compliance
-(3D, ✅ done), on-call routing & severity notifications (3E, in progress),
-temporal scheduler (3F, in progress), MIS/reporting dashboards (3G, spec in
-review), cross-functional workflow visibility (3H, in progress).
+Nine tracks — connector runtime, partner API & marketplace (3A, runtime and
+partner API shipped; email/WhatsApp connectors and marketplace UI not started),
+plugin system (3B, ✅ done), AI layer (3C, not started), observability & GDPR
+compliance (3D, ✅ done), on-call routing & severity notifications (3E, phases
+1–4 merged, delivery-channel gaps), scheduler (3F, phases 1–4 merged),
+MIS/reporting via Superset (3G, stages 1–2 merged; standalone SSO stage off
+pending review), cross-functional workflow visibility (3H, phase 1 merged),
+and deferred ops/infra (3-OPS, not started). Two spec-driven efforts sit
+outside the track table: multi-org sandboxes and the org directory.
 
 **Phase 4 — Sector depth** _(not started)_
 Vertical sector packages, white-label support, advanced analytics.
@@ -358,8 +372,9 @@ before writing code.
 
 ## Architecture decision records
 
-Key technical decisions are documented as ADRs in [`docs/decisions/`](docs/decisions/) — 17 as of
-this writing, humans-only to write or modify:
+Key technical decisions are documented as ADRs in [`docs/decisions/`](docs/decisions/) — 22 as of
+this writing, humans-only to write or modify. ADR-018 through ADR-022 are
+Proposed, not yet accepted:
 
 - [ADR-001: Multi-tenancy architecture](docs/decisions/ADR-001-multitenancy.md)
 - [ADR-002: Workflow engine state machine design](docs/decisions/ADR-002-workflow-engine.md)
@@ -378,6 +393,11 @@ this writing, humans-only to write or modify:
 - [ADR-015: Observability & compliance](docs/decisions/ADR-015-observability-compliance.md)
 - [ADR-016: On-call routing](docs/decisions/ADR-016-oncall-routing.md)
 - [ADR-017: Temporal scheduler](docs/decisions/ADR-017-temporal-scheduler.md)
+- [ADR-018: AI layer](docs/decisions/ADR-018-ai-layer.md)
+- [ADR-019: Reporting tenant isolation](docs/decisions/ADR-019-reporting-tenant-isolation.md)
+- [ADR-020: Module ownership model](docs/decisions/ADR-020-module-ownership-model.md)
+- [ADR-021: Ticket relations & participant access](docs/decisions/ADR-021-ticket-relations-and-participant-access.md)
+- [ADR-022: Sandboxing](docs/decisions/ADR-022-sandboxing.md)
 
 This list drifts — if it's missing a recent ADR, check [`docs/decisions/`](docs/decisions/)
 directly rather than trusting the count above.
