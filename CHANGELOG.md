@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — advisory locks work behind PgBouncer (#752)]
+
+### Fixed
+
+- **Tenant advisory locks now actually exclude concurrent holders behind PgBouncer.** Through
+  PgBouncer's transaction pooling, two callers could both be granted the same lock (40 of 40 in a
+  reproduction), so org-directory sync and sandbox reset had no real concurrency guard. Set
+  `DATABASE_DIRECT_URL` to a direct Postgres `app_user` URL and locks use their own small pool
+  (`DATABASE_LOCK_POOL_MAX`, default 5) straight to Postgres. `docker-compose.yml` and
+  `.env.example` set it; with it unset, behaviour is unchanged. A lock whose unlock runs on a
+  different backend, or fails, now logs an `advisory lock anomaly` error instead of passing silently.
+
 ## [Unreleased — "any field" trigger warning (#767)]
 
 ### Changed
