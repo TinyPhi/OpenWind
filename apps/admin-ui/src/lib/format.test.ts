@@ -93,6 +93,7 @@ describe("format utilities", () => {
       expect(initials("  alice   smith  ")).toBe("AS");
       expect(initials("")).toBe("U");
       expect(initials("   ")).toBe("U");
+      expect(initials("@@@")).toBe("@");
     });
   });
 

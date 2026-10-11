@@ -39,9 +39,7 @@ export function singularize(plural: string): string {
   return plural;
 }
 
-// Blank names deliberately collapse to "U", matching InitialsAvatar so shared
-// avatar callers never render empty text. This stateless fallback also treats
-// whitespace-only names as missing; punctuation-only names remain unchanged.
+// Keep every avatar caller aligned on one visible fallback for missing names.
 export function initials(name: string): string {
   return (
     name

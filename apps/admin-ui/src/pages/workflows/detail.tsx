@@ -49,6 +49,7 @@ import {
   TableHead,
   TableCell,
 } from "@platform/ui";
+import { initials } from "../../lib/format.js";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
 // BrowserRouter. This shim intercepts history.pushState/replaceState to provide
@@ -1017,12 +1018,7 @@ function AssignedUserChip({
   // malformed upstream (missing profile fields) — coerce so a bad row can't
   // blank the whole page.
   const displayName = String(user?.displayName ?? userId);
-  const initials = displayName
-    .split(" ")
-    .slice(0, 2)
-    .map((p) => p[0] ?? "")
-    .join("")
-    .toUpperCase();
+  const userInitials = initials(displayName);
   return (
     <div
       title={user?.email ?? user?.loginName ?? userId}
@@ -1052,7 +1048,7 @@ function AssignedUserChip({
           flexShrink: 0,
         }}
       >
-        {initials}
+        {userInitials}
       </span>
       <span
         style={{
