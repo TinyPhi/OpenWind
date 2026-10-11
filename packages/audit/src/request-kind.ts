@@ -80,6 +80,11 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "sandbox.provisioning_failed": true,
   "sandbox.reset_completed": true,
   "sandbox.reset_failed": true,
+  "access.granted": true,
+  "access.updated": true,
+  "access.revoked": true,
+  "workflow.admins_updated": true,
+  "workflow.transition_roles_updated": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -144,6 +149,12 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   // the job ultimately succeeded or failed partway, same reasoning as provisioning above.
   "sandbox.reset_completed",
   "sandbox.reset_failed",
+  // Grant, level change or revocation of access, and workflow admin / transition-role edits.
+  "access.granted",
+  "access.updated",
+  "access.revoked",
+  "workflow.admins_updated",
+  "workflow.transition_roles_updated",
 ]);
 
 /**

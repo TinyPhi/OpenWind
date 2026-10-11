@@ -183,7 +183,19 @@ export type AuditAction =
   // 0138_admin_audit_log_sandbox_reset_actions.sql extends the DB CHECK constraint in the
   // same commit.
   | "sandbox.reset_completed"
-  | "sandbox.reset_failed";
+  | "sandbox.reset_failed"
+  // #640 — changes to who can do what inside OpenWind's own tables (user roles
+  // themselves live in Zitadel and are out of scope). access.* is the
+  // per-ticket __accessUsers ACL (ADR-006/021); workflow.admins_updated is
+  // workflows.assigned_to; workflow.transition_roles_updated is a
+  // workflow_transitions.allowed_roles change. Migration
+  // 0140_admin_audit_log_access_actions.sql extends the DB CHECK constraint in
+  // the same commit.
+  | "access.granted"
+  | "access.updated"
+  | "access.revoked"
+  | "workflow.admins_updated"
+  | "workflow.transition_roles_updated";
 
 export type AuditEntryInput = {
   tenantId: string;
