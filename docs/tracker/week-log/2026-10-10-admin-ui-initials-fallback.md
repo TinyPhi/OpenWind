@@ -8,5 +8,7 @@
 - Existing non-empty name behavior stays unchanged; punctuation-only names continue to preserve
   their first character because display-name sanitization is outside this issue.
 - The formatter unit test reproduces the previous empty result and covers both blank input forms.
+- Consumer tests pin the fallback in the Users page and UserPicker; both already consumed the
+  shared formatter on the PR's base through #786, while this PR migrates the remaining callers.
 - This change is stateless: it reads only the current function argument and has no persistent state
   or external effects.
