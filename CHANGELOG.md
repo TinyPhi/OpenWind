@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — coverage-gap badge on tickets (#571)]
+
+### Added
+
+- **"No on-call coverage" badge on the ticket page, for agents and admins.** A ticket that has a team
+  and no assignee shows the badge when that team has no active on-call schedule right now, so staff can
+  see at a glance that the on-call routing could not assign it. It is never shown to customers, never
+  shown once the ticket has an assignee or has reached a closed state, and the page makes no extra request for anyone who cannot
+  see it. It uses the existing `GET /admin/on-call-schedules/current`, cached for a minute, so there
+  is no API change. A team whose schedule exists but whose people cannot be resolved is not flagged.
+
 ## [Unreleased — audit trail for permission changes (#640)]
 
 ### Added
