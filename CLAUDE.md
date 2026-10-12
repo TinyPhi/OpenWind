@@ -41,6 +41,8 @@ TypeScript in `modules/` (ADR-004). Full architecture: `docs/architecture-brief.
 | AI features, `packages/ai`, model calls (3C — not started)                                           | ADR-018 (Proposed; accepting it does not start 3C)                                   |
 | New modules, module ownership / placement (3H)                                                       | ADR-020 (Proposed), ADR-004, ADR-005                                                 |
 | Ticket relations, child tickets, `__accessUsers` grants, access requests                             | ADR-021 (Proposed), ADR-006                                                          |
+| Platform admin, multi-org sandboxes (provision, reset, delete, handover)                             | ADR-022 (Proposed), `docs/specs/multi-org-sandbox.md`                                |
+| Org directory (`packages/org-directory`, org chart, sync)                                            | `docs/specs/org-directory.md`                                                        |
 | Parallel approval                                                                                    | Off-limits — `.claude/context/parallel-approval-pattern.md`, #65                     |
 
 Status and history: `docs/tracker/roadmap-tracker.md` and `docs/tracker/week-log/`, one file per
@@ -68,8 +70,12 @@ only when a track's headline changes (started / done / blocked).
 | 3E    | On-call routing & severity-based notification                   | 🟡 Phases 1–4 merged (ADR-016); gaps: SMS/WhatsApp/voice delivery, duration metrics, 2 UI badges (#570, #571) |
 | 3F    | Temporal scheduler — auto-create tickets on schedule            | 🟡 Phases 1–4 merged (ADR-017); gap: schedule alert rules (#580)                                              |
 | 3G    | MIS reporting — embedded Superset + standalone/Zitadel SSO      | 🟡 Stages 1–2 merged (#663–671); ADR-019 proposed (#707); Stage 2 stays off pending review                    |
-| 3H    | Cross-functional workflow visibility                            | 🟡 Phase 1 merged — vendor-approval seed module (#680); live walk-through #691; ADR pending (#622)            |
+| 3H    | Cross-functional workflow visibility                            | 🟡 Phase 1 merged — vendor-approval seed module (#680); live walk-through #691; ADR-020 in review (#702)      |
 | 3-OPS | Deferred ops/infra concerns                                     | 🔴 Not started (#6)                                                                                           |
+
+Also active outside this table, with no track ID (see "Spec-driven efforts outside the track table" in
+the tracker): the multi-org sandbox ([spec](docs/specs/multi-org-sandbox.md), ADR-022 Proposed) and
+org-directory (shipped 2026-09-30 to 10-01, [spec](docs/specs/org-directory.md)).
 
 No phase or track starts without explicit human sign-off. New review findings go through
 [docs/reviews/pending-review-findings.md](docs/reviews/pending-review-findings.md); file an issue
@@ -99,7 +105,7 @@ packages/
   entity-engine/  workflow-engine/  automation-engine/
   auth/           Zitadel JWT + RBAC helpers
   notifications/  Novu wrapper
-  files/          Tenant-scoped local-disk storage + async ClamAV scan (PR #340; async exports still use S3, #697)
+  files/          Tenant-scoped local-disk storage + async ClamAV scan (PR #340; async exports moved to local storage in #787)
   audit/          Append-only audit log
   config/         Zod-validated env — import from @platform/config
   logger/         Structured pino logger
@@ -109,6 +115,7 @@ packages/
   ui/             Shared design system (shadcn/ui + tokens)
   ai/             Anthropic SDK wrapper + RAG helpers
   teams/          Teams/services/on-call primitives + shared cross-tenant FK helper (3E/3F)
+  org-directory/  Org chart from Zitadel metadata: importer, tree build, sync, query API
   scheduler/      Cron + next-fire, timezone/template validation, cross-tenant ref checks (3F)
   telemetry/      OTel, Prometheus metrics, PII-scrubbed Sentry (3D)
   tsconfig/       Shared TypeScript base configs

@@ -5,13 +5,7 @@ import { Button } from "@platform/ui";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { resolveCardIcon } from "../../lib/icon.js";
 import { userManager } from "../../authProvider.js";
-
-function toWorkflowSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
+import { toWorkflowSlug } from "../../lib/format.js";
 
 type WorkflowState = {
   name: string;

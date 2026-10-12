@@ -48,8 +48,6 @@ import {
   TableRow,
   TableHead,
   TableCell,
-  TOKENS,
-  useHoverStyle,
 } from "@platform/ui";
 
 // useBlocker requires a data router (createBrowserRouter), but this app uses
@@ -112,13 +110,7 @@ import { useEntityTypes } from "../../entity-type-context.js";
 import { userManager } from "../../authProvider.js";
 import { MultiUserPicker } from "../../components/user-picker.js";
 import type { UserOption } from "../../components/user-picker.js";
-
-function toWorkflowSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
+import { toWorkflowSlug } from "../../lib/format.js";
 
 type WorkflowState = {
   id: string;
@@ -519,10 +511,6 @@ function SortableStateNode({
     isDragging,
   } = useSortable({ id: state.id });
   const accent = state.color ?? "var(--accent-primary)";
-  const dragHandleHover = useHoverStyle({
-    base: { boxShadow: "none" },
-    hover: { boxShadow: `0 0 0 3px ${accent}44` },
-  });
 
   function handleRef(el: HTMLDivElement | null): void {
     // useSortable.setNodeRef expects Element | null; our custom map stores HTMLDivElement.
@@ -550,6 +538,7 @@ function SortableStateNode({
         {...listeners}
       >
         <div
+          className="workflow-drag-handle"
           style={{
             width: "36px",
             height: "36px",
@@ -561,16 +550,13 @@ function SortableStateNode({
             justifyContent: "center",
             position: "relative",
             cursor: "pointer",
-            transition: "box-shadow 0.15s",
-            ...dragHandleHover.style,
+            ["--drag-glow" as string]: `${accent}44`,
           }}
           onClick={(e) => {
             e.stopPropagation();
             onEdit();
           }}
           title="Click to edit step"
-          onMouseEnter={dragHandleHover.onMouseEnter}
-          onMouseLeave={dragHandleHover.onMouseLeave}
         >
           <span
             style={{
@@ -1037,11 +1023,6 @@ function AssignedUserChip({
     .map((p) => p[0] ?? "")
     .join("")
     .toUpperCase();
-  const removeHover = useHoverStyle({
-    base: { background: "none", color: "var(--text-muted)" },
-    hover: { background: "hsla(0,84%,60%,.12)", color: TOKENS.danger },
-  });
-
   return (
     <div
       title={user?.email ?? user?.loginName ?? userId}
@@ -1113,6 +1094,7 @@ function AssignedUserChip({
           title={
             isCreator ? "Remove creator (global admin only)" : "Remove admin"
           }
+          className="workflow-pill-remove-btn"
           style={{
             display: "flex",
             alignItems: "center",
@@ -1124,11 +1106,7 @@ function AssignedUserChip({
             cursor: savingAssign ? "not-allowed" : "pointer",
             flexShrink: 0,
             opacity: savingAssign ? 0.5 : 1,
-            transition: "background 0.12s, color 0.12s",
-            ...removeHover.style,
           }}
-          onMouseEnter={removeHover.onMouseEnter}
-          onMouseLeave={removeHover.onMouseLeave}
         >
           <svg
             width="11"

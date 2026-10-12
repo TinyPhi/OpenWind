@@ -23,6 +23,7 @@ import {
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
+import { useOutsideClick } from "../../hooks/use-outside-click.js";
 
 const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 type Severity = (typeof SEVERITIES)[number];
@@ -161,25 +162,6 @@ function isCronRepresentableByPicker(cronExpr: string): boolean {
       parsed.dayOfMonth,
     ) === cronExpr.trim()
   );
-}
-
-// Generic searchable, single-select dropdown -- same click-outside/search-
-// box/clear-button pattern as record-create.tsx's UserPicker/TeamPicker,
-// factored out here as a reusable primitive rather than a copy-paste (this
-// page needs the same UX for Workflow, not just User/Team).
-function useOutsideClick(
-  ref: React.RefObject<HTMLElement>,
-  onOutside: () => void,
-): void {
-  useEffect(() => {
-    function handler(e: MouseEvent): void {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onOutside();
-      }
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [ref, onOutside]);
 }
 
 function SearchableSelect({
@@ -669,6 +651,58 @@ export function ScheduleRulesPage(): React.ReactElement {
   );
 }
 
+export interface RuleFormData {
+  step: 1 | 2;
+  name: string;
+  description: string;
+  frequency: Frequency;
+  timeOfDay: string;
+  dayOfWeek: number;
+  dayOfMonth: number;
+  timezone: string;
+  workflowId: string;
+  catchUp: boolean;
+  templateTitle: string;
+  templateDescription: string;
+  templateSeverity: string;
+  assignMode: "user" | "team";
+  assignedTo: string;
+  teamId: string;
+  dueDays: string;
+  remark: string;
+}
+
+export function initialRuleFormData(rule?: ScheduleRule): RuleFormData {
+  const freq = parseCronToFrequency(rule?.cronExpr ?? "0 9 * * *");
+  return {
+    step: 1,
+    name: rule?.name ?? "",
+    description: rule?.description ?? "",
+    frequency: freq.frequency,
+    timeOfDay: freq.timeOfDay,
+    dayOfWeek: freq.dayOfWeek,
+    dayOfMonth: freq.dayOfMonth,
+    timezone: rule?.timezone ?? "UTC",
+    workflowId: rule?.workflowId ?? "",
+    catchUp: rule?.catchUp ?? false,
+    templateTitle: rule?.template.title ?? "",
+    templateDescription: rule?.template.description ?? "",
+    templateSeverity: rule?.template.severity ?? "",
+    // Exactly one of assignedTo/teamId, same contract as record-create.tsx's
+    // ticket-creation form (docs/specs/schedule-rules-mandate-fields.md R1) --
+    // teamId is only ever sent when mode is "team" and vice versa, regardless
+    // of which mode was last touched.
+    assignMode: rule?.template.assignedTo ? "user" : "team",
+    assignedTo: rule?.template.assignedTo ?? "",
+    teamId: rule?.template.teamId ?? "",
+    dueDays:
+      rule?.template.due_days !== undefined
+        ? String(rule.template.due_days)
+        : "",
+    remark: rule?.template.remark ?? "",
+  };
+}
+
 interface RuleFormModalProps {
   open: boolean;
   rule?: ScheduleRule | undefined;
@@ -688,39 +722,9 @@ function RuleFormModal({
   onClose,
   onSaved,
 }: RuleFormModalProps): React.ReactElement {
-  const [step, setStep] = useState<1 | 2>(1);
-  const [name, setName] = useState(rule?.name ?? "");
-  const [description, setDescription] = useState(rule?.description ?? "");
-  const initialFreq = parseCronToFrequency(rule?.cronExpr ?? "0 9 * * *");
-  const [frequency, setFrequency] = useState<Frequency>(initialFreq.frequency);
-  const [timeOfDay, setTimeOfDay] = useState(initialFreq.timeOfDay);
-  const [dayOfWeek, setDayOfWeek] = useState(initialFreq.dayOfWeek);
-  const [dayOfMonth, setDayOfMonth] = useState(initialFreq.dayOfMonth);
-  const [timezone, setTimezone] = useState(rule?.timezone ?? "UTC");
-  const [workflowId, setWorkflowId] = useState(rule?.workflowId ?? "");
-  const [catchUp, setCatchUp] = useState(rule?.catchUp ?? false);
-  const [templateTitle, setTemplateTitle] = useState(
-    rule?.template.title ?? "",
+  const [formData, setFormData] = useState<RuleFormData>(() =>
+    initialRuleFormData(rule),
   );
-  const [templateDescription, setTemplateDescription] = useState(
-    rule?.template.description ?? "",
-  );
-  const [templateSeverity, setTemplateSeverity] = useState(
-    rule?.template.severity ?? "",
-  );
-  // Exactly one of assignedTo/teamId, same contract as record-create.tsx's
-  // ticket-creation form (docs/specs/schedule-rules-mandate-fields.md R1) --
-  // teamId is only ever sent when mode is "team" and vice versa, regardless
-  // of which mode was last touched.
-  const [assignMode, setAssignMode] = useState<"user" | "team">(
-    rule?.template.assignedTo ? "user" : "team",
-  );
-  const [assignedTo, setAssignedTo] = useState(rule?.template.assignedTo ?? "");
-  const [teamId, setTeamId] = useState(rule?.template.teamId ?? "");
-  const [dueDays, setDueDays] = useState(
-    rule?.template.due_days !== undefined ? String(rule.template.due_days) : "",
-  );
-  const [remark, setRemark] = useState(rule?.template.remark ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const unsupportedCronExpr =
@@ -728,55 +732,41 @@ function RuleFormModal({
 
   useEffect(() => {
     if (open) {
-      setStep(1);
-      setName(rule?.name ?? "");
-      setDescription(rule?.description ?? "");
-      const freq = parseCronToFrequency(rule?.cronExpr ?? "0 9 * * *");
-      setFrequency(freq.frequency);
-      setTimeOfDay(freq.timeOfDay);
-      setDayOfWeek(freq.dayOfWeek);
-      setDayOfMonth(freq.dayOfMonth);
-      setTimezone(rule?.timezone ?? "UTC");
-      setWorkflowId(rule?.workflowId ?? "");
-      setCatchUp(rule?.catchUp ?? false);
-      setTemplateTitle(rule?.template.title ?? "");
-      setTemplateDescription(rule?.template.description ?? "");
-      setTemplateSeverity(rule?.template.severity ?? "");
-      setAssignMode(rule?.template.assignedTo ? "user" : "team");
-      setAssignedTo(rule?.template.assignedTo ?? "");
-      setTeamId(rule?.template.teamId ?? "");
-      setDueDays(
-        rule?.template.due_days !== undefined
-          ? String(rule.template.due_days)
-          : "",
-      );
-      setRemark(rule?.template.remark ?? "");
+      setFormData(initialRuleFormData(rule));
       setError(null);
     }
   }, [open, rule]);
 
+  function updateField<K extends keyof RuleFormData>(
+    key: K,
+    val: RuleFormData[K],
+  ): void {
+    setFormData((prev) => ({ ...prev, [key]: val }));
+  }
+
   function handleNext(e: React.FormEvent): void {
     e.preventDefault();
-    if (!name.trim() || !timeOfDay) {
+    if (!formData.name.trim() || !formData.timeOfDay) {
       setError("Name and time of day are required.");
       return;
     }
     setError(null);
-    setStep(2);
+    updateField("step", 2);
   }
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
-    const assignValue = assignMode === "user" ? assignedTo : teamId;
-    if (!assignValue || !dueDays || !remark.trim()) {
+    const assignValue =
+      formData.assignMode === "user" ? formData.assignedTo : formData.teamId;
+    if (!assignValue || !formData.dueDays || !formData.remark.trim()) {
       setError(
-        assignMode === "user"
+        formData.assignMode === "user"
           ? "Assignee, due date, and remark are required."
           : "Team, due date, and remark are required.",
       );
       return;
     }
-    const dueDaysValue = Number(dueDays);
+    const dueDaysValue = Number(formData.dueDays);
     if (
       !Number.isInteger(dueDaysValue) ||
       dueDaysValue < 0 ||
@@ -794,19 +784,22 @@ function RuleFormModal({
       // the same issue with before this pass).
       const template: ScheduleTemplate = {
         ...rule?.template,
-        title: templateTitle,
-        description: templateDescription || undefined,
-        severity: (templateSeverity || undefined) as Severity | undefined,
-        assignedTo: assignMode === "user" ? assignedTo : undefined,
-        teamId: assignMode === "team" ? teamId : undefined,
+        title: formData.templateTitle,
+        description: formData.templateDescription || undefined,
+        severity: (formData.templateSeverity || undefined) as
+          | Severity
+          | undefined,
+        assignedTo:
+          formData.assignMode === "user" ? formData.assignedTo : undefined,
+        teamId: formData.assignMode === "team" ? formData.teamId : undefined,
         due_days: dueDaysValue,
-        remark: remark.trim(),
+        remark: formData.remark.trim(),
       };
       const cronExpr = buildCronExpr(
-        frequency,
-        timeOfDay,
-        dayOfWeek,
-        dayOfMonth,
+        formData.frequency,
+        formData.timeOfDay,
+        formData.dayOfWeek,
+        formData.dayOfMonth,
       );
       const path = rule
         ? `${API_URL}/admin/schedule-rules/${rule.id}`
@@ -817,12 +810,12 @@ function RuleFormModal({
       // mandate-fields.md's entityTypeId incident) rather than trusting a
       // client-side lookup against a possibly-paginated entity-types list.
       const body: Record<string, unknown> = {
-        name,
-        description: description || undefined,
+        name: formData.name,
+        description: formData.description || undefined,
         cronExpr,
-        timezone,
-        workflowId: workflowId || undefined,
-        catchUp,
+        timezone: formData.timezone,
+        workflowId: formData.workflowId || undefined,
+        catchUp: formData.catchUp,
         template,
       };
       await fetchWithAuth(path, {
@@ -875,7 +868,7 @@ function RuleFormModal({
           </DialogClose>
         </div>
 
-        <StepIndicator step={step} />
+        <StepIndicator step={formData.step} />
 
         {error && (
           <div className="alert alert-error" style={{ marginTop: 16 }}>
@@ -883,7 +876,7 @@ function RuleFormModal({
           </div>
         )}
 
-        {step === 1 ? (
+        {formData.step === 1 ? (
           <form onSubmit={handleNext}>
             {unsupportedCronExpr && (
               <div className="form-group">
@@ -899,9 +892,9 @@ function RuleFormModal({
               <input
                 className="form-input"
                 placeholder="e.g. Weekly Standup"
-                value={name}
+                value={formData.name}
                 autoFocus
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => updateField("name", e.target.value)}
                 required
               />
             </div>
@@ -909,16 +902,16 @@ function RuleFormModal({
               <label className="form-label">Description</label>
               <input
                 className="form-input"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                value={formData.description}
+                onChange={(e) => updateField("description", e.target.value)}
               />
             </div>
             <div className="form-group">
               <label className="form-label">Workflow</label>
               <SearchableSelect
                 options={workflows.map((w) => ({ id: w.id, label: w.name }))}
-                value={workflowId}
-                onChange={setWorkflowId}
+                value={formData.workflowId}
+                onChange={(val) => updateField("workflowId", val)}
                 placeholder="Search and select a workflow…"
                 emptyLabel="None"
                 allowClear
@@ -938,12 +931,15 @@ function RuleFormModal({
                       fontWeight: 600,
                       textTransform: "capitalize",
                       background:
-                        frequency === f
+                        formData.frequency === f
                           ? "var(--accent-primary)"
                           : "var(--bg-primary)",
-                      color: frequency === f ? "#fff" : "var(--text-primary)",
+                      color:
+                        formData.frequency === f
+                          ? "#fff"
+                          : "var(--text-primary)",
                     }}
-                    onClick={() => setFrequency(f)}
+                    onClick={() => updateField("frequency", f)}
                   >
                     {f}
                   </button>
@@ -957,7 +953,7 @@ function RuleFormModal({
                   flexWrap: "wrap",
                 }}
               >
-                {frequency === "weekly" && (
+                {formData.frequency === "weekly" && (
                   <div style={{ flex: 1, minWidth: 140 }}>
                     <label className="form-label" htmlFor="rule-day-of-week">
                       Day
@@ -965,8 +961,10 @@ function RuleFormModal({
                     <select
                       id="rule-day-of-week"
                       className="form-input"
-                      value={dayOfWeek}
-                      onChange={(e) => setDayOfWeek(Number(e.target.value))}
+                      value={formData.dayOfWeek}
+                      onChange={(e) =>
+                        updateField("dayOfWeek", Number(e.target.value))
+                      }
                     >
                       {WEEKDAY_OPTIONS.map((d) => (
                         <option key={d.value} value={d.value}>
@@ -976,7 +974,7 @@ function RuleFormModal({
                     </select>
                   </div>
                 )}
-                {frequency === "monthly" && (
+                {formData.frequency === "monthly" && (
                   <div style={{ flex: 1, minWidth: 100 }}>
                     <label className="form-label" htmlFor="rule-day-of-month">
                       Day of month
@@ -987,8 +985,10 @@ function RuleFormModal({
                       type="number"
                       min={1}
                       max={31}
-                      value={dayOfMonth}
-                      onChange={(e) => setDayOfMonth(Number(e.target.value))}
+                      value={formData.dayOfMonth}
+                      onChange={(e) =>
+                        updateField("dayOfMonth", Number(e.target.value))
+                      }
                     />
                   </div>
                 )}
@@ -1000,8 +1000,8 @@ function RuleFormModal({
                     id="rule-time-of-day"
                     className="form-input"
                     type="time"
-                    value={timeOfDay}
-                    onChange={(e) => setTimeOfDay(e.target.value)}
+                    value={formData.timeOfDay}
+                    onChange={(e) => updateField("timeOfDay", e.target.value)}
                     required
                   />
                 </div>
@@ -1015,8 +1015,8 @@ function RuleFormModal({
               <select
                 id="rule-timezone"
                 className="form-input"
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
+                value={formData.timezone}
+                onChange={(e) => updateField("timezone", e.target.value)}
                 required
               >
                 {TIMEZONE_OPTIONS.map((tz) => (
@@ -1024,8 +1024,10 @@ function RuleFormModal({
                     {tz.label}
                   </option>
                 ))}
-                {!TIMEZONE_OPTIONS.some((tz) => tz.value === timezone) && (
-                  <option value={timezone}>{timezone}</option>
+                {!TIMEZONE_OPTIONS.some(
+                  (tz) => tz.value === formData.timezone,
+                ) && (
+                  <option value={formData.timezone}>{formData.timezone}</option>
                 )}
               </select>
             </div>
@@ -1040,12 +1042,12 @@ function RuleFormModal({
               >
                 <input
                   type="checkbox"
-                  checked={catchUp}
-                  onChange={(e) => setCatchUp(e.target.checked)}
+                  checked={formData.catchUp}
+                  onChange={(e) => updateField("catchUp", e.target.checked)}
                 />
                 Catch up on missed fires (worker was down)
               </label>
-              {rule && !rule.catchUp && catchUp && (
+              {rule && !rule.catchUp && formData.catchUp && (
                 <div
                   role="alert"
                   className="alert alert-warning"
@@ -1069,9 +1071,9 @@ function RuleFormModal({
               <input
                 className="form-input"
                 placeholder="e.g. Weekly standup — {{date}}"
-                value={templateTitle}
+                value={formData.templateTitle}
                 autoFocus
-                onChange={(e) => setTemplateTitle(e.target.value)}
+                onChange={(e) => updateField("templateTitle", e.target.value)}
                 required
               />
             </div>
@@ -1079,16 +1081,20 @@ function RuleFormModal({
               <label className="form-label">Description</label>
               <input
                 className="form-input"
-                value={templateDescription}
-                onChange={(e) => setTemplateDescription(e.target.value)}
+                value={formData.templateDescription}
+                onChange={(e) =>
+                  updateField("templateDescription", e.target.value)
+                }
               />
             </div>
             <div className="form-group">
               <label className="form-label">Severity</label>
               <select
                 className="form-input"
-                value={templateSeverity}
-                onChange={(e) => setTemplateSeverity(e.target.value)}
+                value={formData.templateSeverity}
+                onChange={(e) =>
+                  updateField("templateSeverity", e.target.value)
+                }
               >
                 <option value="">None</option>
                 {SEVERITIES.map((s) => (
@@ -1109,13 +1115,15 @@ function RuleFormModal({
                     padding: "5px 12px",
                     fontWeight: 600,
                     background:
-                      assignMode === "user"
+                      formData.assignMode === "user"
                         ? "var(--accent-primary)"
                         : "var(--bg-primary)",
                     color:
-                      assignMode === "user" ? "#fff" : "var(--text-primary)",
+                      formData.assignMode === "user"
+                        ? "#fff"
+                        : "var(--text-primary)",
                   }}
-                  onClick={() => setAssignMode("user")}
+                  onClick={() => updateField("assignMode", "user")}
                 >
                   User
                 </button>
@@ -1126,22 +1134,24 @@ function RuleFormModal({
                     padding: "5px 12px",
                     fontWeight: 600,
                     background:
-                      assignMode === "team"
+                      formData.assignMode === "team"
                         ? "var(--accent-primary)"
                         : "var(--bg-primary)",
                     color:
-                      assignMode === "team" ? "#fff" : "var(--text-primary)",
+                      formData.assignMode === "team"
+                        ? "#fff"
+                        : "var(--text-primary)",
                   }}
-                  onClick={() => setAssignMode("team")}
+                  onClick={() => updateField("assignMode", "team")}
                 >
                   Team
                 </button>
               </div>
-              {assignMode === "user" ? (
+              {formData.assignMode === "user" ? (
                 <select
                   className="form-input"
-                  value={assignedTo}
-                  onChange={(e) => setAssignedTo(e.target.value)}
+                  value={formData.assignedTo}
+                  onChange={(e) => updateField("assignedTo", e.target.value)}
                   required
                 >
                   <option value="">Select a user…</option>
@@ -1154,8 +1164,8 @@ function RuleFormModal({
               ) : (
                 <select
                   className="form-input"
-                  value={teamId}
-                  onChange={(e) => setTeamId(e.target.value)}
+                  value={formData.teamId}
+                  onChange={(e) => updateField("teamId", e.target.value)}
                   required
                 >
                   <option value="">Select a team…</option>
@@ -1166,7 +1176,7 @@ function RuleFormModal({
                   ))}
                 </select>
               )}
-              {assignMode === "team" && (
+              {formData.assignMode === "team" && (
                 <p className="page-subtitle" style={{ marginTop: 6 }}>
                   Resolves to the team's on-call primary at fire time (falling
                   back to backup, escalation manager, then workflow admin).
@@ -1185,10 +1195,10 @@ function RuleFormModal({
                 step={1}
                 min={0}
                 max={3650}
-                value={dueDays}
+                value={formData.dueDays}
                 onChange={(e) => {
                   const value = e.target.value;
-                  setDueDays(value);
+                  updateField("dueDays", value);
                   const numericValue = Number(value);
                   if (
                     value !== "" &&
@@ -1217,8 +1227,8 @@ function RuleFormModal({
                 className="form-input"
                 rows={3}
                 maxLength={4000}
-                value={remark}
-                onChange={(e) => setRemark(e.target.value)}
+                value={formData.remark}
+                onChange={(e) => updateField("remark", e.target.value)}
                 required
               />
             </div>
@@ -1227,7 +1237,7 @@ function RuleFormModal({
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setStep(1)}
+                onClick={() => updateField("step", 1)}
               >
                 ← Back
               </Button>

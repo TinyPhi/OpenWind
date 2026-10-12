@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { showAlert } from "./global-alert-dialog.js";
+import { useOutsideClick } from "../hooks/use-outside-click.js";
 
 export interface TicketLabel {
   labelId: string;
@@ -54,15 +55,9 @@ export function TicketLabelsPanel({
       .catch(() => undefined);
   }, [refresh]);
 
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent): void {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setPickerOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
+  useOutsideClick(pickerRef, () => {
+    setPickerOpen(false);
+  });
 
   async function assign(labelId: string): Promise<void> {
     try {

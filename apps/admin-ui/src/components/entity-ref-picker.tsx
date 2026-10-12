@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useEntityTypes } from "../entity-type-context.js";
+import { useOutsideClick } from "../hooks/use-outside-click.js";
 
 /**
  * Searchable single-entity picker for `entity_ref` fields (#197). Entity
@@ -67,19 +68,9 @@ export function EntityRefPicker({
     };
   }, [value]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onClickOutside(e: MouseEvent): void {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [open]);
+  useOutsideClick(containerRef, () => {
+    if (open) setOpen(false);
+  });
 
   function handleQueryChange(next: string): void {
     setQuery(next);

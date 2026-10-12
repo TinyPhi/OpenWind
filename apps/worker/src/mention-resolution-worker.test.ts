@@ -197,6 +197,14 @@ vi.mock("@platform/notifications", () => ({
   ),
 }));
 
+const mockMentionRecordFailureAdd = vi.fn();
+vi.mock("@platform/telemetry", async () => ({
+  Worker: (await import("bullmq")).Worker,
+  mentionRecordFailureTotal: {
+    add: (...a: unknown[]) => mockMentionRecordFailureAdd(...a),
+  },
+}));
+
 vi.mock("./queues.js", () => ({ connection: {} }));
 
 vi.mock("./record-resolved-mention.js", () => ({
@@ -252,6 +260,7 @@ beforeEach(() => {
   insertCalls.length = 0;
   updateCalls.length = 0;
   mockRecordResolvedMention.mockReset().mockResolvedValue(undefined);
+  mockMentionRecordFailureAdd.mockReset();
   auditEntries.length = 0;
   emitAccessEventCalls.length = 0;
   misuseAlertCalls.length = 0;
@@ -568,6 +577,7 @@ describe("recording resolved mentions for erasure (#689)", () => {
       COMMENT_ID,
       MENTIONED_USER_ID,
     );
+    expect(mockMentionRecordFailureAdd).not.toHaveBeenCalled();
   });
 
   it("records the resolved user when access is requested or granted (outcome 2)", async () => {
@@ -619,6 +629,9 @@ describe("recording resolved mentions for erasure (#689)", () => {
     mockRecordResolvedMention.mockRejectedValue(new Error("db hiccup"));
 
     await capturedProcessor!(baseJob());
+
+    expect(mockMentionRecordFailureAdd).toHaveBeenCalledOnce();
+    expect(mockMentionRecordFailureAdd).toHaveBeenCalledWith(1);
 
     expect(auditEntries).toEqual([
       expect.objectContaining({ action: "tag.resolved_existing_access" }),
