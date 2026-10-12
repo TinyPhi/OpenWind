@@ -310,4 +310,23 @@ describe("processSandboxDeleteJob", () => {
       expect.objectContaining({ action: "sandbox.delete_completed" }),
     );
   });
+
+  it("completes the delete when the platform-admin audit record fails (PR #859 review [C])", async () => {
+    mockRecordPlatformAdminAction.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      processSandboxDeleteJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).resolves.toBeUndefined();
+
+    expect(mockLoggerError).toHaveBeenCalled();
+    expect(mockTenantPurgeQueueAdd).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.delete_completed" }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.delete_failed" }),
+    );
+  });
 });

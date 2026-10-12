@@ -457,4 +457,28 @@ describe("processSandboxProvisioningJob", () => {
       }),
     );
   });
+
+  // PR #859 review [C]: this write sits inside the try whose catch rolls the sandbox back.
+  it("keeps a fully built sandbox when the platform-admin audit record fails", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(1));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "user-x" });
+    mockRecordPlatformAdminAction.mockRejectedValueOnce(new Error("db down"));
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-t16",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(result.zitadelOrgId).toBe("org-1");
+    expect(mockDeleteOrg).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.provisioning_completed" }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.provisioning_failed" }),
+    );
+  });
 });
