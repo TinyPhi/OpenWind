@@ -4,6 +4,7 @@ import { getRedis } from "@platform/redis";
 import { env } from "@platform/config";
 import { prometheusExporter } from "./instrumentation.js";
 import { PrometheusSerializer } from "@opentelemetry/exporter-prometheus";
+import { SCHEDULE_DURATION_BUCKETS_MS } from "./schedule-duration-buckets.js";
 
 const meter = metrics.getMeter("openwind-metrics");
 
@@ -237,6 +238,27 @@ export const scheduleCatchUpTotal = meter.createCounter(
   {
     description:
       "Catch-up fires executed vs. skipped on an overdue schedule_rule",
+  },
+);
+
+// docs/temporal-scheduler-design.md §9.4 -- the duration SLO alerts read these.
+// Milliseconds, with the unit in the name rather than a unit option, matching
+// how this file registers http_request_duration_seconds. Execution duration is
+// labelled by status only: tenant and rule ids stay out of labels so the
+// series count stays bounded (each label value multiplies every bucket).
+export const scheduleTickDurationMs = meter.createHistogram(
+  "openwind_schedule_tick_duration_ms",
+  {
+    description: "Wall-clock time of one temporal scheduler tick, in ms",
+    advice: { explicitBucketBoundaries: SCHEDULE_DURATION_BUCKETS_MS },
+  },
+);
+export const scheduleExecutionDurationMs = meter.createHistogram(
+  "openwind_schedule_execution_duration_ms",
+  {
+    description:
+      "Time to fire one schedule_rule (create the ticket and record it), in ms",
+    advice: { explicitBucketBoundaries: SCHEDULE_DURATION_BUCKETS_MS },
   },
 );
 
