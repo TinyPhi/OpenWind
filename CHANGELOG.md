@@ -19,6 +19,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   top finite bucket is 10 s, so a slower fire would never push the p99 over 10 s and the alert could
   not fire.
 
+## [Unreleased — audit trail for permission changes (#640)]
+
+### Added
+
+- **Permission changes are now audit-logged.** Five new `admin_audit_log` actions: `access.granted`,
+  `access.updated` and `access.revoked` (per-ticket access grants: direct grant, level change,
+  revoke, and approval of an access request), `workflow.admins_updated` (the workflow admin list,
+  including the creator becoming the first admin) and `workflow.transition_roles_updated` (which
+  roles may fire a transition: creating, editing or deleting one, from the transition routes and
+  the canvas save). Each is written in the same transaction as the change, so a change cannot
+  commit without its audit entry. A no-op edit writes nothing, and a canvas save writes one entry
+  however many transitions changed.
+  Migration 0140 widens the action CHECK constraint.
+- **A same-tenant access denial on a ticket read or comment is audited.** A customer refused by the
+  ticket ACL on `GET /entities/:id` or when commenting now leaves a `ticket.view_denied` /
+  `comment.access_denied` entry (actor type `user`), as the third-party API already did. The 404
+  response is unchanged, and a missing record is never audited.
+
+### Notes
+
+- User roles live in Zitadel, so a role granted or revoked there is outside this log; only
+  OpenWind's own tables are covered. Cross-tenant access attempts are not logged: RLS makes another
+  tenant's record indistinguishable from a missing one, so there is no denial to observe.
+
 ## [Unreleased — advisory locks work behind PgBouncer (#752)]
 
 ### Fixed
