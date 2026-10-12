@@ -16,6 +16,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   see it. It uses the existing `GET /admin/on-call-schedules/current`, cached for a minute, so there
   is no API change. A team whose schedule exists but whose people cannot be resolved is not flagged.
 
+## [Unreleased — scheduler alert rules (#580)]
+
+### Added
+
+- **Three alerts for the temporal scheduler** in `docker/observability/alert.rules.yml`:
+  `ScheduleExecutionFailureRateHigh` (more than 10% of schedule rule fires failing over 10 minutes),
+  `ScheduleTickDurationSLOBreach` (tick p99 over 5 s) and `ScheduleExecutionDurationSLOBreach` (fire
+  p99 over 10 s, measured over 15 minutes because fires can be hours apart), all warning severity. They need two new histograms,
+  `openwind_schedule_tick_duration_ms` and `openwind_schedule_execution_duration_ms`, which the
+  worker now records on every tick and every fire (the execution histogram is labelled by status
+  only). The histogram buckets run to 60 s on purpose: with OpenTelemetry's default boundaries the
+  top finite bucket is 10 s, so a slower fire would never push the p99 over 10 s and the alert could
+  not fire.
+
 ## [Unreleased — audit trail for permission changes (#640)]
 
 ### Added
@@ -39,6 +53,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - User roles live in Zitadel, so a role granted or revoked there is outside this log; only
   OpenWind's own tables are covered. Cross-tenant access attempts are not logged: RLS makes another
   tenant's record indistinguishable from a missing one, so there is no denial to observe.
+
+## [Unreleased — audit log `action` filter]
+
+### Added
+
+- **`GET /admin/audit` can filter by `action`.** `?action=access.revoked` returns only entries with that
+  audit action; combine it with `resourceType` and `resourceId` to ask what happened to one ticket, or
+  with `from` and `to` for a time window. An unknown action is a `400 VALIDATION_ERROR` rather than an
+  empty page, so a typo is visible. One action per request. Admin-only and tenant-scoped as before.
+  The same filter is available to code through `queryAuditLog` in `@platform/audit`, which also gains
+  an exported `ALL_AUDIT_ACTIONS` list.
 
 ## [Unreleased — advisory locks work behind PgBouncer (#752)]
 

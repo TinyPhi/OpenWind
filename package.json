@@ -12,6 +12,7 @@
     "test": "turbo run test",
     "pretest:isolation": "tsx scripts/pretest-guard.ts postgres redis",
     "test:isolation": "turbo run test:isolation",
+    "test:alerts": "docker run --rm --entrypoint promtool -v \"$PWD/docker/observability:/r:ro\" prom/prometheus:v2.53.0 check rules /r/alert.rules.yml && docker run --rm --entrypoint promtool -v \"$PWD/docker/observability:/r:ro\" prom/prometheus:v2.53.0 test rules /r/alert.rules.test.yml",
     "pretest:e2e": "tsx scripts/pretest-guard.ts postgres redis openbao minio zitadel",
     "test:e2e": "turbo run test:e2e",
     "typecheck": "turbo run typecheck",

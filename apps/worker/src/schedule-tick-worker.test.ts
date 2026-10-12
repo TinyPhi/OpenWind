@@ -20,7 +20,15 @@ vi.mock("@platform/audit", () => ({
 const mockScheduleTickAdd = vi.fn();
 const mockScheduleExecutionAdd = vi.fn();
 const mockScheduleCatchUpAdd = vi.fn();
+const mockTickDurationRecord = vi.fn();
+const mockExecutionDurationRecord = vi.fn();
 vi.mock("@platform/telemetry", () => ({
+  scheduleTickDurationMs: {
+    record: (...a: unknown[]) => mockTickDurationRecord(...a),
+  },
+  scheduleExecutionDurationMs: {
+    record: (...a: unknown[]) => mockExecutionDurationRecord(...a),
+  },
   scheduleTickTotal: { add: (...a: unknown[]) => mockScheduleTickAdd(...a) },
   scheduleExecutionTotal: {
     add: (...a: unknown[]) => mockScheduleExecutionAdd(...a),
@@ -78,9 +86,13 @@ let claimRows: unknown[] = [];
 
 const insertedExecutions: unknown[] = [];
 
+// Lets a test advance a fake clock when a failed fire is recorded.
+let onExecutionInsert: (() => void) | undefined;
+
 const withTenantTx = {
   insert: (_table: unknown) => ({
     values: (values: unknown) => {
+      onExecutionInsert?.();
       insertedExecutions.push(values);
       return Promise.resolve(undefined);
     },
@@ -99,10 +111,14 @@ const mockSetScheduleSweeperRole = vi.fn(() => Promise.resolve(undefined));
 // with a plain select().from().where() chain -- distinct from claimRule's
 // transaction, which needs the fuller select().from().where().for().limit()
 // + update() chain below.
+let pollFails = false;
 const pollTx = {
   select: () => ({
     from: () => ({
-      where: () => Promise.resolve(dueRules),
+      where: () =>
+        pollFails
+          ? Promise.reject(new Error("db down"))
+          : Promise.resolve(dueRules),
     }),
   }),
 };
@@ -171,11 +187,15 @@ describe("schedulerTick", () => {
     dueRules = [];
     claimRows = [];
     insertedExecutions.length = 0;
+    onExecutionInsert = undefined;
     transactionCallCount = 0;
     mockWriteAuditEntry.mockClear();
     mockScheduleTickAdd.mockClear();
     mockScheduleExecutionAdd.mockClear();
     mockScheduleCatchUpAdd.mockClear();
+    mockTickDurationRecord.mockClear();
+    mockExecutionDurationRecord.mockClear();
+    pollFails = false;
     mockCreateEntity.mockReset();
     mockValidateScheduleRuleRefs.mockReset().mockResolvedValue([]);
     mockWithTenantContext.mockClear();
@@ -205,6 +225,151 @@ describe("schedulerTick", () => {
     });
     expect(mockScheduleTickAdd).toHaveBeenCalledWith(1, {
       outcome: "completed",
+    });
+  });
+
+  describe("duration histograms (docs/temporal-scheduler-design.md §9.4)", () => {
+    it("records one execution duration, labelled success, when a fire succeeds", async () => {
+      const rule = makeRule();
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({ id: "ticket-1" });
+
+      await schedulerTick();
+
+      expect(mockExecutionDurationRecord).toHaveBeenCalledTimes(1);
+      const [ms, attrs] = mockExecutionDurationRecord.mock.calls[0] as [
+        number,
+        Record<string, unknown>,
+      ];
+      expect(ms).toBeGreaterThanOrEqual(0);
+      expect(attrs).toEqual({ status: "success" });
+    });
+
+    it("records one execution duration, labelled failed with no error code, when a fire fails", async () => {
+      const rule = makeRule();
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockRejectedValue(
+        Object.assign(new Error("boom"), {
+          name: "EntityError",
+          code: "ENTITY_TYPE_NOT_FOUND",
+        }),
+      );
+
+      await schedulerTick();
+
+      expect(mockExecutionDurationRecord).toHaveBeenCalledTimes(1);
+      const [ms, attrs] = mockExecutionDurationRecord.mock.calls[0] as [
+        number,
+        Record<string, unknown>,
+      ];
+      expect(ms).toBeGreaterThanOrEqual(0);
+      // errorCode stays out of the histogram's labels: each code would
+      // multiply every bucket series, and the counter already carries it.
+      expect(attrs).toEqual({ status: "failed" });
+    });
+
+    it("measures a failed fire up to the failure, not the bookkeeping that records it", async () => {
+      // Start from the real time: makeRule() derives nextFireAt from Date.now(),
+      // and a rule far in the past would be treated as overdue and skipped.
+      let now = Date.now();
+      const spy = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const rule = makeRule();
+        dueRules = [rule];
+        claimRows = [rule];
+        mockCreateEntity.mockImplementation(() => {
+          now += 300; // the fire attempt itself
+          return Promise.reject(
+            Object.assign(new Error("boom"), {
+              name: "EntityError",
+              code: "ENTITY_TYPE_NOT_FOUND",
+            }),
+          );
+        });
+        onExecutionInsert = () => {
+          now += 700; // writing the failure row: must not count
+        };
+
+        await schedulerTick();
+
+        expect(mockExecutionDurationRecord).toHaveBeenCalledWith(300, {
+          status: "failed",
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("records a failed execution duration for every catch-up fire that fails", async () => {
+      const rule = makeRule({
+        catchUp: true,
+        nextFireAt: new Date(Date.now() - 3 * 3_600_000),
+      });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockRejectedValue(
+        Object.assign(new Error("boom"), {
+          name: "EntityError",
+          code: "ENTITY_TYPE_NOT_FOUND",
+        }),
+      );
+
+      await schedulerTick();
+
+      const fires = mockScheduleExecutionAdd.mock.calls.length;
+      expect(fires).toBeGreaterThan(1);
+      expect(mockExecutionDurationRecord).toHaveBeenCalledTimes(fires);
+      for (const [ms, attrs] of mockExecutionDurationRecord.mock.calls as [
+        number,
+        Record<string, unknown>,
+      ][]) {
+        expect(ms).toBeGreaterThanOrEqual(0);
+        expect(attrs).toEqual({ status: "failed" });
+      }
+    });
+
+    it("records one tick duration when the tick completes", async () => {
+      dueRules = [];
+
+      await schedulerTick();
+
+      expect(mockTickDurationRecord).toHaveBeenCalledTimes(1);
+      expect(
+        (mockTickDurationRecord.mock.calls[0] as [number])[0],
+      ).toBeGreaterThanOrEqual(0);
+    });
+
+    it("records one tick duration, and counts the tick failed, when the poll throws", async () => {
+      pollFails = true;
+
+      await schedulerTick();
+
+      expect(mockScheduleTickAdd).toHaveBeenCalledWith(1, {
+        outcome: "failed",
+      });
+      expect(mockTickDurationRecord).toHaveBeenCalledTimes(1);
+    });
+
+    it("records an execution duration per catch-up fire, since they reuse fireRule", async () => {
+      const rule = makeRule({
+        catchUp: true,
+        nextFireAt: new Date(Date.now() - 3 * 3_600_000),
+      });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockResolvedValue({ id: "ticket-1" });
+
+      await schedulerTick();
+
+      // The catch-up counter proves the overdue path ran, not the normal one.
+      expect(mockScheduleCatchUpAdd).toHaveBeenCalledWith(1, {
+        action: "executed",
+      });
+      const fires = mockScheduleExecutionAdd.mock.calls.length;
+      expect(fires).toBeGreaterThan(1);
+      expect(mockExecutionDurationRecord).toHaveBeenCalledTimes(fires);
     });
   });
 
