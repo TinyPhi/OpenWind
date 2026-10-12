@@ -1,4 +1,5 @@
 import React from "react";
+import { withAlpha } from "../lib/theme.js";
 
 // docs/specs/third-party-api-origin-tagging.md — the API response shape
 // resolve-origin-display.ts (apps/api/src/lib) produces, attached as
@@ -35,13 +36,6 @@ export const COLOR_BY_MECHANISM: Record<"api" | "handoff", string> = {
 
 function performerLabel(origin: NonNullable<Origin>): string {
   return origin.performerDisplayName ?? origin.performerUserId;
-}
-
-// hsl(H, S%, L%) -> hsla(H, S%, L%, alpha) — our mechanism colors are
-// always plain hsl() strings, so a straight suffix swap is safe here and
-// avoids depending on color-mix() for this specific alpha-tint use.
-function withAlpha(hslColor: string, alpha: number): string {
-  return hslColor.replace("hsl(", "hsla(").replace(")", `, ${alpha})`);
 }
 
 /**

@@ -13,14 +13,16 @@ Last reconciled: 2026-09-28 (#694).
 
 ## Open
 
-| Spec                                                                | Status | Notes                                                           |
-| ------------------------------------------------------------------- | ------ | --------------------------------------------------------------- |
-| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md) | draft  | Not started — dashboard has no severity/tags/origin widgets yet |
+| Spec                                                                | Status | Notes                                                                                                                            |
+| ------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| [dashboard-severity-tags-origin](dashboard-severity-tags-origin.md) | draft  | Not started — dashboard has no severity/tags/origin widgets yet                                                                  |
+| [module-upgrade-workflow](module-upgrade-workflow.md)               | draft  | #673 — versioned additive upgrades for installed modules; review round 1 done, ADR-004 CF-03/CF-04 follow-up (T0) is human-owned |
 
 ## Implemented
 
 | Spec                                                                                        | Tasks | Shipped via                                                                      |
 | ------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------- |
+| [advisory-lock-direct-connection](advisory-lock-direct-connection.md)                       | —     | #853                                                                             |
 | [automation-trigger-config-scoping](automation-trigger-config-scoping.md)                   | —     | see header                                                                       |
 | [backup-dr-runbook](backup-dr-runbook.md)                                                   | —     | #482                                                                             |
 | [export-audit-trail](export-audit-trail.md)                                                 | —     | #687                                                                             |

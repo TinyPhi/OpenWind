@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { TOKENS, useHoverStyle } from "@platform/ui";
 import {
   listNotifications,
   markNotificationRead,
@@ -37,10 +36,6 @@ export function NotificationBell(): React.ReactElement {
   const [panelHeight, setPanelHeight] = useState(420);
   const containerRef = useRef<HTMLDivElement>(null);
   const resizeStartRef = useRef<{ y: number; height: number } | null>(null);
-  const bellHover = useHoverStyle({
-    base: { background: "transparent", color: TOKENS.textSecondary },
-    hover: { background: TOKENS.bgTertiary, color: TOKENS.textPrimary },
-  });
 
   const MIN_PANEL_HEIGHT = 240;
   const MAX_PANEL_HEIGHT = 720;
@@ -153,6 +148,7 @@ export function NotificationBell(): React.ReactElement {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Notifications"
+        className="notification-bell-btn"
         style={{
           position: "relative",
           display: "flex",
@@ -163,11 +159,7 @@ export function NotificationBell(): React.ReactElement {
           borderRadius: "8px",
           border: "none",
           cursor: "pointer",
-          transition: "background .15s, color .15s",
-          ...bellHover.style,
         }}
-        onMouseEnter={bellHover.onMouseEnter}
-        onMouseLeave={bellHover.onMouseLeave}
       >
         {BELL_ICON}
         {unreadCount > 0 && (

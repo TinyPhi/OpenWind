@@ -18,6 +18,11 @@ export interface HoverStyleProps {
   onMouseLeave: (e: React.MouseEvent) => void;
 }
 
+/**
+ * @deprecated Prefer CSS `:hover` / `:focus-visible` rules. This hook
+ * re-renders the component on every hover. It stays exported for external
+ * consumers (e.g. plugins).
+ */
 export function useHoverStyle({
   base,
   hover,

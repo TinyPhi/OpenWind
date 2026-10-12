@@ -22,6 +22,7 @@ import {
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { UserPicker } from "../../components/user-picker.js";
+import { avatarColor } from "../../lib/theme.js";
 import type { Team } from "../teams/index.js";
 
 interface TenantUser {
@@ -40,26 +41,6 @@ interface OnCallSchedule {
   primaryUserId: string;
   backupUserId: string | null;
   escalationManagerUserId: string | null;
-}
-
-const AVATAR_COLORS = [
-  "#6366f1",
-  "#8b5cf6",
-  "#ec4899",
-  "#f59e0b",
-  "#10b981",
-  "#3b82f6",
-  "#ef4444",
-  "#14b8a6",
-];
-
-function avatarColor(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = (hash << 5) - hash + userId.charCodeAt(i);
-    hash |= 0;
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? "#6366f1";
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
