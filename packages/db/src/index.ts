@@ -6,7 +6,17 @@ export {
   purgeTenantDataFromPluginSchema,
   InvalidPluginSlugError,
   acquireTenantAdvisoryLock,
+  withLockedTenantTransaction,
 } from "./client.js";
+export {
+  SavepointNotAllowedError,
+  LockedTransactionClosedError,
+} from "./locked-tenant-transaction.js";
+export type {
+  LockedTenantTransactionContext,
+  LockedTenantTransactionOptions,
+  LockedTenantTransactionResult,
+} from "./locked-tenant-transaction.js";
 export type { Db, TenantAdvisoryLock } from "./client.js";
 export {
   withTenantContext,

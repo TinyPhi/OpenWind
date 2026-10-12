@@ -725,6 +725,8 @@ async function scrubComments(
     });
   }
   if (targetUserId.length >= 3) {
+    // Case-sensitive, unlike the email match: assumes user ids are lowercase
+    // (Zitadel's are numeric). Add the "i" flag if that ever stops holding.
     rewrites.push({
       pattern: `(?<![[:alnum:]_-])${escapeRegex(targetUserId)}(?![[:alnum:]_-])`,
       replacement: REDACTED,
