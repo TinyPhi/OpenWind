@@ -325,4 +325,22 @@ describe("processSandboxResetJob", () => {
       expect(PURGED_TENANT_TABLES).toContain(table);
     }
   });
+
+  it("completes the reset when the platform-admin audit record fails (PR #859 review [C])", async () => {
+    mockRecordPlatformAdminAction.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      processSandboxResetJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).resolves.toBeUndefined();
+
+    expect(mockLoggerError).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_completed" }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_failed" }),
+    );
+  });
 });

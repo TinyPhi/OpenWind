@@ -74,23 +74,43 @@ describe("platform-admin-audit-log (T16)", () => {
     expect(own[1]?.action).toBe("sandbox.created");
   });
 
+  // PR #859 review [F]: the table has no tenant_id, so "the newest row" can belong to any
+  // concurrent test. Locate this test's own rows by target tenant instead.
   it("paginates strictly older than the given cursor, excluding the cursor row itself", async () => {
+    await recordPlatformAdminAction({
+      actorSub: "pa-2",
+      action: "sandbox.created",
+      targetTenantId: OTHER_TENANT_ID,
+    });
+    // Distinct created_at for the two rows, since pagination compares timestamps.
+    await new Promise((r) => setTimeout(r, 20));
     await recordPlatformAdminAction({
       actorSub: "pa-2",
       action: "sandbox.deleted",
       targetTenantId: OTHER_TENANT_ID,
     });
 
-    const page1 = await listPlatformAdminAuditLog({ limit: 1 });
-    const cursorId = page1[0]?.id;
-    expect(cursorId).toBeTruthy();
+    const own = (await listPlatformAdminAuditLog({ limit: 100 })).filter(
+      (e) => e.targetTenantId === OTHER_TENANT_ID,
+    );
+    const cursor = own.find((e) => e.action === "sandbox.deleted");
+    const older = own.find((e) => e.action === "sandbox.created");
+    expect(cursor).toBeDefined();
+    expect(older).toBeDefined();
+    if (!cursor || !older) return;
 
     const page2 = await listPlatformAdminAuditLog({
-      limit: 50,
-      before: cursorId,
+      limit: 100,
+      before: cursor.id,
     });
 
-    expect(page2.find((e) => e.id === cursorId)).toBeUndefined();
+    expect(page2.find((e) => e.id === cursor.id)).toBeUndefined();
+    expect(page2.find((e) => e.id === older.id)).toBeDefined();
+    for (const e of page2) {
+      expect(Date.parse(e.createdAt)).toBeLessThan(
+        Date.parse(cursor.createdAt),
+      );
+    }
   });
 
   it("returns an empty array for a well-formed but non-existent cursor, not an error", async () => {
