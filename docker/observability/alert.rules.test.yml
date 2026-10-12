@@ -1,7 +1,9 @@
 # promtool tests for the scheduler alerts in alert.rules.yml
 # (docs/temporal-scheduler-design.md §9.4).
 #
-# Run from the repo root (CI does not run this file):
+# Run from the repo root with `pnpm test:alerts` (needs Docker; it also runs
+# `promtool check rules`). CI does not run this file, so run it after changing
+# alert.rules.yml. The raw command is:
 #   docker run --rm --entrypoint promtool -v "$PWD/docker/observability:/r:ro" \
 #     prom/prometheus:v2.53.0 test rules /r/alert.rules.test.yml
 #

@@ -79,6 +79,8 @@ groups:
       # docs/temporal-scheduler-design.md §9.4. The design's quantile PromQL
       # (histogram_quantile over a bare metric name) is not valid; a quantile
       # needs sum by (le) of rate() over the _bucket series.
+      # `$value` is a 0-1 fraction here, hence humanizePercentage; the HTTP rules
+      # above multiply by 100 and use printf "%.2f%%" instead.
       - alert: ScheduleExecutionFailureRateHigh
         expr: sum(rate(openwind_schedule_execution_total{status="failed"}[10m]))
           / sum(rate(openwind_schedule_execution_total[10m])) > 0.10
@@ -104,6 +106,9 @@ groups:
       # due, so fires can be hours apart. A single slow fire is in a rate()
       # window for exactly that window; with 5m it is true for about 5
       # evaluations and `for: 5m` is never satisfied, so the alert would be dead.
+      # Deliberately counts success and failure together: the SLO is how long a
+      # fire takes, and a fire that hangs for 30s and then fails is exactly what
+      # it should catch. It can fire alongside ScheduleExecutionFailureRateHigh.
       - alert: ScheduleExecutionDurationSLOBreach
         expr: histogram_quantile(0.99, sum by (le) (rate(openwind_schedule_execution_duration_ms_bucket[15m]))) > 10000
         for: 5m

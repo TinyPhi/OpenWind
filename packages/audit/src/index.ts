@@ -44,6 +44,7 @@ import {
 } from "@platform/workflow-engine";
 
 export {
+  ALL_AUDIT_ACTIONS,
   classifyOutcome,
   actionsForOutcome,
   type AuditOutcome,
@@ -183,7 +184,25 @@ export type AuditAction =
   // 0138_admin_audit_log_sandbox_reset_actions.sql extends the DB CHECK constraint in the
   // same commit.
   | "sandbox.reset_completed"
-  | "sandbox.reset_failed";
+  | "sandbox.reset_failed"
+  // docs/specs/multi-org-sandbox.md T15 — sandbox delete job outcomes, same job-level
+  // convention as sandbox.reset_completed/.failed above. Migration
+  // 0139_admin_audit_log_sandbox_delete_actions.sql extends the DB CHECK constraint in the
+  // same commit.
+  | "sandbox.delete_completed"
+  | "sandbox.delete_failed"
+  // #640 — changes to who can do what inside OpenWind's own tables (user roles
+  // themselves live in Zitadel and are out of scope). access.* is the
+  // per-ticket __accessUsers ACL (ADR-006/021); workflow.admins_updated is
+  // workflows.assigned_to; workflow.transition_roles_updated is a
+  // workflow_transitions.allowed_roles change. Migration
+  // 0140_admin_audit_log_access_actions.sql extends the DB CHECK constraint in
+  // the same commit.
+  | "access.granted"
+  | "access.updated"
+  | "access.revoked"
+  | "workflow.admins_updated"
+  | "workflow.transition_roles_updated";
 
 export type AuditEntryInput = {
   tenantId: string;
@@ -292,6 +311,12 @@ export type QueryAuditLogInput = {
   outcome?: AuditOutcome | undefined;
   /** Phase F follow-up — read vs write is derived (see classifyRequestKind), not stored; this filters by the set of AuditAction values that classify to the given kind. */
   requestKind?: AuditRequestKind | undefined;
+  /**
+   * Only entries whose action is this one, or any of these. Combined with every
+   * other filter by AND, so `outcome` and `action` together return the actions in
+   * both sets. An empty array matches nothing.
+   */
+  action?: AuditAction | readonly AuditAction[] | undefined;
   /** Filter entries created at or after this timestamp */
   from?: Date | undefined;
   /** Filter entries created at or before this timestamp */
@@ -324,6 +349,16 @@ export async function queryAuditLog(
 ): Promise<QueryAuditLogResult> {
   const limit = input.limit ?? 50;
 
+  const actions =
+    input.action === undefined
+      ? undefined
+      : typeof input.action === "string"
+        ? [input.action]
+        : input.action;
+  if (actions?.length === 0) {
+    return { entries: [], nextCursor: null };
+  }
+
   // Build WHERE conditions
   type Condition = ReturnType<typeof eq>;
   const conditions: Condition[] = [eq(adminAuditLog.tenantId, input.tenantId)];
@@ -351,6 +386,13 @@ export async function queryAuditLog(
     conditions.push(
       inArray(adminAuditLog.action, actionsForRequestKind(input.requestKind)),
     );
+  if (actions !== undefined) {
+    conditions.push(
+      actions.length === 1
+        ? eq(adminAuditLog.action, actions[0] as AuditAction)
+        : inArray(adminAuditLog.action, [...actions]),
+    );
+  }
   if (input.from !== undefined)
     conditions.push(gte(adminAuditLog.createdAt, input.from));
   if (input.to !== undefined)

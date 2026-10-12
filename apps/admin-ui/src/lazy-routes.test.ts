@@ -174,12 +174,29 @@ const ROUTE_MANIFEST: readonly RouteManifestEntry[] = [
     modulePath: "./pages/admin-oncall/index.js",
     namedExport: "OnCallAdminPage",
   },
+
+  // Platform Admin (docs/specs/multi-org-sandbox.md T17)
+  {
+    exportName: "PlatformAdminLogin",
+    modulePath: "./pages/platform-admin/login.js",
+    namedExport: "PlatformAdminLogin",
+  },
+  {
+    exportName: "PlatformAdminMfa",
+    modulePath: "./pages/platform-admin/mfa.js",
+    namedExport: "PlatformAdminMfa",
+  },
+  {
+    exportName: "PlatformAdminDashboard",
+    modulePath: "./pages/platform-admin/dashboard.js",
+    namedExport: "PlatformAdminDashboard",
+  },
 ];
 
 describe("lazy-routes completeness and integrity", () => {
   it("exports exactly 32 lazy route components", () => {
-    expect(ROUTE_MANIFEST.length).toBe(32);
-    expect(Object.keys(LazyRoutes).length).toBe(32);
+    expect(ROUTE_MANIFEST.length).toBe(35);
+    expect(Object.keys(LazyRoutes).length).toBe(35);
   });
 
   for (const entry of ROUTE_MANIFEST) {

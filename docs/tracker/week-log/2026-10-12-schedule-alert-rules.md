@@ -60,3 +60,24 @@
   gauge from §9.4. Whether 3F counts as done without them is an owner call.
 - #580 and #582 were assigned in a 2026-09-30 comment but had no assignee and no branch; reassigned
   with a comment to the assignee named there.
+- **Approval review (PrabhuVijit; five non-blocking suggestions and two test gaps, all handled in one commit):**
+  - _A, fixed:_ a failed fire's duration included the DB writes that record the failure. The clock now
+    stops at the failure, before that bookkeeping, so a failed sample measures the fire attempt as a
+    successful one does (the same choice made for the on-call dispatch histogram). A deterministic clock
+    test (300 ms attempt, 700 ms bookkeeping) pins it. Writing that test caught my own mistake: a fake
+    clock starting at 1970 made the rule look overdue, so the fire was skipped and nothing was recorded.
+  - _B, tracked:_ `alert.rules.test.yml` still is not run by CI (workflow files are off-limits to me).
+    Added `pnpm test:alerts` (runs `promtool check rules` and `test rules` through Docker) so the check
+    is one command, and filed #881 to gate it in CI.
+  - _C, kept, now documented:_ the execution-duration alert counts success and failure together on
+    purpose. The SLO is how long a fire takes, and a fire that hangs for 30 s and then fails is what it
+    should catch; it can fire alongside the failure-rate alert. Comment added in the rules file.
+  - _D, kept, now explained:_ `humanizePercentage` because the value is a 0-1 fraction; the HTTP rules
+    multiply by 100 and use `printf`. Comment added.
+  - _E, fixed:_ the bucket test hardcoded `10_000` as the largest threshold. It now reads the thresholds
+    from the rules file, asserts there are exactly two, that the top bucket is above the largest, and
+    that each threshold is itself a bucket boundary, so a new or changed alert cannot outrun the buckets.
+  - _Test gaps, fixed:_ catch-up fires that fail now have their own test (each records a failed
+    duration), and the failure test asserts the value is non-negative. Mutation-checked against a clean
+    baseline: the pre-fix timing fails 1 test, dropping failed durations fails 3, and a threshold above
+    the top bucket or off a boundary fails 2 and 1.

@@ -365,6 +365,10 @@ async function fireRule(
     });
   } catch (err: unknown) {
     const errorCode = classifyScheduleError(err);
+    // Stop the clock before the bookkeeping below, so a failed sample measures
+    // the fire attempt as a successful one does, not the extra writes that
+    // record the failure.
+    const attemptMs = Date.now() - fireStart;
     // Best-effort recording of the failure — guarded so that if THIS insert
     // itself throws (e.g. DB connection lost), the original `err` is still
     // the one re-thrown below, not masked by a secondary failure. Losing the
@@ -397,9 +401,7 @@ async function fireRule(
       );
     }
     scheduleExecutionTotal.add(1, { status: "failed", errorCode });
-    scheduleExecutionDurationMs.record(Date.now() - fireStart, {
-      status: "failed",
-    });
+    scheduleExecutionDurationMs.record(attemptMs, { status: "failed" });
     logger.warn(
       { tenantId: rule.tenantId, ruleId: rule.id, errorCode, scheduledAt },
       "schedule rule fire failed",

@@ -64,6 +64,17 @@ function metricsReferencedByRules(): Set<string> {
   return referenced;
 }
 
+/** Numeric `> N` thresholds of every rule expression that reads `series`. */
+function alertThresholds(series: string): number[] {
+  const thresholds: number[] = [];
+  for (const line of rulesSource.split("\n")) {
+    if (!line.includes(series)) continue;
+    const match = /\)\s*>\s*(\d+(?:\.\d+)?)\s*$/.exec(line);
+    if (match?.[1]) thresholds.push(Number(match[1]));
+  }
+  return thresholds;
+}
+
 describe("alert.rules.yml", () => {
   it("only reads metrics that metrics.ts registers, so a rule cannot point at a series that does not exist", () => {
     const exposed = exposedSeriesNames();
@@ -93,19 +104,30 @@ describe("scheduler duration buckets", () => {
     expect(applied).toHaveLength(2);
   });
 
-  it("keep a finite bucket above the largest alert threshold, so a p99 over the SLO is observable", () => {
-    // histogram_quantile returns the top finite bucket at most, so with a top
-    // bucket of 10000 the 10000 ms execution rule could never fire.
-    const largestThresholdMs = 10_000;
+  // The thresholds are read from the rules themselves, so a new or changed
+  // alert cannot outrun the buckets without this failing.
+  function scheduleDurationThresholdsMs(): number[] {
+    return [
+      ...alertThresholds("openwind_schedule_tick_duration_ms_bucket"),
+      ...alertThresholds("openwind_schedule_execution_duration_ms_bucket"),
+    ];
+  }
 
+  it("keep a finite bucket above the largest alert threshold, so a p99 over the SLO is observable", () => {
+    // histogram_quantile returns the top finite bucket at most, so a threshold
+    // at or above the top bucket could never fire.
+    const thresholds = scheduleDurationThresholdsMs();
+
+    expect(thresholds).toHaveLength(2);
     expect(Math.max(...SCHEDULE_DURATION_BUCKETS_MS)).toBeGreaterThan(
-      largestThresholdMs,
+      Math.max(...thresholds),
     );
   });
 
-  it("include the SLO thresholds themselves as boundaries", () => {
-    expect(SCHEDULE_DURATION_BUCKETS_MS).toContain(5000);
-    expect(SCHEDULE_DURATION_BUCKETS_MS).toContain(10000);
+  it("include every SLO threshold in the rules as a boundary", () => {
+    for (const threshold of scheduleDurationThresholdsMs()) {
+      expect(SCHEDULE_DURATION_BUCKETS_MS).toContain(threshold);
+    }
   });
 
   it("are strictly ascending", () => {
@@ -116,22 +138,34 @@ describe("scheduler duration buckets", () => {
 });
 
 describe("on-call duration buckets (seconds)", () => {
+  // `sloSeconds` is the design's SLO (docs/oncall-routing-design.md section 9.3).
+  // Any alert that reads the histogram adds its own threshold, read from the
+  // rules, so a new or changed alert cannot outrun the buckets. Only the
+  // resolution histogram has an alert today; none reads the dispatch one yet.
   const cases = [
     {
       name: "resolution",
       constant: "ONCALL_RESOLUTION_BUCKETS_SECONDS",
       buckets: ONCALL_RESOLUTION_BUCKETS_SECONDS,
-      thresholdSeconds: 0.1,
+      sloSeconds: 0.1,
+      series: "openwind_oncall_resolution_duration_seconds_bucket",
     },
     {
       name: "dispatch",
       constant: "NOTIFICATION_DISPATCH_BUCKETS_SECONDS",
       buckets: NOTIFICATION_DISPATCH_BUCKETS_SECONDS,
-      thresholdSeconds: 2,
+      sloSeconds: 2,
+      series: "openwind_notification_dispatch_duration_seconds_bucket",
     },
   ];
 
-  for (const { name, constant, buckets, thresholdSeconds } of cases) {
+  it("reads the resolution alert's threshold from the rules", () => {
+    expect(
+      alertThresholds("openwind_oncall_resolution_duration_seconds_bucket"),
+    ).toEqual([0.1]);
+  });
+
+  for (const { name, constant, buckets, sloSeconds, series } of cases) {
     it(`${name}: is applied to its histogram in metrics.ts`, () => {
       const applied = metricsSource.match(
         new RegExp(`explicitBucketBoundaries:\\s*${constant}`, "g"),
@@ -140,9 +174,13 @@ describe("on-call duration buckets (seconds)", () => {
       expect(applied).toHaveLength(1);
     });
 
-    it(`${name}: keeps a finite bucket above the ${thresholdSeconds}s SLO and a boundary at it`, () => {
-      expect(Math.max(...buckets)).toBeGreaterThan(thresholdSeconds);
-      expect(buckets).toContain(thresholdSeconds);
+    it(`${name}: keeps a finite bucket above every threshold, and a boundary at each`, () => {
+      const thresholds = [...new Set([sloSeconds, ...alertThresholds(series)])];
+
+      expect(Math.max(...buckets)).toBeGreaterThan(Math.max(...thresholds));
+      for (const threshold of thresholds) {
+        expect(buckets).toContain(threshold);
+      }
     });
 
     it(`${name}: is in seconds, not milliseconds, and strictly ascending`, () => {

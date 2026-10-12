@@ -25,9 +25,47 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+let mockBeforeRow: {
+  fromState?: string;
+  toState?: string;
+  allowedRoles: string[] | null;
+} | null = {
+  allowedRoles: [],
+};
+const mockPreRead = vi.fn();
+const mockTx = {
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        limit: () => {
+          mockPreRead();
+          return Promise.resolve(mockBeforeRow ? [mockBeforeRow] : []);
+        },
+      }),
+    }),
+  }),
+};
+
 vi.mock("@platform/db", () => ({
   db: {},
-  withTenantContext: (tenantId, fn) => fn({}),
+  withTenantContext: (_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn(mockTx),
+  workflowTransitions: {
+    id: "workflowTransitions.id",
+    workflowId: "workflowTransitions.workflowId",
+    tenantId: "workflowTransitions.tenantId",
+    allowedRoles: "workflowTransitions.allowedRoles",
+  },
+}));
+
+vi.mock("drizzle-orm", () => ({
+  and: (...args: unknown[]) => args,
+  eq: (a: unknown, b: unknown) => ({ a, b }),
+}));
+
+const mockWriteAuditEntry = vi.fn();
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
 }));
 
 vi.mock("@platform/workflow-engine", async (importOriginal) => {
@@ -73,9 +111,13 @@ function makeApp() {
   return app;
 }
 
-describe("POST /workflows/:id/transitions", () => {
-  beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockBeforeRow = { allowedRoles: [] };
+  mockWriteAuditEntry.mockResolvedValue(undefined);
+});
 
+describe("POST /workflows/:id/transitions", () => {
   it("returns 201 with created transition", async () => {
     mockAddTransition.mockResolvedValue(fakeTransition);
 
@@ -93,12 +135,68 @@ describe("POST /workflows/:id/transitions", () => {
     const json = await res.json();
     expect(json.data.fromState).toBe("open");
     expect(mockAddTransition).toHaveBeenCalledWith(
-      {},
+      mockTx,
       "t-aaa",
       WF_ID,
       { userId: "u-bbb", isGlobalAdmin: true },
       expect.objectContaining({ fromState: "open", toState: "in_progress" }),
     );
+  });
+
+  it("writes a transition_roles_updated entry with created:true metadata (#640)", async () => {
+    mockAddTransition.mockResolvedValue({
+      ...fakeTransition,
+      allowedRoles: ["admin"],
+    });
+
+    const res = await makeApp().request(`/${WF_ID}/transitions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fromState: "open",
+        toState: "in_progress",
+        allowedRoles: ["admin"],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        tenantId: "t-aaa",
+        actorId: "u-bbb",
+        resourceType: "workflow",
+        resourceId: WF_ID,
+        action: "workflow.transition_roles_updated",
+        beforeSnapshot: { [TRANS_ID]: null },
+        afterSnapshot: { [TRANS_ID]: ["admin"] },
+        metadata: {
+          transitions: [
+            {
+              transitionId: TRANS_ID,
+              fromState: "open",
+              toState: "in_progress",
+              created: true,
+              deleted: false,
+            },
+          ],
+        },
+      }),
+    );
+  });
+
+  it("fails the request when the audit write rejects", async () => {
+    mockAddTransition.mockResolvedValue(fakeTransition);
+    mockWriteAuditEntry.mockRejectedValue(new Error("audit down"));
+
+    const res = await makeApp().request(`/${WF_ID}/transitions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fromState: "open", toState: "in_progress" }),
+    });
+
+    expect(res.status).toBe(500);
   });
 
   it("returns 400 when fromState is missing", async () => {
@@ -126,7 +224,7 @@ describe("POST /workflows/:id/transitions", () => {
     });
 
     expect(mockAddTransition).toHaveBeenCalledWith(
-      {},
+      mockTx,
       "t-aaa",
       WF_ID,
       { userId: "u-bbb", isGlobalAdmin: true },
@@ -136,8 +234,6 @@ describe("POST /workflows/:id/transitions", () => {
 });
 
 describe("PATCH /workflows/:id/transitions/:transitionId", () => {
-  beforeEach(() => vi.clearAllMocks());
-
   it("returns 200 with updated transition", async () => {
     mockUpdateTransition.mockResolvedValue({
       ...fakeTransition,
@@ -153,6 +249,77 @@ describe("PATCH /workflows/:id/transitions/:transitionId", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data.allowedRoles).toEqual(["admin"]);
+  });
+
+  describe("role audit (#640)", () => {
+    const patch = (body: unknown) =>
+      makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    it("writes an entry with before/after when allowedRoles changes", async () => {
+      mockBeforeRow = { allowedRoles: ["agent"] };
+      mockUpdateTransition.mockResolvedValue({
+        ...fakeTransition,
+        allowedRoles: ["admin"],
+      });
+
+      const res = await patch({ allowedRoles: ["admin"] });
+
+      expect(res.status).toBe(200);
+      expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+      expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+        mockTx,
+        expect.objectContaining({
+          resourceType: "workflow",
+          resourceId: WF_ID,
+          action: "workflow.transition_roles_updated",
+          beforeSnapshot: { [TRANS_ID]: ["agent"] },
+          afterSnapshot: { [TRANS_ID]: ["admin"] },
+        }),
+      );
+    });
+
+    it("writes no entry and does not pre-read when only the label changes", async () => {
+      mockUpdateTransition.mockResolvedValue({
+        ...fakeTransition,
+        label: "New",
+      });
+
+      const res = await patch({ label: "New" });
+
+      expect(res.status).toBe(200);
+      expect(mockPreRead).not.toHaveBeenCalled();
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    });
+
+    it("writes no entry when allowedRoles is resubmitted unchanged", async () => {
+      mockBeforeRow = { allowedRoles: ["admin", "agent"] };
+      mockUpdateTransition.mockResolvedValue({
+        ...fakeTransition,
+        allowedRoles: ["agent", "admin"],
+      });
+
+      const res = await patch({ allowedRoles: ["agent", "admin"] });
+
+      expect(res.status).toBe(200);
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    });
+
+    it("fails the request when the audit write rejects", async () => {
+      mockBeforeRow = { allowedRoles: [] };
+      mockUpdateTransition.mockResolvedValue({
+        ...fakeTransition,
+        allowedRoles: ["admin"],
+      });
+      mockWriteAuditEntry.mockRejectedValue(new Error("audit down"));
+
+      const res = await patch({ allowedRoles: ["admin"] });
+
+      expect(res.status).toBe(500);
+    });
   });
 
   it("returns 404 when transition not found", async () => {
@@ -171,7 +338,14 @@ describe("PATCH /workflows/:id/transitions/:transitionId", () => {
 });
 
 describe("DELETE /workflows/:id/transitions/:transitionId", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    mockWriteAuditEntry.mockClear();
+    mockBeforeRow = {
+      fromState: "open",
+      toState: "in_progress",
+      allowedRoles: ["manager"],
+    };
+  });
 
   it("returns 204 on success", async () => {
     mockDeleteTransition.mockResolvedValue(undefined);
@@ -181,7 +355,7 @@ describe("DELETE /workflows/:id/transitions/:transitionId", () => {
     });
     expect(res.status).toBe(204);
     expect(mockDeleteTransition).toHaveBeenCalledWith(
-      {},
+      mockTx,
       "t-aaa",
       WF_ID,
       TRANS_ID,
@@ -199,5 +373,52 @@ describe("DELETE /workflows/:id/transitions/:transitionId", () => {
       method: "DELETE",
     });
     expect(res.status).toBe(404);
+  });
+
+  it("audits the removed role gate with its prior roles (#640)", async () => {
+    mockDeleteTransition.mockResolvedValue(undefined);
+
+    const res = await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(204);
+    expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        tenantId: "t-aaa",
+        actorId: "u-bbb",
+        resourceType: "workflow",
+        resourceId: WF_ID,
+        action: "workflow.transition_roles_updated",
+        beforeSnapshot: { [TRANS_ID]: ["manager"] },
+        afterSnapshot: { [TRANS_ID]: null },
+      }),
+    );
+  });
+
+  it("writes no audit entry when the delete is refused", async () => {
+    const { WorkflowError } = await import("@platform/workflow-engine");
+    mockDeleteTransition.mockRejectedValue(
+      new WorkflowError("WORKFLOW_TRANSITION_NOT_FOUND"),
+    );
+
+    await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "DELETE",
+    });
+
+    expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  it("fails the request when the audit write fails, so the delete rolls back", async () => {
+    mockDeleteTransition.mockResolvedValue(undefined);
+    mockWriteAuditEntry.mockRejectedValueOnce(new Error("audit down"));
+
+    const res = await makeApp().request(`/${WF_ID}/transitions/${TRANS_ID}`, {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(500);
   });
 });
