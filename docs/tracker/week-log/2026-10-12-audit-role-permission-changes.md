@@ -13,10 +13,13 @@
   `workflow.transition_roles_updated`, each written on the same `withTenantContext` transaction as
   the change (fail closed). A canvas save is one entry however many transitions changed; a no-op
   edit writes nothing.
-- Migration 0140 (not 0139): the open sandbox-delete PRs (#838-#842) hold 0139 and widen the same
-  CHECK constraint. 0140 lists every action including their `sandbox.delete_*` pair, so the
-  constraint is right whichever PR merges first. Whichever of the two lands second must re-list the
-  other's values if its migration is ever rewritten.
+- Migration 0140 (not 0139): the sandbox-delete work (#838) took 0139 and widened the same CHECK
+  constraint. 0140 re-lists every action including its `sandbox.delete_*` pair, because a DROP + ADD
+  of the constraint silently removes anything not re-listed. While #857 was open #838 merged, so
+  `main` was merged into this branch (not rebased); the only conflicts were both-sides-appended hunks
+  in the audit union, the two exhaustive maps and the journal, kept in order (0139 then 0140). A fresh
+  database applies all 141 migrations and the final constraint admits every action. #859 also numbers
+  a migration 0140 (`platform_admin_audit_log`), so whichever of the two merges second must renumber.
 - Ticket ACL denial for a customer on `GET /entities/:id` and on commenting reuses
   `ticket.view_denied` / `comment.access_denied` with actor type `user`; no new action or alerting.
   One row per attempt, with no rate cap, as on the third-party path.

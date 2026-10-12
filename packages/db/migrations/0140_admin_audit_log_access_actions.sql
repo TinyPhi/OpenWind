@@ -5,13 +5,12 @@
 -- AuditAction gains the same five values in this commit (0136 rule: type and constraint
 -- change together).
 --
--- Also admits sandbox.delete_completed / sandbox.delete_failed, which the open sandbox-delete
--- PR stack (#838-#842, its own 0139_admin_audit_log_sandbox_delete_actions.sql) introduces.
--- A DROP + ADD of this constraint silently removes any value it does not re-list, and
--- drizzle skips a lower-`when` migration on a database that already applied a higher one,
--- so this list is the superset: it is correct whichever of the two lands first.
+-- Re-lists sandbox.delete_completed / sandbox.delete_failed, added by
+-- 0139_admin_audit_log_sandbox_delete_actions.sql (#838), which this builds on. A DROP + ADD of
+-- this constraint silently removes any value it does not re-list, so every earlier value must be
+-- carried forward; a later migration that widens it again must do the same for this one's.
 --
--- Must apply after 0138 (admin_audit_log_sandbox_reset_actions), whose CHECK constraint this
+-- Must apply after 0139 (admin_audit_log_sandbox_delete_actions), whose CHECK constraint this
 -- one is built on top of.
 --
 -- Rollback (fails if rows using any value added here exist — delete or keep them first):

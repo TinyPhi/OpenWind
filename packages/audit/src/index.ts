@@ -184,6 +184,12 @@ export type AuditAction =
   // same commit.
   | "sandbox.reset_completed"
   | "sandbox.reset_failed"
+  // docs/specs/multi-org-sandbox.md T15 — sandbox delete job outcomes, same job-level
+  // convention as sandbox.reset_completed/.failed above. Migration
+  // 0139_admin_audit_log_sandbox_delete_actions.sql extends the DB CHECK constraint in the
+  // same commit.
+  | "sandbox.delete_completed"
+  | "sandbox.delete_failed"
   // #640 — changes to who can do what inside OpenWind's own tables (user roles
   // themselves live in Zitadel and are out of scope). access.* is the
   // per-ticket __accessUsers ACL (ADR-006/021); workflow.admins_updated is

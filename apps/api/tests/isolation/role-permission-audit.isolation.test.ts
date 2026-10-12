@@ -32,12 +32,6 @@ const NEW_ACTIONS: readonly AuditAction[] = [
   "workflow.transition_roles_updated",
 ];
 
-// Admitted by 0140 for the open sandbox-delete PR stack; not (yet) in the TS union.
-const SANDBOX_DELETE_ACTIONS: readonly string[] = [
-  "sandbox.delete_completed",
-  "sandbox.delete_failed",
-];
-
 function insertEntry(tenantId: string, action: string): Promise<void> {
   return withTenantContext(tenantId, async (tx) => {
     await tx.insert(adminAuditLog).values({
@@ -68,12 +62,6 @@ describe("admin_audit_log — action CHECK vs AuditAction union (0140)", () => {
 
   for (const action of ALL_ACTIONS) {
     it(`accepts an app_user insert of "${action}"`, async () => {
-      await expect(insertEntry(TENANT_A, action)).resolves.toBeUndefined();
-    });
-  }
-
-  for (const action of SANDBOX_DELETE_ACTIONS) {
-    it(`accepts an app_user insert of "${action}" (admitted by 0140, not in the union)`, async () => {
       await expect(insertEntry(TENANT_A, action)).resolves.toBeUndefined();
     });
   }
