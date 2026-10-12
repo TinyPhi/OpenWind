@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { AuthContext } from "./types.js";
 import { invalidateTenantStatusCache } from "./tenant-status-cache.js";
 
@@ -105,6 +106,13 @@ vi.mock("./jwks.js", () => ({
   extractAuthContext: (...args: unknown[]) => mockExtractAuthContext(...args),
   extractPlatformAdminContext: (...args: unknown[]) =>
     mockExtractPlatformAdminContext(...args),
+  // Real logic, not a stub: these tests should decide from the token's own roles claim.
+  isPlatformAdminToken: (claims: {
+    "urn:zitadel:iam:org:project:roles"?: Record<string, unknown>;
+  }) =>
+    Object.keys(claims["urn:zitadel:iam:org:project:roles"] ?? {}).includes(
+      "platform_admin",
+    ),
 }));
 
 vi.mock("./platform-admin-mfa.js", () => ({
@@ -309,6 +317,40 @@ describe("requireAuth", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as unknown;
     expect(body).toEqual({ ok: true });
+  });
+
+  // docs/specs/multi-org-sandbox.md R1/R2: a platform_admin token used to get a tenant
+  // context here, so any tenant route without requireRole served it tenant data.
+  it("rejects a platform_admin token with 403 before any tenant resolution", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({
+      sub: "pa-1",
+      "urn:zitadel:iam:org:project:roles": { platform_admin: {} },
+    });
+    const handler = vi.fn((c: Context) => c.json({ ok: true }));
+    const app = new Hono();
+    app.get("/test", requireAuth(), handler);
+
+    const res = await get(app, "platform.admin.jwt");
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({
+      error: "PLATFORM_ADMIN_TENANT_ACCESS_DENIED",
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(mockExtractAuthContext).not.toHaveBeenCalled();
+  });
+
+  it("rejects a token holding platform_admin alongside a tenant role (distinct identity, R1)", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({
+      sub: "dual-1",
+      "urn:zitadel:iam:org:project:roles": { admin: {}, platform_admin: {} },
+    });
+    const app = makeApp([requireAuth()]);
+
+    const res = await get(app, "dual.role.jwt");
+
+    expect(res.status).toBe(403);
+    expect(mockExtractAuthContext).not.toHaveBeenCalled();
   });
 
   // T12 (docs/specs/multi-org-sandbox.md R6): trial expiry must block login,

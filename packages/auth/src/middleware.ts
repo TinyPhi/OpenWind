@@ -18,6 +18,7 @@ import {
   verifyJwt,
   extractAuthContext,
   extractPlatformAdminContext,
+  isPlatformAdminToken,
 } from "./jwks.js";
 import { introspectToken } from "./introspection.js";
 import type { AuthContext, PlatformAdminAuthContext } from "./types.js";
@@ -648,6 +649,23 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
       const claims = await verifyJwt(token);
       if (!claims) {
         return c.json({ error: "UNAUTHORIZED", message: "Invalid token" }, 401);
+      }
+
+      // R1/R2 (docs/specs/multi-org-sandbox.md): platform_admin is a distinct operator
+      // identity with no tenant. 403, not 401 -- the token is valid, so a 401 would push
+      // the client into a refresh-then-logout loop instead of just refusing this route.
+      if (isPlatformAdminToken(claims)) {
+        logger.warn(
+          { sub: claims.sub, path: c.req.path },
+          "platform_admin token rejected on a tenant route",
+        );
+        return c.json(
+          {
+            error: "PLATFORM_ADMIN_TENANT_ACCESS_DENIED",
+            message: "Platform admin accounts cannot access tenant routes",
+          },
+          403,
+        );
       }
 
       let auth = extractAuthContext(claims);
