@@ -25,12 +25,21 @@ const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
 const mockDelete = vi.fn(() => ({ where: mockDeleteWhere }));
+// tenants writes must run inside tenant_lifecycle_role (app_user can't, #405/#408). The
+// lifecycle tx reuses the builder spies so existing assertions hold; plain `db` no longer
+// has them, so a tenants write on the plain connection throws here.
+const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
+  fn({
+    insert: (...args: unknown[]) => mockInsert(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
+  }),
+);
 vi.mock("@platform/db", () => ({
   db: {
-    insert: (...args: unknown[]) => mockInsert(...args),
     update: (...args: unknown[]) => mockUpdate(...args),
-    delete: (...args: unknown[]) => mockDelete(...args),
   },
+  withTenantLifecycleContext: (fn: (tx: unknown) => unknown) =>
+    mockWithTenantLifecycleContext(fn),
   tenants: {},
   sandboxProvisioningJobs: {},
 }));
@@ -143,9 +152,12 @@ beforeEach(() => {
   });
 });
 
+// The last job-status write -- skips the rollback's result_tenant_id clear, which has no status.
 function lastProgressUpdate(): Record<string, unknown> {
-  const call = mockSet.mock.calls.at(-1);
-  if (!call) throw new Error("db.update(...).set(...) was never called");
+  const call = mockSet.mock.calls.findLast(
+    ([patch]) => "status" in (patch as Record<string, unknown>),
+  );
+  if (!call) throw new Error("no job status update was written");
   return call[0] as Record<string, unknown>;
 }
 
@@ -342,6 +354,23 @@ describe("processSandboxProvisioningJob", () => {
     // was inserted before that -- both must be rolled back automatically.
     expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
     expect(mockDelete).toHaveBeenCalled();
+
+    // The job row's result_tenant_id references the tenant (FK, no ON DELETE action): it
+    // must be cleared before the tenant delete, or that delete fails on the FK.
+    const clearIndex = mockSet.mock.calls.findIndex(
+      ([patch]) =>
+        (patch as { resultTenantId?: unknown }).resultTenantId === null,
+    );
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(mockSet.mock.invocationCallOrder[clearIndex]).toBeLessThan(
+      mockDelete.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({ rolledBack: true }),
+      }),
+    );
   });
 
   it("throws when the Zitadel org can never be created (every name candidate conflicts), and still writes a failure audit entry (security review fix)", async () => {

@@ -10,7 +10,7 @@
 import { Queue } from "@platform/telemetry";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { db, tenants } from "@platform/db";
+import { db, tenants, withTenantLifecycleContext } from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { connection } from "./redis.js";
@@ -139,19 +139,22 @@ export async function provisionTenant(
 
   // M4: single INSERT with ON CONFLICT DO NOTHING — catches the slug uniqueness
   // race that a SELECT-then-INSERT misses under concurrent provisioning.
-  const [row] = await db
-    .insert(tenants)
-    .values({
-      name: parsed.name,
-      slug: parsed.slug,
-      plan: parsed.plan,
-      status: "active",
-      config: parsed.config ?? {},
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing()
-    .returning({ id: tenants.id, slug: tenants.slug });
+  // tenants INSERT/status writes go through tenant_lifecycle_role: app_user can't (#405).
+  const [row] = await withTenantLifecycleContext((tx) =>
+    tx
+      .insert(tenants)
+      .values({
+        name: parsed.name,
+        slug: parsed.slug,
+        plan: parsed.plan,
+        status: "active",
+        config: parsed.config ?? {},
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: tenants.id, slug: tenants.slug }),
+  );
 
   if (!row) {
     throw new TenantLifecycleError("SLUG_TAKEN", { slug: parsed.slug });
@@ -195,11 +198,13 @@ export async function suspendTenant(
   actorId: string,
 ): Promise<void> {
   const now = new Date();
-  const [updated] = await db
-    .update(tenants)
-    .set({ status: "suspended", suspendedAt: now, updatedAt: now })
-    .where(and(eq(tenants.id, tenantId), eq(tenants.status, "active")))
-    .returning({ id: tenants.id });
+  const [updated] = await withTenantLifecycleContext((tx) =>
+    tx
+      .update(tenants)
+      .set({ status: "suspended", suspendedAt: now, updatedAt: now })
+      .where(and(eq(tenants.id, tenantId), eq(tenants.status, "active")))
+      .returning({ id: tenants.id }),
+  );
 
   if (!updated) return diagnoseNoUpdate(tenantId);
 
@@ -230,11 +235,13 @@ export async function reactivateTenant(
   actorId: string,
 ): Promise<void> {
   const now = new Date();
-  const [updated] = await db
-    .update(tenants)
-    .set({ status: "active", suspendedAt: null, updatedAt: now })
-    .where(and(eq(tenants.id, tenantId), eq(tenants.status, "suspended")))
-    .returning({ id: tenants.id });
+  const [updated] = await withTenantLifecycleContext((tx) =>
+    tx
+      .update(tenants)
+      .set({ status: "active", suspendedAt: null, updatedAt: now })
+      .where(and(eq(tenants.id, tenantId), eq(tenants.status, "suspended")))
+      .returning({ id: tenants.id }),
+  );
 
   if (!updated) return diagnoseNoUpdate(tenantId);
 
@@ -277,16 +284,18 @@ export async function scheduleTenantDeletion(
   const deletionScheduledAt = new Date(Date.now() + delayMs);
   const now = new Date();
 
-  const [updated] = await db
-    .update(tenants)
-    .set({ status: "deleted", deletionScheduledAt, updatedAt: now })
-    .where(
-      and(
-        eq(tenants.id, tenantId),
-        inArray(tenants.status, ["active", "suspended"]),
-      ),
-    )
-    .returning({ id: tenants.id });
+  const [updated] = await withTenantLifecycleContext((tx) =>
+    tx
+      .update(tenants)
+      .set({ status: "deleted", deletionScheduledAt, updatedAt: now })
+      .where(
+        and(
+          eq(tenants.id, tenantId),
+          inArray(tenants.status, ["active", "suspended"]),
+        ),
+      )
+      .returning({ id: tenants.id }),
+  );
 
   if (!updated) {
     // Concurrent modification — status changed between loadTenant and this UPDATE

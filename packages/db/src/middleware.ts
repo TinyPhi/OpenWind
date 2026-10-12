@@ -85,6 +85,22 @@ export async function withPlatformAdminContext<T>(
   });
 }
 
+/**
+ * For the few writes that create a tenant, change its lifecycle status, or roll back a
+ * just-created sandbox tenant. app_user deliberately cannot do these (#404-#408); this role
+ * (migration 0141) can, but only INSERT/DELETE on `tenants` and UPDATE of status,
+ * suspended_at, deletion_scheduled_at and updated_at -- name, plan, slug, config and the
+ * sandbox columns stay out of reach. Use it for exactly those statements, nothing else.
+ */
+export async function withTenantLifecycleContext<T>(
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL ROLE tenant_lifecycle_role`);
+    return fn(tx);
+  });
+}
+
 export async function withTenantAndUserContext<T>(
   tenantId: string,
   userId: string,

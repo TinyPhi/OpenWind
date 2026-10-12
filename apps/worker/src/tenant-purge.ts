@@ -66,6 +66,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
   withTenantContext,
+  withTenantLifecycleContext,
   purgeTenantDataFromPluginSchema,
 } from "@platform/db";
 import {
@@ -412,10 +413,13 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
     await anonymizeAuditLogForTenant(db, tenantId);
 
     // Mark the tenant row as 'purged' (keeps a tombstone for audit trail).
-    await db
-      .update(tenants)
-      .set({ status: "purged", updatedAt: new Date() })
-      .where(and(eq(tenants.id, tenantId), eq(tenants.status, "deleted")));
+    // app_user can't change tenants.status (#408); tenant_lifecycle_role can.
+    await withTenantLifecycleContext((tx) =>
+      tx
+        .update(tenants)
+        .set({ status: "purged", updatedAt: new Date() })
+        .where(and(eq(tenants.id, tenantId), eq(tenants.status, "deleted"))),
+    );
 
     // G5: write purge completion to the audit log
     await writeAuditEntry(db, {

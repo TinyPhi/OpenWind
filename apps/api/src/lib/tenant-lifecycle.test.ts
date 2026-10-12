@@ -30,12 +30,18 @@ const mockDbUpdate = vi.fn();
 const mockDbInsert = vi.fn();
 const mockDbSelect = vi.fn();
 
+// tenants writes must run inside tenant_lifecycle_role (app_user can't, #405/#408). The
+// lifecycle tx reuses the builder spies so existing assertions hold; plain `db` no longer
+// has them, so a tenants write on the plain connection throws here.
+const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
+  fn({ insert: mockDbInsert, update: mockDbUpdate }),
+);
 vi.mock("@platform/db", () => ({
   db: {
     select: mockDbSelect,
-    insert: mockDbInsert,
-    update: mockDbUpdate,
   },
+  withTenantLifecycleContext: (fn: (tx: unknown) => unknown) =>
+    mockWithTenantLifecycleContext(fn),
   tenants: {
     id: "tenants.id",
     slug: "tenants.slug",

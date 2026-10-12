@@ -49,7 +49,12 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { Worker } from "@platform/telemetry";
-import { db, tenants, sandboxProvisioningJobs } from "@platform/db";
+import {
+  db,
+  tenants,
+  sandboxProvisioningJobs,
+  withTenantLifecycleContext,
+} from "@platform/db";
 import { eq } from "drizzle-orm";
 import { writeAuditEntry } from "@platform/audit";
 import {
@@ -251,21 +256,24 @@ export async function processSandboxProvisioningJob(
       now.getTime() + trialDays * 24 * 60 * 60 * 1000,
     );
 
-    const [tenantRow] = await db
-      .insert(tenants)
-      .values({
-        id: tenantId,
-        name: orgName,
-        slug: slugify(orgName),
-        status: "active",
-        zitadelOrgId: org.orgId,
-        isSandbox: true,
-        trialEndsAt,
-        createdByPlatformAdmin: requestedBy,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: tenants.id });
+    // app_user can't insert tenants (#405); tenant_lifecycle_role (migration 0141) can.
+    const [tenantRow] = await withTenantLifecycleContext((tx) =>
+      tx
+        .insert(tenants)
+        .values({
+          id: tenantId,
+          name: orgName,
+          slug: slugify(orgName),
+          status: "active",
+          zitadelOrgId: org.orgId,
+          isSandbox: true,
+          trialEndsAt,
+          createdByPlatformAdmin: requestedBy,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: tenants.id }),
+    );
 
     if (!tenantRow) {
       throw new Error("SANDBOX_TENANT_INSERT_FAILED");
@@ -439,9 +447,17 @@ export async function processSandboxProvisioningJob(
       }
     }
     if (rolledBack && tenantInserted) {
+      // The job row's result_tenant_id references this tenant (FK, no ON DELETE action), so
+      // clear it first or the delete below fails and leaves an orphaned sandbox tenant.
       await db
-        .delete(tenants)
-        .where(eq(tenants.id, tenantId))
+        .update(sandboxProvisioningJobs)
+        .set({ resultTenantId: null, updatedAt: new Date() })
+        .where(eq(sandboxProvisioningJobs.id, jobId))
+        .then(() =>
+          withTenantLifecycleContext((tx) =>
+            tx.delete(tenants).where(eq(tenants.id, tenantId)),
+          ),
+        )
         .catch((deleteErr: unknown) => {
           rolledBack = false;
           logger.error(
