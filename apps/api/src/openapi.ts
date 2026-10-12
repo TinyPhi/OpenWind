@@ -269,6 +269,15 @@ export const openApiSpec = {
             schema: { type: "string", format: "uuid" },
           },
           {
+            name: "action",
+            in: "query",
+            // No enum: this spec is served unauthenticated, and the set of audit
+            // action names is internal. The route validates against the real list.
+            description:
+              "Only entries with this audit action (for example access.revoked). An unknown value is a 400 VALIDATION_ERROR. For a per-resource query pass resourceType too.",
+            schema: { type: "string" },
+          },
+          {
             name: "from",
             in: "query",
             schema: { type: "string", format: "date-time" },
