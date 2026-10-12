@@ -139,6 +139,12 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
 
       invalidateTenantStatusCache(tenantId);
 
+      // The status flip above is already committed, so a throw here (Redis down) leaves the
+      // tenant 'deleted' with no purge queued, and a rerun can't recover it -- the guarded
+      // UPDATE matches zero rows and throws SANDBOX_DELETE_INVALID_TENANT_STATUS. The
+      // sandbox.delete_failed audit entry is the signal; recovery is to re-add
+      // { tenantId } to the tenant-purge queue with jobId `tenant-purge-<tenantId>`
+      // (tenantPurgeWorker only requires status = 'deleted').
       await tenantPurgeQueue.add(
         "purge",
         { tenantId },

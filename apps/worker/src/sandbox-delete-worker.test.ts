@@ -264,4 +264,29 @@ describe("processSandboxDeleteJob", () => {
       expect.objectContaining({ action: "sandbox.delete_failed" }),
     );
   });
+
+  it("rethrows and audits a failure when the purge enqueue throws after the status flip (review finding, PR #838)", async () => {
+    // Once: beforeEach's clearAllMocks doesn't reset this mock's implementation.
+    mockTenantPurgeQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(
+      processSandboxDeleteJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("redis down");
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "deleted" }),
+    );
+    expect(mockLockRelease).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "sandbox.delete_failed",
+        metadata: expect.objectContaining({ error: "redis down" }),
+      }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.delete_completed" }),
+    );
+  });
 });
