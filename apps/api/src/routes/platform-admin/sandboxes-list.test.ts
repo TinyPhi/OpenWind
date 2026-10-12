@@ -29,6 +29,7 @@ const mockLimitRows = vi.fn();
 const mockTx = {
   select: () => ({
     from: () => ({
+      orderBy: () => mockOrderByRows(),
       where: () => ({
         orderBy: () => mockOrderByRows(),
         limit: () => mockLimitRows(),
@@ -74,14 +75,14 @@ vi.mock("drizzle-orm", () => ({
   desc: (a: unknown) => ["desc", a],
 }));
 
-const { sandboxListHandler, sandboxDetailHandler } =
+const { tenantListHandler, sandboxDetailHandler } =
   await import("./sandboxes-list.js");
 
 function makeApp() {
   const app = new Hono<{
     Variables: { platformAdmin: PlatformAdminAuthContext };
   }>();
-  app.get("/sandboxes", ...sandboxListHandler);
+  app.get("/tenants", ...tenantListHandler);
   app.get("/sandboxes/:tenantId", ...sandboxDetailHandler);
   return app;
 }
@@ -92,8 +93,10 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("GET /sandboxes", () => {
-  it("returns every sandbox as a PlatformAdminSandboxView, newest first", async () => {
+const REGULAR_ID = "33333333-3333-4333-8333-333333333333";
+
+describe("GET /tenants", () => {
+  it("returns every tenant, sandbox or regular, as a PlatformAdminSandboxView", async () => {
     mockOrderByRows.mockResolvedValue([
       {
         id: TENANT_ID,
@@ -102,10 +105,17 @@ describe("GET /sandboxes", () => {
         trialEndsAt: new Date(Date.now() + 86_400_000),
         createdAt: new Date("2026-10-01T00:00:00Z"),
       },
+      {
+        id: REGULAR_ID,
+        name: "Default Org",
+        isSandbox: false,
+        trialEndsAt: null,
+        createdAt: new Date("2026-05-01T00:00:00Z"),
+      },
     ]);
     const app = makeApp();
 
-    const res = await app.request("/sandboxes");
+    const res = await app.request("/tenants");
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -117,14 +127,21 @@ describe("GET /sandboxes", () => {
         createdAt: "2026-10-01T00:00:00.000Z",
         trialStatus: "active",
       },
+      {
+        id: REGULAR_ID,
+        name: "Default Org",
+        isSandbox: false,
+        createdAt: "2026-05-01T00:00:00.000Z",
+        trialStatus: "none",
+      },
     ]);
   });
 
-  it("returns an empty array when there are no sandboxes", async () => {
+  it("returns an empty array when there are no tenants", async () => {
     mockOrderByRows.mockResolvedValue([]);
     const app = makeApp();
 
-    const res = await app.request("/sandboxes");
+    const res = await app.request("/tenants");
 
     expect(res.status).toBe(200);
     const body = await res.json();

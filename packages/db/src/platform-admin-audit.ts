@@ -1,4 +1,4 @@
-import { desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "./client.js";
 import { withPlatformAdminContext } from "./middleware.js";
 import { platformAdminAuditLog } from "./schema/platform.js";
@@ -61,6 +61,8 @@ export interface ListPlatformAdminAuditLogOptions {
   limit: number;
   /** Row id to page from — results are strictly older than this row's created_at. */
   before?: string | undefined;
+  /** Narrows the log to one tenant's actions (the dashboard's per-tenant timeline). */
+  targetTenantId?: string | undefined;
 }
 
 /**
@@ -70,11 +72,15 @@ export interface ListPlatformAdminAuditLogOptions {
 export async function listPlatformAdminAuditLog(
   options: ListPlatformAdminAuditLogOptions,
 ): Promise<PlatformAdminAuditEntryView[]> {
+  const tenantFilter = options.targetTenantId
+    ? eq(platformAdminAuditLog.targetTenantId, options.targetTenantId)
+    : undefined;
   const rows = await withPlatformAdminContext(async (tx) => {
     if (!options.before) {
       return tx
         .select()
         .from(platformAdminAuditLog)
+        .where(tenantFilter)
         .orderBy(desc(platformAdminAuditLog.createdAt))
         .limit(options.limit);
     }
@@ -91,7 +97,10 @@ export async function listPlatformAdminAuditLog(
         // Keyset pagination on a DESC-ordered timestamp: strictly less-than the cursor row's
         // own created_at. Ties (two rows with the identical timestamp) are rare enough for an
         // operator-facing audit log that an id tiebreaker isn't worth the extra complexity.
-        lt(platformAdminAuditLog.createdAt, cursor.createdAt),
+        and(
+          lt(platformAdminAuditLog.createdAt, cursor.createdAt),
+          tenantFilter,
+        ),
       )
       .orderBy(desc(platformAdminAuditLog.createdAt))
       .limit(options.limit);

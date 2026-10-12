@@ -25,14 +25,19 @@ const SANDBOX_VIEW_COLUMNS = {
   createdAt: tenants.createdAt,
 };
 
-export const sandboxListHandler = platformAdminFactory.createHandlers(
+/**
+ * Every tenant, sandbox or not (owner decision 2026-10-12, spec R2 amended): the platform
+ * admin sees the whole tenant registry, but only through the same allow-listed view, so a
+ * regular tenant exposes nothing beyond name / created date / trial status. Lifecycle
+ * actions (detail, reset, delete) stay sandbox-only.
+ */
+export const tenantListHandler = platformAdminFactory.createHandlers(
   requirePlatformAdmin(),
   async (c) => {
     const rows = await withPlatformAdminContext((tx) =>
       tx
         .select(SANDBOX_VIEW_COLUMNS)
         .from(tenants)
-        .where(eq(tenants.isSandbox, true))
         .orderBy(desc(tenants.createdAt)),
     );
 

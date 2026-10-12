@@ -12,14 +12,19 @@ import { platformAdminFactory } from "./factory.js";
 const AuditLogQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   before: z.string().uuid().optional(),
+  targetTenantId: z.string().uuid().optional(),
 });
 
 export const auditLogHandler = platformAdminFactory.createHandlers(
   requirePlatformAdmin(),
   zValidator("query", AuditLogQuerySchema),
   async (c) => {
-    const { limit, before } = c.req.valid("query");
-    const entries = await listPlatformAdminAuditLog({ limit, before });
+    const { limit, before, targetTenantId } = c.req.valid("query");
+    const entries = await listPlatformAdminAuditLog({
+      limit,
+      before,
+      targetTenantId,
+    });
     return c.json({ data: entries });
   },
 );

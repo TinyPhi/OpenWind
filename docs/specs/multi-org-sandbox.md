@@ -90,6 +90,12 @@ as the existing `DEV_TENANT_ID`/`SKIP_AV_SCAN` pattern).
 
 R2: Platform admin's powers are limited to sandbox lifecycle only, never business-data access.
 ✓ Platform admin can create, list, read metadata of, reset, and delete sandboxes.
+✓ **(amended 2026-10-12, owner decision)** The dashboard list shows _every_ tenant, sandbox or
+not (`GET /platform-admin/tenants`), through the same allow-listed view below — a regular
+tenant exposes only id, name, created date, `isSandbox` and trial status. No new grant: this is
+within 0135's existing column-scoped `SELECT`. Lifecycle actions (per-tenant detail, reset,
+delete) stay sandbox-only and return 404 for a regular tenant. ADR-022's "list sandboxes" wording
+needs a matching human-authored note.
 ✓ No route reachable by `platform_admin` returns any sandbox's business data (tickets, org chart
 contents, audit entries) — only tenant-level metadata (name, created date, trial status),
 enforced structurally by the `PlatformAdminSandboxView` DTO allow-list (§I), not by convention.
