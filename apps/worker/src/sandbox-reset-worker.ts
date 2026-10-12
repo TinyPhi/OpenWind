@@ -161,15 +161,19 @@ async function auditOutcome(
   action: "sandbox.reset_completed" | "sandbox.reset_failed",
   metadata: Record<string, unknown>,
 ): Promise<void> {
-  await writeAuditEntry(db, {
-    tenantId: job.data.tenantId,
-    actorId: job.data.requestedBy,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: job.data.tenantId,
-    action,
-    metadata: { jobId: job.id, ...metadata },
-  });
+  // admin_audit_log is RLS-protected and the worker connects as app_user, so the write must
+  // carry the tenant GUC -- on plain `db` the policy rejects it every time.
+  await withTenantContext(job.data.tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId: job.data.tenantId,
+      actorId: job.data.requestedBy,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: job.data.tenantId,
+      action,
+      metadata: { jobId: job.id, ...metadata },
+    }),
+  );
 }
 
 export async function processSandboxResetJob(job: JobLike): Promise<void> {

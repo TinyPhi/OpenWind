@@ -277,7 +277,9 @@ describe("processSandboxResetJob", () => {
       expect.anything(),
       expect.objectContaining({ action: "sandbox.reset_failed" }),
     );
-    expect(mockWithTenantContext).not.toHaveBeenCalled();
+    // Nothing wiped: the only tenant-context call is the failure audit write itself.
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockWithTenantContext).toHaveBeenCalledTimes(1);
   });
 
   it("acquires the sandbox-lifecycle lock before wiping and releases it after a successful reset", async () => {
@@ -306,5 +308,38 @@ describe("processSandboxResetJob", () => {
     for (const table of RESET_TENANT_TABLES) {
       expect(PURGED_TENANT_TABLES).toContain(table);
     }
+  });
+
+  // admin_audit_log is RLS-protected and the worker connects as app_user: an audit write on
+  // the plain connection is rejected every time, so it must go through withTenantContext.
+  it("writes the completed audit entry inside the tenant context", async () => {
+    await processSandboxResetJob(
+      makeJob(TENANT_ID, { requestedBy: "admin-1" }),
+    );
+
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        action: "sandbox.reset_completed",
+      }),
+    );
+  });
+
+  it("writes the failed audit entry inside the tenant context", async () => {
+    mockWithTenantContext.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      processSandboxResetJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("db down");
+
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({ action: "sandbox.reset_failed" }),
+    );
+    expect(mockWithTenantContext).toHaveBeenLastCalledWith(
+      TENANT_ID,
+      expect.any(Function),
+    );
   });
 });
