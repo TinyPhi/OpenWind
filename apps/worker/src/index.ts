@@ -58,6 +58,8 @@ import {
   stopOrgDirectorySyncScheduler,
 } from "./org-directory-sync-scheduler.js";
 import { stopSandboxProvisioningWorker } from "./sandbox-provisioning-worker.js";
+import { stopSandboxResetWorker } from "./sandbox-reset-worker.js";
+import { stopSandboxDeleteWorker } from "./sandbox-delete-worker.js";
 
 logger.info({}, "Worker process starting");
 
@@ -81,7 +83,8 @@ void scheduleRetentionArchival();
 
 // automationWorker, slaBreacher, avScanWorker, fileCleanupWorker,
 // notificationWorker, notificationOutboundWorker, connectorOutboundWorker,
-// connectorPollWorker, sandboxProvisioningWorker all start processing on import above
+// connectorPollWorker, sandboxProvisioningWorker, sandboxResetWorker, sandboxDeleteWorker
+// all start processing on import above
 // (each module's own `new Worker(...)` call runs as a side effect of being imported).
 
 async function shutdown(): Promise<void> {
@@ -115,6 +118,8 @@ async function shutdown(): Promise<void> {
     stopScheduleTickWorker(),
     stopOrgDirectorySyncScheduler(),
     stopSandboxProvisioningWorker(),
+    stopSandboxResetWorker(),
+    stopSandboxDeleteWorker(),
     closeRedis(),
   ]);
   process.exit(0);

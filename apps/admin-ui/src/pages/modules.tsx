@@ -7,7 +7,6 @@ import {
   DialogClose,
   Button,
   TOKENS,
-  useHoverStyle,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 
@@ -1131,34 +1130,17 @@ function ModuleCard({
   onFork: (mod: Module) => void;
   onPreview: (mod: Module) => void;
 }): React.ReactElement {
-  const cardHover = useHoverStyle({
-    base: {
-      border: `1px solid ${TOKENS.borderColor}`,
-      boxShadow: "var(--shadow-sm)",
-    },
-    hover: {
-      border: `1px solid color-mix(in srgb, ${accent} 33%, transparent)`,
-      boxShadow: `0 4px 20px color-mix(in srgb, ${accent} 13%, transparent)`,
-    },
-  });
-  const previewButtonHover = useHoverStyle({
-    base: { background: TOKENS.bgTertiary, color: TOKENS.textMuted },
-    hover: { background: TOKENS.bgSecondary, color: TOKENS.textPrimary },
-  });
-
   return (
     <div
-      onMouseEnter={cardHover.onMouseEnter}
-      onMouseLeave={cardHover.onMouseLeave}
+      className="module-card-interactive"
       style={{
         background: `color-mix(in srgb, ${accent} 8%, var(--bg-card))`,
         borderRadius: "var(--radius-md)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        transition: "border-color .15s, box-shadow .15s",
         position: "relative",
-        ...cardHover.style,
+        ["--mod-accent" as string]: accent,
       }}
     >
       {/* top accent stripe */}
@@ -1336,6 +1318,7 @@ function ModuleCard({
           <button
             title="Preview template details"
             onClick={() => onPreview(mod)}
+            className="module-preview-btn"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -1345,11 +1328,7 @@ function ModuleCard({
               borderRadius: "var(--radius-sm)",
               border: `1px solid ${TOKENS.borderColor}`,
               cursor: "pointer",
-              transition: "background .15s, color .15s",
-              ...previewButtonHover.style,
             }}
-            onMouseEnter={previewButtonHover.onMouseEnter}
-            onMouseLeave={previewButtonHover.onMouseLeave}
           >
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
               <path
