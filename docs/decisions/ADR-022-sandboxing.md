@@ -155,18 +155,18 @@ caller's own GRANTs.
 
 ### Decision 7 — Audit trail for cross-tenant platform-admin actions
 
-**Not yet implemented — tracked as Phase 3, T16 in the spec.** The existing `admin_audit_log` is
-tenant-scoped (every row requires a `tenant_id`); a platform-admin action doesn't resolve to one
-tenant the way every other audited action does (most clearly for a failed-or-in-progress create,
-which has no tenant yet). Leading option (per review feedback, not yet built): a dedicated
+**Implemented as described below — Phase 3, T16 (migration 0140, `feat/sandbox-14-platform-admin-audit-log`).**
+The existing `admin_audit_log` is tenant-scoped (every row requires a `tenant_id`); a
+platform-admin action doesn't resolve to one tenant the way every other audited action does (most
+clearly for a failed-or-in-progress create, which has no tenant yet). A dedicated
 `platform_admin_audit_log` table — `actor_sub` (Zitadel user id), `action`
 (`sandbox.created`/`sandbox.deleted`/`sandbox.reset`), `target_tenant_id`, `created_at`. No RLS
 (it is platform-level, not tenant data); readable only by `platform_admin`-reachable routes
-guarded the same way as every other route in this role's surface. Per the spec's R9, only
-_completed_ actions are recorded — a failed or abandoned attempt is visible to the platform admin
-live via the provisioning-progress UI (R5), not duplicated into a separate audit entry. This
-decision must be finalized before T16 is implemented; recorded here as an open item rather than a
-silent gap.
+guarded the same way as every other route in this role's surface (`platform_admin_role` is granted
+`SELECT` only — all writes come from the sandbox lifecycle workers on the privileged `db`
+connection). Per the spec's R9, only _completed_ actions are recorded — a failed or abandoned
+attempt is visible to the platform admin live via the provisioning-progress UI (R5), not
+duplicated into a separate audit entry.
 
 ### Decision 8 — Rate limiting on `/platform-admin/*`
 

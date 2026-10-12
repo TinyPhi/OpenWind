@@ -49,7 +49,12 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { Worker } from "@platform/telemetry";
-import { db, tenants, sandboxProvisioningJobs } from "@platform/db";
+import {
+  db,
+  tenants,
+  sandboxProvisioningJobs,
+  recordPlatformAdminAction,
+} from "@platform/db";
 import { eq } from "drizzle-orm";
 import { writeAuditEntry } from "@platform/audit";
 import {
@@ -394,6 +399,13 @@ export async function processSandboxProvisioningJob(
       zitadelOrgId: org.orgId,
       seededAccountCount,
       failedAccountCount,
+    });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.created",
+      targetTenantId: tenantId,
     });
 
     return {

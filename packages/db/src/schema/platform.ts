@@ -77,6 +77,22 @@ export const sandboxProvisioningJobs = pgTable("sandbox_provisioning_jobs", {
     .notNull(),
 });
 
+/**
+ * platform_admin_audit_log — T16 (docs/specs/multi-org-sandbox.md), ADR-022 Decision 7.
+ * Deliberately NOT tenant-scoped (no tenant_id column, no RLS) -- see migration 0140's
+ * header comment. Written only by the sandbox-{provisioning,reset,delete} workers on the
+ * privileged `db` connection; platform_admin_role only ever reads it.
+ */
+export const platformAdminAuditLog = pgTable("platform_admin_audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  actorSub: text("actor_sub").notNull(),
+  action: text("action").notNull(),
+  targetTenantId: uuid("target_tenant_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 export const modules = pgTable("modules", {
   id: uuid("id").primaryKey().defaultRandom(),
   slug: text("slug").notNull().unique(),

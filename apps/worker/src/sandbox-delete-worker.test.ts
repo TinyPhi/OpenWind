@@ -25,6 +25,7 @@ const mockLockRelease = vi.fn().mockResolvedValue(undefined);
 const mockAcquireTenantAdvisoryLock = vi
   .fn()
   .mockResolvedValue({ acquired: true, release: mockLockRelease });
+const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@platform/db", () => ({
   db: {
@@ -33,6 +34,8 @@ vi.mock("@platform/db", () => ({
   },
   acquireTenantAdvisoryLock: (...args: unknown[]) =>
     mockAcquireTenantAdvisoryLock(...args),
+  recordPlatformAdminAction: (...args: unknown[]) =>
+    mockRecordPlatformAdminAction(...args),
   tenants: {
     id: "id",
     isSandbox: "isSandbox",
@@ -128,6 +131,24 @@ describe("processSandboxDeleteJob", () => {
         }),
       }),
     );
+    expect(mockRecordPlatformAdminAction).toHaveBeenCalledWith({
+      actorSub: "admin-1",
+      action: "sandbox.deleted",
+      targetTenantId: TENANT_ID,
+    });
+  });
+
+  it("does not write a platform-admin audit record when the lock is already held", async () => {
+    mockAcquireTenantAdvisoryLock.mockResolvedValue({
+      acquired: false,
+      release: vi.fn(),
+    });
+
+    await expect(
+      processSandboxDeleteJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("SANDBOX_DELETE_LOCK_NOT_ACQUIRED");
+
+    expect(mockRecordPlatformAdminAction).not.toHaveBeenCalled();
   });
 
   it("acquires and releases the sandbox-lifecycle lock around the delete work", async () => {

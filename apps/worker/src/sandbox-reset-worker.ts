@@ -45,6 +45,7 @@ import {
   withTenantContext,
   tenants,
   acquireTenantAdvisoryLock,
+  recordPlatformAdminAction,
 } from "@platform/db";
 import {
   entityInstances,
@@ -302,6 +303,13 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
     }
 
     await auditOutcome(job, "sandbox.reset_completed", { cancelledJobCount });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.reset",
+      targetTenantId: tenantId,
+    });
     logger.info({ tenantId }, "sandbox reset: complete");
   } catch (err) {
     const message = err instanceof Error ? err.message : "UNKNOWN";

@@ -25,6 +25,7 @@ const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
 const mockDelete = vi.fn(() => ({ where: mockDeleteWhere }));
+const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
 vi.mock("@platform/db", () => ({
   db: {
     insert: (...args: unknown[]) => mockInsert(...args),
@@ -33,6 +34,8 @@ vi.mock("@platform/db", () => ({
   },
   tenants: {},
   sandboxProvisioningJobs: {},
+  recordPlatformAdminAction: (...args: unknown[]) =>
+    mockRecordPlatformAdminAction(...args),
 }));
 
 const mockWriteAuditEntry = vi.fn().mockResolvedValue(undefined);
@@ -180,6 +183,11 @@ describe("processSandboxProvisioningJob", () => {
         actorId: "admin-1",
       }),
     );
+    expect(mockRecordPlatformAdminAction).toHaveBeenCalledWith({
+      actorSub: "admin-1",
+      action: "sandbox.created",
+      targetTenantId: result.tenantId,
+    });
 
     // T8: the final progress row is just a bare "done" status -- no credentials (security
     // review: those live in Redis, not this table, see storeSandboxHandoverCredentials).
@@ -331,6 +339,7 @@ describe("processSandboxProvisioningJob", () => {
         metadata: expect.objectContaining({ rolledBack: true }),
       }),
     );
+    expect(mockRecordPlatformAdminAction).not.toHaveBeenCalled();
     expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
 
     // T8: a failure partway through still durably records where it got to.

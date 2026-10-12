@@ -28,7 +28,12 @@
  */
 
 import { eq, and, inArray } from "drizzle-orm";
-import { db, tenants, acquireTenantAdvisoryLock } from "@platform/db";
+import {
+  db,
+  tenants,
+  acquireTenantAdvisoryLock,
+  recordPlatformAdminAction,
+} from "@platform/db";
 import { Worker } from "@platform/telemetry";
 import { logger } from "@platform/logger";
 import { writeAuditEntry } from "@platform/audit";
@@ -150,6 +155,13 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
     await auditOutcome(job, "sandbox.delete_completed", {
       zitadelOrgId: tenant.zitadelOrgId ?? null,
       zitadelOrgDeleted,
+    });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.deleted",
+      targetTenantId: tenantId,
     });
     logger.info({ tenantId }, "sandbox delete: complete");
   } catch (err) {
