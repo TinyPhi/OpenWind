@@ -153,6 +153,10 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
 
   const stateKey = stateKeyFor(data.triggerType);
 
+  const selectedEntityType = entityTypes.find(
+    (et) => et.id === selectedEntityTypeId,
+  );
+
   const selectedWorkflow = workflows.find(
     (w) => w.id === data.triggerConfig.workflowId,
   );
@@ -330,6 +334,20 @@ export function StepTrigger({ data, onChange }: Props): React.ReactElement {
                     </option>
                   ))}
                 </select>
+              )}
+              {!loadingFields && !data.triggerConfig.field && (
+                <p
+                  role="status"
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--text-muted)",
+                    marginTop: "6px",
+                  }}
+                >
+                  This rule will fire on every update to every{" "}
+                  {selectedEntityType?.name ?? "record"} record. Pick a field to
+                  narrow it.
+                </p>
               )}
             </div>
           )}

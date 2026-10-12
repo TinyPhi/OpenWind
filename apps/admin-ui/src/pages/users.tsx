@@ -7,10 +7,11 @@ import {
   TableHead,
   TableCell,
   TOKENS,
-  useHoverStyle,
 } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { userManager } from "../authProvider.js";
+import { initials } from "../lib/format.js";
+import { avatarColor } from "../lib/theme.js";
 
 function getRolesFromProfile(
   profile: Record<string, unknown> | undefined,
@@ -37,35 +38,6 @@ interface User {
   roles?: string[];
 }
 
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .slice(0, 2)
-    .map((p) => p.charAt(0))
-    .join("")
-    .toUpperCase();
-}
-
-const AVATAR_COLORS = [
-  "#6366f1",
-  "#8b5cf6",
-  "#ec4899",
-  "#f59e0b",
-  "#10b981",
-  "#3b82f6",
-  "#ef4444",
-  "#14b8a6",
-];
-
-function avatarColor(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = (hash << 5) - hash + userId.charCodeAt(i);
-    hash |= 0;
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? "#6366f1";
-}
-
 interface UserRowProps {
   user: User;
   isAdmin: boolean;
@@ -73,21 +45,9 @@ interface UserRowProps {
 
 function UserRow({ user, isAdmin }: UserRowProps): React.ReactElement {
   const color = avatarColor(user.userId);
-  const rowHover = useHoverStyle({
-    base: { background: "" },
-    hover: { background: TOKENS.bgTertiary },
-  });
-  const iconHover = useHoverStyle({
-    base: { background: "", color: TOKENS.textMuted },
-    hover: { background: TOKENS.bgTertiary, color: TOKENS.accentPrimary },
-  });
 
   return (
-    <TableRow
-      style={rowHover.style}
-      onMouseEnter={rowHover.onMouseEnter}
-      onMouseLeave={rowHover.onMouseLeave}
-    >
+    <TableRow className="interactive-hover-row">
       <TableCell style={{ padding: "12px 16px" }}>
         <div
           style={{
@@ -196,6 +156,7 @@ function UserRow({ user, isAdmin }: UserRowProps): React.ReactElement {
             target="_blank"
             rel="noreferrer"
             title="Open in Zitadel"
+            className="user-icon-action"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -204,11 +165,7 @@ function UserRow({ user, isAdmin }: UserRowProps): React.ReactElement {
               height: "28px",
               borderRadius: "6px",
               textDecoration: "none",
-              transition: "background 0.15s, color 0.15s",
-              ...iconHover.style,
             }}
-            onMouseEnter={iconHover.onMouseEnter}
-            onMouseLeave={iconHover.onMouseLeave}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

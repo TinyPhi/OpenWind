@@ -5,6 +5,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — advisory locks work behind PgBouncer (#752)]
+
+### Fixed
+
+- **Tenant advisory locks now actually exclude concurrent holders behind PgBouncer.** Through
+  PgBouncer's transaction pooling, two callers could both be granted the same lock (40 of 40 in a
+  reproduction), so org-directory sync and sandbox reset had no real concurrency guard. Set
+  `DATABASE_DIRECT_URL` to a direct Postgres `app_user` URL and locks use their own small pool
+  (`DATABASE_LOCK_POOL_MAX`, default 5) straight to Postgres. `docker-compose.yml` and
+  `.env.example` set it; with it unset, behaviour is unchanged. A lock whose unlock runs on a
+  different backend, or fails, now logs an `advisory lock anomaly` error instead of passing silently.
+
+## [Unreleased — "any field" trigger warning (#767)]
+
+### Changed
+
+- **The automation wizard warns when a "Field changed" trigger is scoped to "— any field —"** — an
+  inline note says the rule fires on every update to every record of the chosen entity type.
+
+### Added
+
+- **`openwind_mention_record_failure_total` metric** counts resolved mentions the
+  mention-resolution worker failed to record on a comment, so incomplete erasure scrubs can be
+  alerted on (#769).
+
+## [Unreleased — admin-ui refactors: shared helpers, form state, access state (4 of 5, split from #772)]
+
+### Changed
+
+- **Shared helpers** — `withAlpha` and `avatarColor` (`lib/theme.ts`), `toWorkflowSlug`, `initials`,
+  `singularize` and `formatFieldValue` (`lib/format.ts`) and a `useOutsideClick` hook replace
+  copy-pasted private versions across admin-ui. The users and roster pages' avatar backgrounds now
+  come from the shared `avatarColor`, so they change colour.
+- **Form state** — ticket creation, the schedule-rule editor and the notification-policy editor and
+  simulator each hold their fields in one typed object instead of one `useState` per field. No
+  behaviour change. `ResolvePreview` is renamed `ResolveSimulator`.
+- **Ticket access state** — `accessDenied` and the requester's own access-request status are
+  derived during render instead of synced by effects, so an approved requester's overlay lifts on the
+  next refresh. A failed background `/access` refresh keeps the last good list so the Access
+  Restricted overlay can't drop for a denied viewer.
+
+---
+
+## [Unreleased — admin-ui CSS hover states (3 of 5, split from #772)]
+
+### Changed
+
+- **Hover effects in admin-ui are CSS, not React state.** The 24 `useHoverStyle` calls (48
+  `onMouseEnter` / `onMouseLeave` props) in the layout, notification bell, pickers, ticket
+  create/detail, dashboard, analytics, users, modules, workflow designer and org directory are
+  replaced by `:hover` rules in `index.css`, so hovering no longer re-renders components. Accent
+  colours still follow the theme through CSS variables and `color-mix()`. `useHoverStyle` stays
+  exported from `@platform/ui`; admin-ui no longer uses it.
+
+---
+
 ## [Unreleased — admin-ui startup and idle-logout hardening (5 of 5, split from #772)]
 
 ### Changed

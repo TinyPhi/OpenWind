@@ -1,21 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { TOKENS, useHoverStyle } from "@platform/ui";
+import { initials } from "../lib/format.js";
 
 export interface UserOption {
   userId: string;
   displayName: string;
   email: string;
   loginName?: string;
-}
-
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .slice(0, 2)
-    .map((p) => p[0] ?? "")
-    .join("")
-    .toUpperCase();
 }
 
 interface Props {
@@ -47,15 +38,11 @@ function UserOptionRow({
   isSelected,
   onSelect,
 }: UserOptionRowProps): React.ReactElement {
-  const rowHover = useHoverStyle({
-    base: { background: "none" },
-    hover: { background: TOKENS.bgTertiary },
-  });
-
   return (
     <button
       type="button"
       onClick={onSelect}
+      className={`user-picker-option-row${isSelected ? " is-selected" : ""}`}
       style={{
         display: "flex",
         alignItems: "center",
@@ -67,12 +54,7 @@ function UserOptionRow({
         fontSize: "13px",
         color: "var(--text-primary)",
         textAlign: "left",
-        ...(isSelected
-          ? { background: "var(--accent-primary)1a" }
-          : rowHover.style),
       }}
-      onMouseEnter={isSelected ? undefined : rowHover.onMouseEnter}
-      onMouseLeave={isSelected ? undefined : rowHover.onMouseLeave}
     >
       <span
         style={{
@@ -147,10 +129,6 @@ export function UserPicker({
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const unassignHover = useHoverStyle({
-    base: { background: "none" },
-    hover: { background: TOKENS.bgTertiary },
-  });
 
   const selected = users.find((u) => u.userId === value) ?? null;
 
@@ -365,6 +343,7 @@ export function UserPicker({
                     setOpen(false);
                     setQuery("");
                   }}
+                  className="user-picker-unassign-btn"
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -377,10 +356,7 @@ export function UserPicker({
                     color: "var(--text-muted)",
                     textAlign: "left",
                     borderBottom: "1px solid var(--border-color)",
-                    ...unassignHover.style,
                   }}
-                  onMouseEnter={unassignHover.onMouseEnter}
-                  onMouseLeave={unassignHover.onMouseLeave}
                 >
                   <svg
                     width="14"
@@ -450,15 +426,11 @@ function MultiUserOptionRow({
   isChecked,
   onToggle,
 }: MultiUserOptionRowProps): React.ReactElement {
-  const rowHover = useHoverStyle({
-    base: { background: "none" },
-    hover: { background: TOKENS.bgTertiary },
-  });
-
   return (
     <button
       type="button"
       onClick={onToggle}
+      className={`user-picker-option-row${isChecked ? " is-selected" : ""}`}
       style={{
         display: "flex",
         alignItems: "center",
@@ -470,12 +442,7 @@ function MultiUserOptionRow({
         fontSize: "13px",
         color: "var(--text-primary)",
         textAlign: "left",
-        ...(isChecked
-          ? { background: "var(--accent-primary)1a" }
-          : rowHover.style),
       }}
-      onMouseEnter={isChecked ? undefined : rowHover.onMouseEnter}
-      onMouseLeave={isChecked ? undefined : rowHover.onMouseLeave}
     >
       <span
         style={{

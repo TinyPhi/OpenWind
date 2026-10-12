@@ -183,6 +183,27 @@ describe("processSandboxDeleteJob", () => {
     );
   });
 
+  it("still deletes/purges and completes when deleteOrg() throws instead of returning false (review finding, PR #838)", async () => {
+    mockDeleteOrg.mockRejectedValue(new Error("zitadel 503"));
+
+    await processSandboxDeleteJob(
+      makeJob(TENANT_ID, { requestedBy: "admin-1" }),
+    );
+
+    expect(mockLoggerError).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "deleted" }),
+    );
+    expect(mockTenantPurgeQueueAdd).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "sandbox.delete_completed",
+        metadata: expect.objectContaining({ zitadelOrgDeleted: false }),
+      }),
+    );
+  });
+
   it("throws and writes a failed audit entry when the sandbox-lifecycle lock is already held", async () => {
     mockAcquireTenantAdvisoryLock.mockResolvedValue({
       acquired: false,
@@ -241,6 +262,31 @@ describe("processSandboxDeleteJob", () => {
     expect(mockWriteAuditEntry).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ action: "sandbox.delete_failed" }),
+    );
+  });
+
+  it("rethrows and audits a failure when the purge enqueue throws after the status flip (review finding, PR #838)", async () => {
+    // Once: beforeEach's clearAllMocks doesn't reset this mock's implementation.
+    mockTenantPurgeQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(
+      processSandboxDeleteJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("redis down");
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "deleted" }),
+    );
+    expect(mockLockRelease).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "sandbox.delete_failed",
+        metadata: expect.objectContaining({ error: "redis down" }),
+      }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.delete_completed" }),
     );
   });
 });
