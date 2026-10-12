@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — platform-admin logout error feedback (#877)]
+
+### Fixed
+
+- **Failed platform-admin logout attempts now show an inline retry message** instead of rejecting
+  silently and leaving the operator without feedback.
+
+---
+
 ## [Unreleased — audit trail for permission changes (#640)]
 
 ### Added
