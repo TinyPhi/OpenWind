@@ -183,7 +183,13 @@ export type AuditAction =
   // 0138_admin_audit_log_sandbox_reset_actions.sql extends the DB CHECK constraint in the
   // same commit.
   | "sandbox.reset_completed"
-  | "sandbox.reset_failed";
+  | "sandbox.reset_failed"
+  // docs/specs/multi-org-sandbox.md T15 — sandbox delete job outcomes, same job-level
+  // convention as sandbox.reset_completed/.failed above. Migration
+  // 0139_admin_audit_log_sandbox_delete_actions.sql extends the DB CHECK constraint in the
+  // same commit.
+  | "sandbox.delete_completed"
+  | "sandbox.delete_failed";
 
 export type AuditEntryInput = {
   tenantId: string;

@@ -80,6 +80,8 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "sandbox.provisioning_failed": true,
   "sandbox.reset_completed": true,
   "sandbox.reset_failed": true,
+  "sandbox.delete_completed": true,
+  "sandbox.delete_failed": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -144,6 +146,10 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   // the job ultimately succeeded or failed partway, same reasoning as provisioning above.
   "sandbox.reset_completed",
   "sandbox.reset_failed",
+  // Delete removes the Zitadel org and initiates OpenWind-side deletion -- a mutation
+  // regardless of outcome, same reasoning as reset/provisioning above.
+  "sandbox.delete_completed",
+  "sandbox.delete_failed",
 ]);
 
 /**
