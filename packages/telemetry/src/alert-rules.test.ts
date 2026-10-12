@@ -89,19 +89,35 @@ describe("scheduler duration buckets", () => {
     expect(applied).toHaveLength(2);
   });
 
-  it("keep a finite bucket above the largest alert threshold, so a p99 over the SLO is observable", () => {
-    // histogram_quantile returns the top finite bucket at most, so with a top
-    // bucket of 10000 the 10000 ms execution rule could never fire.
-    const largestThresholdMs = 10_000;
+  // The thresholds are read from the rules themselves, so a new or changed
+  // alert cannot outrun the buckets without this failing.
+  function scheduleDurationThresholdsMs(): number[] {
+    const thresholds: number[] = [];
+    for (const line of rulesSource.split("\n")) {
+      if (!/openwind_schedule_(tick|execution)_duration_ms_bucket/.test(line)) {
+        continue;
+      }
+      const match = /\)\s*>\s*(\d+(?:\.\d+)?)\s*$/.exec(line);
+      if (match?.[1]) thresholds.push(Number(match[1]));
+    }
+    return thresholds;
+  }
 
+  it("keep a finite bucket above the largest alert threshold, so a p99 over the SLO is observable", () => {
+    // histogram_quantile returns the top finite bucket at most, so a threshold
+    // at or above the top bucket could never fire.
+    const thresholds = scheduleDurationThresholdsMs();
+
+    expect(thresholds).toHaveLength(2);
     expect(Math.max(...SCHEDULE_DURATION_BUCKETS_MS)).toBeGreaterThan(
-      largestThresholdMs,
+      Math.max(...thresholds),
     );
   });
 
-  it("include the SLO thresholds themselves as boundaries", () => {
-    expect(SCHEDULE_DURATION_BUCKETS_MS).toContain(5000);
-    expect(SCHEDULE_DURATION_BUCKETS_MS).toContain(10000);
+  it("include every SLO threshold in the rules as a boundary", () => {
+    for (const threshold of scheduleDurationThresholdsMs()) {
+      expect(SCHEDULE_DURATION_BUCKETS_MS).toContain(threshold);
+    }
   });
 
   it("are strictly ascending", () => {

@@ -86,9 +86,13 @@ let claimRows: unknown[] = [];
 
 const insertedExecutions: unknown[] = [];
 
+// Lets a test advance a fake clock when a failed fire is recorded.
+let onExecutionInsert: (() => void) | undefined;
+
 const withTenantTx = {
   insert: (_table: unknown) => ({
     values: (values: unknown) => {
+      onExecutionInsert?.();
       insertedExecutions.push(values);
       return Promise.resolve(undefined);
     },
@@ -183,6 +187,7 @@ describe("schedulerTick", () => {
     dueRules = [];
     claimRows = [];
     insertedExecutions.length = 0;
+    onExecutionInsert = undefined;
     transactionCallCount = 0;
     mockWriteAuditEntry.mockClear();
     mockScheduleTickAdd.mockClear();
@@ -255,11 +260,74 @@ describe("schedulerTick", () => {
       await schedulerTick();
 
       expect(mockExecutionDurationRecord).toHaveBeenCalledTimes(1);
+      const [ms, attrs] = mockExecutionDurationRecord.mock.calls[0] as [
+        number,
+        Record<string, unknown>,
+      ];
+      expect(ms).toBeGreaterThanOrEqual(0);
       // errorCode stays out of the histogram's labels: each code would
       // multiply every bucket series, and the counter already carries it.
-      expect(mockExecutionDurationRecord.mock.calls[0]?.[1]).toEqual({
-        status: "failed",
+      expect(attrs).toEqual({ status: "failed" });
+    });
+
+    it("measures a failed fire up to the failure, not the bookkeeping that records it", async () => {
+      // Start from the real time: makeRule() derives nextFireAt from Date.now(),
+      // and a rule far in the past would be treated as overdue and skipped.
+      let now = Date.now();
+      const spy = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const rule = makeRule();
+        dueRules = [rule];
+        claimRows = [rule];
+        mockCreateEntity.mockImplementation(() => {
+          now += 300; // the fire attempt itself
+          return Promise.reject(
+            Object.assign(new Error("boom"), {
+              name: "EntityError",
+              code: "ENTITY_TYPE_NOT_FOUND",
+            }),
+          );
+        });
+        onExecutionInsert = () => {
+          now += 700; // writing the failure row: must not count
+        };
+
+        await schedulerTick();
+
+        expect(mockExecutionDurationRecord).toHaveBeenCalledWith(300, {
+          status: "failed",
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("records a failed execution duration for every catch-up fire that fails", async () => {
+      const rule = makeRule({
+        catchUp: true,
+        nextFireAt: new Date(Date.now() - 3 * 3_600_000),
       });
+      dueRules = [rule];
+      claimRows = [rule];
+      mockCreateEntity.mockRejectedValue(
+        Object.assign(new Error("boom"), {
+          name: "EntityError",
+          code: "ENTITY_TYPE_NOT_FOUND",
+        }),
+      );
+
+      await schedulerTick();
+
+      const fires = mockScheduleExecutionAdd.mock.calls.length;
+      expect(fires).toBeGreaterThan(1);
+      expect(mockExecutionDurationRecord).toHaveBeenCalledTimes(fires);
+      for (const [ms, attrs] of mockExecutionDurationRecord.mock.calls as [
+        number,
+        Record<string, unknown>,
+      ][]) {
+        expect(ms).toBeGreaterThanOrEqual(0);
+        expect(attrs).toEqual({ status: "failed" });
+      }
     });
 
     it("records one tick duration when the tick completes", async () => {
