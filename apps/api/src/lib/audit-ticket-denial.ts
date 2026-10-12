@@ -8,6 +8,10 @@ import { logger } from "@platform/logger";
  * record was found and the caller's access check failed — never for a missing
  * id — and keep the 404 response unchanged. An audit failure must not turn the
  * 404 into a 500, so it is logged and swallowed.
+ *
+ * Writes one row per denied request, with no dedup or cap of its own. The bound
+ * on that volume is the API's per-tenant rate limiter (ADR-013), and the rows
+ * roll up under the 90-day access-log retention sweep.
  */
 export async function auditTicketAccessDenied(input: {
   tenantId: string;
