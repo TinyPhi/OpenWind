@@ -183,6 +183,27 @@ describe("processSandboxDeleteJob", () => {
     );
   });
 
+  it("still deletes/purges and completes when deleteOrg() throws instead of returning false (review finding, PR #838)", async () => {
+    mockDeleteOrg.mockRejectedValue(new Error("zitadel 503"));
+
+    await processSandboxDeleteJob(
+      makeJob(TENANT_ID, { requestedBy: "admin-1" }),
+    );
+
+    expect(mockLoggerError).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "deleted" }),
+    );
+    expect(mockTenantPurgeQueueAdd).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "sandbox.delete_completed",
+        metadata: expect.objectContaining({ zitadelOrgDeleted: false }),
+      }),
+    );
+  });
+
   it("throws and writes a failed audit entry when the sandbox-lifecycle lock is already held", async () => {
     mockAcquireTenantAdvisoryLock.mockResolvedValue({
       acquired: false,

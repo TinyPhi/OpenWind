@@ -92,7 +92,23 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
     let zitadelOrgDeleted: boolean | null = null;
     try {
       if (tenant.zitadelOrgId) {
-        zitadelOrgDeleted = await deleteOrg(tenant.zitadelOrgId);
+        // Review finding (PR #838, PrabhuVijit): deleteOrg() is not guaranteed to only
+        // return false on failure -- a Zitadel 5xx, network error, or SDK internal error
+        // throws instead. An uncaught throw here would propagate past this try block to
+        // the outer catch, which re-throws after auditing sandbox.delete_failed --
+        // skipping the OpenWind-side status flip and purge enqueue entirely, exactly the
+        // "a Zitadel failure must not block OpenWind-side deletion" case this function's
+        // own doc comment (step 3) says is handled. Caught here and treated identically to
+        // the false-return path.
+        try {
+          zitadelOrgDeleted = await deleteOrg(tenant.zitadelOrgId);
+        } catch (zitadelErr) {
+          logger.error(
+            { err: zitadelErr, tenantId, zitadelOrgId: tenant.zitadelOrgId },
+            "sandbox delete: deleteOrg() threw -- treating as a failed deletion",
+          );
+          zitadelOrgDeleted = false;
+        }
         if (!zitadelOrgDeleted) {
           logger.error(
             { tenantId, zitadelOrgId: tenant.zitadelOrgId },
