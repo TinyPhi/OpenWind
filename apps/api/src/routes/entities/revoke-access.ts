@@ -5,6 +5,10 @@ import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
+import {
+  auditAccessChange,
+  readAccessEntry,
+} from "../../lib/audit-access-change.js";
 import { cancelUsersPendingAlertsForInstance } from "../../lib/cascade-cancel-alerts.js";
 
 export const revokeAccessHandler = factory.createHandlers(
@@ -24,6 +28,7 @@ export const revokeAccessHandler = factory.createHandlers(
             assignedTo: entityInstances.assignedTo,
             createdBy: entityInstances.createdBy,
             workflowId: entityInstances.workflowId,
+            fields: entityInstances.fields,
           })
           .from(entityInstances)
           .where(
@@ -61,9 +66,12 @@ export const revokeAccessHandler = factory.createHandlers(
         }
       }
 
+      const priorEntry = readAccessEntry(instance.fields, targetUserId);
+      const wasAssignee = instance.assignedTo === targetUserId;
+
       // Remove key from the __accessUsers object map using the - operator
-      await withTenantContext(tenantId, (tx) =>
-        tx
+      await withTenantContext(tenantId, async (tx) => {
+        await tx
           .update(entityInstances)
           .set({
             fields: sql`jsonb_set(
@@ -71,17 +79,30 @@ export const revokeAccessHandler = factory.createHandlers(
               '{__accessUsers}',
               COALESCE(fields->'__accessUsers', '{}') - ${targetUserId}
             )`,
-            ...(instance.assignedTo === targetUserId
-              ? { assignedTo: sql`NULL` }
-              : {}),
+            ...(wasAssignee ? { assignedTo: sql`NULL` } : {}),
           })
           .where(
             and(
               eq(entityInstances.id, id),
               eq(entityInstances.tenantId, tenantId),
             ),
-          ),
-      );
+          );
+
+        // Revoking a user who holds no entry and is not the assignee changes
+        // nothing, so it is not audited as a revocation.
+        if (priorEntry || wasAssignee) {
+          await auditAccessChange(tx, {
+            tenantId,
+            actorId,
+            instanceId: id,
+            targetUserId,
+            before: priorEntry,
+            after: null,
+            via: "direct",
+            unassigned: wasAssignee,
+          });
+        }
+      });
 
       void emitAccessEvent(tenantId, id, actorId, {
         type: "access_revoke",

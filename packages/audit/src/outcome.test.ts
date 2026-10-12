@@ -9,6 +9,7 @@ import {
   ALL_AUDIT_ACTIONS,
 } from "./outcome.js";
 import type { AuditAction } from "./index.js";
+import { classifyRequestKind } from "./request-kind.js";
 
 const ALL_ACTIONS: readonly AuditAction[] = ALL_AUDIT_ACTIONS;
 
@@ -40,6 +41,25 @@ describe("classifyOutcome", () => {
     for (const action of ALL_ACTIONS) {
       expect(["allowed", "denied"]).toContain(classifyOutcome(action));
     }
+  });
+});
+
+describe("role/permission-change actions (#640)", () => {
+  const NEW: AuditAction[] = [
+    "access.granted",
+    "access.updated",
+    "access.revoked",
+    "workflow.admins_updated",
+    "workflow.transition_roles_updated",
+  ];
+
+  it.each(NEW)("classifies %s as allowed", (action) => {
+    expect(ALL_ACTIONS).toContain(action);
+    expect(classifyOutcome(action)).toBe("allowed");
+  });
+
+  it.each(NEW)("classifies %s as a write request kind", (action) => {
+    expect(classifyRequestKind(action)).toBe("write");
   });
 });
 

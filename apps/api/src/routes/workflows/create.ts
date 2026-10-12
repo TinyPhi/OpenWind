@@ -5,6 +5,7 @@ import { withTenantContext } from "@platform/db";
 import { createWorkflow } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
+import { auditWorkflowAdminsChange } from "../../lib/audit-workflow-access.js";
 
 const CreateWorkflowSchema = z.object({
   entityTypeId: z.string().uuid(),
@@ -28,9 +29,17 @@ export const createWorkflowHandler = factory.createHandlers(
     const input = c.req.valid("json");
     const { tenantId, userId } = c.get("auth");
     try {
-      const workflow = await withTenantContext(tenantId, (tx) =>
-        createWorkflow(tx, tenantId, userId, input),
-      );
+      const workflow = await withTenantContext(tenantId, async (tx) => {
+        const created = await createWorkflow(tx, tenantId, userId, input);
+        await auditWorkflowAdminsChange(tx, {
+          tenantId,
+          actorId: userId,
+          workflowId: created.id,
+          before: [],
+          after: created.assignedTo,
+        });
+        return created;
+      });
       return c.json({ data: workflow }, 201);
     } catch (err) {
       return handleWorkflowError(c, err);
