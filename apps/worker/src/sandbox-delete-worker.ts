@@ -97,7 +97,23 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
     let zitadelOrgDeleted: boolean | null = null;
     try {
       if (tenant.zitadelOrgId) {
-        zitadelOrgDeleted = await deleteOrg(tenant.zitadelOrgId);
+        // Review finding (PR #838, PrabhuVijit): deleteOrg() is not guaranteed to only
+        // return false on failure -- a Zitadel 5xx, network error, or SDK internal error
+        // throws instead. An uncaught throw here would propagate past this try block to
+        // the outer catch, which re-throws after auditing sandbox.delete_failed --
+        // skipping the OpenWind-side status flip and purge enqueue entirely, exactly the
+        // "a Zitadel failure must not block OpenWind-side deletion" case this function's
+        // own doc comment (step 3) says is handled. Caught here and treated identically to
+        // the false-return path.
+        try {
+          zitadelOrgDeleted = await deleteOrg(tenant.zitadelOrgId);
+        } catch (zitadelErr) {
+          logger.error(
+            { err: zitadelErr, tenantId, zitadelOrgId: tenant.zitadelOrgId },
+            "sandbox delete: deleteOrg() threw -- treating as a failed deletion",
+          );
+          zitadelOrgDeleted = false;
+        }
         if (!zitadelOrgDeleted) {
           logger.error(
             { tenantId, zitadelOrgId: tenant.zitadelOrgId },
@@ -128,6 +144,12 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
 
       invalidateTenantStatusCache(tenantId);
 
+      // The status flip above is already committed, so a throw here (Redis down) leaves the
+      // tenant 'deleted' with no purge queued, and a rerun can't recover it -- the guarded
+      // UPDATE matches zero rows and throws SANDBOX_DELETE_INVALID_TENANT_STATUS. The
+      // sandbox.delete_failed audit entry is the signal; recovery is to re-add
+      // { tenantId } to the tenant-purge queue with jobId `tenant-purge-<tenantId>`
+      // (tenantPurgeWorker only requires status = 'deleted').
       await tenantPurgeQueue.add(
         "purge",
         { tenantId },
