@@ -62,7 +62,13 @@ export async function auditAccessChange(
   });
 }
 
-/** Reads one user's entry out of an `__accessUsers` map, tolerating the legacy array shape. */
+/**
+ * Reads one user's entry out of an `__accessUsers` map. The legacy array shape
+ * carries no level or tag, so it reads as "no entry": a grant to a user who is
+ * only in a legacy array is audited as access.granted with no before-state
+ * rather than access.updated. The write routes replace a legacy array with a
+ * map on the next grant.
+ */
 export function readAccessEntry(
   fields: unknown,
   userId: string,
