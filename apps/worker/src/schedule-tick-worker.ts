@@ -41,6 +41,8 @@ import {
   scheduleTickTotal,
   scheduleExecutionTotal,
   scheduleCatchUpTotal,
+  scheduleTickDurationMs,
+  scheduleExecutionDurationMs,
 } from "@platform/telemetry";
 
 type ScheduleRuleRow = typeof scheduleRules.$inferSelect;
@@ -243,6 +245,7 @@ async function fireRule(
   scheduledAt: Date,
   tickTime: Date,
 ): Promise<void> {
+  const fireStart = Date.now();
   try {
     const { instance, remark } = await withTenantContext(
       rule.tenantId,
@@ -357,6 +360,9 @@ async function fireRule(
       }
     }
     scheduleExecutionTotal.add(1, { status: "success" });
+    scheduleExecutionDurationMs.record(Date.now() - fireStart, {
+      status: "success",
+    });
   } catch (err: unknown) {
     const errorCode = classifyScheduleError(err);
     // Best-effort recording of the failure — guarded so that if THIS insert
@@ -391,6 +397,9 @@ async function fireRule(
       );
     }
     scheduleExecutionTotal.add(1, { status: "failed", errorCode });
+    scheduleExecutionDurationMs.record(Date.now() - fireStart, {
+      status: "failed",
+    });
     logger.warn(
       { tenantId: rule.tenantId, ruleId: rule.id, errorCode, scheduledAt },
       "schedule rule fire failed",
@@ -562,6 +571,7 @@ export async function schedulerTick(
     }
 
     scheduleTickTotal.add(1, { outcome: "completed" });
+    scheduleTickDurationMs.record(Date.now() - tickStart);
     logger.info(
       {
         totalDue: dueRules.length,
@@ -574,6 +584,7 @@ export async function schedulerTick(
     );
   } catch (err) {
     scheduleTickTotal.add(1, { outcome: "failed" });
+    scheduleTickDurationMs.record(Date.now() - tickStart);
     logger.error({ err }, "scheduler tick failed");
   }
 }

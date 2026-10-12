@@ -5,6 +5,8 @@ export {
   scheduleTickTotal,
   scheduleExecutionTotal,
   scheduleCatchUpTotal,
+  scheduleTickDurationMs,
+  scheduleExecutionDurationMs,
   oncallResolutionsTotal,
   notificationDispatchTotal,
   mentionRecordFailureTotal,

@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — scheduler alert rules (#580)]
+
+### Added
+
+- **Three alerts for the temporal scheduler** in `docker/observability/alert.rules.yml`:
+  `ScheduleExecutionFailureRateHigh` (more than 10% of schedule rule fires failing over 10 minutes),
+  `ScheduleTickDurationSLOBreach` (tick p99 over 5 s) and `ScheduleExecutionDurationSLOBreach` (fire
+  p99 over 10 s, measured over 15 minutes because fires can be hours apart), all warning severity. They need two new histograms,
+  `openwind_schedule_tick_duration_ms` and `openwind_schedule_execution_duration_ms`, which the
+  worker now records on every tick and every fire (the execution histogram is labelled by status
+  only). The histogram buckets run to 60 s on purpose: with OpenTelemetry's default boundaries the
+  top finite bucket is 10 s, so a slower fire would never push the p99 over 10 s and the alert could
+  not fire.
+
 ## [Unreleased — advisory locks work behind PgBouncer (#752)]
 
 ### Fixed
