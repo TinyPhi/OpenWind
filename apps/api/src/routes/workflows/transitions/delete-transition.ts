@@ -1,9 +1,11 @@
 import { requireAuth, requireRole } from "@platform/auth";
-import { withTenantContext } from "@platform/db";
+import { workflowTransitions, withTenantContext } from "@platform/db";
+import { and, eq } from "drizzle-orm";
 import { deleteWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
+import { auditTransitionRoleChanges } from "../../../lib/audit-workflow-access.js";
 
 export const deleteTransitionHandler = factory.createHandlers(
   requireAuth(),
@@ -14,15 +16,46 @@ export const deleteTransitionHandler = factory.createHandlers(
     const auth = c.get("auth");
     const { tenantId } = auth;
     try {
-      await withTenantContext(tenantId, (tx) =>
-        deleteWorkflowTransition(
+      await withTenantContext(tenantId, async (tx) => {
+        const [before] = await tx
+          .select({
+            fromState: workflowTransitions.fromState,
+            toState: workflowTransitions.toState,
+            allowedRoles: workflowTransitions.allowedRoles,
+          })
+          .from(workflowTransitions)
+          .where(
+            and(
+              eq(workflowTransitions.id, transitionId),
+              eq(workflowTransitions.workflowId, workflowId),
+              eq(workflowTransitions.tenantId, tenantId),
+            ),
+          )
+          .limit(1);
+        await deleteWorkflowTransition(
           tx,
           tenantId,
           workflowId,
           transitionId,
           toWorkflowCaller(auth),
-        ),
-      );
+        );
+        if (before) {
+          await auditTransitionRoleChanges(tx, {
+            tenantId,
+            actorId: auth.userId,
+            workflowId,
+            changes: [
+              {
+                transitionId,
+                fromState: before.fromState,
+                toState: before.toState,
+                before: before.allowedRoles,
+                after: null,
+              },
+            ],
+          });
+        }
+      });
       return c.body(null, 204);
     } catch (err) {
       return handleWorkflowError(c, err);

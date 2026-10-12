@@ -7,6 +7,7 @@ import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
+import { auditAccessChange } from "../../lib/audit-access-change.js";
 
 const UpdateAccessSchema = z.object({
   level: z.enum(["read_only", "read_comment", "read_write"]),
@@ -93,8 +94,10 @@ export const updateAccessHandler = factory.createHandlers(
 
       // Update the level field inside __accessUsers[targetUserId]
       // Guard against legacy array format — coerce to {} so path navigation works.
-      await withTenantContext(tenantId, (tx) =>
-        tx
+      const unassigned =
+        instance.assignedTo === targetUserId && level !== "read_write";
+      await withTenantContext(tenantId, async (tx) => {
+        await tx
           .update(entityInstances)
           .set({
             fields: sql`jsonb_set(
@@ -106,17 +109,29 @@ export const updateAccessHandler = factory.createHandlers(
               )
             )`,
             // If downgrading from read_write (i.e. was assigned) — unassign
-            ...(instance.assignedTo === targetUserId && level !== "read_write"
-              ? { assignedTo: sql`NULL` }
-              : {}),
+            ...(unassigned ? { assignedTo: sql`NULL` } : {}),
           })
           .where(
             and(
               eq(entityInstances.id, id),
               eq(entityInstances.tenantId, tenantId),
             ),
-          ),
-      );
+          );
+
+        await auditAccessChange(tx, {
+          tenantId,
+          actorId,
+          instanceId: id,
+          targetUserId,
+          before: {
+            level: existingEntry.level,
+            tag: existingEntry.tag ?? "manual",
+          },
+          after: { level, tag: existingEntry.tag ?? "manual" },
+          via: "direct",
+          unassigned,
+        });
+      });
 
       void emitAccessEvent(tenantId, id, actorId, {
         type: "access_update",

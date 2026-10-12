@@ -262,3 +262,32 @@ describe("ANTHROPIC_API_KEY", () => {
     expect(parsed.ANTHROPIC_API_KEY).toBe("sk-test");
   });
 });
+
+describe("DATABASE_DIRECT_URL / DATABASE_LOCK_POOL_MAX (#752)", () => {
+  it("leaves the direct URL unset and defaults the lock pool to 5", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.DATABASE_DIRECT_URL).toBeUndefined();
+    expect(parsed.DATABASE_LOCK_POOL_MAX).toBe(5);
+  });
+
+  it("accepts a direct Postgres URL and a lock pool override", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      DATABASE_DIRECT_URL: "postgresql://app_user:pw@postgres:5432/platform",
+      DATABASE_LOCK_POOL_MAX: "8",
+    });
+    expect(parsed.DATABASE_DIRECT_URL).toBe(
+      "postgresql://app_user:pw@postgres:5432/platform",
+    );
+    expect(parsed.DATABASE_LOCK_POOL_MAX).toBe(8);
+  });
+
+  it("rejects a malformed direct URL and a lock pool below 1", () => {
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, DATABASE_DIRECT_URL: "nope" }),
+    ).toThrow();
+    expect(() =>
+      EnvSchema.parse({ ...MINIMAL_VALID_ENV, DATABASE_LOCK_POOL_MAX: "0" }),
+    ).toThrow();
+  });
+});

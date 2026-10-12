@@ -17,6 +17,7 @@ import { listOrgUsers } from "../../lib/zitadel-management.js";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { auditTicketAccessDenied } from "../../lib/audit-ticket-denial.js";
 import { hasEntityCommentAccessFull } from "../../lib/entity-access.js";
 
 const MentionSchema = z.object({
@@ -82,6 +83,12 @@ export const addCommentHandler = factory.createHandlers(
       }
 
       if (!canComment) {
+        await auditTicketAccessDenied({
+          tenantId,
+          userId,
+          instanceId: id,
+          action: "comment.access_denied",
+        });
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
     }

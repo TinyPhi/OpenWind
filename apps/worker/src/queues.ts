@@ -205,11 +205,22 @@ export const sandboxProvisioningQueue = new Queue("sandbox-provisioning", {
 // docs/specs/multi-org-sandbox.md T13/R7 — sandbox reset (wipe+reseed module data, cancel
 // queued background work). API enqueues via apps/api/src/lib/sandbox-reset-queue.ts using
 // the same queue name, then awaits the job's completion (BullMQ waitUntilFinished) before
-// responding -- the sandbox-lifecycle advisory lock (T22) is acquired by the API route
-// before enqueueing and held for the job's full duration, so this worker does not need to
-// acquire it itself. attempts: 1, same reasoning as provisioning: a partial reset failure
-// must surface to the platform admin, not silently retry against a half-wiped tenant.
+// responding. The sandbox-lifecycle advisory lock (T22) is acquired by the WORKER itself
+// (sandbox-reset-worker.ts), held for the job's actual execution -- the API route's own
+// acquire is only a fast pre-check-and-release, not authoritative (review finding, PR
+// #832: holding it in the route across the HTTP wait window let it release mid-job on a
+// slow reset). attempts: 1, same reasoning as provisioning: a partial reset failure must
+// surface to the platform admin, not silently retry against a half-wiped tenant.
 export const sandboxResetQueue = new Queue("sandbox-reset", {
+  connection,
+  defaultJobOptions: { attempts: 1 },
+});
+
+// docs/specs/multi-org-sandbox.md T15/R8 — sandbox delete (remove the Zitadel org,
+// initiate immediate OpenWind-side deletion via the existing tenant-purge queue). Same
+// locking pattern as sandbox-reset above: the worker (sandbox-delete-worker.ts) owns the
+// sandbox-lifecycle lock for its actual execution; the API route only pre-checks it.
+export const sandboxDeleteQueue = new Queue("sandbox-delete", {
   connection,
   defaultJobOptions: { attempts: 1 },
 });
