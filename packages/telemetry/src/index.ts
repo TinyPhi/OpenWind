@@ -9,6 +9,9 @@ export {
   scheduleExecutionDurationMs,
   oncallResolutionsTotal,
   notificationDispatchTotal,
+  oncallResolutionDurationSeconds,
+  notificationDispatchDurationSeconds,
+  notificationPolicyMatchTotal,
   mentionRecordFailureTotal,
   getSerializedMetrics,
 } from "./metrics.js";

@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — on-call duration metrics and the resolution SLO alert (#570)]
+
+### Added
+
+- **Three on-call routing metrics**: `openwind_oncall_resolution_duration_seconds` (how long
+  `resolve_oncall` takes to reach an outcome, labelled by `outcome`),
+  `openwind_notification_dispatch_duration_seconds` (time to dispatch one channel, labelled by
+  `channel`) and `openwind_notification_policy_match_total` (where in the specificity chain a
+  notification policy matched, labelled `matched_at`: `team_workflow`, `team`, `workflow`, `global`,
+  `hardcoded_default`). The resolution histogram is recorded at the same points as
+  `openwind_oncall_resolutions_total`, so their counts always agree. The histograms use second-scale
+  bucket boundaries on purpose: OpenTelemetry's defaults are millisecond-scale, so a 20 ms
+  resolution would otherwise read as a p99 of nearly 5 s.
+- **`OncallResolutionSLOBreached` alert**: `resolve_oncall` p99 over 100 ms, measured over 15
+  minutes because resolutions only happen when a ticket's team changes and can be hours apart.
+
 ## [Unreleased — scheduler alert rules (#580)]
 
 ### Added
