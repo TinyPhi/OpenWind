@@ -29,6 +29,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   OpenWind's own tables are covered. Cross-tenant access attempts are not logged: RLS makes another
   tenant's record indistinguishable from a missing one, so there is no denial to observe.
 
+## [Unreleased — audit log `action` filter]
+
+### Added
+
+- **`GET /admin/audit` can filter by `action`.** `?action=access.revoked` returns only entries with that
+  audit action; combine it with `resourceType` and `resourceId` to ask what happened to one ticket, or
+  with `from` and `to` for a time window. An unknown action is a `400 VALIDATION_ERROR` rather than an
+  empty page, so a typo is visible. One action per request. Admin-only and tenant-scoped as before.
+  The same filter is available to code through `queryAuditLog` in `@platform/audit`, which also gains
+  an exported `ALL_AUDIT_ACTIONS` list.
+
 ## [Unreleased — advisory locks work behind PgBouncer (#752)]
 
 ### Fixed
