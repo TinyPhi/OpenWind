@@ -28,7 +28,7 @@
   },
   "network": {
     "regionLabel": "Notifications",
-    "logInAgain": "Log in again",
+    "sessionExpired": "Your session has expired. Please sign in again.",
     "dismiss": "Dismiss",
     "offline": "You're offline",
     "reconnecting": "Reconnecting…",
