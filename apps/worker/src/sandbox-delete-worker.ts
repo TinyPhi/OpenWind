@@ -32,6 +32,7 @@ import {
   db,
   tenants,
   acquireTenantAdvisoryLock,
+  recordPlatformAdminAction,
   withTenantContext,
 } from "@platform/db";
 import { Worker } from "@platform/telemetry";
@@ -181,6 +182,20 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
     await auditOutcome(job, "sandbox.delete_completed", {
       zitadelOrgId: tenant.zitadelOrgId ?? null,
       zitadelOrgDeleted,
+    });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    // Best-effort (PR #859 review [C]): admin_audit_log above is the authoritative record;
+    // a throw here must not turn a completed delete into a sandbox.delete_failed entry.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.deleted",
+      targetTenantId: tenantId,
+    }).catch((err: unknown) => {
+      logger.error(
+        { err, tenantId, jobId: job.id },
+        "sandbox delete: platform-admin audit record failed -- delete already completed",
+      );
     });
     logger.info({ tenantId }, "sandbox delete: complete");
   } catch (err) {

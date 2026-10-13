@@ -53,6 +53,7 @@ import {
   db,
   tenants,
   sandboxProvisioningJobs,
+  recordPlatformAdminAction,
   withTenantContext,
 } from "@platform/db";
 import { eq } from "drizzle-orm";
@@ -404,6 +405,20 @@ export async function processSandboxProvisioningJob(
       zitadelOrgId: org.orgId,
       seededAccountCount,
       failedAccountCount,
+    });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    // Best-effort (PR #859 review [C]): admin_audit_log above is the authoritative record.
+    // A throw here would reach the catch below and roll back a sandbox that was fully built.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.created",
+      targetTenantId: tenantId,
+    }).catch((err: unknown) => {
+      logger.error(
+        { err, tenantId, jobId },
+        "sandbox provisioning: platform-admin audit record failed -- sandbox kept",
+      );
     });
 
     return {
