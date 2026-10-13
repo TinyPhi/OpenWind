@@ -18,7 +18,7 @@
 
 - **Decision (owner, from three options in BLOCKERS.md):** a dedicated narrow role, not a
   privileged worker connection and not a dev-only grant. Migration
-  `0141_tenant_lifecycle_role.sql` creates `tenant_lifecycle_role`:
+  `0143_tenant_lifecycle_role.sql` creates `tenant_lifecycle_role`:
   - `NOLOGIN NOBYPASSRLS`, granted to `app_user WITH INHERIT FALSE`, the same shape as
     `platform_admin_role` (0135)
   - `SELECT, INSERT, DELETE` on `tenants`, and `UPDATE` only on `status`, `suspended_at`,
@@ -49,6 +49,7 @@
     session can switch into the role (the production path).
 - **Open:**
   - This is a new database-role pattern; a short human-authored ADR note should record it.
-  - Migration number `0141`, because `0140` is claimed by both #857 and #859.
+  - Migration number `0143`: `0140` is main's (access-actions), `0141` is #859's platform_admin_audit_log
+    and `0142` is #880's sandbox trial function. The journal `idx` follows whatever has merged first.
   - The audit writes in `tenant-lifecycle.ts` still use plain `db`, the same RLS issue #868
     fixed for the sandbox workers. Tracked as a follow-up.

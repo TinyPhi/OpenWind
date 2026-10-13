@@ -4,6 +4,11 @@ import { getRedis } from "@platform/redis";
 import { env } from "@platform/config";
 import { prometheusExporter } from "./instrumentation.js";
 import { PrometheusSerializer } from "@opentelemetry/exporter-prometheus";
+import { SCHEDULE_DURATION_BUCKETS_MS } from "./schedule-duration-buckets.js";
+import {
+  NOTIFICATION_DISPATCH_BUCKETS_SECONDS,
+  ONCALL_RESOLUTION_BUCKETS_SECONDS,
+} from "./oncall-duration-buckets.js";
 
 const meter = metrics.getMeter("openwind-metrics");
 
@@ -171,6 +176,35 @@ export const notificationDispatchTotal = meter.createCounter(
   },
 );
 
+// docs/oncall-routing-design.md §9.3 -- duration histograms and the policy
+// match counter. Seconds, so the bucket boundaries are explicit (see
+// oncall-duration-buckets.ts). The resolution histogram is labelled by
+// `outcome` to match openwind_oncall_resolutions_total (the design says
+// `result`); tenant is not a label.
+export const oncallResolutionDurationSeconds = meter.createHistogram(
+  "openwind_oncall_resolution_duration_seconds",
+  {
+    description:
+      "Time for a resolve_oncall action to reach an outcome, in seconds, by outcome",
+    advice: { explicitBucketBoundaries: ONCALL_RESOLUTION_BUCKETS_SECONDS },
+  },
+);
+export const notificationDispatchDurationSeconds = meter.createHistogram(
+  "openwind_notification_dispatch_duration_seconds",
+  {
+    description:
+      "Time to dispatch one channel of a dispatch_severity_notification action, in seconds, by channel",
+    advice: { explicitBucketBoundaries: NOTIFICATION_DISPATCH_BUCKETS_SECONDS },
+  },
+);
+export const notificationPolicyMatchTotal = meter.createCounter(
+  "openwind_notification_policy_match_total",
+  {
+    description:
+      "Where in the specificity chain a dispatch_severity_notification policy match landed (matched_at)",
+  },
+);
+
 // Coverage-gap gauge: resolve-oncall.ts maintains a per-tenant Redis SET of
 // team ids currently in a coverage-gap state (oncall.no_schedule, including
 // R8b's exhausted-cascade case) — added when a gap is detected, removed on
@@ -237,6 +271,27 @@ export const scheduleCatchUpTotal = meter.createCounter(
   {
     description:
       "Catch-up fires executed vs. skipped on an overdue schedule_rule",
+  },
+);
+
+// docs/temporal-scheduler-design.md §9.4 -- the duration SLO alerts read these.
+// Milliseconds, with the unit in the name rather than a unit option, matching
+// how this file registers http_request_duration_seconds. Execution duration is
+// labelled by status only: tenant and rule ids stay out of labels so the
+// series count stays bounded (each label value multiplies every bucket).
+export const scheduleTickDurationMs = meter.createHistogram(
+  "openwind_schedule_tick_duration_ms",
+  {
+    description: "Wall-clock time of one temporal scheduler tick, in ms",
+    advice: { explicitBucketBoundaries: SCHEDULE_DURATION_BUCKETS_MS },
+  },
+);
+export const scheduleExecutionDurationMs = meter.createHistogram(
+  "openwind_schedule_execution_duration_ms",
+  {
+    description:
+      "Time to fire one schedule_rule (create the ticket and record it), in ms",
+    advice: { explicitBucketBoundaries: SCHEDULE_DURATION_BUCKETS_MS },
   },
 );
 

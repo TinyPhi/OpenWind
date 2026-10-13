@@ -21,6 +21,17 @@ const mockUpdateStates = vi.fn().mockResolvedValue([]);
 const mockUpdateTransitions = vi.fn().mockResolvedValue([]);
 const mockDeleteTransitions = vi.fn().mockResolvedValue([]);
 const mockDeleteStates = vi.fn().mockResolvedValue([]);
+const mockWriteAuditEntry = vi.fn();
+let mockInsertedTransitions: Array<{
+  id: string;
+  fromState: string;
+  toState: string;
+  allowedRoles: string[];
+}> = [];
+
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
+}));
 
 let mockAuthCtx: AuthContext = {
   tenantId: "t-aaa",
@@ -61,9 +72,15 @@ vi.mock("@platform/db", () => ({
         }),
       }),
       insert: (table: unknown) => {
-        if (String(table).includes("States")) mockInsertStates();
+        const isStates = String(table).includes("States");
+        if (isStates) mockInsertStates();
         else mockInsertTransitions();
-        return { values: () => Promise.resolve() };
+        return {
+          values: () =>
+            Object.assign(Promise.resolve(), {
+              returning: () => Promise.resolve(mockInsertedTransitions),
+            }),
+        };
       },
       update: (table: unknown) => {
         if (String(table).includes("States")) mockUpdateStates();
@@ -169,6 +186,8 @@ describe("PUT /workflows/:id/canvas", () => {
     mockGetWorkflow.mockResolvedValue(BASE_WORKFLOW);
     mockIsWorkflowAdmin.mockReturnValue(true);
     mockWorkflowRow = null;
+    mockInsertedTransitions = [];
+    mockWriteAuditEntry.mockResolvedValue(undefined);
     mockAuthCtx = {
       tenantId: "t-aaa",
       userId: "u-bbb",
@@ -275,5 +294,109 @@ describe("PUT /workflows/:id/canvas", () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect((body as { error: string }).error).toBe("NOT_FOUND");
+  });
+
+  describe("transition role audit (#640)", () => {
+    const save = (transitions: unknown[]) =>
+      makeApp().request(`/${WF_ID}/canvas`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ states: BASE_WORKFLOW.states, transitions }),
+      });
+
+    const existing = (allowedRoles: string[]) => ({
+      id: "t-1",
+      fromState: "open",
+      toState: "closed",
+      label: "Close",
+      allowedRoles,
+      requiresComment: false,
+      requiresFields: [],
+    });
+
+    it("writes exactly one entry listing both a changed and an added transition", async () => {
+      mockInsertedTransitions = [
+        {
+          id: "t-new",
+          fromState: "closed",
+          toState: "open",
+          allowedRoles: ["agent"],
+        },
+      ];
+
+      const res = await save([
+        existing(["admin"]),
+        {
+          id: "__new_1",
+          fromState: "closed",
+          toState: "open",
+          label: "Reopen",
+          allowedRoles: ["agent"],
+          requiresComment: false,
+          requiresFields: [],
+        },
+      ]);
+
+      expect(res.status).toBe(200);
+      expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+      const entry = mockWriteAuditEntry.mock.calls[0]?.[1] as {
+        action: string;
+        resourceType: string;
+        resourceId: string;
+        beforeSnapshot: Record<string, string[] | null>;
+        afterSnapshot: Record<string, string[]>;
+        metadata: {
+          transitions: Array<{ transitionId: string; created: boolean }>;
+        };
+      };
+      expect(entry.action).toBe("workflow.transition_roles_updated");
+      expect(entry.resourceType).toBe("workflow");
+      expect(entry.resourceId).toBe(WF_ID);
+      expect(entry.beforeSnapshot).toEqual({ "t-new": null, "t-1": [] });
+      expect(entry.afterSnapshot).toEqual({
+        "t-new": ["agent"],
+        "t-1": ["admin"],
+      });
+      expect(entry.metadata.transitions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ transitionId: "t-new", created: true }),
+          expect.objectContaining({ transitionId: "t-1", created: false }),
+        ]),
+      );
+    });
+
+    it("audits a transition removed by the save, with its prior role gate", async () => {
+      const res = await save([]);
+
+      expect(res.status).toBe(200);
+      expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+      const entry = mockWriteAuditEntry.mock.calls[0]?.[1] as {
+        action: string;
+        afterSnapshot: Record<string, string[] | null>;
+        metadata: {
+          transitions: Array<{ transitionId: string; deleted: boolean }>;
+        };
+      };
+      expect(entry.action).toBe("workflow.transition_roles_updated");
+      expect(entry.afterSnapshot).toEqual({ "t-1": null });
+      expect(entry.metadata.transitions).toEqual([
+        expect.objectContaining({ transitionId: "t-1", deleted: true }),
+      ]);
+    });
+
+    it("writes no entry when no transition roles changed", async () => {
+      const res = await save([existing([])]);
+
+      expect(res.status).toBe(200);
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    });
+
+    it("fails the request when the audit write rejects", async () => {
+      mockWriteAuditEntry.mockRejectedValue(new Error("audit down"));
+
+      const res = await save([existing(["admin"])]);
+
+      expect(res.status).toBe(500);
+    });
   });
 });

@@ -6,6 +6,7 @@ import { addWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
+import { auditTransitionRoleChanges } from "../../../lib/audit-workflow-access.js";
 
 const CreateTransitionSchema = z.object({
   fromState: z.string().min(1).max(100),
@@ -27,8 +28,8 @@ export const createTransitionHandler = factory.createHandlers(
     const auth = c.get("auth");
     const { tenantId } = auth;
     try {
-      const transition = await withTenantContext(tenantId, (tx) =>
-        addWorkflowTransition(
+      const transition = await withTenantContext(tenantId, async (tx) => {
+        const created = await addWorkflowTransition(
           tx,
           tenantId,
           workflowId,
@@ -42,8 +43,23 @@ export const createTransitionHandler = factory.createHandlers(
             requiresComment: input.requiresComment,
             requiresFields: input.requiresFields,
           },
-        ),
-      );
+        );
+        await auditTransitionRoleChanges(tx, {
+          tenantId,
+          actorId: auth.userId,
+          workflowId,
+          changes: [
+            {
+              transitionId: created.id,
+              fromState: created.fromState,
+              toState: created.toState,
+              before: null,
+              after: created.allowedRoles,
+            },
+          ],
+        });
+        return created;
+      });
       return c.json({ data: transition }, 201);
     } catch (err) {
       return handleWorkflowError(c, err);

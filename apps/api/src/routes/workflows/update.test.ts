@@ -26,9 +26,41 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+let mockBeforeRow: { assignedTo: string[] | null } | null = {
+  assignedTo: [],
+};
+const mockPreRead = vi.fn();
+const mockTx = {
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        limit: () => {
+          mockPreRead();
+          return Promise.resolve(mockBeforeRow ? [mockBeforeRow] : []);
+        },
+      }),
+    }),
+  }),
+};
+
 vi.mock("@platform/db", () => ({
   withTenantContext: (_tenantId: string, fn: (tx: unknown) => unknown) =>
-    fn({}),
+    fn(mockTx),
+  workflows: {
+    id: "workflows.id",
+    tenantId: "workflows.tenantId",
+    assignedTo: "workflows.assignedTo",
+  },
+}));
+
+vi.mock("drizzle-orm", () => ({
+  and: (...args: unknown[]) => args,
+  eq: (a: unknown, b: unknown) => ({ a, b }),
+}));
+
+const mockWriteAuditEntry = vi.fn();
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
 }));
 
 vi.mock("@platform/workflow-engine", () => ({
@@ -77,6 +109,8 @@ describe("PATCH /workflows/:id", () => {
       },
     ]);
     mockUpdateWorkflow.mockResolvedValue({ id: "wf-001", isActive: false });
+    mockBeforeRow = { assignedTo: [] };
+    mockWriteAuditEntry.mockResolvedValue(undefined);
   });
 
   it("validates workflow admins against Zitadel org membership, not local login state", async () => {
@@ -190,5 +224,87 @@ describe("PATCH /workflows/:id", () => {
 
     expect(res.status).toBe(200);
     expect(mockListOrgUsers).not.toHaveBeenCalled();
+  });
+
+  describe("workflow admin audit (#640)", () => {
+    const patch = (body: unknown) =>
+      makeApp().request("/wf-001", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    it("writes one workflow.admins_updated entry with before/after when assignedTo changes", async () => {
+      mockBeforeRow = { assignedTo: ["user-old"] };
+      mockUpdateWorkflow.mockResolvedValue({
+        id: "wf-001",
+        assignedTo: ["user-bbb"],
+      });
+
+      const res = await patch({ assignedTo: ["user-bbb"] });
+
+      expect(res.status).toBe(200);
+      expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+      expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+        mockTx,
+        expect.objectContaining({
+          tenantId: "tenant-aaa",
+          actorId: "user-bbb",
+          resourceType: "workflow",
+          resourceId: "wf-001",
+          action: "workflow.admins_updated",
+          beforeSnapshot: { assignedTo: ["user-old"] },
+          afterSnapshot: { assignedTo: ["user-bbb"] },
+        }),
+      );
+    });
+
+    it("writes no entry when the same members are submitted in a different order", async () => {
+      mockListOrgUsers.mockResolvedValue([
+        {
+          userId: "user-a",
+          email: "a@x.com",
+          displayName: "A",
+          loginName: "a",
+        },
+        {
+          userId: "user-b",
+          email: "b@x.com",
+          displayName: "B",
+          loginName: "b",
+        },
+      ]);
+      mockBeforeRow = { assignedTo: ["user-a", "user-b"] };
+      mockUpdateWorkflow.mockResolvedValue({
+        id: "wf-001",
+        assignedTo: ["user-b", "user-a"],
+      });
+
+      const res = await patch({ assignedTo: ["user-b", "user-a"] });
+
+      expect(res.status).toBe(200);
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    });
+
+    it("writes no entry and does not pre-read when assignedTo is omitted", async () => {
+      const res = await patch({ isActive: false });
+
+      expect(res.status).toBe(200);
+      expect(mockPreRead).not.toHaveBeenCalled();
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    });
+
+    it("fails the request when the audit write rejects", async () => {
+      mockBeforeRow = { assignedTo: [] };
+      mockUpdateWorkflow.mockResolvedValue({
+        id: "wf-001",
+        assignedTo: ["user-bbb"],
+      });
+      mockWriteAuditEntry.mockRejectedValue(new Error("audit down"));
+
+      const res = await patch({ assignedTo: ["user-bbb"] });
+
+      expect(res.status).toBe(500);
+    });
   });
 });
