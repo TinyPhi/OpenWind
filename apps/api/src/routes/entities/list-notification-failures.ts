@@ -1,10 +1,14 @@
 import { requireAuth, requireRole } from "@platform/auth";
 import { queryAuditLog } from "@platform/audit";
+import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { entityInstances, withTenantContext } from "@platform/db";
 import { factory } from "./factory.js";
+import { zValidator } from "../../lib/validator.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
+
+const ParamsSchema = z.object({ id: z.string().uuid() });
 
 export const NOTIFICATION_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_FAILURES = 50;
@@ -15,8 +19,9 @@ const MAX_FAILURES = 50;
 export const listNotificationFailuresHandler = factory.createHandlers(
   requireAuth(),
   requireRole("admin", "agent"),
+  zValidator("param", ParamsSchema),
   async (c) => {
-    const id = c.req.param("id") ?? "";
+    const { id } = c.req.valid("param");
     const { tenantId, userId, roles } = c.get("auth");
 
     try {

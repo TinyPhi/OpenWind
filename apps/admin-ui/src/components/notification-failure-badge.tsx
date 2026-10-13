@@ -8,9 +8,11 @@ interface Failure {
 }
 
 function parseFailures(res: unknown): Failure[] {
+  // fetchWithAuth returns unknown; the shape is narrowed row by row below.
   const rows = (res as { data?: { failures?: unknown } }).data?.failures;
   if (!Array.isArray(rows)) return [];
   const failures: Failure[] = [];
+  // rows is unknown (it came off the wire); each field is typeof-checked in the loop.
   for (const row of rows as { channel?: unknown; occurredAt?: unknown }[]) {
     if (typeof row.channel === "string" && typeof row.occurredAt === "string") {
       failures.push({ channel: row.channel, occurredAt: row.occurredAt });
