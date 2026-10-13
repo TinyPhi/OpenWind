@@ -577,6 +577,34 @@ describe("getWorkflowEventLog", () => {
     expect(events[0]?.toState).toBe("in_progress");
   });
 
+  it("never returns the internal mentionIdentifiers map (#769)", async () => {
+    selectResults = [
+      () => [{ id: INSTANCE_ID }],
+      () => [
+        {
+          ...fakeEvent,
+          metadata: {
+            type: "comment",
+            text: "cc @alice.login",
+            mentions: ["u-1"],
+            mentionIdentifiers: { "u-1": ["alice.login"] },
+          },
+        },
+      ],
+    ];
+
+    const events = await getWorkflowEventLog(
+      dbMock as never,
+      TENANT_ID,
+      INSTANCE_ID,
+    );
+    expect(events[0]?.metadata).toEqual({
+      type: "comment",
+      text: "cc @alice.login",
+      mentions: ["u-1"],
+    });
+  });
+
   it("returns empty array when instance not found", async () => {
     selectResults = [() => []];
     const events = await getWorkflowEventLog(

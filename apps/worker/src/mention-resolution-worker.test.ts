@@ -576,6 +576,7 @@ describe("recording resolved mentions for erasure (#689)", () => {
       TENANT_ID,
       COMMENT_ID,
       MENTIONED_USER_ID,
+      MENTIONED_EMAIL,
     );
     expect(mockMentionRecordFailureAdd).not.toHaveBeenCalled();
   });
@@ -589,6 +590,7 @@ describe("recording resolved mentions for erasure (#689)", () => {
       TENANT_ID,
       COMMENT_ID,
       MENTIONED_USER_ID,
+      MENTIONED_EMAIL,
     );
   });
 
@@ -605,10 +607,11 @@ describe("recording resolved mentions for erasure (#689)", () => {
       TENANT_ID,
       COMMENT_ID,
       MENTIONED_USER_ID,
+      MENTIONED_EMAIL,
     );
   });
 
-  it("still records for an unresolved identifier, with an empty id that matches no member", async () => {
+  it("still records for an unresolved identifier, with an empty id and identifier that match no member", async () => {
     selectQueue = [() => [instanceRow]];
     mockOrgUsers = [];
 
@@ -619,6 +622,7 @@ describe("recording resolved mentions for erasure (#689)", () => {
     expect(mockRecordResolvedMention).toHaveBeenCalledWith(
       TENANT_ID,
       COMMENT_ID,
+      "",
       "",
     );
   });

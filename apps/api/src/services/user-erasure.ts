@@ -745,6 +745,43 @@ async function scrubComments(
     });
   }
 
+  // Identifiers the commenters typed for the target (login names, other
+  // address forms), recorded by the mention-resolution worker (#769). A login
+  // name is stored nowhere else in the tenant, so this is the only way to find
+  // it in text. Each one is redacted only in the comments that recorded it,
+  // before pass 1 drops the entry: a login name is a plain word ("admin"), so
+  // it must not be scanned for tenant-wide, nor applied to a comment that
+  // merely mentions the target by another identifier.
+  const recordedAs = sql`CASE WHEN jsonb_typeof(${workflowEvents.metadata} -> 'mentionIdentifiers' -> ${targetUserId}::text) = 'array'
+    THEN ${workflowEvents.metadata} -> 'mentionIdentifiers' -> ${targetUserId}::text
+    ELSE '[]'::jsonb END`;
+  const recorded = await tx.execute<{ alias: string }>(sql`
+    SELECT DISTINCT alias
+    FROM workflow_events,
+      jsonb_array_elements_text(${recordedAs}) AS alias
+    WHERE tenant_id = ${tenantId}
+  `);
+  const known = new Set([email.toLowerCase(), targetUserId]);
+  for (const { alias } of recorded) {
+    const value = alias.trim();
+    if (value.length < 3 || known.has(value.toLowerCase())) continue;
+    known.add(value.toLowerCase());
+    const pattern = `(?<![[:alnum:]._%+-])${escapeRegex(value)}(?![[:alnum:]_-]|\\.[[:alnum:]])`;
+    await tx
+      .update(workflowEvents)
+      .set({
+        metadata: sql`jsonb_set(${workflowEvents.metadata}, '{text}', to_jsonb(regexp_replace(${workflowEvents.metadata} ->> 'text', ${pattern}::text, ${REDACTED}::text, 'gi')))`,
+      })
+      .where(
+        and(
+          eq(workflowEvents.tenantId, tenantId),
+          sql`jsonb_typeof(${workflowEvents.metadata} -> 'text') = 'string'`,
+          sql`jsonb_typeof(${workflowEvents.metadata} -> 'mentionIdentifiers' -> ${targetUserId}::text) = 'array'`,
+          sql`${workflowEvents.metadata} -> 'mentionIdentifiers' -> ${targetUserId}::text ? ${value}::text`,
+        ),
+      );
+  }
+
   const rewriteText = (
     subset: typeof rewrites,
     base: ReturnType<typeof sql>,
@@ -758,7 +795,7 @@ async function scrubComments(
         ELSE ${base} END`;
   };
 
-  const withoutMention = sql`jsonb_set(${workflowEvents.metadata}, '{mentions}', (${workflowEvents.metadata} -> 'mentions') - ${targetUserId}::text)`;
+  const withoutMention = sql`(jsonb_set(${workflowEvents.metadata}, '{mentions}', (${workflowEvents.metadata} -> 'mentions') - ${targetUserId}::text) #- ARRAY['mentionIdentifiers', ${targetUserId}::text])`;
   await tx
     .update(workflowEvents)
     .set({

@@ -45,11 +45,17 @@ const BACKFILL = readFileSync(
   "utf8",
 );
 
-type Meta = { text?: string; mentions?: string[]; type?: string };
+type Meta = {
+  text?: string;
+  mentions?: string[];
+  mentionIdentifiers?: Record<string, string[]>;
+  type?: string;
+};
 
 async function thirdPartyComment(
   tenantId: string,
   text: string,
+  extra: Record<string, unknown> = {},
 ): Promise<string> {
   const [wf] = await db
     .select({ id: workflows.id })
@@ -75,6 +81,7 @@ async function thirdPartyComment(
         text,
         actorType: "api_key",
         actingPersonId: "u-689-author",
+        ...extra,
       },
     })
     .returning({ id: workflowEvents.id });
@@ -231,6 +238,40 @@ beforeAll(async () => {
     afterSecondBackfill[key] = await meta(id);
   }
 
+  // Login names live nowhere but the comment text; the worker records the
+  // identifier the commenter typed (#769).
+  ids["byLogin"] = await thirdPartyComment(
+    TENANT,
+    "cc @alice.login and Alice.Login, plus @bob.login",
+    {
+      mentions: [TARGET, OTHER],
+      mentionIdentifiers: {
+        [TARGET]: ["alice.login", "xy"],
+        [OTHER]: ["bob.login"],
+      },
+    },
+  );
+  // Same word in a comment that never recorded the target: left alone.
+  // Mentions the target, but by another identifier: no alias was recorded for
+  // this comment, so the word stays (the mention itself is still removed).
+  ids["loginOtherComment"] = await thirdPartyComment(
+    TENANT,
+    "ask alice.login about this",
+    { mentions: [TARGET] },
+  );
+  ids["loginUnrecorded"] = await thirdPartyComment(
+    TENANT,
+    "alice.login is a common handle",
+  );
+  ids["loginBystander"] = await thirdPartyComment(
+    BYSTANDER,
+    "cc @alice.login",
+    {
+      mentions: [TARGET],
+      mentionIdentifiers: { [TARGET]: ["alice.login"] },
+    },
+  );
+
   await withTenantContext(TENANT, (tx) =>
     eraseUserFromTenant(tx, TENANT, TARGET),
   );
@@ -326,6 +367,28 @@ describe("erasure redacts third-party mentions (#689)", () => {
     expect((await meta(ids["unmentionedId"] ?? "")).text).toBe(
       `ask [REDACTED] or ${TARGET}-extra, also ${OTHER_EMAIL}`,
     );
+  });
+
+  it("redacts a login name the worker recorded for the target, case-insensitively, and keeps another person's (#769)", async () => {
+    const m = await meta(ids["byLogin"] ?? "");
+    expect(m.text).toBe("cc @[REDACTED] and [REDACTED], plus @bob.login");
+    expect(m.mentions).toEqual([OTHER]);
+    expect(m.mentionIdentifiers).toEqual({ [OTHER]: ["bob.login"] });
+  });
+
+  it("applies a recorded login name only to the comment that recorded it, not to another comment that mentions the target", async () => {
+    const m = await meta(ids["loginOtherComment"] ?? "");
+    expect(m.text).toBe("ask alice.login about this");
+    expect(m.mentions).toEqual([]);
+  });
+
+  it("only scans for a recorded login name in the comments that recorded it", async () => {
+    expect((await meta(ids["loginUnrecorded"] ?? "")).text).toBe(
+      "alice.login is a common handle",
+    );
+    const other = await meta(ids["loginBystander"] ?? "");
+    expect(other.text).toBe("cc @alice.login");
+    expect(other.mentionIdentifiers).toEqual({ [TARGET]: ["alice.login"] });
   });
 
   it("does not touch another tenant's comment", async () => {

@@ -170,7 +170,12 @@ export const mentionResolutionWorker = new Worker<MentionResolutionJob>(
     // no tenant member), so resolution timing stays equal (R5/R6). A failure
     // here only weakens a later erasure, so it must not stop the tag outcome.
     try {
-      await recordResolvedMention(tenantId, commentId, resolved?.userId ?? "");
+      await recordResolvedMention(
+        tenantId,
+        commentId,
+        resolved?.userId ?? "",
+        resolved ? mentionIdentifier : "",
+      );
     } catch (err) {
       mentionRecordFailureTotal.add(1);
       logger.error(
