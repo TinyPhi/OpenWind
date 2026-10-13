@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { fetchUsersShared } from "../../lib/use-users.js";
 import { CoverageGapBadge } from "../../components/coverage-gap-badge.js";
+import { NotificationFailureBadge } from "../../components/notification-failure-badge.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { FieldInput } from "../../components/field-input.js";
 import { userManager } from "../../authProvider.js";
@@ -1596,6 +1597,13 @@ export function CustomerRecordDetail(): React.ReactElement {
     !record.deletedAt &&
     (!record.currentState ||
       (currentStateEntry !== undefined && !currentStateEntry.isTerminal)) &&
+    (currentUserRoles.includes("admin") || currentUserRoles.includes("agent"));
+
+  // Unlike the coverage badge, a failed notification is still worth seeing on a
+  // closed ticket, so only a deleted ticket and a non-staff viewer turn it off.
+  const notificationBadgeEnabled =
+    !!record &&
+    !record.deletedAt &&
     (currentUserRoles.includes("admin") || currentUserRoles.includes("agent"));
 
   // Synthetic transitions for child tickets (direct state changes via PATCH, no workflow engine)
@@ -3713,6 +3721,10 @@ export function CustomerRecordDetail(): React.ReactElement {
                   }
                   assignedTo={record.assignedTo}
                   enabled={coverageBadgeEnabled}
+                />
+                <NotificationFailureBadge
+                  ticketId={record.id}
+                  enabled={notificationBadgeEnabled}
                 />
               </div>
               {record.origin && <OriginDetailLine origin={record.origin} />}

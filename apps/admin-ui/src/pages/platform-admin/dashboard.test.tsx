@@ -5,6 +5,7 @@ import {
   waitFor,
   cleanup,
   fireEvent,
+  within,
 } from "@testing-library/react";
 
 const mockFetchWithAuth = vi.fn(
@@ -27,7 +28,68 @@ vi.mock("../../authProvider.js", () => ({
   },
 }));
 
+// Shallow-mocked: this file tests dashboard.tsx's own wiring (session, sandbox list, stats,
+// detail panel, refresh, logout), not the children's internals, which have their own tests.
+vi.mock("./create-sandbox-modal.js", () => ({
+  CreateSandboxModal: (props: { open: boolean }) =>
+    props.open ? <div>Create sandbox modal open</div> : null,
+}));
+vi.mock("./sandbox-row-actions.js", () => ({
+  SandboxRowActions: (props: { tenantName: string }) => (
+    <div>Row actions for {props.tenantName}</div>
+  ),
+}));
+vi.mock("./activity-timeline.js", () => ({
+  ActivityTimeline: (props: { targetTenantId?: string }) => (
+    <div>Timeline {props.targetTenantId ?? "all"}</div>
+  ),
+}));
+
 const { PlatformAdminDashboard } = await import("./dashboard.js");
+
+const DAY = 86_400_000;
+const ACTIVE = {
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "Acme Sandbox",
+  isSandbox: true,
+  createdAt: "2026-10-01T00:00:00Z",
+  trialStatus: "active",
+  trialEndsAt: new Date(Date.now() + 30 * DAY).toISOString(),
+};
+const EXPIRING = {
+  id: "22222222-2222-4222-8222-222222222222",
+  name: "Beta Sandbox",
+  isSandbox: true,
+  createdAt: "2026-10-02T00:00:00Z",
+  trialStatus: "active",
+  trialEndsAt: new Date(Date.now() + 3 * DAY).toISOString(),
+};
+const EXPIRED = {
+  id: "33333333-3333-4333-8333-333333333333",
+  name: "Gamma Sandbox",
+  isSandbox: true,
+  createdAt: "2026-09-01T00:00:00Z",
+  trialStatus: "expired",
+  trialEndsAt: new Date(Date.now() - 2 * DAY).toISOString(),
+};
+
+function mockSessionThenSandboxes(sandboxes: unknown[]): void {
+  mockFetchWithAuth.mockImplementation((url: string) => {
+    if (url.endsWith("/session")) {
+      return Promise.resolve({
+        data: { userId: "pa-1", displayName: "Ops", email: "ops@openwind.io" },
+      });
+    }
+    return Promise.resolve({ data: sandboxes });
+  });
+}
+
+function statValue(label: string): string | null {
+  const card = screen
+    .getByText(label, { selector: ".stat-title" })
+    .closest(".stat-card");
+  return card?.querySelector(".stat-value")?.textContent ?? null;
+}
 
 describe("PlatformAdminDashboard", () => {
   afterEach(() => {
@@ -36,9 +98,7 @@ describe("PlatformAdminDashboard", () => {
   });
 
   it("loads and displays the platform admin's session identity", async () => {
-    mockFetchWithAuth.mockResolvedValue({
-      data: { userId: "pa-1", displayName: "Ops", email: "ops@openwind.io" },
-    });
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
@@ -46,23 +106,144 @@ describe("PlatformAdminDashboard", () => {
     });
   });
 
-  it("shows an inline error when the session fetch fails", async () => {
-    mockFetchWithAuth.mockRejectedValue(new Error("Could not load session"));
+  it("fetches the sandbox list, never an all-tenants list", async () => {
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeTruthy();
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        "/api/platform-admin/sandboxes",
+      );
+    });
+    expect(
+      mockFetchWithAuth.mock.calls.some(([url]) => url.includes("/tenants")),
+    ).toBe(false);
+  });
+
+  it("shows an empty state when there are no sandboxes", async () => {
+    mockSessionThenSandboxes([]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No sandboxes yet.")).toBeTruthy();
     });
   });
 
-  it("logs out and redirects when the logout button is clicked", async () => {
-    mockFetchWithAuth.mockResolvedValue({
-      data: { userId: "pa-1", displayName: "Ops", email: "ops@openwind.io" },
+  it("lists every sandbox with its row actions menu", async () => {
+    mockSessionThenSandboxes([ACTIVE, EXPIRED]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("Acme Sandbox"));
+    expect(screen.getByText("Gamma Sandbox")).toBeTruthy();
+    expect(screen.getByText("Row actions for Acme Sandbox")).toBeTruthy();
+    expect(screen.getByText("Row actions for Gamma Sandbox")).toBeTruthy();
+  });
+
+  it("summarises sandboxes and trials in the stat cards", async () => {
+    mockSessionThenSandboxes([ACTIVE, EXPIRING, EXPIRED]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() =>
+      screen.getByText("Sandboxes", { selector: ".stat-title" }),
+    );
+    expect(statValue("Sandboxes")).toBe("3");
+    expect(statValue("Active trials")).toBe("2");
+    expect(statValue("Expiring within 7 days")).toBe("1");
+    expect(statValue("Expired")).toBe("1");
+  });
+
+  it("opens the detail panel with that sandbox's timeline on row click, and closes it", async () => {
+    mockSessionThenSandboxes([ACTIVE]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("Acme Sandbox"));
+    fireEvent.click(screen.getByText("Acme Sandbox"));
+
+    const panel = screen.getByRole("dialog", { name: "Acme Sandbox details" });
+    expect(within(panel).getByText(`Timeline ${ACTIVE.id}`)).toBeTruthy();
+
+    fireEvent.click(within(panel).getByLabelText("Close details"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows the global activity timeline", async () => {
+    mockSessionThenSandboxes([]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Timeline all")).toBeTruthy();
     });
+  });
+
+  it("shows an inline error when the sandbox list fails to load", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.endsWith("/session")) {
+        return Promise.resolve({ data: {} });
+      }
+      return Promise.reject(new Error("Could not load sandboxes"));
+    });
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Could not load sandboxes",
+      );
+    });
+  });
+
+  it("opens the create-sandbox modal when the button is clicked", async () => {
+    mockSessionThenSandboxes([]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("No sandboxes yet."));
+    fireEvent.click(screen.getByText("Create sandbox"));
+
+    expect(screen.getByText("Create sandbox modal open")).toBeTruthy();
+  });
+
+  it("re-fetches the list when Refresh is clicked", async () => {
+    mockSessionThenSandboxes([]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("No sandboxes yet."));
+    const callsBefore = mockFetchWithAuth.mock.calls.length;
+    fireEvent.click(screen.getByText("Refresh"));
+
+    await waitFor(() => {
+      expect(mockFetchWithAuth.mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+  });
+
+  it("shows a loading state until the sandbox list arrives", () => {
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? Promise.resolve({ data: {} })
+        : new Promise(() => {}),
+    );
+    render(<PlatformAdminDashboard />);
+
+    expect(screen.getByLabelText("Loading sandboxes")).toBeTruthy();
+    expect(screen.queryByText("No sandboxes yet.")).toBeNull();
+  });
+
+  // PR #842 review E: a failed session fetch is deliberately silent -- the identity banner is
+  // cosmetic and RequirePlatformAdminMfa already validated the session.
+  it("hides the identity banner, with no error, when the session fetch fails", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? Promise.reject(new Error("session down"))
+        : Promise.resolve({ data: [] }),
+    );
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("No sandboxes yet."));
+    expect(screen.queryByText(/Signed in as/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("logs out and redirects when the logout button is clicked", async () => {
+    mockSessionThenSandboxes([]);
     mockLogout.mockResolvedValue({ success: true, redirectTo: "/login" });
-    // jsdom logs "Not implemented: navigation" for the resulting
-    // window.location.href assignment -- expected noise, not a failure; this
-    // test only verifies the handler reads result.redirectTo and attempts it.
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => screen.getByText(/Signed in as Ops/));
@@ -70,6 +251,21 @@ describe("PlatformAdminDashboard", () => {
 
     await waitFor(() => {
       expect(mockLogout).toHaveBeenCalledWith({});
+    });
+  });
+
+  it("shows an inline error when logout fails", async () => {
+    mockSessionThenSandboxes([]);
+    mockLogout.mockRejectedValue(new Error("identity provider unavailable"));
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText(/Signed in as Ops/));
+    fireEvent.click(screen.getByText("Log out"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Logout failed. Please try again.",
+      );
     });
   });
 });

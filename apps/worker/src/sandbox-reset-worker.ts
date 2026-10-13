@@ -45,6 +45,7 @@ import {
   withTenantContext,
   tenants,
   acquireTenantAdvisoryLock,
+  recordPlatformAdminAction,
 } from "@platform/db";
 import {
   entityInstances,
@@ -161,15 +162,19 @@ async function auditOutcome(
   action: "sandbox.reset_completed" | "sandbox.reset_failed",
   metadata: Record<string, unknown>,
 ): Promise<void> {
-  await writeAuditEntry(db, {
-    tenantId: job.data.tenantId,
-    actorId: job.data.requestedBy,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: job.data.tenantId,
-    action,
-    metadata: { jobId: job.id, ...metadata },
-  });
+  // admin_audit_log is RLS-protected and the worker connects as app_user, so the write must
+  // carry the tenant GUC -- on plain `db` the policy rejects it every time.
+  await withTenantContext(job.data.tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId: job.data.tenantId,
+      actorId: job.data.requestedBy,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: job.data.tenantId,
+      action,
+      metadata: { jobId: job.id, ...metadata },
+    }),
+  );
 }
 
 export async function processSandboxResetJob(job: JobLike): Promise<void> {
@@ -302,6 +307,20 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
     }
 
     await auditOutcome(job, "sandbox.reset_completed", { cancelledJobCount });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    // Best-effort (PR #859 review [C]): admin_audit_log above is the authoritative record;
+    // a throw here must not turn a completed reset into a sandbox.reset_failed entry.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.reset",
+      targetTenantId: tenantId,
+    }).catch((err: unknown) => {
+      logger.error(
+        { err, tenantId, jobId: job.id },
+        "sandbox reset: platform-admin audit record failed -- reset already completed",
+      );
+    });
     logger.info({ tenantId }, "sandbox reset: complete");
   } catch (err) {
     const message = err instanceof Error ? err.message : "UNKNOWN";

@@ -28,7 +28,14 @@
  */
 
 import { eq, and, inArray } from "drizzle-orm";
-import { db, tenants, acquireTenantAdvisoryLock } from "@platform/db";
+import {
+  db,
+  tenants,
+  acquireTenantAdvisoryLock,
+  withTenantLifecycleContext,
+  recordPlatformAdminAction,
+  withTenantContext,
+} from "@platform/db";
 import { Worker } from "@platform/telemetry";
 import { logger } from "@platform/logger";
 import { writeAuditEntry } from "@platform/audit";
@@ -46,15 +53,19 @@ async function auditOutcome(
   action: "sandbox.delete_completed" | "sandbox.delete_failed",
   metadata: Record<string, unknown>,
 ): Promise<void> {
-  await writeAuditEntry(db, {
-    tenantId: job.data.tenantId,
-    actorId: job.data.requestedBy,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: job.data.tenantId,
-    action,
-    metadata: { jobId: job.id, ...metadata },
-  });
+  // admin_audit_log is RLS-protected and the worker connects as app_user, so the write must
+  // carry the tenant GUC -- on plain `db` the policy rejects it every time.
+  await withTenantContext(job.data.tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId: job.data.tenantId,
+      actorId: job.data.requestedBy,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: job.data.tenantId,
+      action,
+      metadata: { jobId: job.id, ...metadata },
+    }),
+  );
 }
 
 export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
@@ -118,16 +129,19 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
       }
 
       const now = new Date();
-      const [updated] = await db
-        .update(tenants)
-        .set({ status: "deleted", deletionScheduledAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(tenants.id, tenantId),
-            inArray(tenants.status, ["active", "suspended"]),
-          ),
-        )
-        .returning({ id: tenants.id });
+      // app_user can't change tenants.status (#408); tenant_lifecycle_role can.
+      const [updated] = await withTenantLifecycleContext((tx) =>
+        tx
+          .update(tenants)
+          .set({ status: "deleted", deletionScheduledAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(tenants.id, tenantId),
+              inArray(tenants.status, ["active", "suspended"]),
+            ),
+          )
+          .returning({ id: tenants.id }),
+      );
 
       if (!updated) {
         logger.warn(
@@ -172,6 +186,20 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
     await auditOutcome(job, "sandbox.delete_completed", {
       zitadelOrgId: tenant.zitadelOrgId ?? null,
       zitadelOrgDeleted,
+    });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    // Best-effort (PR #859 review [C]): admin_audit_log above is the authoritative record;
+    // a throw here must not turn a completed delete into a sandbox.delete_failed entry.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.deleted",
+      targetTenantId: tenantId,
+    }).catch((err: unknown) => {
+      logger.error(
+        { err, tenantId, jobId: job.id },
+        "sandbox delete: platform-admin audit record failed -- delete already completed",
+      );
     });
     logger.info({ tenantId }, "sandbox delete: complete");
   } catch (err) {

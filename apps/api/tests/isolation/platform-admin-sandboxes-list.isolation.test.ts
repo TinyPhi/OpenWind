@@ -4,7 +4,7 @@
  * only the platform-admin auth middleware is stubbed (its own tests live in
  * packages/auth). platform-admin-role.isolation.test.ts covers the role's grants directly;
  * this covers the routes: they never surface a non-sandbox tenant, and return only the
- * allow-listed view fields.
+ * allow-listed view fields (trialEndsAt added for R6a's trial editing).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { Hono } from "hono";
@@ -40,7 +40,14 @@ const { sandboxListHandler, sandboxDetailHandler } =
 
 const SANDBOX_TENANT = "eeeeeeee-0191-4000-e000-000000000191";
 const REGULAR_TENANT = "ffffffff-0191-4000-f000-000000000191";
-const VIEW_FIELDS = ["createdAt", "id", "isSandbox", "name", "trialStatus"];
+const VIEW_FIELDS = [
+  "createdAt",
+  "id",
+  "isSandbox",
+  "name",
+  "trialEndsAt",
+  "trialStatus",
+];
 
 function makeApp(): Hono {
   const app = new Hono();

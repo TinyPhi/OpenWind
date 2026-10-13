@@ -24,6 +24,7 @@ export {
   setOutboxSweeperRole,
   setScheduleSweeperRole,
   withPlatformAdminContext,
+  withTenantLifecycleContext,
 } from "./middleware.js";
 export type { DbOrTx } from "./middleware.js";
 export * from "./schema/index.js";
@@ -32,9 +33,18 @@ export { connectorInstallationFilter } from "./connector-credentials.js";
 export { isUniqueViolation, isCheckViolation } from "./errors.js";
 export {
   toPlatformAdminSandboxView,
+  extendSandboxTrial,
+  endSandboxTrial,
   checkSandboxQuota,
   toProvisioningProgressView,
 } from "./platform-admin-view.js";
+export {
+  recordPlatformAdminAction,
+  listPlatformAdminAuditLog,
+  type PlatformAdminAction,
+  type PlatformAdminAuditEntryView,
+  type ListPlatformAdminAuditLogOptions,
+} from "./platform-admin-audit.js";
 export type {
   PlatformAdminSandboxView,
   PlatformAdminSandboxRow,

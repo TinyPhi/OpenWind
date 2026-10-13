@@ -9,6 +9,8 @@ const { mockEnv } = vi.hoisted(() => ({
     ZITADEL_SERVICE_ACCOUNT_KEY: undefined as string | undefined,
     ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY: undefined as string | undefined,
     ZITADEL_PROVISIONING_KEY_JSON: undefined as string | undefined,
+    ZITADEL_PROJECT_ID: undefined as string | undefined,
+    ZITADEL_AUDIENCE: "project-777" as string | undefined,
   },
 }));
 vi.mock("@platform/config", () => ({ env: mockEnv }));
@@ -57,6 +59,8 @@ const {
   createOrg,
   deleteOrg,
   createHumanUser,
+  grantProjectToOrg,
+  authorizeUser,
 } = await import("./zitadel-management.js");
 
 describe("listOrgUsers", () => {
@@ -289,6 +293,38 @@ function queueJsonResponse(status: number, body: unknown): void {
   );
 }
 
+// Like queueJsonResponse, but records the request's path and JSON body so a test can assert
+// exactly what was sent to Zitadel.
+function queueCapturedJsonResponse(
+  status: number,
+  body: unknown,
+): { path?: string; body?: unknown } {
+  const sent: { path?: string; body?: unknown } = {};
+  const response = new EventEmitter() as EventEmitter & { statusCode: number };
+  response.statusCode = status;
+  mockHttpRequest.mockImplementationOnce(
+    (options: { path?: string }, callback: (res: IncomingMessage) => void) => {
+      sent.path = options.path;
+      const req: Partial<ClientRequest> = {
+        setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+        on: vi.fn() as unknown as ClientRequest["on"],
+        write: vi.fn((chunk: string) => {
+          sent.body = JSON.parse(chunk) as unknown;
+          return true;
+        }) as unknown as ClientRequest["write"],
+        end: vi.fn() as unknown as ClientRequest["end"],
+      };
+      queueMicrotask(() => {
+        callback(response as IncomingMessage);
+        response.emit("data", Buffer.from(JSON.stringify(body)));
+        response.emit("end");
+      });
+      return req as ClientRequest;
+    },
+  );
+  return sent;
+}
+
 function setProvisioningKey(): void {
   mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = JSON.stringify({
     type: "serviceaccount",
@@ -319,6 +355,22 @@ function queueFailedIssuerDiscovery(): void {
 }
 
 describe("createOrg", () => {
+  it("logs an explicit error and makes no request when the provisioning key isn't configured", async () => {
+    mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = undefined;
+    mockEnv.ZITADEL_PROVISIONING_KEY_JSON = undefined;
+    mockLoggerError.mockClear();
+    mockHttpRequest.mockClear();
+
+    const result = await createOrg("Acme Sandbox");
+
+    expect(result).toEqual({ ok: false, conflict: false });
+    expect(mockHttpRequest).not.toHaveBeenCalled();
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      {},
+      expect.stringContaining("ZITADEL_PROVISIONING_KEY_JSON"),
+    );
+  });
+
   it("returns the new org id on success", async () => {
     setProvisioningKey();
     queueFailedIssuerDiscovery();
@@ -424,5 +476,105 @@ describe("deleteOrg", () => {
     const result = await deleteOrg("org-123");
 
     expect(result).toBe(false);
+  });
+});
+
+// ── Sandbox sign-in: project grant + role authorizations ────────────────────────
+
+describe("grantProjectToOrg", () => {
+  it("grants the OpenWind project to the org with admin, agent and user roles", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const sent = queueCapturedJsonResponse(200, {
+      creationDate: "2026-10-13T00:00:00Z",
+    });
+
+    await expect(grantProjectToOrg("org-sbx")).resolves.toBe(true);
+
+    expect(sent.path).toBe(
+      "/zitadel.project.v2.ProjectService/CreateProjectGrant",
+    );
+    expect(sent.body).toEqual({
+      projectId: "project-777",
+      grantedOrganizationId: "org-sbx",
+      roleKeys: ["admin", "agent", "user"],
+    });
+  });
+
+  it("treats an already-existing grant as success (a retried provisioning step)", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(409, { code: 6, message: "AlreadyExists" });
+
+    await expect(grantProjectToOrg("org-sbx")).resolves.toBe(true);
+  });
+
+  it("returns false and logs (without the body) when Zitadel refuses", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(403, { message: "permission denied" });
+
+    await expect(grantProjectToOrg("org-sbx")).resolves.toBe(false);
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 403, orgId: "org-sbx" }),
+      expect.stringContaining("project grant failed"),
+    );
+  });
+});
+
+describe("authorizeUser", () => {
+  it("authorizes the user on the project through their org's grant", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    const sent = queueCapturedJsonResponse(200, { id: "authz-1" });
+
+    await expect(authorizeUser("user-1", "org-sbx", ["admin"])).resolves.toBe(
+      true,
+    );
+
+    expect(sent.path).toBe(
+      "/zitadel.authorization.v2.AuthorizationService/CreateAuthorization",
+    );
+    expect(sent.body).toEqual({
+      userId: "user-1",
+      projectId: "project-777",
+      organizationId: "org-sbx",
+      roleKeys: ["admin"],
+    });
+  });
+
+  // Runs with the IAM_ORG_MANAGER provisioning credential: it must never hand out a role
+  // outside the sandbox allowlist, whatever a caller passes.
+  it.each([["superadmin"], ["platform_admin"], []])(
+    "refuses role keys %j without calling Zitadel",
+    async (...roleKeys: string[]) => {
+      mockHttpRequest.mockClear();
+      setProvisioningKey();
+
+      await expect(
+        authorizeUser(
+          "user-1",
+          "org-sbx",
+          // Deliberately outside the typed allowlist to prove the runtime check.
+          roleKeys as unknown as ("admin" | "agent" | "user")[],
+        ),
+      ).resolves.toBe(false);
+      expect(mockHttpRequest).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns false when Zitadel rejects the authorization", async () => {
+    setProvisioningKey();
+    queueFailedIssuerDiscovery();
+    queueJsonResponse(200, { access_token: "ptoken", expires_in: 0 });
+    queueJsonResponse(400, { message: "bad request" });
+
+    await expect(authorizeUser("user-1", "org-sbx", ["user"])).resolves.toBe(
+      false,
+    );
   });
 });

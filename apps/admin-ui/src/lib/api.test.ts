@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type * as SessionExpiry from "./session-expiry.js";
 
 const mockGetUser = vi.fn();
 const mockSilentRefresh = vi.fn();
@@ -10,15 +11,24 @@ vi.mock("../authProvider.js", () => ({
   waitForAuth: () => mockWaitForAuth(),
 }));
 
+// Real 401 classification, spied redirect (the redirect itself is covered in session-expiry.test.ts).
+const mockEndSession = vi.fn((): void => {});
+vi.mock("./session-expiry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof SessionExpiry>()),
+  endSessionAndRedirectToLogin: (): void => mockEndSession(),
+}));
+
 const { fetchRawWithAuth, fetchWithAuth } = await import("./api.js");
 
 function jsonResponse(status: number, body: unknown = {}): Response {
-  return {
+  const res = {
     status,
     ok: status >= 200 && status < 300,
     headers: new Headers(),
     json: () => Promise.resolve(body),
-  } as unknown as Response;
+    clone: () => res,
+  };
+  return res as unknown as Response;
 }
 
 describe("fetchRawWithAuth", () => {
@@ -70,6 +80,30 @@ describe("fetchRawWithAuth", () => {
 
     expect(res.status).toBe(401);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockEndSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not end the session when the retry succeeds", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401))
+      .mockResolvedValueOnce(jsonResponse(200));
+    mockSilentRefresh.mockResolvedValue("refreshed-token");
+
+    await fetchRawWithAuth("/api/export/123");
+
+    expect(mockEndSession).not.toHaveBeenCalled();
+  });
+
+  it("does not end the session on a route-level 401 like a wrong MFA code", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, { error: "INVALID_CODE" }),
+    );
+    mockSilentRefresh.mockResolvedValue(null);
+
+    const res = await fetchRawWithAuth("/api/platform-admin/mfa/verify");
+
+    expect(res.status).toBe(401);
+    expect(mockEndSession).not.toHaveBeenCalled();
   });
 });
 
@@ -95,6 +129,47 @@ describe("fetchWithAuth 401 error shape", () => {
       status: 401,
       isAuthError: true,
     });
+  });
+
+  // docs/specs/multi-org-sandbox.md R1: the API refuses a platform_admin token on tenant
+  // routes with 403. That must stay a plain refusal -- treating it like an expired session
+  // would log the platform admin out of their own dashboard.
+  it("does not refresh or flag an auth error on 403 PLATFORM_ADMIN_TENANT_ACCESS_DENIED", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(403, { error: "PLATFORM_ADMIN_TENANT_ACCESS_DENIED" }),
+    );
+
+    const err: unknown = await fetchWithAuth("/api/entity-types").catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toMatchObject({ status: 403 });
+    expect(err).not.toHaveProperty("isAuthError");
+    expect(mockSilentRefresh).not.toHaveBeenCalled();
+  });
+
+  it("ends the session and redirects to login when the 401 survives the refresh retry", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(401, { error: "UNAUTHORIZED", message: "Invalid token" }),
+    );
+
+    await fetchWithAuth("/api/thing").catch(() => undefined);
+
+    expect(mockEndSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a route-level 401 (wrong MFA code) as a normal error: no logout, no isAuthError", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(401, { error: "INVALID_CODE", message: "Incorrect code" }),
+    );
+
+    const err: unknown = await fetchWithAuth(
+      "/api/platform-admin/mfa/verify",
+    ).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ status: 401, message: "Incorrect code" });
+    expect(err).not.toHaveProperty("isAuthError");
+    expect(mockEndSession).not.toHaveBeenCalled();
   });
 });
 

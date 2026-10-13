@@ -18,6 +18,7 @@ import {
   verifyJwt,
   extractAuthContext,
   extractPlatformAdminContext,
+  isPlatformAdminToken,
 } from "./jwks.js";
 import { introspectToken } from "./introspection.js";
 import type { AuthContext, PlatformAdminAuthContext } from "./types.js";
@@ -447,11 +448,24 @@ async function resolvePlatformAdmin(
   // handles below via fetchUserInfo. Needed here specifically because the MFA email
   // (platform-admin-mfa.ts's requestMfaCode) has nowhere else to get an address from; a
   // platform_admin token has no tenant_users row to fall back to the way a normal user's
-  // does.
-  if (!platformAdmin.email) {
+  // does. The display name has the same gap: extractPlatformAdminContext falls back to the
+  // raw user id when the token carries no name or email, which is what the dashboard's
+  // "Signed in as" line then showed -- so fill it the way requireAuth does (name, then
+  // email). fetchUserInfo is cached per token, so this is one lookup per session token.
+  if (
+    !platformAdmin.email ||
+    platformAdmin.displayName === platformAdmin.userId
+  ) {
     const info = await fetchUserInfo(authHeader.slice(7));
-    if (info?.email) {
-      platformAdmin = { ...platformAdmin, email: info.email };
+    if (info) {
+      platformAdmin = {
+        ...platformAdmin,
+        email: platformAdmin.email ? platformAdmin.email : (info.email ?? ""),
+        displayName:
+          platformAdmin.displayName === platformAdmin.userId
+            ? (info.name ?? info.email ?? platformAdmin.displayName)
+            : platformAdmin.displayName,
+      };
     }
   }
   return platformAdmin;
@@ -650,6 +664,23 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         return c.json({ error: "UNAUTHORIZED", message: "Invalid token" }, 401);
       }
 
+      // R1/R2 (docs/specs/multi-org-sandbox.md): platform_admin is a distinct operator
+      // identity with no tenant. 403, not 401 -- the token is valid, so a 401 would push
+      // the client into a refresh-then-logout loop instead of just refusing this route.
+      if (isPlatformAdminToken(claims)) {
+        logger.warn(
+          { sub: claims.sub, path: c.req.path },
+          "platform_admin token rejected on a tenant route",
+        );
+        return c.json(
+          {
+            error: "PLATFORM_ADMIN_TENANT_ACCESS_DENIED",
+            message: "Platform admin accounts cannot access tenant routes",
+          },
+          403,
+        );
+      }
+
       let auth = extractAuthContext(claims);
       if (!auth) {
         logger.warn(
@@ -666,28 +697,19 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         );
       }
 
-      // In production there is no DEV_TENANT_ID fallback (the Zod schema
-      // forbids it), so extractAuthContext's tenantId is just the raw
-      // Zitadel org id — never a valid `uuid`. Resolve the real tenant via
-      // the zitadel_org_id mapping and fail closed if none exists, rather
-      // than let a malformed tenantId reach any tenant-scoped query.
-      // See docs/specs/tenant-org-id-mapping.md.
-      if (env.NODE_ENV === "production") {
-        const mappedTenantId = auth.orgId
-          ? await lookupTenantIdByOrgId(auth.orgId, db)
-          : null;
-        if (!mappedTenantId) {
-          logger.warn(
-            { orgId: auth.orgId ?? "(missing)" },
-            "No tenant mapped to this Zitadel org — rejecting",
-          );
-          return c.json(
-            { error: "TENANT_NOT_FOUND", message: "Not found" },
-            404,
-          );
-        }
-        auth = { ...auth, tenantId: mappedTenantId };
+      // Resolve the real tenant via the zitadel_org_id mapping (see
+      // resolveTenantIdForAuth and docs/specs/tenant-org-id-mapping.md); in
+      // production an unmapped org fails closed rather than let a raw org id
+      // reach any tenant-scoped query.
+      const resolvedTenantId = await resolveTenantIdForAuth(auth, db);
+      if (!resolvedTenantId) {
+        logger.warn(
+          { orgId: auth.orgId ?? "(missing)" },
+          "No tenant mapped to this Zitadel org — rejecting",
+        );
+        return c.json({ error: "TENANT_NOT_FOUND", message: "Not found" }, 404);
       }
+      auth = { ...auth, tenantId: resolvedTenantId };
 
       // If JWT is missing email or name (e.g. instance admins, tokens issued before
       // "include profile info" was enabled), enrich from the userinfo endpoint.
@@ -898,8 +920,8 @@ export const requireIntrospection = (): MiddlewareHandler =>
  * in-process cache. The tenants table has no RLS, so we query with the plain
  * db instance. Returns status "deleted" if the tenant row does not exist.
  *
- * trialEndsAt is cached as the raw timestamp (immutable once set at
- * provisioning), never as a precomputed "expired" boolean -- R6
+ * trialEndsAt is cached as the raw timestamp (changed only by R6a's trial route,
+ * which invalidates this cache), never as a precomputed "expired" boolean -- R6
  * (docs/specs/multi-org-sandbox.md) requires the expiry comparison itself to
  * run fresh against Date.now() on every call, which isTenantTrialActive does.
  */
@@ -1020,6 +1042,29 @@ function setCachedOrgTenantId(orgId: string, tenantId: string | null): void {
  * null if no tenant is mapped to this org — callers must fail closed, never
  * fall back to another tenant. See docs/specs/tenant-org-id-mapping.md.
  */
+/**
+ * The tenant a Zitadel-authenticated request belongs to. The org the token's user lives in is
+ * mapped to its tenant via tenants.zitadel_org_id, in every environment. Outside production an
+ * unmapped org falls back to extractAuthContext's tenantId (DEV_TENANT_ID when set); in
+ * production an unmapped org resolves to null and callers fail closed.
+ *
+ * The mapping must win even in development: a sandbox org is mapped to its own tenant, and
+ * with only the DEV_TENANT_ID fallback a sandbox admin's token would land in the dev tenant
+ * with admin rights (security review of the sandbox sign-in change). Orgs that are already
+ * mapped to the dev tenant resolve exactly as before.
+ */
+export async function resolveTenantIdForAuth(
+  auth: Pick<AuthContext, "tenantId" | "orgId">,
+  dbHandle?: DbOrTx,
+): Promise<string | null> {
+  const mapped = auth.orgId
+    ? await lookupTenantIdByOrgId(auth.orgId, dbHandle)
+    : null;
+  if (mapped) return mapped;
+  if (env.NODE_ENV === "production") return null;
+  return auth.tenantId;
+}
+
 export async function lookupTenantIdByOrgId(
   orgId: string,
   dbHandle?: DbOrTx,

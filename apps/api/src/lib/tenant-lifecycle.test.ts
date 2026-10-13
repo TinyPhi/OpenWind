@@ -30,12 +30,26 @@ const mockDbUpdate = vi.fn();
 const mockDbInsert = vi.fn();
 const mockDbSelect = vi.fn();
 
+// tenants writes must run inside tenant_lifecycle_role (app_user can't, #405/#408). The
+// lifecycle tx reuses the builder spies so existing assertions hold; plain `db` no longer
+// has them, so a tenants write on the plain connection throws here.
+const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
+  fn({ insert: mockDbInsert, update: mockDbUpdate }),
+);
+// admin_audit_log is RLS-protected: audit writes must go through withTenantContext. This
+// stands in for its transaction so each test can check the write used it, not plain db.
+const mockTenantTx = { tenantTx: true };
+const mockWithTenantContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTenantTx),
+);
 vi.mock("@platform/db", () => ({
   db: {
     select: mockDbSelect,
-    insert: mockDbInsert,
-    update: mockDbUpdate,
   },
+  withTenantLifecycleContext: (fn: (tx: unknown) => unknown) =>
+    mockWithTenantLifecycleContext(fn),
+  withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
+    mockWithTenantContext(...args),
   tenants: {
     id: "tenants.id",
     slug: "tenants.slug",
@@ -134,8 +148,12 @@ describe("provisionTenant", () => {
       modules: { succeeded: ["helpdesk", "crm"], failed: [] },
     });
     expect(writeAuditEntry).toHaveBeenCalledWith(
-      expect.anything(),
+      mockTenantTx,
       expect.objectContaining({ action: "created", tenantId: TENANT_ID }),
+    );
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
     );
   });
 
@@ -195,7 +213,7 @@ describe("suspendTenant", () => {
 
     expect(invalidateTenantStatusCache).toHaveBeenCalledWith(TENANT_ID);
     expect(writeAuditEntry).toHaveBeenCalledWith(
-      expect.anything(),
+      mockTenantTx,
       expect.objectContaining({
         action: "transitioned",
         beforeSnapshot: { status: "active" },
@@ -237,7 +255,7 @@ describe("reactivateTenant", () => {
 
     expect(invalidateTenantStatusCache).toHaveBeenCalledWith(TENANT_ID);
     expect(writeAuditEntry).toHaveBeenCalledWith(
-      expect.anything(),
+      mockTenantTx,
       expect.objectContaining({
         action: "transitioned",
         beforeSnapshot: { status: "suspended" },
@@ -270,8 +288,12 @@ describe("scheduleTenantDeletion", () => {
     expect(result.deletionScheduledAt).toBeInstanceOf(Date);
     expect(invalidateTenantStatusCache).toHaveBeenCalledWith(TENANT_ID);
     expect(writeAuditEntry).toHaveBeenCalledWith(
-      expect.anything(),
+      mockTenantTx,
       expect.objectContaining({ action: "deleted" }),
+    );
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
     );
   });
 

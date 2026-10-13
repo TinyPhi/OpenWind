@@ -282,9 +282,23 @@ export async function verifyJwtForIssuer(
   }
 }
 
+export function isPlatformAdminToken(
+  claims: JWTPayload & ZitadelClaims,
+): boolean {
+  const rolesMap = claims["urn:zitadel:iam:org:project:roles"] ?? {};
+  return Object.keys(rolesMap).includes(PLATFORM_ADMIN_ROLE);
+}
+
 export function extractAuthContext(
   claims: JWTPayload & ZitadelClaims,
 ): AuthContext | null {
+  // R1/R2 (docs/specs/multi-org-sandbox.md): a platform_admin identity never gets a
+  // tenant context -- otherwise every tenant route that only requires a valid token (no
+  // requireRole) serves that tenant's data to it. requireAuth rejects these tokens with a
+  // specific 403 before reaching here; this is the backstop for every other caller
+  // (the notifications WebSocket today).
+  if (isPlatformAdminToken(claims)) return null;
+
   const userId = claims.sub;
   const orgId = claims["urn:zitadel:iam:user:resourceowner:id"];
 
@@ -329,11 +343,10 @@ export function extractPlatformAdminContext(
   claims: JWTPayload & ZitadelClaims,
 ): PlatformAdminAuthContext | null {
   const userId = claims.sub;
-  if (!userId) return null;
+  if (!userId || !isPlatformAdminToken(claims)) return null;
 
   const rolesMap = claims["urn:zitadel:iam:org:project:roles"] ?? {};
   const roles = Object.keys(rolesMap);
-  if (!roles.includes(PLATFORM_ADMIN_ROLE)) return null;
 
   const displayName =
     claims.name ??

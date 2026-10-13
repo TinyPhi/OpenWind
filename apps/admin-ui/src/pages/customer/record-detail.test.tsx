@@ -1228,3 +1228,83 @@ describe("CustomerRecordDetail — coverage-gap badge (T19)", () => {
     expect(currentCalls()).toBe(0);
   });
 });
+
+// docs/specs/oncall-routing.md T33/R18 -- a ticket whose notification failed on
+// a channel in the last 24 hours is flagged for staff.
+describe("CustomerRecordDetail — notification failure badge (T33)", () => {
+  const FAILURES = `/api/entities/${RECORD_ID}/notification-failures`;
+  const failedSms = {
+    data: {
+      failures: [
+        {
+          channel: "sms",
+          occurredAt: new Date(Date.now() - 600_000).toISOString(),
+        },
+      ],
+    },
+  };
+
+  function mockTicket(overrides: Record<string, unknown> = {}): void {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: {
+            ...BASE_RECORD,
+            fields: { subject: "Test ticket" },
+            ...overrides,
+          },
+        });
+      }
+      if (url === FAILURES) return Promise.resolve(failedSms);
+      return Promise.resolve({ data: [] });
+    });
+  }
+  const failureCalls = (): number =>
+    mockFetchWithAuth.mock.calls.filter(([url]) => url === FAILURES).length;
+  async function pageLoaded(): Promise<void> {
+    await screen.findByText(RECORD_ID.slice(0, 8));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+  }
+
+  beforeEach(() => {
+    mockProfileRoles = ["agent"];
+    mockUserId = ADMIN_USER;
+  });
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("shows the failed channel to an agent", async () => {
+    mockTicket();
+
+    renderRecordDetail();
+
+    expect(await screen.findByText(/Notification failed: sms/)).toBeTruthy();
+  });
+
+  it("never asks, and never shows it, for a viewer who is not staff", async () => {
+    mockProfileRoles = ["user"];
+    mockTicket({ createdBy: ADMIN_USER });
+
+    renderRecordDetail();
+
+    await pageLoaded();
+    expect(screen.queryByText(/Notification failed/)).toBeNull();
+    expect(failureCalls()).toBe(0);
+  });
+
+  it("does not ask on a deleted ticket", async () => {
+    mockTicket({ deletedAt: new Date().toISOString() });
+
+    renderRecordDetail();
+
+    await pageLoaded();
+    expect(screen.queryByText(/Notification failed/)).toBeNull();
+    expect(failureCalls()).toBe(0);
+  });
+});

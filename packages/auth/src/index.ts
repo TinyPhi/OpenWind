@@ -7,6 +7,7 @@ export {
   hashApiKey,
   hashApiKeyArgon2,
   lookupTenantIdByOrgId,
+  resolveTenantIdForAuth,
   lookupOrgIdByTenantId,
   API_KEY_DEFAULT_TTL_DAYS,
   API_KEY_ROTATION_OVERLAP_HOURS,
@@ -66,6 +67,9 @@ export {
   createOrg,
   deleteOrg,
   createHumanUser,
+  grantProjectToOrg,
+  authorizeUser,
+  SANDBOX_GRANTED_ROLE_KEYS,
 } from "./zitadel-management.js";
 export type {
   OrgUser,

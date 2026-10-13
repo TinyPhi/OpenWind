@@ -14,6 +14,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — per-ticket notification failure badge (#571)]
+
+### Added
+
+- **`GET /entities/:id/notification-failures`** (agent and admin only): the channels a ticket's
+  on-call notification failed on in the last 24 hours, newest first, with the time of each. It
+  returns only the channel and the time, never the provider's error text, which stays in the
+  admin-only audit log. A ticket the caller cannot see, or another tenant's, is a 404.
+- **"Notification failed" badge** on the ticket detail page for admins and agents, showing the
+  channels and how long ago the latest failure was.
+
+## [Unreleased — platform-admin logout error feedback (#877)]
+
+### Fixed
+
+- **Failed platform-admin logout attempts now show an inline retry message** instead of rejecting
+  silently and leaving the operator without feedback.
+
+---
+
 ## [Unreleased — on-call duration metrics and the resolution SLO alert (#570)]
 
 ### Added
@@ -30,6 +50,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`OncallResolutionSLOBreached` alert**: `resolve_oncall` p99 over 100 ms, measured over 15
   minutes because resolutions only happen when a ticket's team changes and can be hours apart.
 
+---
+
 ## [Unreleased — coverage-gap badge on tickets (#571)]
 
 ### Added
@@ -40,6 +62,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   shown once the ticket has an assignee or has reached a closed state, and the page makes no extra request for anyone who cannot
   see it. It uses the existing `GET /admin/on-call-schedules/current`, cached for a minute, so there
   is no API change. A team whose schedule exists but whose people cannot be resolved is not flagged.
+
+---
 
 ## [Unreleased — scheduler alert rules (#580)]
 

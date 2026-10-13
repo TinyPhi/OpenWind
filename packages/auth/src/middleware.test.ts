@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { AuthContext } from "./types.js";
 import { invalidateTenantStatusCache } from "./tenant-status-cache.js";
 
@@ -105,6 +106,13 @@ vi.mock("./jwks.js", () => ({
   extractAuthContext: (...args: unknown[]) => mockExtractAuthContext(...args),
   extractPlatformAdminContext: (...args: unknown[]) =>
     mockExtractPlatformAdminContext(...args),
+  // Real logic, not a stub: these tests should decide from the token's own roles claim.
+  isPlatformAdminToken: (claims: {
+    "urn:zitadel:iam:org:project:roles"?: Record<string, unknown>;
+  }) =>
+    Object.keys(claims["urn:zitadel:iam:org:project:roles"] ?? {}).includes(
+      "platform_admin",
+    ),
 }));
 
 vi.mock("./platform-admin-mfa.js", () => ({
@@ -311,6 +319,40 @@ describe("requireAuth", () => {
     expect(body).toEqual({ ok: true });
   });
 
+  // docs/specs/multi-org-sandbox.md R1/R2: a platform_admin token used to get a tenant
+  // context here, so any tenant route without requireRole served it tenant data.
+  it("rejects a platform_admin token with 403 before any tenant resolution", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({
+      sub: "pa-1",
+      "urn:zitadel:iam:org:project:roles": { platform_admin: {} },
+    });
+    const handler = vi.fn((c: Context) => c.json({ ok: true }));
+    const app = new Hono();
+    app.get("/test", requireAuth(), handler);
+
+    const res = await get(app, "platform.admin.jwt");
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({
+      error: "PLATFORM_ADMIN_TENANT_ACCESS_DENIED",
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(mockExtractAuthContext).not.toHaveBeenCalled();
+  });
+
+  it("rejects a token holding platform_admin alongside a tenant role (distinct identity, R1)", async () => {
+    mockVerifyJwt.mockResolvedValueOnce({
+      sub: "dual-1",
+      "urn:zitadel:iam:org:project:roles": { admin: {}, platform_admin: {} },
+    });
+    const app = makeApp([requireAuth()]);
+
+    const res = await get(app, "dual.role.jwt");
+
+    expect(res.status).toBe(403);
+    expect(mockExtractAuthContext).not.toHaveBeenCalled();
+  });
+
   // T12 (docs/specs/multi-org-sandbox.md R6): trial expiry must block login,
   // computed fresh every request against Date.now() -- never a precomputed
   // status flag.
@@ -362,21 +404,28 @@ describe("requireAuth", () => {
     });
 
     it("checks expiry fresh on every request rather than caching the expired boolean", async () => {
-      mockTenantRow = {
-        status: "active",
-        trialEndsAt: new Date(Date.now() + 50),
-      };
+      // Only Date is faked, and time is advanced by hand: a real 50ms window
+      // flaked under parallel load when the first request outlasted it.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        mockTenantRow = {
+          status: "active",
+          trialEndsAt: new Date(Date.now() + 1_000),
+        };
 
-      const app = makeApp([requireAuth()]);
-      const res1 = await get(app, "valid.jwt");
-      expect(res1.status).toBe(200);
+        const app = makeApp([requireAuth()]);
+        const res1 = await get(app, "valid.jwt");
+        expect(res1.status).toBe(200);
 
-      // Same cached trialEndsAt timestamp, but enough wall-clock time has
-      // passed that it's now in the past -- must be rejected without
-      // needing invalidateTenantStatusCache to be called in between.
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const res2 = await get(app, "valid.jwt");
-      expect(res2.status).toBe(403);
+        // Same cached trialEndsAt timestamp, but time has moved past it --
+        // must be rejected without needing invalidateTenantStatusCache to be
+        // called in between.
+        vi.setSystemTime(Date.now() + 2_000);
+        const res2 = await get(app, "valid.jwt");
+        expect(res2.status).toBe(403);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -690,6 +739,58 @@ describe("requireAuth", () => {
       // Unaffected by mockTenantRow being unset — the org-lookup branch
       // must not run outside production.
       expect(res.status).toBe(200);
+    });
+  });
+
+  // Security review of the sandbox sign-in change: outside production extractAuthContext puts
+  // DEV_TENANT_ID on every token, so a sandbox admin would land in the dev tenant with admin
+  // rights. The org's own tenant mapping must win whenever it exists.
+  describe("non-production tenant resolution (resolveTenantIdForAuth)", () => {
+    it("uses the tenant mapped from the token's org, not the dev tenant, when one exists", async () => {
+      mockNodeEnv = "development";
+      mockTenantRow = { id: "sandbox-tenant-uuid", status: "active" };
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "sandbox-admin" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        tenantId: "dev-tenant-uuid", // what DEV_TENANT_ID would have produced
+        orgId: "sandbox-org-111",
+      });
+
+      const app = new Hono();
+      app.get("/test", requireAuth(), (c) => c.json(c.get("auth")));
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { tenantId: string };
+      expect(body.tenantId).toBe("sandbox-tenant-uuid");
+    });
+
+    it("falls back to the token's (dev) tenant when the org is not mapped", async () => {
+      mockNodeEnv = "development";
+      // First select is the org -> tenant lookup (no mapping); the shared row then answers
+      // the dev tenant's status check as active.
+      mockTenantRow = { status: "active" };
+      mockModuleDbSelect.mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([])),
+          })),
+        })),
+      }));
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        tenantId: "dev-tenant-uuid",
+        orgId: "unmapped-org-222",
+      });
+
+      const app = new Hono();
+      app.get("/test", requireAuth(), (c) => c.json(c.get("auth")));
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { tenantId: string };
+      expect(body.tenantId).toBe("dev-tenant-uuid");
     });
   });
 
@@ -1550,6 +1651,104 @@ describe("requirePlatformAdminIdentity", () => {
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ email: "pa@real.com" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  function appReturningPlatformAdmin(): Hono<{
+    Variables: { platformAdmin: typeof PLATFORM_ADMIN_CTX };
+  }> {
+    const app = new Hono<{
+      Variables: { platformAdmin: typeof PLATFORM_ADMIN_CTX };
+    }>();
+    app.get("/test", requirePlatformAdminIdentity(), (c) =>
+      c.json(c.get("platformAdmin")),
+    );
+    return app;
+  }
+
+  it("fills the display name from userinfo when the token only gives the user id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ name: "Tushar Sharma", email: "pa@real.com" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce({
+        ...PLATFORM_ADMIN_CTX,
+        email: "",
+        displayName: "pa-user-1",
+      });
+      const res = await appReturningPlatformAdmin().request("/test", {
+        headers: { Authorization: "Bearer token-without-name" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        displayName: "Tushar Sharma",
+        email: "pa@real.com",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls back to the userinfo email when userinfo has no name either", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ email: "pa@real.com" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce({
+        ...PLATFORM_ADMIN_CTX,
+        displayName: "pa-user-1",
+      });
+      const res = await appReturningPlatformAdmin().request("/test", {
+        headers: { Authorization: "Bearer token-email-only-userinfo" },
+      });
+      expect(await res.json()).toMatchObject({
+        displayName: "pa@real.com",
+        email: PLATFORM_ADMIN_CTX.email,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not call userinfo when the token already has a name and email", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+      const res = await appReturningPlatformAdmin().request("/test", {
+        headers: { Authorization: "Bearer token-with-profile" },
+      });
+      expect(await res.json()).toMatchObject({ displayName: "Ops" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the user id as the name when userinfo fails, without failing the request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce({
+        ...PLATFORM_ADMIN_CTX,
+        displayName: "pa-user-1",
+      });
+      const res = await appReturningPlatformAdmin().request("/test", {
+        headers: { Authorization: "Bearer token-userinfo-down" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ displayName: "pa-user-1" });
     } finally {
       vi.unstubAllGlobals();
     }

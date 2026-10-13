@@ -49,13 +49,22 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { Worker } from "@platform/telemetry";
-import { db, tenants, sandboxProvisioningJobs } from "@platform/db";
+import {
+  db,
+  tenants,
+  sandboxProvisioningJobs,
+  withTenantLifecycleContext,
+  recordPlatformAdminAction,
+  withTenantContext,
+} from "@platform/db";
 import { eq } from "drizzle-orm";
 import { writeAuditEntry } from "@platform/audit";
 import {
   createOrg,
   deleteOrg,
   createHumanUser,
+  grantProjectToOrg,
+  authorizeUser,
   generateSandboxOrgTemplate,
   nextEmailCandidate,
   storeSandboxHandoverCredentials,
@@ -187,15 +196,20 @@ async function auditOutcome(
   action: "sandbox.provisioning_completed" | "sandbox.provisioning_failed",
   metadata: Record<string, unknown>,
 ): Promise<void> {
-  await writeAuditEntry(db, {
-    tenantId,
-    actorId: job.data.requestedBy,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: tenantId,
-    action,
-    metadata: { jobId: job.id, ...metadata },
-  });
+  // admin_audit_log is RLS-protected and the worker connects as app_user, so the write must
+  // carry the tenant GUC -- on plain `db` the policy rejects it every time. Works even after
+  // a rollback deleted the tenant row: the policy only compares tenant_id, there is no FK.
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId: job.data.requestedBy,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action,
+      metadata: { jobId: job.id, ...metadata },
+    }),
+  );
 }
 
 export async function processSandboxProvisioningJob(
@@ -241,6 +255,16 @@ export async function processSandboxProvisioningJob(
       throw new Error("SANDBOX_ORG_CREATE_FAILED");
     }
     zitadelOrgId = org.orgId;
+
+    // R3 sign-in: the OpenWind project belongs to the main org, and Zitadel refuses sign-in
+    // (APP-asb43) for a user with no grant on it. Grant the project to the sandbox org first,
+    // so every seeded account can be authorized on it below. Failing here rolls the sandbox
+    // back -- a sandbox nobody can sign into is useless.
+    await updateJobProgress(jobId, { currentStep: "granting_access" });
+    if (!(await grantProjectToOrg(org.orgId))) {
+      throw new Error("SANDBOX_PROJECT_GRANT_FAILED");
+    }
+
     await updateJobProgress(jobId, {
       currentStep: "creating_tenant",
       completedSteps: 1,
@@ -251,21 +275,24 @@ export async function processSandboxProvisioningJob(
       now.getTime() + trialDays * 24 * 60 * 60 * 1000,
     );
 
-    const [tenantRow] = await db
-      .insert(tenants)
-      .values({
-        id: tenantId,
-        name: orgName,
-        slug: slugify(orgName),
-        status: "active",
-        zitadelOrgId: org.orgId,
-        isSandbox: true,
-        trialEndsAt,
-        createdByPlatformAdmin: requestedBy,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: tenants.id });
+    // app_user can't insert tenants (#405); tenant_lifecycle_role (migration 0143) can.
+    const [tenantRow] = await withTenantLifecycleContext((tx) =>
+      tx
+        .insert(tenants)
+        .values({
+          id: tenantId,
+          name: orgName,
+          slug: slugify(orgName),
+          status: "active",
+          zitadelOrgId: org.orgId,
+          isSandbox: true,
+          trialEndsAt,
+          createdByPlatformAdmin: requestedBy,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: tenants.id }),
+    );
 
     if (!tenantRow) {
       throw new Error("SANDBOX_TENANT_INSERT_FAILED");
@@ -287,6 +314,10 @@ export async function processSandboxProvisioningJob(
     if (!admin) {
       throw new Error("SANDBOX_ADMIN_ACCOUNT_CREATE_FAILED");
     }
+    // The one admin gets the admin role; without it the handed-over account can't sign in.
+    if (!(await authorizeUser(admin.userId, org.orgId, ["admin"]))) {
+      throw new Error("SANDBOX_ADMIN_AUTHORIZATION_FAILED");
+    }
 
     const seededAccounts: { email: string; role: "admin" | "member" }[] = [
       { email: admin.email, role: "admin" },
@@ -300,14 +331,25 @@ export async function processSandboxProvisioningJob(
         defaultPassword,
         domain,
       );
-      if (account) {
+      // Every other seeded account is a plain user. One that can't be authorized can't sign
+      // in either, so it counts as failed (and is left out of the handover list) rather than
+      // failing the whole sandbox.
+      const authorized =
+        account !== null &&
+        (await authorizeUser(account.userId, org.orgId, ["user"]));
+      if (account && authorized) {
         seededAccountCount++;
         seededAccounts.push({ email: account.email, role: "member" });
       } else {
         failedAccountCount++;
         logger.warn(
-          { tenantId, orgId: org.orgId, member: member.emailLocalPart },
-          "sandbox provisioning: member account creation failed after retries — continuing",
+          {
+            tenantId,
+            orgId: org.orgId,
+            member: member.emailLocalPart,
+            created: account !== null,
+          },
+          "sandbox provisioning: member account creation or authorization failed — continuing",
         );
       }
       await updateJobProgress(jobId, {
@@ -395,6 +437,20 @@ export async function processSandboxProvisioningJob(
       seededAccountCount,
       failedAccountCount,
     });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    // Best-effort (PR #859 review [C]): admin_audit_log above is the authoritative record.
+    // A throw here would reach the catch below and roll back a sandbox that was fully built.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.created",
+      targetTenantId: tenantId,
+    }).catch((err: unknown) => {
+      logger.error(
+        { err, tenantId, jobId },
+        "sandbox provisioning: platform-admin audit record failed -- sandbox kept",
+      );
+    });
 
     return {
       tenantId,
@@ -439,9 +495,17 @@ export async function processSandboxProvisioningJob(
       }
     }
     if (rolledBack && tenantInserted) {
+      // The job row's result_tenant_id references this tenant (FK, no ON DELETE action), so
+      // clear it first or the delete below fails and leaves an orphaned sandbox tenant.
       await db
-        .delete(tenants)
-        .where(eq(tenants.id, tenantId))
+        .update(sandboxProvisioningJobs)
+        .set({ resultTenantId: null, updatedAt: new Date() })
+        .where(eq(sandboxProvisioningJobs.id, jobId))
+        .then(() =>
+          withTenantLifecycleContext((tx) =>
+            tx.delete(tenants).where(eq(tenants.id, tenantId)),
+          ),
+        )
         .catch((deleteErr: unknown) => {
           rolledBack = false;
           logger.error(
