@@ -402,7 +402,20 @@ async function getProvisioningAccessToken(): Promise<string | null> {
     return _cachedProvisioningToken;
 
   const keyConfig = parseProvisioningServiceAccountKey();
-  if (!keyConfig) return null;
+  if (!keyConfig) {
+    // A malformed key is already logged by the parser; an absent one used to make
+    // createOrg/createHumanUser/deleteOrg fail with nothing in the logs.
+    if (
+      !env.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY &&
+      !env.ZITADEL_PROVISIONING_KEY_JSON
+    ) {
+      logger.error(
+        {},
+        "Sandbox provisioning key not configured -- set ZITADEL_PROVISIONING_KEY_JSON (base64) or ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY",
+      );
+    }
+    return null;
+  }
 
   try {
     const exportedKey = keyConfig.key.includes("BEGIN PRIVATE KEY")

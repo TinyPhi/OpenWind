@@ -59,8 +59,13 @@ export function PlatformAdminDashboard(): React.ReactElement {
   }, [refresh]);
 
   async function handleLogout(): Promise<void> {
-    const result = await authProvider.logout({});
-    if (result.redirectTo) window.location.href = result.redirectTo;
+    setError(null);
+    try {
+      const result = await authProvider.logout({});
+      if (result.redirectTo) window.location.href = result.redirectTo;
+    } catch {
+      setError("Logout failed. Please try again.");
+    }
   }
 
   return (

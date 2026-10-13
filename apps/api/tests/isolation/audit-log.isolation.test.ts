@@ -197,3 +197,97 @@ describe("admin_audit_log — write restriction (append-only, Finding 1)", () =>
     ).rejects.toMatchObject({ cause: { code: "42501" } });
   });
 });
+
+// ── Cursor pagination over equal created_at ───────────────────────────────────
+
+const TENANT_TIE = "cccccccc-2222-4000-c000-000000000003";
+const TENANT_OTHER = "dddddddd-2222-4000-d000-000000000004";
+
+describe("queryAuditLog — cursor pagination with equal created_at", () => {
+  const sameInstant = new Date("2026-01-01T00:00:00.000Z");
+  const row = (tenantId: string) => ({
+    tenantId,
+    actorId: "system",
+    actorType: "system" as const,
+    resourceType: "ticket",
+    resourceId: RESOURCE_ID_A,
+    action: "created" as const,
+    createdAt: sameInstant,
+  });
+
+  beforeAll(async () => {
+    await db
+      .insert(adminAuditLog)
+      .values([
+        row(TENANT_TIE),
+        row(TENANT_TIE),
+        row(TENANT_TIE),
+        row(TENANT_OTHER),
+      ]);
+  });
+
+  afterAll(async () => {
+    await db
+      .delete(adminAuditLog)
+      .where(eq(adminAuditLog.tenantId, TENANT_TIE));
+    await db
+      .delete(adminAuditLog)
+      .where(eq(adminAuditLog.tenantId, TENANT_OTHER));
+  });
+
+  it("returns every row exactly once when paging one at a time", async () => {
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const result = await withTenantContext(TENANT_TIE, (tx) =>
+        queryAuditLog(tx, { tenantId: TENANT_TIE, limit: 1, cursor }),
+      );
+      seen.push(...result.entries.map((e) => e.id));
+      if (result.nextCursor === null) break;
+      cursor = result.nextCursor;
+    }
+    expect(seen).toHaveLength(3);
+    expect(new Set(seen).size).toBe(3);
+  });
+
+  it("does not skip rows that differ only in microseconds", async () => {
+    const tenant = "eeeeeeee-2222-4000-e000-000000000005";
+    try {
+      for (const micros of ["123900", "123456", "123100"]) {
+        await db.execute(sql`
+          INSERT INTO admin_audit_log
+            (tenant_id, actor_id, actor_type, resource_type, resource_id, action, created_at)
+          VALUES (${tenant}, 'system', 'system', 'ticket', ${RESOURCE_ID_A}, 'created',
+                  ${"2026-01-02 00:00:00." + micros + "+00"}::timestamptz)`);
+      }
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const result = await withTenantContext(tenant, (tx) =>
+          queryAuditLog(tx, { tenantId: tenant, limit: 1, cursor }),
+        );
+        seen.push(...result.entries.map((e) => e.id));
+        if (result.nextCursor === null) break;
+        cursor = result.nextCursor;
+      }
+      expect(new Set(seen).size).toBe(3);
+    } finally {
+      await db.delete(adminAuditLog).where(eq(adminAuditLog.tenantId, tenant));
+    }
+  });
+
+  it("ignores a cursor id that belongs to another tenant", async () => {
+    const [foreign] = await db
+      .select({ id: adminAuditLog.id })
+      .from(adminAuditLog)
+      .where(eq(adminAuditLog.tenantId, TENANT_OTHER));
+    const result = await withTenantContext(TENANT_TIE, (tx) =>
+      queryAuditLog(tx, {
+        tenantId: TENANT_TIE,
+        limit: 10,
+        cursor: foreign?.id,
+      }),
+    );
+    expect(result.entries).toHaveLength(3);
+  });
+});
