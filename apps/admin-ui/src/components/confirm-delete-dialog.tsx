@@ -21,6 +21,13 @@ import {
  * "Delete workflow" case used one), and custom confirm/busy labels (only
  * "Delete workflow" needed "Delete Workflow"/"Deleting…" instead of the
  * generic "Delete"/"Deleting…").
+ *
+ * `busy`/`busyLabel` only show while the caller keeps the dialog OPEN during the work.
+ * AlertDialogAction (Radix) fires onOpenChange(false) synchronously on click, so a caller that
+ * closes the dialog from onConfirm and then awaits a request never renders the busy state --
+ * the dialog is already gone. Such callers should omit `busy` (it defaults to false), disable
+ * their own trigger while the request runs, and report failures via showAlert (see
+ * pages/platform-admin/sandbox-row-actions.tsx and pages/api-keys/detail.tsx).
  */
 
 export interface ConfirmDeleteDialogProps {
@@ -30,7 +37,8 @@ export interface ConfirmDeleteDialogProps {
   errorMessage?: string | null;
   confirmLabel?: string;
   busyLabel?: string;
-  busy: boolean;
+  /** See the component doc: only meaningful while the dialog stays open during the work. */
+  busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -42,7 +50,7 @@ export function ConfirmDeleteDialog({
   errorMessage,
   confirmLabel = "Delete",
   busyLabel = "Deleting…",
-  busy,
+  busy = false,
   onConfirm,
   onCancel,
 }: ConfirmDeleteDialogProps): React.ReactElement {

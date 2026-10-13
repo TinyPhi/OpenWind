@@ -138,6 +138,64 @@ describe("CreateSandboxModal", () => {
     );
   });
 
+  // PR #842 review B: the handover endpoint is one-time. The server keeps answering
+  // "completed" for a finished job, so this mock does too, and further poll intervals are
+  // allowed to elapse -- the handover must still be fetched exactly once.
+  it("fetches the one-time handover exactly once, even after more poll intervals", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url.endsWith("/sandboxes")) {
+        return Promise.resolve({ data: { jobId: "job-1" } });
+      }
+      if (url.endsWith("/progress")) {
+        return Promise.resolve({
+          data: {
+            status: "completed",
+            currentStep: null,
+            completedSteps: 7,
+            totalSteps: 7,
+            error: null,
+          },
+        });
+      }
+      return Promise.resolve({
+        data: {
+          tenantId: "t1",
+          seededAccounts: [{ email: "admin@example.com", role: "admin" }],
+          defaultPassword: "Ow-abc-9!",
+        },
+      });
+    });
+    renderModal();
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme" },
+    });
+    fireEvent.click(screen.getByText("Create sandbox"));
+
+    await waitFor(() => screen.getByText("Sandbox ready"));
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const urls = mockFetchWithAuth.mock.calls.map(([url]) => url);
+    expect(urls.filter((u) => u.endsWith("/handover"))).toHaveLength(1);
+    expect(mockFetchWithAuth).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not submit a fractional trial length", () => {
+    renderModal();
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme" },
+    });
+    fireEvent.change(screen.getByLabelText("Trial length (days)"), {
+      target: { value: "1.5" },
+    });
+
+    expect(screen.getByText("Create sandbox").closest("button")?.disabled).toBe(
+      true,
+    );
+    expect(
+      screen.getByLabelText("Trial length (days)").getAttribute("step"),
+    ).toBe("1");
+  });
+
   it("calls onCreated when Done is clicked on the handover screen", async () => {
     mockFetchWithAuth.mockResolvedValueOnce({ data: { jobId: "job-1" } });
     mockFetchWithAuth.mockResolvedValueOnce({
