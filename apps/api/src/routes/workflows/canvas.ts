@@ -9,6 +9,10 @@ import { logger } from "@platform/logger";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
+import {
+  auditTransitionRoleChanges,
+  type TransitionRoleChange,
+} from "../../lib/audit-workflow-access.js";
 
 const NEW_PREFIX = "__new_";
 
@@ -194,20 +198,39 @@ export const canvasSaveHandler = factory.createHandlers(
           ),
         );
 
+        const roleChanges: TransitionRoleChange[] = [];
+
         if (newTransitions.length > 0) {
-          await tx.insert(workflowTransitions).values(
-            newTransitions.map((t) => ({
-              tenantId,
-              workflowId,
+          const inserted = await tx
+            .insert(workflowTransitions)
+            .values(
+              newTransitions.map((t) => ({
+                tenantId,
+                workflowId,
+                fromState: t.fromState,
+                toState: t.toState,
+                label: t.label || null,
+                allowedRoles: t.allowedRoles,
+                conditions: null,
+                requiresComment: t.requiresComment,
+                requiresFields: t.requiresFields,
+              })),
+            )
+            .returning({
+              id: workflowTransitions.id,
+              fromState: workflowTransitions.fromState,
+              toState: workflowTransitions.toState,
+              allowedRoles: workflowTransitions.allowedRoles,
+            });
+          for (const t of inserted) {
+            roleChanges.push({
+              transitionId: t.id,
               fromState: t.fromState,
               toState: t.toState,
-              label: t.label || null,
-              allowedRoles: t.allowedRoles,
-              conditions: null,
-              requiresComment: t.requiresComment,
-              requiresFields: t.requiresFields,
-            })),
-          );
+              before: null,
+              after: t.allowedRoles,
+            });
+          }
         }
 
         // fromState/toState are included so the DB reflects the authoritative shape.
@@ -235,6 +258,37 @@ export const canvasSaveHandler = factory.createHandlers(
               ),
           ),
         );
+
+        const priorTransitions = new Map(
+          current.transitions.map((t) => [t.id, t]),
+        );
+        for (const id of deletedTransitionIds) {
+          const prior = priorTransitions.get(id);
+          if (!prior) continue;
+          roleChanges.push({
+            transitionId: id,
+            fromState: prior.fromState,
+            toState: prior.toState,
+            before: prior.allowedRoles,
+            after: null,
+          });
+        }
+        for (const t of existingTransitions) {
+          const prior = priorTransitions.get(t.id);
+          roleChanges.push({
+            transitionId: t.id,
+            fromState: t.fromState,
+            toState: t.toState,
+            before: prior?.allowedRoles ?? [],
+            after: t.allowedRoles,
+          });
+        }
+        await auditTransitionRoleChanges(tx, {
+          tenantId,
+          actorId: caller.userId,
+          workflowId,
+          changes: roleChanges,
+        });
 
         logger.info(
           {

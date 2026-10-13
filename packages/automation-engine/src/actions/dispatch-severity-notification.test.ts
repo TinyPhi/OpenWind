@@ -33,6 +33,7 @@ const dbMock = {
   }),
   insert: (table: unknown) => ({
     values: (values: { channel?: string }) => {
+      onInsert?.();
       if (
         table === "notifications_table" &&
         values.channel &&
@@ -67,8 +68,11 @@ vi.mock("@platform/audit", () => ({
   writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
 }));
 
+let onInsert: (() => void) | undefined;
 const mockQueueAdd = vi.fn().mockResolvedValue(undefined);
 const mockCounterAdd = vi.fn();
+const mockDispatchDurationRecord = vi.fn();
+const mockPolicyMatchAdd = vi.fn();
 vi.mock("@platform/telemetry", () => ({
   Queue: class {
     add(...args: unknown[]) {
@@ -80,6 +84,12 @@ vi.mock("@platform/telemetry", () => ({
   },
   notificationDispatchTotal: {
     add: (...args: unknown[]) => mockCounterAdd(...args),
+  },
+  notificationDispatchDurationSeconds: {
+    record: (...args: unknown[]) => mockDispatchDurationRecord(...args),
+  },
+  notificationPolicyMatchTotal: {
+    add: (...args: unknown[]) => mockPolicyMatchAdd(...args),
   },
 }));
 
@@ -109,6 +119,9 @@ describe("executeDispatchSeverityNotificationAction", () => {
     mockWriteAuditEntry.mockClear();
     mockQueueAdd.mockClear();
     mockCounterAdd.mockClear();
+    mockDispatchDurationRecord.mockClear();
+    mockPolicyMatchAdd.mockClear();
+    onInsert = undefined;
   });
 
   it("dispatches to the assignee on entity.created with severity set, falling back to the hardcoded email-only default when no policy matches", async () => {
@@ -374,5 +387,129 @@ describe("executeDispatchSeverityNotificationAction", () => {
 
     expect(insertedRows).toHaveLength(0);
     expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+  });
+
+  describe("dispatch duration histogram and policy match counter (#570 T39)", () => {
+    const event: TriggerEvent = {
+      version: 1,
+      tenantId: TENANT_ID,
+      eventType: "entity.created",
+      instanceId: INSTANCE_ID,
+      entityTypeId: "et-1",
+      fields: { severity: "high" },
+      createdBy: "u-creator",
+    };
+    const run = (redis = redisMock()) =>
+      executeDispatchSeverityNotificationAction(
+        dbMock as never,
+        TENANT_ID,
+        event,
+        {},
+        redis,
+      );
+    const policy = (over: Record<string, unknown>) => ({
+      id: "policy-1",
+      teamId: null,
+      workflowTypeId: null,
+      channels: ["email"],
+      notifyBackup: false,
+      notifyEscalationManager: false,
+      ...over,
+    });
+
+    beforeEach(() => {
+      entityRow = { assignedTo: "u-assignee", workflowId: null, fields: {} };
+    });
+
+    it.each([
+      ["no policy matches", [], "hardcoded_default"],
+      ["a global policy matches", [policy({})], "global"],
+      ["a team policy matches", [policy({ teamId: "team-1" })], "team"],
+      [
+        "a workflow policy matches",
+        [policy({ workflowTypeId: "wf-1" })],
+        "workflow",
+      ],
+      [
+        "a team and workflow policy matches",
+        [policy({ teamId: "team-1", workflowTypeId: "wf-1" })],
+        "team_workflow",
+      ],
+    ])(
+      "counts the policy match once, labelled matched_at, when %s",
+      async (_label, candidates, expected) => {
+        policyCandidates = candidates as typeof policyCandidates;
+
+        await run();
+
+        expect(mockPolicyMatchAdd).toHaveBeenCalledTimes(1);
+        expect(mockPolicyMatchAdd).toHaveBeenCalledWith(1, {
+          matched_at: expected,
+        });
+      },
+    );
+
+    it("does not count a policy match for an idempotent replay", async () => {
+      await run(redisMock(null));
+
+      expect(mockPolicyMatchAdd).not.toHaveBeenCalled();
+      expect(mockDispatchDurationRecord).not.toHaveBeenCalled();
+    });
+
+    it("does not count a policy match when there is no recipient to send to", async () => {
+      entityRow = { assignedTo: null, workflowId: null, fields: {} };
+
+      await run();
+
+      expect(mockPolicyMatchAdd).not.toHaveBeenCalled();
+    });
+
+    it("records one duration per channel, labelled by channel only, for an ok and a failed channel", async () => {
+      policyCandidates = [policy({ channels: ["email", "sms"] })];
+      failChannelsOnInsert = new Set(["sms"]);
+
+      await run();
+
+      expect(mockDispatchDurationRecord).toHaveBeenCalledTimes(2);
+      const byChannel = new Map(
+        mockDispatchDurationRecord.mock.calls.map((c) => [
+          (c[1] as { channel: string }).channel,
+          c as [number, Record<string, unknown>],
+        ]),
+      );
+      expect([...byChannel.keys()].sort()).toEqual(["email", "sms"]);
+      for (const [seconds, attrs] of byChannel.values()) {
+        expect(seconds).toBeGreaterThanOrEqual(0);
+        expect(Object.keys(attrs)).toEqual(["channel"]);
+      }
+      // The counter and the histogram agree on which channels were attempted.
+      expect(mockCounterAdd).toHaveBeenCalledTimes(2);
+    });
+
+    it("times each channel separately, over the same work whether it succeeds or fails", async () => {
+      let now = 1_000;
+      const spy = vi.spyOn(performance, "now").mockImplementation(() => now);
+      try {
+        onInsert = () => {
+          now += 100;
+        };
+        policyCandidates = [policy({ channels: ["email", "sms"] })];
+        failChannelsOnInsert = new Set(["sms"]);
+
+        await run();
+
+        const seconds = Object.fromEntries(
+          mockDispatchDurationRecord.mock.calls.map((c) => [
+            (c[1] as { channel: string }).channel,
+            c[0] as number,
+          ]),
+        );
+        // email makes two inserts (notification, recipient), sms one that rejects.
+        expect(seconds["email"]).toBeCloseTo(0.2, 6);
+        expect(seconds["sms"]).toBeCloseTo(0.1, 6);
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 });

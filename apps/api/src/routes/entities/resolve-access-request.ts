@@ -13,6 +13,10 @@ import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
+import {
+  auditAccessChange,
+  readAccessEntry,
+} from "../../lib/audit-access-change.js";
 
 const ResolveAccessRequestSchema = z.object({
   action: z.enum(["approve", "reject"]),
@@ -37,6 +41,7 @@ export const resolveAccessRequestHandler = factory.createHandlers(
             createdBy: entityInstances.createdBy,
             assignedTo: entityInstances.assignedTo,
             workflowId: entityInstances.workflowId,
+            fields: entityInstances.fields,
           })
           .from(entityInstances)
           .where(
@@ -159,6 +164,17 @@ export const resolveAccessRequestHandler = factory.createHandlers(
                 eq(entityInstances.tenantId, tenantId),
               ),
             );
+
+          await auditAccessChange(tx, {
+            tenantId,
+            actorId: userId,
+            instanceId: id,
+            targetUserId: req.requesterId,
+            before: readAccessEntry(instance.fields, req.requesterId),
+            after: { level: grantedLevel, tag: "manual" },
+            via: "access_request",
+            requestId: reqId,
+          });
         }
 
         return true;

@@ -112,6 +112,14 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   // Same reasoning as sandbox.reset_completed/.failed above.
   "sandbox.delete_completed": true,
   "sandbox.delete_failed": true,
+  // Record permission changes the caller was already entitled to make (the
+  // route's role/ownership check passed first); a refused attempt is a plain
+  // 403/404 at the route layer and is never audited as one of these.
+  "access.granted": true,
+  "access.updated": true,
+  "access.revoked": true,
+  "workflow.admins_updated": true,
+  "workflow.transition_roles_updated": true,
 };
 
 // Object.keys() widens to string[] -- safe to narrow back since

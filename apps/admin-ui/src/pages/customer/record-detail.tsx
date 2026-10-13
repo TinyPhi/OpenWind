@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { fetchUsersShared } from "../../lib/use-users.js";
+import { CoverageGapBadge } from "../../components/coverage-gap-badge.js";
 import { useEntityTypes, toTypeSlug } from "../../entity-type-context.js";
 import { FieldInput } from "../../components/field-input.js";
 import { userManager } from "../../authProvider.js";
@@ -1586,6 +1587,21 @@ export function CustomerRecordDetail(): React.ReactElement {
     },
   ];
   const effectiveStates = isChildTicket ? CHILD_TICKET_STATES : allStates;
+
+  // The coverage-gap badge is for a ticket that still needs routing, so it is off
+  // for a deleted ticket and for one in a terminal state. A ticket with a state
+  // we cannot yet find in the workflow's states (still loading, or the lookup
+  // failed) is treated as unknown and also gets no badge, so a closed ticket
+  // never flashes one while the states load.
+  const currentStateEntry = effectiveStates.find(
+    (st) => st.name === record?.currentState,
+  );
+  const coverageBadgeEnabled =
+    !!record &&
+    !record.deletedAt &&
+    (!record.currentState ||
+      (currentStateEntry !== undefined && !currentStateEntry.isTerminal)) &&
+    (currentUserRoles.includes("admin") || currentUserRoles.includes("agent"));
 
   // Synthetic transitions for child tickets (direct state changes via PATCH, no workflow engine)
   const CHILD_TICKET_TRANSITIONS: Transition[] = [
@@ -3691,6 +3707,18 @@ export function CustomerRecordDetail(): React.ReactElement {
                 />
                 <span className="rcd-id-chip">{record.id.slice(0, 8)}</span>
                 <OriginHeaderPill origin={record.origin} />
+                {/* Gated on the real role, not isAdminOrAgent: that also admits
+                    workflow admins, who may hold only the user role and would
+                    get a 403 from the agent/admin-only coverage endpoint. */}
+                <CoverageGapBadge
+                  teamId={
+                    typeof record.fields["team_id"] === "string"
+                      ? record.fields["team_id"]
+                      : null
+                  }
+                  assignedTo={record.assignedTo}
+                  enabled={coverageBadgeEnabled}
+                />
               </div>
               {record.origin && <OriginDetailLine origin={record.origin} />}
             </div>

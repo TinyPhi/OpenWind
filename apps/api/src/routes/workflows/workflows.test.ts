@@ -28,9 +28,16 @@ vi.mock("@platform/auth", () => ({
   },
 }));
 
+const mockTx = {};
 vi.mock("@platform/db", () => ({
   db: {},
-  withTenantContext: (tenantId, fn) => fn({}),
+  withTenantContext: (_tenantId: string, fn: (tx: unknown) => unknown) =>
+    fn(mockTx),
+}));
+
+const mockWriteAuditEntry = vi.fn();
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
 }));
 
 vi.mock("@platform/workflow-engine", async (importOriginal) => {
@@ -87,7 +94,56 @@ function makeApp() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /workflows", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockWriteAuditEntry.mockResolvedValue(undefined);
+  });
+
+  it("writes a workflow.admins_updated entry with before [] and after [creator] (#640)", async () => {
+    mockCreate.mockResolvedValue({ ...fakeWorkflow, assignedTo: ["u-bbb"] });
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId: TYPE_ID,
+        name: "Support Ticket Workflow",
+        initialState: "open",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        tenantId: "t-aaa",
+        actorId: "u-bbb",
+        resourceType: "workflow",
+        resourceId: WF_ID,
+        action: "workflow.admins_updated",
+        beforeSnapshot: { assignedTo: [] },
+        afterSnapshot: { assignedTo: ["u-bbb"] },
+      }),
+    );
+  });
+
+  it("fails the request when the audit write rejects", async () => {
+    mockCreate.mockResolvedValue({ ...fakeWorkflow, assignedTo: ["u-bbb"] });
+    mockWriteAuditEntry.mockRejectedValue(new Error("audit down"));
+
+    const res = await makeApp().request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entityTypeId: TYPE_ID,
+        name: "Support Ticket Workflow",
+        initialState: "open",
+      }),
+    });
+
+    expect(res.status).toBe(500);
+  });
 
   it("returns 201 with created workflow", async () => {
     mockCreate.mockResolvedValue(fakeWorkflow);
@@ -106,7 +162,7 @@ describe("POST /workflows", () => {
     const json = await res.json();
     expect(json.data.id).toBe(WF_ID);
     expect(mockCreate).toHaveBeenCalledWith(
-      {},
+      mockTx,
       "t-aaa",
       "u-bbb",
       expect.objectContaining({ name: "Support Ticket Workflow" }),
