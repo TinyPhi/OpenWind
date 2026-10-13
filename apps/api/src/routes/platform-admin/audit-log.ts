@@ -7,7 +7,7 @@ import { platformAdminFactory } from "./factory.js";
 /**
  * T16 (docs/specs/multi-org-sandbox.md), ADR-022 Decision 7. Read-only surface over
  * platform_admin_audit_log -- see @platform/db's listPlatformAdminAuditLog for the
- * keyset-pagination shape and migration 0140 for why this table carries no tenant_id/RLS.
+ * keyset-pagination shape and migration 0141 for why this table carries no tenant_id/RLS.
  */
 const AuditLogQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),

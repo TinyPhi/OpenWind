@@ -1,11 +1,13 @@
 import { zValidator } from "../../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { withTenantContext } from "@platform/db";
+import { workflowTransitions, withTenantContext } from "@platform/db";
+import { and, eq } from "drizzle-orm";
 import { updateWorkflowTransition } from "@platform/workflow-engine";
 import { factory } from "../factory.js";
 import { handleWorkflowError } from "../../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../../lib/workflow-caller.js";
+import { auditTransitionRoleChanges } from "../../../lib/audit-workflow-access.js";
 
 const UpdateTransitionSchema = z.object({
   label: z.string().max(200).nullable().optional(),
@@ -26,8 +28,22 @@ export const updateTransitionHandler = factory.createHandlers(
     const auth = c.get("auth");
     const { tenantId } = auth;
     try {
-      const transition = await withTenantContext(tenantId, (tx) =>
-        updateWorkflowTransition(
+      const transition = await withTenantContext(tenantId, async (tx) => {
+        const [before] =
+          input.allowedRoles !== undefined
+            ? await tx
+                .select({ allowedRoles: workflowTransitions.allowedRoles })
+                .from(workflowTransitions)
+                .where(
+                  and(
+                    eq(workflowTransitions.id, transitionId),
+                    eq(workflowTransitions.workflowId, workflowId),
+                    eq(workflowTransitions.tenantId, tenantId),
+                  ),
+                )
+                .limit(1)
+            : [];
+        const updated = await updateWorkflowTransition(
           tx,
           tenantId,
           workflowId,
@@ -40,8 +56,25 @@ export const updateTransitionHandler = factory.createHandlers(
             requiresComment: input.requiresComment,
             requiresFields: input.requiresFields,
           },
-        ),
-      );
+        );
+        if (before) {
+          await auditTransitionRoleChanges(tx, {
+            tenantId,
+            actorId: auth.userId,
+            workflowId,
+            changes: [
+              {
+                transitionId,
+                fromState: updated.fromState,
+                toState: updated.toState,
+                before: before.allowedRoles,
+                after: updated.allowedRoles,
+              },
+            ],
+          });
+        }
+        return updated;
+      });
       return c.json({ data: transition });
     } catch (err) {
       return handleWorkflowError(c, err);

@@ -5,8 +5,13 @@ export {
   scheduleTickTotal,
   scheduleExecutionTotal,
   scheduleCatchUpTotal,
+  scheduleTickDurationMs,
+  scheduleExecutionDurationMs,
   oncallResolutionsTotal,
   notificationDispatchTotal,
+  oncallResolutionDurationSeconds,
+  notificationDispatchDurationSeconds,
+  notificationPolicyMatchTotal,
   mentionRecordFailureTotal,
   getSerializedMetrics,
 } from "./metrics.js";

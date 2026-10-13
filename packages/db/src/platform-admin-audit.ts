@@ -24,7 +24,7 @@ export interface RecordPlatformAdminActionInput {
 
 /**
  * Writes on the privileged `db` connection (not withPlatformAdminContext's SET LOCAL ROLE
- * platform_admin_role) -- platform_admin_role is granted SELECT only (migration 0140); the
+ * platform_admin_role) -- platform_admin_role is granted SELECT only (migration 0141); the
  * three sandbox lifecycle workers that call this already run with full `db` access.
  */
 export async function recordPlatformAdminAction(
@@ -54,7 +54,7 @@ function asPlatformAdminAction(action: string): PlatformAdminAction {
     action === "sandbox.trial_changed"
   )
     return action;
-  // The DB CHECK constraint (migrations 0140, 0142) already guarantees this is unreachable --
+  // The DB CHECK constraint (migrations 0141, 0142) already guarantees this is unreachable --
   // narrowing defensively, same pattern as platform-admin-view.ts's asProgressStatus.
   throw new Error(`unexpected platform_admin_audit_log.action: ${action}`);
 }

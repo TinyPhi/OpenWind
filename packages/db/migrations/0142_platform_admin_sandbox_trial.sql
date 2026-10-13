@@ -12,8 +12,8 @@
 -- search_path is pinned so the definer's privileges can't be redirected through a
 -- caller-controlled schema.
 --
--- Numbered 0142: 0141 is taken by fix/tenant-lifecycle-role (#869). Renumber at merge if the
--- land order needs it.
+-- Builds on 0141_platform_admin_audit_log (#859), whose action CHECK this widens. The
+-- tenant_lifecycle_role migration (#869) is numbered after this one.
 --
 -- DOWN MIGRATION:
 --   REVOKE EXECUTE ON FUNCTION platform_admin_set_sandbox_trial(UUID, TIMESTAMPTZ)

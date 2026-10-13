@@ -18,7 +18,7 @@
   `platform_admin_set_sandbox_trial` (pinned `search_path`; it updates active `is_sandbox` rows only)
   instead of an UPDATE grant on `tenants`, so "sandboxes only" holds in the database even if
   the route has a bug. The audit-log action CHECK gains `sandbox.trial_changed`. The file is
-  numbered 0142 because #869 owns 0141.
+  numbered 0142, after #859's 0141 (renumbered from 0140 when main gained its own 0140).
 - Dashboard:
   - Stat cards: sandboxes, active trials, expiring within 7 days, expired.
   - Sandbox table: search, trial filter, sort by name / trial end / created, and a trial

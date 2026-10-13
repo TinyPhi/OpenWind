@@ -46,6 +46,11 @@ vi.mock("@platform/workflow-engine", () => ({
   isWorkflowAdmin: vi.fn(() => false),
 }));
 
+const mockWriteAuditEntry = vi.fn();
+vi.mock("@platform/audit", () => ({
+  writeAuditEntry: (...args: unknown[]) => mockWriteAuditEntry(...args),
+}));
+
 const mockEmitAccessEvent = vi.fn();
 vi.mock("../../lib/emit-access-event.js", () => ({
   emitAccessEvent: (...args: unknown[]) => mockEmitAccessEvent(...args),
@@ -70,6 +75,7 @@ const INST_ID = "00000000-0000-0000-0000-000000000002";
 
 let instanceExists: boolean;
 let instanceWorkflowId: string | null;
+let instanceFields: Record<string, unknown>;
 let tenantUserExists: boolean;
 let currentFromTable: unknown;
 let expectedTargetUserId: string;
@@ -91,7 +97,15 @@ const mockTx = {
       return Promise.resolve(found ? [{ userId: expectedTargetUserId }] : []);
     }
     return Promise.resolve(
-      instanceExists ? [{ id: INST_ID, workflowId: instanceWorkflowId }] : [],
+      instanceExists
+        ? [
+            {
+              id: INST_ID,
+              workflowId: instanceWorkflowId,
+              fields: instanceFields,
+            },
+          ]
+        : [],
     );
   },
   update: () => ({
@@ -128,6 +142,7 @@ describe("POST /entities/:id/access", () => {
     currentFromTable = undefined;
     instanceExists = true;
     instanceWorkflowId = null;
+    instanceFields = {};
     tenantUserExists = true;
     expectedTargetUserId = "target-user";
     lastTenantUsersUserIdQueried = undefined;
@@ -187,6 +202,104 @@ describe("POST /entities/:id/access", () => {
 
     expect(res.status).toBe(404);
     expect(mockEmitAccessEvent).not.toHaveBeenCalled();
+  });
+
+  describe("audit (#640)", () => {
+    it("audits a first grant as access.granted with no before-state", async () => {
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "target-user", level: "read_write" }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(mockWriteAuditEntry).toHaveBeenCalledTimes(1);
+      expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+        mockTx,
+        expect.objectContaining({
+          tenantId: "t-aaa",
+          actorId: "u-admin",
+          actorType: "user",
+          resourceType: "ticket",
+          resourceId: INST_ID,
+          action: "access.granted",
+          beforeSnapshot: null,
+          afterSnapshot: { level: "read_write", tag: "manual" },
+          metadata: { targetUserId: "target-user", via: "direct" },
+        }),
+      );
+    });
+
+    it("audits overwriting an existing entry as access.updated with the prior level", async () => {
+      instanceFields = {
+        __accessUsers: {
+          "target-user": { level: "read_only", tag: "mention" },
+        },
+      };
+
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "target-user", level: "read_write" }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+        mockTx,
+        expect.objectContaining({
+          action: "access.updated",
+          beforeSnapshot: { level: "read_only", tag: "mention" },
+          afterSnapshot: { level: "read_write", tag: "manual" },
+        }),
+      );
+    });
+
+    it("writes no audit entry when the grant leaves the entry unchanged", async () => {
+      instanceFields = {
+        __accessUsers: {
+          "target-user": { level: "read_write", tag: "manual" },
+        },
+      };
+
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: "target-user",
+          level: "read_write",
+          tag: "manual",
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    });
+
+    it("writes no audit entry when the grant is refused", async () => {
+      tenantUserExists = false;
+
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "not-a-member", level: "read_write" }),
+      });
+
+      expect(res.status).toBe(404);
+      expect(mockWriteAuditEntry).not.toHaveBeenCalled();
+    });
+
+    it("fails the request when the audit write fails, so a grant is never unaudited", async () => {
+      mockWriteAuditEntry.mockRejectedValueOnce(new Error("audit down"));
+
+      const res = await makeApp().request(`/${INST_ID}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "target-user", level: "read_write" }),
+      });
+
+      expect(res.status).toBe(500);
+      expect(mockEmitAccessEvent).not.toHaveBeenCalled();
+    });
   });
 
   describe("workflow-admin direct grant (issue #167)", () => {
