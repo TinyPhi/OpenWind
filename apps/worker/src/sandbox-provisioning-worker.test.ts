@@ -25,6 +25,15 @@ const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
 const mockDelete = vi.fn(() => ({ where: mockDeleteWhere }));
+// tenants writes must run inside tenant_lifecycle_role (app_user can't, #405/#408). The
+// lifecycle tx reuses the builder spies so existing assertions hold; plain `db` no longer
+// has them, so a tenants write on the plain connection throws here.
+const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
+  fn({
+    insert: (...args: unknown[]) => mockInsert(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
+  }),
+);
 const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
 // Stands in for the transaction withTenantContext opens, so tests can tell an audit write
 // made inside the tenant context from one made on the plain connection.
@@ -34,10 +43,10 @@ const mockWithTenantContext = vi.fn(
 );
 vi.mock("@platform/db", () => ({
   db: {
-    insert: (...args: unknown[]) => mockInsert(...args),
     update: (...args: unknown[]) => mockUpdate(...args),
-    delete: (...args: unknown[]) => mockDelete(...args),
   },
+  withTenantLifecycleContext: (fn: (tx: unknown) => unknown) =>
+    mockWithTenantLifecycleContext(fn),
   withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
     mockWithTenantContext(...args),
   tenants: {},
@@ -54,6 +63,8 @@ vi.mock("@platform/audit", () => ({
 const mockCreateOrg = vi.fn();
 const mockDeleteOrg = vi.fn().mockResolvedValue(true);
 const mockCreateHumanUser = vi.fn();
+const mockGrantProjectToOrg = vi.fn();
+const mockAuthorizeUser = vi.fn();
 const mockGenerateSandboxOrgTemplate = vi.fn();
 const mockStoreSandboxHandoverCredentials = vi
   .fn()
@@ -62,6 +73,8 @@ vi.mock("@platform/auth", () => ({
   createOrg: (...args: unknown[]) => mockCreateOrg(...args),
   deleteOrg: (...args: unknown[]) => mockDeleteOrg(...args),
   createHumanUser: (...args: unknown[]) => mockCreateHumanUser(...args),
+  grantProjectToOrg: (...args: unknown[]) => mockGrantProjectToOrg(...args),
+  authorizeUser: (...args: unknown[]) => mockAuthorizeUser(...args),
   generateSandboxOrgTemplate: () => mockGenerateSandboxOrgTemplate(),
   nextEmailCandidate: (
     template: { emailLocalPart: string },
@@ -132,6 +145,8 @@ beforeEach(() => {
   mockDeleteWhere.mockResolvedValue(undefined);
   mockCreateOrg.mockResolvedValue({ ok: true, orgId: "org-1" });
   mockDeleteOrg.mockResolvedValue(true);
+  mockGrantProjectToOrg.mockResolvedValue(true);
+  mockAuthorizeUser.mockResolvedValue(true);
   mockInstallCoreModulesForSandbox.mockResolvedValue({
     succeeded: [
       "helpdesk",
@@ -154,9 +169,12 @@ beforeEach(() => {
   });
 });
 
+// The last job-status write -- skips the rollback's result_tenant_id clear, which has no status.
 function lastProgressUpdate(): Record<string, unknown> {
-  const call = mockSet.mock.calls.at(-1);
-  if (!call) throw new Error("db.update(...).set(...) was never called");
+  const call = mockSet.mock.calls.findLast(
+    ([patch]) => "status" in (patch as Record<string, unknown>),
+  );
+  if (!call) throw new Error("no job status update was written");
   return call[0] as Record<string, unknown>;
 }
 
@@ -323,6 +341,101 @@ describe("processSandboxProvisioningJob", () => {
     expect(mockRunOrgDirectorySync).toHaveBeenCalled();
   });
 
+  // R3 sign-in: without a project grant + authorization, Zitadel refuses the seeded accounts'
+  // sign-in (APP-asb43).
+  it("grants the project to the new org before creating accounts, then authorizes admin as admin and members as user", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(2));
+    mockCreateHumanUser
+      .mockResolvedValueOnce({ ok: true, userId: "admin-user" })
+      .mockResolvedValueOnce({ ok: true, userId: "member-0" })
+      .mockResolvedValueOnce({ ok: true, userId: "member-1" });
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-grant",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(mockGrantProjectToOrg).toHaveBeenCalledWith("org-1");
+    expect(mockGrantProjectToOrg.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCreateHumanUser.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(mockAuthorizeUser.mock.calls).toEqual([
+      ["admin-user", "org-1", ["admin"]],
+      ["member-0", "org-1", ["user"]],
+      ["member-1", "org-1", ["user"]],
+    ]);
+    expect(result.seededAccountCount).toBe(3);
+    expect(result.failedAccountCount).toBe(0);
+  });
+
+  it("rolls the sandbox back when the project can't be granted to the org", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(1));
+    mockGrantProjectToOrg.mockResolvedValue(false);
+
+    await expect(
+      processSandboxProvisioningJob({
+        id: "job-grant-fail",
+        data: {
+          orgName: "Acme Sandbox",
+          trialDays: 14,
+          requestedBy: "admin-1",
+        },
+      }),
+    ).rejects.toThrow("SANDBOX_PROJECT_GRANT_FAILED");
+
+    expect(mockCreateHumanUser).not.toHaveBeenCalled();
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
+    expect(lastProgressUpdate().error).toContain(
+      "SANDBOX_PROJECT_GRANT_FAILED",
+    );
+  });
+
+  it("rolls the sandbox back when the admin account can't be authorized", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(1));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "admin-user" });
+    mockAuthorizeUser.mockResolvedValue(false);
+
+    await expect(
+      processSandboxProvisioningJob({
+        id: "job-authz-fail",
+        data: {
+          orgName: "Acme Sandbox",
+          trialDays: 14,
+          requestedBy: "admin-1",
+        },
+      }),
+    ).rejects.toThrow("SANDBOX_ADMIN_AUTHORIZATION_FAILED");
+
+    expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it("counts a member that can't be authorized as failed and leaves it out of the handover", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(2));
+    mockCreateHumanUser
+      .mockResolvedValueOnce({ ok: true, userId: "admin-user" })
+      .mockResolvedValueOnce({ ok: true, userId: "member-0" })
+      .mockResolvedValueOnce({ ok: true, userId: "member-1" });
+    mockAuthorizeUser.mockImplementation((userId: string) =>
+      Promise.resolve(userId !== "member-0"),
+    );
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-member-authz",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(result.seededAccountCount).toBe(2);
+    expect(result.failedAccountCount).toBe(1);
+    const handover = mockStoreSandboxHandoverCredentials.mock.calls[0]?.[1] as
+      | { seededAccounts: { email: string }[] }
+      | undefined;
+    expect(
+      handover?.seededAccounts.some((a) => a.email.startsWith("member0.")),
+    ).toBe(false);
+    expect(handover?.seededAccounts).toHaveLength(2);
+  });
+
   it("throws and audits sandbox.provisioning_failed when the admin account can never be created", async () => {
     mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(0));
     mockCreateHumanUser.mockResolvedValue({ ok: false, conflict: true });
@@ -359,6 +472,23 @@ describe("processSandboxProvisioningJob", () => {
     // was inserted before that -- both must be rolled back automatically.
     expect(mockDeleteOrg).toHaveBeenCalledWith("org-1");
     expect(mockDelete).toHaveBeenCalled();
+
+    // The job row's result_tenant_id references the tenant (FK, no ON DELETE action): it
+    // must be cleared before the tenant delete, or that delete fails on the FK.
+    const clearIndex = mockSet.mock.calls.findIndex(
+      ([patch]) =>
+        (patch as { resultTenantId?: unknown }).resultTenantId === null,
+    );
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(mockSet.mock.invocationCallOrder[clearIndex]).toBeLessThan(
+      mockDelete.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({ rolledBack: true }),
+      }),
+    );
   });
 
   it("throws when the Zitadel org can never be created (every name candidate conflicts), and still writes a failure audit entry (security review fix)", async () => {

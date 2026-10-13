@@ -66,6 +66,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
   withTenantContext,
+  withTenantLifecycleContext,
   purgeTenantDataFromPluginSchema,
 } from "@platform/db";
 import {
@@ -406,28 +407,37 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
     // place (person-identifying fields replaced with a placeholder), never
     // deleted: aggregate operational history (action/resourceType/outcome/
     // timestamp) must survive a purge the same way it survives the R8 age-
-    // based sweep. Runs via plain `db` (not withTenantContext), same as
-    // every other admin_audit_log write in this file -- see
-    // anonymizeAuditLogForTenant's own doc comment for why.
+    // based sweep. Runs via plain `db` (not withTenantContext): it is an
+    // UPDATE, which app_user is not granted on admin_audit_log -- see
+    // anonymizeAuditLogForTenant's own doc comment. The G5 audit INSERTs below
+    // are different: app_user may insert, but only under the tenant's RLS
+    // context, so those go through withTenantContext.
     await anonymizeAuditLogForTenant(db, tenantId);
 
     // Mark the tenant row as 'purged' (keeps a tombstone for audit trail).
-    await db
-      .update(tenants)
-      .set({ status: "purged", updatedAt: new Date() })
-      .where(and(eq(tenants.id, tenantId), eq(tenants.status, "deleted")));
+    // app_user can't change tenants.status (#408); tenant_lifecycle_role can.
+    await withTenantLifecycleContext((tx) =>
+      tx
+        .update(tenants)
+        .set({ status: "purged", updatedAt: new Date() })
+        .where(and(eq(tenants.id, tenantId), eq(tenants.status, "deleted"))),
+    );
 
-    // G5: write purge completion to the audit log
-    await writeAuditEntry(db, {
-      tenantId,
-      actorId: "system",
-      actorType: "system",
-      resourceType: "tenant",
-      resourceId: tenantId,
-      action: "purge.completed",
-      afterSnapshot: { status: "purged" },
-      metadata: { jobId: job.id, attemptsMade: job.attemptsMade },
-    });
+    // G5: write purge completion to the audit log. Inside the tenant context:
+    // on plain `db` RLS rejects the insert for app_user, failing the job
+    // after the status flip above has committed, so every retry fails again.
+    await withTenantContext(tenantId, (tx) =>
+      writeAuditEntry(tx, {
+        tenantId,
+        actorId: "system",
+        actorType: "system",
+        resourceType: "tenant",
+        resourceId: tenantId,
+        action: "purge.completed",
+        afterSnapshot: { status: "purged" },
+        metadata: { jobId: job.id, attemptsMade: job.attemptsMade },
+      }),
+    );
 
     logger.info(
       { tenantId },
@@ -486,21 +496,24 @@ tenantPurgeWorker.on("failed", (job, err) => {
     "tenant-purge: job failed",
   );
 
-  // G5: write purge failure to the audit log on the final attempt only
+  // G5: write purge failure to the audit log on the final attempt only (inside
+  // the tenant context, same reason as the completion entry).
   if (isFinalAttempt) {
-    void writeAuditEntry(db, {
-      tenantId: job.data.tenantId,
-      actorId: "system",
-      actorType: "system",
-      resourceType: "tenant",
-      resourceId: job.data.tenantId,
-      action: "purge.failed",
-      metadata: {
-        err: String(err),
-        jobId: job.id,
-        attemptsMade: job.attemptsMade,
-      },
-    }).catch((auditErr: unknown) => {
+    void withTenantContext(job.data.tenantId, (tx) =>
+      writeAuditEntry(tx, {
+        tenantId: job.data.tenantId,
+        actorId: "system",
+        actorType: "system",
+        resourceType: "tenant",
+        resourceId: job.data.tenantId,
+        action: "purge.failed",
+        metadata: {
+          err: String(err),
+          jobId: job.id,
+          attemptsMade: job.attemptsMade,
+        },
+      }),
+    ).catch((auditErr: unknown) => {
       logger.error(
         { tenantId: job.data.tenantId, err: String(auditErr) },
         "tenant-purge: failed to write failure audit entry",

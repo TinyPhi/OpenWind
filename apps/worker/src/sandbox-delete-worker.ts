@@ -32,6 +32,7 @@ import {
   db,
   tenants,
   acquireTenantAdvisoryLock,
+  withTenantLifecycleContext,
   recordPlatformAdminAction,
   withTenantContext,
 } from "@platform/db";
@@ -128,16 +129,19 @@ export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
       }
 
       const now = new Date();
-      const [updated] = await db
-        .update(tenants)
-        .set({ status: "deleted", deletionScheduledAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(tenants.id, tenantId),
-            inArray(tenants.status, ["active", "suspended"]),
-          ),
-        )
-        .returning({ id: tenants.id });
+      // app_user can't change tenants.status (#408); tenant_lifecycle_role can.
+      const [updated] = await withTenantLifecycleContext((tx) =>
+        tx
+          .update(tenants)
+          .set({ status: "deleted", deletionScheduledAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(tenants.id, tenantId),
+              inArray(tenants.status, ["active", "suspended"]),
+            ),
+          )
+          .returning({ id: tenants.id }),
+      );
 
       if (!updated) {
         logger.warn(

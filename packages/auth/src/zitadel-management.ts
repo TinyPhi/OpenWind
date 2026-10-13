@@ -655,6 +655,115 @@ export async function createHumanUser(
   }
 }
 
+// ── Sandbox sign-in: project grant + role authorizations ─────────────────────
+
+/**
+ * Roles a sandbox org may hand out on the OpenWind project. All three are granted so a sandbox
+ * admin can later promote a seeded user to agent from Zitadel; provisioning itself only
+ * assigns admin and user (docs/specs/multi-org-sandbox.md R3).
+ */
+export const SANDBOX_GRANTED_ROLE_KEYS = ["admin", "agent", "user"] as const;
+
+function sandboxProjectId(): string | undefined {
+  return env.ZITADEL_PROJECT_ID ?? env.ZITADEL_AUDIENCE;
+}
+
+async function provisioningPost(
+  path: string,
+  payload: unknown,
+  logContext: Record<string, unknown>,
+  failureMessage: string,
+): Promise<boolean> {
+  const token = await getProvisioningAccessToken();
+  if (!token) return false;
+  try {
+    const result = await httpPost(
+      `${internalBase()}${path}`,
+      issuerHost(),
+      { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      JSON.stringify(payload),
+    );
+    // "Already exists" means the grant we asked for is in place. Provisioning always works on
+    // a freshly created org and users, so this isn't expected to happen; if it ever does, the
+    // existing grant is on that same org/user, which is the state we wanted.
+    if (isConflictResponse(result.status, result.text)) return true;
+    if (result.status < 200 || result.status >= 300) {
+      // Never log the raw response body -- see comment in getAccessToken.
+      logger.error({ status: result.status, ...logContext }, failureMessage);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logger.error({ err, ...logContext }, failureMessage);
+    return false;
+  }
+}
+
+/**
+ * Grants the OpenWind project (owned by the main org) to a sandbox org, so the sandbox's users
+ * can be authorized on it -- without a grant, Zitadel's "check authorization on
+ * authentication" project setting refuses their sign-in (APP-asb43). Zitadel v2
+ * ProjectService.CreateProjectGrant, needs project.grant.create (covered by the provisioning
+ * service account's IAM_ORG_MANAGER).
+ */
+export async function grantProjectToOrg(orgId: string): Promise<boolean> {
+  const projectId = sandboxProjectId();
+  if (!projectId) {
+    logger.error(
+      { orgId },
+      "grantProjectToOrg: ZITADEL_PROJECT_ID / ZITADEL_AUDIENCE is not set",
+    );
+    return false;
+  }
+  return provisioningPost(
+    "/zitadel.project.v2.ProjectService/CreateProjectGrant",
+    {
+      projectId,
+      grantedOrganizationId: orgId,
+      roleKeys: [...SANDBOX_GRANTED_ROLE_KEYS],
+    },
+    { orgId, projectId },
+    "grantProjectToOrg: Zitadel project grant failed",
+  );
+}
+
+/**
+ * Gives a user role(s) on the OpenWind project through their org's project grant. Zitadel v2
+ * AuthorizationService.CreateAuthorization: `organizationId` is the org holding the grant
+ * (the sandbox org), needs user.grant.write.
+ */
+export async function authorizeUser(
+  userId: string,
+  orgId: string,
+  roleKeys: (typeof SANDBOX_GRANTED_ROLE_KEYS)[number][],
+): Promise<boolean> {
+  // Typed, and checked at runtime too: this runs with the IAM_ORG_MANAGER provisioning
+  // credential, so it must never be usable to hand out superadmin / platform_admin
+  // (security review of the sandbox sign-in change).
+  const allowed: readonly string[] = SANDBOX_GRANTED_ROLE_KEYS;
+  if (roleKeys.length === 0 || roleKeys.some((r) => !allowed.includes(r))) {
+    logger.error(
+      { userId, orgId, roleKeys },
+      "authorizeUser: refused a role outside the sandbox allowlist",
+    );
+    return false;
+  }
+  const projectId = sandboxProjectId();
+  if (!projectId) {
+    logger.error(
+      { userId, orgId },
+      "authorizeUser: ZITADEL_PROJECT_ID / ZITADEL_AUDIENCE is not set",
+    );
+    return false;
+  }
+  return provisioningPost(
+    "/zitadel.authorization.v2.AuthorizationService/CreateAuthorization",
+    { userId, projectId, organizationId: orgId, roleKeys },
+    { userId, orgId, projectId },
+    "authorizeUser: Zitadel authorization failed",
+  );
+}
+
 // ── List project roles ────────────────────────────────────────────────────────
 
 export async function listProjectRoles(): Promise<string[]> {

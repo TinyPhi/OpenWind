@@ -25,6 +25,12 @@ const mockLockRelease = vi.fn().mockResolvedValue(undefined);
 const mockAcquireTenantAdvisoryLock = vi
   .fn()
   .mockResolvedValue({ acquired: true, release: mockLockRelease });
+// tenants writes must run inside tenant_lifecycle_role (app_user can't, #405/#408). The
+// lifecycle tx reuses the builder spies so existing assertions hold; plain `db` no longer
+// has them, so a tenants write on the plain connection throws here.
+const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
+  fn({ update: (...args: unknown[]) => mockUpdate(...args) }),
+);
 const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
 // Stands in for the transaction withTenantContext opens, so tests can tell an audit write
 // made inside the tenant context from one made on the plain connection.
@@ -36,8 +42,9 @@ const mockWithTenantContext = vi.fn(
 vi.mock("@platform/db", () => ({
   db: {
     select: (...args: unknown[]) => mockSelect(...args),
-    update: (...args: unknown[]) => mockUpdate(...args),
   },
+  withTenantLifecycleContext: (fn: (tx: unknown) => unknown) =>
+    mockWithTenantLifecycleContext(fn),
   withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
     mockWithTenantContext(...args),
   acquireTenantAdvisoryLock: (...args: unknown[]) =>

@@ -119,6 +119,12 @@ accounts nobody logs into added friction with no benefit.
 ✓ The org-directory sync (existing feature, unchanged) seeds the chart from this data; the seeded
 admin account has no manager and therefore attaches directly under the synthetic root — the top
 real position in the chart — using existing org-directory logic with no modification.
+✓ **(added 2026-10-13)** Every handed-over account can sign in: the OpenWind project is granted to
+the sandbox org (roles `admin`, `agent`, `user`), the one seeded admin is authorized as `admin`
+and every other seeded account as `user`. Without this Zitadel refuses sign-in with APP-asb43 ("at
+least one grant on the application"). A failed project grant or admin authorization rolls the
+sandbox back; a member that can't be authorized counts as a failed account and is left out of
+the handover list.
 
 R4: The platform admin chooses which modules arrive pre-populated.
 ✓ All 7 core modules (`crm`, `helpdesk`, `hrms`, `invoicing`, `procurement`, `projects`,

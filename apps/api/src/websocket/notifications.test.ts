@@ -9,6 +9,13 @@ import { WebSocket as WsClient } from "ws";
 let claims: { sub: string; roles?: string[]; orgId?: string } | null = {
   sub: "u-1",
 };
+// Defaults to "the token's tenant"; individual tests override it to model an org mapped to
+// a sandbox tenant, or an unmapped org in production.
+const mockResolveTenantIdForAuth = vi.fn(
+  (auth: { tenantId: string }): Promise<string | null> =>
+    Promise.resolve(auth.tenantId),
+);
+
 vi.mock("@platform/auth", () => ({
   verifyJwt: (_token: string) => Promise.resolve(claims),
   extractAuthContext: (c: { sub: string; roles?: string[] }) => ({
@@ -17,7 +24,8 @@ vi.mock("@platform/auth", () => ({
     roles: c.roles ?? ["user"],
     orgId: undefined,
   }),
-  lookupTenantIdByOrgId: vi.fn(),
+  resolveTenantIdForAuth: (auth: { tenantId: string }) =>
+    mockResolveTenantIdForAuth(auth),
 }));
 
 vi.mock("@platform/config", () => ({
@@ -252,5 +260,69 @@ describe("notifications websocket — ticket rooms (docs/specs/ticket-live-updat
         }),
       ),
     ).not.toThrow();
+  });
+});
+
+describe("notifications websocket — tenant resolution", () => {
+  beforeEach(async () => {
+    accessGranted = true;
+    claims = { sub: "u-1" };
+    redisSubscribeHandler = null;
+    mockResolveTenantIdForAuth.mockImplementation((auth) =>
+      Promise.resolve(auth.tenantId),
+    );
+    await startServer();
+  });
+
+  afterEach(async () => {
+    await stopNotificationWebSocket();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  // A sandbox user's token carries the dev tenant outside production; the connection must
+  // register under the tenant their org maps to, or pushes cross tenants.
+  it("registers the connection under the tenant resolved from the token's org", async () => {
+    mockResolveTenantIdForAuth.mockResolvedValue("t-sandbox");
+    const ws = await connect();
+    const subscribed = waitForMessage(ws);
+    ws.send(JSON.stringify({ type: "subscribe_ticket", instanceId: "i-9" }));
+    await subscribed;
+
+    let devTenantPush: unknown = null;
+    ws.once("message", (data: Buffer) => {
+      devTenantPush = JSON.parse(data.toString());
+    });
+    redisSubscribeHandler?.(
+      "notification:push",
+      JSON.stringify({
+        kind: "room",
+        tenantId: "t-1",
+        instanceId: "i-9",
+        message: { type: "comment.created", instanceId: "i-9" },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(devTenantPush).toBeNull();
+
+    const sandboxPush = waitForMessage(ws);
+    redisSubscribeHandler?.(
+      "notification:push",
+      JSON.stringify({
+        kind: "room",
+        tenantId: "t-sandbox",
+        instanceId: "i-9",
+        message: { type: "comment.created", instanceId: "i-9" },
+      }),
+    );
+    expect(((await sandboxPush) as { type: string }).type).toBe(
+      "comment.created",
+    );
+    ws.close();
+  });
+
+  it("refuses the connection when no tenant can be resolved", async () => {
+    mockResolveTenantIdForAuth.mockResolvedValue(null);
+
+    await expect(connect()).rejects.toBeDefined();
   });
 });

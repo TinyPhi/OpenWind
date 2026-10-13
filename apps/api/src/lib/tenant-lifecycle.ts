@@ -10,7 +10,12 @@
 import { Queue } from "@platform/telemetry";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { db, tenants } from "@platform/db";
+import {
+  db,
+  tenants,
+  withTenantContext,
+  withTenantLifecycleContext,
+} from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { connection } from "./redis.js";
@@ -139,33 +144,45 @@ export async function provisionTenant(
 
   // M4: single INSERT with ON CONFLICT DO NOTHING — catches the slug uniqueness
   // race that a SELECT-then-INSERT misses under concurrent provisioning.
-  const [row] = await db
-    .insert(tenants)
-    .values({
-      name: parsed.name,
-      slug: parsed.slug,
-      plan: parsed.plan,
-      status: "active",
-      config: parsed.config ?? {},
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing()
-    .returning({ id: tenants.id, slug: tenants.slug });
+  // tenants INSERT/status writes go through tenant_lifecycle_role: app_user can't (#405).
+  const [row] = await withTenantLifecycleContext((tx) =>
+    tx
+      .insert(tenants)
+      .values({
+        name: parsed.name,
+        slug: parsed.slug,
+        plan: parsed.plan,
+        status: "active",
+        config: parsed.config ?? {},
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: tenants.id, slug: tenants.slug }),
+  );
 
   if (!row) {
     throw new TenantLifecycleError("SLUG_TAKEN", { slug: parsed.slug });
   }
 
-  await writeAuditEntry(db, {
-    tenantId: row.id,
-    actorId,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: row.id,
-    action: "created",
-    afterSnapshot: { name: parsed.name, slug: parsed.slug, plan: parsed.plan },
-  });
+  // admin_audit_log is RLS-protected and the API connects as app_user, so the audit write
+  // needs the tenant context (as the sandbox workers do since #868); on plain `db` it is
+  // rejected after the tenants write has already committed.
+  await withTenantContext(row.id, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId: row.id,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: row.id,
+      action: "created",
+      afterSnapshot: {
+        name: parsed.name,
+        slug: parsed.slug,
+        plan: parsed.plan,
+      },
+    }),
+  );
 
   const moduleResult = await ModuleService.installCoreModules(row.id);
   if (moduleResult.failed.length > 0) {
@@ -195,26 +212,30 @@ export async function suspendTenant(
   actorId: string,
 ): Promise<void> {
   const now = new Date();
-  const [updated] = await db
-    .update(tenants)
-    .set({ status: "suspended", suspendedAt: now, updatedAt: now })
-    .where(and(eq(tenants.id, tenantId), eq(tenants.status, "active")))
-    .returning({ id: tenants.id });
+  const [updated] = await withTenantLifecycleContext((tx) =>
+    tx
+      .update(tenants)
+      .set({ status: "suspended", suspendedAt: now, updatedAt: now })
+      .where(and(eq(tenants.id, tenantId), eq(tenants.status, "active")))
+      .returning({ id: tenants.id }),
+  );
 
   if (!updated) return diagnoseNoUpdate(tenantId);
 
   invalidateTenantStatusCache(tenantId);
 
-  await writeAuditEntry(db, {
-    tenantId,
-    actorId,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: tenantId,
-    action: "transitioned",
-    beforeSnapshot: { status: "active" },
-    afterSnapshot: { status: "suspended" },
-  });
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action: "transitioned",
+      beforeSnapshot: { status: "active" },
+      afterSnapshot: { status: "suspended" },
+    }),
+  );
 
   logger.info({ tenantId, actorId }, "tenant: suspended");
 }
@@ -230,26 +251,30 @@ export async function reactivateTenant(
   actorId: string,
 ): Promise<void> {
   const now = new Date();
-  const [updated] = await db
-    .update(tenants)
-    .set({ status: "active", suspendedAt: null, updatedAt: now })
-    .where(and(eq(tenants.id, tenantId), eq(tenants.status, "suspended")))
-    .returning({ id: tenants.id });
+  const [updated] = await withTenantLifecycleContext((tx) =>
+    tx
+      .update(tenants)
+      .set({ status: "active", suspendedAt: null, updatedAt: now })
+      .where(and(eq(tenants.id, tenantId), eq(tenants.status, "suspended")))
+      .returning({ id: tenants.id }),
+  );
 
   if (!updated) return diagnoseNoUpdate(tenantId);
 
   invalidateTenantStatusCache(tenantId);
 
-  await writeAuditEntry(db, {
-    tenantId,
-    actorId,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: tenantId,
-    action: "transitioned",
-    beforeSnapshot: { status: "suspended" },
-    afterSnapshot: { status: "active" },
-  });
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action: "transitioned",
+      beforeSnapshot: { status: "suspended" },
+      afterSnapshot: { status: "active" },
+    }),
+  );
 
   logger.info({ tenantId, actorId }, "tenant: reactivated");
 }
@@ -277,16 +302,18 @@ export async function scheduleTenantDeletion(
   const deletionScheduledAt = new Date(Date.now() + delayMs);
   const now = new Date();
 
-  const [updated] = await db
-    .update(tenants)
-    .set({ status: "deleted", deletionScheduledAt, updatedAt: now })
-    .where(
-      and(
-        eq(tenants.id, tenantId),
-        inArray(tenants.status, ["active", "suspended"]),
-      ),
-    )
-    .returning({ id: tenants.id });
+  const [updated] = await withTenantLifecycleContext((tx) =>
+    tx
+      .update(tenants)
+      .set({ status: "deleted", deletionScheduledAt, updatedAt: now })
+      .where(
+        and(
+          eq(tenants.id, tenantId),
+          inArray(tenants.status, ["active", "suspended"]),
+        ),
+      )
+      .returning({ id: tenants.id }),
+  );
 
   if (!updated) {
     // Concurrent modification — status changed between loadTenant and this UPDATE
@@ -312,20 +339,22 @@ export async function scheduleTenantDeletion(
     },
   );
 
-  await writeAuditEntry(db, {
-    tenantId,
-    actorId,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: tenantId,
-    action: "deleted",
-    beforeSnapshot: { status: tenant.status },
-    afterSnapshot: {
-      status: "deleted",
-      deletionScheduledAt: deletionScheduledAt.toISOString(),
-    },
-    metadata: { delayDays },
-  });
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action: "deleted",
+      beforeSnapshot: { status: tenant.status },
+      afterSnapshot: {
+        status: "deleted",
+        deletionScheduledAt: deletionScheduledAt.toISOString(),
+      },
+      metadata: { delayDays },
+    }),
+  );
 
   logger.info(
     { tenantId, actorId, deletionScheduledAt, delayDays },
