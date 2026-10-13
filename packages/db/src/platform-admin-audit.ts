@@ -14,7 +14,8 @@ export type PlatformAdminAction =
   | "sandbox.created"
   | "sandbox.reset"
   | "sandbox.deleted"
-  | "sandbox.trial_changed";
+  | "sandbox.trial_changed"
+  | "sandbox.trial_ended";
 
 export interface RecordPlatformAdminActionInput {
   actorSub: string;
@@ -51,7 +52,8 @@ function asPlatformAdminAction(action: string): PlatformAdminAction {
     action === "sandbox.created" ||
     action === "sandbox.reset" ||
     action === "sandbox.deleted" ||
-    action === "sandbox.trial_changed"
+    action === "sandbox.trial_changed" ||
+    action === "sandbox.trial_ended"
   )
     return action;
   // The DB CHECK constraint (migrations 0141, 0142) already guarantees this is unreachable --

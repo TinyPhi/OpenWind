@@ -22,7 +22,7 @@ vi.mock("../../components/global-alert-dialog.js", () => ({
   showAlert: (message: string) => mockShowAlert(message),
 }));
 
-const { ChangeTrialDialog } = await import("./change-trial-dialog.js");
+const { ExtendTrialDialog } = await import("./extend-trial-dialog.js");
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const DAY = 86_400_000;
@@ -34,7 +34,7 @@ function renderDialog(trialEndsAt: string | null): {
   const onClose = vi.fn();
   const onSaved = vi.fn();
   render(
-    <ChangeTrialDialog
+    <ExtendTrialDialog
       open
       tenantId={TENANT_ID}
       tenantName="Acme Sandbox"
@@ -47,19 +47,26 @@ function renderDialog(trialEndsAt: string | null): {
 }
 
 function daysInput(): HTMLElement {
-  return screen.getByLabelText("New trial length (days from now)");
+  return screen.getByLabelText("Extend by (days)");
 }
 
-describe("ChangeTrialDialog", () => {
+describe("ExtendTrialDialog", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
   });
 
-  it("shows the current end date for an active trial", () => {
-    renderDialog(new Date(Date.now() + 5 * DAY).toISOString());
+  it("shows the current end date and previews the extension from it", () => {
+    const currentEnd = new Date(Date.now() + 5 * DAY);
+    renderDialog(currentEnd.toISOString());
     expect(screen.getByText(/trial ends/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    fireEvent.change(daysInput(), { target: { value: "3" } });
+    const expected = new Date(currentEnd.getTime() + 3 * DAY).toLocaleString(
+      undefined,
+      { dateStyle: "medium", timeStyle: "short" },
+    );
+    expect(screen.getByText(`New end: ${expected}`)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Extend" })).toBeTruthy();
   });
 
   it("offers reactivation for an expired trial", () => {
@@ -72,7 +79,7 @@ describe("ChangeTrialDialog", () => {
   it("posts the chosen day count and reports success", async () => {
     const { onSaved } = renderDialog(null);
     fireEvent.change(daysInput(), { target: { value: "30" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Extend" }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(mockFetchWithAuth).toHaveBeenCalledWith(
@@ -90,7 +97,7 @@ describe("ChangeTrialDialog", () => {
       renderDialog(null);
       fireEvent.change(daysInput(), { target: { value } });
       expect(
-        screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+        screen.getByRole("button", { name: "Extend" }).hasAttribute("disabled"),
       ).toBe(true);
       expect(screen.getByText(/whole number from 1 to 365/)).toBeTruthy();
     },
@@ -99,7 +106,7 @@ describe("ChangeTrialDialog", () => {
   it("alerts and stays open when the request fails", async () => {
     mockFetchWithAuth.mockRejectedValueOnce(new Error("No such sandbox"));
     const { onSaved } = renderDialog(null);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Extend" }));
 
     await waitFor(() =>
       expect(mockShowAlert).toHaveBeenCalledWith("No such sandbox"),

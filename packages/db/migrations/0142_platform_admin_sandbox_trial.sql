@@ -1,7 +1,8 @@
 -- analytics: excluded (no new table -- a function and a CHECK constraint change only)
 --
--- Multi-Org Sandbox System (docs/specs/multi-org-sandbox.md R6a): a platform admin can change
--- a sandbox's trial end date, including pushing an expired one into the future (reactivation).
+-- Multi-Org Sandbox System (docs/specs/multi-org-sandbox.md R6a): a platform admin can extend a
+-- sandbox's trial (reactivating an expired one) or end it immediately. Both set trial_ends_at
+-- through the one function below; the API computes the timestamp.
 --
 -- platform_admin_role stays read-only on `tenants` (migration 0135, ADR-022 Decision 1): it
 -- gets EXECUTE on one SECURITY DEFINER function instead of an UPDATE grant. A column grant
@@ -53,5 +54,8 @@ ALTER TABLE platform_admin_audit_log
   DROP CONSTRAINT IF EXISTS platform_admin_audit_log_action_check;
 ALTER TABLE platform_admin_audit_log
   ADD CONSTRAINT platform_admin_audit_log_action_check CHECK (
-    action IN ('sandbox.created', 'sandbox.reset', 'sandbox.deleted', 'sandbox.trial_changed')
+    action IN (
+      'sandbox.created', 'sandbox.reset', 'sandbox.deleted',
+      'sandbox.trial_changed', 'sandbox.trial_ended'
+    )
   );

@@ -1,6 +1,9 @@
 import { sql } from "drizzle-orm";
 import { db } from "./client.js";
-import { recordPlatformAdminAction } from "./platform-admin-audit.js";
+import {
+  recordPlatformAdminAction,
+  type PlatformAdminAction,
+} from "./platform-admin-audit.js";
 import type { DbOrTx } from "./middleware.js";
 
 /**
@@ -61,7 +64,8 @@ export function toPlatformAdminSandboxView(
 class SandboxTrialNotUpdated extends Error {}
 
 /**
- * R6a: sets a sandbox's trial end, which also reactivates an expired one. Goes through the
+ * R6a: sets a sandbox's trial end -- extending it (which reactivates an expired one) or, with
+ * a "now" timestamp and the sandbox.trial_ended action, ending it immediately. Goes through the
  * SECURITY DEFINER function from 0142 rather than an UPDATE grant -- the function only ever
  * touches active `is_sandbox` rows, so this cannot change a regular tenant's trial whatever
  * id it is handed. Returns false (and writes nothing) when no active sandbox has that id.
@@ -74,11 +78,15 @@ export async function setSandboxTrialEndsAt(
   tenantId: string,
   trialEndsAt: Date,
   actorSub: string,
+  action: Extract<
+    PlatformAdminAction,
+    "sandbox.trial_changed" | "sandbox.trial_ended"
+  > = "sandbox.trial_changed",
 ): Promise<boolean> {
   try {
     await db.transaction(async (tx) => {
       await recordPlatformAdminAction(
-        { actorSub, action: "sandbox.trial_changed", targetTenantId: tenantId },
+        { actorSub, action, targetTenantId: tenantId },
         tx,
       );
       await tx.execute(sql`SET LOCAL ROLE platform_admin_role`);

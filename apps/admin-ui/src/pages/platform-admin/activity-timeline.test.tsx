@@ -99,14 +99,18 @@ describe("ActivityTimeline", () => {
     expect(screen.getByText(/^Admin other-ad ·/)).toBeTruthy();
   });
 
-  it("labels a trial change", async () => {
+  it("labels trial extensions and ends", async () => {
     mockFetchWithAuth.mockResolvedValueOnce({
-      data: [entry(1, { action: "sandbox.trial_changed" })],
+      data: [
+        entry(1, { action: "sandbox.trial_changed" }),
+        entry(2, { action: "sandbox.trial_ended" }),
+      ],
     });
     renderTimeline();
 
     await waitFor(() => {
-      expect(screen.getByText("Changed trial")).toBeTruthy();
+      expect(screen.getByText("Extended trial")).toBeTruthy();
+      expect(screen.getByText("Ended trial")).toBeTruthy();
     });
   });
 

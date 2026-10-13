@@ -47,3 +47,20 @@
   anchored to the button. It opens upward when there's no room below, and closes on Escape, outside
   click, scroll (any scroll container) or resize. Tests cover the portal parent, the up/down flip
   and close-on-scroll.
+
+## 2026-10-13 follow-up: Extend trial and End trial
+
+- Owner request: "Change trial" becomes **Extend trial**, and a new **End trial** forces the
+  trial to end now.
+- Extend now adds the days to the later of the current end and now (it used to always count
+  from now). A running trial gets N more days; an expired or unset one runs N days from today,
+  which reactivates it.
+- End: `POST /platform-admin/sandboxes/:tenantId/trial/end` sets `trial_ends_at` to now through
+  the same 0142 function (active sandboxes only), clears the trial cache, and records
+  `sandbox.trial_ended` in the same transaction. 0142 (still unmerged) allows the new action.
+- UI: the menu reads Reset · Extend trial · End trial · Delete. End trial asks for confirmation
+  and is hidden once the trial has ended. The timeline labels these "Extended trial" and
+  "Ended trial", and its filter has both.
+- Tests: route units for extend-from-current-end, extend-when-expired and end; an isolation case
+  for ending a trial plus its audit row; UI tests for the menu order, the confirm + endpoint,
+  hiding End once ended, and the extend preview.

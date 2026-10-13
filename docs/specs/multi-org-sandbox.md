@@ -157,17 +157,20 @@ separate scheduled job flips a precomputed status flag.
 creation, SLA timers, notification dispatch) no-op.
 ✓ Sandbox data is never auto-deleted on expiry — it persists until an explicit delete action.
 
-R6a **(added 2026-10-12, owner decision)**: The platform admin can change a sandbox's trial,
-including reactivating an expired one.
-✓ Setting a sandbox's trial to N days from now (1–365) updates `trial_ends_at`; on an expired
-sandbox this reactivates it — login and background work resume with no other step, since R6's
-check is a fresh timestamp comparison.
-✓ The change applies immediately: the auth layer's cached trial timestamp is invalidated.
+R6a **(added 2026-10-12, extended 2026-10-13; owner decisions)**: The platform admin can extend a
+sandbox's trial (reactivating an expired one) or end it immediately.
+✓ Extend adds N days (1–365) to the later of the current trial end and now: a running trial gets
+N more days; an expired or unset one runs N days from now, which reactivates it — login and
+background work resume with no other step, since R6's check is a fresh timestamp comparison.
+✓ End sets `trial_ends_at` to now: the sandbox behaves exactly like an expired trial (R6) — no
+login, background jobs no-op, no data deleted — until extended again.
+✓ Both apply immediately: the auth layer's cached trial timestamp is invalidated.
 ✓ Sandboxes only, enforced in the database: `platform_admin_role` gets EXECUTE on one function
 (migration 0142) that updates only active `is_sandbox` rows, never an UPDATE grant on `tenants`.
 A non-sandbox, unknown or being-deleted tenant id returns 404 and changes nothing.
-✓ Each change is recorded in `platform_admin_audit_log` as `sandbox.trial_changed` (R9), in the
-same transaction as the change, so a change never commits without its record.
+✓ Each change is recorded in `platform_admin_audit_log` as `sandbox.trial_changed` (extend) or
+`sandbox.trial_ended` (end) (R9), in the same transaction as the change, so a change never
+commits without its record.
 ✓ The dashboard lists sandboxes only — regular tenants never appear (R2 unchanged).
 
 R7: Reset returns a sandbox to a clean working state without disturbing its identity.

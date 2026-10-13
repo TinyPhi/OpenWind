@@ -128,6 +128,8 @@ export function ActivityTimeline({
             <option value="sandbox.created">Created</option>
             <option value="sandbox.reset">Reset</option>
             <option value="sandbox.deleted">Deleted</option>
+            <option value="sandbox.trial_changed">Trial extended</option>
+            <option value="sandbox.trial_ended">Trial ended</option>
           </select>
         </div>
       )}

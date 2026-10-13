@@ -90,6 +90,21 @@ describe("platform_admin_set_sandbox_trial (R6a)", () => {
     expect(await auditCount(SANDBOX_TENANT)).toBe(1);
   });
 
+  it("ends a sandbox's trial now and records sandbox.trial_ended", async () => {
+    const now = new Date();
+
+    await expect(
+      setSandboxTrialEndsAt(SANDBOX_TENANT, now, ACTOR, "sandbox.trial_ended"),
+    ).resolves.toBe(true);
+
+    expect((await trialOf(SANDBOX_TENANT))?.getTime()).toBe(now.getTime());
+    const ended = await db
+      .select({ action: platformAdminAuditLog.action })
+      .from(platformAdminAuditLog)
+      .where(eq(platformAdminAuditLog.targetTenantId, SANDBOX_TENANT));
+    expect(ended.map((r) => r.action)).toContain("sandbox.trial_ended");
+  });
+
   it("refuses a regular tenant and leaves its trial untouched", async () => {
     const newEnd = new Date(Date.now() + 7 * 86_400_000);
 

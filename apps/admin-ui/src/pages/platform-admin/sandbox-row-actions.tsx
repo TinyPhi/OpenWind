@@ -3,9 +3,16 @@ import { createPortal } from "react-dom";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { ChangeTrialDialog } from "./change-trial-dialog.js";
+import { ExtendTrialDialog } from "./extend-trial-dialog.js";
 
-type ActionKind = "reset" | "delete";
+type ActionKind = "reset" | "delete" | "end_trial";
+
+// Path segment under /platform-admin/sandboxes/:tenantId for each confirmed action.
+const ACTION_PATH: Record<ActionKind, string> = {
+  reset: "reset",
+  delete: "delete",
+  end_trial: "trial/end",
+};
 
 export interface SandboxRowActionsProps {
   tenantId: string;
@@ -46,6 +53,18 @@ const CONFIRM_COPY: Record<
     confirmLabel: "Delete",
     busyLabel: "Deleting…",
   },
+  end_trial: {
+    title: "End this trial now?",
+    message: (name) => (
+      <>
+        The trial for <strong>{name}</strong> ends immediately: its users can no
+        longer sign in and its background jobs stop. No data is deleted, and
+        Extend trial reactivates it.
+      </>
+    ),
+    confirmLabel: "End trial",
+    busyLabel: "Ending…",
+  },
 };
 
 /**
@@ -67,7 +86,7 @@ const CONFIRM_COPY: Record<
  * sandbox-lifecycle advisory lock (T22, PR #832's fix), which this component never needs
  * to know about.
  *
- * Every action lives in one three-dot menu per row (R6a added "Change trial"); the menu
+ * Every action lives in one three-dot menu per row (R6a added Extend / End trial); the menu
  * button is what's disabled while a request is in flight. The open menu is portalled to
  * document.body with fixed positioning: rendered in place, the table's overflow-x scroll box
  * (and the detail drawer) clipped it. React events still bubble through the component tree,
@@ -107,6 +126,8 @@ export function SandboxRowActions({
   const [trialOpen, setTrialOpen] = React.useState(false);
   const buttonRef = React.useRef<HTMLButtonElement>(null);
   const menuOpen = menuPosition !== null;
+  const trialEnded =
+    trialEndsAt !== null && Date.parse(trialEndsAt) <= Date.now();
 
   React.useEffect(() => {
     if (!menuOpen) return;
@@ -148,7 +169,7 @@ export function SandboxRowActions({
     setBusy(true);
     try {
       await fetchWithAuth(
-        `${API_URL}/platform-admin/sandboxes/${tenantId}/${action}`,
+        `${API_URL}/platform-admin/sandboxes/${tenantId}/${ACTION_PATH[action]}`,
         { method: "POST" },
       );
       onDone();
@@ -159,7 +180,7 @@ export function SandboxRowActions({
           ? "Already in progress for this sandbox — try again shortly."
           : err instanceof Error
             ? err.message
-            : `Failed to ${action} the sandbox`,
+            : "The action failed",
       );
     } finally {
       setBusy(false);
@@ -218,8 +239,18 @@ export function SandboxRowActions({
                 className="rcd-kebab-menu-item"
                 onClick={() => choose(() => setTrialOpen(true))}
               >
-                Change trial
+                Extend trial
               </button>
+              {!trialEnded && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="rcd-kebab-menu-item"
+                  onClick={() => choose(() => setConfirming("end_trial"))}
+                >
+                  End trial
+                </button>
+              )}
               <button
                 type="button"
                 role="menuitem"
@@ -246,7 +277,7 @@ export function SandboxRowActions({
         />
       )}
       {trialOpen && (
-        <ChangeTrialDialog
+        <ExtendTrialDialog
           open={true}
           tenantId={tenantId}
           tenantName={tenantName}

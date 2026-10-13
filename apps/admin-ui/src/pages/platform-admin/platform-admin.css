@@ -284,3 +284,7 @@
 .pa-tl-dot-trial_changed {
   background-color: var(--accent-primary);
 }
+
+.pa-tl-dot-trial_ended {
+  background-color: var(--danger);
+}

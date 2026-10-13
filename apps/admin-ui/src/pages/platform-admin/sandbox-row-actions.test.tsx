@@ -27,8 +27,8 @@ vi.mock("../../components/global-alert-dialog.js", () => ({
 }));
 
 // Shallow-mocked: change-trial-dialog.test.tsx covers the dialog itself.
-vi.mock("./change-trial-dialog.js", () => ({
-  ChangeTrialDialog: (props: {
+vi.mock("./extend-trial-dialog.js", () => ({
+  ExtendTrialDialog: (props: {
     onSaved: () => void;
     trialEndsAt: string | null;
   }) => (
@@ -57,7 +57,7 @@ function renderComponent(onDone: () => void = vi.fn()): () => void {
   return onDone;
 }
 
-function choose(item: "Reset" | "Delete" | "Change trial"): void {
+function choose(item: "Reset" | "Delete" | "Extend trial" | "End trial"): void {
   fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
   fireEvent.click(screen.getByRole("menuitem", { name: item }));
 }
@@ -159,7 +159,7 @@ describe("SandboxRowActions", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
-      ["Reset", "Change trial", "Delete"],
+      ["Reset", "Extend trial", "End trial", "Delete"],
     );
   });
 
@@ -217,9 +217,42 @@ describe("SandboxRowActions", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("asks for confirmation, then ends the trial through /trial/end", async () => {
+    mockFetchWithAuth.mockResolvedValue({ data: {} });
+    const onDone = renderComponent();
+    choose("End trial");
+    expect(screen.getByText("End this trial now?")).toBeTruthy();
+    expect(mockFetchWithAuth).not.toHaveBeenCalled();
+
+    fireEvent.click(getConfirmButton("End trial"));
+
+    await waitFor(() => {
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        `/api/platform-admin/sandboxes/${TENANT_ID}/trial/end`,
+        { method: "POST" },
+      );
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("hides End trial once the trial has already ended", () => {
+    render(
+      <SandboxRowActions
+        tenantId={TENANT_ID}
+        tenantName="Acme Sandbox"
+        trialEndsAt="2026-01-01T00:00:00.000Z"
+        onDone={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
+      ["Reset", "Extend trial", "Delete"],
+    );
+  });
+
   it("opens the trial dialog with the current end and calls onDone after saving", () => {
     const onDone = renderComponent();
-    choose("Change trial");
+    choose("Extend trial");
     expect(
       screen.getByText("Trial dialog (2026-12-01T00:00:00.000Z)"),
     ).toBeTruthy();
