@@ -63,3 +63,16 @@
   the sandbox workers. On plain `db` the RLS-protected insert was rejected for `app_user` after the
   tenants write had committed, so each action returned a 500. Unit tests assert each write uses the
   tenant-context transaction; they fail on the previous code.
+
+## 2026-10-13: review round 3 fix
+
+- The purge worker's G5 audit entries (`purge.completed`, and `purge.failed` on the final
+  attempt) were still written on plain `db`. RLS rejects that insert for `app_user`, and it
+  ran after the `tenants` status flip had committed, so every retry failed the same way until the
+  job ran out of attempts. Both now go through `withTenantContext(tenantId, …)`.
+- `anonymizeAuditLogForTenant` stays on plain `db` on purpose. It is an UPDATE, which `app_user`
+  is not granted on `admin_audit_log`, and it refuses to run under a tenant context. Follow-up:
+  under the compose stack the worker connects as `app_user`, so that UPDATE needs the privileged
+  connection its doc comment assumes. This is pre-existing and was scoped out by the reviewer.
+- New `apps/worker/src/tenant-purge.test.ts` captures the worker's processor and failure handler,
+  and asserts both G5 writes use the tenant-context transaction. They fail on the previous code.
