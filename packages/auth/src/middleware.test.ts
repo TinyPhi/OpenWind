@@ -404,21 +404,28 @@ describe("requireAuth", () => {
     });
 
     it("checks expiry fresh on every request rather than caching the expired boolean", async () => {
-      mockTenantRow = {
-        status: "active",
-        trialEndsAt: new Date(Date.now() + 50),
-      };
+      // Only Date is faked, and time is advanced by hand: a real 50ms window
+      // flaked under parallel load when the first request outlasted it.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        mockTenantRow = {
+          status: "active",
+          trialEndsAt: new Date(Date.now() + 1_000),
+        };
 
-      const app = makeApp([requireAuth()]);
-      const res1 = await get(app, "valid.jwt");
-      expect(res1.status).toBe(200);
+        const app = makeApp([requireAuth()]);
+        const res1 = await get(app, "valid.jwt");
+        expect(res1.status).toBe(200);
 
-      // Same cached trialEndsAt timestamp, but enough wall-clock time has
-      // passed that it's now in the past -- must be rejected without
-      // needing invalidateTenantStatusCache to be called in between.
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const res2 = await get(app, "valid.jwt");
-      expect(res2.status).toBe(403);
+        // Same cached trialEndsAt timestamp, but time has moved past it --
+        // must be rejected without needing invalidateTenantStatusCache to be
+        // called in between.
+        vi.setSystemTime(Date.now() + 2_000);
+        const res2 = await get(app, "valid.jwt");
+        expect(res2.status).toBe(403);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
