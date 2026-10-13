@@ -13,7 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   admin-ui avatars through the shared initials formatter instead of producing empty avatar text.
 
 ---
-=======
+
 ## [Unreleased — on-call duration metrics and the resolution SLO alert (#570)]
 
 ### Added
@@ -54,7 +54,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   only). The histogram buckets run to 60 s on purpose: with OpenTelemetry's default boundaries the
   top finite bucket is 10 s, so a slower fire would never push the p99 over 10 s and the alert could
   not fire.
-
 
 ## [Unreleased — audit trail for permission changes (#640)]
 
