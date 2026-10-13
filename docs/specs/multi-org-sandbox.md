@@ -210,6 +210,13 @@ exceeding it returns a clear error, not a silent failure or partial provisioning
 - Exactly one lifecycle action (reset/delete) may be in flight per sandbox tenant at a time.
 - A Redis outage or error while checking platform-admin MFA verification always fails closed
   (denies access) — never fails open.
+- A token carrying `platform_admin` never obtains a tenant context, on any entry point: tenant
+  `requireAuth` rejects it with `403 PLATFORM_ADMIN_TENANT_ACCESS_DENIED` before tenant
+  resolution, `extractAuthContext` returns null for it (the WebSocket's only path), and the
+  admin-ui tenant shell redirects it before any tenant request fires. Holds even when the same
+  account also has a tenant role — platform_admin is a separate identity (R1). (B3)
+- Every module that constructs a BullMQ `Worker` is imported by the worker entry point —
+  enforced by `apps/worker/src/worker-entry-wiring.test.ts`. (B4)
 
 ## §T Tasks
 
@@ -264,6 +271,8 @@ required in every phase touching tenant-scoped data or new routes.
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | B1  | ADR-022 review (PrabhuVijit) found `GRANT platform_admin_role TO app_user` without `WITH INHERIT FALSE` would let every ordinary tenant session passively inherit the role's privileges | Postgres role membership is additive/inheriting by default; the migration's own comment claimed "zero privileges by construction" but the GRANT statement didn't actually enforce that | Yes — added to §V                                                                                   |
 | B2  | TOTP MFA (originally planned, R1) turned out to be unimplementable                                                                                                                      | This Zitadel hosted instance has no SMTP, no SMS gateway, and doesn't offer TOTP as an option at all                                                                                   | No — this is a security-design trade-off, recorded as ADR-022 Decision 10, not just a bug log entry |
+| B3  | Manual testing: a platform_admin landed in the tenant admin-ui shell, and `/entity-types`, `/modules`, `/dashboard/my-view` returned 200 to its token (breaks R1/R2)                    | Tenant `requireAuth`/`extractAuthContext` and the tenant UI shell accepted any valid token; only role-gated routes refused it. The DTO + GRANT layers only cover `/platform-admin/*`   | Yes — added to §V                                                                                   |
+| B4  | PR #838 review: sandbox reset and delete jobs were never processed outside unit tests                                                                                                   | Neither worker module was imported by `apps/worker/src/index.ts`; tests call `processSandbox*Job` directly, so nothing exercised the wiring                                            | Yes — added to §V                                                                                   |
 
 ---
 

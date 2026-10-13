@@ -131,6 +131,23 @@ describe("fetchWithAuth 401 error shape", () => {
     });
   });
 
+  // docs/specs/multi-org-sandbox.md R1: the API refuses a platform_admin token on tenant
+  // routes with 403. That must stay a plain refusal -- treating it like an expired session
+  // would log the platform admin out of their own dashboard.
+  it("does not refresh or flag an auth error on 403 PLATFORM_ADMIN_TENANT_ACCESS_DENIED", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(403, { error: "PLATFORM_ADMIN_TENANT_ACCESS_DENIED" }),
+    );
+
+    const err: unknown = await fetchWithAuth("/api/entity-types").catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toMatchObject({ status: 403 });
+    expect(err).not.toHaveProperty("isAuthError");
+    expect(mockSilentRefresh).not.toHaveBeenCalled();
+  });
+
   it("ends the session and redirects to login when the 401 survives the refresh retry", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(401, { error: "UNAUTHORIZED", message: "Invalid token" }),
