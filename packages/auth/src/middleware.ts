@@ -18,6 +18,7 @@ import {
   verifyJwt,
   extractAuthContext,
   extractPlatformAdminContext,
+  isPlatformAdminToken,
 } from "./jwks.js";
 import { introspectToken } from "./introspection.js";
 import type { AuthContext, PlatformAdminAuthContext } from "./types.js";
@@ -447,11 +448,24 @@ async function resolvePlatformAdmin(
   // handles below via fetchUserInfo. Needed here specifically because the MFA email
   // (platform-admin-mfa.ts's requestMfaCode) has nowhere else to get an address from; a
   // platform_admin token has no tenant_users row to fall back to the way a normal user's
-  // does.
-  if (!platformAdmin.email) {
+  // does. The display name has the same gap: extractPlatformAdminContext falls back to the
+  // raw user id when the token carries no name or email, which is what the dashboard's
+  // "Signed in as" line then showed -- so fill it the way requireAuth does (name, then
+  // email). fetchUserInfo is cached per token, so this is one lookup per session token.
+  if (
+    !platformAdmin.email ||
+    platformAdmin.displayName === platformAdmin.userId
+  ) {
     const info = await fetchUserInfo(authHeader.slice(7));
-    if (info?.email) {
-      platformAdmin = { ...platformAdmin, email: info.email };
+    if (info) {
+      platformAdmin = {
+        ...platformAdmin,
+        email: platformAdmin.email ? platformAdmin.email : (info.email ?? ""),
+        displayName:
+          platformAdmin.displayName === platformAdmin.userId
+            ? (info.name ?? info.email ?? platformAdmin.displayName)
+            : platformAdmin.displayName,
+      };
     }
   }
   return platformAdmin;
@@ -648,6 +662,23 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
       const claims = await verifyJwt(token);
       if (!claims) {
         return c.json({ error: "UNAUTHORIZED", message: "Invalid token" }, 401);
+      }
+
+      // R1/R2 (docs/specs/multi-org-sandbox.md): platform_admin is a distinct operator
+      // identity with no tenant. 403, not 401 -- the token is valid, so a 401 would push
+      // the client into a refresh-then-logout loop instead of just refusing this route.
+      if (isPlatformAdminToken(claims)) {
+        logger.warn(
+          { sub: claims.sub, path: c.req.path },
+          "platform_admin token rejected on a tenant route",
+        );
+        return c.json(
+          {
+            error: "PLATFORM_ADMIN_TENANT_ACCESS_DENIED",
+            message: "Platform admin accounts cannot access tenant routes",
+          },
+          403,
+        );
       }
 
       let auth = extractAuthContext(claims);
@@ -889,8 +920,8 @@ export const requireIntrospection = (): MiddlewareHandler =>
  * in-process cache. The tenants table has no RLS, so we query with the plain
  * db instance. Returns status "deleted" if the tenant row does not exist.
  *
- * trialEndsAt is cached as the raw timestamp (immutable once set at
- * provisioning), never as a precomputed "expired" boolean -- R6
+ * trialEndsAt is cached as the raw timestamp (changed only by R6a's trial route,
+ * which invalidates this cache), never as a precomputed "expired" boolean -- R6
  * (docs/specs/multi-org-sandbox.md) requires the expiry comparison itself to
  * run fresh against Date.now() on every call, which isTenantTrialActive does.
  */

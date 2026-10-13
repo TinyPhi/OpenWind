@@ -1,4 +1,4 @@
-import { desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "./client.js";
 import { withPlatformAdminContext } from "./middleware.js";
 import { platformAdminAuditLog } from "./schema/platform.js";
@@ -13,7 +13,9 @@ import type { DbOrTx } from "./middleware.js";
 export type PlatformAdminAction =
   | "sandbox.created"
   | "sandbox.reset"
-  | "sandbox.deleted";
+  | "sandbox.deleted"
+  | "sandbox.trial_changed"
+  | "sandbox.trial_ended";
 
 export interface RecordPlatformAdminActionInput {
   actorSub: string;
@@ -49,10 +51,12 @@ function asPlatformAdminAction(action: string): PlatformAdminAction {
   if (
     action === "sandbox.created" ||
     action === "sandbox.reset" ||
-    action === "sandbox.deleted"
+    action === "sandbox.deleted" ||
+    action === "sandbox.trial_changed" ||
+    action === "sandbox.trial_ended"
   )
     return action;
-  // The DB CHECK constraint (migration 0141) already guarantees this is unreachable --
+  // The DB CHECK constraint (migrations 0141, 0142) already guarantees this is unreachable --
   // narrowing defensively, same pattern as platform-admin-view.ts's asProgressStatus.
   throw new Error(`unexpected platform_admin_audit_log.action: ${action}`);
 }
@@ -61,6 +65,8 @@ export interface ListPlatformAdminAuditLogOptions {
   limit: number;
   /** Row id to page from — results are strictly older than this row's created_at. */
   before?: string | undefined;
+  /** Narrows the log to one tenant's actions (the dashboard's per-tenant timeline). */
+  targetTenantId?: string | undefined;
 }
 
 /**
@@ -70,11 +76,15 @@ export interface ListPlatformAdminAuditLogOptions {
 export async function listPlatformAdminAuditLog(
   options: ListPlatformAdminAuditLogOptions,
 ): Promise<PlatformAdminAuditEntryView[]> {
+  const tenantFilter = options.targetTenantId
+    ? eq(platformAdminAuditLog.targetTenantId, options.targetTenantId)
+    : undefined;
   const rows = await withPlatformAdminContext(async (tx) => {
     if (!options.before) {
       return tx
         .select()
         .from(platformAdminAuditLog)
+        .where(tenantFilter)
         .orderBy(desc(platformAdminAuditLog.createdAt))
         .limit(options.limit);
     }
@@ -91,7 +101,10 @@ export async function listPlatformAdminAuditLog(
         // Keyset pagination on a DESC-ordered timestamp: strictly less-than the cursor row's
         // own created_at. Ties (two rows with the identical timestamp) are rare enough for an
         // operator-facing audit log that an id tiebreaker isn't worth the extra complexity.
-        lt(platformAdminAuditLog.createdAt, cursor.createdAt),
+        and(
+          lt(platformAdminAuditLog.createdAt, cursor.createdAt),
+          tenantFilter,
+        ),
       )
       .orderBy(desc(platformAdminAuditLog.createdAt))
       .limit(options.limit);

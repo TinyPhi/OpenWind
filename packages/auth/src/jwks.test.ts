@@ -81,6 +81,19 @@ describe("extractAuthContext", () => {
     expect(extractAuthContext(claims)).toBeNull();
   });
 
+  // docs/specs/multi-org-sandbox.md R1/R2 -- covers callers other than requireAuth
+  // (the notifications WebSocket), which have no explicit platform_admin check of their own.
+  it("returns null for a platform_admin token, even with a valid org id and other roles", () => {
+    const claims: Claims = {
+      ...BASE_CLAIMS,
+      "urn:zitadel:iam:org:project:roles": {
+        admin: { "": "" },
+        platform_admin: { "": "" },
+      },
+    };
+    expect(extractAuthContext(claims)).toBeNull();
+  });
+
   it("returns null when org id claim is missing", () => {
     const claims: Claims = {
       ...BASE_CLAIMS,

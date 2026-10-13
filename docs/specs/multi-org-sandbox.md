@@ -163,6 +163,26 @@ separate scheduled job flips a precomputed status flag.
 creation, SLA timers, notification dispatch) no-op.
 ✓ Sandbox data is never auto-deleted on expiry — it persists until an explicit delete action.
 
+R6a **(added 2026-10-12, extended 2026-10-13; owner decisions)**: The platform admin can extend a
+sandbox's trial (reactivating an expired one) or end it immediately.
+✓ Extend adds N days (1–365) to the later of the current trial end and now: a running trial gets
+N more days; an expired or unset one runs N days from now, which reactivates it — login and
+background work resume with no other step, since R6's check is a fresh timestamp comparison.
+Concurrent extends stack: the new end is computed from the stored value inside one UPDATE.
+✓ End sets `trial_ends_at` to now, only for a trial that is currently running: the sandbox then
+behaves exactly like an expired trial (R6) — no login, background jobs no-op, no data deleted —
+until extended again. Ending a sandbox with no trial, or one already over, is refused (409
+`NO_ACTIVE_TRIAL`) and changes nothing, so End can never create an expired trial.
+✓ Both apply immediately: the auth layer's cached trial timestamp is invalidated.
+✓ Sandboxes only, enforced in the database: `platform_admin_role` gets EXECUTE on two functions
+(migration 0142, extend and end) that update only active `is_sandbox` rows, never an UPDATE grant
+on `tenants`.
+A non-sandbox, unknown or being-deleted tenant id returns 404 and changes nothing.
+✓ Each change is recorded in `platform_admin_audit_log` as `sandbox.trial_changed` (extend) or
+`sandbox.trial_ended` (end) (R9), in the same transaction as the change, so a change never
+commits without its record.
+✓ The dashboard lists sandboxes only — regular tenants never appear (R2 unchanged).
+
 R7: Reset returns a sandbox to a clean working state without disturbing its identity.
 ✓ Resetting a sandbox wipes and re-seeds only module/business data (tickets, workflow instances,
 automation-execution history) — org chart, accounts, and credentials are untouched.
@@ -216,6 +236,13 @@ exceeding it returns a clear error, not a silent failure or partial provisioning
 - Exactly one lifecycle action (reset/delete) may be in flight per sandbox tenant at a time.
 - A Redis outage or error while checking platform-admin MFA verification always fails closed
   (denies access) — never fails open.
+- A token carrying `platform_admin` never obtains a tenant context, on any entry point: tenant
+  `requireAuth` rejects it with `403 PLATFORM_ADMIN_TENANT_ACCESS_DENIED` before tenant
+  resolution, `extractAuthContext` returns null for it (the WebSocket's only path), and the
+  admin-ui tenant shell redirects it before any tenant request fires. Holds even when the same
+  account also has a tenant role — platform_admin is a separate identity (R1). (B3)
+- Every module that constructs a BullMQ `Worker` is imported by the worker entry point —
+  enforced by `apps/worker/src/worker-entry-wiring.test.ts`. (B4)
 
 ## §T Tasks
 
@@ -270,6 +297,8 @@ required in every phase touching tenant-scoped data or new routes.
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | B1  | ADR-022 review (PrabhuVijit) found `GRANT platform_admin_role TO app_user` without `WITH INHERIT FALSE` would let every ordinary tenant session passively inherit the role's privileges | Postgres role membership is additive/inheriting by default; the migration's own comment claimed "zero privileges by construction" but the GRANT statement didn't actually enforce that | Yes — added to §V                                                                                   |
 | B2  | TOTP MFA (originally planned, R1) turned out to be unimplementable                                                                                                                      | This Zitadel hosted instance has no SMTP, no SMS gateway, and doesn't offer TOTP as an option at all                                                                                   | No — this is a security-design trade-off, recorded as ADR-022 Decision 10, not just a bug log entry |
+| B3  | Manual testing: a platform_admin landed in the tenant admin-ui shell, and `/entity-types`, `/modules`, `/dashboard/my-view` returned 200 to its token (breaks R1/R2)                    | Tenant `requireAuth`/`extractAuthContext` and the tenant UI shell accepted any valid token; only role-gated routes refused it. The DTO + GRANT layers only cover `/platform-admin/*`   | Yes — added to §V                                                                                   |
+| B4  | PR #838 review: sandbox reset and delete jobs were never processed outside unit tests                                                                                                   | Neither worker module was imported by `apps/worker/src/index.ts`; tests call `processSandbox*Job` directly, so nothing exercised the wiring                                            | Yes — added to §V                                                                                   |
 
 ---
 
