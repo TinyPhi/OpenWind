@@ -18,7 +18,7 @@
 
 - **Decision (owner, from three options in BLOCKERS.md):** a dedicated narrow role, not a
   privileged worker connection and not a dev-only grant. Migration
-  `0142_tenant_lifecycle_role.sql` creates `tenant_lifecycle_role`:
+  `0143_tenant_lifecycle_role.sql` creates `tenant_lifecycle_role`:
   - `NOLOGIN NOBYPASSRLS`, granted to `app_user WITH INHERIT FALSE`, the same shape as
     `platform_admin_role` (0135)
   - `SELECT, INSERT, DELETE` on `tenants`, and `UPDATE` only on `status`, `suspended_at`,
@@ -109,3 +109,11 @@
 - Tests: mapped org outside production resolves to the mapped tenant; unmapped org falls back;
   the production cases are unchanged; the WebSocket registers under the resolved tenant and
   refuses an unresolved one; disallowed roles are refused.
+
+## 2026-10-13: renumbered to 0143 after #880 merged
+
+- #880 merged first, as agreed, and keeps `0142_platform_admin_sandbox_trial`. This migration is
+  now `0143_tenant_lifecycle_role.sql` with journal `idx` 143 and the latest `when`.
+- The merge of `main` made from GitHub had dropped `0142_platform_admin_sandbox_trial` from this
+  branch's journal, which would have left #880's migration unrun on fresh databases. The journal
+  is now main's entries plus `0143_tenant_lifecycle_role`.

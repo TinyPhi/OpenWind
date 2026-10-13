@@ -275,7 +275,7 @@ export async function processSandboxProvisioningJob(
       now.getTime() + trialDays * 24 * 60 * 60 * 1000,
     );
 
-    // app_user can't insert tenants (#405); tenant_lifecycle_role (migration 0142) can.
+    // app_user can't insert tenants (#405); tenant_lifecycle_role (migration 0143) can.
     const [tenantRow] = await withTenantLifecycleContext((tx) =>
       tx
         .insert(tenants)
