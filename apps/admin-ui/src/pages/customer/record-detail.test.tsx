@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
+  act,
   render,
   screen,
   waitFor,
@@ -89,6 +90,7 @@ vi.mock("../../lib/api.js", () => ({
 }));
 
 const { CustomerRecordDetail } = await import("./record-detail.js");
+const { clearCoverageCache } = await import("../../lib/oncall-coverage.js");
 
 const BASE_RECORD = {
   id: RECORD_ID,
@@ -984,5 +986,245 @@ describe("CustomerRecordDetail — access-denied overlay across silent refreshes
 
     await screen.findAllByText("Other ticket");
     expect(screen.queryByText("Access Restricted")).toBeNull();
+  });
+});
+
+// docs/specs/oncall-routing.md T19/R9 -- an unassigned ticket whose team has no
+// active on-call schedule is flagged for staff.
+describe("CustomerRecordDetail — coverage-gap badge (T19)", () => {
+  const CURRENT = "/api/admin/on-call-schedules/current";
+  const BADGE = "No on-call coverage";
+
+  function mockTicket(
+    overrides: Record<string, unknown>,
+    teams: Array<{ teamId: string; oncall: unknown }>,
+  ): void {
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: {
+            ...BASE_RECORD,
+            fields: { subject: "Test ticket", team_id: "team-1" },
+            ...overrides,
+          },
+        });
+      }
+      if (url === CURRENT) {
+        return Promise.resolve({
+          data: teams.map((t) => ({ ...t, teamName: t.teamId })),
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  }
+  const currentCalls = (): number =>
+    mockFetchWithAuth.mock.calls.filter(([url]) => url === CURRENT).length;
+  // The header's id chip shows once the record has loaded. The extra tick lets
+  // the viewer's roles resolve too, so a "no badge" assertion cannot pass just
+  // because it ran before the badge had any chance to appear.
+  async function pageLoaded(): Promise<void> {
+    await screen.findByText(RECORD_ID.slice(0, 8));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+  }
+
+  beforeEach(() => {
+    clearCoverageCache();
+    mockProfileRoles = ["agent"];
+    mockUserId = ADMIN_USER;
+  });
+  afterEach(() => {
+    cleanup();
+    mockFetchWithAuth.mockReset();
+    mockProfileRoles = ["user"];
+    mockUserId = OTHER_USER;
+  });
+
+  it("shows the badge to an agent on an unassigned ticket whose team has no active schedule", async () => {
+    mockTicket({ assignedTo: null }, [{ teamId: "team-1", oncall: null }]);
+
+    renderRecordDetail();
+
+    expect(await screen.findByText(BADGE)).toBeTruthy();
+  });
+
+  it("does not show it once the ticket has an assignee, and does not even ask", async () => {
+    mockTicket({ assignedTo: "u-assignee" }, [
+      { teamId: "team-1", oncall: null },
+    ]);
+
+    renderRecordDetail();
+
+    await pageLoaded();
+    expect(screen.queryByText(BADGE)).toBeNull();
+    expect(currentCalls()).toBe(0);
+  });
+
+  it("does not show it when the team has an active schedule", async () => {
+    mockTicket({ assignedTo: null }, [
+      { teamId: "team-1", oncall: { scheduleId: "s-1" } },
+    ]);
+
+    renderRecordDetail();
+
+    await waitFor(() => expect(currentCalls()).toBe(1));
+    expect(screen.queryByText(BADGE)).toBeNull();
+  });
+
+  it("never asks, and never shows it, for a viewer who is not staff", async () => {
+    mockProfileRoles = ["user"];
+    mockTicket({ assignedTo: null, createdBy: ADMIN_USER }, [
+      { teamId: "team-1", oncall: null },
+    ]);
+
+    renderRecordDetail();
+
+    await pageLoaded();
+    expect(screen.queryByText(BADGE)).toBeNull();
+    expect(currentCalls()).toBe(0);
+  });
+
+  it("never asks for a workflow admin who holds only the user role (the endpoint is agent/admin-only and would 403)", async () => {
+    // isAdminOrAgent on this page also admits the parent workflow's admins, so
+    // gating the badge on it would send this viewer's request into a 403.
+    mockProfileRoles = ["user"];
+    mockUserId = ADMIN_USER;
+    mockFetchWithAuth.mockImplementation((url: string) => {
+      if (url === `/api/entities/${RECORD_ID}`) {
+        return Promise.resolve({
+          data: {
+            ...BASE_RECORD,
+            workflowId: "wf-1",
+            assignedTo: null,
+            fields: { subject: "Test ticket", team_id: "team-1" },
+          },
+        });
+      }
+      if (url.startsWith("/api/workflows/wf-1")) {
+        return Promise.resolve({
+          data: {
+            states: [],
+            transitions: [],
+            createdBy: ADMIN_USER,
+            assignedTo: [],
+          },
+        });
+      }
+      if (url === CURRENT) {
+        return Promise.resolve({
+          data: [{ teamId: "team-1", teamName: "team-1", oncall: null }],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderRecordDetail();
+
+    await pageLoaded();
+    expect(screen.queryByText(BADGE)).toBeNull();
+    expect(currentCalls()).toBe(0);
+  });
+
+  it("does not show it, or ask, on a deleted ticket", async () => {
+    mockTicket({ assignedTo: null, deletedAt: new Date().toISOString() }, [
+      { teamId: "team-1", oncall: null },
+    ]);
+
+    renderRecordDetail();
+
+    await pageLoaded();
+    expect(screen.queryByText(BADGE)).toBeNull();
+    expect(currentCalls()).toBe(0);
+  });
+
+  describe("by workflow state", () => {
+    function mockTicketInState(
+      currentState: string,
+      states: Array<{ name: string; isTerminal: boolean }>,
+    ): void {
+      mockFetchWithAuth.mockImplementation((url: string) => {
+        if (url === `/api/entities/${RECORD_ID}`) {
+          return Promise.resolve({
+            data: {
+              ...BASE_RECORD,
+              workflowId: "wf-1",
+              currentState,
+              assignedTo: null,
+              fields: { subject: "Test ticket", team_id: "team-1" },
+            },
+          });
+        }
+        if (url.startsWith("/api/workflows/wf-1")) {
+          return Promise.resolve({
+            data: {
+              states: states.map((st) => ({
+                id: st.name,
+                label: st.name,
+                color: null,
+                ...st,
+              })),
+              transitions: [],
+              createdBy: OTHER_USER,
+              assignedTo: [],
+            },
+          });
+        }
+        if (url === CURRENT) {
+          return Promise.resolve({
+            data: [{ teamId: "team-1", teamName: "team-1", oncall: null }],
+          });
+        }
+        return Promise.resolve({ data: [] });
+      });
+    }
+
+    it("shows it on a ticket in a non-terminal state", async () => {
+      mockTicketInState("open", [
+        { name: "open", isTerminal: false },
+        { name: "closed", isTerminal: true },
+      ]);
+
+      renderRecordDetail();
+
+      expect(await screen.findByText(BADGE)).toBeTruthy();
+    });
+
+    it("does not show it, or ask, on a ticket in a terminal state", async () => {
+      mockTicketInState("closed", [
+        { name: "open", isTerminal: false },
+        { name: "closed", isTerminal: true },
+      ]);
+
+      renderRecordDetail();
+
+      await pageLoaded();
+      expect(screen.queryByText(BADGE)).toBeNull();
+      expect(currentCalls()).toBe(0);
+    });
+
+    it("does not show it, or ask, while the ticket's state is not among the workflow's states", async () => {
+      // e.g. the states are still loading, or that lookup failed: unknown is
+      // treated as "do not flag", so a closed ticket never flashes the badge.
+      mockTicketInState("closed", []);
+
+      renderRecordDetail();
+
+      await pageLoaded();
+      expect(screen.queryByText(BADGE)).toBeNull();
+      expect(currentCalls()).toBe(0);
+    });
+  });
+
+  it("does not show it on a ticket with no team", async () => {
+    mockTicket({ fields: { subject: "Test ticket" }, assignedTo: null }, [
+      { teamId: "team-1", oncall: null },
+    ]);
+
+    renderRecordDetail();
+
+    await pageLoaded();
+    expect(screen.queryByText(BADGE)).toBeNull();
+    expect(currentCalls()).toBe(0);
   });
 });

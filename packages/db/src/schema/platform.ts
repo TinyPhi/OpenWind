@@ -79,7 +79,7 @@ export const sandboxProvisioningJobs = pgTable("sandbox_provisioning_jobs", {
 
 /**
  * platform_admin_audit_log — T16 (docs/specs/multi-org-sandbox.md), ADR-022 Decision 7.
- * Deliberately NOT tenant-scoped (no tenant_id column, no RLS) -- see migration 0140's
+ * Deliberately NOT tenant-scoped (no tenant_id column, no RLS) -- see migration 0141's
  * header comment. Written only by the sandbox-{provisioning,reset,delete} workers on the
  * privileged `db` connection; platform_admin_role only ever reads it.
  */

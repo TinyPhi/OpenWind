@@ -9,6 +9,7 @@ import {
 } from "@platform/entity-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
+import { auditTicketAccessDenied } from "../../lib/audit-ticket-denial.js";
 import { hasEntityAccess } from "../../lib/entity-access.js";
 import { resolveOriginDisplay } from "../../lib/resolve-origin-display.js";
 import { resolveTeamDisplayName } from "../../lib/resolve-team-display.js";
@@ -62,6 +63,12 @@ export const getEntityHandler = factory.createHandlers(
         hasEntityAccess(tx, tenantId, instance, userId, roles),
       );
       if (!allowed) {
+        await auditTicketAccessDenied({
+          tenantId,
+          userId,
+          instanceId: id,
+          action: "ticket.view_denied",
+        });
         return c.json({ error: "NOT_FOUND", message: "Record not found" }, 404);
       }
 

@@ -919,6 +919,12 @@ Object-first pino fields per context:
 | `openwind_schedule_tick_duration_ms`      | Histogram | —                  | Full tick wall-clock time                  |
 | `openwind_schedule_catch_up_total`        | Counter   | `tenant`, `action` | `action`: `executed` / `skipped_over_cap`  |
 
+> **As implemented (#580):** none of these carry the `tenant` label (a label value multiplies every
+> histogram bucket, so per-tenant series would be large for no alerting benefit; per-tenant detail is
+> in `schedule_executions` and the logs). The execution histogram is labelled by `status` only,
+> and `openwind_schedule_rules_active` is not implemented. The `_ms` histograms use explicit bucket
+> boundaries to 60 s (`packages/telemetry/src/schedule-duration-buckets.ts`).
+
 ### 9.3 OTel spans
 
 **`schedule.tick`** (INTERNAL span, one per worker tick):

@@ -5,6 +5,82 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — on-call duration metrics and the resolution SLO alert (#570)]
+
+### Added
+
+- **Three on-call routing metrics**: `openwind_oncall_resolution_duration_seconds` (how long
+  `resolve_oncall` takes to reach an outcome, labelled by `outcome`),
+  `openwind_notification_dispatch_duration_seconds` (time to dispatch one channel, labelled by
+  `channel`) and `openwind_notification_policy_match_total` (where in the specificity chain a
+  notification policy matched, labelled `matched_at`: `team_workflow`, `team`, `workflow`, `global`,
+  `hardcoded_default`). The resolution histogram is recorded at the same points as
+  `openwind_oncall_resolutions_total`, so their counts always agree. The histograms use second-scale
+  bucket boundaries on purpose: OpenTelemetry's defaults are millisecond-scale, so a 20 ms
+  resolution would otherwise read as a p99 of nearly 5 s.
+- **`OncallResolutionSLOBreached` alert**: `resolve_oncall` p99 over 100 ms, measured over 15
+  minutes because resolutions only happen when a ticket's team changes and can be hours apart.
+
+## [Unreleased — coverage-gap badge on tickets (#571)]
+
+### Added
+
+- **"No on-call coverage" badge on the ticket page, for agents and admins.** A ticket that has a team
+  and no assignee shows the badge when that team has no active on-call schedule right now, so staff can
+  see at a glance that the on-call routing could not assign it. It is never shown to customers, never
+  shown once the ticket has an assignee or has reached a closed state, and the page makes no extra request for anyone who cannot
+  see it. It uses the existing `GET /admin/on-call-schedules/current`, cached for a minute, so there
+  is no API change. A team whose schedule exists but whose people cannot be resolved is not flagged.
+
+## [Unreleased — scheduler alert rules (#580)]
+
+### Added
+
+- **Three alerts for the temporal scheduler** in `docker/observability/alert.rules.yml`:
+  `ScheduleExecutionFailureRateHigh` (more than 10% of schedule rule fires failing over 10 minutes),
+  `ScheduleTickDurationSLOBreach` (tick p99 over 5 s) and `ScheduleExecutionDurationSLOBreach` (fire
+  p99 over 10 s, measured over 15 minutes because fires can be hours apart), all warning severity. They need two new histograms,
+  `openwind_schedule_tick_duration_ms` and `openwind_schedule_execution_duration_ms`, which the
+  worker now records on every tick and every fire (the execution histogram is labelled by status
+  only). The histogram buckets run to 60 s on purpose: with OpenTelemetry's default boundaries the
+  top finite bucket is 10 s, so a slower fire would never push the p99 over 10 s and the alert could
+  not fire.
+
+## [Unreleased — audit trail for permission changes (#640)]
+
+### Added
+
+- **Permission changes are now audit-logged.** Five new `admin_audit_log` actions: `access.granted`,
+  `access.updated` and `access.revoked` (per-ticket access grants: direct grant, level change,
+  revoke, and approval of an access request), `workflow.admins_updated` (the workflow admin list,
+  including the creator becoming the first admin) and `workflow.transition_roles_updated` (which
+  roles may fire a transition: creating, editing or deleting one, from the transition routes and
+  the canvas save). Each is written in the same transaction as the change, so a change cannot
+  commit without its audit entry. A no-op edit writes nothing, and a canvas save writes one entry
+  however many transitions changed.
+  Migration 0140 widens the action CHECK constraint.
+- **A same-tenant access denial on a ticket read or comment is audited.** A customer refused by the
+  ticket ACL on `GET /entities/:id` or when commenting now leaves a `ticket.view_denied` /
+  `comment.access_denied` entry (actor type `user`), as the third-party API already did. The 404
+  response is unchanged, and a missing record is never audited.
+
+### Notes
+
+- User roles live in Zitadel, so a role granted or revoked there is outside this log; only
+  OpenWind's own tables are covered. Cross-tenant access attempts are not logged: RLS makes another
+  tenant's record indistinguishable from a missing one, so there is no denial to observe.
+
+## [Unreleased — audit log `action` filter]
+
+### Added
+
+- **`GET /admin/audit` can filter by `action`.** `?action=access.revoked` returns only entries with that
+  audit action; combine it with `resourceType` and `resourceId` to ask what happened to one ticket, or
+  with `from` and `to` for a time window. An unknown action is a `400 VALIDATION_ERROR` rather than an
+  empty page, so a typo is visible. One action per request. Admin-only and tenant-scoped as before.
+  The same filter is available to code through `queryAuditLog` in `@platform/audit`, which also gains
+  an exported `ALL_AUDIT_ACTIONS` list.
+
 ## [Unreleased — advisory locks work behind PgBouncer (#752)]
 
 ### Fixed

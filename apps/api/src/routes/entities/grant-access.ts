@@ -7,6 +7,10 @@ import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
 import { emitAccessEvent } from "../../lib/emit-access-event.js";
+import {
+  auditAccessChange,
+  readAccessEntry,
+} from "../../lib/audit-access-change.js";
 
 const GrantAccessSchema = z.object({
   userId: z.string().min(1),
@@ -32,6 +36,7 @@ export const grantAccessHandler = factory.createHandlers(
           .select({
             id: entityInstances.id,
             workflowId: entityInstances.workflowId,
+            fields: entityInstances.fields,
           })
           .from(entityInstances)
           .where(
@@ -96,8 +101,8 @@ export const grantAccessHandler = factory.createHandlers(
 
       // Merge new entry into the __accessUsers object map.
       // Guard against legacy array format — coerce to {} so jsonb_set path works.
-      await withTenantContext(tenantId, (tx) =>
-        tx
+      await withTenantContext(tenantId, async (tx) => {
+        await tx
           .update(entityInstances)
           .set({
             fields: sql`jsonb_set(
@@ -119,8 +124,18 @@ export const grantAccessHandler = factory.createHandlers(
               eq(entityInstances.id, id),
               eq(entityInstances.tenantId, tenantId),
             ),
-          ),
-      );
+          );
+
+        await auditAccessChange(tx, {
+          tenantId,
+          actorId,
+          instanceId: id,
+          targetUserId: userId,
+          before: readAccessEntry(instance.fields, userId),
+          after: { level, tag },
+          via: "direct",
+        });
+      });
 
       void emitAccessEvent(tenantId, id, actorId, {
         type: "access_grant",
