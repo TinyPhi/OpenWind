@@ -27,6 +27,7 @@ import { setChildStatusHandler } from "./set-child-status.js";
 import { archiveEntityHandler } from "./archive.js";
 import { restoreEntityHandler } from "./restore.js";
 import { getAccessHandler } from "./get-access.js";
+import { listNotificationFailuresHandler } from "./list-notification-failures.js";
 import { grantAccessHandler } from "./grant-access.js";
 import { revokeAccessHandler } from "./revoke-access.js";
 import { updateAccessHandler } from "./update-access.js";
@@ -91,6 +92,7 @@ router.patch("/:id/child-status", ...setChildStatusHandler);
 router.post("/:id/archive", ...archiveEntityHandler);
 router.post("/:id/restore", ...restoreEntityHandler);
 
+router.get("/:id/notification-failures", ...listNotificationFailuresHandler);
 router.get("/:id/access", ...getAccessHandler);
 router.post("/:id/access", ...grantAccessHandler);
 router.patch("/:id/access/:userId", ...updateAccessHandler);
