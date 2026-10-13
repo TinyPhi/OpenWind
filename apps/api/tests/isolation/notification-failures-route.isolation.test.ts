@@ -57,6 +57,8 @@ function row(
   };
 }
 
+let nullTenantTypeId: string;
+
 beforeAll(async () => {
   await db.insert(tenants).values([
     {
@@ -75,6 +77,7 @@ beforeAll(async () => {
     plural: "isolation_nf_tickets",
     allowCustomFields: true,
   });
+  nullTenantTypeId = type.id;
   ticketA1 = await makeTicket(TENANT_A, type.id);
   ticketA2 = await makeTicket(TENANT_A, type.id);
   ticketB = await makeTicket(TENANT_B, type.id);
@@ -98,6 +101,9 @@ afterAll(async () => {
     await db.delete(entityTypes).where(eq(entityTypes.tenantId, t));
     await db.delete(tenants).where(eq(tenants.id, t));
   }
+  // The type was created with a null tenant_id, so the per-tenant delete
+  // above never matches it.
+  await db.delete(entityTypes).where(eq(entityTypes.id, nullTenantTypeId));
 });
 
 function makeApp(tenantId: string, roles: string[]) {
@@ -183,13 +189,13 @@ describe("GET /entities/:id/notification-failures", () => {
 });
 
 describe("GET /entities/:id/notification-failures — malformed id", () => {
-  it("does not answer 200 or leak a database error for an id that is not a uuid", async () => {
+  it("rejects an id that is not a uuid at validation, before any database work", async () => {
     const res = await makeApp(TENANT_A, ["admin"]).request(
       "/not-a-uuid/notification-failures",
     );
     const text = await res.text();
 
-    expect(res.status).not.toBe(200);
-    expect(text).not.toMatch(/uuid|invalid input syntax|select /i);
+    expect(res.status).toBe(400);
+    expect(text).not.toMatch(/invalid input syntax|select /i);
   });
 });
