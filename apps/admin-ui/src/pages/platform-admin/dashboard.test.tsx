@@ -132,6 +132,33 @@ describe("PlatformAdminDashboard", () => {
     });
   });
 
+  it("shows a loading state until the sandbox list arrives", () => {
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? Promise.resolve({ data: {} })
+        : new Promise(() => {}),
+    );
+    render(<PlatformAdminDashboard />);
+
+    expect(screen.getByText("Loading sandboxes…")).toBeTruthy();
+    expect(screen.queryByText("No sandboxes yet.")).toBeNull();
+  });
+
+  // PR #842 review E: a failed session fetch is deliberately silent -- the identity banner is
+  // cosmetic and RequirePlatformAdminMfa already validated the session.
+  it("hides the identity banner, with no error, when the session fetch fails", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? Promise.reject(new Error("session down"))
+        : Promise.resolve({ data: [] }),
+    );
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("No sandboxes yet."));
+    expect(screen.queryByText(/Signed in as/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("logs out and redirects when the logout button is clicked", async () => {
     mockSessionThenSandboxes([]);
     mockLogout.mockResolvedValue({ success: true, redirectTo: "/login" });

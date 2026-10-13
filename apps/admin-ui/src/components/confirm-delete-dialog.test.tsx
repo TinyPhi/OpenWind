@@ -71,6 +71,22 @@ describe("ConfirmDeleteDialog", () => {
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 
+  it("treats an omitted busy prop as not busy", () => {
+    const onConfirm = vi.fn();
+    render(
+      <ConfirmDeleteDialog
+        open
+        message="Delete this?"
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+    const confirm = screen.getByRole("button", { name: "Delete" });
+    expect(confirm.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
   it("calls onCancel when Cancel is clicked", () => {
     const onCancel = vi.fn();
     render(

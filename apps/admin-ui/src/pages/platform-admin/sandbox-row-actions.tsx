@@ -19,7 +19,6 @@ const CONFIRM_COPY: Record<
     title: string;
     message: (name: string) => React.ReactNode;
     confirmLabel: string;
-    busyLabel: string;
   }
 > = {
   reset: {
@@ -31,7 +30,6 @@ const CONFIRM_COPY: Record<
       </>
     ),
     confirmLabel: "Reset",
-    busyLabel: "Resetting…",
   },
   delete: {
     title: "Delete this sandbox?",
@@ -42,7 +40,6 @@ const CONFIRM_COPY: Record<
       </>
     ),
     confirmLabel: "Delete",
-    busyLabel: "Deleting…",
   },
 };
 
@@ -125,8 +122,6 @@ export function SandboxRowActions({
           title={CONFIRM_COPY[confirming].title}
           message={CONFIRM_COPY[confirming].message(tenantName)}
           confirmLabel={CONFIRM_COPY[confirming].confirmLabel}
-          busyLabel={CONFIRM_COPY[confirming].busyLabel}
-          busy={false}
           onConfirm={() => void handleConfirm()}
           onCancel={handleCancel}
         />
