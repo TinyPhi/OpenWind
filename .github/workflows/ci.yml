@@ -110,6 +110,9 @@ jobs:
       - name: Validate Prometheus Alert Rules
         run: docker run --rm -v "${{ github.workspace }}/docker/observability:/obs" --entrypoint promtool prom/prometheus:v2.53.0 check rules /obs/alert.rules.yml
 
+      - name: Test Prometheus Alert Rules
+        run: docker run --rm -v "${{ github.workspace }}/docker/observability:/obs" --entrypoint promtool prom/prometheus:v2.53.0 test rules /obs/alert.rules.test.yml
+
       - name: Validate Alertmanager Config
         run: docker run --rm -v "${{ github.workspace }}/docker/observability:/obs" --entrypoint amtool prom/alertmanager:v0.27.0 check-config /obs/alertmanager.yml
 
