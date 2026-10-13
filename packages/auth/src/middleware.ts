@@ -448,11 +448,24 @@ async function resolvePlatformAdmin(
   // handles below via fetchUserInfo. Needed here specifically because the MFA email
   // (platform-admin-mfa.ts's requestMfaCode) has nowhere else to get an address from; a
   // platform_admin token has no tenant_users row to fall back to the way a normal user's
-  // does.
-  if (!platformAdmin.email) {
+  // does. The display name has the same gap: extractPlatformAdminContext falls back to the
+  // raw user id when the token carries no name or email, which is what the dashboard's
+  // "Signed in as" line then showed -- so fill it the way requireAuth does (name, then
+  // email). fetchUserInfo is cached per token, so this is one lookup per session token.
+  if (
+    !platformAdmin.email ||
+    platformAdmin.displayName === platformAdmin.userId
+  ) {
     const info = await fetchUserInfo(authHeader.slice(7));
-    if (info?.email) {
-      platformAdmin = { ...platformAdmin, email: info.email };
+    if (info) {
+      platformAdmin = {
+        ...platformAdmin,
+        email: platformAdmin.email ? platformAdmin.email : (info.email ?? ""),
+        displayName:
+          platformAdmin.displayName === platformAdmin.userId
+            ? (info.name ?? info.email ?? platformAdmin.displayName)
+            : platformAdmin.displayName,
+      };
     }
   }
   return platformAdmin;
