@@ -33,6 +33,7 @@ import {
   tenants,
   acquireTenantAdvisoryLock,
   withTenantLifecycleContext,
+  withTenantContext,
 } from "@platform/db";
 import { Worker } from "@platform/telemetry";
 import { logger } from "@platform/logger";
@@ -51,15 +52,19 @@ async function auditOutcome(
   action: "sandbox.delete_completed" | "sandbox.delete_failed",
   metadata: Record<string, unknown>,
 ): Promise<void> {
-  await writeAuditEntry(db, {
-    tenantId: job.data.tenantId,
-    actorId: job.data.requestedBy,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: job.data.tenantId,
-    action,
-    metadata: { jobId: job.id, ...metadata },
-  });
+  // admin_audit_log is RLS-protected and the worker connects as app_user, so the write must
+  // carry the tenant GUC -- on plain `db` the policy rejects it every time.
+  await withTenantContext(job.data.tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId: job.data.tenantId,
+      actorId: job.data.requestedBy,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: job.data.tenantId,
+      action,
+      metadata: { jobId: job.id, ...metadata },
+    }),
+  );
 }
 
 export async function processSandboxDeleteJob(job: JobLike): Promise<void> {
