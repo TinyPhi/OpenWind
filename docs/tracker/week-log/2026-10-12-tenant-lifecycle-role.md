@@ -18,7 +18,7 @@
 
 - **Decision (owner, from three options in BLOCKERS.md):** a dedicated narrow role, not a
   privileged worker connection and not a dev-only grant. Migration
-  `0142_tenant_lifecycle_role.sql` creates `tenant_lifecycle_role`:
+  `0143_tenant_lifecycle_role.sql` creates `tenant_lifecycle_role`:
   - `NOLOGIN NOBYPASSRLS`, granted to `app_user WITH INHERIT FALSE`, the same shape as
     `platform_admin_role` (0135)
   - `SELECT, INSERT, DELETE` on `tenants`, and `UPDATE` only on `status`, `suspended_at`,
@@ -49,15 +49,14 @@
     session can switch into the role (the production path).
 - **Open:**
   - This is a new database-role pattern; a short human-authored ADR note should record it.
-  - Migration number `0142`: the next after main's `0141` (#859). #880 also adds a `0142` (the
-    sandbox trial function); whichever of the two merges second must take the next number **and**
-    a later journal `when`, because drizzle's migrator skips any entry older than the last applied.
+  - Migration number: landed as `0143` — #880 (sandbox trial function) merged first and kept
+    `0142`; this migration renumbered to `0143` with a later journal `when` before merging.
 
 ## 2026-10-13: review round 2 fixes
 
-- [A] After merging main (which now has #859's `0141`), the migration is
-  `0142_tenant_lifecycle_role.sql` with journal `idx` 142, matching its number. Its `when` is later
-  than every existing entry. Before this it had been idx 140, then 0143/idx 141.
+- [A] After merging main (which now has #859's `0141`), the migration was initially
+  `0142_tenant_lifecycle_role.sql` with journal `idx` 142. Before this it had been idx 140, then
+  0143/idx 141. Later renumbered to `0143` to avoid collision with #880 (see R5 note below).
 - [B] `provisionTenant`, `suspendTenant`, `reactivateTenant` and `scheduleTenantDeletion` now write
   their `admin_audit_log` entry inside `withTenantContext(tenantId, …)`, the same fix #868 made for
   the sandbox workers. On plain `db` the RLS-protected insert was rejected for `app_user` after the
@@ -76,3 +75,12 @@
   connection its doc comment assumes. This is pre-existing and was scoped out by the reviewer.
 - New `apps/worker/src/tenant-purge.test.ts` captures the worker's processor and failure handler,
   and asserts both G5 writes use the tenant-context transaction. They fail on the previous code.
+
+## 2026-10-13: review round 5 fix
+
+- Migration renumbered from `0142` to `0143_tenant_lifecycle_role.sql`: #880 merged first, keeping
+  `0142_platform_admin_sandbox_trial`; the rebase merge conflict resolution had dropped the 0142
+  entry from `_journal.json`. Fixed by inserting the `0142_platform_admin_sandbox_trial` entry
+  (`idx: 142, when: 1789119729000`) before the `0143_tenant_lifecycle_role` entry, so fresh-install
+  DBs apply both migrations in order.
+- Stale "migration 0142" references updated to 0143 in this week-log and in the isolation test.
