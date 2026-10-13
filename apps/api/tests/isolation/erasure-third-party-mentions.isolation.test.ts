@@ -171,10 +171,17 @@ beforeAll(async () => {
     commentId: ids["both"],
     mentionIdentifier: OTHER_EMAIL,
   });
-  // The email in free text, with no recorded mention: V2 says leave it.
+  // Identifiers in free text with no recorded mention (the resolution job ran
+  // late or never): erasure still finds them by text (#769). A display name
+  // with no recorded mention is left alone (V2), covered in
+  // user-erasure-anonymization.isolation.test.ts.
   ids["unmentioned"] = await thirdPartyComment(
     TENANT,
     `${TARGET_EMAIL} said hi`,
+  );
+  ids["unmentionedId"] = await thirdPartyComment(
+    TENANT,
+    `ask ${TARGET} or ${TARGET}-extra, also ${OTHER_EMAIL}`,
   );
   // An identifier that never matched a member: nothing to record.
   ids["ghost"] = await thirdPartyComment(TENANT, "ping ghost@example.com");
@@ -309,9 +316,15 @@ describe("erasure redacts third-party mentions (#689)", () => {
     expect(m.mentions).toEqual([OTHER]);
   });
 
-  it("does not rewrite a comment that never recorded the target (V2)", async () => {
-    expect((await meta(ids["unmentioned"] ?? "")).text).toBe(
-      `${TARGET_EMAIL} said hi`,
+  it("redacts the target's email in a comment that never recorded a mention (#769)", async () => {
+    const m = await meta(ids["unmentioned"] ?? "");
+    expect(m.text).toBe("[REDACTED] said hi");
+    expect(m.mentions).toBeUndefined();
+  });
+
+  it("redacts the user id as a whole token in an unmentioned comment, and leaves other people's identifiers", async () => {
+    expect((await meta(ids["unmentionedId"] ?? "")).text).toBe(
+      `ask [REDACTED] or ${TARGET}-extra, also ${OTHER_EMAIL}`,
     );
   });
 

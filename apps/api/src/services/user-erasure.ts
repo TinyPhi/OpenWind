@@ -684,13 +684,20 @@ const escapeRegex = (value: string): string =>
   value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 
 // Comments are workflow_events with metadata {type, text, mentions[], ...}.
-// Only comments that recorded a mention of the target are touched: the id is
-// removed from mentions, and the target's identifiers in their text are
-// redacted — a same-named person in other comments is left alone.
+// Two passes:
+//   1. Comments that recorded a mention of the target: the id is removed from
+//      mentions, and the display name, email and user id in their text are
+//      redacted. A same-named person in other comments is left alone (V2).
+//   2. Any other comment in the tenant: only the email and user id are
+//      redacted. They are unique identifiers, so unlike a display name they
+//      can't hit a bystander, and finding them by text means a mention that
+//      was never recorded (the resolution job ran late, or never) can't keep
+//      them alive (#769).
 //   "@<display name>" -> "@[REDACTED]"   (internal comments)
 //   email, user id    -> "[REDACTED]"    (third-party comments mention by
-//                                         identifier; the worker records the
-//                                         resolved id in mentions, #689)
+//                                         identifier, #689)
+const MIN_TEXT_SCAN_ID_LENGTH = 8;
+
 async function scrubComments(
   tx: DbOrTx,
   tenantId: string,
@@ -703,22 +710,25 @@ async function scrubComments(
   const name = identity.displayName?.trim() ?? "";
   const email = identity.email?.trim() ?? "";
   const rewrites: Array<{
+    kind: "name" | "email" | "id";
     pattern: string;
     replacement: string;
     flags: string;
   }> = [];
   if (name.length >= 3) {
     rewrites.push({
+      kind: "name",
       pattern: `@${escapeRegex(name)}(?![[:alnum:]_])`,
       replacement: `@${REDACTED}`,
       flags: "g",
     });
   }
-  if (email.includes("@")) {
+  if (/^[^@\s]+@[^@\s]+$/.test(email)) {
     // Not inside a longer address: "malice@x.com" is not "alice@x.com", and
     // "alice@x.co" is not "alice@x.co.uk" — but a sentence-ending "." after
     // the address must still match.
     rewrites.push({
+      kind: "email",
       pattern: `(?<![[:alnum:]._%+-])${escapeRegex(email)}(?![[:alnum:]_-]|\\.[[:alnum:]])`,
       replacement: REDACTED,
       flags: "gi",
@@ -728,31 +738,72 @@ async function scrubComments(
     // Case-sensitive, unlike the email match: assumes user ids are lowercase
     // (Zitadel's are numeric). Add the "i" flag if that ever stops holding.
     rewrites.push({
+      kind: "id",
       pattern: `(?<![[:alnum:]_-])${escapeRegex(targetUserId)}(?![[:alnum:]_-])`,
       replacement: REDACTED,
       flags: "g",
     });
   }
 
+  const rewriteText = (
+    subset: typeof rewrites,
+    base: ReturnType<typeof sql>,
+  ): ReturnType<typeof sql> => {
+    let text = sql`${workflowEvents.metadata} ->> 'text'`;
+    for (const r of subset) {
+      text = sql`regexp_replace(${text}, ${r.pattern}::text, ${r.replacement}::text, ${r.flags}::text)`;
+    }
+    return sql`CASE WHEN jsonb_typeof(${workflowEvents.metadata} -> 'text') = 'string'
+        THEN jsonb_set(${base}, '{text}', to_jsonb(${text}))
+        ELSE ${base} END`;
+  };
+
   const withoutMention = sql`jsonb_set(${workflowEvents.metadata}, '{mentions}', (${workflowEvents.metadata} -> 'mentions') - ${targetUserId}::text)`;
-  let text = sql`${workflowEvents.metadata} ->> 'text'`;
-  for (const r of rewrites) {
-    text = sql`regexp_replace(${text}, ${r.pattern}::text, ${r.replacement}::text, ${r.flags}::text)`;
-  }
-  const metadata =
-    rewrites.length > 0
-      ? sql`CASE WHEN jsonb_typeof(${workflowEvents.metadata} -> 'text') = 'string'
-        THEN jsonb_set(${withoutMention}, '{text}', to_jsonb(${text}))
-        ELSE ${withoutMention} END`
-      : withoutMention;
   await tx
     .update(workflowEvents)
-    .set({ metadata })
+    .set({
+      metadata:
+        rewrites.length > 0
+          ? rewriteText(rewrites, withoutMention)
+          : withoutMention,
+    })
     .where(
       and(
         eq(workflowEvents.tenantId, tenantId),
         sql`jsonb_typeof(${workflowEvents.metadata} -> 'mentions') = 'array'`,
         sql`${workflowEvents.metadata} -> 'mentions' ? ${targetUserId}::text`,
+      ),
+    );
+
+  // Pass 2 runs after pass 1, so comments pass 1 already rewrote no longer match.
+  // The text-wide pass is stricter about ids than pass 1 (3+ characters, but
+  // only in comments that already mention the target): a short id would match
+  // a bare word anywhere. Zitadel ids are ~18 digits.
+  const identifierRewrites = rewrites.filter(
+    (r) =>
+      r.kind === "email" ||
+      (r.kind === "id" && targetUserId.length >= MIN_TEXT_SCAN_ID_LENGTH),
+  );
+  if (identifierRewrites.length === 0) return;
+  const text = sql`${workflowEvents.metadata} ->> 'text'`;
+  const contains = identifierRewrites.map(
+    (r) =>
+      sql`${text} ${sql.raw(r.flags.includes("i") ? "~*" : "~")} ${r.pattern}::text`,
+  );
+  await tx
+    .update(workflowEvents)
+    .set({
+      metadata: rewriteText(
+        identifierRewrites,
+        sql`${workflowEvents.metadata}`,
+      ),
+    })
+    .where(
+      and(
+        eq(workflowEvents.tenantId, tenantId),
+        sql`${workflowEvents.metadata} ->> 'type' = 'comment'`,
+        sql`jsonb_typeof(${workflowEvents.metadata} -> 'text') = 'string'`,
+        or(...contains),
       ),
     );
 }
