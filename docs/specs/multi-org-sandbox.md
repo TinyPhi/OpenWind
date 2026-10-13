@@ -162,11 +162,15 @@ sandbox's trial (reactivating an expired one) or end it immediately.
 ✓ Extend adds N days (1–365) to the later of the current trial end and now: a running trial gets
 N more days; an expired or unset one runs N days from now, which reactivates it — login and
 background work resume with no other step, since R6's check is a fresh timestamp comparison.
-✓ End sets `trial_ends_at` to now: the sandbox behaves exactly like an expired trial (R6) — no
-login, background jobs no-op, no data deleted — until extended again.
+Concurrent extends stack: the new end is computed from the stored value inside one UPDATE.
+✓ End sets `trial_ends_at` to now, only for a trial that is currently running: the sandbox then
+behaves exactly like an expired trial (R6) — no login, background jobs no-op, no data deleted —
+until extended again. Ending a sandbox with no trial, or one already over, is refused (409
+`NO_ACTIVE_TRIAL`) and changes nothing, so End can never create an expired trial.
 ✓ Both apply immediately: the auth layer's cached trial timestamp is invalidated.
-✓ Sandboxes only, enforced in the database: `platform_admin_role` gets EXECUTE on one function
-(migration 0142) that updates only active `is_sandbox` rows, never an UPDATE grant on `tenants`.
+✓ Sandboxes only, enforced in the database: `platform_admin_role` gets EXECUTE on two functions
+(migration 0142, extend and end) that update only active `is_sandbox` rows, never an UPDATE grant
+on `tenants`.
 A non-sandbox, unknown or being-deleted tenant id returns 404 and changes nothing.
 ✓ Each change is recorded in `platform_admin_audit_log` as `sandbox.trial_changed` (extend) or
 `sandbox.trial_ended` (end) (R9), in the same transaction as the change, so a change never

@@ -64,42 +64,76 @@ export function toPlatformAdminSandboxView(
 class SandboxTrialNotUpdated extends Error {}
 
 /**
- * R6a: sets a sandbox's trial end -- extending it (which reactivates an expired one) or, with
- * a "now" timestamp and the sandbox.trial_ended action, ending it immediately. Goes through the
- * SECURITY DEFINER function from 0142 rather than an UPDATE grant -- the function only ever
- * touches active `is_sandbox` rows, so this cannot change a regular tenant's trial whatever
- * id it is handed. Returns false (and writes nothing) when no active sandbox has that id.
- *
- * The audit row (R9) is written in the same transaction, before switching to
- * platform_admin_role (which can only SELECT the audit table), so a trial change can never
- * commit without its audit entry.
+ * Runs one 0142 trial function as platform_admin_role with its R9 audit row in the same
+ * transaction: the audit insert goes first (platform_admin_role can only SELECT the audit
+ * table), then the role switch, then the function. A NULL result (nothing changed) rolls the
+ * audit row back, so neither a change without its record nor a record without a change commits.
  */
-export async function setSandboxTrialEndsAt(
+async function runSandboxTrialFunction(
   tenantId: string,
-  trialEndsAt: Date,
   actorSub: string,
   action: Extract<
     PlatformAdminAction,
     "sandbox.trial_changed" | "sandbox.trial_ended"
-  > = "sandbox.trial_changed",
-): Promise<boolean> {
+  >,
+  call: ReturnType<typeof sql>,
+): Promise<Date | null> {
   try {
-    await db.transaction(async (tx) => {
+    return await db.transaction(async (tx) => {
       await recordPlatformAdminAction(
         { actorSub, action, targetTenantId: tenantId },
         tx,
       );
       await tx.execute(sql`SET LOCAL ROLE platform_admin_role`);
-      const rows = await tx.execute<{ updated: boolean }>(
-        sql`SELECT platform_admin_set_sandbox_trial(${tenantId}::uuid, ${trialEndsAt.toISOString()}::timestamptz) AS updated`,
+      const rows = await tx.execute<{ trial_ends_at: string | Date | null }>(
+        call,
       );
-      if (rows[0]?.updated !== true) throw new SandboxTrialNotUpdated();
+      const value = rows[0]?.trial_ends_at;
+      if (value === null || value === undefined) {
+        throw new SandboxTrialNotUpdated();
+      }
+      return new Date(value);
     });
-    return true;
   } catch (err) {
-    if (err instanceof SandboxTrialNotUpdated) return false;
+    if (err instanceof SandboxTrialNotUpdated) return null;
     throw err;
   }
+}
+
+/**
+ * R6a: extends a sandbox's trial by `days` from the later of its current end and now (an
+ * expired or unset trial runs `days` from now, which reactivates it). The new end is computed
+ * inside one UPDATE (0142), so concurrent extends stack. Only active `is_sandbox` rows are
+ * touched, whatever id is passed. Returns the new end, or null when nothing changed.
+ */
+export async function extendSandboxTrial(
+  tenantId: string,
+  days: number,
+  actorSub: string,
+): Promise<Date | null> {
+  return runSandboxTrialFunction(
+    tenantId,
+    actorSub,
+    "sandbox.trial_changed",
+    sql`SELECT platform_admin_extend_sandbox_trial(${tenantId}::uuid, ${days}::integer) AS trial_ends_at`,
+  );
+}
+
+/**
+ * R6a: ends a sandbox's running trial now. Only a trial that is currently active is ended --
+ * never a sandbox with no trial or an already-expired one. Returns the new end, or null when
+ * nothing changed.
+ */
+export async function endSandboxTrial(
+  tenantId: string,
+  actorSub: string,
+): Promise<Date | null> {
+  return runSandboxTrialFunction(
+    tenantId,
+    actorSub,
+    "sandbox.trial_ended",
+    sql`SELECT platform_admin_end_sandbox_trial(${tenantId}::uuid) AS trial_ends_at`,
+  );
 }
 
 export interface SandboxQuotaCheck {

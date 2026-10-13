@@ -64,3 +64,24 @@
 - Tests: route units for extend-from-current-end, extend-when-expired and end; an isolation case
   for ending a trial plus its audit row; UI tests for the menu order, the confirm + endpoint,
   hiding End once ended, and the extend preview.
+
+## 2026-10-13 follow-up: PR #880 review round 3
+
+- [A] #880 and #869 both numbered their migration 0142. Agreed order: #880 merges first and
+  keeps `0142_platform_admin_sandbox_trial`; #869 renumbers to 0143 with a later journal `when`
+  (drizzle's migrator skips entries older than the last one applied). Recorded in both PRs.
+- [B] Extend read the current end and wrote the new one in separate transactions, so two
+  concurrent extends could overwrite each other. 0142 now has
+  `platform_admin_extend_sandbox_trial(tenant_id, days)`: one UPDATE computes
+  `GREATEST(now(), COALESCE(trial_ends_at, now())) + days`, so concurrent extends take the row
+  lock in turn and stack. An isolation test fires two 7-day extends in parallel and expects +14.
+- [C] End trial was offered, and allowed, for a sandbox with no trial, which would create an
+  expired trial and lock users out. `platform_admin_end_sandbox_trial(tenant_id)` only ends a
+  trial with `trial_ends_at > now()`. The route returns 409 `NO_ACTIVE_TRIAL` for no trial or an
+  already-ended one, and the menu shows End trial only while a trial is running.
+- The generic `platform_admin_set_sandbox_trial` function is gone: two narrower functions
+  replace it, with the same SECURITY DEFINER, pinned `search_path` and EXECUTE-only-for-
+  `platform_admin_role` lockdown. The audit row is still written in the same transaction and
+  rolled back when nothing changed.
+- [D] (extend dialog not resetting) needed no change: the dialog only mounts while open, so
+  each open starts from fresh state.

@@ -1,15 +1,18 @@
 /**
- * R6a (docs/specs/multi-org-sandbox.md), migration 0142. Real Postgres: the sandbox-only
- * guarantee for trial editing lives in the platform_admin_set_sandbox_trial function, so it
- * is tested here against the database rather than through the route's mocked unit test.
+ * R6a (docs/specs/multi-org-sandbox.md), migration 0142. Real Postgres: the guarantees for trial
+ * editing live in platform_admin_extend_sandbox_trial / platform_admin_end_sandbox_trial, so
+ * they are tested against the database rather than through the routes' mocked unit tests --
+ * sandboxes only, active only, extends stack under concurrency (PR #880 review B), and End only
+ * ends a running trial (review C).
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   db,
   tenants,
   platformAdminAuditLog,
-  setSandboxTrialEndsAt,
+  extendSandboxTrial,
+  endSandboxTrial,
   withPlatformAdminContext,
 } from "@platform/db";
 
@@ -17,7 +20,9 @@ const SANDBOX_TENANT = "eeeeeeee-0142-4000-e000-000000000142";
 const REGULAR_TENANT = "ffffffff-0142-4000-f000-000000000142";
 const DELETING_SANDBOX = "dddddddd-0142-4000-d000-000000000142";
 const ACTOR = "pa-r6a-isolation";
+const DAY = 86_400_000;
 const EXPIRED = new Date("2026-01-01T00:00:00.000Z");
+const ALL_IDS = [SANDBOX_TENANT, REGULAR_TENANT, DELETING_SANDBOX];
 
 async function trialOf(id: string): Promise<Date | null> {
   const [row] = await db
@@ -25,6 +30,21 @@ async function trialOf(id: string): Promise<Date | null> {
     .from(tenants)
     .where(eq(tenants.id, id));
   return row?.trialEndsAt ?? null;
+}
+
+async function setTrial(id: string, value: Date | null): Promise<void> {
+  await db
+    .update(tenants)
+    .set({ trialEndsAt: value })
+    .where(eq(tenants.id, id));
+}
+
+async function auditActions(id: string): Promise<string[]> {
+  const rows = await db
+    .select({ action: platformAdminAuditLog.action })
+    .from(platformAdminAuditLog)
+    .where(eq(platformAdminAuditLog.targetTenantId, id));
+  return rows.map((r) => r.action);
 }
 
 // Drizzle wraps the driver error; the Postgres message is on `cause`.
@@ -42,7 +62,6 @@ beforeAll(async () => {
         name: "R6a trial sandbox",
         slug: `r6a-trial-sandbox-${Date.now()}`,
         isSandbox: true,
-        trialEndsAt: EXPIRED,
       },
       {
         id: REGULAR_TENANT,
@@ -61,15 +80,11 @@ beforeAll(async () => {
     .onConflictDoNothing();
 });
 
-const ALL_IDS = [SANDBOX_TENANT, REGULAR_TENANT, DELETING_SANDBOX];
-
-async function auditCount(id: string): Promise<number> {
-  const rows = await db
-    .select({ id: platformAdminAuditLog.id })
-    .from(platformAdminAuditLog)
-    .where(eq(platformAdminAuditLog.targetTenantId, id));
-  return rows.length;
-}
+beforeEach(async () => {
+  await db
+    .delete(platformAdminAuditLog)
+    .where(inArray(platformAdminAuditLog.targetTenantId, ALL_IDS));
+});
 
 afterAll(async () => {
   await db
@@ -78,70 +93,123 @@ afterAll(async () => {
   await db.delete(tenants).where(inArray(tenants.id, ALL_IDS));
 });
 
-describe("platform_admin_set_sandbox_trial (R6a)", () => {
-  it("moves an expired sandbox's trial into the future (reactivation)", async () => {
-    const newEnd = new Date(Date.now() + 7 * 86_400_000);
+describe("platform_admin_extend_sandbox_trial (R6a)", () => {
+  it("extends a running trial from its current end, audited", async () => {
+    const currentEnd = new Date(Date.now() + 5 * DAY);
+    await setTrial(SANDBOX_TENANT, currentEnd);
 
-    await expect(
-      setSandboxTrialEndsAt(SANDBOX_TENANT, newEnd, ACTOR),
-    ).resolves.toBe(true);
+    const newEnd = await extendSandboxTrial(SANDBOX_TENANT, 7, ACTOR);
 
-    expect((await trialOf(SANDBOX_TENANT))?.getTime()).toBe(newEnd.getTime());
-    expect(await auditCount(SANDBOX_TENANT)).toBe(1);
+    expect(newEnd?.getTime()).toBe(currentEnd.getTime() + 7 * DAY);
+    expect((await trialOf(SANDBOX_TENANT))?.getTime()).toBe(newEnd?.getTime());
+    expect(await auditActions(SANDBOX_TENANT)).toEqual([
+      "sandbox.trial_changed",
+    ]);
   });
 
-  it("ends a sandbox's trial now and records sandbox.trial_ended", async () => {
-    const now = new Date();
+  it("counts an expired trial from now, reactivating it", async () => {
+    await setTrial(SANDBOX_TENANT, EXPIRED);
+    const before = Date.now();
 
-    await expect(
-      setSandboxTrialEndsAt(SANDBOX_TENANT, now, ACTOR, "sandbox.trial_ended"),
-    ).resolves.toBe(true);
+    const newEnd = await extendSandboxTrial(SANDBOX_TENANT, 3, ACTOR);
 
-    expect((await trialOf(SANDBOX_TENANT))?.getTime()).toBe(now.getTime());
-    const ended = await db
-      .select({ action: platformAdminAuditLog.action })
-      .from(platformAdminAuditLog)
-      .where(eq(platformAdminAuditLog.targetTenantId, SANDBOX_TENANT));
-    expect(ended.map((r) => r.action)).toContain("sandbox.trial_ended");
+    expect(newEnd?.getTime()).toBeGreaterThanOrEqual(before + 3 * DAY - 1000);
+    expect(newEnd?.getTime()).toBeLessThanOrEqual(Date.now() + 3 * DAY + 1000);
   });
 
-  it("refuses a regular tenant and leaves its trial untouched", async () => {
-    const newEnd = new Date(Date.now() + 7 * 86_400_000);
+  // PR #880 review B: two extends racing on the same row must both apply.
+  it("stacks concurrent extends instead of overwriting one with the other", async () => {
+    const currentEnd = new Date(Date.now() + 10 * DAY);
+    await setTrial(SANDBOX_TENANT, currentEnd);
 
+    await Promise.all([
+      extendSandboxTrial(SANDBOX_TENANT, 7, ACTOR),
+      extendSandboxTrial(SANDBOX_TENANT, 7, ACTOR),
+    ]);
+
+    expect((await trialOf(SANDBOX_TENANT))?.getTime()).toBe(
+      currentEnd.getTime() + 14 * DAY,
+    );
+    expect(await auditActions(SANDBOX_TENANT)).toHaveLength(2);
+  });
+
+  it("refuses a regular tenant, leaving it and the audit log untouched", async () => {
     await expect(
-      setSandboxTrialEndsAt(REGULAR_TENANT, newEnd, ACTOR),
-    ).resolves.toBe(false);
+      extendSandboxTrial(REGULAR_TENANT, 7, ACTOR),
+    ).resolves.toBeNull();
 
     expect(await trialOf(REGULAR_TENANT)).toBeNull();
-    // The audit row is in the same transaction, so a refused change leaves none behind.
-    expect(await auditCount(REGULAR_TENANT)).toBe(0);
+    expect(await auditActions(REGULAR_TENANT)).toEqual([]);
   });
 
   it("refuses a sandbox that is no longer active (being deleted)", async () => {
     await expect(
-      setSandboxTrialEndsAt(
-        DELETING_SANDBOX,
-        new Date(Date.now() + 86_400_000),
-        ACTOR,
-      ),
-    ).resolves.toBe(false);
+      extendSandboxTrial(DELETING_SANDBOX, 7, ACTOR),
+    ).resolves.toBeNull();
 
     expect((await trialOf(DELETING_SANDBOX))?.getTime()).toBe(
       EXPIRED.getTime(),
     );
-    expect(await auditCount(DELETING_SANDBOX)).toBe(0);
+    expect(await auditActions(DELETING_SANDBOX)).toEqual([]);
   });
 
-  it("returns false for an id that matches no tenant", async () => {
+  it("refuses a day count outside 1..365 even if called directly", async () => {
+    await setTrial(SANDBOX_TENANT, null);
+
     await expect(
-      setSandboxTrialEndsAt(
-        "00000000-0142-4000-8000-000000000000",
-        new Date(Date.now() + 86_400_000),
-        ACTOR,
-      ),
-    ).resolves.toBe(false);
+      extendSandboxTrial(SANDBOX_TENANT, 0, ACTOR),
+    ).resolves.toBeNull();
+    await expect(
+      extendSandboxTrial(SANDBOX_TENANT, 366, ACTOR),
+    ).resolves.toBeNull();
+    expect(await trialOf(SANDBOX_TENANT)).toBeNull();
+  });
+});
+
+describe("platform_admin_end_sandbox_trial (R6a)", () => {
+  it("ends a running trial now, audited as sandbox.trial_ended", async () => {
+    await setTrial(SANDBOX_TENANT, new Date(Date.now() + 5 * DAY));
+
+    const ended = await endSandboxTrial(SANDBOX_TENANT, ACTOR);
+
+    expect(ended).not.toBeNull();
+    expect((await trialOf(SANDBOX_TENANT))?.getTime()).toBeLessThanOrEqual(
+      Date.now(),
+    );
+    expect(await auditActions(SANDBOX_TENANT)).toEqual(["sandbox.trial_ended"]);
   });
 
+  // PR #880 review C: never turn "no trial" into "expired trial".
+  it("refuses a sandbox with no trial, leaving it without one", async () => {
+    await setTrial(SANDBOX_TENANT, null);
+
+    await expect(endSandboxTrial(SANDBOX_TENANT, ACTOR)).resolves.toBeNull();
+
+    expect(await trialOf(SANDBOX_TENANT)).toBeNull();
+    expect(await auditActions(SANDBOX_TENANT)).toEqual([]);
+  });
+
+  it("refuses a trial that has already ended", async () => {
+    await setTrial(SANDBOX_TENANT, EXPIRED);
+
+    await expect(endSandboxTrial(SANDBOX_TENANT, ACTOR)).resolves.toBeNull();
+
+    expect((await trialOf(SANDBOX_TENANT))?.getTime()).toBe(EXPIRED.getTime());
+  });
+
+  it("refuses a regular tenant", async () => {
+    await setTrial(REGULAR_TENANT, new Date(Date.now() + 5 * DAY));
+
+    await expect(endSandboxTrial(REGULAR_TENANT, ACTOR)).resolves.toBeNull();
+
+    expect((await trialOf(REGULAR_TENANT))?.getTime()).toBeGreaterThan(
+      Date.now(),
+    );
+    await setTrial(REGULAR_TENANT, null);
+  });
+});
+
+describe("trial-function privileges (0142)", () => {
   it("still gives platform_admin_role no direct UPDATE on tenants", async () => {
     let caught: unknown;
     try {
@@ -160,20 +228,30 @@ describe("platform_admin_set_sandbox_trial (R6a)", () => {
     expect(await trialOf(REGULAR_TENANT)).toBeNull();
   });
 
-  it("is not executable by app_user without SET ROLE platform_admin_role", async () => {
-    let caught: unknown;
-    try {
-      await db.transaction(async (tx) => {
-        await tx.execute(sql`SET LOCAL ROLE app_user`);
-        await tx.execute(
-          sql`SELECT platform_admin_set_sandbox_trial(${SANDBOX_TENANT}::uuid, now())`,
-        );
-      });
-    } catch (err) {
-      caught = err;
-    }
+  it.each([
+    [
+      "extend",
+      sql`SELECT platform_admin_extend_sandbox_trial(${SANDBOX_TENANT}::uuid, 7)`,
+    ],
+    [
+      "end",
+      sql`SELECT platform_admin_end_sandbox_trial(${SANDBOX_TENANT}::uuid)`,
+    ],
+  ])(
+    "does not let app_user execute %s without SET ROLE platform_admin_role",
+    async (_name, call) => {
+      let caught: unknown;
+      try {
+        await db.transaction(async (tx) => {
+          await tx.execute(sql`SET LOCAL ROLE app_user`);
+          await tx.execute(call);
+        });
+      } catch (err) {
+        caught = err;
+      }
 
-    expect(caught).toBeDefined();
-    expect(errorText(caught)).toMatch(/permission denied for function/);
-  });
+      expect(caught).toBeDefined();
+      expect(errorText(caught)).toMatch(/permission denied for function/);
+    },
+  );
 });

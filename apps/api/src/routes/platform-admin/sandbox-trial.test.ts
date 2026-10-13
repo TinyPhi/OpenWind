@@ -23,7 +23,8 @@ vi.mock("@platform/auth", () => ({
   invalidateTenantStatusCache: (id: string) => mockInvalidate(id),
 }));
 
-const mockSetTrial = vi.fn();
+const mockExtend = vi.fn();
+const mockEnd = vi.fn();
 const mockCurrentRows = vi.fn();
 const mockTx = {
   select: () => ({
@@ -33,7 +34,8 @@ const mockTx = {
 vi.mock("@platform/db", () => ({
   tenants: { id: "id", isSandbox: "isSandbox", trialEndsAt: "trialEndsAt" },
   withPlatformAdminContext: (fn: (tx: unknown) => unknown) => fn(mockTx),
-  setSandboxTrialEndsAt: (...args: unknown[]) => mockSetTrial(...args),
+  extendSandboxTrial: (...args: unknown[]) => mockExtend(...args),
+  endSandboxTrial: (...args: unknown[]) => mockEnd(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -73,7 +75,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
-  mockSetTrial.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -81,66 +82,37 @@ afterEach(() => {
 });
 
 describe("POST /sandboxes/:tenantId/trial (extend)", () => {
-  it("adds the days to an active trial's current end", async () => {
-    const currentEnd = new Date(NOW.getTime() + 5 * DAY);
-    mockCurrentRows.mockResolvedValue([{ trialEndsAt: currentEnd }]);
+  it("extends atomically in the database and returns the new end", async () => {
+    const newEnd = new Date(NOW.getTime() + 12 * DAY);
+    mockExtend.mockResolvedValue(newEnd);
 
     const res = await post(`/sandboxes/${TENANT_ID}/trial`, { trialDays: 7 });
 
     expect(res.status).toBe(200);
-    const expected = new Date(currentEnd.getTime() + 7 * DAY);
-    expect(mockSetTrial).toHaveBeenCalledWith(TENANT_ID, expected, "pa-1");
+    expect(mockExtend).toHaveBeenCalledWith(TENANT_ID, 7, "pa-1");
     expect(await res.json()).toEqual({
-      data: { trialEndsAt: expected.toISOString() },
+      data: { trialEndsAt: newEnd.toISOString() },
     });
   });
 
-  it("counts from now for an expired trial, reactivating it", async () => {
-    mockCurrentRows.mockResolvedValue([
-      { trialEndsAt: new Date(NOW.getTime() - 3 * DAY) },
-    ]);
+  it("does not read the current end itself (no separate read-then-write)", async () => {
+    mockExtend.mockResolvedValue(new Date(NOW.getTime() + DAY));
 
-    await post(`/sandboxes/${TENANT_ID}/trial`, { trialDays: 7 });
+    await post(`/sandboxes/${TENANT_ID}/trial`, { trialDays: 1 });
 
-    expect(mockSetTrial).toHaveBeenCalledWith(
-      TENANT_ID,
-      new Date(NOW.getTime() + 7 * DAY),
-      "pa-1",
-    );
-  });
-
-  it("counts from now when no trial end is set", async () => {
-    mockCurrentRows.mockResolvedValue([{ trialEndsAt: null }]);
-
-    await post(`/sandboxes/${TENANT_ID}/trial`, { trialDays: 2 });
-
-    expect(mockSetTrial).toHaveBeenCalledWith(
-      TENANT_ID,
-      new Date(NOW.getTime() + 2 * DAY),
-      "pa-1",
-    );
+    expect(mockCurrentRows).not.toHaveBeenCalled();
   });
 
   it("clears the cached trial so the change applies immediately", async () => {
-    mockCurrentRows.mockResolvedValue([{ trialEndsAt: null }]);
+    mockExtend.mockResolvedValue(new Date(NOW.getTime() + DAY));
 
     await post(`/sandboxes/${TENANT_ID}/trial`, { trialDays: 3 });
 
     expect(mockInvalidate).toHaveBeenCalledWith(TENANT_ID);
   });
 
-  it("returns 404 without updating when no sandbox has that id", async () => {
-    mockCurrentRows.mockResolvedValue([]);
-
-    const res = await post(`/sandboxes/${TENANT_ID}/trial`, { trialDays: 3 });
-
-    expect(res.status).toBe(404);
-    expect(mockSetTrial).not.toHaveBeenCalled();
-  });
-
-  it("returns 404 when the database function refuses (e.g. being deleted)", async () => {
-    mockCurrentRows.mockResolvedValue([{ trialEndsAt: null }]);
-    mockSetTrial.mockResolvedValue(false);
+  it("returns 404 when no active sandbox has that id", async () => {
+    mockExtend.mockResolvedValue(null);
 
     const res = await post(`/sandboxes/${TENANT_ID}/trial`, { trialDays: 3 });
 
@@ -154,7 +126,7 @@ describe("POST /sandboxes/:tenantId/trial (extend)", () => {
       const res = await post(`/sandboxes/${TENANT_ID}/trial`, { trialDays });
 
       expect(res.status).toBe(400);
-      expect(mockSetTrial).not.toHaveBeenCalled();
+      expect(mockExtend).not.toHaveBeenCalled();
     },
   );
 
@@ -166,40 +138,68 @@ describe("POST /sandboxes/:tenantId/trial (extend)", () => {
 });
 
 describe("POST /sandboxes/:tenantId/trial/end", () => {
-  it("ends the trial now, audited as sandbox.trial_ended", async () => {
+  it("ends a running trial now", async () => {
+    mockCurrentRows.mockResolvedValue([
+      { trialEndsAt: new Date(NOW.getTime() + 5 * DAY) },
+    ]);
+    mockEnd.mockResolvedValue(NOW);
+
     const res = await post(`/sandboxes/${TENANT_ID}/trial/end`);
 
     expect(res.status).toBe(200);
-    expect(mockSetTrial).toHaveBeenCalledWith(
-      TENANT_ID,
-      NOW,
-      "pa-1",
-      "sandbox.trial_ended",
-    );
+    expect(mockEnd).toHaveBeenCalledWith(TENANT_ID, "pa-1");
+    expect(mockInvalidate).toHaveBeenCalledWith(TENANT_ID);
     expect(await res.json()).toEqual({
       data: { trialEndsAt: NOW.toISOString() },
     });
   });
 
-  it("clears the cached trial so sign-in stops on the next request", async () => {
-    await post(`/sandboxes/${TENANT_ID}/trial/end`);
+  it("returns 409 NO_ACTIVE_TRIAL, changing nothing, when no trial is set", async () => {
+    mockCurrentRows.mockResolvedValue([{ trialEndsAt: null }]);
 
-    expect(mockInvalidate).toHaveBeenCalledWith(TENANT_ID);
+    const res = await post(`/sandboxes/${TENANT_ID}/trial/end`);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "NO_ACTIVE_TRIAL" });
+    expect(mockEnd).not.toHaveBeenCalled();
   });
 
-  it("returns 404 when no active sandbox has that id", async () => {
-    mockSetTrial.mockResolvedValue(false);
+  it("returns 409 NO_ACTIVE_TRIAL when the trial has already ended", async () => {
+    mockCurrentRows.mockResolvedValue([
+      { trialEndsAt: new Date(NOW.getTime() - DAY) },
+    ]);
+
+    const res = await post(`/sandboxes/${TENANT_ID}/trial/end`);
+
+    expect(res.status).toBe(409);
+    expect(mockEnd).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when the trial stops being active before the update lands", async () => {
+    mockCurrentRows.mockResolvedValue([
+      { trialEndsAt: new Date(NOW.getTime() + DAY) },
+    ]);
+    mockEnd.mockResolvedValue(null);
+
+    const res = await post(`/sandboxes/${TENANT_ID}/trial/end`);
+
+    expect(res.status).toBe(409);
+    expect(mockInvalidate).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when no sandbox has that id", async () => {
+    mockCurrentRows.mockResolvedValue([]);
 
     const res = await post(`/sandboxes/${TENANT_ID}/trial/end`);
 
     expect(res.status).toBe(404);
-    expect(mockInvalidate).not.toHaveBeenCalled();
+    expect(mockEnd).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed tenant id with 400", async () => {
     const res = await post("/sandboxes/not-a-uuid/trial/end");
 
     expect(res.status).toBe(400);
-    expect(mockSetTrial).not.toHaveBeenCalled();
+    expect(mockEnd).not.toHaveBeenCalled();
   });
 });

@@ -122,8 +122,10 @@ export function SandboxRowActions({
   const [trialOpen, setTrialOpen] = React.useState(false);
   const buttonRef = React.useRef<HTMLButtonElement>(null);
   const menuOpen = menuPosition !== null;
-  const trialEnded =
-    trialEndsAt !== null && Date.parse(trialEndsAt) <= Date.now();
+  // PR #880 review C: only a running trial can be ended -- not one already over, and not a
+  // sandbox with no trial (ending that would create an expired trial and lock users out).
+  const trialActive =
+    trialEndsAt !== null && Date.parse(trialEndsAt) > Date.now();
 
   React.useEffect(() => {
     if (!menuOpen) return;
@@ -237,7 +239,7 @@ export function SandboxRowActions({
               >
                 Extend trial
               </button>
-              {!trialEnded && (
+              {trialActive && (
                 <button
                   type="button"
                   role="menuitem"

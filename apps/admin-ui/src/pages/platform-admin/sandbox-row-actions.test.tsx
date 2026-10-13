@@ -250,6 +250,22 @@ describe("SandboxRowActions", () => {
     );
   });
 
+  // PR #880 review C: ending "no trial" would create an expired one and lock users out.
+  it("hides End trial when no trial is set", () => {
+    render(
+      <SandboxRowActions
+        tenantId={TENANT_ID}
+        tenantName="Acme Sandbox"
+        trialEndsAt={null}
+        onDone={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
+      ["Reset", "Extend trial", "Delete"],
+    );
+  });
+
   it("opens the trial dialog with the current end and calls onDone after saving", () => {
     const onDone = renderComponent();
     choose("Extend trial");
