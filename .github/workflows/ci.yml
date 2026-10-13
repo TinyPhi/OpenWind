@@ -64,6 +64,7 @@ jobs:
               - 'pnpm-workspace.yaml'
             superset:
               - 'docker/superset/**'
+              - '.github/workflows/ci.yml'
 
   # ── 1. Lint and type-check ─────────────────────────────────────────────────
   quality:
