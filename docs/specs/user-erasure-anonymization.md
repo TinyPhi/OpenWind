@@ -67,7 +67,7 @@ classified; only `true` types are scrubbed from `fields`.
 ## §V Invariants
 
 - V1: identity is scrubbed, the record is kept, unless the row is personal or ephemeral (§I).
-- V2: text rewriting only touches comments that recorded a mention of the target.
+- V2: `@<display name>` rewriting only touches comments that recorded a mention of the target. The target's email and user id, being unique identifiers, are redacted in any comment of the tenant (#769).
 
 ## §T Tasks
 
@@ -138,12 +138,17 @@ classified; only `true` types are scrubbed from `fields`.
   - **Security review:** the first email boundary refused a trailing `.`, so an address
     ending a sentence kept its email. It now refuses only a dot followed by another address
     character, so `alice@x.co` still doesn't match inside `alice@x.co.uk`.
-  - **Known gaps** (not fixed here):
+  - **Known gaps** (status after #769):
     - Login-name identifiers in text aren't redacted, because `tenant_users` doesn't store
-      them.
-    - Users erased before this shipped keep their identifiers in old third-party comments.
-      Their `tenant_users` row is gone, and only `admin_audit_log` still has the identifier.
-    - A mention resolved after the target was erased isn't recorded, so its text keeps the
-      identifier.
+      them. Still open.
+    - ~~Users erased before this shipped keep their identifiers in old third-party comments.~~
+      Not applicable: there is no production data to backfill, and the text scan below also
+      catches any such comment that still exists.
+    - ~~A mention resolved after the target was erased isn't recorded.~~ Fixed (#769):
+      erasure no longer depends on `metadata.mentions` for emails and user ids. A second
+      pass redacts them in any comment of the tenant, so a resolution job that ran late or
+      never can't keep them alive. `@<display name>` rewriting still needs a recorded
+      mention (V2), since names collide. A comment written after the erasure that names the
+      erased person is new data, not a leftover.
 - **B3 — `actorName` in the same statement as `actor_id`.** Once `actor_id` is redacted, the
   target's events can't be found again, so both are set together.
