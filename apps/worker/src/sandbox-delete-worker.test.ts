@@ -26,12 +26,20 @@ const mockAcquireTenantAdvisoryLock = vi
   .fn()
   .mockResolvedValue({ acquired: true, release: mockLockRelease });
 const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
+// Stands in for the transaction withTenantContext opens, so tests can tell an audit write
+// made inside the tenant context from one made on the plain connection.
+const mockTenantTx = { tenantTx: true };
+const mockWithTenantContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTenantTx),
+);
 
 vi.mock("@platform/db", () => ({
   db: {
     select: (...args: unknown[]) => mockSelect(...args),
     update: (...args: unknown[]) => mockUpdate(...args),
   },
+  withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
+    mockWithTenantContext(...args),
   acquireTenantAdvisoryLock: (...args: unknown[]) =>
     mockAcquireTenantAdvisoryLock(...args),
   recordPlatformAdminAction: (...args: unknown[]) =>
@@ -326,6 +334,39 @@ describe("processSandboxDeleteJob", () => {
     );
     expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
       expect.anything(),
+      expect.objectContaining({ action: "sandbox.delete_failed" }),
+    );
+  });
+
+  // admin_audit_log is RLS-protected and the worker connects as app_user: an audit write on
+  // the plain connection is rejected every time, so it must go through withTenantContext.
+  it("writes the completed audit entry inside the tenant context", async () => {
+    await processSandboxDeleteJob(
+      makeJob(TENANT_ID, { requestedBy: "admin-1" }),
+    );
+
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
+    );
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTenantTx,
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        action: "sandbox.delete_completed",
+      }),
+    );
+  });
+
+  it("writes the failed audit entry inside the tenant context", async () => {
+    mockSelectLimit.mockResolvedValue([]);
+
+    await expect(
+      processSandboxDeleteJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("SANDBOX_DELETE_TENANT_NOT_FOUND");
+
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTenantTx,
       expect.objectContaining({ action: "sandbox.delete_failed" }),
     );
   });

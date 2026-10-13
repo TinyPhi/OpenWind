@@ -1,8 +1,12 @@
 import { userManager, silentRefresh, waitForAuth } from "../authProvider.js";
+import {
+  isSessionEndingUnauthorized,
+  endSessionAndRedirectToLogin,
+} from "./session-expiry.js";
 
 export const API_URL = "/api";
 
-function dispatchApiError(type: "auth" | "server", message: string): void {
+function dispatchApiError(type: "server", message: string): void {
   window.dispatchEvent(
     new CustomEvent("api:error", { detail: { type, message } }),
   );
@@ -103,11 +107,8 @@ export async function fetchWithAuth(
     const message =
       body.message ?? body.error ?? `Request failed (${response.status})`;
 
-    if (response.status === 401) {
-      dispatchApiError(
-        "auth",
-        "Your session has expired. Please log in again.",
-      );
+    if (isSessionEndingUnauthorized(response.status, body.error)) {
+      endSessionAndRedirectToLogin();
       const err = new Error(message) as Error & {
         status: number;
         meta?: Record<string, unknown>;
@@ -164,6 +165,17 @@ export async function fetchRawWithAuth(url: string): Promise<Response> {
       retryHeaders.set("Authorization", `Bearer ${token}`);
       // lgtm[js/server-side-request-forgery] same false positive as doFetch — origin checked above
       response = await fetch(resolved.href, { headers: retryHeaders });
+    }
+  }
+
+  if (response.status === 401) {
+    // Clone: callers read this same response's body themselves.
+    const body = (await response
+      .clone()
+      .json()
+      .catch(() => ({}))) as { error?: string };
+    if (isSessionEndingUnauthorized(response.status, body.error)) {
+      endSessionAndRedirectToLogin();
     }
   }
 
