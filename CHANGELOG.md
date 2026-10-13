@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   silently and leaving the operator without feedback.
 
 ---
+
 ## [Unreleased — on-call duration metrics and the resolution SLO alert (#570)]
 
 ### Added
@@ -30,6 +31,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   minutes because resolutions only happen when a ticket's team changes and can be hours apart.
 
 ---
+
 ## [Unreleased — coverage-gap badge on tickets (#571)]
 
 ### Added
@@ -40,8 +42,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   shown once the ticket has an assignee or has reached a closed state, and the page makes no extra request for anyone who cannot
   see it. It uses the existing `GET /admin/on-call-schedules/current`, cached for a minute, so there
   is no API change. A team whose schedule exists but whose people cannot be resolved is not flagged.
- 
+
 ---
+
 ## [Unreleased — scheduler alert rules (#580)]
 
 ### Added
