@@ -26,12 +26,20 @@ const mockUpdate = vi.fn(() => ({ set: mockSet }));
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
 const mockDelete = vi.fn(() => ({ where: mockDeleteWhere }));
 const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
+// Stands in for the transaction withTenantContext opens, so tests can tell an audit write
+// made inside the tenant context from one made on the plain connection.
+const mockTenantTx = { tenantTx: true };
+const mockWithTenantContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTenantTx),
+);
 vi.mock("@platform/db", () => ({
   db: {
     insert: (...args: unknown[]) => mockInsert(...args),
     update: (...args: unknown[]) => mockUpdate(...args),
     delete: (...args: unknown[]) => mockDelete(...args),
   },
+  withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
+    mockWithTenantContext(...args),
   tenants: {},
   sandboxProvisioningJobs: {},
   recordPlatformAdminAction: (...args: unknown[]) =>
@@ -479,6 +487,56 @@ describe("processSandboxProvisioningJob", () => {
     expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ action: "sandbox.provisioning_failed" }),
+    );
+  });
+
+  // admin_audit_log is RLS-protected and the worker connects as app_user: an audit write on
+  // the plain connection is rejected every time, so it must go through withTenantContext.
+  it("writes the completed audit entry inside the new tenant's context", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(1));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "user-x" });
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-ctx-ok",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      result.tenantId,
+      expect.any(Function),
+    );
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      mockTenantTx,
+      expect.objectContaining({
+        tenantId: result.tenantId,
+        action: "sandbox.provisioning_completed",
+      }),
+    );
+  });
+
+  it("writes the failed audit entry inside the tenant context too, even after rollback", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(0));
+    mockCreateOrg.mockResolvedValue({ ok: false, conflict: false });
+
+    await expect(
+      processSandboxProvisioningJob({
+        id: "job-ctx-fail",
+        data: {
+          orgName: "Acme Sandbox",
+          trialDays: 14,
+          requestedBy: "admin-1",
+        },
+      }),
+    ).rejects.toThrow("SANDBOX_ORG_CREATE_FAILED");
+
+    const failedCall = mockWriteAuditEntry.mock.calls.find(
+      ([, entry]) =>
+        (entry as { action?: string }).action === "sandbox.provisioning_failed",
+    );
+    expect(failedCall?.[0]).toBe(mockTenantTx);
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      (failedCall?.[1] as { tenantId?: string }).tenantId,
+      expect.any(Function),
     );
   });
 });

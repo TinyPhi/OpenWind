@@ -46,7 +46,12 @@ export function CreateSandboxModal({
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const isValid = orgName.trim().length > 0;
+  const trialDaysNumber = Number(trialDays);
+  const trialDaysValid =
+    Number.isInteger(trialDaysNumber) &&
+    trialDaysNumber >= 1 &&
+    trialDaysNumber <= 365;
+  const isValid = orgName.trim().length > 0 && trialDaysValid;
 
   function resetForm(): void {
     setOrgName("");
@@ -68,7 +73,7 @@ export function CreateSandboxModal({
         method: "POST",
         body: JSON.stringify({
           orgName: orgName.trim(),
-          trialDays: Number(trialDays) || 14,
+          trialDays: trialDaysNumber,
         }),
       })) as { data: { jobId: string } };
       setJobId(res.data.jobId);
@@ -80,10 +85,17 @@ export function CreateSandboxModal({
     }
   }
 
-  // Poll progress while a job is in flight; stop once it lands on a terminal status. A
-  // ref (not a plain `let`) tracks cancellation so the async closure's checks don't get
-  // narrowed away by the linter as "always true" after the first early-return check.
+  // Poll progress while a job is in flight; stop once it lands on a terminal status. Refs
+  // (not plain `let`s) track cancellation and completion so the async closure's checks don't
+  // get narrowed away by the linter as "always true" after the first early-return check.
+  //
+  // PR #842 review B: the handover endpoint is one-time, so it must be fetched exactly once.
+  // The effect depends on jobId only -- an earlier version also depended on progress.status,
+  // so the effect re-ran when the job completed and its unconditional first poll fetched the
+  // handover a second time. Now the poll that first sees a terminal status marks the job done
+  // and stops the interval itself, and any poll still in flight drops its result.
   const cancelledRef = React.useRef(false);
+  const doneRef = React.useRef(false);
   // Indirected through a function (not a bare `cancelledRef.current` read) so TypeScript
   // can't narrow the mutable ref's value as a compile-time constant across the `await`
   // points below -- the cleanup closure sets it from outside this function entirely.
@@ -91,25 +103,34 @@ export function CreateSandboxModal({
     (): boolean => cancelledRef.current,
     [],
   );
+  const isDone = React.useCallback((): boolean => doneRef.current, []);
 
   React.useEffect(() => {
     if (!jobId) return;
     cancelledRef.current = false;
+    doneRef.current = false;
 
     async function poll(): Promise<void> {
+      if (isDone()) return;
       try {
         const res = (await fetchWithAuth(
           `${API_URL}/platform-admin/sandboxes/${jobId}/progress`,
         )) as { data: ProvisioningProgress };
-        if (isCancelled()) return;
+        // A poll that was already in flight when another one finished the job drops out
+        // here, before it can reach the one-time handover fetch below.
+        if (isCancelled() || isDone()) return;
         setProgress(res.data);
 
         if (res.data.status === "completed") {
+          doneRef.current = true;
+          clearInterval(interval);
           const handoverRes = (await fetchWithAuth(
             `${API_URL}/platform-admin/sandboxes/${jobId}/handover`,
           )) as { data: SandboxHandover };
           if (!isCancelled()) setHandover(handoverRes.data);
         } else if (res.data.status === "failed") {
+          doneRef.current = true;
+          clearInterval(interval);
           setError(res.data.error ?? "Provisioning failed");
         }
       } catch (err) {
@@ -121,18 +142,14 @@ export function CreateSandboxModal({
       }
     }
 
-    void poll();
-    const isTerminal =
-      progress?.status === "completed" || progress?.status === "failed";
-    if (isTerminal) return;
+    // Created before the first poll so a poll that finishes the job can always clear it.
     const interval = setInterval(() => void poll(), POLL_INTERVAL_MS);
+    void poll();
     return () => {
       cancelledRef.current = true;
       clearInterval(interval);
     };
-    // Only re-run the polling loop when the job id or the terminal-ness changes, not on
-    // every progress tick (that would reset the interval each poll) -- deliberate.
-  }, [jobId, progress?.status]);
+  }, [jobId, isCancelled, isDone]);
 
   function handleOpenChange(next: boolean): void {
     if (next) return;
@@ -242,6 +259,7 @@ export function CreateSandboxModal({
                   type="number"
                   min={1}
                   max={365}
+                  step={1}
                   className="form-input"
                   value={trialDays}
                   onChange={(e) => setTrialDays(e.target.value)}

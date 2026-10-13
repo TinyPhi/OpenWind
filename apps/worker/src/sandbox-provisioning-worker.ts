@@ -54,6 +54,7 @@ import {
   tenants,
   sandboxProvisioningJobs,
   recordPlatformAdminAction,
+  withTenantContext,
 } from "@platform/db";
 import { eq } from "drizzle-orm";
 import { writeAuditEntry } from "@platform/audit";
@@ -192,15 +193,20 @@ async function auditOutcome(
   action: "sandbox.provisioning_completed" | "sandbox.provisioning_failed",
   metadata: Record<string, unknown>,
 ): Promise<void> {
-  await writeAuditEntry(db, {
-    tenantId,
-    actorId: job.data.requestedBy,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: tenantId,
-    action,
-    metadata: { jobId: job.id, ...metadata },
-  });
+  // admin_audit_log is RLS-protected and the worker connects as app_user, so the write must
+  // carry the tenant GUC -- on plain `db` the policy rejects it every time. Works even after
+  // a rollback deleted the tenant row: the policy only compares tenant_id, there is no FK.
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId: job.data.requestedBy,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action,
+      metadata: { jobId: job.id, ...metadata },
+    }),
+  );
 }
 
 export async function processSandboxProvisioningJob(

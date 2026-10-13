@@ -214,6 +214,33 @@ describe("PlatformAdminDashboard", () => {
     });
   });
 
+  it("shows a loading state until the sandbox list arrives", () => {
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? Promise.resolve({ data: {} })
+        : new Promise(() => {}),
+    );
+    render(<PlatformAdminDashboard />);
+
+    expect(screen.getByLabelText("Loading sandboxes")).toBeTruthy();
+    expect(screen.queryByText("No sandboxes yet.")).toBeNull();
+  });
+
+  // PR #842 review E: a failed session fetch is deliberately silent -- the identity banner is
+  // cosmetic and RequirePlatformAdminMfa already validated the session.
+  it("hides the identity banner, with no error, when the session fetch fails", async () => {
+    mockFetchWithAuth.mockImplementation((url: string) =>
+      url.endsWith("/session")
+        ? Promise.reject(new Error("session down"))
+        : Promise.resolve({ data: [] }),
+    );
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("No sandboxes yet."));
+    expect(screen.queryByText(/Signed in as/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("logs out and redirects when the logout button is clicked", async () => {
     mockSessionThenSandboxes([]);
     mockLogout.mockResolvedValue({ success: true, redirectTo: "/login" });
@@ -224,6 +251,21 @@ describe("PlatformAdminDashboard", () => {
 
     await waitFor(() => {
       expect(mockLogout).toHaveBeenCalledWith({});
+    });
+  });
+
+  it("shows an inline error when logout fails", async () => {
+    mockSessionThenSandboxes([]);
+    mockLogout.mockRejectedValue(new Error("identity provider unavailable"));
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText(/Signed in as Ops/));
+    fireEvent.click(screen.getByText("Log out"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Logout failed. Please try again.",
+      );
     });
   });
 });

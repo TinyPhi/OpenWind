@@ -27,6 +27,7 @@ export function PlatformAdminDashboard(): React.ReactElement {
   );
   const [sandboxes, setSandboxes] = React.useState<SandboxView[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [logoutError, setLogoutError] = React.useState<string | null>(null);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -58,8 +59,13 @@ export function PlatformAdminDashboard(): React.ReactElement {
   }, [refresh]);
 
   async function handleLogout(): Promise<void> {
-    const result = await authProvider.logout({});
-    if (result.redirectTo) window.location.href = result.redirectTo;
+    setLogoutError(null);
+    try {
+      const result = await authProvider.logout({});
+      if (result.redirectTo) window.location.href = result.redirectTo;
+    } catch {
+      setLogoutError("Logout failed. Please try again.");
+    }
   }
 
   const tenantNames = React.useMemo(
@@ -111,6 +117,12 @@ export function PlatformAdminDashboard(): React.ReactElement {
           </Button>
         </div>
       </header>
+
+      {logoutError && (
+        <p role="alert" style={{ color: "var(--danger, #dc2626)" }}>
+          {logoutError}
+        </p>
+      )}
 
       {loadError && (
         <p role="alert" style={{ color: "var(--danger)" }}>
