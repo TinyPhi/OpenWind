@@ -1,15 +1,24 @@
 import React from "react";
-import { Button } from "@platform/ui";
+import { createPortal } from "react-dom";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { ExtendTrialDialog } from "./extend-trial-dialog.js";
 
-type ActionKind = "reset" | "delete";
+type ActionKind = "reset" | "delete" | "end_trial";
+
+// Path segment under /platform-admin/sandboxes/:tenantId for each confirmed action.
+const ACTION_PATH: Record<ActionKind, string> = {
+  reset: "reset",
+  delete: "delete",
+  end_trial: "trial/end",
+};
 
 export interface SandboxRowActionsProps {
   tenantId: string;
   tenantName: string;
-  /** Called after a reset or delete completes successfully, so the parent can refresh the list. */
+  trialEndsAt: string | null;
+  /** Called after a reset, delete or trial change succeeds, so the parent can refresh. */
   onDone: () => void;
 }
 
@@ -41,6 +50,17 @@ const CONFIRM_COPY: Record<
     ),
     confirmLabel: "Delete",
   },
+  end_trial: {
+    title: "End this trial now?",
+    message: (name) => (
+      <>
+        The trial for <strong>{name}</strong> ends immediately: its users can no
+        longer sign in and its background jobs stop. No data is deleted, and
+        Extend trial reactivates it.
+      </>
+    ),
+    confirmLabel: "End trial",
+  },
 };
 
 /**
@@ -61,14 +81,84 @@ const CONFIRM_COPY: Record<
  * a client-side UX affordance only -- the real concurrency guard is the worker-held
  * sandbox-lifecycle advisory lock (T22, PR #832's fix), which this component never needs
  * to know about.
+ *
+ * Every action lives in one three-dot menu per row (R6a added Extend / End trial); the menu
+ * button is what's disabled while a request is in flight. The open menu is portalled to
+ * document.body with fixed positioning: rendered in place, the table's overflow-x scroll box
+ * (and the detail drawer) clipped it. React events still bubble through the component tree,
+ * so the row's stopPropagation keeps a menu click from selecting the row.
  */
+
+// Rough rendered height of the three-item menu, used only to decide whether it fits below
+// the button or should open upward.
+const MENU_HEIGHT_ESTIMATE = 130;
+const MENU_GAP = 6;
+
+interface MenuPosition {
+  right: number;
+  top?: number;
+  bottom?: number;
+}
+
+function menuPositionFor(button: HTMLElement): MenuPosition {
+  const rect = button.getBoundingClientRect();
+  const right = window.innerWidth - rect.right;
+  if (rect.bottom + MENU_GAP + MENU_HEIGHT_ESTIMATE > window.innerHeight) {
+    return { right, bottom: window.innerHeight - rect.top + MENU_GAP };
+  }
+  return { right, top: rect.bottom + MENU_GAP };
+}
 export function SandboxRowActions({
   tenantId,
   tenantName,
+  trialEndsAt,
   onDone,
 }: SandboxRowActionsProps): React.ReactElement {
   const [confirming, setConfirming] = React.useState<ActionKind | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [menuPosition, setMenuPosition] = React.useState<MenuPosition | null>(
+    null,
+  );
+  const [trialOpen, setTrialOpen] = React.useState(false);
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const menuOpen = menuPosition !== null;
+  // PR #880 review C: only a running trial can be ended -- not one already over, and not a
+  // sandbox with no trial (ending that would create an expired trial and lock users out).
+  const trialActive =
+    trialEndsAt !== null && Date.parse(trialEndsAt) > Date.now();
+
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    function close(): void {
+      setMenuPosition(null);
+    }
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") close();
+    }
+    window.addEventListener("keydown", onKey);
+    // Capture phase so scrolling the table's own scroll box or the drawer closes it too --
+    // a fixed menu would otherwise stay put while its button scrolls away.
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [menuOpen]);
+
+  function toggleMenu(): void {
+    if (menuOpen || !buttonRef.current) {
+      setMenuPosition(null);
+      return;
+    }
+    setMenuPosition(menuPositionFor(buttonRef.current));
+  }
+
+  function choose(open: () => void): void {
+    setMenuPosition(null);
+    open();
+  }
 
   async function handleConfirm(): Promise<void> {
     if (!confirming) return;
@@ -77,7 +167,7 @@ export function SandboxRowActions({
     setBusy(true);
     try {
       await fetchWithAuth(
-        `${API_URL}/platform-admin/sandboxes/${tenantId}/${action}`,
+        `${API_URL}/platform-admin/sandboxes/${tenantId}/${ACTION_PATH[action]}`,
         { method: "POST" },
       );
       onDone();
@@ -88,7 +178,7 @@ export function SandboxRowActions({
           ? "Already in progress for this sandbox — try again shortly."
           : err instanceof Error
             ? err.message
-            : `Failed to ${action} the sandbox`,
+            : "The action failed",
       );
     } finally {
       setBusy(false);
@@ -100,22 +190,78 @@ export function SandboxRowActions({
   }
 
   return (
-    <>
-      <Button
-        variant="secondary"
-        onClick={() => setConfirming("reset")}
+    <div className="rcd-kebab-wrap">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="rcd-kebab-btn"
+        aria-label={`Actions for ${tenantName}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
         disabled={busy}
-        style={{ marginRight: 8 }}
+        onClick={toggleMenu}
       >
-        Reset
-      </Button>
-      <Button
-        variant="danger"
-        onClick={() => setConfirming("delete")}
-        disabled={busy}
-      >
-        Delete
-      </Button>
+        {busy ? "…" : "⋮"}
+      </button>
+      {menuPosition &&
+        createPortal(
+          <>
+            <div
+              className="rcd-kebab-backdrop"
+              style={{ zIndex: 60 }}
+              aria-hidden="true"
+              onClick={() => setMenuPosition(null)}
+            />
+            <div
+              className="rcd-kebab-menu"
+              role="menu"
+              style={{
+                position: "fixed",
+                zIndex: 61,
+                right: menuPosition.right,
+                top: menuPosition.top ?? "auto",
+                bottom: menuPosition.bottom ?? "auto",
+              }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="rcd-kebab-menu-item"
+                onClick={() => choose(() => setConfirming("reset"))}
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="rcd-kebab-menu-item"
+                onClick={() => choose(() => setTrialOpen(true))}
+              >
+                Extend trial
+              </button>
+              {trialActive && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="rcd-kebab-menu-item"
+                  onClick={() => choose(() => setConfirming("end_trial"))}
+                >
+                  End trial
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                className="rcd-kebab-menu-item"
+                style={{ color: "var(--danger)" }}
+                onClick={() => choose(() => setConfirming("delete"))}
+              >
+                Delete
+              </button>
+            </div>
+          </>,
+          document.body,
+        )}
       {confirming && (
         <ConfirmDeleteDialog
           open={true}
@@ -126,6 +272,19 @@ export function SandboxRowActions({
           onCancel={handleCancel}
         />
       )}
-    </>
+      {trialOpen && (
+        <ExtendTrialDialog
+          open={true}
+          tenantId={tenantId}
+          tenantName={tenantName}
+          trialEndsAt={trialEndsAt}
+          onClose={() => setTrialOpen(false)}
+          onSaved={() => {
+            setTrialOpen(false);
+            onDone();
+          }}
+        />
+      )}
+    </div>
   );
 }

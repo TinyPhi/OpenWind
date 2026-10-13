@@ -124,6 +124,7 @@ describe("platform_admin visibility of a freshly-provisioned sandbox", () => {
       isSandbox: true,
       createdAt: row!.createdAt.toISOString(),
       trialStatus: "none",
+      trialEndsAt: null,
     });
   });
 });

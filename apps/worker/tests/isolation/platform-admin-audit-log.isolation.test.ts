@@ -118,4 +118,42 @@ describe("platform-admin-audit-log (T16)", () => {
       listPlatformAdminAuditLog({ limit: 50, before: MISSING_ENTRY_ID }),
     ).resolves.toEqual([]);
   });
+
+  it("narrows to one tenant with targetTenantId, with and without a cursor", async () => {
+    // Own oldest -> other tenant -> own newest: the cursor page must skip the other
+    // tenant's row and still find an older row of this tenant.
+    await recordPlatformAdminAction({
+      actorSub: "pa-filter",
+      action: "sandbox.created",
+      targetTenantId: TENANT_ID,
+    });
+    await recordPlatformAdminAction({
+      actorSub: "pa-filter",
+      action: "sandbox.created",
+      targetTenantId: OTHER_TENANT_ID,
+    });
+    await recordPlatformAdminAction({
+      actorSub: "pa-filter",
+      action: "sandbox.reset",
+      targetTenantId: TENANT_ID,
+    });
+
+    const filtered = await listPlatformAdminAuditLog({
+      limit: 100,
+      targetTenantId: TENANT_ID,
+    });
+    expect(filtered.length).toBeGreaterThanOrEqual(2);
+    expect(filtered.every((e) => e.targetTenantId === TENANT_ID)).toBe(true);
+
+    const newest = filtered[0];
+    expect(newest).toBeDefined();
+    const older = await listPlatformAdminAuditLog({
+      limit: 100,
+      before: newest?.id,
+      targetTenantId: TENANT_ID,
+    });
+    expect(older.length).toBeGreaterThan(0);
+    expect(older.every((e) => e.targetTenantId === TENANT_ID)).toBe(true);
+    expect(older.find((e) => e.id === newest?.id)).toBeUndefined();
+  });
 });

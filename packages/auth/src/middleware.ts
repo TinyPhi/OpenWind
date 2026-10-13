@@ -929,8 +929,8 @@ export const requireIntrospection = (): MiddlewareHandler =>
  * in-process cache. The tenants table has no RLS, so we query with the plain
  * db instance. Returns status "deleted" if the tenant row does not exist.
  *
- * trialEndsAt is cached as the raw timestamp (immutable once set at
- * provisioning), never as a precomputed "expired" boolean -- R6
+ * trialEndsAt is cached as the raw timestamp (changed only by R6a's trial route,
+ * which invalidates this cache), never as a precomputed "expired" boolean -- R6
  * (docs/specs/multi-org-sandbox.md) requires the expiry comparison itself to
  * run fresh against Date.now() on every call, which isTenantTrialActive does.
  */

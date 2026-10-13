@@ -66,6 +66,7 @@ describe("GET /audit-log", () => {
     expect(mockListPlatformAdminAuditLog).toHaveBeenCalledWith({
       limit: 50,
       before: undefined,
+      targetTenantId: undefined,
     });
     const body = await res.json();
     expect(body.data).toEqual([
@@ -88,7 +89,31 @@ describe("GET /audit-log", () => {
     expect(mockListPlatformAdminAuditLog).toHaveBeenCalledWith({
       limit: 10,
       before: ENTRY_ID,
+      targetTenantId: undefined,
     });
+  });
+
+  it("passes through a targetTenantId filter", async () => {
+    mockListPlatformAdminAuditLog.mockResolvedValue([]);
+    const app = makeApp();
+
+    const res = await app.request(`/audit-log?targetTenantId=${TENANT_ID}`);
+
+    expect(res.status).toBe(200);
+    expect(mockListPlatformAdminAuditLog).toHaveBeenCalledWith({
+      limit: 50,
+      before: undefined,
+      targetTenantId: TENANT_ID,
+    });
+  });
+
+  it("rejects a malformed targetTenantId", async () => {
+    const app = makeApp();
+
+    const res = await app.request("/audit-log?targetTenantId=nope");
+
+    expect(res.status).toBe(400);
+    expect(mockListPlatformAdminAuditLog).not.toHaveBeenCalled();
   });
 
   it("rejects a limit above 100", async () => {

@@ -65,6 +65,7 @@ vi.mock("@platform/db", () => ({
       : row.trialEndsAt.getTime() > Date.now()
         ? "active"
         : "expired",
+    trialEndsAt: row.trialEndsAt ? row.trialEndsAt.toISOString() : null,
   }),
 }));
 
@@ -94,12 +95,13 @@ beforeEach(() => {
 
 describe("GET /sandboxes", () => {
   it("returns every sandbox as a PlatformAdminSandboxView, newest first", async () => {
+    const trialEndsAt = new Date(Date.now() + 86_400_000);
     mockOrderByRows.mockResolvedValue([
       {
         id: TENANT_ID,
         name: "Acme Sandbox",
         isSandbox: true,
-        trialEndsAt: new Date(Date.now() + 86_400_000),
+        trialEndsAt,
         createdAt: new Date("2026-10-01T00:00:00Z"),
       },
     ]);
@@ -116,6 +118,7 @@ describe("GET /sandboxes", () => {
         isSandbox: true,
         createdAt: "2026-10-01T00:00:00.000Z",
         trialStatus: "active",
+        trialEndsAt: trialEndsAt.toISOString(),
       },
     ]);
   });
@@ -155,6 +158,7 @@ describe("GET /sandboxes/:tenantId", () => {
       isSandbox: true,
       createdAt: "2026-10-01T00:00:00.000Z",
       trialStatus: "none",
+      trialEndsAt: null,
     });
   });
 
