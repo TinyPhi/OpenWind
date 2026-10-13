@@ -5,7 +5,8 @@
  * `scheduleTenantDeletion` in the API's tenant lifecycle service.
  *
  * FK-safe deletion order (children before parents):
- *   [privileged pre-step: scheduleExecutions, savedViews — see below]
+ *   [privileged pre-step: admin_audit_log anonymized in place, not deleted -- spec R9,
+ *    #860 (before tenant_users goes); scheduleExecutions, savedViews — see below]
  *   notificationRecipients → notifications → ticketLabels → labels
  *   → entityInstanceTags → ticketAlerts → accessRequests → attachments
  *   → files (DB rows) → scheduleRules → notificationPolicies → onCallSchedules
@@ -15,7 +16,6 @@
  *   → automationExecutions → automationRules → deadLetterEvents → outboxEvents
  *   → connectorDeliveryAttempts → connectorCredentials → apiKeys → tenantUsers
  *   → viewConfigs → pluginErrors → installedPlugins → idempotencyKeys
- *   [admin_audit_log rows anonymized in place, not deleted -- spec R9]
  *   → tenant.status = 'purged'
  *   then on-disk files purged (best-effort, outside DB transaction)
  *   then sandbox handover Redis key deleted (T14, best-effort, no-op for a real tenant)
@@ -248,6 +248,23 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
       .where(eq(scheduleExecutions.tenantId, tenantId));
     await db.delete(savedViews).where(eq(savedViews.tenantId, tenantId));
 
+    // ADR-012 Phase G, spec R9 -- admin_audit_log rows are anonymized in
+    // place (person-identifying fields replaced with a placeholder), never
+    // deleted: aggregate operational history (action/resourceType/outcome/
+    // timestamp) must survive a purge the same way it survives the R8 age-
+    // based sweep. Runs via plain `db` (not withTenantContext): it is an
+    // UPDATE, which app_user is not granted on admin_audit_log -- see
+    // anonymizeAuditLogForTenant's own doc comment.
+    //
+    // Runs BEFORE the delete transaction (#860): it finds the person ids held
+    // in the audit rows' JSON by value, and needs the tenant's members
+    // (tenant_users, deleted below) to know them. Doing it here also means a
+    // retry after a partial failure still has every id. It is idempotent. The
+    // G5 audit INSERTs further down are different: app_user may insert, but
+    // only under the tenant's RLS context, so those go through
+    // withTenantContext.
+    await anonymizeAuditLogForTenant(db, tenantId);
+
     await withTenantContext(tenantId, async (tx) => {
       // Notifications (recipients cascade, but are deleted explicitly so the
       // coverage list stays exact)
@@ -402,17 +419,6 @@ export const tenantPurgeWorker = new Worker<PurgeJobData>(
         .delete(idempotencyKeys)
         .where(eq(idempotencyKeys.tenantId, tenantId));
     });
-
-    // ADR-012 Phase G, spec R9 -- admin_audit_log rows are anonymized in
-    // place (person-identifying fields replaced with a placeholder), never
-    // deleted: aggregate operational history (action/resourceType/outcome/
-    // timestamp) must survive a purge the same way it survives the R8 age-
-    // based sweep. Runs via plain `db` (not withTenantContext): it is an
-    // UPDATE, which app_user is not granted on admin_audit_log -- see
-    // anonymizeAuditLogForTenant's own doc comment. The G5 audit INSERTs below
-    // are different: app_user may insert, but only under the tenant's RLS
-    // context, so those go through withTenantContext.
-    await anonymizeAuditLogForTenant(db, tenantId);
 
     // Mark the tenant row as 'purged' (keeps a tombstone for audit trail).
     // app_user can't change tenants.status (#408); tenant_lifecycle_role can.

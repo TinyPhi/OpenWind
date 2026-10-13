@@ -37,6 +37,7 @@ import {
 import type { Db, DbOrTx } from "@platform/db";
 import { adminAuditLog } from "@platform/db";
 import { logger } from "@platform/logger";
+import { scrubAuditLogPersonIdentifiers } from "./person-identifiers.js";
 import {
   redactMetadata,
   buildSensitivityMap,
@@ -503,6 +504,10 @@ export async function anonymizeAuditLogForTenant(
       `anonymizeAuditLogForTenant: cannot execute UPDATE under active tenant RLS context (tenant: ${tenantSetting})`,
     );
   }
+
+  // JSON columns first: it reads the actor columns to find the people who
+  // acted, so it must see them before the pass below rewrites them (#860).
+  await scrubAuditLogPersonIdentifiers(db, tenantId);
 
   const BATCH_SIZE = 1000;
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
