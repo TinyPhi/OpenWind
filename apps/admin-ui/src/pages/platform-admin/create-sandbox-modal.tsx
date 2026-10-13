@@ -12,7 +12,7 @@ interface ProvisioningProgress {
 
 interface SandboxHandover {
   tenantId: string;
-  seededAccounts: { email: string; role: "admin" | "member" }[];
+  seededAccounts: { email: string; role: "admin" | "user" }[];
   defaultPassword: string;
 }
 

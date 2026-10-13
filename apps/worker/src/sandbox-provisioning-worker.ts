@@ -319,7 +319,9 @@ export async function processSandboxProvisioningJob(
       throw new Error("SANDBOX_ADMIN_AUTHORIZATION_FAILED");
     }
 
-    const seededAccounts: { email: string; role: "admin" | "member" }[] = [
+    // Labelled with the Zitadel role each account was granted (admin / user), not the
+    // template's internal "member" name, so the handover matches what the account can do.
+    const seededAccounts: { email: string; role: "admin" | "user" }[] = [
       { email: admin.email, role: "admin" },
     ];
     let seededAccountCount = 1;
@@ -339,7 +341,7 @@ export async function processSandboxProvisioningJob(
         (await authorizeUser(account.userId, org.orgId, ["user"]));
       if (account && authorized) {
         seededAccountCount++;
-        seededAccounts.push({ email: account.email, role: "member" });
+        seededAccounts.push({ email: account.email, role: "user" });
       } else {
         failedAccountCount++;
         logger.warn(

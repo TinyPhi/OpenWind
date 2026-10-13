@@ -61,6 +61,7 @@ const {
   createHumanUser,
   grantProjectToOrg,
   authorizeUser,
+  listUserRolesByUserId,
 } = await import("./zitadel-management.js");
 
 describe("listOrgUsers", () => {
@@ -576,5 +577,60 @@ describe("authorizeUser", () => {
     await expect(authorizeUser("user-1", "org-sbx", ["user"])).resolves.toBe(
       false,
     );
+  });
+});
+
+describe("listUserRolesByUserId", () => {
+  // The v1 grant search defaults to the caller's own org; a sandbox org's users came back
+  // role-less (and the Users page empty) until the search was scoped to the requested org.
+  it("scopes the user-grant search to the requested org", async () => {
+    mockEnv.ZITADEL_SERVICE_ACCOUNT_KEY = JSON.stringify({
+      type: "serviceaccount",
+      keyId: "key-1",
+      key: "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+      userId: "service-user-1",
+    });
+    let grantSearchHeaders: Record<string, string> | undefined;
+    mockHttpRequest.mockImplementation(
+      (
+        options: { path?: string; headers?: Record<string, string> },
+        callback?: (res: IncomingMessage) => void,
+      ) => {
+        const req: Partial<ClientRequest> = {
+          setTimeout: vi.fn() as unknown as ClientRequest["setTimeout"],
+          on: vi.fn() as unknown as ClientRequest["on"],
+          write: vi.fn() as unknown as ClientRequest["write"],
+          end: vi.fn() as unknown as ClientRequest["end"],
+        };
+        const path = options.path ?? "";
+        let body: unknown = {};
+        if (path.includes("/oauth/v2/token")) {
+          body = { access_token: "read-token", expires_in: 60 };
+        } else if (path.includes("/users/grants/_search")) {
+          grantSearchHeaders = options.headers;
+          body = {
+            result: [{ userId: "sbx-user-1", roleKeys: ["user"] }],
+          };
+        }
+        const response = new EventEmitter() as EventEmitter & {
+          statusCode: number;
+        };
+        response.statusCode = 200;
+        queueMicrotask(() => {
+          callback?.(response as IncomingMessage);
+          response.emit("data", Buffer.from(JSON.stringify(body)));
+          response.emit("end");
+        });
+        return req as ClientRequest;
+      },
+    );
+    try {
+      const roles = await listUserRolesByUserId("sandbox-org-42");
+
+      expect(grantSearchHeaders?.["x-zitadel-orgid"]).toBe("sandbox-org-42");
+      expect(roles.get("sbx-user-1")).toEqual(["user"]);
+    } finally {
+      mockHttpRequest.mockReset();
+    }
   });
 });

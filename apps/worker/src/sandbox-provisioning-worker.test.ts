@@ -236,7 +236,7 @@ describe("processSandboxProvisioningJob", () => {
         defaultPassword: expect.any(String),
         seededAccounts: expect.arrayContaining([
           expect.objectContaining({ role: "admin" }),
-          expect.objectContaining({ role: "member" }),
+          expect.objectContaining({ role: "user" }),
         ]),
       },
     );
