@@ -16,13 +16,39 @@ import {
 } from "@platform/teams";
 import { getWorkflowByEntityTypeId } from "@platform/workflow-engine";
 import { writeAuditEntry } from "@platform/audit";
-import { Queue, oncallResolutionsTotal } from "@platform/telemetry";
+import {
+  Queue,
+  oncallResolutionsTotal,
+  oncallResolutionDurationSeconds,
+} from "@platform/telemetry";
 import { logger } from "@platform/logger";
 import type { TriggerEvent } from "../event-schemas.js";
 import type { ResolveOncallConfig } from "../types.js";
 import { postOncallComment } from "./post-oncall-comment.js";
 
 export type { ResolveOncallConfig };
+
+/**
+ * Records a resolve_oncall outcome: the counter and the duration histogram
+ * together, so the histogram's count always equals the counter's sum. The
+ * duration runs from the action's entry to the moment the outcome is recorded.
+ * Early returns that record no counter (no team change, bogus team, idempotent
+ * skip) are not resolutions and record no duration either.
+ */
+function recordResolution(
+  startedAt: number,
+  attrs: {
+    outcome: string;
+    assigned_tier: string;
+    cascade_exhausted: string;
+  },
+): void {
+  oncallResolutionsTotal.add(1, attrs);
+  oncallResolutionDurationSeconds.record(
+    (performance.now() - startedAt) / 1000,
+    { outcome: attrs.outcome },
+  );
+}
 
 type InstanceContext = {
   entityTypeId: string;
@@ -92,6 +118,7 @@ async function handleCascadeMiss(
   depth: number,
   redis: Redis | undefined,
   scheduleInfo: { scheduleId: string | undefined; cascadeExhausted: boolean },
+  startedAt: number,
 ): Promise<void> {
   const { scheduleId, cascadeExhausted } = scheduleInfo;
   const instanceCtx = await getInstanceContext(db, tenantId, instanceId);
@@ -119,7 +146,7 @@ async function handleCascadeMiss(
         assignedUserId: adminUserId,
       },
     });
-    oncallResolutionsTotal.add(1, {
+    recordResolution(startedAt, {
       outcome: "auto_assigned",
       assigned_tier: "workflow_admin",
       cascade_exhausted: String(cascadeExhausted),
@@ -150,7 +177,7 @@ async function handleCascadeMiss(
     action: "oncall.no_schedule",
     metadata: { teamId, scheduleId, cascadeExhausted },
   });
-  oncallResolutionsTotal.add(1, {
+  recordResolution(startedAt, {
     outcome: "no_schedule",
     assigned_tier: "none",
     cascade_exhausted: String(cascadeExhausted),
@@ -195,6 +222,7 @@ export async function executeResolveOncallAction(
   redis?: Redis,
   outboxEventId?: string,
 ): Promise<void> {
+  const startedAt = performance.now();
   const instanceId =
     config.instanceId ?? ("instanceId" in event ? event.instanceId : undefined);
   if (!instanceId) return;
@@ -309,7 +337,7 @@ export async function executeResolveOncallAction(
       action: "oncall.skipped_explicit_assignee",
       metadata: { teamId },
     });
-    oncallResolutionsTotal.add(1, {
+    recordResolution(startedAt, {
       outcome: "skipped_explicit_assignee",
       assigned_tier: "none",
       cascade_exhausted: "false",
@@ -334,6 +362,7 @@ export async function executeResolveOncallAction(
       depth,
       redis,
       { scheduleId: undefined, cascadeExhausted: false },
+      startedAt,
     );
     return;
   }
@@ -353,6 +382,7 @@ export async function executeResolveOncallAction(
       depth,
       redis,
       { scheduleId: schedule.id, cascadeExhausted: true },
+      startedAt,
     );
     return;
   }
@@ -378,7 +408,7 @@ export async function executeResolveOncallAction(
       assignedUserId: resolved.userId,
     },
   });
-  oncallResolutionsTotal.add(1, {
+  recordResolution(startedAt, {
     outcome: "auto_assigned",
     assigned_tier: resolved.tier,
     cascade_exhausted: "false",
