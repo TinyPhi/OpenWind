@@ -19,7 +19,6 @@ export interface UseModalReturn<TItem> {
   readonly openCreate: () => void;
   readonly openEdit: (item: TItem) => void;
   readonly close: () => void;
-  readonly toggle: () => void;
 }
 
 export function useModal<TItem = void>(
@@ -67,10 +66,6 @@ export function useModal<TItem = void>(
     optionsRef.current?.onClose?.();
   }, []);
 
-  const toggle = useCallback((): void => {
-    setIsOpen((prev) => !prev);
-  }, []);
-
   return {
     isOpen,
     item,
@@ -81,6 +76,5 @@ export function useModal<TItem = void>(
     openCreate,
     openEdit,
     close,
-    toggle,
   };
 }

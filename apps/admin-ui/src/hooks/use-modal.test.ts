@@ -82,20 +82,4 @@ describe("useModal", () => {
     expect(result.current.item).toBeNull();
     expect(onClose).toHaveBeenCalled();
   });
-
-  it("toggles open state with toggle", () => {
-    const { result } = renderHook(() => useModal<void>());
-
-    expect(result.current.isOpen).toBe(false);
-
-    act(() => {
-      result.current.toggle();
-    });
-    expect(result.current.isOpen).toBe(true);
-
-    act(() => {
-      result.current.toggle();
-    });
-    expect(result.current.isOpen).toBe(false);
-  });
 });

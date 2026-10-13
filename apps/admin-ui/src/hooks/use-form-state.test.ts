@@ -139,4 +139,23 @@ describe("useFormState", () => {
     expect(result.current.values).toEqual(newForm);
     expect(result.current.isDirty).toBe(false);
   });
+
+  it("detects dirty state when a field is set to undefined", () => {
+    interface OptionalForm {
+      name: string;
+      nickname: string | undefined;
+    }
+
+    const initial: OptionalForm = { name: "Alice", nickname: "Ali" };
+    const { result } = renderHook(() =>
+      useFormState<OptionalForm>({ initialValues: initial }),
+    );
+
+    act(() => {
+      result.current.setFieldValue("nickname", undefined);
+    });
+
+    expect(result.current.values.nickname).toBeUndefined();
+    expect(result.current.isDirty).toBe(true);
+  });
 });

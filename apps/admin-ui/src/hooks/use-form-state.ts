@@ -50,7 +50,18 @@ export function useFormState<TForm extends object>(
   const [values, setFormValues] = useState<TForm>(initialSnapshot);
 
   const isDirty = useMemo((): boolean => {
-    return JSON.stringify(values) !== JSON.stringify(initialSnapshot);
+    const currentKeys = Object.keys(values) as Array<keyof TForm>;
+    const snapshotKeys = Object.keys(initialSnapshot) as Array<keyof TForm>;
+
+    if (currentKeys.length !== snapshotKeys.length) return true;
+
+    const allKeys = new Set<keyof TForm>([...currentKeys, ...snapshotKeys]);
+
+    for (const key of allKeys) {
+      if (values[key] !== initialSnapshot[key]) return true;
+    }
+
+    return false;
   }, [values, initialSnapshot]);
 
   const setFieldValue = useCallback(
