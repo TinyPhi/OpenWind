@@ -115,6 +115,12 @@ export function PlatformAdminDashboard(): React.ReactElement {
         </p>
       )}
 
+      {sandboxes === null && !loadError && (
+        <p aria-busy="true" style={{ color: "var(--text-muted)" }}>
+          Loading sandboxes…
+        </p>
+      )}
+
       {sandboxes?.length === 0 && (
         <p style={{ color: "var(--text-muted)" }}>No sandboxes yet.</p>
       )}
