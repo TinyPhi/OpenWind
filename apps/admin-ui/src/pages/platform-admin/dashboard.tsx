@@ -3,10 +3,10 @@ import { Button } from "@platform/ui";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { authProvider } from "../../authProvider.js";
 import { CreateSandboxModal } from "./create-sandbox-modal.js";
-import { TenantsTable } from "./tenants-table.js";
-import { TenantDetailPanel } from "./tenant-detail-panel.js";
+import { SandboxesTable } from "./sandboxes-table.js";
+import { SandboxDetailPanel } from "./sandbox-detail-panel.js";
 import { ActivityTimeline } from "./activity-timeline.js";
-import type { TenantView } from "./format.js";
+import { isExpiringSoon, type SandboxView } from "./format.js";
 import "./platform-admin.css";
 
 interface PlatformAdminSession {
@@ -16,16 +16,16 @@ interface PlatformAdminSession {
 }
 
 /**
- * T17 (docs/specs/multi-org-sandbox.md) -- the platform-admin dashboard: every tenant
- * (GET /platform-admin/tenants, spec R2 amended 2026-10-12), sandbox create/reset/delete,
- * and the T16 activity timeline. Reached only after RequirePlatformAdmin (role) and
+ * T17 (docs/specs/multi-org-sandbox.md) -- the platform-admin dashboard: sandboxes only
+ * (regular tenants never appear, R2), create/reset/delete/change-trial (R6a), and the T16
+ * activity timeline. Reached only after RequirePlatformAdmin (role) and
  * RequirePlatformAdminMfa (MFA) both pass.
  */
 export function PlatformAdminDashboard(): React.ReactElement {
   const [session, setSession] = React.useState<PlatformAdminSession | null>(
     null,
   );
-  const [tenants, setTenants] = React.useState<TenantView[] | null>(null);
+  const [sandboxes, setSandboxes] = React.useState<SandboxView[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -33,14 +33,14 @@ export function PlatformAdminDashboard(): React.ReactElement {
 
   const refresh = React.useCallback((): void => {
     setRefreshKey((k) => k + 1);
-    fetchWithAuth(`${API_URL}/platform-admin/tenants`)
+    fetchWithAuth(`${API_URL}/platform-admin/sandboxes`)
       .then((res) => {
-        setTenants((res as { data: TenantView[] }).data);
+        setSandboxes((res as { data: SandboxView[] }).data);
         setLoadError(null);
       })
       .catch((err: unknown) => {
         setLoadError(
-          err instanceof Error ? err.message : "Could not load tenants",
+          err instanceof Error ? err.message : "Could not load sandboxes",
         );
       });
   }, []);
@@ -63,23 +63,25 @@ export function PlatformAdminDashboard(): React.ReactElement {
   }
 
   const tenantNames = React.useMemo(
-    () => new Map((tenants ?? []).map((t) => [t.id, t.name])),
-    [tenants],
+    () => new Map((sandboxes ?? []).map((s) => [s.id, s.name])),
+    [sandboxes],
   );
-  const selected = tenants?.find((t) => t.id === selectedId) ?? null;
+  const selected = sandboxes?.find((s) => s.id === selectedId) ?? null;
   const closePanel = React.useCallback(() => setSelectedId(null), []);
 
-  const stats = tenants && [
-    { label: "Total tenants", value: tenants.length },
-    { label: "Sandboxes", value: tenants.filter((t) => t.isSandbox).length },
-    { label: "Customers", value: tenants.filter((t) => !t.isSandbox).length },
+  const stats = sandboxes && [
+    { label: "Sandboxes", value: sandboxes.length },
     {
       label: "Active trials",
-      value: tenants.filter((t) => t.trialStatus === "active").length,
+      value: sandboxes.filter((s) => s.trialStatus === "active").length,
     },
     {
-      label: "Expired trials",
-      value: tenants.filter((t) => t.trialStatus === "expired").length,
+      label: "Expiring within 7 days",
+      value: sandboxes.filter((s) => isExpiringSoon(s.trialEndsAt)).length,
+    },
+    {
+      label: "Expired",
+      value: sandboxes.filter((s) => s.trialStatus === "expired").length,
     },
   ];
 
@@ -116,10 +118,9 @@ export function PlatformAdminDashboard(): React.ReactElement {
         </p>
       )}
 
-      <section className="pa-stats" aria-label="Tenant summary">
+      <section className="pa-stats" aria-label="Sandbox summary">
         {(
-          stats ??
-          [0, 1, 2, 3, 4].map((i) => ({ label: String(i), value: null }))
+          stats ?? [0, 1, 2, 3].map((i) => ({ label: String(i), value: null }))
         ).map((s) => (
           <div className="stat-card" key={s.label}>
             {s.value === null ? (
@@ -141,24 +142,24 @@ export function PlatformAdminDashboard(): React.ReactElement {
       </section>
 
       <div className="pa-grid">
-        <section className="pa-panel" aria-labelledby="pa-tenants-title">
+        <section className="pa-panel" aria-labelledby="pa-sandboxes-title">
           <div className="pa-panel-header">
-            <h2 id="pa-tenants-title" className="pa-panel-title">
-              Tenants
+            <h2 id="pa-sandboxes-title" className="pa-panel-title">
+              Sandboxes
             </h2>
-            {tenants && (
-              <span className="pa-muted">{tenants.length} total</span>
+            {sandboxes && (
+              <span className="pa-muted">{sandboxes.length} total</span>
             )}
           </div>
-          {tenants ? (
-            <TenantsTable
-              tenants={tenants}
-              onSelect={(t) => setSelectedId(t.id)}
+          {sandboxes ? (
+            <SandboxesTable
+              sandboxes={sandboxes}
+              onSelect={(s) => setSelectedId(s.id)}
               onActionDone={refresh}
             />
           ) : (
             !loadError && (
-              <div aria-label="Loading tenants">
+              <div aria-label="Loading sandboxes">
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
@@ -186,16 +187,13 @@ export function PlatformAdminDashboard(): React.ReactElement {
       </div>
 
       {selected && (
-        <TenantDetailPanel
-          tenant={selected}
+        <SandboxDetailPanel
+          sandbox={selected}
           tenantNames={tenantNames}
           currentUserId={session?.userId ?? null}
           refreshKey={refreshKey}
           onClose={closePanel}
-          onActionDone={() => {
-            closePanel();
-            refresh();
-          }}
+          onActionDone={refresh}
         />
       )}
 

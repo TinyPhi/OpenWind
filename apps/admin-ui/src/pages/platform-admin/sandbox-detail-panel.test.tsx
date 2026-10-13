@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import type { TenantView } from "./format.js";
+import type { SandboxView } from "./format.js";
 
 vi.mock("./sandbox-row-actions.js", () => ({
   SandboxRowActions: (props: { tenantName: string; onDone: () => void }) => (
@@ -15,25 +15,26 @@ vi.mock("./activity-timeline.js", () => ({
   ),
 }));
 
-const { TenantDetailPanel } = await import("./tenant-detail-panel.js");
+const { SandboxDetailPanel } = await import("./sandbox-detail-panel.js");
 
-const SANDBOX: TenantView = {
+const SANDBOX: SandboxView = {
   id: "11111111-1111-4111-8111-111111111111",
   name: "Acme Sandbox",
   isSandbox: true,
   createdAt: "2026-10-01T00:00:00Z",
   trialStatus: "expired",
+  trialEndsAt: new Date(Date.now() - 2 * 86_400_000 - 3_600_000).toISOString(),
 };
 
-function renderPanel(tenant: TenantView = SANDBOX): {
+function renderPanel(sandbox: SandboxView = SANDBOX): {
   onClose: ReturnType<typeof vi.fn>;
   onActionDone: ReturnType<typeof vi.fn>;
 } {
   const onClose = vi.fn();
   const onActionDone = vi.fn();
   render(
-    <TenantDetailPanel
-      tenant={tenant}
+    <SandboxDetailPanel
+      sandbox={sandbox}
       tenantNames={new Map()}
       currentUserId="pa-1"
       refreshKey={0}
@@ -44,23 +45,23 @@ function renderPanel(tenant: TenantView = SANDBOX): {
   return { onClose, onActionDone };
 }
 
-describe("TenantDetailPanel", () => {
+describe("SandboxDetailPanel", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("shows the tenant's metadata, actions and own timeline for a sandbox", () => {
+  it("shows the sandbox's metadata, trial end, actions and own timeline", () => {
     renderPanel();
     expect(screen.getByText(SANDBOX.id)).toBeTruthy();
-    expect(screen.getAllByText("Trial expired").length).toBeGreaterThan(0);
+    expect(screen.getByText("Trial expired")).toBeTruthy();
+    expect(screen.getByText(/Expired 2 days ago/)).toBeTruthy();
     expect(screen.getByText("Actions for Acme Sandbox")).toBeTruthy();
     expect(screen.getByText(`Timeline ${SANDBOX.id}`)).toBeTruthy();
   });
 
-  it("offers no lifecycle actions for a customer tenant", () => {
-    renderPanel({ ...SANDBOX, isSandbox: false, name: "Default Org" });
-    expect(screen.queryByText("Actions for Default Org")).toBeNull();
-    expect(screen.getByText(/view only/)).toBeTruthy();
+  it("says when no trial end is set", () => {
+    renderPanel({ ...SANDBOX, trialStatus: "none", trialEndsAt: null });
+    expect(screen.getByText("No trial end set")).toBeTruthy();
   });
 
   it("reports a completed action to the parent", () => {

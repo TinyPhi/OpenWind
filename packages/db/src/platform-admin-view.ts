@@ -1,4 +1,6 @@
 import { sql } from "drizzle-orm";
+import { db } from "./client.js";
+import { recordPlatformAdminAction } from "./platform-admin-audit.js";
 import type { DbOrTx } from "./middleware.js";
 
 /**
@@ -14,6 +16,9 @@ import type { DbOrTx } from "./middleware.js";
  * deletionScheduledAt -- none of these are in R2's allowed metadata list, even though they
  * live on the same `tenants` row. Widening this type is itself the explicit, reviewable act
  * that widening platform_admin's visibility requires.
+ *
+ * trialEndsAt was added for R6a (trial editing): the dashboard shows the current end date and
+ * a countdown. It was already inside 0135's column grant.
  */
 export interface PlatformAdminSandboxView {
   id: string;
@@ -21,6 +26,7 @@ export interface PlatformAdminSandboxView {
   isSandbox: boolean;
   createdAt: string;
   trialStatus: "none" | "active" | "expired";
+  trialEndsAt: string | null;
 }
 
 /** The only columns toPlatformAdminSandboxView reads -- matches the GRANT in 0135_platform_admin_sandbox_columns.sql exactly. */
@@ -48,7 +54,44 @@ export function toPlatformAdminSandboxView(
     isSandbox: row.isSandbox,
     createdAt: row.createdAt.toISOString(),
     trialStatus: trialStatus(row.trialEndsAt),
+    trialEndsAt: row.trialEndsAt ? row.trialEndsAt.toISOString() : null,
   };
+}
+
+class SandboxTrialNotUpdated extends Error {}
+
+/**
+ * R6a: sets a sandbox's trial end, which also reactivates an expired one. Goes through the
+ * SECURITY DEFINER function from 0142 rather than an UPDATE grant -- the function only ever
+ * touches active `is_sandbox` rows, so this cannot change a regular tenant's trial whatever
+ * id it is handed. Returns false (and writes nothing) when no active sandbox has that id.
+ *
+ * The audit row (R9) is written in the same transaction, before switching to
+ * platform_admin_role (which can only SELECT the audit table), so a trial change can never
+ * commit without its audit entry.
+ */
+export async function setSandboxTrialEndsAt(
+  tenantId: string,
+  trialEndsAt: Date,
+  actorSub: string,
+): Promise<boolean> {
+  try {
+    await db.transaction(async (tx) => {
+      await recordPlatformAdminAction(
+        { actorSub, action: "sandbox.trial_changed", targetTenantId: tenantId },
+        tx,
+      );
+      await tx.execute(sql`SET LOCAL ROLE platform_admin_role`);
+      const rows = await tx.execute<{ updated: boolean }>(
+        sql`SELECT platform_admin_set_sandbox_trial(${tenantId}::uuid, ${trialEndsAt.toISOString()}::timestamptz) AS updated`,
+      );
+      if (rows[0]?.updated !== true) throw new SandboxTrialNotUpdated();
+    });
+    return true;
+  } catch (err) {
+    if (err instanceof SandboxTrialNotUpdated) return false;
+    throw err;
+  }
 }
 
 export interface SandboxQuotaCheck {

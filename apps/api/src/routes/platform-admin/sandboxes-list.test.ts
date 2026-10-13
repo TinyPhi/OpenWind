@@ -29,7 +29,6 @@ const mockLimitRows = vi.fn();
 const mockTx = {
   select: () => ({
     from: () => ({
-      orderBy: () => mockOrderByRows(),
       where: () => ({
         orderBy: () => mockOrderByRows(),
         limit: () => mockLimitRows(),
@@ -66,6 +65,7 @@ vi.mock("@platform/db", () => ({
       : row.trialEndsAt.getTime() > Date.now()
         ? "active"
         : "expired",
+    trialEndsAt: row.trialEndsAt ? row.trialEndsAt.toISOString() : null,
   }),
 }));
 
@@ -75,14 +75,14 @@ vi.mock("drizzle-orm", () => ({
   desc: (a: unknown) => ["desc", a],
 }));
 
-const { tenantListHandler, sandboxDetailHandler } =
+const { sandboxListHandler, sandboxDetailHandler } =
   await import("./sandboxes-list.js");
 
 function makeApp() {
   const app = new Hono<{
     Variables: { platformAdmin: PlatformAdminAuthContext };
   }>();
-  app.get("/tenants", ...tenantListHandler);
+  app.get("/sandboxes", ...sandboxListHandler);
   app.get("/sandboxes/:tenantId", ...sandboxDetailHandler);
   return app;
 }
@@ -93,29 +93,21 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-const REGULAR_ID = "33333333-3333-4333-8333-333333333333";
-
-describe("GET /tenants", () => {
-  it("returns every tenant, sandbox or regular, as a PlatformAdminSandboxView", async () => {
+describe("GET /sandboxes", () => {
+  it("returns every sandbox as a PlatformAdminSandboxView, newest first", async () => {
+    const trialEndsAt = new Date(Date.now() + 86_400_000);
     mockOrderByRows.mockResolvedValue([
       {
         id: TENANT_ID,
         name: "Acme Sandbox",
         isSandbox: true,
-        trialEndsAt: new Date(Date.now() + 86_400_000),
+        trialEndsAt,
         createdAt: new Date("2026-10-01T00:00:00Z"),
-      },
-      {
-        id: REGULAR_ID,
-        name: "Default Org",
-        isSandbox: false,
-        trialEndsAt: null,
-        createdAt: new Date("2026-05-01T00:00:00Z"),
       },
     ]);
     const app = makeApp();
 
-    const res = await app.request("/tenants");
+    const res = await app.request("/sandboxes");
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -126,22 +118,16 @@ describe("GET /tenants", () => {
         isSandbox: true,
         createdAt: "2026-10-01T00:00:00.000Z",
         trialStatus: "active",
-      },
-      {
-        id: REGULAR_ID,
-        name: "Default Org",
-        isSandbox: false,
-        createdAt: "2026-05-01T00:00:00.000Z",
-        trialStatus: "none",
+        trialEndsAt: trialEndsAt.toISOString(),
       },
     ]);
   });
 
-  it("returns an empty array when there are no tenants", async () => {
+  it("returns an empty array when there are no sandboxes", async () => {
     mockOrderByRows.mockResolvedValue([]);
     const app = makeApp();
 
-    const res = await app.request("/tenants");
+    const res = await app.request("/sandboxes");
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -172,6 +158,7 @@ describe("GET /sandboxes/:tenantId", () => {
       isSandbox: true,
       createdAt: "2026-10-01T00:00:00.000Z",
       trialStatus: "none",
+      trialEndsAt: null,
     });
   });
 

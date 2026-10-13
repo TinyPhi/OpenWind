@@ -7,7 +7,8 @@ import {
   sandboxProgressHandler,
   sandboxHandoverHandler,
 } from "./sandboxes.js";
-import { tenantListHandler, sandboxDetailHandler } from "./sandboxes-list.js";
+import { sandboxListHandler, sandboxDetailHandler } from "./sandboxes-list.js";
+import { sandboxTrialHandler } from "./sandbox-trial.js";
 import { sandboxResetHandler } from "./sandbox-reset.js";
 import { sandboxDeleteHandler } from "./sandbox-delete.js";
 import { auditLogHandler } from "./audit-log.js";
@@ -20,12 +21,13 @@ router.get("/session", ...sessionHandler);
 router.post("/mfa/request", ...mfaRequestHandler);
 router.post("/mfa/verify", ...mfaVerifyHandler);
 router.post("/sandboxes", ...createSandboxHandler);
-router.get("/tenants", ...tenantListHandler);
+router.get("/sandboxes", ...sandboxListHandler);
 router.get("/sandboxes/:tenantId", ...sandboxDetailHandler);
 router.get("/sandboxes/:jobId/progress", ...sandboxProgressHandler);
 router.get("/sandboxes/:jobId/handover", ...sandboxHandoverHandler);
 router.post("/sandboxes/:tenantId/reset", ...sandboxResetHandler);
 router.post("/sandboxes/:tenantId/delete", ...sandboxDeleteHandler);
+router.post("/sandboxes/:tenantId/trial", ...sandboxTrialHandler);
 router.get("/audit-log", ...auditLogHandler);
 
 export { router as platformAdminRouter };

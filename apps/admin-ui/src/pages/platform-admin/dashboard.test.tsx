@@ -28,7 +28,7 @@ vi.mock("../../authProvider.js", () => ({
   },
 }));
 
-// Shallow-mocked: this file tests dashboard.tsx's own wiring (session, tenant list, stats,
+// Shallow-mocked: this file tests dashboard.tsx's own wiring (session, sandbox list, stats,
 // detail panel, refresh, logout), not the children's internals, which have their own tests.
 vi.mock("./create-sandbox-modal.js", () => ({
   CreateSandboxModal: (props: { open: boolean }) =>
@@ -47,29 +47,40 @@ vi.mock("./activity-timeline.js", () => ({
 
 const { PlatformAdminDashboard } = await import("./dashboard.js");
 
-const SANDBOX = {
+const DAY = 86_400_000;
+const ACTIVE = {
   id: "11111111-1111-4111-8111-111111111111",
   name: "Acme Sandbox",
   isSandbox: true,
   createdAt: "2026-10-01T00:00:00Z",
   trialStatus: "active",
+  trialEndsAt: new Date(Date.now() + 30 * DAY).toISOString(),
 };
-const CUSTOMER = {
+const EXPIRING = {
   id: "22222222-2222-4222-8222-222222222222",
-  name: "Default Org",
-  isSandbox: false,
-  createdAt: "2026-05-01T00:00:00Z",
-  trialStatus: "none",
+  name: "Beta Sandbox",
+  isSandbox: true,
+  createdAt: "2026-10-02T00:00:00Z",
+  trialStatus: "active",
+  trialEndsAt: new Date(Date.now() + 3 * DAY).toISOString(),
+};
+const EXPIRED = {
+  id: "33333333-3333-4333-8333-333333333333",
+  name: "Gamma Sandbox",
+  isSandbox: true,
+  createdAt: "2026-09-01T00:00:00Z",
+  trialStatus: "expired",
+  trialEndsAt: new Date(Date.now() - 2 * DAY).toISOString(),
 };
 
-function mockSessionThenTenants(tenants: unknown[]): void {
+function mockSessionThenSandboxes(sandboxes: unknown[]): void {
   mockFetchWithAuth.mockImplementation((url: string) => {
     if (url.endsWith("/session")) {
       return Promise.resolve({
         data: { userId: "pa-1", displayName: "Ops", email: "ops@openwind.io" },
       });
     }
-    return Promise.resolve({ data: tenants });
+    return Promise.resolve({ data: sandboxes });
   });
 }
 
@@ -87,7 +98,7 @@ describe("PlatformAdminDashboard", () => {
   });
 
   it("loads and displays the platform admin's session identity", async () => {
-    mockSessionThenTenants([]);
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
@@ -95,67 +106,68 @@ describe("PlatformAdminDashboard", () => {
     });
   });
 
-  it("fetches every tenant from /platform-admin/tenants", async () => {
-    mockSessionThenTenants([]);
+  it("fetches the sandbox list, never an all-tenants list", async () => {
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
       expect(mockFetchWithAuth).toHaveBeenCalledWith(
-        "/api/platform-admin/tenants",
+        "/api/platform-admin/sandboxes",
       );
     });
+    expect(
+      mockFetchWithAuth.mock.calls.some(([url]) => url.includes("/tenants")),
+    ).toBe(false);
   });
 
-  it("shows an empty state when there are no tenants", async () => {
-    mockSessionThenTenants([]);
+  it("shows an empty state when there are no sandboxes", async () => {
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText("No tenants yet.")).toBeTruthy();
+      expect(screen.getByText("No sandboxes yet.")).toBeTruthy();
     });
   });
 
-  it("lists sandbox and customer tenants, with actions only on the sandbox", async () => {
-    mockSessionThenTenants([SANDBOX, CUSTOMER]);
+  it("lists every sandbox with its row actions menu", async () => {
+    mockSessionThenSandboxes([ACTIVE, EXPIRED]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => screen.getByText("Acme Sandbox"));
-    expect(screen.getByText("Default Org")).toBeTruthy();
+    expect(screen.getByText("Gamma Sandbox")).toBeTruthy();
     expect(screen.getByText("Row actions for Acme Sandbox")).toBeTruthy();
-    expect(screen.queryByText("Row actions for Default Org")).toBeNull();
+    expect(screen.getByText("Row actions for Gamma Sandbox")).toBeTruthy();
   });
 
-  it("summarises the tenant list in the stat cards", async () => {
-    mockSessionThenTenants([SANDBOX, CUSTOMER]);
+  it("summarises sandboxes and trials in the stat cards", async () => {
+    mockSessionThenSandboxes([ACTIVE, EXPIRING, EXPIRED]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() =>
-      screen.getByText("Total tenants", { selector: ".stat-title" }),
+      screen.getByText("Sandboxes", { selector: ".stat-title" }),
     );
-    expect(statValue("Total tenants")).toBe("2");
-    expect(statValue("Sandboxes")).toBe("1");
-    expect(statValue("Customers")).toBe("1");
-    expect(statValue("Active trials")).toBe("1");
-    expect(statValue("Expired trials")).toBe("0");
+    expect(statValue("Sandboxes")).toBe("3");
+    expect(statValue("Active trials")).toBe("2");
+    expect(statValue("Expiring within 7 days")).toBe("1");
+    expect(statValue("Expired")).toBe("1");
   });
 
-  it("opens the detail panel with that tenant's timeline on row click, and closes it", async () => {
-    mockSessionThenTenants([SANDBOX, CUSTOMER]);
+  it("opens the detail panel with that sandbox's timeline on row click, and closes it", async () => {
+    mockSessionThenSandboxes([ACTIVE]);
     render(<PlatformAdminDashboard />);
 
-    await waitFor(() => screen.getByText("Default Org"));
-    fireEvent.click(screen.getByText("Default Org"));
+    await waitFor(() => screen.getByText("Acme Sandbox"));
+    fireEvent.click(screen.getByText("Acme Sandbox"));
 
-    const panel = screen.getByRole("dialog", { name: "Default Org details" });
-    expect(within(panel).getByText(`Timeline ${CUSTOMER.id}`)).toBeTruthy();
-    expect(within(panel).getByText(/view only/)).toBeTruthy();
+    const panel = screen.getByRole("dialog", { name: "Acme Sandbox details" });
+    expect(within(panel).getByText(`Timeline ${ACTIVE.id}`)).toBeTruthy();
 
     fireEvent.click(within(panel).getByLabelText("Close details"));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("shows the global activity timeline", async () => {
-    mockSessionThenTenants([]);
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
@@ -163,37 +175,37 @@ describe("PlatformAdminDashboard", () => {
     });
   });
 
-  it("shows an inline error when the tenant list fails to load", async () => {
+  it("shows an inline error when the sandbox list fails to load", async () => {
     mockFetchWithAuth.mockImplementation((url: string) => {
       if (url.endsWith("/session")) {
         return Promise.resolve({ data: {} });
       }
-      return Promise.reject(new Error("Could not load tenants"));
+      return Promise.reject(new Error("Could not load sandboxes"));
     });
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toBe(
-        "Could not load tenants",
+        "Could not load sandboxes",
       );
     });
   });
 
   it("opens the create-sandbox modal when the button is clicked", async () => {
-    mockSessionThenTenants([]);
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
-    await waitFor(() => screen.getByText("No tenants yet."));
+    await waitFor(() => screen.getByText("No sandboxes yet."));
     fireEvent.click(screen.getByText("Create sandbox"));
 
     expect(screen.getByText("Create sandbox modal open")).toBeTruthy();
   });
 
   it("re-fetches the list when Refresh is clicked", async () => {
-    mockSessionThenTenants([]);
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
-    await waitFor(() => screen.getByText("No tenants yet."));
+    await waitFor(() => screen.getByText("No sandboxes yet."));
     const callsBefore = mockFetchWithAuth.mock.calls.length;
     fireEvent.click(screen.getByText("Refresh"));
 
@@ -203,7 +215,7 @@ describe("PlatformAdminDashboard", () => {
   });
 
   it("logs out and redirects when the logout button is clicked", async () => {
-    mockSessionThenTenants([]);
+    mockSessionThenSandboxes([]);
     mockLogout.mockResolvedValue({ success: true, redirectTo: "/login" });
     render(<PlatformAdminDashboard />);
 

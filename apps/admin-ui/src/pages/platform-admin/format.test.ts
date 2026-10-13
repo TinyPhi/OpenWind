@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { dayLabel, groupByDay, relativeTime, shortId } from "./format.js";
+import {
+  dayLabel,
+  groupByDay,
+  isExpiringSoon,
+  relativeTime,
+  shortId,
+  trialCountdown,
+} from "./format.js";
 import type { AuditEntry } from "./format.js";
 
 const NOW = new Date("2026-10-12T15:00:00").getTime();
@@ -61,5 +68,31 @@ describe("groupByDay", () => {
 describe("shortId", () => {
   it("keeps the first 8 characters", () => {
     expect(shortId("abcdef12-3456")).toBe("abcdef12");
+  });
+});
+
+const HOUR = 3_600_000;
+const iso = (offsetMs: number): string =>
+  new Date(NOW + offsetMs).toISOString();
+
+describe("trialCountdown", () => {
+  it.each([
+    [null, "No trial"],
+    [iso(5 * 24 * HOUR + HOUR), "5 days left"],
+    [iso(24 * HOUR + HOUR), "1 day left"],
+    [iso(3 * HOUR), "Ends today"],
+    [iso(-3 * HOUR), "Expired today"],
+    [iso(-2 * 24 * HOUR - HOUR), "Expired 2 days ago"],
+  ])("%s -> %s", (endsAt, expected) => {
+    expect(trialCountdown(endsAt, NOW)).toBe(expected);
+  });
+});
+
+describe("isExpiringSoon", () => {
+  it("is true only for a trial ending within the next 7 days", () => {
+    expect(isExpiringSoon(iso(3 * 24 * HOUR), NOW)).toBe(true);
+    expect(isExpiringSoon(iso(8 * 24 * HOUR), NOW)).toBe(false);
+    expect(isExpiringSoon(iso(-HOUR), NOW)).toBe(false);
+    expect(isExpiringSoon(null, NOW)).toBe(false);
   });
 });

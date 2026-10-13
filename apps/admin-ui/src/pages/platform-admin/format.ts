@@ -6,18 +6,20 @@
 
 export type TrialStatus = "none" | "active" | "expired";
 
-export interface TenantView {
+export interface SandboxView {
   id: string;
   name: string;
   isSandbox: boolean;
   createdAt: string;
   trialStatus: TrialStatus;
+  trialEndsAt: string | null;
 }
 
 export type PlatformAdminAction =
   | "sandbox.created"
   | "sandbox.reset"
-  | "sandbox.deleted";
+  | "sandbox.deleted"
+  | "sandbox.trial_changed";
 
 export interface AuditEntry {
   id: string;
@@ -31,6 +33,7 @@ export const ACTION_LABEL: Record<PlatformAdminAction, string> = {
   "sandbox.created": "Created sandbox",
   "sandbox.reset": "Reset sandbox",
   "sandbox.deleted": "Deleted sandbox",
+  "sandbox.trial_changed": "Changed trial",
 };
 
 export const TRIAL_BADGE: Record<TrialStatus, { label: string; cls: string }> =
@@ -90,4 +93,30 @@ export function groupByDay(
 
 export function shortId(id: string): string {
   return id.slice(0, 8);
+}
+
+/** Short trial countdown for a row: "5 days left", "Ends today", "Expired 2 days ago". */
+export function trialCountdown(
+  trialEndsAt: string | null,
+  now: number = Date.now(),
+): string {
+  if (!trialEndsAt) return "No trial";
+  const diff = Date.parse(trialEndsAt) - now;
+  const days = Math.floor(Math.abs(diff) / DAY);
+  if (diff > 0) {
+    if (days === 0) return "Ends today";
+    return `${days} day${days === 1 ? "" : "s"} left`;
+  }
+  if (days === 0) return "Expired today";
+  return `Expired ${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+export function isExpiringSoon(
+  trialEndsAt: string | null,
+  now: number = Date.now(),
+  withinDays = 7,
+): boolean {
+  if (!trialEndsAt) return false;
+  const diff = Date.parse(trialEndsAt) - now;
+  return diff > 0 && diff <= withinDays * DAY;
 }

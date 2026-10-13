@@ -13,7 +13,8 @@ import type { DbOrTx } from "./middleware.js";
 export type PlatformAdminAction =
   | "sandbox.created"
   | "sandbox.reset"
-  | "sandbox.deleted";
+  | "sandbox.deleted"
+  | "sandbox.trial_changed";
 
 export interface RecordPlatformAdminActionInput {
   actorSub: string;
@@ -49,10 +50,11 @@ function asPlatformAdminAction(action: string): PlatformAdminAction {
   if (
     action === "sandbox.created" ||
     action === "sandbox.reset" ||
-    action === "sandbox.deleted"
+    action === "sandbox.deleted" ||
+    action === "sandbox.trial_changed"
   )
     return action;
-  // The DB CHECK constraint (migration 0140) already guarantees this is unreachable --
+  // The DB CHECK constraint (migrations 0140, 0142) already guarantees this is unreachable --
   // narrowing defensively, same pattern as platform-admin-view.ts's asProgressStatus.
   throw new Error(`unexpected platform_admin_audit_log.action: ${action}`);
 }

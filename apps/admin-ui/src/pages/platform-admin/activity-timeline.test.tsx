@@ -99,6 +99,17 @@ describe("ActivityTimeline", () => {
     expect(screen.getByText(/^Admin other-ad ·/)).toBeTruthy();
   });
 
+  it("labels a trial change", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce({
+      data: [entry(1, { action: "sandbox.trial_changed" })],
+    });
+    renderTimeline();
+
+    await waitFor(() => {
+      expect(screen.getByText("Changed trial")).toBeTruthy();
+    });
+  });
+
   it("filters loaded entries by action", async () => {
     mockFetchWithAuth.mockResolvedValueOnce({
       data: [entry(1), entry(2, { action: "sandbox.reset" })],

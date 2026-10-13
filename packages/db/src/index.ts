@@ -32,6 +32,7 @@ export { connectorInstallationFilter } from "./connector-credentials.js";
 export { isUniqueViolation, isCheckViolation } from "./errors.js";
 export {
   toPlatformAdminSandboxView,
+  setSandboxTrialEndsAt,
   checkSandboxQuota,
   toProvisioningProgressView,
 } from "./platform-admin-view.js";

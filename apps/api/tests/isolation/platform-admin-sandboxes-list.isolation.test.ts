@@ -1,10 +1,10 @@
 /**
- * T19 (docs/specs/multi-org-sandbox.md): GET /platform-admin/tenants and
+ * T19 (docs/specs/multi-org-sandbox.md): GET /platform-admin/sandboxes and
  * /sandboxes/:tenantId read across tenants through platform_admin_role. Real Postgres --
  * only the platform-admin auth middleware is stubbed (its own tests live in
  * packages/auth). platform-admin-role.isolation.test.ts covers the role's grants directly;
- * this covers the routes: the list shows every tenant (spec R2, amended 2026-10-12) but only
- * the allow-listed view fields, and the per-tenant detail never surfaces a non-sandbox tenant.
+ * this covers the routes: they never surface a non-sandbox tenant, and return only the
+ * allow-listed view fields (trialEndsAt added for R6a's trial editing).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { Hono } from "hono";
@@ -35,16 +35,23 @@ vi.mock("@platform/auth", async (importOriginal) => {
   };
 });
 
-const { tenantListHandler, sandboxDetailHandler } =
+const { sandboxListHandler, sandboxDetailHandler } =
   await import("../../src/routes/platform-admin/sandboxes-list.js");
 
 const SANDBOX_TENANT = "eeeeeeee-0191-4000-e000-000000000191";
 const REGULAR_TENANT = "ffffffff-0191-4000-f000-000000000191";
-const VIEW_FIELDS = ["createdAt", "id", "isSandbox", "name", "trialStatus"];
+const VIEW_FIELDS = [
+  "createdAt",
+  "id",
+  "isSandbox",
+  "name",
+  "trialEndsAt",
+  "trialStatus",
+];
 
 function makeApp(): Hono {
   const app = new Hono();
-  app.get("/tenants", ...tenantListHandler);
+  app.get("/sandboxes", ...sandboxListHandler);
   app.get("/sandboxes/:tenantId", ...sandboxDetailHandler);
   return app;
 }
@@ -64,7 +71,6 @@ beforeAll(async () => {
         id: REGULAR_TENANT,
         name: "T19 list isolation regular tenant",
         slug: `t19-list-regular-${Date.now()}`,
-        config: { secret_marker: "regular-must-not-leak" },
       },
     ])
     .onConflictDoNothing();
@@ -77,16 +83,17 @@ afterAll(async () => {
 });
 
 describe("platform-admin sandbox list/detail routes (T19)", () => {
-  it("lists sandbox and regular tenants alike, with only the allow-listed fields", async () => {
-    const res = await makeApp().request("/tenants");
+  it("lists the sandbox but never a regular tenant, with only the allow-listed fields", async () => {
+    const res = await makeApp().request("/sandboxes");
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Record<string, unknown>[] };
-    const byId = new Map(body.data.map((s) => [s.id, s]));
-    expect(byId.get(SANDBOX_TENANT)?.isSandbox).toBe(true);
-    expect(byId.get(REGULAR_TENANT)?.isSandbox).toBe(false);
+    const ids = body.data.map((s) => s.id);
+    expect(ids).toContain(SANDBOX_TENANT);
+    expect(ids).not.toContain(REGULAR_TENANT);
     for (const item of body.data) {
       expect(Object.keys(item).sort()).toEqual(VIEW_FIELDS);
+      expect(item.isSandbox).toBe(true);
     }
     expect(JSON.stringify(body)).not.toContain("must-not-leak");
   });

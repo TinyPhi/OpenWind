@@ -90,12 +90,6 @@ as the existing `DEV_TENANT_ID`/`SKIP_AV_SCAN` pattern).
 
 R2: Platform admin's powers are limited to sandbox lifecycle only, never business-data access.
 ✓ Platform admin can create, list, read metadata of, reset, and delete sandboxes.
-✓ **(amended 2026-10-12, owner decision)** The dashboard list shows _every_ tenant, sandbox or
-not (`GET /platform-admin/tenants`), through the same allow-listed view below — a regular
-tenant exposes only id, name, created date, `isSandbox` and trial status. No new grant: this is
-within 0135's existing column-scoped `SELECT`. Lifecycle actions (per-tenant detail, reset,
-delete) stay sandbox-only and return 404 for a regular tenant. ADR-022's "list sandboxes" wording
-needs a matching human-authored note.
 ✓ No route reachable by `platform_admin` returns any sandbox's business data (tickets, org chart
 contents, audit entries) — only tenant-level metadata (name, created date, trial status),
 enforced structurally by the `PlatformAdminSandboxView` DTO allow-list (§I), not by convention.
@@ -162,6 +156,19 @@ separate scheduled job flips a precomputed status flag.
 ✓ Past expiry: login is refused; background jobs for that tenant (sync, schedule-rule ticket
 creation, SLA timers, notification dispatch) no-op.
 ✓ Sandbox data is never auto-deleted on expiry — it persists until an explicit delete action.
+
+R6a **(added 2026-10-12, owner decision)**: The platform admin can change a sandbox's trial,
+including reactivating an expired one.
+✓ Setting a sandbox's trial to N days from now (1–365) updates `trial_ends_at`; on an expired
+sandbox this reactivates it — login and background work resume with no other step, since R6's
+check is a fresh timestamp comparison.
+✓ The change applies immediately: the auth layer's cached trial timestamp is invalidated.
+✓ Sandboxes only, enforced in the database: `platform_admin_role` gets EXECUTE on one function
+(migration 0142) that updates only active `is_sandbox` rows, never an UPDATE grant on `tenants`.
+A non-sandbox, unknown or being-deleted tenant id returns 404 and changes nothing.
+✓ Each change is recorded in `platform_admin_audit_log` as `sandbox.trial_changed` (R9), in the
+same transaction as the change, so a change never commits without its record.
+✓ The dashboard lists sandboxes only — regular tenants never appear (R2 unchanged).
 
 R7: Reset returns a sandbox to a clean working state without disturbing its identity.
 ✓ Resetting a sandbox wipes and re-seeds only module/business data (tickets, workflow instances,

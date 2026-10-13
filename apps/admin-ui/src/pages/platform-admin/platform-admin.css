@@ -280,3 +280,7 @@
   margin: 0;
   word-break: break-all;
 }
+
+.pa-tl-dot-trial_changed {
+  background-color: var(--accent-primary);
+}

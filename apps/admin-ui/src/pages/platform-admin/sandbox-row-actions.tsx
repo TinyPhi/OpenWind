@@ -1,15 +1,16 @@
 import React from "react";
-import { Button } from "@platform/ui";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
+import { ChangeTrialDialog } from "./change-trial-dialog.js";
 
 type ActionKind = "reset" | "delete";
 
 export interface SandboxRowActionsProps {
   tenantId: string;
   tenantName: string;
-  /** Called after a reset or delete completes successfully, so the parent can refresh the list. */
+  trialEndsAt: string | null;
+  /** Called after a reset, delete or trial change succeeds, so the parent can refresh. */
   onDone: () => void;
 }
 
@@ -64,14 +65,34 @@ const CONFIRM_COPY: Record<
  * a client-side UX affordance only -- the real concurrency guard is the worker-held
  * sandbox-lifecycle advisory lock (T22, PR #832's fix), which this component never needs
  * to know about.
+ *
+ * Every action lives in one three-dot menu per row (R6a added "Change trial"); the menu
+ * button is what's disabled while a request is in flight.
  */
 export function SandboxRowActions({
   tenantId,
   tenantName,
+  trialEndsAt,
   onDone,
 }: SandboxRowActionsProps): React.ReactElement {
   const [confirming, setConfirming] = React.useState<ActionKind | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [trialOpen, setTrialOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
+  function choose(open: () => void): void {
+    setMenuOpen(false);
+    open();
+  }
 
   async function handleConfirm(): Promise<void> {
     if (!confirming) return;
@@ -103,22 +124,54 @@ export function SandboxRowActions({
   }
 
   return (
-    <>
-      <Button
-        variant="secondary"
-        onClick={() => setConfirming("reset")}
+    <div className="rcd-kebab-wrap">
+      <button
+        type="button"
+        className="rcd-kebab-btn"
+        aria-label={`Actions for ${tenantName}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
         disabled={busy}
-        style={{ marginRight: 8 }}
+        onClick={() => setMenuOpen((o) => !o)}
       >
-        Reset
-      </Button>
-      <Button
-        variant="danger"
-        onClick={() => setConfirming("delete")}
-        disabled={busy}
-      >
-        Delete
-      </Button>
+        {busy ? "…" : "⋮"}
+      </button>
+      {menuOpen && (
+        <>
+          <div
+            className="rcd-kebab-backdrop"
+            aria-hidden="true"
+            onClick={() => setMenuOpen(false)}
+          />
+          <div className="rcd-kebab-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="rcd-kebab-menu-item"
+              onClick={() => choose(() => setConfirming("reset"))}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="rcd-kebab-menu-item"
+              onClick={() => choose(() => setTrialOpen(true))}
+            >
+              Change trial
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="rcd-kebab-menu-item"
+              style={{ color: "var(--danger)" }}
+              onClick={() => choose(() => setConfirming("delete"))}
+            >
+              Delete
+            </button>
+          </div>
+        </>
+      )}
       {confirming && (
         <ConfirmDeleteDialog
           open={true}
@@ -131,6 +184,19 @@ export function SandboxRowActions({
           onCancel={handleCancel}
         />
       )}
-    </>
+      {trialOpen && (
+        <ChangeTrialDialog
+          open={true}
+          tenantId={tenantId}
+          tenantName={tenantName}
+          trialEndsAt={trialEndsAt}
+          onClose={() => setTrialOpen(false)}
+          onSaved={() => {
+            setTrialOpen(false);
+            onDone();
+          }}
+        />
+      )}
+    </div>
   );
 }

@@ -188,7 +188,7 @@ function TimelineItem({
         {!compact && (
           <>
             {" "}
-            <strong>{target}</strong>
+            <span aria-hidden="true">·</span> <strong>{target}</strong>
           </>
         )}
       </div>

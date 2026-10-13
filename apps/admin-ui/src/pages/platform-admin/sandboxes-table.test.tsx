@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import type { TenantView } from "./format.js";
+import type { SandboxView } from "./format.js";
 
 vi.mock("./sandbox-row-actions.js", () => ({
   SandboxRowActions: (props: { tenantName: string }) => (
@@ -8,22 +8,25 @@ vi.mock("./sandbox-row-actions.js", () => ({
   ),
 }));
 
-const { TenantsTable } = await import("./tenants-table.js");
+const { SandboxesTable } = await import("./sandboxes-table.js");
 
-const TENANTS: TenantView[] = [
+const DAY = 86_400_000;
+const SANDBOXES: SandboxView[] = [
   {
     id: "aaaaaaaa-0000-4000-a000-000000000001",
     name: "Bravo Sandbox",
     isSandbox: true,
     createdAt: "2026-10-10T00:00:00Z",
     trialStatus: "active",
+    trialEndsAt: new Date(Date.now() + 5 * DAY + 3_600_000).toISOString(),
   },
   {
     id: "bbbbbbbb-0000-4000-b000-000000000002",
-    name: "Alpha Customer",
-    isSandbox: false,
+    name: "Alpha Sandbox",
+    isSandbox: true,
     createdAt: "2026-01-01T00:00:00Z",
     trialStatus: "none",
+    trialEndsAt: null,
   },
   {
     id: "cccccccc-0000-4000-c000-000000000003",
@@ -31,85 +34,67 @@ const TENANTS: TenantView[] = [
     isSandbox: true,
     createdAt: "2026-09-01T00:00:00Z",
     trialStatus: "expired",
+    trialEndsAt: new Date(Date.now() - 2 * DAY - 3_600_000).toISOString(),
   },
 ];
 
-function rowNames(): string[] {
+function rowNames(): (string | null)[] {
   return Array.from(document.querySelectorAll("tbody .pa-name")).map(
     (el) => el.textContent,
   );
 }
 
-function setup(
-  onSelect = vi.fn(),
-  onActionDone = vi.fn(),
-): {
+function setup(onSelect = vi.fn()): {
   onSelect: ReturnType<typeof vi.fn>;
-  onActionDone: ReturnType<typeof vi.fn>;
 } {
   render(
-    <TenantsTable
-      tenants={TENANTS}
+    <SandboxesTable
+      sandboxes={SANDBOXES}
       onSelect={onSelect}
-      onActionDone={onActionDone}
+      onActionDone={vi.fn()}
     />,
   );
-  return { onSelect, onActionDone };
+  return { onSelect };
 }
 
-describe("TenantsTable", () => {
+describe("SandboxesTable", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("lists every tenant newest first by default", () => {
+  it("lists every sandbox newest first by default", () => {
     setup();
     expect(rowNames()).toEqual([
       "Bravo Sandbox",
       "Charlie Sandbox",
-      "Alpha Customer",
+      "Alpha Sandbox",
     ]);
   });
 
-  it("labels each tenant's type and trial status", () => {
+  it("shows each trial's status badge and countdown", () => {
     setup();
     const badge = { selector: "span.badge" };
-    expect(screen.getAllByText("Sandbox", badge)).toHaveLength(2);
-    expect(screen.getByText("Customer", badge)).toBeTruthy();
     expect(screen.getByText("Trial active", badge)).toBeTruthy();
     expect(screen.getByText("Trial expired", badge)).toBeTruthy();
     expect(screen.getByText("No trial", badge)).toBeTruthy();
+    expect(screen.getByText("5 days left")).toBeTruthy();
+    expect(screen.getByText("Expired 2 days ago")).toBeTruthy();
   });
 
-  it("renders lifecycle actions only for sandboxes", () => {
+  it("gives every row an actions menu", () => {
     setup();
     expect(screen.getByText("Actions for Bravo Sandbox")).toBeTruthy();
+    expect(screen.getByText("Actions for Alpha Sandbox")).toBeTruthy();
     expect(screen.getByText("Actions for Charlie Sandbox")).toBeTruthy();
-    expect(screen.queryByText("Actions for Alpha Customer")).toBeNull();
   });
 
-  it("searches by name", () => {
+  it("searches by name and by id prefix", () => {
     setup();
-    fireEvent.change(screen.getByLabelText("Search tenants"), {
-      target: { value: "alpha" },
-    });
-    expect(rowNames()).toEqual(["Alpha Customer"]);
-  });
-
-  it("searches by id prefix", () => {
-    setup();
-    fireEvent.change(screen.getByLabelText("Search tenants"), {
-      target: { value: "cccccccc" },
-    });
+    const search = screen.getByLabelText("Search sandboxes");
+    fireEvent.change(search, { target: { value: "alpha" } });
+    expect(rowNames()).toEqual(["Alpha Sandbox"]);
+    fireEvent.change(search, { target: { value: "cccccccc" } });
     expect(rowNames()).toEqual(["Charlie Sandbox"]);
-  });
-
-  it("filters by type", () => {
-    setup();
-    fireEvent.change(screen.getByLabelText("Filter by type"), {
-      target: { value: "customer" },
-    });
-    expect(rowNames()).toEqual(["Alpha Customer"]);
   });
 
   it("filters by trial status", () => {
@@ -122,17 +107,17 @@ describe("TenantsTable", () => {
 
   it("shows a no-match message when filters exclude everything", () => {
     setup();
-    fireEvent.change(screen.getByLabelText("Search tenants"), {
+    fireEvent.change(screen.getByLabelText("Search sandboxes"), {
       target: { value: "zzz" },
     });
-    expect(screen.getByText("No tenants match these filters.")).toBeTruthy();
+    expect(screen.getByText("No sandboxes match these filters.")).toBeTruthy();
   });
 
   it("sorts by name, toggling direction on a second click", () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: /Name/ }));
     expect(rowNames()).toEqual([
-      "Alpha Customer",
+      "Alpha Sandbox",
       "Bravo Sandbox",
       "Charlie Sandbox",
     ]);
@@ -140,14 +125,24 @@ describe("TenantsTable", () => {
     expect(rowNames()).toEqual([
       "Charlie Sandbox",
       "Bravo Sandbox",
-      "Alpha Customer",
+      "Alpha Sandbox",
     ]);
   });
 
-  it("selects a tenant on row click but not when its actions are clicked", () => {
+  it("sorts by trial end, soonest first, with no-trial sandboxes last", () => {
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: /Trial/ }));
+    expect(rowNames()).toEqual([
+      "Charlie Sandbox",
+      "Bravo Sandbox",
+      "Alpha Sandbox",
+    ]);
+  });
+
+  it("selects a sandbox on row click but not when its actions are clicked", () => {
     const { onSelect } = setup();
-    fireEvent.click(screen.getByText("Alpha Customer"));
-    expect(onSelect).toHaveBeenCalledWith(TENANTS[1]);
+    fireEvent.click(screen.getByText("Alpha Sandbox"));
+    expect(onSelect).toHaveBeenCalledWith(SANDBOXES[1]);
 
     onSelect.mockClear();
     fireEvent.click(screen.getByText("Actions for Bravo Sandbox"));
