@@ -31,6 +31,7 @@ export function PlatformAdminDashboard(): React.ReactElement {
   );
   const [sandboxes, setSandboxes] = React.useState<SandboxView[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [logoutError, setLogoutError] = React.useState<string | null>(null);
   const [createOpen, setCreateOpen] = React.useState(false);
 
   const refresh = React.useCallback((): void => {
@@ -59,12 +60,12 @@ export function PlatformAdminDashboard(): React.ReactElement {
   }, [refresh]);
 
   async function handleLogout(): Promise<void> {
-    setError(null);
+    setLogoutError(null);
     try {
       const result = await authProvider.logout({});
       if (result.redirectTo) window.location.href = result.redirectTo;
     } catch {
-      setError("Logout failed. Please try again.");
+      setLogoutError("Logout failed. Please try again.");
     }
   }
 
@@ -113,6 +114,12 @@ export function PlatformAdminDashboard(): React.ReactElement {
           </Button>
         </div>
       </div>
+
+      {logoutError && (
+        <p role="alert" style={{ color: "var(--danger, #dc2626)" }}>
+          {logoutError}
+        </p>
+      )}
 
       {loadError && (
         <p role="alert" style={{ color: "var(--danger, #dc2626)" }}>
