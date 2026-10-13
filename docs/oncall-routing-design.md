@@ -1008,6 +1008,15 @@ All new metrics are registered in `packages/telemetry/src/metrics.ts` following 
 | `openwind_oncall_resolution_duration_seconds`     | `result`  | p99 ≤ 100 ms (enforced by integration test asserting `durationMs < 100`) |
 | `openwind_notification_dispatch_duration_seconds` | `channel` | p99 ≤ 2 s per channel                                                    |
 
+> **As implemented (#570):** the counter is `openwind_oncall_resolutions_total` (not
+> `..._resolution_total`) and its label is `outcome` (`auto_assigned`, `no_schedule`,
+> `skipped_explicit_assignee`), not `result`; the resolution histogram uses the same `outcome` label so
+> the two join. Neither carries `tenant_hash`. `matched_at` values use underscores
+> (`team_workflow`, `hardcoded_default`). Both histograms use explicit second-scale bucket boundaries
+> (`packages/telemetry/src/oncall-duration-buckets.ts`): OTel's defaults are millisecond-scale, which
+> would put every sub-5 s observation in one bucket. `openwind_label_assignment_total` is not
+> implemented yet.
+
 #### Gauges
 
 | Metric                               | Labels        | What it measures                                                                                                                |

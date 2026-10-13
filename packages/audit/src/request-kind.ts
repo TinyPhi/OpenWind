@@ -82,6 +82,11 @@ const ALL_AUDIT_ACTIONS_EXHAUSTIVE: Record<AuditAction, true> = {
   "sandbox.reset_failed": true,
   "sandbox.delete_completed": true,
   "sandbox.delete_failed": true,
+  "access.granted": true,
+  "access.updated": true,
+  "access.revoked": true,
+  "workflow.admins_updated": true,
+  "workflow.transition_roles_updated": true,
 };
 
 export const ALL_AUDIT_ACTIONS_FOR_REQUEST_KIND: readonly AuditAction[] =
@@ -150,6 +155,12 @@ const WRITE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   // regardless of outcome, same reasoning as reset/provisioning above.
   "sandbox.delete_completed",
   "sandbox.delete_failed",
+  // Grant, level change or revocation of access, and workflow admin / transition-role edits.
+  "access.granted",
+  "access.updated",
+  "access.revoked",
+  "workflow.admins_updated",
+  "workflow.transition_roles_updated",
 ]);
 
 /**

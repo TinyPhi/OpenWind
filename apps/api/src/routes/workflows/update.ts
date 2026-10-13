@@ -1,13 +1,15 @@
 import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { requireAuth, requireRole } from "@platform/auth";
-import { withTenantContext } from "@platform/db";
+import { workflows, withTenantContext } from "@platform/db";
+import { and, eq } from "drizzle-orm";
 import { updateWorkflow } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleWorkflowError } from "../../lib/handle-workflow-error.js";
 import { toWorkflowCaller } from "../../lib/workflow-caller.js";
 import { listOrgUsers } from "../../lib/zitadel-management.js";
 import { logger } from "@platform/logger";
+import { auditWorkflowAdminsChange } from "../../lib/audit-workflow-access.js";
 
 const UpdateWorkflowSchema = z.object({
   isActive: z.boolean().optional(),
@@ -67,9 +69,35 @@ export const updateWorkflowHandler = factory.createHandlers(
     }
 
     try {
-      const workflow = await withTenantContext(tenantId, (tx) =>
-        updateWorkflow(tx, tenantId, id, toWorkflowCaller(auth), input),
-      );
+      const workflow = await withTenantContext(tenantId, async (tx) => {
+        const [before] =
+          input.assignedTo !== undefined
+            ? await tx
+                .select({ assignedTo: workflows.assignedTo })
+                .from(workflows)
+                .where(
+                  and(eq(workflows.id, id), eq(workflows.tenantId, tenantId)),
+                )
+                .limit(1)
+            : [];
+        const updated = await updateWorkflow(
+          tx,
+          tenantId,
+          id,
+          toWorkflowCaller(auth),
+          input,
+        );
+        if (before) {
+          await auditWorkflowAdminsChange(tx, {
+            tenantId,
+            actorId: auth.userId,
+            workflowId: id,
+            before: before.assignedTo ?? [],
+            after: updated.assignedTo,
+          });
+        }
+        return updated;
+      });
       return c.json({ data: workflow });
     } catch (err) {
       return handleWorkflowError(c, err);

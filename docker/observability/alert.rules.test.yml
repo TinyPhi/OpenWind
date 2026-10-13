@@ -1,0 +1,655 @@
+# promtool tests for the scheduler alerts in alert.rules.yml
+# (docs/temporal-scheduler-design.md §9.4).
+#
+# Run from the repo root with `pnpm test:alerts` (needs Docker; it also runs
+# `promtool check rules`). CI does not run this file, so run it after changing
+# alert.rules.yml. The raw command is:
+#   docker run --rm --entrypoint promtool -v "$PWD/docker/observability:/r:ro" \
+#     prom/prometheus:v2.53.0 test rules /r/alert.rules.test.yml
+#
+# The histogram series use the bucket boundaries in
+# packages/telemetry/src/schedule-duration-buckets.ts.
+rule_files:
+  - alert.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: more than 10% of fires failing raises ScheduleExecutionFailureRateHigh
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_total{status="success"}'
+        values: "0+80x30"
+      - series: 'openwind_schedule_execution_total{status="failed",errorCode="ENTITY_TYPE_NOT_FOUND"}'
+        values: "0+20x30"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ScheduleExecutionFailureRateHigh
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ScheduleExecutionFailureRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "More than 10% of schedule rule fires are failing"
+              description: "Schedule rule fires failed at 20% over the last 10 minutes."
+
+  - name: a failure rate at or under 10% stays quiet
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_total{status="success"}'
+        values: "0+95x30"
+      - series: 'openwind_schedule_execution_total{status="failed",errorCode="ENTITY_TYPE_NOT_FOUND"}'
+        values: "0+5x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleExecutionFailureRateHigh
+        exp_alerts: []
+
+  - name: fires with no failed series at all stay quiet, not a divide-by-nothing alert
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_total{status="success"}'
+        values: "0+80x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleExecutionFailureRateHigh
+        exp_alerts: []
+
+  - name: a slow tick raises ScheduleTickDurationSLOBreach
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="50"}'
+        values: "0x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="100"}'
+        values: "0x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="250"}'
+        values: "0x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="1000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="2500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="5000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="7500"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="10000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="30000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="60000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ScheduleTickDurationSLOBreach
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ScheduleTickDurationSLOBreach
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "Scheduler tick p99 duration is over 5s"
+              description: "P99 scheduler tick duration is 7475ms over the last 5 minutes."
+
+  - name: fast ticks stay quiet
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="50"}'
+        values: "0x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="100"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="250"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="500"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="1000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="2500"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="5000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="7500"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="10000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="30000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="60000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleTickDurationSLOBreach
+        exp_alerts: []
+
+  - name: a fire slower than 10s raises ScheduleExecutionDurationSLOBreach
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="50"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="100"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="250"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="1000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="2500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="5000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="7500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="10000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="30000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="60000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ScheduleExecutionDurationSLOBreach
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "Schedule rule fire p99 duration is over 10s"
+              description: "P99 time to fire one schedule rule is 29800ms over the last 15 minutes."
+
+  - name: fast fires stay quiet
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="50"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="100"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="250"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="500"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="1000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="2500"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="5000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="7500"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="10000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="30000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="60000"}'
+        values: "0+1x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleExecutionDurationSLOBreach
+        exp_alerts: []
+
+  # Why the buckets run past 10000: when every observation overflows the top
+  # finite bucket, histogram_quantile returns that bucket's bound, so with OTel's
+  # default boundaries (top bucket 10000) a 12s fire gives p99 = 10000 and
+  # `> 10000` is false. The rule could never fire. This case documents that.
+  - name: with OTel default buckets an overflowing fire cannot alert (the bug the extra buckets fix)
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="0"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="5"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="10"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="25"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="50"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="75"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="100"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="250"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="750"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="1000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="2500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="5000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="7500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="10000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleExecutionDurationSLOBreach
+        exp_alerts: []
+
+  - name: with the scheduler buckets a fire that overflows even the top bucket still alerts
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="50"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="100"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="250"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="1000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="2500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="5000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="7500"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="10000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="30000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="60000"}'
+        values: "0x30"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleExecutionDurationSLOBreach
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "Schedule rule fire p99 duration is over 10s"
+              description: "P99 time to fire one schedule rule is 60000ms over the last 15 minutes."
+
+  # A fire is recorded only when a rule is due, so fires can be hours apart.
+  - name: one isolated slow fire still raises ScheduleExecutionDurationSLOBreach (sparse observations)
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="50"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="100"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="250"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="1000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="2500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="5000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="7500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="10000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="30000"}'
+        values: "0x9 1x40"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="60000"}'
+        values: "0x9 1x40"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="+Inf"}'
+        values: "0x9 1x40"
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: ScheduleExecutionDurationSLOBreach
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "Schedule rule fire p99 duration is over 10s"
+              description: "P99 time to fire one schedule rule is 29800ms over the last 15 minutes."
+
+  - name: an idle scheduler stays quiet on both duration alerts (no observations is NaN, not an alert)
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="50"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="100"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="250"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="1000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="2500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="5000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="7500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="10000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="30000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="60000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_execution_duration_ms_bucket{le="+Inf"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="50"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="100"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="250"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="1000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="2500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="5000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="7500"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="10000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="30000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="60000"}'
+        values: "0x49"
+      - series: 'openwind_schedule_tick_duration_ms_bucket{le="+Inf"}'
+        values: "0x49"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleExecutionDurationSLOBreach
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: ScheduleTickDurationSLOBreach
+        exp_alerts: []
+
+  - name: a 9% failure rate stays quiet
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_total{status="success"}'
+        values: "0+91x30"
+      - series: 'openwind_schedule_execution_total{status="failed",errorCode="ENTITY_TYPE_NOT_FOUND"}'
+        values: "0+9x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleExecutionFailureRateHigh
+        exp_alerts: []
+
+  - name: a 12% failure rate alerts
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_total{status="success"}'
+        values: "0+88x30"
+      - series: 'openwind_schedule_execution_total{status="failed",errorCode="ENTITY_TYPE_NOT_FOUND"}'
+        values: "0+12x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ScheduleExecutionFailureRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "More than 10% of schedule rule fires are failing"
+              description: "Schedule rule fires failed at 12% over the last 10 minutes."
+
+  # There is deliberately no minimum-traffic floor: a schedule that fires a few
+  # times an hour has no other way to alert, and a failed fire is a ticket that
+  # was not created. The cost is that one failure among five fires alerts.
+  - name: one failure among five fires alerts (no traffic floor, by design)
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_total{status="success"}'
+        values: "0x9 1 2 3 4 4x25"
+      - series: 'openwind_schedule_execution_total{status="failed",errorCode="INTERNAL_ERROR"}'
+        values: "0x9 1 1x25"
+    alert_rule_test:
+      - eval_time: 17m
+        alertname: ScheduleExecutionFailureRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "More than 10% of schedule rule fires are failing"
+              description: "Schedule rule fires failed at 20% over the last 10 minutes."
+
+  # Pins the 10m window: a two-minute burst is out of a 1m window within a
+  # minute or two, so `for: 5m` could never be met there.
+  - name: a short burst of failures keeps alerting for the length of the 10m window
+    interval: 1m
+    input_series:
+      - series: 'openwind_schedule_execution_total{status="success"}'
+        values: "0+10x30"
+      - series: 'openwind_schedule_execution_total{status="failed",errorCode="INTERNAL_ERROR"}'
+        values: "0x4 30 60 60x25"
+    alert_rule_test:
+      - eval_time: 13m
+        alertname: ScheduleExecutionFailureRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "More than 10% of schedule rule fires are failing"
+              description: "Schedule rule fires failed at 37.5% over the last 10 minutes."
+
+  # --- OncallResolutionSLOBreached (docs/oncall-routing-design.md §9.4) ---
+  - name: slow resolutions raise OncallResolutionSLOBreached
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.001"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.0025"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.005"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.01"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.025"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.05"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.1"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.25"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2.5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "resolve_oncall p99 latency is over 100ms"
+              description: "P99 resolve_oncall duration is 248.5ms over the last 15 minutes."
+
+  - name: fast resolutions stay quiet on OncallResolutionSLOBreached
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.001"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.0025"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.005"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.01"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.025"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.05"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.1"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.25"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2.5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts: []
+
+  # Resolutions happen only when a ticket's team changes, so they can be hours apart.
+  - name: one isolated slow resolution still raises OncallResolutionSLOBreached (sparse observations)
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.001"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.0025"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.005"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.01"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.025"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.05"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.1"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.25"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.5"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2.5"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0x9 1x40"
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "resolve_oncall p99 latency is over 100ms"
+              description: "P99 resolve_oncall duration is 248.5ms over the last 15 minutes."
+
+  - name: no resolutions at all stays quiet on OncallResolutionSLOBreached
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.001"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.0025"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.005"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.01"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.025"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.05"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.1"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.25"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.5"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2.5"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0x49"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts: []
+
+  # The trap the second-scale buckets avoid: OTel's default boundaries are
+  # millisecond-scale (0, 5, 10 ... 10000), so a 20ms resolution recorded in
+  # seconds (0.02) lands in the le="5" bucket and reads as p99 = 4.95s.
+  - name: with OTel default (millisecond-scale) buckets a FAST resolution would wrongly page
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="10"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="25"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="50"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="75"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="100"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="250"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="500"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="750"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1000"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2500"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5000"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="7500"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="10000"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "resolve_oncall p99 latency is over 100ms"
+              description: "P99 resolve_oncall duration is 4.95s over the last 15 minutes."
