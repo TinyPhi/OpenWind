@@ -5,11 +5,10 @@ import { eq, and } from "drizzle-orm";
 import {
   verifyJwt,
   extractAuthContext,
-  lookupTenantIdByOrgId,
+  resolveTenantIdForAuth,
 } from "@platform/auth";
 import { getRedis, NOTIFICATION_PUSH_CHANNEL } from "@platform/redis";
 import { logger } from "@platform/logger";
-import { env } from "@platform/config";
 import { entityInstances, withTenantContext } from "@platform/db";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { hasEntityAccess } from "../lib/entity-access.js";
@@ -398,21 +397,15 @@ export function attachNotificationWebSocket(
         return;
       }
 
-      // Mirror requireAuth()'s org -> tenant resolution (packages/auth/src/middleware.ts):
-      // extractAuthContext's tenantId is the raw Zitadel org id in production, not the
-      // internal tenants.id UUID that notification_recipients.tenant_id actually stores.
-      // Without this, every connection here registers under the wrong key and
-      // sendToConnections silently finds nothing to send to.
-      let tenantId = auth.tenantId;
-      if (env.NODE_ENV === "production") {
-        const mappedTenantId = auth.orgId
-          ? await lookupTenantIdByOrgId(auth.orgId)
-          : null;
-        if (!mappedTenantId) {
-          socket.destroy();
-          return;
-        }
-        tenantId = mappedTenantId;
+      // Same org -> tenant resolution as requireAuth() (resolveTenantIdForAuth):
+      // extractAuthContext's tenantId is the raw Zitadel org id in production (or the dev
+      // tenant outside it), not the tenants.id that notification_recipients.tenant_id
+      // stores. Without this, a connection registers under the wrong key -- or, for a
+      // sandbox user outside production, under the dev tenant.
+      const tenantId = await resolveTenantIdForAuth(auth);
+      if (!tenantId) {
+        socket.destroy();
+        return;
       }
 
       wss.handleUpgrade(req, socket, head, (ws) => {
