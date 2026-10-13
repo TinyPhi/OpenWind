@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
@@ -67,8 +68,31 @@ const CONFIRM_COPY: Record<
  * to know about.
  *
  * Every action lives in one three-dot menu per row (R6a added "Change trial"); the menu
- * button is what's disabled while a request is in flight.
+ * button is what's disabled while a request is in flight. The open menu is portalled to
+ * document.body with fixed positioning: rendered in place, the table's overflow-x scroll box
+ * (and the detail drawer) clipped it. React events still bubble through the component tree,
+ * so the row's stopPropagation keeps a menu click from selecting the row.
  */
+
+// Rough rendered height of the three-item menu, used only to decide whether it fits below
+// the button or should open upward.
+const MENU_HEIGHT_ESTIMATE = 130;
+const MENU_GAP = 6;
+
+interface MenuPosition {
+  right: number;
+  top?: number;
+  bottom?: number;
+}
+
+function menuPositionFor(button: HTMLElement): MenuPosition {
+  const rect = button.getBoundingClientRect();
+  const right = window.innerWidth - rect.right;
+  if (rect.bottom + MENU_GAP + MENU_HEIGHT_ESTIMATE > window.innerHeight) {
+    return { right, bottom: window.innerHeight - rect.top + MENU_GAP };
+  }
+  return { right, top: rect.bottom + MENU_GAP };
+}
 export function SandboxRowActions({
   tenantId,
   tenantName,
@@ -77,20 +101,43 @@ export function SandboxRowActions({
 }: SandboxRowActionsProps): React.ReactElement {
   const [confirming, setConfirming] = React.useState<ActionKind | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [menuPosition, setMenuPosition] = React.useState<MenuPosition | null>(
+    null,
+  );
   const [trialOpen, setTrialOpen] = React.useState(false);
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const menuOpen = menuPosition !== null;
 
   React.useEffect(() => {
     if (!menuOpen) return;
+    function close(): void {
+      setMenuPosition(null);
+    }
     function onKey(e: KeyboardEvent): void {
-      if (e.key === "Escape") setMenuOpen(false);
+      if (e.key === "Escape") close();
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Capture phase so scrolling the table's own scroll box or the drawer closes it too --
+    // a fixed menu would otherwise stay put while its button scrolls away.
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
   }, [menuOpen]);
 
+  function toggleMenu(): void {
+    if (menuOpen || !buttonRef.current) {
+      setMenuPosition(null);
+      return;
+    }
+    setMenuPosition(menuPositionFor(buttonRef.current));
+  }
+
   function choose(open: () => void): void {
-    setMenuOpen(false);
+    setMenuPosition(null);
     open();
   }
 
@@ -126,52 +173,66 @@ export function SandboxRowActions({
   return (
     <div className="rcd-kebab-wrap">
       <button
+        ref={buttonRef}
         type="button"
         className="rcd-kebab-btn"
         aria-label={`Actions for ${tenantName}`}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         disabled={busy}
-        onClick={() => setMenuOpen((o) => !o)}
+        onClick={toggleMenu}
       >
         {busy ? "…" : "⋮"}
       </button>
-      {menuOpen && (
-        <>
-          <div
-            className="rcd-kebab-backdrop"
-            aria-hidden="true"
-            onClick={() => setMenuOpen(false)}
-          />
-          <div className="rcd-kebab-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              className="rcd-kebab-menu-item"
-              onClick={() => choose(() => setConfirming("reset"))}
+      {menuPosition &&
+        createPortal(
+          <>
+            <div
+              className="rcd-kebab-backdrop"
+              style={{ zIndex: 60 }}
+              aria-hidden="true"
+              onClick={() => setMenuPosition(null)}
+            />
+            <div
+              className="rcd-kebab-menu"
+              role="menu"
+              style={{
+                position: "fixed",
+                zIndex: 61,
+                right: menuPosition.right,
+                top: menuPosition.top ?? "auto",
+                bottom: menuPosition.bottom ?? "auto",
+              }}
             >
-              Reset
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="rcd-kebab-menu-item"
-              onClick={() => choose(() => setTrialOpen(true))}
-            >
-              Change trial
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="rcd-kebab-menu-item"
-              style={{ color: "var(--danger)" }}
-              onClick={() => choose(() => setConfirming("delete"))}
-            >
-              Delete
-            </button>
-          </div>
-        </>
-      )}
+              <button
+                type="button"
+                role="menuitem"
+                className="rcd-kebab-menu-item"
+                onClick={() => choose(() => setConfirming("reset"))}
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="rcd-kebab-menu-item"
+                onClick={() => choose(() => setTrialOpen(true))}
+              >
+                Change trial
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="rcd-kebab-menu-item"
+                style={{ color: "var(--danger)" }}
+                onClick={() => choose(() => setConfirming("delete"))}
+              >
+                Delete
+              </button>
+            </div>
+          </>,
+          document.body,
+        )}
       {confirming && (
         <ConfirmDeleteDialog
           open={true}

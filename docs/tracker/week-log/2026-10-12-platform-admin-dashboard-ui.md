@@ -39,3 +39,11 @@
   - UI tests for the menu, dialog, table, drawer, dashboard and countdown helpers.
 - Local dev data: 16 tenants that old isolation-test runs had left in the dev `platform`
   database were deleted (local only). An FK orphan check passed before commit.
+
+## 2026-10-13 follow-up: actions menu clipped by the table
+
+- The three-dot menu rendered inside the table's `overflow-x: auto` box, so it opened inside the
+  scrollable list and got cut off. It is now portalled to `document.body` with fixed positioning
+  anchored to the button. It opens upward when there's no room below, and closes on Escape, outside
+  click, scroll (any scroll container) or resize. Tests cover the portal parent, the up/down flip
+  and close-on-scroll.

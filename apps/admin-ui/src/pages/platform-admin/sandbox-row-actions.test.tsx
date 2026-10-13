@@ -163,6 +163,53 @@ describe("SandboxRowActions", () => {
     );
   });
 
+  it("renders the open menu outside the row, on document.body", () => {
+    const { container } = render(
+      <div className="pa-table-wrap">
+        <SandboxRowActions
+          tenantId={TENANT_ID}
+          tenantName="Acme Sandbox"
+          trialEndsAt={null}
+          onDone={vi.fn()}
+        />
+      </div>,
+    );
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+
+    const menu = screen.getByRole("menu");
+    expect(container.contains(menu)).toBe(false);
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu.style.position).toBe("fixed");
+  });
+
+  it("opens below the button when there is room, above it near the viewport bottom", () => {
+    renderComponent();
+    const button = screen.getByLabelText("Actions for Acme Sandbox");
+    const rectAt = (top: number): DOMRect =>
+      // Only the edges menuPositionFor reads matter here.
+      ({ top, bottom: top + 32, right: 500, left: 468 }) as DOMRect;
+
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(rectAt(100));
+    fireEvent.click(button);
+    expect(screen.getByRole("menu").style.top).toBe("138px");
+    fireEvent.click(button);
+
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(
+      rectAt(window.innerHeight - 40),
+    );
+    fireEvent.click(button);
+    const menu = screen.getByRole("menu");
+    expect(menu.style.top).toBe("auto");
+    expect(menu.style.bottom).toBe("46px");
+  });
+
+  it("closes the menu when anything scrolls", () => {
+    renderComponent();
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+    fireEvent.scroll(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("closes the menu on Escape", () => {
     renderComponent();
     fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
