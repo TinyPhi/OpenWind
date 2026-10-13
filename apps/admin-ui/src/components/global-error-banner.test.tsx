@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import "../i18n.js";
 
-const mockSigninRedirect = vi.fn<() => void>();
-vi.mock("../authProvider.js", () => ({
-  userManager: { signinRedirect: (): void => mockSigninRedirect() },
-}));
+// session-expiry.ts imports userManager; the notice path under test never calls it.
+vi.mock("../authProvider.js", () => ({ userManager: {} }));
+
+const NOTICE_KEY = "ow:auth-notice";
 
 let networkListeners: Set<() => void>;
 let networkSnapshot: { kind: string };
@@ -27,7 +27,7 @@ function setNetworkState(kind: string): void {
   });
 }
 
-function dispatchApiError(type: "auth" | "server", message: string): void {
+function dispatchApiError(type: "server", message: string): void {
   window.dispatchEvent(
     new CustomEvent("api:error", { detail: { type, message } }),
   );
@@ -38,7 +38,7 @@ describe("GlobalErrorBanner", () => {
     vi.useFakeTimers();
     networkListeners = new Set();
     networkSnapshot = { kind: "online" };
-    mockSigninRedirect.mockClear();
+    window.sessionStorage.clear();
   });
 
   afterEach(() => {
@@ -83,31 +83,48 @@ describe("GlobalErrorBanner", () => {
   it("marks banner icons aria-hidden so they aren't announced twice", () => {
     render(<GlobalErrorBanner />);
     act(() => {
-      dispatchApiError("auth", "Your session has expired.");
+      dispatchApiError("server", "Something broke");
     });
 
     const icon = document.querySelector(".geb-icon");
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("does not stack a second identical auth banner", () => {
+  it("shows the session-expired notice on the page load after a forced logout", () => {
+    window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
     render(<GlobalErrorBanner />);
-    act(() => {
-      dispatchApiError("auth", "first");
-      dispatchApiError("auth", "second");
-    });
 
-    expect(screen.getAllByText("Log in again")).toHaveLength(1);
+    expect(
+      screen.getByText("Your session has expired. Please sign in again."),
+    ).toBeDefined();
+    expect(screen.queryByText("Log in again")).toBeNull();
   });
 
-  it("triggers signinRedirect when Log in again is clicked", () => {
+  it("shows the session-expired notice only once", () => {
+    window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
     render(<GlobalErrorBanner />);
-    act(() => {
-      dispatchApiError("auth", "Your session has expired.");
-    });
+    cleanup();
+    render(<GlobalErrorBanner />);
 
-    screen.getByText("Log in again").click();
-    expect(mockSigninRedirect).toHaveBeenCalled();
+    expect(
+      screen.queryByText("Your session has expired. Please sign in again."),
+    ).toBeNull();
+  });
+
+  it("keeps the session-expired notice until dismissed (no 6s auto-dismiss)", () => {
+    window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
+    render(<GlobalErrorBanner />);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    const message = "Your session has expired. Please sign in again.";
+    expect(screen.getByText(message)).toBeDefined();
+
+    act(() => {
+      screen.getByText("Dismiss").click();
+    });
+    expect(screen.queryByText(message)).toBeNull();
   });
 
   it("auto-dismisses a server error banner after 6s", () => {
@@ -123,14 +140,16 @@ describe("GlobalErrorBanner", () => {
     expect(screen.queryByText("Something broke")).toBeNull();
   });
 
-  it("shows both a network banner and an auth banner together", () => {
+  it("shows both a network banner and the session-expired notice together", () => {
+    window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
     render(<GlobalErrorBanner />);
     act(() => {
       setNetworkState("reconnecting");
-      dispatchApiError("auth", "Your session has expired.");
     });
 
     expect(screen.getByText("Reconnecting…")).toBeDefined();
-    expect(screen.getByText("Your session has expired.")).toBeDefined();
+    expect(
+      screen.getByText("Your session has expired. Please sign in again."),
+    ).toBeDefined();
   });
 });

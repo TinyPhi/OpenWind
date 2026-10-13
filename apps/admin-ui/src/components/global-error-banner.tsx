@@ -5,11 +5,11 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { userManager } from "../authProvider.js";
 import { subscribe, getSnapshot } from "../lib/network-status.js";
+import { consumeSessionExpiredNotice } from "../lib/session-expiry.js";
 
 interface ApiErrorEvent {
-  type: "auth" | "server";
+  type: "server";
   message: string;
 }
 
@@ -23,7 +23,13 @@ let _nextId = 0;
 
 export function GlobalErrorBanner(): React.ReactElement | null {
   const { t } = useTranslation();
-  const [banners, setBanners] = useState<Banner[]>([]);
+  // Lazy initializer: consumes the one-shot notice left by endSessionAndRedirectToLogin
+  // exactly once, on the page load that follows the forced logout.
+  const [banners, setBanners] = useState<Banner[]>(() =>
+    consumeSessionExpiredNotice()
+      ? [{ id: ++_nextId, type: "auth", message: t("network.sessionExpired") }]
+      : [],
+  );
   const [degradedMsg, setDegradedMsg] = useState<string | null>(null);
   const network = useSyncExternalStore(subscribe, getSnapshot);
 
@@ -34,14 +40,10 @@ export function GlobalErrorBanner(): React.ReactElement | null {
   useEffect(() => {
     const handler = (e: Event): void => {
       const { type, message } = (e as CustomEvent<ApiErrorEvent>).detail;
-      // De-duplicate: don't stack identical auth errors.
       setBanners((prev) => {
-        if (type === "auth" && prev.some((b) => b.type === "auth")) return prev;
         const id = ++_nextId;
-        // Auto-dismiss server errors after 6 s; auth errors stay until acted on.
-        if (type === "server") {
-          setTimeout(() => dismiss(id), 6_000);
-        }
+        // Server errors auto-dismiss after 6 s; the session-expired notice stays until dismissed.
+        setTimeout(() => dismiss(id), 6_000);
         return [...prev, { id, type, message }];
       });
     };
@@ -119,16 +121,6 @@ export function GlobalErrorBanner(): React.ReactElement | null {
           </span>
           <span className="geb-msg">{b.message}</span>
           <div className="geb-actions">
-            {b.type === "auth" && (
-              <button
-                className="geb-btn geb-btn-primary"
-                onClick={() => {
-                  void userManager.signinRedirect();
-                }}
-              >
-                {t("network.logInAgain")}
-              </button>
-            )}
             <button
               className="geb-btn geb-btn-ghost"
               onClick={() => dismiss(b.id)}
