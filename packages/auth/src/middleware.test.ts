@@ -693,6 +693,58 @@ describe("requireAuth", () => {
     });
   });
 
+  // Security review of the sandbox sign-in change: outside production extractAuthContext puts
+  // DEV_TENANT_ID on every token, so a sandbox admin would land in the dev tenant with admin
+  // rights. The org's own tenant mapping must win whenever it exists.
+  describe("non-production tenant resolution (resolveTenantIdForAuth)", () => {
+    it("uses the tenant mapped from the token's org, not the dev tenant, when one exists", async () => {
+      mockNodeEnv = "development";
+      mockTenantRow = { id: "sandbox-tenant-uuid", status: "active" };
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "sandbox-admin" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        tenantId: "dev-tenant-uuid", // what DEV_TENANT_ID would have produced
+        orgId: "sandbox-org-111",
+      });
+
+      const app = new Hono();
+      app.get("/test", requireAuth(), (c) => c.json(c.get("auth")));
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { tenantId: string };
+      expect(body.tenantId).toBe("sandbox-tenant-uuid");
+    });
+
+    it("falls back to the token's (dev) tenant when the org is not mapped", async () => {
+      mockNodeEnv = "development";
+      // First select is the org -> tenant lookup (no mapping); the shared row then answers
+      // the dev tenant's status check as active.
+      mockTenantRow = { status: "active" };
+      mockModuleDbSelect.mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([])),
+          })),
+        })),
+      }));
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "user-123" });
+      mockExtractAuthContext.mockReturnValueOnce({
+        ...VALID_AUTH,
+        tenantId: "dev-tenant-uuid",
+        orgId: "unmapped-org-222",
+      });
+
+      const app = new Hono();
+      app.get("/test", requireAuth(), (c) => c.json(c.get("auth")));
+      const res = await get(app, "valid.jwt");
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { tenantId: string };
+      expect(body.tenantId).toBe("dev-tenant-uuid");
+    });
+  });
+
   // #195: unlike the pre-auth IP-based stage, this check runs only after the
   // token/key has been verified, so it keys on the real, unforgeable tenantId.
   describe("post-auth tenant-scoped rate limit (#195)", () => {

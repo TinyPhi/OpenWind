@@ -76,3 +76,36 @@
   connection its doc comment assumes. This is pre-existing and was scoped out by the reviewer.
 - New `apps/worker/src/tenant-purge.test.ts` captures the worker's processor and failure handler,
   and asserts both G5 writes use the tenant-context transaction. They fail on the previous code.
+
+## 2026-10-13: sandbox accounts can sign in (folded into this PR)
+
+- Found in manual testing: a freshly provisioned sandbox's admin couldn't sign in. Zitadel
+  refused with APP-asb43 ("the user is required to have at least one grant on the
+  application"), because provisioning created the org and users but never granted the OpenWind
+  project (owned by the main org) or any role on it.
+- `packages/auth` gains `grantProjectToOrg(orgId)` (v2
+  `ProjectService.CreateProjectGrant`, roles `admin`, `agent`, `user`) and
+  `authorizeUser(userId, orgId, roleKeys)` (v2 `AuthorizationService.CreateAuthorization`). Both
+  use the provisioning service account, take the project from `ZITADEL_PROJECT_ID` (or
+  `ZITADEL_AUDIENCE`), treat "already exists" as success, and never log response bodies. Both v2
+  services were confirmed present on the instance before building on them.
+- The provisioning worker grants the project right after creating the org, authorizes the admin
+  as `admin` and every other seeded account as `user`. A failed grant or admin authorization
+  rolls the sandbox back. A member that can't be authorized counts as a failed account and is
+  left out of the handover list.
+- Tests: the two Zitadel calls (exact path and body, already-exists, refusal); the worker's
+  order, role mapping and each failure path.
+- Existing sandboxes don't get the grants retroactively; recreate them to test.
+- Security review follow-up (medium, made reachable by the above): outside production,
+  `extractAuthContext` puts `DEV_TENANT_ID` on every token, so on a local or dev stack a
+  sandbox admin would have landed in the dev tenant (Demo Company) with admin rights. The new
+  `resolveTenantIdForAuth` (used by `requireAuth` and the notifications WebSocket) prefers the
+  tenant mapped from the token's Zitadel org (`tenants.zitadel_org_id`) in every environment.
+  Outside production it falls back to `DEV_TENANT_ID` only for an unmapped org; production is
+  unchanged (mapped, or rejected). Orgs already mapped to the dev tenant resolve as before.
+- Hardening from the same review: `authorizeUser` is typed to, and checked at runtime against,
+  the sandbox allowlist (`admin`, `agent`, `user`). It refuses anything else (e.g. `superadmin`,
+  `platform_admin`) without calling Zitadel.
+- Tests: mapped org outside production resolves to the mapped tenant; unmapped org falls back;
+  the production cases are unchanged; the WebSocket registers under the resolved tenant and
+  refuses an unresolved one; disallowed roles are refused.

@@ -666,28 +666,19 @@ export const requireAuth = (db?: DbOrTx): MiddlewareHandler =>
         );
       }
 
-      // In production there is no DEV_TENANT_ID fallback (the Zod schema
-      // forbids it), so extractAuthContext's tenantId is just the raw
-      // Zitadel org id — never a valid `uuid`. Resolve the real tenant via
-      // the zitadel_org_id mapping and fail closed if none exists, rather
-      // than let a malformed tenantId reach any tenant-scoped query.
-      // See docs/specs/tenant-org-id-mapping.md.
-      if (env.NODE_ENV === "production") {
-        const mappedTenantId = auth.orgId
-          ? await lookupTenantIdByOrgId(auth.orgId, db)
-          : null;
-        if (!mappedTenantId) {
-          logger.warn(
-            { orgId: auth.orgId ?? "(missing)" },
-            "No tenant mapped to this Zitadel org — rejecting",
-          );
-          return c.json(
-            { error: "TENANT_NOT_FOUND", message: "Not found" },
-            404,
-          );
-        }
-        auth = { ...auth, tenantId: mappedTenantId };
+      // Resolve the real tenant via the zitadel_org_id mapping (see
+      // resolveTenantIdForAuth and docs/specs/tenant-org-id-mapping.md); in
+      // production an unmapped org fails closed rather than let a raw org id
+      // reach any tenant-scoped query.
+      const resolvedTenantId = await resolveTenantIdForAuth(auth, db);
+      if (!resolvedTenantId) {
+        logger.warn(
+          { orgId: auth.orgId ?? "(missing)" },
+          "No tenant mapped to this Zitadel org — rejecting",
+        );
+        return c.json({ error: "TENANT_NOT_FOUND", message: "Not found" }, 404);
       }
+      auth = { ...auth, tenantId: resolvedTenantId };
 
       // If JWT is missing email or name (e.g. instance admins, tokens issued before
       // "include profile info" was enabled), enrich from the userinfo endpoint.
@@ -1020,6 +1011,29 @@ function setCachedOrgTenantId(orgId: string, tenantId: string | null): void {
  * null if no tenant is mapped to this org — callers must fail closed, never
  * fall back to another tenant. See docs/specs/tenant-org-id-mapping.md.
  */
+/**
+ * The tenant a Zitadel-authenticated request belongs to. The org the token's user lives in is
+ * mapped to its tenant via tenants.zitadel_org_id, in every environment. Outside production an
+ * unmapped org falls back to extractAuthContext's tenantId (DEV_TENANT_ID when set); in
+ * production an unmapped org resolves to null and callers fail closed.
+ *
+ * The mapping must win even in development: a sandbox org is mapped to its own tenant, and
+ * with only the DEV_TENANT_ID fallback a sandbox admin's token would land in the dev tenant
+ * with admin rights (security review of the sandbox sign-in change). Orgs that are already
+ * mapped to the dev tenant resolve exactly as before.
+ */
+export async function resolveTenantIdForAuth(
+  auth: Pick<AuthContext, "tenantId" | "orgId">,
+  dbHandle?: DbOrTx,
+): Promise<string | null> {
+  const mapped = auth.orgId
+    ? await lookupTenantIdByOrgId(auth.orgId, dbHandle)
+    : null;
+  if (mapped) return mapped;
+  if (env.NODE_ENV === "production") return null;
+  return auth.tenantId;
+}
+
 export async function lookupTenantIdByOrgId(
   orgId: string,
   dbHandle?: DbOrTx,
