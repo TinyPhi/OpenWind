@@ -51,7 +51,7 @@ needs: `app_user` must be able to DELETE or UPDATE what it scrubs.
 
 ## Migration files
 
-Numbered SQL files only — never `drizzle push`:
+Numbered SQL files only — never `drizzle push`, and run `pnpm db:migrate`, not `pnpm db:push`, to build a database. Drizzle's schema cannot represent everything the migrations create (for example the `btree_gist` exclusion constraint on `on_call_schedules`, migration 0094, which enforces the no-overlap invariant), so a database built with `db:push` or `db:generate` silently lacks it:
 
 ```
 packages/db/migrations/
