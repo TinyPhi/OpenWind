@@ -41,11 +41,6 @@ groups:
           summary: "HTTP request latency is high on route {{ $labels.route }}"
           description: 'P95 request latency on route {{ $labels.route }} is {{ $value | printf "%.2f" }}s over the last 5 minutes.'
 
-      # docs/oncall-routing-design.md §9.4 -- the third design-doc alert,
-      # OncallResolutionSLOBreached, is deferred: it needs
-      # openwind_oncall_resolution_duration_seconds, a histogram that isn't
-      # registered on any branch yet (T39 partially done, see
-      # docs/tracker/week-log/2026-09-15-grafana-oncall-dashboards.md).
       - alert: OncallCoverageGapsDetected
         expr: openwind_oncall_coverage_gap_teams > 0
         for: 10m
@@ -65,6 +60,21 @@ groups:
           team: platform
         annotations:
           summary: "Notification channel {{ $labels.channel }} failure rate > 10%"
+
+      # docs/oncall-routing-design.md §9.4. 15m window, not 5m: a resolution is
+      # recorded only when a ticket's team changes, so they can be hours apart,
+      # and a short window leaves one slow resolution in range for fewer than the
+      # `for` duration (see ScheduleExecutionDurationSLOBreach). Quantile over
+      # sum by (le) of rate(); the design's bare form is not valid PromQL.
+      - alert: OncallResolutionSLOBreached
+        expr: histogram_quantile(0.99, sum by (le) (rate(openwind_oncall_resolution_duration_seconds_bucket[15m]))) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "resolve_oncall p99 latency is over 100ms"
+          description: "P99 resolve_oncall duration is {{ $value | humanizeDuration }} over the last 15 minutes."
 
       # docs/temporal-scheduler-design.md §9.4. The design's quantile PromQL
       # (histogram_quantile over a bare metric name) is not valid; a quantile

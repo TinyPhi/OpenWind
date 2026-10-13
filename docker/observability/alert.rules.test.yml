@@ -451,3 +451,205 @@ tests:
             exp_annotations:
               summary: "More than 10% of schedule rule fires are failing"
               description: "Schedule rule fires failed at 37.5% over the last 10 minutes."
+
+  # --- OncallResolutionSLOBreached (docs/oncall-routing-design.md §9.4) ---
+  - name: slow resolutions raise OncallResolutionSLOBreached
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.001"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.0025"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.005"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.01"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.025"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.05"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.1"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.25"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2.5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "resolve_oncall p99 latency is over 100ms"
+              description: "P99 resolve_oncall duration is 248.5ms over the last 15 minutes."
+
+  - name: fast resolutions stay quiet on OncallResolutionSLOBreached
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.001"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.0025"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.005"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.01"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.025"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.05"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.1"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.25"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2.5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts: []
+
+  # Resolutions happen only when a ticket's team changes, so they can be hours apart.
+  - name: one isolated slow resolution still raises OncallResolutionSLOBreached (sparse observations)
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.001"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.0025"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.005"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.01"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.025"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.05"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.1"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.25"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.5"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2.5"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0x9 1x40"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0x9 1x40"
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "resolve_oncall p99 latency is over 100ms"
+              description: "P99 resolve_oncall duration is 248.5ms over the last 15 minutes."
+
+  - name: no resolutions at all stays quiet on OncallResolutionSLOBreached
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.001"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.0025"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.005"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.01"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.025"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.05"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.1"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.25"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0.5"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2.5"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0x49"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0x49"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts: []
+
+  # The trap the second-scale buckets avoid: OTel's default boundaries are
+  # millisecond-scale (0, 5, 10 ... 10000), so a 20ms resolution recorded in
+  # seconds (0.02) lands in the le="5" bucket and reads as p99 = 4.95s.
+  - name: with OTel default (millisecond-scale) buckets a FAST resolution would wrongly page
+    interval: 1m
+    input_series:
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="0"}'
+        values: "0x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="10"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="25"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="50"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="75"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="100"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="250"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="500"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="750"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="1000"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="2500"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="5000"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="7500"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="10000"}'
+        values: "0+1x30"
+      - series: 'openwind_oncall_resolution_duration_seconds_bucket{le="+Inf"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: OncallResolutionSLOBreached
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "resolve_oncall p99 latency is over 100ms"
+              description: "P99 resolve_oncall duration is 4.95s over the last 15 minutes."

@@ -3,6 +3,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { SCHEDULE_DURATION_BUCKETS_MS } from "./schedule-duration-buckets.js";
+import {
+  NOTIFICATION_DISPATCH_BUCKETS_SECONDS,
+  ONCALL_RESOLUTION_BUCKETS_SECONDS,
+} from "./oncall-duration-buckets.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Comments are stripped so a commented-out registration cannot count as exposed.
@@ -60,6 +64,17 @@ function metricsReferencedByRules(): Set<string> {
   return referenced;
 }
 
+/** Numeric `> N` thresholds of every rule expression that reads `series`. */
+function alertThresholds(series: string): number[] {
+  const thresholds: number[] = [];
+  for (const line of rulesSource.split("\n")) {
+    if (!line.includes(series)) continue;
+    const match = /\)\s*>\s*(\d+(?:\.\d+)?)\s*$/.exec(line);
+    if (match?.[1]) thresholds.push(Number(match[1]));
+  }
+  return thresholds;
+}
+
 describe("alert.rules.yml", () => {
   it("only reads metrics that metrics.ts registers, so a rule cannot point at a series that does not exist", () => {
     const exposed = exposedSeriesNames();
@@ -92,15 +107,10 @@ describe("scheduler duration buckets", () => {
   // The thresholds are read from the rules themselves, so a new or changed
   // alert cannot outrun the buckets without this failing.
   function scheduleDurationThresholdsMs(): number[] {
-    const thresholds: number[] = [];
-    for (const line of rulesSource.split("\n")) {
-      if (!/openwind_schedule_(tick|execution)_duration_ms_bucket/.test(line)) {
-        continue;
-      }
-      const match = /\)\s*>\s*(\d+(?:\.\d+)?)\s*$/.exec(line);
-      if (match?.[1]) thresholds.push(Number(match[1]));
-    }
-    return thresholds;
+    return [
+      ...alertThresholds("openwind_schedule_tick_duration_ms_bucket"),
+      ...alertThresholds("openwind_schedule_execution_duration_ms_bucket"),
+    ];
   }
 
   it("keep a finite bucket above the largest alert threshold, so a p99 over the SLO is observable", () => {
@@ -124,5 +134,69 @@ describe("scheduler duration buckets", () => {
     const sorted = [...SCHEDULE_DURATION_BUCKETS_MS].sort((a, b) => a - b);
     expect(SCHEDULE_DURATION_BUCKETS_MS).toEqual(sorted);
     expect(new Set(sorted).size).toBe(sorted.length);
+  });
+});
+
+describe("on-call duration buckets (seconds)", () => {
+  // `sloSeconds` is the design's SLO (docs/oncall-routing-design.md section 9.3).
+  // Any alert that reads the histogram adds its own threshold, read from the
+  // rules, so a new or changed alert cannot outrun the buckets. Only the
+  // resolution histogram has an alert today; none reads the dispatch one yet.
+  const cases = [
+    {
+      name: "resolution",
+      constant: "ONCALL_RESOLUTION_BUCKETS_SECONDS",
+      buckets: ONCALL_RESOLUTION_BUCKETS_SECONDS,
+      sloSeconds: 0.1,
+      series: "openwind_oncall_resolution_duration_seconds_bucket",
+    },
+    {
+      name: "dispatch",
+      constant: "NOTIFICATION_DISPATCH_BUCKETS_SECONDS",
+      buckets: NOTIFICATION_DISPATCH_BUCKETS_SECONDS,
+      sloSeconds: 2,
+      series: "openwind_notification_dispatch_duration_seconds_bucket",
+    },
+  ];
+
+  it("reads the resolution alert's threshold from the rules", () => {
+    expect(
+      alertThresholds("openwind_oncall_resolution_duration_seconds_bucket"),
+    ).toEqual([0.1]);
+  });
+
+  for (const { name, constant, buckets, sloSeconds, series } of cases) {
+    it(`${name}: is applied to its histogram in metrics.ts`, () => {
+      const applied = metricsSource.match(
+        new RegExp(`explicitBucketBoundaries:\\s*${constant}`, "g"),
+      );
+
+      expect(applied).toHaveLength(1);
+    });
+
+    it(`${name}: keeps a finite bucket above every threshold, and a boundary at each`, () => {
+      const thresholds = [...new Set([sloSeconds, ...alertThresholds(series)])];
+
+      expect(Math.max(...buckets)).toBeGreaterThan(Math.max(...thresholds));
+      for (const threshold of thresholds) {
+        expect(buckets).toContain(threshold);
+      }
+    });
+
+    it(`${name}: is in seconds, not milliseconds, and strictly ascending`, () => {
+      // OTel's default boundaries are millisecond-scale (0, 5 ... 10000); pasting
+      // them here would put every observation in the first bucket.
+      expect(Math.max(...buckets)).toBeLessThanOrEqual(60);
+      expect(Math.min(...buckets)).toBeLessThan(0.1);
+      const sorted = [...buckets].sort((a, b) => a - b);
+      expect(buckets).toEqual(sorted);
+      expect(new Set(sorted).size).toBe(sorted.length);
+    });
+  }
+
+  it("the on-call resolution histogram is read through its _bucket series by an alert", () => {
+    expect(metricsReferencedByRules()).toContain(
+      "openwind_oncall_resolution_duration_seconds_bucket",
+    );
   });
 });

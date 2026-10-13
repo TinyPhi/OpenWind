@@ -5,6 +5,10 @@ import { env } from "@platform/config";
 import { prometheusExporter } from "./instrumentation.js";
 import { PrometheusSerializer } from "@opentelemetry/exporter-prometheus";
 import { SCHEDULE_DURATION_BUCKETS_MS } from "./schedule-duration-buckets.js";
+import {
+  NOTIFICATION_DISPATCH_BUCKETS_SECONDS,
+  ONCALL_RESOLUTION_BUCKETS_SECONDS,
+} from "./oncall-duration-buckets.js";
 
 const meter = metrics.getMeter("openwind-metrics");
 
@@ -169,6 +173,35 @@ export const notificationDispatchTotal = meter.createCounter(
   {
     description:
       "Per-channel outcomes of dispatch_severity_notification action executions",
+  },
+);
+
+// docs/oncall-routing-design.md §9.3 -- duration histograms and the policy
+// match counter. Seconds, so the bucket boundaries are explicit (see
+// oncall-duration-buckets.ts). The resolution histogram is labelled by
+// `outcome` to match openwind_oncall_resolutions_total (the design says
+// `result`); tenant is not a label.
+export const oncallResolutionDurationSeconds = meter.createHistogram(
+  "openwind_oncall_resolution_duration_seconds",
+  {
+    description:
+      "Time for a resolve_oncall action to reach an outcome, in seconds, by outcome",
+    advice: { explicitBucketBoundaries: ONCALL_RESOLUTION_BUCKETS_SECONDS },
+  },
+);
+export const notificationDispatchDurationSeconds = meter.createHistogram(
+  "openwind_notification_dispatch_duration_seconds",
+  {
+    description:
+      "Time to dispatch one channel of a dispatch_severity_notification action, in seconds, by channel",
+    advice: { explicitBucketBoundaries: NOTIFICATION_DISPATCH_BUCKETS_SECONDS },
+  },
+);
+export const notificationPolicyMatchTotal = meter.createCounter(
+  "openwind_notification_policy_match_total",
+  {
+    description:
+      "Where in the specificity chain a dispatch_severity_notification policy match landed (matched_at)",
   },
 );
 
