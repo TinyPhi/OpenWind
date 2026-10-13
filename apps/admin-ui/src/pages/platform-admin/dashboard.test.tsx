@@ -171,4 +171,21 @@ describe("PlatformAdminDashboard", () => {
       expect(mockLogout).toHaveBeenCalledWith({});
     });
   });
+
+  it("shows an inline error when logout fails", async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      data: { userId: "pa-1", displayName: "Ops", email: "ops@openwind.io" },
+    });
+    mockLogout.mockRejectedValue(new Error("identity provider unavailable"));
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText(/Signed in as Ops/));
+    fireEvent.click(screen.getByText("Log out"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Logout failed. Please try again.",
+      );
+    });
+  });
 });
