@@ -1554,4 +1554,102 @@ describe("requirePlatformAdminIdentity", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  function appReturningPlatformAdmin(): Hono<{
+    Variables: { platformAdmin: typeof PLATFORM_ADMIN_CTX };
+  }> {
+    const app = new Hono<{
+      Variables: { platformAdmin: typeof PLATFORM_ADMIN_CTX };
+    }>();
+    app.get("/test", requirePlatformAdminIdentity(), (c) =>
+      c.json(c.get("platformAdmin")),
+    );
+    return app;
+  }
+
+  it("fills the display name from userinfo when the token only gives the user id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ name: "Tushar Sharma", email: "pa@real.com" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce({
+        ...PLATFORM_ADMIN_CTX,
+        email: "",
+        displayName: "pa-user-1",
+      });
+      const res = await appReturningPlatformAdmin().request("/test", {
+        headers: { Authorization: "Bearer token-without-name" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        displayName: "Tushar Sharma",
+        email: "pa@real.com",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls back to the userinfo email when userinfo has no name either", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ email: "pa@real.com" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce({
+        ...PLATFORM_ADMIN_CTX,
+        displayName: "pa-user-1",
+      });
+      const res = await appReturningPlatformAdmin().request("/test", {
+        headers: { Authorization: "Bearer token-email-only-userinfo" },
+      });
+      expect(await res.json()).toMatchObject({
+        displayName: "pa@real.com",
+        email: PLATFORM_ADMIN_CTX.email,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not call userinfo when the token already has a name and email", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce(PLATFORM_ADMIN_CTX);
+      const res = await appReturningPlatformAdmin().request("/test", {
+        headers: { Authorization: "Bearer token-with-profile" },
+      });
+      expect(await res.json()).toMatchObject({ displayName: "Ops" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the user id as the name when userinfo fails, without failing the request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      mockVerifyJwt.mockResolvedValueOnce({ sub: "pa-user-1" });
+      mockExtractPlatformAdminContext.mockReturnValueOnce({
+        ...PLATFORM_ADMIN_CTX,
+        displayName: "pa-user-1",
+      });
+      const res = await appReturningPlatformAdmin().request("/test", {
+        headers: { Authorization: "Bearer token-userinfo-down" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ displayName: "pa-user-1" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
