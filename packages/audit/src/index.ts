@@ -398,18 +398,32 @@ export async function queryAuditLog(
   if (input.to !== undefined)
     conditions.push(lte(adminAuditLog.createdAt, input.to));
 
-  // Cursor pagination: resolve the cursor id to a createdAt timestamp,
-  // then return entries with createdAt strictly before that point
-  // (consistent with DESC order).
+  // Keyset pagination on the total order (created_at, id): created_at alone
+  // ties for rows written in one transaction (now() is the txn start time).
+  // The cursor timestamp round-trips as text: a JS Date truncates the column's
+  // microseconds, which would skip rows that differ only below a millisecond.
   if (input.cursor !== undefined) {
     const [cursorRow] = await db
-      .select({ createdAt: adminAuditLog.createdAt })
+      .select({ createdAt: sql<string>`${adminAuditLog.createdAt}::text` })
       .from(adminAuditLog)
-      .where(eq(adminAuditLog.id, input.cursor))
+      .where(
+        and(
+          eq(adminAuditLog.id, input.cursor),
+          eq(adminAuditLog.tenantId, input.tenantId),
+        ),
+      )
       .limit(1);
 
     if (cursorRow !== undefined) {
-      conditions.push(lt(adminAuditLog.createdAt, cursorRow.createdAt));
+      const cursorAt = sql`${cursorRow.createdAt}::timestamptz`;
+      const afterCursor = or(
+        sql`${adminAuditLog.createdAt} < ${cursorAt}`,
+        and(
+          sql`${adminAuditLog.createdAt} = ${cursorAt}`,
+          lt(adminAuditLog.id, input.cursor),
+        ),
+      );
+      if (afterCursor !== undefined) conditions.push(afterCursor);
     }
   }
 
@@ -417,7 +431,7 @@ export async function queryAuditLog(
     .select()
     .from(adminAuditLog)
     .where(and(...(conditions as [Condition, ...Condition[]])))
-    .orderBy(desc(adminAuditLog.createdAt))
+    .orderBy(desc(adminAuditLog.createdAt), desc(adminAuditLog.id))
     .limit(limit + 1);
 
   const hasMore = rows.length > limit;

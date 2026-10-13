@@ -319,6 +319,22 @@ function queueFailedIssuerDiscovery(): void {
 }
 
 describe("createOrg", () => {
+  it("logs an explicit error and makes no request when the provisioning key isn't configured", async () => {
+    mockEnv.ZITADEL_PROVISIONING_SERVICE_ACCOUNT_KEY = undefined;
+    mockEnv.ZITADEL_PROVISIONING_KEY_JSON = undefined;
+    mockLoggerError.mockClear();
+    mockHttpRequest.mockClear();
+
+    const result = await createOrg("Acme Sandbox");
+
+    expect(result).toEqual({ ok: false, conflict: false });
+    expect(mockHttpRequest).not.toHaveBeenCalled();
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      {},
+      expect.stringContaining("ZITADEL_PROVISIONING_KEY_JSON"),
+    );
+  });
+
   it("returns the new org id on success", async () => {
     setProvisioningKey();
     queueFailedIssuerDiscovery();
