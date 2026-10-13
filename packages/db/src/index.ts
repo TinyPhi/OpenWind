@@ -36,6 +36,13 @@ export {
   checkSandboxQuota,
   toProvisioningProgressView,
 } from "./platform-admin-view.js";
+export {
+  recordPlatformAdminAction,
+  listPlatformAdminAuditLog,
+  type PlatformAdminAction,
+  type PlatformAdminAuditEntryView,
+  type ListPlatformAdminAuditLogOptions,
+} from "./platform-admin-audit.js";
 export type {
   PlatformAdminSandboxView,
   PlatformAdminSandboxRow,

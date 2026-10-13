@@ -34,6 +34,7 @@ const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
     delete: (...args: unknown[]) => mockDelete(...args),
   }),
 );
+const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
 // Stands in for the transaction withTenantContext opens, so tests can tell an audit write
 // made inside the tenant context from one made on the plain connection.
 const mockTenantTx = { tenantTx: true };
@@ -50,6 +51,8 @@ vi.mock("@platform/db", () => ({
     mockWithTenantContext(...args),
   tenants: {},
   sandboxProvisioningJobs: {},
+  recordPlatformAdminAction: (...args: unknown[]) =>
+    mockRecordPlatformAdminAction(...args),
 }));
 
 const mockWriteAuditEntry = vi.fn().mockResolvedValue(undefined);
@@ -200,6 +203,11 @@ describe("processSandboxProvisioningJob", () => {
         actorId: "admin-1",
       }),
     );
+    expect(mockRecordPlatformAdminAction).toHaveBeenCalledWith({
+      actorSub: "admin-1",
+      action: "sandbox.created",
+      targetTenantId: result.tenantId,
+    });
 
     // T8: the final progress row is just a bare "done" status -- no credentials (security
     // review: those live in Redis, not this table, see storeSandboxHandoverCredentials).
@@ -351,6 +359,7 @@ describe("processSandboxProvisioningJob", () => {
         metadata: expect.objectContaining({ rolledBack: true }),
       }),
     );
+    expect(mockRecordPlatformAdminAction).not.toHaveBeenCalled();
     expect(mockRunOrgDirectorySync).not.toHaveBeenCalled();
 
     // T8: a failure partway through still durably records where it got to.
@@ -483,6 +492,30 @@ describe("processSandboxProvisioningJob", () => {
           rolledBack: false,
         }),
       }),
+    );
+  });
+
+  // PR #859 review [C]: this write sits inside the try whose catch rolls the sandbox back.
+  it("keeps a fully built sandbox when the platform-admin audit record fails", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(1));
+    mockCreateHumanUser.mockResolvedValue({ ok: true, userId: "user-x" });
+    mockRecordPlatformAdminAction.mockRejectedValueOnce(new Error("db down"));
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-t16",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    expect(result.zitadelOrgId).toBe("org-1");
+    expect(mockDeleteOrg).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.provisioning_completed" }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.provisioning_failed" }),
     );
   });
 

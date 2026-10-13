@@ -31,6 +31,7 @@ const mockAcquireTenantAdvisoryLock = vi
 const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
   fn({ update: (...args: unknown[]) => mockUpdate(...args) }),
 );
+const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
 // Stands in for the transaction withTenantContext opens, so tests can tell an audit write
 // made inside the tenant context from one made on the plain connection.
 const mockTenantTx = { tenantTx: true };
@@ -48,6 +49,8 @@ vi.mock("@platform/db", () => ({
     mockWithTenantContext(...args),
   acquireTenantAdvisoryLock: (...args: unknown[]) =>
     mockAcquireTenantAdvisoryLock(...args),
+  recordPlatformAdminAction: (...args: unknown[]) =>
+    mockRecordPlatformAdminAction(...args),
   tenants: {
     id: "id",
     isSandbox: "isSandbox",
@@ -143,6 +146,24 @@ describe("processSandboxDeleteJob", () => {
         }),
       }),
     );
+    expect(mockRecordPlatformAdminAction).toHaveBeenCalledWith({
+      actorSub: "admin-1",
+      action: "sandbox.deleted",
+      targetTenantId: TENANT_ID,
+    });
+  });
+
+  it("does not write a platform-admin audit record when the lock is already held", async () => {
+    mockAcquireTenantAdvisoryLock.mockResolvedValue({
+      acquired: false,
+      release: vi.fn(),
+    });
+
+    await expect(
+      processSandboxDeleteJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("SANDBOX_DELETE_LOCK_NOT_ACQUIRED");
+
+    expect(mockRecordPlatformAdminAction).not.toHaveBeenCalled();
   });
 
   it("acquires and releases the sandbox-lifecycle lock around the delete work", async () => {
@@ -302,6 +323,25 @@ describe("processSandboxDeleteJob", () => {
     expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ action: "sandbox.delete_completed" }),
+    );
+  });
+
+  it("completes the delete when the platform-admin audit record fails (PR #859 review [C])", async () => {
+    mockRecordPlatformAdminAction.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      processSandboxDeleteJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).resolves.toBeUndefined();
+
+    expect(mockLoggerError).toHaveBeenCalled();
+    expect(mockTenantPurgeQueueAdd).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.delete_completed" }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.delete_failed" }),
     );
   });
 

@@ -45,6 +45,7 @@ import {
   withTenantContext,
   tenants,
   acquireTenantAdvisoryLock,
+  recordPlatformAdminAction,
 } from "@platform/db";
 import {
   entityInstances,
@@ -306,6 +307,20 @@ export async function processSandboxResetJob(job: JobLike): Promise<void> {
     }
 
     await auditOutcome(job, "sandbox.reset_completed", { cancelledJobCount });
+    // T16 (ADR-022 Decision 7): platform-admin-level record, alongside admin_audit_log's
+    // tenant-scoped entry above -- see @platform/db's recordPlatformAdminAction doc comment.
+    // Best-effort (PR #859 review [C]): admin_audit_log above is the authoritative record;
+    // a throw here must not turn a completed reset into a sandbox.reset_failed entry.
+    await recordPlatformAdminAction({
+      actorSub: job.data.requestedBy,
+      action: "sandbox.reset",
+      targetTenantId: tenantId,
+    }).catch((err: unknown) => {
+      logger.error(
+        { err, tenantId, jobId: job.id },
+        "sandbox reset: platform-admin audit record failed -- reset already completed",
+      );
+    });
     logger.info({ tenantId }, "sandbox reset: complete");
   } catch (err) {
     const message = err instanceof Error ? err.message : "UNKNOWN";

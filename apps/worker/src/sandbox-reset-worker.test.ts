@@ -28,6 +28,7 @@ const mockLockRelease = vi.fn().mockResolvedValue(undefined);
 const mockAcquireTenantAdvisoryLock = vi
   .fn()
   .mockResolvedValue({ acquired: true, release: mockLockRelease });
+const mockRecordPlatformAdminAction = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@platform/db", () => ({
   db: {
@@ -38,6 +39,8 @@ vi.mock("@platform/db", () => ({
     mockWithTenantContext(...args),
   acquireTenantAdvisoryLock: (...args: unknown[]) =>
     mockAcquireTenantAdvisoryLock(...args),
+  recordPlatformAdminAction: (...args: unknown[]) =>
+    mockRecordPlatformAdminAction(...args),
   tenants: { id: "id", isSandbox: "isSandbox", config: "config" },
   entityInstances: { tenantId: "tenantId" },
   entityRelations: { tenantId: "tenantId" },
@@ -168,6 +171,21 @@ describe("processSandboxResetJob", () => {
         actorId: "admin-1",
       }),
     );
+    expect(mockRecordPlatformAdminAction).toHaveBeenCalledWith({
+      actorSub: "admin-1",
+      action: "sandbox.reset",
+      targetTenantId: TENANT_ID,
+    });
+  });
+
+  it("does not write a platform-admin audit record when the reset fails", async () => {
+    mockWithTenantContext.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      processSandboxResetJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).rejects.toThrow("db down");
+
+    expect(mockRecordPlatformAdminAction).not.toHaveBeenCalled();
   });
 
   it("cancels only this tenant's queued jobs, across all four queues, and leaves other tenants' jobs alone", async () => {
@@ -308,6 +326,24 @@ describe("processSandboxResetJob", () => {
     for (const table of RESET_TENANT_TABLES) {
       expect(PURGED_TENANT_TABLES).toContain(table);
     }
+  });
+
+  it("completes the reset when the platform-admin audit record fails (PR #859 review [C])", async () => {
+    mockRecordPlatformAdminAction.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      processSandboxResetJob(makeJob(TENANT_ID, { requestedBy: "admin-1" })),
+    ).resolves.toBeUndefined();
+
+    expect(mockLoggerError).toHaveBeenCalled();
+    expect(mockWriteAuditEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_completed" }),
+    );
+    expect(mockWriteAuditEntry).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "sandbox.reset_failed" }),
+    );
   });
 
   // admin_audit_log is RLS-protected and the worker connects as app_user: an audit write on
