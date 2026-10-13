@@ -10,7 +10,12 @@
 import { Queue } from "@platform/telemetry";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { db, tenants, withTenantLifecycleContext } from "@platform/db";
+import {
+  db,
+  tenants,
+  withTenantContext,
+  withTenantLifecycleContext,
+} from "@platform/db";
 import { writeAuditEntry } from "@platform/audit";
 import { logger } from "@platform/logger";
 import { connection } from "./redis.js";
@@ -160,15 +165,24 @@ export async function provisionTenant(
     throw new TenantLifecycleError("SLUG_TAKEN", { slug: parsed.slug });
   }
 
-  await writeAuditEntry(db, {
-    tenantId: row.id,
-    actorId,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: row.id,
-    action: "created",
-    afterSnapshot: { name: parsed.name, slug: parsed.slug, plan: parsed.plan },
-  });
+  // admin_audit_log is RLS-protected and the API connects as app_user, so the audit write
+  // needs the tenant context (as the sandbox workers do since #868); on plain `db` it is
+  // rejected after the tenants write has already committed.
+  await withTenantContext(row.id, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId: row.id,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: row.id,
+      action: "created",
+      afterSnapshot: {
+        name: parsed.name,
+        slug: parsed.slug,
+        plan: parsed.plan,
+      },
+    }),
+  );
 
   const moduleResult = await ModuleService.installCoreModules(row.id);
   if (moduleResult.failed.length > 0) {
@@ -210,16 +224,18 @@ export async function suspendTenant(
 
   invalidateTenantStatusCache(tenantId);
 
-  await writeAuditEntry(db, {
-    tenantId,
-    actorId,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: tenantId,
-    action: "transitioned",
-    beforeSnapshot: { status: "active" },
-    afterSnapshot: { status: "suspended" },
-  });
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action: "transitioned",
+      beforeSnapshot: { status: "active" },
+      afterSnapshot: { status: "suspended" },
+    }),
+  );
 
   logger.info({ tenantId, actorId }, "tenant: suspended");
 }
@@ -247,16 +263,18 @@ export async function reactivateTenant(
 
   invalidateTenantStatusCache(tenantId);
 
-  await writeAuditEntry(db, {
-    tenantId,
-    actorId,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: tenantId,
-    action: "transitioned",
-    beforeSnapshot: { status: "suspended" },
-    afterSnapshot: { status: "active" },
-  });
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action: "transitioned",
+      beforeSnapshot: { status: "suspended" },
+      afterSnapshot: { status: "active" },
+    }),
+  );
 
   logger.info({ tenantId, actorId }, "tenant: reactivated");
 }
@@ -321,20 +339,22 @@ export async function scheduleTenantDeletion(
     },
   );
 
-  await writeAuditEntry(db, {
-    tenantId,
-    actorId,
-    actorType: "user",
-    resourceType: "tenant",
-    resourceId: tenantId,
-    action: "deleted",
-    beforeSnapshot: { status: tenant.status },
-    afterSnapshot: {
-      status: "deleted",
-      deletionScheduledAt: deletionScheduledAt.toISOString(),
-    },
-    metadata: { delayDays },
-  });
+  await withTenantContext(tenantId, (tx) =>
+    writeAuditEntry(tx, {
+      tenantId,
+      actorId,
+      actorType: "user",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      action: "deleted",
+      beforeSnapshot: { status: tenant.status },
+      afterSnapshot: {
+        status: "deleted",
+        deletionScheduledAt: deletionScheduledAt.toISOString(),
+      },
+      metadata: { delayDays },
+    }),
+  );
 
   logger.info(
     { tenantId, actorId, deletionScheduledAt, delayDays },

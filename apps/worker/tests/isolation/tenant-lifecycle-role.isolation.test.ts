@@ -1,5 +1,5 @@
 /**
- * Migration 0143: tenant_lifecycle_role. app_user deliberately cannot insert tenants or change
+ * Migration 0142: tenant_lifecycle_role. app_user deliberately cannot insert tenants or change
  * their status (#404-#408), so the lifecycle writes (provisioning, suspend/restore/delete,
  * sandbox rollback, purge) switch to this role instead. These tests pin both halves: the
  * #404-#408 hardening on app_user still holds, and the new role can do exactly the lifecycle
@@ -26,7 +26,7 @@ afterAll(async () => {
   await db.delete(tenants).where(eq(tenants.id, TENANT_ID));
 });
 
-describe("tenant_lifecycle_role (migration 0143)", () => {
+describe("tenant_lifecycle_role (migration 0142)", () => {
   it("app_user still cannot insert a tenant (#405 hardening intact)", async () => {
     const msg = await rejection(() =>
       db.transaction(async (tx) => {

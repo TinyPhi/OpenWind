@@ -36,12 +36,20 @@ const mockDbSelect = vi.fn();
 const mockWithTenantLifecycleContext = vi.fn((fn: (tx: unknown) => unknown) =>
   fn({ insert: mockDbInsert, update: mockDbUpdate }),
 );
+// admin_audit_log is RLS-protected: audit writes must go through withTenantContext. This
+// stands in for its transaction so each test can check the write used it, not plain db.
+const mockTenantTx = { tenantTx: true };
+const mockWithTenantContext = vi.fn(
+  (_tenantId: string, fn: (tx: unknown) => unknown) => fn(mockTenantTx),
+);
 vi.mock("@platform/db", () => ({
   db: {
     select: mockDbSelect,
   },
   withTenantLifecycleContext: (fn: (tx: unknown) => unknown) =>
     mockWithTenantLifecycleContext(fn),
+  withTenantContext: (...args: Parameters<typeof mockWithTenantContext>) =>
+    mockWithTenantContext(...args),
   tenants: {
     id: "tenants.id",
     slug: "tenants.slug",
@@ -140,8 +148,12 @@ describe("provisionTenant", () => {
       modules: { succeeded: ["helpdesk", "crm"], failed: [] },
     });
     expect(writeAuditEntry).toHaveBeenCalledWith(
-      expect.anything(),
+      mockTenantTx,
       expect.objectContaining({ action: "created", tenantId: TENANT_ID }),
+    );
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
     );
   });
 
@@ -201,7 +213,7 @@ describe("suspendTenant", () => {
 
     expect(invalidateTenantStatusCache).toHaveBeenCalledWith(TENANT_ID);
     expect(writeAuditEntry).toHaveBeenCalledWith(
-      expect.anything(),
+      mockTenantTx,
       expect.objectContaining({
         action: "transitioned",
         beforeSnapshot: { status: "active" },
@@ -243,7 +255,7 @@ describe("reactivateTenant", () => {
 
     expect(invalidateTenantStatusCache).toHaveBeenCalledWith(TENANT_ID);
     expect(writeAuditEntry).toHaveBeenCalledWith(
-      expect.anything(),
+      mockTenantTx,
       expect.objectContaining({
         action: "transitioned",
         beforeSnapshot: { status: "suspended" },
@@ -276,8 +288,12 @@ describe("scheduleTenantDeletion", () => {
     expect(result.deletionScheduledAt).toBeInstanceOf(Date);
     expect(invalidateTenantStatusCache).toHaveBeenCalledWith(TENANT_ID);
     expect(writeAuditEntry).toHaveBeenCalledWith(
-      expect.anything(),
+      mockTenantTx,
       expect.objectContaining({ action: "deleted" }),
+    );
+    expect(mockWithTenantContext).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.any(Function),
     );
   });
 

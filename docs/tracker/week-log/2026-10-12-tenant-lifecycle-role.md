@@ -18,7 +18,7 @@
 
 - **Decision (owner, from three options in BLOCKERS.md):** a dedicated narrow role, not a
   privileged worker connection and not a dev-only grant. Migration
-  `0143_tenant_lifecycle_role.sql` creates `tenant_lifecycle_role`:
+  `0142_tenant_lifecycle_role.sql` creates `tenant_lifecycle_role`:
   - `NOLOGIN NOBYPASSRLS`, granted to `app_user WITH INHERIT FALSE`, the same shape as
     `platform_admin_role` (0135)
   - `SELECT, INSERT, DELETE` on `tenants`, and `UPDATE` only on `status`, `suspended_at`,
@@ -49,7 +49,17 @@
     session can switch into the role (the production path).
 - **Open:**
   - This is a new database-role pattern; a short human-authored ADR note should record it.
-  - Migration number `0143`: `0140` is main's (access-actions), `0141` is #859's platform_admin_audit_log
-    and `0142` is #880's sandbox trial function. The journal `idx` follows whatever has merged first.
-  - The audit writes in `tenant-lifecycle.ts` still use plain `db`, the same RLS issue #868
-    fixed for the sandbox workers. Tracked as a follow-up.
+  - Migration number `0142`: the next after main's `0141` (#859). #880 also adds a `0142` (the
+    sandbox trial function); whichever of the two merges second must take the next number **and**
+    a later journal `when`, because drizzle's migrator skips any entry older than the last applied.
+
+## 2026-10-13: review round 2 fixes
+
+- [A] After merging main (which now has #859's `0141`), the migration is
+  `0142_tenant_lifecycle_role.sql` with journal `idx` 142, matching its number. Its `when` is later
+  than every existing entry. Before this it had been idx 140, then 0143/idx 141.
+- [B] `provisionTenant`, `suspendTenant`, `reactivateTenant` and `scheduleTenantDeletion` now write
+  their `admin_audit_log` entry inside `withTenantContext(tenantId, …)`, the same fix #868 made for
+  the sandbox workers. On plain `db` the RLS-protected insert was rejected for `app_user` after the
+  tenants write had committed, so each action returned a 500. Unit tests assert each write uses the
+  tenant-context transaction; they fail on the previous code.
