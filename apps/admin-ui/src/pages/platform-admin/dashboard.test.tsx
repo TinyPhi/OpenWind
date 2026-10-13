@@ -5,6 +5,7 @@ import {
   waitFor,
   cleanup,
   fireEvent,
+  within,
 } from "@testing-library/react";
 
 const mockFetchWithAuth = vi.fn(
@@ -27,8 +28,8 @@ vi.mock("../../authProvider.js", () => ({
   },
 }));
 
-// Shallow-mocked: this file tests dashboard.tsx's own list/refresh/session/logout
-// logic, not the modal's or row actions' internals, which have their own test files.
+// Shallow-mocked: this file tests dashboard.tsx's own wiring (session, sandbox list, stats,
+// detail panel, refresh, logout), not the children's internals, which have their own tests.
 vi.mock("./create-sandbox-modal.js", () => ({
   CreateSandboxModal: (props: { open: boolean }) =>
     props.open ? <div>Create sandbox modal open</div> : null,
@@ -38,8 +39,39 @@ vi.mock("./sandbox-row-actions.js", () => ({
     <div>Row actions for {props.tenantName}</div>
   ),
 }));
+vi.mock("./activity-timeline.js", () => ({
+  ActivityTimeline: (props: { targetTenantId?: string }) => (
+    <div>Timeline {props.targetTenantId ?? "all"}</div>
+  ),
+}));
 
 const { PlatformAdminDashboard } = await import("./dashboard.js");
+
+const DAY = 86_400_000;
+const ACTIVE = {
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "Acme Sandbox",
+  isSandbox: true,
+  createdAt: "2026-10-01T00:00:00Z",
+  trialStatus: "active",
+  trialEndsAt: new Date(Date.now() + 30 * DAY).toISOString(),
+};
+const EXPIRING = {
+  id: "22222222-2222-4222-8222-222222222222",
+  name: "Beta Sandbox",
+  isSandbox: true,
+  createdAt: "2026-10-02T00:00:00Z",
+  trialStatus: "active",
+  trialEndsAt: new Date(Date.now() + 3 * DAY).toISOString(),
+};
+const EXPIRED = {
+  id: "33333333-3333-4333-8333-333333333333",
+  name: "Gamma Sandbox",
+  isSandbox: true,
+  createdAt: "2026-09-01T00:00:00Z",
+  trialStatus: "expired",
+  trialEndsAt: new Date(Date.now() - 2 * DAY).toISOString(),
+};
 
 function mockSessionThenSandboxes(sandboxes: unknown[]): void {
   mockFetchWithAuth.mockImplementation((url: string) => {
@@ -50,6 +82,13 @@ function mockSessionThenSandboxes(sandboxes: unknown[]): void {
     }
     return Promise.resolve({ data: sandboxes });
   });
+}
+
+function statValue(label: string): string | null {
+  const card = screen
+    .getByText(label, { selector: ".stat-title" })
+    .closest(".stat-card");
+  return card?.querySelector(".stat-value")?.textContent ?? null;
 }
 
 describe("PlatformAdminDashboard", () => {
@@ -67,6 +106,20 @@ describe("PlatformAdminDashboard", () => {
     });
   });
 
+  it("fetches the sandbox list, never an all-tenants list", async () => {
+    mockSessionThenSandboxes([]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => {
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        "/api/platform-admin/sandboxes",
+      );
+    });
+    expect(
+      mockFetchWithAuth.mock.calls.some(([url]) => url.includes("/tenants")),
+    ).toBe(false);
+  });
+
   it("shows an empty state when there are no sandboxes", async () => {
     mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
@@ -76,22 +129,49 @@ describe("PlatformAdminDashboard", () => {
     });
   });
 
-  it("lists every sandbox with its trial status and row actions", async () => {
-    mockSessionThenSandboxes([
-      {
-        id: "t1",
-        name: "Acme Sandbox",
-        isSandbox: true,
-        createdAt: "2026-10-01T00:00:00Z",
-        trialStatus: "active",
-      },
-    ]);
+  it("lists every sandbox with its row actions menu", async () => {
+    mockSessionThenSandboxes([ACTIVE, EXPIRED]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("Acme Sandbox"));
+    expect(screen.getByText("Gamma Sandbox")).toBeTruthy();
+    expect(screen.getByText("Row actions for Acme Sandbox")).toBeTruthy();
+    expect(screen.getByText("Row actions for Gamma Sandbox")).toBeTruthy();
+  });
+
+  it("summarises sandboxes and trials in the stat cards", async () => {
+    mockSessionThenSandboxes([ACTIVE, EXPIRING, EXPIRED]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() =>
+      screen.getByText("Sandboxes", { selector: ".stat-title" }),
+    );
+    expect(statValue("Sandboxes")).toBe("3");
+    expect(statValue("Active trials")).toBe("2");
+    expect(statValue("Expiring within 7 days")).toBe("1");
+    expect(statValue("Expired")).toBe("1");
+  });
+
+  it("opens the detail panel with that sandbox's timeline on row click, and closes it", async () => {
+    mockSessionThenSandboxes([ACTIVE]);
+    render(<PlatformAdminDashboard />);
+
+    await waitFor(() => screen.getByText("Acme Sandbox"));
+    fireEvent.click(screen.getByText("Acme Sandbox"));
+
+    const panel = screen.getByRole("dialog", { name: "Acme Sandbox details" });
+    expect(within(panel).getByText(`Timeline ${ACTIVE.id}`)).toBeTruthy();
+
+    fireEvent.click(within(panel).getByLabelText("Close details"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows the global activity timeline", async () => {
+    mockSessionThenSandboxes([]);
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText("Acme Sandbox")).toBeTruthy();
-      expect(screen.getByText("active")).toBeTruthy();
-      expect(screen.getByText("Row actions for Acme Sandbox")).toBeTruthy();
+      expect(screen.getByText("Timeline all")).toBeTruthy();
     });
   });
 
@@ -105,7 +185,9 @@ describe("PlatformAdminDashboard", () => {
     render(<PlatformAdminDashboard />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeTruthy();
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Could not load sandboxes",
+      );
     });
   });
 
@@ -140,7 +222,7 @@ describe("PlatformAdminDashboard", () => {
     );
     render(<PlatformAdminDashboard />);
 
-    expect(screen.getByText("Loading sandboxes…")).toBeTruthy();
+    expect(screen.getByLabelText("Loading sandboxes")).toBeTruthy();
     expect(screen.queryByText("No sandboxes yet.")).toBeNull();
   });
 
@@ -173,9 +255,7 @@ describe("PlatformAdminDashboard", () => {
   });
 
   it("shows an inline error when logout fails", async () => {
-    mockFetchWithAuth.mockResolvedValue({
-      data: { userId: "pa-1", displayName: "Ops", email: "ops@openwind.io" },
-    });
+    mockSessionThenSandboxes([]);
     mockLogout.mockRejectedValue(new Error("identity provider unavailable"));
     render(<PlatformAdminDashboard />);
 

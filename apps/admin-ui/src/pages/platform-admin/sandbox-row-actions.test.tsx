@@ -26,6 +26,21 @@ vi.mock("../../components/global-alert-dialog.js", () => ({
   showAlert: (message: string) => mockShowAlert(message),
 }));
 
+// Shallow-mocked: change-trial-dialog.test.tsx covers the dialog itself.
+vi.mock("./extend-trial-dialog.js", () => ({
+  ExtendTrialDialog: (props: {
+    onSaved: () => void;
+    trialEndsAt: string | null;
+  }) => (
+    <div>
+      Trial dialog ({props.trialEndsAt ?? "none"})
+      <button type="button" onClick={props.onSaved}>
+        Save trial
+      </button>
+    </div>
+  ),
+}));
+
 const { SandboxRowActions } = await import("./sandbox-row-actions.js");
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -35,13 +50,19 @@ function renderComponent(onDone: () => void = vi.fn()): () => void {
     <SandboxRowActions
       tenantId={TENANT_ID}
       tenantName="Acme Sandbox"
+      trialEndsAt="2026-12-01T00:00:00.000Z"
       onDone={onDone}
     />,
   );
   return onDone;
 }
 
-/** The dialog's confirm button shares its label with the row button that opened it. */
+function choose(item: "Reset" | "Delete" | "Extend trial" | "End trial"): void {
+  fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+  fireEvent.click(screen.getByRole("menuitem", { name: item }));
+}
+
+/** The dialog's confirm button shares its label with the menu item that opened it. */
 function getConfirmButton(label: string): HTMLElement {
   const matches = screen.getAllByText(label);
   const confirmButton = matches[matches.length - 1];
@@ -57,7 +78,7 @@ describe("SandboxRowActions", () => {
 
   it("shows a confirmation dialog before resetting", () => {
     renderComponent();
-    fireEvent.click(screen.getByText("Reset"));
+    choose("Reset");
 
     expect(screen.getByText("Reset this sandbox?")).toBeTruthy();
     expect(mockFetchWithAuth).not.toHaveBeenCalled();
@@ -65,7 +86,7 @@ describe("SandboxRowActions", () => {
 
   it("calls the reset endpoint and onDone after confirming", async () => {
     const onDone = renderComponent();
-    fireEvent.click(screen.getByText("Reset"));
+    choose("Reset");
     fireEvent.click(getConfirmButton("Reset"));
 
     await waitFor(() => {
@@ -79,7 +100,7 @@ describe("SandboxRowActions", () => {
 
   it("shows a confirmation dialog before deleting, mentioning the Zitadel org", () => {
     renderComponent();
-    fireEvent.click(screen.getByText("Delete"));
+    choose("Delete");
 
     expect(screen.getByText("Delete this sandbox?")).toBeTruthy();
     expect(screen.getByText(/Zitadel organization/)).toBeTruthy();
@@ -87,7 +108,7 @@ describe("SandboxRowActions", () => {
 
   it("calls the delete endpoint after confirming", async () => {
     renderComponent();
-    fireEvent.click(screen.getByText("Delete"));
+    choose("Delete");
     fireEvent.click(getConfirmButton("Delete"));
 
     await waitFor(() => {
@@ -103,7 +124,7 @@ describe("SandboxRowActions", () => {
     err.status = 409;
     mockFetchWithAuth.mockRejectedValue(err);
     renderComponent();
-    fireEvent.click(screen.getByText("Reset"));
+    choose("Reset");
     fireEvent.click(getConfirmButton("Reset"));
 
     await waitFor(() => {
@@ -116,7 +137,7 @@ describe("SandboxRowActions", () => {
   it("shows the raw error message for a non-409 failure", async () => {
     mockFetchWithAuth.mockRejectedValue(new Error("Could not reach server"));
     renderComponent();
-    fireEvent.click(screen.getByText("Delete"));
+    choose("Delete");
     fireEvent.click(getConfirmButton("Delete"));
 
     await waitFor(() => {
@@ -126,14 +147,137 @@ describe("SandboxRowActions", () => {
 
   it("cancelling the dialog does not call the endpoint", () => {
     renderComponent();
-    fireEvent.click(screen.getByText("Reset"));
+    choose("Reset");
     fireEvent.click(screen.getByText("Cancel"));
 
     expect(screen.queryByText("Reset this sandbox?")).toBeNull();
     expect(mockFetchWithAuth).not.toHaveBeenCalled();
   });
 
-  it("disables both action buttons while a request for this row is in flight", async () => {
+  it("keeps actions inside a closed menu until it is opened", () => {
+    renderComponent();
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
+      ["Reset", "Extend trial", "End trial", "Delete"],
+    );
+  });
+
+  it("renders the open menu outside the row, on document.body", () => {
+    const { container } = render(
+      <div className="pa-table-wrap">
+        <SandboxRowActions
+          tenantId={TENANT_ID}
+          tenantName="Acme Sandbox"
+          trialEndsAt={null}
+          onDone={vi.fn()}
+        />
+      </div>,
+    );
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+
+    const menu = screen.getByRole("menu");
+    expect(container.contains(menu)).toBe(false);
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu.style.position).toBe("fixed");
+  });
+
+  it("opens below the button when there is room, above it near the viewport bottom", () => {
+    renderComponent();
+    const button = screen.getByLabelText("Actions for Acme Sandbox");
+    const rectAt = (top: number): DOMRect =>
+      // Only the edges menuPositionFor reads matter here.
+      ({ top, bottom: top + 32, right: 500, left: 468 }) as DOMRect;
+
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(rectAt(100));
+    fireEvent.click(button);
+    expect(screen.getByRole("menu").style.top).toBe("138px");
+    fireEvent.click(button);
+
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(
+      rectAt(window.innerHeight - 40),
+    );
+    fireEvent.click(button);
+    const menu = screen.getByRole("menu");
+    expect(menu.style.top).toBe("auto");
+    expect(menu.style.bottom).toBe("46px");
+  });
+
+  it("closes the menu when anything scrolls", () => {
+    renderComponent();
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+    fireEvent.scroll(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("closes the menu on Escape", () => {
+    renderComponent();
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("asks for confirmation, then ends the trial through /trial/end", async () => {
+    mockFetchWithAuth.mockResolvedValue({ data: {} });
+    const onDone = renderComponent();
+    choose("End trial");
+    expect(screen.getByText("End this trial now?")).toBeTruthy();
+    expect(mockFetchWithAuth).not.toHaveBeenCalled();
+
+    fireEvent.click(getConfirmButton("End trial"));
+
+    await waitFor(() => {
+      expect(mockFetchWithAuth).toHaveBeenCalledWith(
+        `/api/platform-admin/sandboxes/${TENANT_ID}/trial/end`,
+        { method: "POST" },
+      );
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("hides End trial once the trial has already ended", () => {
+    render(
+      <SandboxRowActions
+        tenantId={TENANT_ID}
+        tenantName="Acme Sandbox"
+        trialEndsAt="2026-01-01T00:00:00.000Z"
+        onDone={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
+      ["Reset", "Extend trial", "Delete"],
+    );
+  });
+
+  // PR #880 review C: ending "no trial" would create an expired one and lock users out.
+  it("hides End trial when no trial is set", () => {
+    render(
+      <SandboxRowActions
+        tenantId={TENANT_ID}
+        tenantName="Acme Sandbox"
+        trialEndsAt={null}
+        onDone={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Actions for Acme Sandbox"));
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(
+      ["Reset", "Extend trial", "Delete"],
+    );
+  });
+
+  it("opens the trial dialog with the current end and calls onDone after saving", () => {
+    const onDone = renderComponent();
+    choose("Extend trial");
+    expect(
+      screen.getByText("Trial dialog (2026-12-01T00:00:00.000Z)"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByText("Save trial"));
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Trial dialog/)).toBeNull();
+  });
+
+  it("disables the actions menu while a request for this row is in flight", async () => {
     let resolveRequest!: () => void;
     mockFetchWithAuth.mockReturnValue(
       new Promise((resolve) => {
@@ -141,12 +285,14 @@ describe("SandboxRowActions", () => {
       }),
     );
     renderComponent();
-    fireEvent.click(screen.getByText("Reset"));
+    choose("Reset");
     fireEvent.click(getConfirmButton("Reset"));
 
     await waitFor(() => {
-      expect(screen.getByText("Reset")).toHaveProperty("disabled", true);
-      expect(screen.getByText("Delete")).toHaveProperty("disabled", true);
+      expect(screen.getByLabelText("Actions for Acme Sandbox")).toHaveProperty(
+        "disabled",
+        true,
+      );
     });
 
     resolveRequest();

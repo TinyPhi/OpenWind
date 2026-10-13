@@ -16,6 +16,7 @@ import { Layout } from "./components/layout.js";
 import { RouteErrorBoundary } from "./components/route-error-boundary.js";
 import { RequireAdmin } from "./components/require-admin.js";
 import { RequirePlatformAdmin } from "./components/require-platform-admin.js";
+import { RejectPlatformAdmin } from "./components/reject-platform-admin.js";
 import { RequirePlatformAdminMfa } from "./components/require-platform-admin-mfa.js";
 import {
   Login,
@@ -184,13 +185,15 @@ export function App(): React.ReactElement {
                   key="protected"
                   fallback={<Navigate to="/login" />}
                 >
-                  <AuthenticatedShell>
-                    <EntityTypeProvider>
-                      <Layout>
-                        <ShellOutlet />
-                      </Layout>
-                    </EntityTypeProvider>
-                  </AuthenticatedShell>
+                  <RejectPlatformAdmin>
+                    <AuthenticatedShell>
+                      <EntityTypeProvider>
+                        <Layout>
+                          <ShellOutlet />
+                        </Layout>
+                      </EntityTypeProvider>
+                    </AuthenticatedShell>
+                  </RejectPlatformAdmin>
                 </Authenticated>
               }
             >

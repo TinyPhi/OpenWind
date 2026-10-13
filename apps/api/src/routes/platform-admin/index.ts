@@ -8,6 +8,10 @@ import {
   sandboxHandoverHandler,
 } from "./sandboxes.js";
 import { sandboxListHandler, sandboxDetailHandler } from "./sandboxes-list.js";
+import {
+  sandboxTrialHandler,
+  sandboxTrialEndHandler,
+} from "./sandbox-trial.js";
 import { sandboxResetHandler } from "./sandbox-reset.js";
 import { sandboxDeleteHandler } from "./sandbox-delete.js";
 import { auditLogHandler } from "./audit-log.js";
@@ -26,6 +30,8 @@ router.get("/sandboxes/:jobId/progress", ...sandboxProgressHandler);
 router.get("/sandboxes/:jobId/handover", ...sandboxHandoverHandler);
 router.post("/sandboxes/:tenantId/reset", ...sandboxResetHandler);
 router.post("/sandboxes/:tenantId/delete", ...sandboxDeleteHandler);
+router.post("/sandboxes/:tenantId/trial", ...sandboxTrialHandler);
+router.post("/sandboxes/:tenantId/trial/end", ...sandboxTrialEndHandler);
 router.get("/audit-log", ...auditLogHandler);
 
 export { router as platformAdminRouter };

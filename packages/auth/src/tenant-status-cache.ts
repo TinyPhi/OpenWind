@@ -23,8 +23,9 @@ const _cache = new Map<
     status: string;
     plan?: string | undefined;
     ipAllowlist?: string[] | undefined;
-    /** Epoch ms, or null if the tenant has no trial. Immutable once set at
-     * provisioning -- safe to cache. Callers must still compare it against
+    /** Epoch ms, or null if the tenant has no trial. Changed only by the
+     * platform-admin trial route (R6a), which calls invalidateTenantStatusCache
+     * afterwards -- otherwise the TTL bounds staleness. Callers must still compare it against
      * Date.now() fresh on every use (docs/specs/multi-org-sandbox.md R6
      * forbids caching the *expired* boolean itself, only the raw timestamp). */
     trialEndsAt?: number | null | undefined;
@@ -59,8 +60,8 @@ export function setCachedTenantStatus(
 }
 
 /**
- * The raw trial_ends_at timestamp (epoch ms), cached because it's immutable
- * once set -- NOT the expiry boolean, which callers must compute fresh
+ * The raw trial_ends_at timestamp (epoch ms), cached because it rarely changes
+ * (only via R6a's trial route, which invalidates this cache) -- NOT the expiry boolean, which callers must compute fresh
  * against Date.now() every time (R6, see the cache entry's own comment).
  * `undefined` means cache miss (go read the DB); `null` means cache hit, no
  * trial set.
