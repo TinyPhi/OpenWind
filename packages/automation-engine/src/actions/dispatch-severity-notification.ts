@@ -11,7 +11,12 @@ import {
 } from "@platform/db";
 import { getActiveScheduleForTeam } from "@platform/teams";
 import { writeAuditEntry } from "@platform/audit";
-import { Queue, notificationDispatchTotal } from "@platform/telemetry";
+import {
+  Queue,
+  notificationDispatchTotal,
+  notificationDispatchDurationSeconds,
+  notificationPolicyMatchTotal,
+} from "@platform/telemetry";
 import { logger } from "@platform/logger";
 import type { TriggerEvent } from "../event-schemas.js";
 import type { DispatchSeverityNotificationConfig } from "../types.js";
@@ -287,6 +292,13 @@ export async function executeDispatchSeverityNotificationAction(
     );
   }
 
+  // Counted once per dispatch actually performed (after the idempotency claim,
+  // so a re-delivered event is not counted twice). The label uses underscores
+  // (team_workflow, hardcoded_default) as the design names them.
+  notificationPolicyMatchTotal.add(1, {
+    matched_at: policy.matchedAt.replace(/[+-]/g, "_"),
+  });
+
   const outboundEnabled = redis
     ? await isOutboundNotificationsEnabled()
     : false;
@@ -309,6 +321,7 @@ export async function executeDispatchSeverityNotificationAction(
     // channel are likewise independent of each other: one recipient's
     // insert failing doesn't skip the rest of that channel's recipients.
     for (const channel of policy.channels as readonly Channel[]) {
+      const channelStartedAt = performance.now();
       let channelFailure: string | undefined;
 
       for (const recipientId of recipients) {
@@ -368,6 +381,10 @@ export async function executeDispatchSeverityNotificationAction(
         }
       }
 
+      // Measured before the failure audit write, so an ok and a failed channel
+      // are timed over the same work.
+      const channelSeconds = (performance.now() - channelStartedAt) / 1000;
+
       if (channelFailure) {
         channelResults[channel] = "failed";
         await writeAuditEntry(db, {
@@ -383,9 +400,11 @@ export async function executeDispatchSeverityNotificationAction(
           channel,
           outcome: "channel_failed",
         });
+        notificationDispatchDurationSeconds.record(channelSeconds, { channel });
       } else {
         channelResults[channel] = "ok";
         notificationDispatchTotal.add(1, { channel, outcome: "ok" });
+        notificationDispatchDurationSeconds.record(channelSeconds, { channel });
       }
     }
   } finally {
