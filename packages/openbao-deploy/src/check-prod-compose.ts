@@ -20,12 +20,14 @@
 // same way Docker Compose does, so direct process.env access is intentional.
 /* eslint-disable no-restricted-syntax */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 interface ComposeService {
   profiles?: string[] | null;
+  image?: string | null;
+  build?: { args?: Record<string, string> | null } | null;
   entrypoint?: string[] | string | null;
   environment?: Record<string, unknown> | null;
   env_file?: { path?: string }[] | null;
@@ -147,6 +149,25 @@ export const LOADER_SERVICES = [
 
 const DEV_OPENBAO = ["openbao", "openbao-init"];
 
+// Services the production override rebuilds FROM a pinned third-party image
+// (ADR-023): the NOVU_IMAGE build argument must equal the base file's image.
+const REBUILT_FROM_BASE = ["novu-api", "novu-worker"];
+
+export interface CheckOptions {
+  /** docker-compose.yml rendered on its own, for the pinned-image comparison. */
+  base?: ComposeConfig;
+  /** What a host path is; defaults to the real filesystem. */
+  pathKind?: (path: string) => "file" | "directory" | "missing";
+}
+
+function realPathKind(path: string): "file" | "directory" | "missing" {
+  try {
+    return statSync(path).isDirectory() ? "directory" : "file";
+  } catch {
+    return "missing";
+  }
+}
+
 function isEnvLocal(path: string | undefined): boolean {
   return (
     path !== undefined && basename(path.replace(/\\/g, "/")) === ".env.local"
@@ -171,9 +192,11 @@ function activeServices(
 export function checkComposeConfig(
   config: ComposeConfig,
   profiles: readonly string[] = [],
+  options: CheckOptions = {},
 ): string[] {
   const problems: string[] = [];
   const services = activeServices(config, profiles);
+  const pathKind = options.pathKind ?? realPathKind;
 
   for (const name of DEV_OPENBAO) {
     if (name in services) {
@@ -196,6 +219,17 @@ export function checkComposeConfig(
         problems.push(
           `${name}: mounts .env.local into ${volume.target ?? "?"}`,
         );
+      }
+      // The override hides .env.local by mounting an empty file over it. If
+      // that file is missing, Docker mounts a directory instead; fail rather
+      // than rely on what Vite does then.
+      if (isEnvLocal(volume.target) && volume.source) {
+        const kind = pathKind(volume.source);
+        if (kind !== "file") {
+          problems.push(
+            `${name}: the file mounted over ${volume.target} is ${kind === "missing" ? "missing" : "a directory"}`,
+          );
+        }
       }
     }
 
@@ -231,6 +265,20 @@ export function checkComposeConfig(
     }
   }
 
+  if (options.base) {
+    for (const name of REBUILT_FROM_BASE) {
+      const service = services[name];
+      if (!service) continue;
+      const pinned = options.base.services?.[name]?.image ?? undefined;
+      const built = service.build?.args?.["NOVU_IMAGE"] ?? undefined;
+      if (!built || built !== pinned) {
+        problems.push(
+          `${name}: build arg NOVU_IMAGE does not match the image pinned in docker-compose.yml`,
+        );
+      }
+    }
+  }
+
   return problems;
 }
 
@@ -251,16 +299,13 @@ function composeProfiles(repoRoot: string): string[] {
     .filter(Boolean);
 }
 
-function main(): number {
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+// Renders without interpolation, so the output can't contain resolved values.
+function render(repoRoot: string, files: string[]): ComposeConfig | string {
   const res = spawnSync(
     "docker",
     [
       "compose",
-      "-f",
-      "docker-compose.yml",
-      "-f",
-      "docker-compose.prod.yml",
+      ...files.flatMap((f) => ["-f", f]),
       "config",
       "--format",
       "json",
@@ -269,18 +314,28 @@ function main(): number {
     ],
     { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
-  if (res.status !== 0) {
-    // Compose's own error names the problem; it never contains values here
-    // because nothing was interpolated.
-    console.error(`docker compose config failed:\n${res.stderr}`);
+  // Compose's own error names the problem; it never contains values here
+  // because nothing was interpolated.
+  if (res.status !== 0) return res.stderr;
+  return JSON.parse(res.stdout) as ComposeConfig;
+}
+
+function main(): number {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const prod = render(repoRoot, [
+    "docker-compose.yml",
+    "docker-compose.prod.yml",
+  ]);
+  const base = render(repoRoot, ["docker-compose.yml"]);
+  if (typeof prod === "string" || typeof base === "string") {
+    console.error(
+      `docker compose config failed:\n${typeof prod === "string" ? prod : base}`,
+    );
     return 2;
   }
 
   const profiles = composeProfiles(repoRoot);
-  const problems = checkComposeConfig(
-    JSON.parse(res.stdout) as ComposeConfig,
-    profiles,
-  );
+  const problems = checkComposeConfig(prod, profiles, { base });
   if (problems.length === 0) {
     console.error(
       `OK: production compose config passes the ADR-023 checks (profiles: ${profiles.join(",") || "none"}).`,

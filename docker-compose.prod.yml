@@ -105,7 +105,9 @@ services:
     environment: !override
       <<: *openbao
       BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/backend
-      BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN,SUPERSET_SECRET_KEY,SUPERSET_GUEST_TOKEN_SECRET,SUPERSET_SERVICE_ACCOUNT_PASSWORD,SUPERSET_ADMIN_PASSWORD
+      # Only what the API uses (ADR-023 Decision 3): of the Superset secrets,
+      # just the service account password it logs in with.
+      BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN,SUPERSET_SERVICE_ACCOUNT_PASSWORD
       # Backend calls Transit at runtime, so it keeps its AppRole login.
       BAO_KEEP_LOGIN: "1"
       OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
@@ -137,7 +139,8 @@ services:
     environment: !override
       <<: *openbao
       BAO_KV_PATH: openwind/${OPENWIND_BAO_ENV:-prod}/worker
-      BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN,SUPERSET_SECRET_KEY,SUPERSET_GUEST_TOKEN_SECRET,SUPERSET_SERVICE_ACCOUNT_PASSWORD,SUPERSET_ADMIN_PASSWORD
+      # The worker uses no Superset secret, so its path holds none.
+      BAO_REQUIRED_KEYS: DATABASE_URL,DATABASE_DIRECT_URL,ZITADEL_ISSUER,ZITADEL_AUDIENCE,ZITADEL_INTROSPECTION_CLIENT_ID,ZITADEL_INTROSPECTION_CLIENT_SECRET,NOVU_API_KEY,CORS_ORIGIN,METRICS_TOKEN
       # Worker decrypts connector credentials with Transit at runtime.
       BAO_KEEP_LOGIN: "1"
       OPENBAO_TRANSIT_KEY: ${OPENBAO_TRANSIT_KEY:?set OPENBAO_TRANSIT_KEY in .env}
@@ -242,7 +245,14 @@ services:
       BOOTSTRAP_SECRETS_OUT: /run/bootstrap-out/new-secrets.env
     volumes: !override
       - ${OPENWIND_BOOTSTRAP_OUT_DIR:?set OPENWIND_BOOTSTRAP_OUT_DIR in .env}:/run/bootstrap-out
-    restart: on-failure:3
+    # One-shot, run by hand (`docker compose run`), never restarted: a retry
+    # after a partial run is the operator's call. Bootstrap's steps are
+    # idempotent, and it refuses to start if its BOOTSTRAP_SECRETS_OUT file
+    # already exists, so a re-run never overwrites secrets from a failed run:
+    # load that file into OpenBao and delete it first. Don't re-run with
+    # --rotate-introspection-secret after a partial run unless you mean to
+    # rotate again.
+    restart: "no"
     networks: !override
       default: {}
       openwind_zitadel: {}
@@ -285,7 +295,8 @@ services:
       SUPERSET_DASHBOARD_USER_SLUG: ${SUPERSET_DASHBOARD_USER_SLUG:-openwind-my-performance}
       SUPERSET_EMBED_ORIGIN: ${SUPERSET_EMBED_ORIGIN:?set SUPERSET_EMBED_ORIGIN in .env}
       REDIS_URL: redis://redis:6379/2
-    restart: on-failure:3
+    # One-shot, never restarted (as in the base file).
+    restart: "no"
     networks: !override
       default: {}
       openwind_zitadel: {}
