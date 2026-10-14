@@ -29,9 +29,11 @@ vi.mock("react-router-dom", async () => {
 const signinRedirect = vi.fn(
   (_opts: { prompt: string }): Promise<void> => Promise.resolve(),
 );
+const removeUser = vi.fn((): Promise<void> => Promise.resolve());
 vi.mock("../../authProvider.js", () => ({
   userManager: {
     signinRedirect: (opts: { prompt: string }) => signinRedirect(opts),
+    removeUser: () => removeUser(),
   },
 }));
 
@@ -56,6 +58,15 @@ describe("PlatformAdminLogin", () => {
     renderPage();
 
     expect(screen.getByText("Sign in")).toBeTruthy();
+  });
+
+  it("shows a sign-in button when there is no stored session (empty role list)", () => {
+    // getPermissions() returns [] with no session; this used to render "Not authorized".
+    mockUsePermissions.mockReturnValue({ data: [], isLoading: false });
+    renderPage();
+
+    expect(screen.getByText("Sign in")).toBeTruthy();
+    expect(screen.queryByText("Not authorized")).toBeNull();
   });
 
   it("triggers the OIDC redirect when sign-in is clicked", async () => {
@@ -88,6 +99,33 @@ describe("PlatformAdminLogin", () => {
 
     expect(screen.getByText("Not authorized")).toBeTruthy();
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets a signed-in non-platform-admin switch accounts", async () => {
+    mockUsePermissions.mockReturnValue({ data: ["admin"], isLoading: false });
+    renderPage();
+
+    fireEvent.click(screen.getByText("Sign in with a different account"));
+
+    await waitFor(() => {
+      expect(signinRedirect).toHaveBeenCalledWith({ prompt: "login" });
+    });
+    expect(removeUser).toHaveBeenCalledTimes(1);
+    expect(removeUser.mock.invocationCallOrder[0]).toBeLessThan(
+      signinRedirect.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("does not clear the session on a plain sign-in", async () => {
+    mockUsePermissions.mockReturnValue({ data: [], isLoading: false });
+    renderPage();
+
+    fireEvent.click(screen.getByText("Sign in"));
+
+    await waitFor(() => {
+      expect(signinRedirect).toHaveBeenCalled();
+    });
+    expect(removeUser).not.toHaveBeenCalled();
   });
 
   it("navigates to the dashboard when authenticated with the platform_admin role", async () => {

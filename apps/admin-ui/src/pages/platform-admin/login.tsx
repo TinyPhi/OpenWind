@@ -17,7 +17,10 @@ export function PlatformAdminLogin(): React.ReactElement {
   const [loading, setLoading] = React.useState(false);
   const [signInFailed, setSignInFailed] = React.useState(false);
 
-  const isAuthenticated = !isLoading && roles !== undefined;
+  // getPermissions() returns [] when there is no stored session, so an empty role list
+  // means "signed out" here -- otherwise a signed-out visitor got "Not authorized" with no
+  // way to sign in.
+  const isAuthenticated = !isLoading && (roles?.length ?? 0) > 0;
   const isPlatformAdmin = !!roles?.includes("platform_admin");
 
   React.useEffect(() => {
@@ -26,10 +29,13 @@ export function PlatformAdminLogin(): React.ReactElement {
     }
   }, [isAuthenticated, isPlatformAdmin, navigate]);
 
-  async function handleSignIn(): Promise<void> {
+  async function handleSignIn(switchAccount = false): Promise<void> {
     setLoading(true);
     setSignInFailed(false);
     try {
+      // Drop the stored (non-platform-admin) session first, or the page would read it back
+      // and show "Not authorized" again after the redirect returns.
+      if (switchAccount) await userManager.removeUser();
       await userManager.signinRedirect({ prompt: "login" });
     } catch (err) {
       console.error("Platform-admin sign-in failed before redirect:", err);
@@ -48,6 +54,21 @@ export function PlatformAdminLogin(): React.ReactElement {
           <p style={{ color: "var(--text-muted)" }}>
             Your account does not have platform-admin access.
           </p>
+          <Button
+            onClick={() => void handleSignIn(true)}
+            disabled={loading}
+            style={{ marginTop: 20 }}
+          >
+            {loading ? "Redirecting…" : "Sign in with a different account"}
+          </Button>
+          {signInFailed && (
+            <p
+              role="alert"
+              style={{ marginTop: 12, color: "var(--danger, #dc2626)" }}
+            >
+              Sign-in failed. Please try again.
+            </p>
+          )}
         </div>
       </div>
     );
