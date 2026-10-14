@@ -1,7 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, lazy, Suspense } from "react";
 import { Button } from "@platform/ui";
 import { ApiKeys } from "./index.js";
-import { ThirdPartyAccessLogsPage } from "../third-party-access-logs.js";
+
+const ThirdPartyAccessLogsPage = lazy(() =>
+  import("../third-party-access-logs.js").then((m) => ({
+    default: m.ThirdPartyAccessLogsPage,
+  })),
+);
 
 type ApiKeysView = "keys" | "logs";
 
@@ -35,7 +40,20 @@ export function ApiKeysPage(): React.ReactElement {
         </Button>
       </div>
 
-      {view === "keys" ? <ApiKeys /> : <ThirdPartyAccessLogsPage />}
+      {view === "keys" ? (
+        <ApiKeys />
+      ) : (
+        <Suspense
+          fallback={
+            <div className="loading-center">
+              <div className="spinner" />
+              <span className="loader-text">Loading access logs…</span>
+            </div>
+          }
+        >
+          <ThirdPartyAccessLogsPage />
+        </Suspense>
+      )}
     </div>
   );
 }

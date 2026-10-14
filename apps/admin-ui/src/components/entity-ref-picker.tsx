@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { fetchWithAuth, API_URL } from "../lib/api.js";
 import { useEntityTypes } from "../entity-type-context.js";
 import { useOutsideClick } from "../hooks/use-outside-click.js";
+import { useDebouncedCallback } from "../hooks/use-debounce.js";
 
 /**
  * Searchable single-entity picker for `entity_ref` fields (#197). Entity
@@ -48,7 +49,22 @@ export function EntityRefPicker({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedSearch = useDebouncedCallback(
+    (searchQuery: string, typeId: string): void => {
+      setLoading(true);
+      fetchWithAuth(
+        `${API_URL}/entities/search?type=${typeId}&q=${encodeURIComponent(searchQuery)}&limit=10`,
+      )
+        .then((res) => {
+          const page = (res as { data: { data: SearchResultInstance[] } }).data;
+          setResults(page.data);
+        })
+        .catch(() => setResults([]))
+        .finally(() => setLoading(false));
+    },
+    250,
+  );
 
   useEffect(() => {
     if (!value) {
@@ -74,26 +90,16 @@ export function EntityRefPicker({
 
   function handleQueryChange(next: string): void {
     setQuery(next);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!targetType || next.trim().length === 0) {
+      debouncedSearch.cancel();
       setResults([]);
       return;
     }
-    debounceRef.current = setTimeout(() => {
-      setLoading(true);
-      fetchWithAuth(
-        `${API_URL}/entities/search?type=${targetType.id}&q=${encodeURIComponent(next)}&limit=10`,
-      )
-        .then((res) => {
-          const page = (res as { data: { data: SearchResultInstance[] } }).data;
-          setResults(page.data);
-        })
-        .catch(() => setResults([]))
-        .finally(() => setLoading(false));
-    }, 250);
+    debouncedSearch(next, targetType.id);
   }
 
   function select(instance: SearchResultInstance | null): void {
+    debouncedSearch.cancel();
     onChange(instance?.id ?? null);
     setSelectedLabel(instance ? labelFor(instance) : null);
     setOpen(false);

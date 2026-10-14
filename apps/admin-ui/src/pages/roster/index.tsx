@@ -23,6 +23,7 @@ import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { UserPicker } from "../../components/user-picker.js";
 import { avatarColor } from "../../lib/theme.js";
+import { useModal } from "../../hooks/use-modal.js";
 import type { Team } from "../teams/index.js";
 
 interface TenantUser {
@@ -76,9 +77,9 @@ export function RosterPage(): React.ReactElement {
   // page (PR #602 review, M3) -- not a precise "there are N more", just a
   // heuristic warning rather than silently showing an incomplete week.
   const [possiblyTruncated, setPossiblyTruncated] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<OnCallSchedule | null>(null);
-  const [deleting, setDeleting] = useState<OnCallSchedule | null>(null);
+  const createModal = useModal();
+  const editModal = useModal<OnCallSchedule>();
+  const deleteModal = useModal<OnCallSchedule>();
 
   useEffect(() => {
     Promise.all([
@@ -160,7 +161,7 @@ export function RosterPage(): React.ReactElement {
       await fetchWithAuth(`${API_URL}/admin/on-call-schedules/${schedule.id}`, {
         method: "DELETE",
       });
-      setDeleting(null);
+      deleteModal.close();
       refresh();
     } catch {
       showAlert("Failed to delete on-call schedule.");
@@ -179,7 +180,7 @@ export function RosterPage(): React.ReactElement {
         <div className="wfl-header-actions">
           <Button
             variant="primary"
-            onClick={() => setCreating(true)}
+            onClick={() => createModal.open()}
             disabled={!selectedTeamId}
           >
             New Schedule
@@ -341,7 +342,7 @@ export function RosterPage(): React.ReactElement {
                     >
                       <button
                         type="button"
-                        onClick={() => setEditing(s)}
+                        onClick={() => editModal.open(s)}
                         title={`${s.label} — primary ${userName(s.primaryUserId)}`}
                         style={{
                           gridColumnStart: startOffset + 1,
@@ -370,48 +371,50 @@ export function RosterPage(): React.ReactElement {
       )}
 
       <ScheduleFormModal
-        open={creating}
+        open={createModal.isOpen}
         teamId={selectedTeamId}
         users={users}
-        onClose={() => setCreating(false)}
+        onClose={createModal.close}
         onSaved={() => {
-          setCreating(false);
+          createModal.close();
           refresh();
         }}
       />
       <ScheduleFormModal
-        open={editing !== null}
-        schedule={editing ?? undefined}
+        open={editModal.isOpen}
+        schedule={editModal.item ?? undefined}
         teamId={selectedTeamId}
         users={users}
-        onClose={() => setEditing(null)}
+        onClose={editModal.close}
         onDelete={() => {
-          if (editing) setDeleting(editing);
-          setEditing(null);
+          if (editModal.item) deleteModal.open(editModal.item);
+          editModal.close();
         }}
         onSaved={() => {
-          setEditing(null);
+          editModal.close();
           refresh();
         }}
       />
 
       <AlertDialog
-        open={deleting !== null}
+        open={deleteModal.isOpen}
         onOpenChange={(next) => {
-          if (!next) setDeleting(null);
+          if (!next) deleteModal.close();
         }}
       >
         <AlertDialogContent>
           <AlertDialogTitle>Delete on-call schedule?</AlertDialogTitle>
           <AlertDialogDescription>
-            {deleting
-              ? `"${deleting.label}" will be removed from the roster.`
+            {deleteModal.item
+              ? `"${deleteModal.item.label}" will be removed from the roster.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleting && void handleDelete(deleting)}
+              onClick={() =>
+                deleteModal.item && void handleDelete(deleteModal.item)
+              }
             >
               Delete
             </AlertDialogAction>
@@ -438,6 +441,26 @@ interface ScheduleFormModalProps {
   onDelete?: (() => void) | undefined;
 }
 
+interface ScheduleFormData {
+  label: string;
+  startsAt: string;
+  endsAt: string;
+  primaryUserId: string;
+  backupUserId: string;
+  escalationManagerUserId: string;
+}
+
+function initialScheduleFormData(schedule?: OnCallSchedule): ScheduleFormData {
+  return {
+    label: schedule?.label ?? "",
+    startsAt: schedule ? toLocalInputValue(schedule.startsAt) : "",
+    endsAt: schedule ? toLocalInputValue(schedule.endsAt) : "",
+    primaryUserId: schedule?.primaryUserId ?? "",
+    backupUserId: schedule?.backupUserId ?? "",
+    escalationManagerUserId: schedule?.escalationManagerUserId ?? "",
+  };
+}
+
 function ScheduleFormModal({
   open,
   schedule,
@@ -447,21 +470,8 @@ function ScheduleFormModal({
   onSaved,
   onDelete,
 }: ScheduleFormModalProps): React.ReactElement {
-  const [label, setLabel] = useState(schedule?.label ?? "");
-  const [startsAt, setStartsAt] = useState(
-    schedule ? toLocalInputValue(schedule.startsAt) : "",
-  );
-  const [endsAt, setEndsAt] = useState(
-    schedule ? toLocalInputValue(schedule.endsAt) : "",
-  );
-  const [primaryUserId, setPrimaryUserId] = useState(
-    schedule?.primaryUserId ?? "",
-  );
-  const [backupUserId, setBackupUserId] = useState(
-    schedule?.backupUserId ?? "",
-  );
-  const [escalationManagerUserId, setEscalationManagerUserId] = useState(
-    schedule?.escalationManagerUserId ?? "",
+  const [formData, setFormData] = useState<ScheduleFormData>(() =>
+    initialScheduleFormData(schedule),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -475,15 +485,26 @@ function ScheduleFormModal({
 
   useEffect(() => {
     if (open) {
-      setLabel(schedule?.label ?? "");
-      setStartsAt(schedule ? toLocalInputValue(schedule.startsAt) : "");
-      setEndsAt(schedule ? toLocalInputValue(schedule.endsAt) : "");
-      setPrimaryUserId(schedule?.primaryUserId ?? "");
-      setBackupUserId(schedule?.backupUserId ?? "");
-      setEscalationManagerUserId(schedule?.escalationManagerUserId ?? "");
+      setFormData(initialScheduleFormData(schedule));
       setError(null);
     }
   }, [open, schedule]);
+
+  const {
+    label,
+    startsAt,
+    endsAt,
+    primaryUserId,
+    backupUserId,
+    escalationManagerUserId,
+  } = formData;
+
+  function updateField<K extends keyof ScheduleFormData>(
+    key: K,
+    value: ScheduleFormData[K],
+  ): void {
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  }
 
   // PR #623 review (Vijit), G3: a schedule where primary/backup/escalation
   // overlap is a silent misconfiguration -- backup gets paged alongside
@@ -598,7 +619,7 @@ function ScheduleFormModal({
               placeholder="e.g. Week 1"
               value={label}
               autoFocus
-              onChange={(e) => setLabel(e.target.value)}
+              onChange={(e) => updateField("label", e.target.value)}
               required
               maxLength={200}
             />
@@ -610,7 +631,7 @@ function ScheduleFormModal({
                 className="form-input"
                 type="datetime-local"
                 value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
+                onChange={(e) => updateField("startsAt", e.target.value)}
                 required
               />
             </div>
@@ -620,7 +641,7 @@ function ScheduleFormModal({
                 className="form-input"
                 type="datetime-local"
                 value={endsAt}
-                onChange={(e) => setEndsAt(e.target.value)}
+                onChange={(e) => updateField("endsAt", e.target.value)}
                 required
               />
             </div>
@@ -630,7 +651,7 @@ function ScheduleFormModal({
             <UserPicker
               users={users}
               value={primaryUserId || null}
-              onChange={(id) => setPrimaryUserId(id ?? "")}
+              onChange={(id) => updateField("primaryUserId", id ?? "")}
               placeholder="Select a user"
               portalContainer={contentNode}
             />
@@ -640,7 +661,7 @@ function ScheduleFormModal({
             <UserPicker
               users={users}
               value={backupUserId || null}
-              onChange={(id) => setBackupUserId(id ?? "")}
+              onChange={(id) => updateField("backupUserId", id ?? "")}
               placeholder="None"
               portalContainer={contentNode}
             />
@@ -650,7 +671,9 @@ function ScheduleFormModal({
             <UserPicker
               users={users}
               value={escalationManagerUserId || null}
-              onChange={(id) => setEscalationManagerUserId(id ?? "")}
+              onChange={(id) =>
+                updateField("escalationManagerUserId", id ?? "")
+              }
               placeholder="None"
               portalContainer={contentNode}
             />

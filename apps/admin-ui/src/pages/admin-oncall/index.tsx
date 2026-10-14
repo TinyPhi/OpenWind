@@ -1,9 +1,20 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
-import { TeamsPage } from "../teams/index.js";
-import { ServicesPage } from "../services/index.js";
-import { RosterPage } from "../roster/index.js";
-import { NotificationPoliciesPage } from "../notification-policies/index.js";
+
+const TeamsPage = lazy(() =>
+  import("../teams/index.js").then((m) => ({ default: m.TeamsPage })),
+);
+const ServicesPage = lazy(() =>
+  import("../services/index.js").then((m) => ({ default: m.ServicesPage })),
+);
+const RosterPage = lazy(() =>
+  import("../roster/index.js").then((m) => ({ default: m.RosterPage })),
+);
+const NotificationPoliciesPage = lazy(() =>
+  import("../notification-policies/index.js").then((m) => ({
+    default: m.NotificationPoliciesPage,
+  })),
+);
 
 // Combines the 4 on-call-routing admin pages (docs/specs/oncall-routing.md)
 // into one tabbed page — they're tightly coupled (services belong to teams,
@@ -72,10 +83,19 @@ export function OnCallAdminPage(): React.ReactElement {
         ))}
       </div>
 
-      {activeTab === "teams" && <TeamsPage />}
-      {activeTab === "services" && <ServicesPage />}
-      {activeTab === "roster" && <RosterPage />}
-      {activeTab === "policies" && <NotificationPoliciesPage />}
+      <Suspense
+        fallback={
+          <div className="loading-center">
+            <div className="spinner" />
+            <span className="loader-text">Loading…</span>
+          </div>
+        }
+      >
+        {activeTab === "teams" && <TeamsPage />}
+        {activeTab === "services" && <ServicesPage />}
+        {activeTab === "roster" && <RosterPage />}
+        {activeTab === "policies" && <NotificationPoliciesPage />}
+      </Suspense>
     </div>
   );
 }

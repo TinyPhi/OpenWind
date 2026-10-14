@@ -44,6 +44,30 @@ type TeamOption = {
   name: string;
 };
 
+export interface InstanceCreateFormData {
+  fieldValues: Record<string, unknown>;
+  workflowId: string;
+  currentState: string;
+  assignedTo: string | null;
+  assignMode: "user" | "team";
+  teamId: string;
+  dueDate: string;
+  remark: string;
+  severity: Severity;
+}
+
+const INITIAL_FORM_DATA: InstanceCreateFormData = {
+  fieldValues: {},
+  workflowId: "",
+  currentState: "",
+  assignedTo: null,
+  assignMode: "user",
+  teamId: "",
+  dueDate: "",
+  remark: "",
+  severity: DEFAULT_SEVERITY,
+};
+
 export function EntityInstanceCreate(): React.ReactElement {
   const { id: entityTypeId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -64,16 +88,41 @@ export function EntityInstanceCreate(): React.ReactElement {
     }>
   >([]);
   const [teams, setTeams] = useState<TeamOption[]>([]);
-  const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
-  const [workflowId, setWorkflowId] = useState("");
-  const [currentState, setCurrentState] = useState("");
-  const [assignedTo, setAssignedTo] = useState<string | null>(null);
-  // docs/specs/team-assign-oncall-fallback.md R1 — exactly one of user/team.
-  const [assignMode, setAssignMode] = useState<"user" | "team">("user");
-  const [teamId, setTeamId] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [remark, setRemark] = useState("");
-  const [severity, setSeverity] = useState<Severity>(DEFAULT_SEVERITY);
+  const [formData, setFormData] =
+    useState<InstanceCreateFormData>(INITIAL_FORM_DATA);
+
+  function updateFormField<K extends keyof InstanceCreateFormData>(
+    key: K,
+    val:
+      | InstanceCreateFormData[K]
+      | ((prev: InstanceCreateFormData[K]) => InstanceCreateFormData[K]),
+  ): void {
+    setFormData((prev) => {
+      const nextVal =
+        typeof val === "function"
+          ? (
+              val as (
+                prevVal: InstanceCreateFormData[K],
+              ) => InstanceCreateFormData[K]
+            )(prev[key])
+          : val;
+      if (prev[key] === nextVal) return prev;
+      return { ...prev, [key]: nextVal };
+    });
+  }
+
+  const {
+    fieldValues,
+    workflowId,
+    currentState,
+    assignedTo,
+    assignMode,
+    teamId,
+    dueDate,
+    remark,
+    severity,
+  } = formData;
+
   // Mandate = the generic system fields (assigned to, due date, remark,
   // severity) plus whichever custom fields this workflow marks required
   // (conventionally just "title") -- Other = everything else, optional,
@@ -95,21 +144,22 @@ export function EntityInstanceCreate(): React.ReactElement {
 
   // Sync currentState when workflow selection changes
   useEffect(() => {
-    if (!workflowId) {
-      setCurrentState("");
+    if (!formData.workflowId) {
+      updateFormField("currentState", "");
       return;
     }
-    const wf = workflows.find((w) => w.id === workflowId);
+    const wf = workflows.find((w) => w.id === formData.workflowId);
     if (!wf) return;
-    const isValid = wf.states?.some((s) => s.name === currentState);
+    const isValid = wf.states?.some((s) => s.name === formData.currentState);
     if (!isValid) {
-      setCurrentState(
+      updateFormField(
+        "currentState",
         wf.states?.find((s) => s.name === wf.initialState)?.name ??
           wf.states?.[0]?.name ??
           "",
       );
     }
-  }, [workflowId, workflows]);
+  }, [formData.workflowId, formData.currentState, workflows]);
 
   useEffect(() => {
     if (!entityTypeId) return;
@@ -131,7 +181,8 @@ export function EntityInstanceCreate(): React.ReactElement {
         );
         const wfs = (wfRes as { data?: WorkflowDef[] }).data ?? [];
         setWorkflows(wfs);
-        if (wfs.length === 1 && wfs[0]) setWorkflowId(wfs[0].id);
+        if (wfs.length === 1 && wfs[0])
+          updateFormField("workflowId", wfs[0].id);
 
         const usrs =
           (
@@ -248,7 +299,7 @@ export function EntityInstanceCreate(): React.ReactElement {
             <select
               className="form-input"
               value={workflowId}
-              onChange={(e) => setWorkflowId(e.target.value)}
+              onChange={(e) => updateFormField("workflowId", e.target.value)}
             >
               <option value="">No workflow</option>
               {workflows.map((wf) => (
@@ -266,7 +317,7 @@ export function EntityInstanceCreate(): React.ReactElement {
             <select
               className="form-input"
               value={currentState}
-              onChange={(e) => setCurrentState(e.target.value)}
+              onChange={(e) => updateFormField("currentState", e.target.value)}
             >
               {availableStates.map((st) => (
                 <option key={st.id} value={st.name}>
@@ -353,7 +404,7 @@ export function EntityInstanceCreate(): React.ReactElement {
               <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
                 <button
                   type="button"
-                  onClick={() => setAssignMode("user")}
+                  onClick={() => updateFormField("assignMode", "user")}
                   style={{
                     padding: "5px 12px",
                     fontSize: "12.5px",
@@ -373,7 +424,7 @@ export function EntityInstanceCreate(): React.ReactElement {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAssignMode("team")}
+                  onClick={() => updateFormField("assignMode", "team")}
                   style={{
                     padding: "5px 12px",
                     fontSize: "12.5px",
@@ -396,13 +447,13 @@ export function EntityInstanceCreate(): React.ReactElement {
                 <UserPicker
                   users={users}
                   value={assignedTo}
-                  onChange={setAssignedTo}
+                  onChange={(val) => updateFormField("assignedTo", val)}
                 />
               ) : (
                 <select
                   className="form-input"
                   value={teamId}
-                  onChange={(e) => setTeamId(e.target.value)}
+                  onChange={(e) => updateFormField("teamId", e.target.value)}
                 >
                   <option value="">Select a team…</option>
                   {teams.map((t) => (
@@ -421,14 +472,17 @@ export function EntityInstanceCreate(): React.ReactElement {
                 type="datetime-local"
                 className="form-input"
                 value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                onChange={(e) => updateFormField("dueDate", e.target.value)}
               />
             </div>
             <div className="form-group">
               <label className="form-label">
                 Severity<span style={{ color: "var(--danger)" }}> *</span>
               </label>
-              <SeverityDropdown value={severity} onChange={setSeverity} />
+              <SeverityDropdown
+                value={severity}
+                onChange={(val) => updateFormField("severity", val)}
+              />
             </div>
             <div className="form-group" style={{ gridColumn: "1 / -1" }}>
               <label className="form-label">
@@ -439,7 +493,7 @@ export function EntityInstanceCreate(): React.ReactElement {
                 rows={3}
                 maxLength={4000}
                 value={remark}
-                onChange={(e) => setRemark(e.target.value)}
+                onChange={(e) => updateFormField("remark", e.target.value)}
               />
             </div>
             {mandateFields.map((f) => (
@@ -461,7 +515,10 @@ export function EntityInstanceCreate(): React.ReactElement {
                   moduleSlug={moduleSlug}
                   entityId={undefined}
                   onChange={(v) =>
-                    setFieldValues((p) => ({ ...p, [f.name]: v }))
+                    updateFormField("fieldValues", (p) => ({
+                      ...p,
+                      [f.name]: v,
+                    }))
                   }
                 />
               </div>
@@ -493,7 +550,10 @@ export function EntityInstanceCreate(): React.ReactElement {
                   moduleSlug={moduleSlug}
                   entityId={undefined}
                   onChange={(v) =>
-                    setFieldValues((p) => ({ ...p, [f.name]: v }))
+                    updateFormField("fieldValues", (p) => ({
+                      ...p,
+                      [f.name]: v,
+                    }))
                   }
                 />
               </div>
