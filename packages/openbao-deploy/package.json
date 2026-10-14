@@ -1,0 +1,20 @@
+{
+  "name": "@platform/openbao-deploy",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenBao startup loaders (Node and Python) for production containers (ADR-023).",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@platform/tsconfig": "workspace:*",
+    "@types/node": "^25.7.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
+  }
+}
