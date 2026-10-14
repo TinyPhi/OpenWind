@@ -84,10 +84,10 @@ export async function requestMfaCode(
     "NX",
   );
   if (claimed === null) {
+    // The wait comes from Redis, never from config: -2 (the key expired between the two calls)
+    // and -1 (no expiry) both mean there is nothing left to wait for, so "retry in a second".
     const ttl = await redis.ttl(resendKey(userId));
-    throw new MfaResendTooSoonError(
-      ttl > 0 ? ttl : env.PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS,
-    );
+    throw new MfaResendTooSoonError(ttl > 0 ? ttl : 1);
   }
 
   const code = generateCode();

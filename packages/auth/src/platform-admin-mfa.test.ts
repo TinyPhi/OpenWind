@@ -113,9 +113,9 @@ describe("requestMfaCode", () => {
     expect(mockSendDirectNotification).not.toHaveBeenCalled();
   });
 
-  it("falls back to the full cooldown if Redis reports no TTL on the cooldown key", async () => {
+  it("says to retry in a second when Redis reports no remaining TTL (the key just expired), not a config value", async () => {
     mockRedisSet.mockResolvedValueOnce(null);
-    mockRedisTtl.mockResolvedValueOnce(-1);
+    mockRedisTtl.mockResolvedValueOnce(-2);
 
     const err = await requestMfaCode("pa-1", "pa@example.com").catch(
       (e: unknown) => e,
@@ -123,7 +123,7 @@ describe("requestMfaCode", () => {
 
     expect(
       (err as InstanceType<typeof MfaResendTooSoonError>).retryAfterSeconds,
-    ).toBe(7);
+    ).toBe(1);
   });
 
   it("releases the resend cooldown when the email fails to send, so the admin can retry at once", async () => {
