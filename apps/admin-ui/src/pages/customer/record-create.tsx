@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { initials } from "../../lib/format.js";
 import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
