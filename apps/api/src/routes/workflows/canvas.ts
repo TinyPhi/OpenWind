@@ -201,7 +201,11 @@ export const canvasSaveHandler = factory.createHandlers(
         );
 
         const roleChanges: TransitionRoleChange[] = [];
-        // A transition removed with its conditions removes any segregation-of-duties rule on it.
+        // A transition removed with its conditions removes any segregation-of-duties rule on it,
+        // so deletions are audited. Known limit: the canvas never writes `conditions` (it inserts
+        // null and its updates leave the column alone), so no condition change can be missed here
+        // today. If an inline condition editor is ever added to the canvas, its edits must be
+        // pushed onto this list as well, or they would go unaudited.
         const conditionChanges: TransitionConditionChange[] = [];
 
         if (newTransitions.length > 0) {
