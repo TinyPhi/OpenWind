@@ -1,3 +1,4 @@
+import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import "../i18n.js";
@@ -19,6 +20,14 @@ vi.mock("../lib/network-status.js", () => ({
 }));
 
 const { GlobalErrorBanner } = await import("./global-error-banner.js");
+
+// The notice is consumed once when the module loads, so a test that wants it
+// present stages sessionStorage first and loads a fresh copy of the module.
+async function loadBannerWithNotice(): Promise<typeof GlobalErrorBanner> {
+  window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
+  vi.resetModules();
+  return (await import("./global-error-banner.js")).GlobalErrorBanner;
+}
 
 function setNetworkState(kind: string): void {
   networkSnapshot = { kind };
@@ -90,9 +99,9 @@ describe("GlobalErrorBanner", () => {
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("shows the session-expired notice on the page load after a forced logout", () => {
-    window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
-    render(<GlobalErrorBanner />);
+  it("shows the session-expired notice on the page load after a forced logout", async () => {
+    const Banner = await loadBannerWithNotice();
+    render(<Banner />);
 
     expect(
       screen.getByText("Your session has expired. Please sign in again."),
@@ -100,20 +109,28 @@ describe("GlobalErrorBanner", () => {
     expect(screen.queryByText("Log in again")).toBeNull();
   });
 
-  it("shows the session-expired notice only once", () => {
-    window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
-    render(<GlobalErrorBanner />);
-    cleanup();
-    render(<GlobalErrorBanner />);
+  it("consumes the session-expired notice from storage so a reload does not show it again", async () => {
+    await loadBannerWithNotice();
 
-    expect(
-      screen.queryByText("Your session has expired. Please sign in again."),
-    ).toBeNull();
+    expect(window.sessionStorage.getItem(NOTICE_KEY)).toBeNull();
   });
 
-  it("keeps the session-expired notice until dismissed (no 6s auto-dismiss)", () => {
-    window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
-    render(<GlobalErrorBanner />);
+  it("still shows the notice when Strict Mode runs the initializer twice", async () => {
+    const Banner = await loadBannerWithNotice();
+    render(
+      <React.StrictMode>
+        <Banner />
+      </React.StrictMode>,
+    );
+
+    expect(
+      screen.getByText("Your session has expired. Please sign in again."),
+    ).toBeDefined();
+  });
+
+  it("keeps the session-expired notice until dismissed (no 6s auto-dismiss)", async () => {
+    const Banner = await loadBannerWithNotice();
+    render(<Banner />);
 
     act(() => {
       vi.advanceTimersByTime(10_000);
@@ -140,9 +157,9 @@ describe("GlobalErrorBanner", () => {
     expect(screen.queryByText("Something broke")).toBeNull();
   });
 
-  it("shows both a network banner and the session-expired notice together", () => {
-    window.sessionStorage.setItem(NOTICE_KEY, "session_expired");
-    render(<GlobalErrorBanner />);
+  it("shows both a network banner and the session-expired notice together", async () => {
+    const Banner = await loadBannerWithNotice();
+    render(<Banner />);
     act(() => {
       setNetworkState("reconnecting");
     });

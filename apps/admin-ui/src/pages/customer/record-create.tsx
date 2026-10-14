@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
-import { initials } from "../../lib/format.js";
 import { FieldInput } from "../../components/field-input.js";
 import { useEntityTypes } from "../../entity-type-context.js";
 import { useFileUpload } from "../../hooks/use-file-upload.js";
+import { useOutsideClick } from "../../hooks/use-outside-click.js";
+import { initials, singularize } from "../../lib/format.js";
 import {
   AttachmentUploadZone,
   StagedFileChip,
@@ -27,35 +28,6 @@ type TeamOption = {
   id: string;
   name: string;
 };
-
-// Derives a singular display label from the entity type's plural (e.g.
-// "NSI Amendment Requests" -> "NSI Amendment Request") rather than falling
-// back to entityType.name, which for several entity types is a raw
-// snake_case/lowercase identifier (e.g. "nsi_amendment_request", "ticket")
-// never meant for display.
-function singularize(plural: string): string {
-  if (/[a-z]ies$/.test(plural)) return plural.replace(/ies$/, "y");
-  if (/s$/i.test(plural)) return plural.replace(/s$/i, "");
-  return plural;
-}
-
-// Shared by UserPicker and TeamPicker below — both are click-outside-to-close
-// dropdowns; extracted so the same outside-click wiring isn't duplicated
-// per component (/review finding, 2026-09-21).
-function useOutsideClick(
-  ref: React.RefObject<HTMLElement>,
-  onOutside: () => void,
-): void {
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent): void {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onOutside();
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [ref, onOutside]);
-}
 
 function UnassignedRow({
   onSelect,

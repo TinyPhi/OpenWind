@@ -21,12 +21,15 @@ interface Banner {
 
 let _nextId = 0;
 
+// Read once at module load, not in the component: React Strict Mode runs the
+// state initializer twice in dev, and the notice is one-shot (the first read
+// clears it), so the visible mount would otherwise see nothing.
+const INITIAL_SESSION_EXPIRED_NOTICE = consumeSessionExpiredNotice();
+
 export function GlobalErrorBanner(): React.ReactElement | null {
   const { t } = useTranslation();
-  // Lazy initializer: consumes the one-shot notice left by endSessionAndRedirectToLogin
-  // exactly once, on the page load that follows the forced logout.
   const [banners, setBanners] = useState<Banner[]>(() =>
-    consumeSessionExpiredNotice()
+    INITIAL_SESSION_EXPIRED_NOTICE
       ? [{ id: ++_nextId, type: "auth", message: t("network.sessionExpired") }]
       : [],
   );
