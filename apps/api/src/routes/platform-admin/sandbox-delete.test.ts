@@ -88,7 +88,9 @@ const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 beforeEach(() => {
   vi.clearAllMocks();
   freshState.fresh = true;
-  mockSelectRows.mockResolvedValue([{ id: TENANT_ID, isSandbox: true }]);
+  mockSelectRows.mockResolvedValue([
+    { id: TENANT_ID, isSandbox: true, status: "active" },
+  ]);
 });
 
 describe("POST /sandboxes/:tenantId/delete", () => {
