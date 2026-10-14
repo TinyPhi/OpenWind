@@ -9,6 +9,7 @@ import {
   DEV_SUPERSET_GUEST_TOKEN_SECRET,
   DEV_SUPERSET_SERVICE_ACCOUNT_PASSWORD,
   DEV_SUPERSET_ADMIN_PASSWORD,
+  DEV_METRICS_TOKEN,
 } from "./dev-defaults.js";
 
 // Load .env.local from the monorepo root (walk up from cwd until we find it)
@@ -24,7 +25,11 @@ function findEnvLocal(): string | undefined {
   return undefined;
 }
 
-const envLocalPath = findEnvLocal();
+// Never in production: there, every setting comes from the container
+// environment (the OpenBao startup loader, ADR-023 Decision 2). A stray
+// .env.local must not silently fill a key that is missing from OpenBao.
+const envLocalPath =
+  process.env["NODE_ENV"] === "production" ? undefined : findEnvLocal();
 if (envLocalPath) {
   loadDotenv({ path: envLocalPath, override: false });
 }
@@ -269,10 +274,21 @@ const EnvSchema = z
     OPENBAO_ADDR: z.string().url().optional(),
     OPENBAO_TRANSIT_KEY: z.string().default("platform-credentials"),
     // Dev: static root token. Prod: leave unset and use AppRole instead.
-    OPENBAO_TOKEN: z.string().optional(),
+    // Empty or whitespace counts as unset: an empty value used to pass the
+    // refine below and fail only at the first decrypt.
+    OPENBAO_TOKEN: z
+      .string()
+      .optional()
+      .transform((v) => (v && v.trim() !== "" ? v : undefined)),
     // AppRole auth (production) — both required together when OPENBAO_TOKEN is absent
-    OPENBAO_ROLE_ID: z.string().optional(),
-    OPENBAO_SECRET_ID: z.string().optional(),
+    OPENBAO_ROLE_ID: z
+      .string()
+      .optional()
+      .transform((v) => (v && v.trim() !== "" ? v : undefined)),
+    OPENBAO_SECRET_ID: z
+      .string()
+      .optional()
+      .transform((v) => (v && v.trim() !== "" ? v : undefined)),
     // Telemetry and Tracing (Stage 0)
     TELEMETRY_ENABLED: z
       .string()
@@ -280,7 +296,7 @@ const EnvSchema = z
       .default("false"),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
     OTEL_SERVICE_NAME: z.string().optional(),
-    METRICS_TOKEN: z.string().default("dev-metrics-token-12345"),
+    METRICS_TOKEN: z.string().default(DEV_METRICS_TOKEN),
     OTEL_TRACE_SAMPLE_RATIO: z
       .string()
       .transform((v) => parseFloat(v))
@@ -360,6 +376,42 @@ const EnvSchema = z
     {
       message:
         "Either OPENBAO_TOKEN (dev) or both OPENBAO_ROLE_ID and OPENBAO_SECRET_ID (prod) must be set for 'openbao' provider",
+    },
+  )
+  // OpenBao in production (ADR-023 Decision 7): AppRole over https only, and
+  // never the local provider, whose AES key is published in this repo.
+  .refine(
+    (v) => !(v.NODE_ENV === "production" && v.SECRETS_PROVIDER === "local"),
+    {
+      message:
+        "SECRETS_PROVIDER must not be 'local' in production — the local provider's key is public, so it protects nothing",
+    },
+  )
+  .refine(
+    (v) => !(v.NODE_ENV === "production" && v.OPENBAO_TOKEN !== undefined),
+    {
+      message:
+        "OPENBAO_TOKEN must not be set in production — use AppRole (OPENBAO_ROLE_ID and OPENBAO_SECRET_ID) instead of a static token",
+    },
+  )
+  .refine(
+    (v) =>
+      !(
+        v.NODE_ENV === "production" &&
+        v.OPENBAO_ADDR !== undefined &&
+        !v.OPENBAO_ADDR.startsWith("https://")
+      ),
+    {
+      message:
+        "OPENBAO_ADDR must use https:// in production — tokens and secrets must not travel over plain HTTP",
+    },
+  )
+  .refine(
+    (v) =>
+      !(v.NODE_ENV === "production" && v.METRICS_TOKEN === DEV_METRICS_TOKEN),
+    {
+      message:
+        "METRICS_TOKEN must not be its development default in production — the default is published in this repo",
     },
   )
   .refine(

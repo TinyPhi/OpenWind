@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EnvSchema } from "./env.js";
-import { DEV_SUPERSET_DEFAULTS } from "./dev-defaults.js";
+import { DEV_SUPERSET_DEFAULTS, DEV_METRICS_TOKEN } from "./dev-defaults.js";
 
 // Mirrors vitest.config.ts's fixture, minus RATE_LIMIT_TENANT_PER_MIN — the
 // field under test — so each test controls it explicitly or omits it.
@@ -146,9 +146,16 @@ describe("ERROR_TRACKING", () => {
 // Every case below starts from a production env that is otherwise completely
 // valid, and changes one value. Without that, a test could pass because some
 // unrelated production rule threw — proving nothing about the guard under test.
+const { OPENBAO_TOKEN: _devToken, ...MINIMAL_WITHOUT_TOKEN } =
+  MINIMAL_VALID_ENV;
 const PRODUCTION_ENV = {
-  ...MINIMAL_VALID_ENV,
+  ...MINIMAL_WITHOUT_TOKEN,
   NODE_ENV: "production",
+  // Production OpenBao: AppRole over https, never a static token (ADR-023).
+  OPENBAO_ADDR: "https://openbao.example.com:8200",
+  OPENBAO_ROLE_ID: "role-id",
+  OPENBAO_SECRET_ID: "secret-id",
+  METRICS_TOKEN: "a-real-metrics-token",
   // Required in production by an existing refine; unrelated to Superset, but
   // absent it every parse below would throw for the wrong reason.
   CORS_ORIGIN: "https://app.example.com",
@@ -323,5 +330,62 @@ describe("DATABASE_DIRECT_URL / DATABASE_LOCK_POOL_MAX (#752)", () => {
     expect(() =>
       EnvSchema.parse({ ...MINIMAL_VALID_ENV, DATABASE_LOCK_POOL_MAX: "0" }),
     ).toThrow();
+  });
+});
+
+describe("OpenBao — production guards (ADR-023)", () => {
+  it("accepts AppRole over https in production", () => {
+    expect(EnvSchema.parse(PRODUCTION_ENV).OPENBAO_TOKEN).toBeUndefined();
+  });
+
+  it("rejects the local provider in production", () => {
+    expect(() =>
+      EnvSchema.parse({ ...PRODUCTION_ENV, SECRETS_PROVIDER: "local" }),
+    ).toThrow(/SECRETS_PROVIDER must not be 'local' in production/);
+  });
+
+  it("rejects a static OPENBAO_TOKEN in production", () => {
+    expect(() =>
+      EnvSchema.parse({ ...PRODUCTION_ENV, OPENBAO_TOKEN: "dev-root-token" }),
+    ).toThrow(/OPENBAO_TOKEN must not be set in production/);
+  });
+
+  it("rejects a plain-http OPENBAO_ADDR in production", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...PRODUCTION_ENV,
+        OPENBAO_ADDR: "http://openbao:8200",
+      }),
+    ).toThrow(/OPENBAO_ADDR must use https:\/\/ in production/);
+  });
+
+  it("rejects the development METRICS_TOKEN in production", () => {
+    const { METRICS_TOKEN: _real, ...withoutToken } = PRODUCTION_ENV;
+    expect(() => EnvSchema.parse(withoutToken)).toThrow(
+      /METRICS_TOKEN must not be its development default in production/,
+    );
+    expect(() =>
+      EnvSchema.parse({ ...PRODUCTION_ENV, METRICS_TOKEN: DEV_METRICS_TOKEN }),
+    ).toThrow(/METRICS_TOKEN/);
+  });
+
+  it("keeps the dev token, http and the local provider working outside production", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      OPENBAO_ADDR: "http://openbao:8200",
+    });
+    expect(parsed.OPENBAO_TOKEN).toBe("dev-root-token");
+    expect(parsed.METRICS_TOKEN).toBe(DEV_METRICS_TOKEN);
+  });
+
+  it("treats empty OpenBao credentials as unset, so the missing-auth check fires at start", () => {
+    expect(() =>
+      EnvSchema.parse({
+        ...MINIMAL_WITHOUT_TOKEN,
+        OPENBAO_TOKEN: "",
+        OPENBAO_ROLE_ID: " ",
+        OPENBAO_SECRET_ID: "",
+      }),
+    ).toThrow(/Either OPENBAO_TOKEN \(dev\) or both OPENBAO_ROLE_ID/);
   });
 });

@@ -13,6 +13,7 @@
     "db:migrate": "tsx src/run-migrations.ts",
     "db:migrate:create": "drizzle-kit generate",
     "db:seed": "tsx src/seed.ts",
+    "db:check-local-ciphertext": "tsx src/check-local-ciphertext.ts",
     "db:studio": "drizzle-kit studio",
     "test": "vitest run",
     "test:watch": "vitest",

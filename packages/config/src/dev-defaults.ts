@@ -19,6 +19,13 @@ export const DEV_SUPERSET_SERVICE_ACCOUNT_PASSWORD =
   "service_account_dev_password";
 export const DEV_SUPERSET_ADMIN_PASSWORD = "admin_dev_password";
 
+/**
+ * Bearer token for the API and worker /metrics endpoints. Same rule as the
+ * Superset values: a working default for a fresh clone, refused in production
+ * (ADR-023 Decision 6).
+ */
+export const DEV_METRICS_TOKEN = "dev-metrics-token-12345";
+
 /** The four together, for the guard tests to iterate over. */
 export const DEV_SUPERSET_DEFAULTS = {
   SUPERSET_SECRET_KEY: DEV_SUPERSET_SECRET_KEY,

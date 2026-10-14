@@ -14,10 +14,13 @@ paths:
 
 These are non-negotiable and reviewed in every PR touching these paths.
 
-**`packages/secrets/`** is the OpenBao (HashiCorp Vault fork) client wrapper. It handles
-dynamic secret leases, token renewal, and secret injection at runtime. No other package
-reads secrets from the vault directly — all access goes through `@platform/secrets`.
-See `packages/secrets/README.md` for the API surface.
+**`packages/secrets/`** is the OpenBao (HashiCorp Vault fork) client wrapper and the only
+**runtime** vault client: it encrypts and decrypts connector credentials with Transit
+(per-tenant derived context), logs in with AppRole and renews its token. No other package
+calls the vault at runtime — all access goes through `@platform/secrets`. Settings and
+secrets reach processes as ordinary environment variables; in production, ADR-023's startup
+loader reads each service's OpenBao KV path once, before the app starts. There are no
+dynamic secret leases. See `packages/secrets/README.md` for the API surface.
 
 ---
 
