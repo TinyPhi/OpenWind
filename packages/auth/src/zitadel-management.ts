@@ -1072,18 +1072,37 @@ async function _fetchUserRolesByUserId(
 
 // ── Get single user by ID ─────────────────────────────────────────────────────
 
+const FRESH_FALLBACK_MAX_AGE_MS = 60 * 60 * 1000;
+
 const _userByIdCache = new Map<
   string,
   { user: OrgUser | null; expiresAt: number }
 >();
 
-export async function getUserById(userId: string): Promise<OrgUser | null> {
+/**
+ * One Zitadel user, cached for CACHE_TTL_MS. `fresh: true` skips the cache read (still
+ * refreshing it) -- for outbound email, where a changed address must be used right away rather
+ * than up to five minutes later. If that fresh lookup can't reach Zitadel (no token, network
+ * error, 5xx), a cached value no older than FRESH_FALLBACK_MAX_AGE_MS is returned instead, so a
+ * blip never loses a recipient. A 4xx is an answer, not an outage: a deleted user must not be
+ * resurrected from the cache and emailed at their old address.
+ */
+export async function getUserById(
+  userId: string,
+  options: { fresh?: boolean } = {},
+): Promise<OrgUser | null> {
   const now = Date.now();
   const cached = _userByIdCache.get(userId);
-  if (cached && now < cached.expiresAt) return cached.user;
+  if (!options.fresh && cached && now < cached.expiresAt) return cached.user;
+  // Only used when the lookup itself failed (no token, 5xx, network/parse error).
+  const cachedAt = cached ? cached.expiresAt - CACHE_TTL_MS : 0;
+  const fallback =
+    options.fresh && cached && now - cachedAt <= FRESH_FALLBACK_MAX_AGE_MS
+      ? cached.user
+      : null;
 
   const token = await getAccessToken();
-  if (!token) return null;
+  if (!token) return fallback;
 
   try {
     const url = `${internalBase()}/zitadel.user.v2.UserService/GetUserByID`;
@@ -1094,7 +1113,11 @@ export async function getUserById(userId: string): Promise<OrgUser | null> {
       JSON.stringify({ userId }),
     );
 
-    if (result.status < 200 || result.status >= 300) return null;
+    if (result.status >= 500) return fallback;
+    if (result.status < 200 || result.status >= 300) {
+      if (options.fresh) _userByIdCache.delete(userId);
+      return null;
+    }
 
     interface ZitadelGetUserResponse {
       user?: {
@@ -1141,7 +1164,7 @@ export async function getUserById(userId: string): Promise<OrgUser | null> {
     });
     return orgUser;
   } catch {
-    return null;
+    return fallback;
   }
 }
 

@@ -2,7 +2,8 @@ import { zValidator } from "../../lib/validator.js";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "@platform/auth";
-import { entityInstances, tenantUsers, withTenantContext } from "@platform/db";
+import { entityInstances, withTenantContext } from "@platform/db";
+import { ensureTenantMembers } from "../../lib/ensure-user-refs.js";
 import { getWorkflow, isWorkflowAdmin } from "@platform/workflow-engine";
 import { factory } from "./factory.js";
 import { handleEntityError } from "../../lib/handle-entity-error.js";
@@ -26,7 +27,7 @@ export const grantAccessHandler = factory.createHandlers(
   zValidator("json", GrantAccessSchema),
   async (c) => {
     const id = c.req.param("id") ?? "";
-    const { tenantId, userId: actorId, roles } = c.get("auth");
+    const { tenantId, userId: actorId, roles, orgId } = c.get("auth");
     const isPrivileged = roles.includes("admin") || roles.includes("agent");
     const { userId, level, tag } = c.req.valid("json");
 
@@ -79,20 +80,13 @@ export const grantAccessHandler = factory.createHandlers(
       // Reject granting access to a userId that isn't actually a member of
       // this tenant — the schema only validates that userId is a non-empty
       // string, so without this check any caller-supplied ID would be
-      // written into __accessUsers unchecked.
-      const [targetUser] = await withTenantContext(tenantId, (tx) =>
-        tx
-          .select({ userId: tenantUsers.userId })
-          .from(tenantUsers)
-          .where(
-            and(
-              eq(tenantUsers.tenantId, tenantId),
-              eq(tenantUsers.userId, userId),
-            ),
-          )
-          .limit(1),
+      // written into __accessUsers unchecked. A member is anyone in
+      // tenant_users or in this tenant's Zitadel org (registered on the way),
+      // so a colleague who has never signed in can still be granted access.
+      const members = await withTenantContext(tenantId, (tx) =>
+        ensureTenantMembers(tx, tenantId, [userId], orgId),
       );
-      if (!targetUser) {
+      if (!members.has(userId)) {
         return c.json(
           { error: "NOT_FOUND", message: "User not found in this tenant" },
           404,
