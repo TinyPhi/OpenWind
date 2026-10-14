@@ -372,8 +372,8 @@ before writing code.
 
 ## Architecture decision records
 
-Key technical decisions are documented as ADRs in [`docs/decisions/`](docs/decisions/) — 22 as of
-this writing, humans-only to write or modify. ADR-018 through ADR-022 are
+Key technical decisions are documented as ADRs in [`docs/decisions/`](docs/decisions/) — 23 as of
+this writing, humans-only to write or modify. ADR-018 through ADR-023 are
 Proposed, not yet accepted:
 
 - [ADR-001: Multi-tenancy architecture](docs/decisions/ADR-001-multitenancy.md)
@@ -398,6 +398,7 @@ Proposed, not yet accepted:
 - [ADR-020: Module ownership model](docs/decisions/ADR-020-module-ownership-model.md)
 - [ADR-021: Ticket relations & participant access](docs/decisions/ADR-021-ticket-relations-and-participant-access.md)
 - [ADR-022: Sandboxing](docs/decisions/ADR-022-sandboxing.md)
+- [ADR-023: OpenBao secrets manager](docs/decisions/ADR-023-openbao-secrets-manager.md)
 
 This list drifts — if it's missing a recent ADR, check [`docs/decisions/`](docs/decisions/)
 directly rather than trusting the count above.
