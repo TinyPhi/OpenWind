@@ -62,6 +62,11 @@ vi.mock("@platform/auth", () => ({
     async (c: Context, next: Next): Promise<void> => {
       await next();
     },
+  requireFreshMfa:
+    () =>
+    async (c: Context, next: Next): Promise<void> => {
+      await next();
+    },
   requirePlatformAdminIdentity:
     () =>
     async (c: Context, next: Next): Promise<void> => {

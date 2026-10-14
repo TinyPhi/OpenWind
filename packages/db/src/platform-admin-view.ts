@@ -218,7 +218,7 @@ export function toProvisioningProgressView(
 }
 
 /**
- * T21's handover artifact shape -- the actual usernames + shared password a platform admin
+ * T21's handover artifact shape -- the actual usernames + per-account passwords a platform admin
  * hands to a prospect. Deliberately a SEPARATE type from ProvisioningProgressView (never
  * widen that one to carry credentials). Unlike the progress view, this isn't built from a
  * single DB row: the credentials live in Redis with a TTL, not in this table (security
@@ -228,6 +228,10 @@ export function toProvisioningProgressView(
  */
 export interface ProvisioningHandoverView {
   tenantId: string;
-  seededAccounts: { username: string; email: string; role: "admin" | "user" }[];
-  defaultPassword: string;
+  seededAccounts: {
+    username: string;
+    email: string;
+    role: "admin" | "user";
+    password: string;
+  }[];
 }

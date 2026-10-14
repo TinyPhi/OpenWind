@@ -221,27 +221,30 @@ describe("processSandboxProvisioningJob", () => {
     expect(finalUpdate.status).toBe("completed");
     expect(finalUpdate.completedSteps).toBe(2 + 5); // makeTemplate(2) -> totalSteps = members.length + 5
     expect(finalUpdate).not.toHaveProperty("defaultPassword");
+    expect(JSON.stringify(finalUpdate)).not.toContain("Ow-");
     expect(finalUpdate).not.toHaveProperty("seededAccounts");
     expect(mockUpdate).toHaveBeenCalledWith(expect.anything());
 
-    // Review finding (PR #804): defaultPassword must never be part of the job's return
-    // value -- BullMQ's removeOnComplete would otherwise persist it in Redis for 1h.
-    // storeSandboxHandoverCredentials (T21, below) is the one and only place it goes.
+    // Review finding (PR #804): no password may be part of the job's return value --
+    // BullMQ's removeOnComplete would otherwise persist it in Redis for 1h.
+    // storeSandboxHandoverCredentials (T21, below) is the one and only place they go.
     expect(result).not.toHaveProperty("defaultPassword");
+    expect(JSON.stringify(result)).not.toContain("Ow-");
 
     // T21: the handover artifact goes to Redis (7-day TTL) instead.
     expect(mockStoreSandboxHandoverCredentials).toHaveBeenCalledWith(
       result.tenantId,
       {
-        defaultPassword: expect.any(String),
         seededAccounts: expect.arrayContaining([
           expect.objectContaining({
             role: "admin",
             username: expect.any(String),
+            password: expect.stringMatching(/^Ow-.+-9!$/),
           }),
           expect.objectContaining({
             role: "user",
             username: expect.any(String),
+            password: expect.stringMatching(/^Ow-.+-9!$/),
           }),
         ]),
       },
@@ -337,6 +340,33 @@ describe("processSandboxProvisioningJob", () => {
       }),
     );
     expect(result.adminEmail).toBe("olivia.smith1@localhost");
+  });
+
+  it("gives every seeded account its own password, and hands over the one Zitadel has", async () => {
+    mockGenerateSandboxOrgTemplate.mockReturnValue(makeTemplate(4));
+    mockCreateHumanUser
+      .mockResolvedValueOnce({ ok: false, conflict: true }) // admin, attempt 0
+      .mockResolvedValue({ ok: true, userId: "user-x" });
+
+    const result = await processSandboxProvisioningJob({
+      id: "job-pw",
+      data: { orgName: "Acme Sandbox", trialDays: 14, requestedBy: "admin-1" },
+    });
+
+    const sent = mockCreateHumanUser.mock.calls.map(
+      ([input]) => (input as { password: string }).password,
+    );
+    // A retry after a clash keeps the account's password; each account gets a new one.
+    expect(sent[0]).toBe(sent[1]);
+    const perAccount = sent.slice(1);
+    expect(new Set(perAccount).size).toBe(5); // 1 admin + 4 members
+
+    const [, handover] = mockStoreSandboxHandoverCredentials.mock.calls[0] as [
+      string,
+      { seededAccounts: { password: string }[] },
+    ];
+    expect(handover.seededAccounts.map((a) => a.password)).toEqual(perAccount);
+    expect(result.seededAccountCount).toBe(5);
   });
 
   it("continues provisioning other members when one member account fails after retries, and reports the failure count", async () => {

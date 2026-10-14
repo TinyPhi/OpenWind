@@ -35,6 +35,40 @@ describe("RATE_LIMIT_TENANT_PER_MIN", () => {
   });
 });
 
+describe("platform_admin step-up MFA settings (ADR-022, #865, #801)", () => {
+  it("default to a 5-minute freshness window and a 30-second resend cooldown", () => {
+    const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);
+    expect(parsed.PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS).toBe(300);
+    expect(parsed.PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS).toBe(30);
+  });
+
+  it("accept explicit values from the environment as strings", () => {
+    const parsed = EnvSchema.parse({
+      ...MINIMAL_VALID_ENV,
+      PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS: "600",
+      PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS: "60",
+    });
+    expect(parsed.PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS).toBe(600);
+    expect(parsed.PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS).toBe(60);
+  });
+
+  it.each([
+    ["PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS", "59"],
+    ["PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS", "901"],
+    ["PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS", "0"],
+    ["PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS", "2.5"],
+    ["PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS", "4"],
+    ["PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS", "301"],
+  ])(
+    "reject %s=%s, so the step-up cannot be switched off or stretched into the long window",
+    (key, value) => {
+      expect(() =>
+        EnvSchema.parse({ ...MINIMAL_VALID_ENV, [key]: value }),
+      ).toThrow();
+    },
+  );
+});
+
 describe("SECRETS_PROVIDER", () => {
   it("defaults to openbao and requires OPENBAO_ADDR", () => {
     const parsed = EnvSchema.parse(MINIMAL_VALID_ENV);

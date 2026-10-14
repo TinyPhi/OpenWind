@@ -126,6 +126,26 @@ const EnvSchema = z
     // DEV_TENANT_ID/SKIP_AV_SCAN below: the refine makes it structurally impossible to
     // enable in production, not just discouraged by convention.
     PLATFORM_ADMIN_MFA_DEV_BYPASS: z.coerce.boolean().default(false),
+    // ADR-022 Decision 10, #865 — sandbox reset and delete are the two irreversible
+    // platform_admin actions, so they need a verification this recent even though the
+    // general MFA window is 12 hours. Config, not hardcoded: the bounds keep it a real
+    // step-up (at least a minute, so a code can be typed and the action completed; at most
+    // 15 minutes, so it cannot be stretched back into the long window it exists to narrow).
+    PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(60)
+      .max(900)
+      .default(300),
+    // #801 — minimum gap between two verification-code emails for one admin, so the
+    // resend path cannot be used to flood an inbox. Enforced per admin, on top of the
+    // global per-IP rate limit.
+    PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(5)
+      .max(300)
+      .default(30),
     // ADR-012 Phase G, spec R6 — the third-party acting-person JWT path
     // (verifyJwtWithAudience) rejects a token whose iat is older than this,
     // independent of Zitadel's own exp-based expiry. A startup warning (not

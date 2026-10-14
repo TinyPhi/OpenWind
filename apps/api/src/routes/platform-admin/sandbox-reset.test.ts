@@ -12,7 +12,25 @@ const { mockPlatformAdmin } = vi.hoisted(() => ({
   },
 }));
 
+// The real requireFreshMfa is unit-tested in packages/auth; here it is a switch, so these
+// tests prove the route is mounted behind it and never reaches its work without it (#865).
+const freshState = vi.hoisted(() => ({ fresh: true }));
+
 vi.mock("@platform/auth", () => ({
+  requireFreshMfa:
+    () =>
+    async (
+      c: Context<{ Variables: { platformAdmin: PlatformAdminAuthContext } }>,
+      next: Next,
+    ): Promise<Response | void> => {
+      if (!freshState.fresh) {
+        return c.json(
+          { error: "MFA_REAUTH_REQUIRED", message: "Enter a new code" },
+          403,
+        );
+      }
+      await next();
+    },
   requirePlatformAdmin:
     () =>
     async (
@@ -69,10 +87,24 @@ const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  freshState.fresh = true;
   mockSelectRows.mockResolvedValue([{ id: TENANT_ID, isSandbox: true }]);
 });
 
 describe("POST /sandboxes/:tenantId/reset", () => {
+  it("returns 403 MFA_REAUTH_REQUIRED without a fresh MFA verification, before any lookup or lock (#865)", async () => {
+    freshState.fresh = false;
+
+    const res = await makeApp().request(`/sandboxes/${TENANT_ID}/reset`, {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "MFA_REAUTH_REQUIRED" });
+    expect(mockSelectRows).not.toHaveBeenCalled();
+    expect(mockAcquireTenantAdvisoryLock).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when no such tenant exists", async () => {
     mockSelectRows.mockResolvedValue([]);
     const app = makeApp();

@@ -318,9 +318,13 @@ describe("GET /platform-admin/sandboxes/:jobId/handover", () => {
     ]);
     mockGetSandboxHandoverCredentials.mockResolvedValueOnce({
       seededAccounts: [
-        { username: "admin.user", email: "admin@example.com", role: "admin" },
+        {
+          username: "admin.user",
+          email: "admin@example.com",
+          role: "admin",
+          password: "Ow-abc-9!",
+        },
       ],
-      defaultPassword: "Ow-abc-9!",
     });
 
     const res = await makeApp().request(`/sandboxes/${JOB_ID}/handover`);
@@ -331,9 +335,13 @@ describe("GET /platform-admin/sandboxes/:jobId/handover", () => {
       data: {
         tenantId: TENANT_ID,
         seededAccounts: [
-          { username: "admin.user", email: "admin@example.com", role: "admin" },
+          {
+            username: "admin.user",
+            email: "admin@example.com",
+            role: "admin",
+            password: "Ow-abc-9!",
+          },
         ],
-        defaultPassword: "Ow-abc-9!",
       },
     });
   });

@@ -2,7 +2,7 @@ import { getRedis } from "@platform/redis";
 
 /**
  * docs/specs/multi-org-sandbox.md T21. Security review (PR3): the handover artifact (seeded
- * usernames + the shared password Zitadel actually has on file) must NOT be a durable
+ * usernames + each account's password Zitadel actually has on file) must NOT be a durable
  * Postgres column -- a column with a blanket `platform_admin_role` GRANT and no retention
  * policy would let any current or future platform_admin recover every sandbox's working
  * credentials indefinitely, long after the sandbox should be considered decommissioned. This
@@ -21,9 +21,24 @@ function handoverKey(tenantId: string): string {
   return `platform-admin:sandbox-handover:${tenantId}`;
 }
 
+export interface SandboxSeededAccount {
+  username: string;
+  email: string;
+  role: "admin" | "user";
+  password: string;
+}
+
 export interface SandboxHandoverCredentials {
-  seededAccounts: { username: string; email: string; role: "admin" | "user" }[];
-  defaultPassword: string;
+  seededAccounts: SandboxSeededAccount[];
+}
+
+// Handovers written before per-account passwords (2026-10-14) carry one sandbox-wide
+// defaultPassword and no per-account password; they stay readable until their 7-day TTL ends.
+interface StoredSandboxHandover {
+  seededAccounts: (Omit<SandboxSeededAccount, "password"> & {
+    password?: string;
+  })[];
+  defaultPassword?: string;
 }
 
 export async function storeSandboxHandoverCredentials(
@@ -49,11 +64,22 @@ export async function getSandboxHandoverCredentials(
   const redis = getRedis();
   const raw = await redis.get(handoverKey(tenantId));
   if (!raw) return null;
+  let stored: StoredSandboxHandover | null;
   try {
-    return JSON.parse(raw) as SandboxHandoverCredentials;
+    // Shape written by storeSandboxHandoverCredentials (or its pre-2026-10-14 version).
+    stored = JSON.parse(raw) as StoredSandboxHandover | null;
   } catch {
     return null;
   }
+  if (!stored || !Array.isArray(stored.seededAccounts)) return null;
+  const seededAccounts: SandboxSeededAccount[] = [];
+  for (const account of stored.seededAccounts) {
+    const password = account.password ?? stored.defaultPassword;
+    // An account with no password on file can't be handed over; treat the record as unusable.
+    if (!password) return null;
+    seededAccounts.push({ ...account, password });
+  }
+  return { seededAccounts };
 }
 
 /**

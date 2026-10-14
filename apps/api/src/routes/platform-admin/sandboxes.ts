@@ -165,7 +165,7 @@ export const sandboxProgressHandler = platformAdminFactory.createHandlers(
 );
 
 /**
- * T21 (R5) — the actual handover artifact: seeded usernames + the shared password used, for
+ * T21 (R5) — the actual handover artifact: seeded usernames + each account's password, for
  * handing off to the prospect. 404 if no completed job exists for this tenant, or if the
  * credentials have since expired (security review: the handover artifact lives in Redis
  * with a 7-day TTL, packages/auth/src/sandbox-handover-store.ts, not a durable DB column —

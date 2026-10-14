@@ -124,9 +124,13 @@ export async function fetchWithAuth(
     }
     const err = new Error(message) as Error & {
       status: number;
+      code?: string | undefined;
       meta?: Record<string, unknown> | undefined;
     };
     err.status = response.status;
+    // The server's machine-readable error (e.g. MFA_REAUTH_REQUIRED), so callers can branch
+    // on it instead of matching message text.
+    err.code = body.error;
     err.meta = body.meta;
     throw err;
   }
