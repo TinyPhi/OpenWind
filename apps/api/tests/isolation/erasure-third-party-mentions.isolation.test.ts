@@ -281,6 +281,14 @@ beforeAll(async () => {
       mentionIdentifiers: { [TARGET]: ["ghost.alias"] },
     },
   );
+  ids["loginSameAliasComment"] = await thirdPartyComment(
+    TENANT,
+    "cc @ghost.alias",
+    {
+      mentions: [TARGET],
+      mentionIdentifiers: { [TARGET]: ["ghost.alias"] },
+    },
+  );
 
   await withTenantContext(TENANT, (tx) =>
     eraseUserFromTenant(tx, TENANT, TARGET),
@@ -401,10 +409,15 @@ describe("erasure redacts third-party mentions (#689)", () => {
     expect(other.mentionIdentifiers).toEqual({ [TARGET]: ["alice.login"] });
   });
 
-  it("does not collect or rewrite an alias recorded on a non-comment event (#914)", async () => {
-    expect((await meta(ids["loginNonComment"] ?? "")).text).toBe(
-      "ghost.alias in a non-comment event",
-    );
+  it("leaves a non-comment event untouched, even when a comment records the same alias (#914)", async () => {
+    expect(await meta(ids["loginNonComment"] ?? "")).toMatchObject({
+      type: "note",
+      text: "ghost.alias in a non-comment event",
+      mentionIdentifiers: { [TARGET]: ["ghost.alias"] },
+    });
+    const comment = await meta(ids["loginSameAliasComment"] ?? "");
+    expect(comment.text).toBe("cc @[REDACTED]");
+    expect(comment.mentionIdentifiers).toEqual({});
   });
 
   it("does not touch another tenant's comment", async () => {
