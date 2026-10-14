@@ -258,8 +258,9 @@ function writeEnvVars(vars: Record<string, string>): void {
 
 /**
  * Save vars bootstrap produced. Outside production this is writeEnvVars. In
- * production, new secret values go to the BOOTSTRAP_SECRETS_OUT file (only the
- * key names are logged) and non-secret config is printed for the operator.
+ * production, everything it produced goes to the BOOTSTRAP_SECRETS_OUT file
+ * (mode 0600): new secrets and the non-secret config alike, so no value is
+ * ever printed even if one were misclassified. Only key names are logged.
  */
 function saveProducedVars(vars: Record<string, string>): void {
   if (!secretsFile) {
@@ -267,12 +268,9 @@ function saveProducedVars(vars: Record<string, string>): void {
     return;
   }
   const { secrets, config } = splitProducedVars(vars);
-  const written = secretsFile.write(secrets);
+  const written = secretsFile.write({ ...config, ...secrets });
   if (written.length > 0) {
     ok(`Wrote ${written.join(", ")} to ${secretsFile.path} (values not shown)`);
-  }
-  for (const [k, v] of Object.entries(config)) {
-    info(`Config (non-secret, set in your deployment env): ${k}=${v}`);
   }
 }
 
