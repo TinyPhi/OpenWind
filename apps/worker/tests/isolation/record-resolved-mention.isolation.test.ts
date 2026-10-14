@@ -170,6 +170,61 @@ describe("recordResolvedMention (#689)", () => {
     );
   });
 
+  it("records the identifier the commenter used, once, and a second identifier for the same user (#769)", async () => {
+    await recordResolvedMention(TENANT, commentId, MEMBER, "member.login");
+    await recordResolvedMention(TENANT, commentId, MEMBER, "member.login");
+    await recordResolvedMention(
+      TENANT,
+      commentId,
+      MEMBER,
+      "u-689-member@example.com",
+    );
+
+    const meta = await metadataOf(commentId);
+    expect(meta["mentions"]).toEqual([MEMBER]);
+    expect(meta["mentionIdentifiers"]).toEqual({
+      [MEMBER]: ["member.login", "u-689-member@example.com"],
+    });
+  });
+
+  it("records no identifier for a non-member, an empty id, or an empty identifier", async () => {
+    await recordResolvedMention(
+      TENANT,
+      commentId,
+      NON_MEMBER,
+      "outsider.login",
+    );
+    await recordResolvedMention(TENANT, commentId, "", "ghost.login");
+    await recordResolvedMention(TENANT, commentId, SECOND_MEMBER, "");
+
+    const identifiers = (await metadataOf(commentId))[
+      "mentionIdentifiers"
+    ] as Record<string, string[]>;
+    expect(identifiers[NON_MEMBER]).toBeUndefined();
+    expect(identifiers[""]).toBeUndefined();
+    expect(identifiers[SECOND_MEMBER]).toEqual([]);
+  });
+
+  it("keeps both identifiers when two jobs mention the same user at once (#769)", async () => {
+    await Promise.all([
+      recordResolvedMention(TENANT, concurrentCommentId, MEMBER, "first.login"),
+      recordResolvedMention(
+        TENANT,
+        concurrentCommentId,
+        MEMBER,
+        "second.login",
+      ),
+    ]);
+
+    const identifiers = (await metadataOf(concurrentCommentId))[
+      "mentionIdentifiers"
+    ] as Record<string, string[]>;
+    expect([...(identifiers[MEMBER] ?? [])].sort()).toEqual([
+      "first.login",
+      "second.login",
+    ]);
+  });
+
   it("never writes to another tenant's comment, even for a user who belongs to both", async () => {
     await recordResolvedMention(TENANT, otherTenantCommentId, MEMBER);
 

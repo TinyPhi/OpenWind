@@ -139,8 +139,14 @@ classified; only `true` types are scrubbed from `fields`.
     ending a sentence kept its email. It now refuses only a dot followed by another address
     character, so `alice@x.co` still doesn't match inside `alice@x.co.uk`.
   - **Known gaps** (status after #769):
-    - Login-name identifiers in text aren't redacted, because `tenant_users` doesn't store
-      them. Still open.
+    - ~~Login-name identifiers in text aren't redacted, because `tenant_users` doesn't store
+      them.~~ Fixed for resolved mentions (#769): the worker records the identifier the
+      commenter typed in `metadata.mentionIdentifiers[<user id>]`, and erasure redacts those
+      (3+ characters, case-insensitive) in the comments that recorded them, then drops the
+      target's entry. No `tenant_users` column and no auth-path change. They are not scanned
+      for tenant-wide, because a login name is a plain word. Residual: a login name in a
+      comment resolved after the erasure (the worker skips a user who is no longer a member)
+      stays in its text.
     - ~~Users erased before this shipped keep their identifiers in old third-party comments.~~
       Not applicable: there is no production data to backfill, and the text scan below also
       catches any such comment that still exists.

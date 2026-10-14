@@ -441,6 +441,19 @@ export async function getAvailableTransitions(
     }));
 }
 
+// `mentionIdentifiers` maps a user id to the login names/emails third parties
+// typed for them. Per-user erasure reads it (apps/api user-erasure.ts); no
+// event-log reader may return it, since callers with ticket access include
+// customers and the map would hand them identifiers of people they can't see.
+function withoutInternalMetadata(metadata: unknown): Record<string, unknown> {
+  // jsonb column: the shape is what the writers store, an object or null
+  const { mentionIdentifiers: _internal, ...rest } = (metadata ?? {}) as Record<
+    string,
+    unknown
+  >;
+  return rest;
+}
+
 export async function getWorkflowEventLog(
   db: DbOrTx,
   tenantId: string,
@@ -489,7 +502,7 @@ export async function getWorkflowEventLog(
     triggeredBy: e.triggeredBy as WorkflowEvent["triggeredBy"],
     actorId: e.actorId ?? null,
     comment: e.comment ?? null,
-    metadata: (e.metadata ?? {}) as Record<string, unknown>,
+    metadata: withoutInternalMetadata(e.metadata),
     createdAt: e.createdAt,
     triggeredAt: e.createdAt.toISOString(),
     // Drizzle infers this text() column as string | null, not the narrower
