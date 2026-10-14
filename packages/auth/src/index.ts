@@ -1,6 +1,7 @@
 export {
   requireAuth,
   requirePlatformAdmin,
+  requireFreshMfa,
   requirePlatformAdminIdentity,
   requireRole,
   requireIntrospection,
@@ -103,6 +104,8 @@ export {
   requestMfaCode,
   verifyMfaCode,
   isMfaVerified,
+  isMfaFresh,
+  MfaResendTooSoonError,
 } from "./platform-admin-mfa.js";
 export {
   storeSandboxHandoverCredentials,

@@ -4,6 +4,7 @@ import { ConfirmDeleteDialog } from "../../components/confirm-delete-dialog.js";
 import { showAlert } from "../../components/global-alert-dialog.js";
 import { fetchWithAuth, API_URL } from "../../lib/api.js";
 import { ExtendTrialDialog } from "./extend-trial-dialog.js";
+import { StepUpMfaDialog } from "./step-up-mfa-dialog.js";
 
 type ActionKind = "reset" | "delete" | "end_trial";
 
@@ -120,6 +121,9 @@ export function SandboxRowActions({
     null,
   );
   const [trialOpen, setTrialOpen] = React.useState(false);
+  // Reset and delete need a freshly verified code (ADR-022 Decision 10, #865). When the
+  // server asks for one, the action waits here until the admin has verified, then retries.
+  const [reauthFor, setReauthFor] = React.useState<ActionKind | null>(null);
   const buttonRef = React.useRef<HTMLButtonElement>(null);
   const menuOpen = menuPosition !== null;
   // PR #880 review C: only a running trial can be ended -- not one already over, and not a
@@ -160,10 +164,10 @@ export function SandboxRowActions({
     open();
   }
 
-  async function handleConfirm(): Promise<void> {
-    if (!confirming) return;
-    const action = confirming;
-    setConfirming(null);
+  async function runAction(
+    action: ActionKind,
+    afterReauth: boolean,
+  ): Promise<void> {
     setBusy(true);
     try {
       await fetchWithAuth(
@@ -172,7 +176,11 @@ export function SandboxRowActions({
       );
       onDone();
     } catch (err) {
-      const status = (err as { status?: number }).status;
+      const { status, code } = err as { status?: number; code?: string };
+      if (code === "MFA_REAUTH_REQUIRED" && !afterReauth) {
+        setReauthFor(action);
+        return;
+      }
       showAlert(
         status === 409
           ? "Already in progress for this sandbox — try again shortly."
@@ -183,6 +191,22 @@ export function SandboxRowActions({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleConfirm(): Promise<void> {
+    if (!confirming) return;
+    const action = confirming;
+    setConfirming(null);
+    await runAction(action, false);
+  }
+
+  function handleReauthVerified(): void {
+    const action = reauthFor;
+    setReauthFor(null);
+    // afterReauth: a second MFA_REAUTH_REQUIRED right after a successful verify means
+    // something else is wrong (for example the session store is down), so show it
+    // instead of prompting again in a loop.
+    if (action) void runAction(action, true);
   }
 
   function handleCancel(): void {
@@ -270,6 +294,13 @@ export function SandboxRowActions({
           confirmLabel={CONFIRM_COPY[confirming].confirmLabel}
           onConfirm={() => void handleConfirm()}
           onCancel={handleCancel}
+        />
+      )}
+      {reauthFor && (
+        <StepUpMfaDialog
+          open={true}
+          onVerified={handleReauthVerified}
+          onCancel={() => setReauthFor(null)}
         />
       )}
       {trialOpen && (

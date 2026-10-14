@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased — step-up MFA for sandbox reset and delete (#865, #801)]
+
+### Added
+
+- **Sandbox reset and delete now need a freshly verified MFA code** (ADR-022 Decision 10). The 12-hour
+  verification still covers list, read, create and trial changes. Reset and delete answer
+  `403 MFA_REAUTH_REQUIRED` unless a code was verified within `PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS`
+  (default 300, allowed 60–900). The platform-admin dashboard prompts for a code and retries the action.
+- **Resend cooldown** for the verification email: `PLATFORM_ADMIN_MFA_RESEND_COOLDOWN_SECONDS` (default
+  30, allowed 5–300). A request inside the window returns `429` with `Retry-After`, and the dialog shows
+  the countdown. `POST /platform-admin/mfa/request` now also returns `resendAfterSeconds`.
+- `fetchWithAuth` errors in admin-ui now carry the server's error `code`.
+
 ## [Unreleased — admin-ui blank-name initials fallback (#850)]
 
 ### Fixed

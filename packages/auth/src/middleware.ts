@@ -22,7 +22,7 @@ import {
 } from "./jwks.js";
 import { introspectToken } from "./introspection.js";
 import type { AuthContext, PlatformAdminAuthContext } from "./types.js";
-import { isMfaVerified } from "./platform-admin-mfa.js";
+import { isMfaVerified, isMfaFresh } from "./platform-admin-mfa.js";
 import {
   getCachedTenantStatus,
   setCachedTenantStatus,
@@ -543,6 +543,41 @@ export const requirePlatformAdmin = (): MiddlewareHandler =>
       }
 
       c.set("platformAdmin", platformAdmin);
+      await next();
+    },
+  );
+
+/**
+ * requireFreshMfa -- step-up on top of requirePlatformAdmin for the irreversible-data
+ * platform_admin actions (sandbox reset and delete; ADR-022 Decision 10, #865). The 12-hour
+ * verified flag unlocks read/list/create; these two also need a code verified within
+ * PLATFORM_ADMIN_MFA_FRESH_WINDOW_SECONDS. Mount it AFTER requirePlatformAdmin(), which sets
+ * the platformAdmin identity this reads. Fails closed: a Redis error is "not fresh".
+ * Honours PLATFORM_ADMIN_MFA_DEV_BYPASS exactly as requirePlatformAdmin does (the config
+ * refine makes it impossible in production).
+ */
+export const requireFreshMfa = (): MiddlewareHandler =>
+  createMiddleware<PlatformAdminAuthVariables>(
+    async (
+      c: Context<PlatformAdminAuthVariables>,
+      next: Next,
+    ): Promise<Response | void> => {
+      if (!env.PLATFORM_ADMIN_MFA_DEV_BYPASS) {
+        const { userId } = c.get("platformAdmin");
+        if (!(await isMfaFresh(userId))) {
+          logger.warn(
+            { userId },
+            "platform_admin destructive action missing fresh MFA",
+          );
+          return c.json(
+            {
+              error: "MFA_REAUTH_REQUIRED",
+              message: "Enter a new verification code to continue",
+            },
+            403,
+          );
+        }
+      }
       await next();
     },
   );

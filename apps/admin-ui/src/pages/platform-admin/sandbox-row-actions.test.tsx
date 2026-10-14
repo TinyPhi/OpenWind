@@ -9,6 +9,7 @@ import {
 
 interface FetchError extends Error {
   status?: number;
+  code?: string;
 }
 
 const mockFetchWithAuth = vi.fn(
@@ -36,6 +37,24 @@ vi.mock("./extend-trial-dialog.js", () => ({
       Trial dialog ({props.trialEndsAt ?? "none"})
       <button type="button" onClick={props.onSaved}>
         Save trial
+      </button>
+    </div>
+  ),
+}));
+
+// Shallow-mocked: step-up-mfa-dialog.test.tsx covers the dialog itself.
+vi.mock("./step-up-mfa-dialog.js", () => ({
+  StepUpMfaDialog: (props: {
+    onVerified: () => void;
+    onCancel: () => void;
+  }) => (
+    <div>
+      Verify dialog
+      <button type="button" onClick={props.onVerified}>
+        Mock verify
+      </button>
+      <button type="button" onClick={props.onCancel}>
+        Mock cancel
       </button>
     </div>
   ),
@@ -116,6 +135,99 @@ describe("SandboxRowActions", () => {
         `/api/platform-admin/sandboxes/${TENANT_ID}/delete`,
         { method: "POST" },
       );
+    });
+  });
+
+  describe("step-up MFA for reset and delete (#865)", () => {
+    function reauthError(): FetchError {
+      const err: FetchError = new Error("Enter a new verification code");
+      err.status = 403;
+      err.code = "MFA_REAUTH_REQUIRED";
+      return err;
+    }
+
+    it.each([
+      ["Reset", "reset"],
+      ["Delete", "delete"],
+    ] as const)(
+      "%s: opens the code dialog instead of an error, and retries the same action once verified",
+      async (label, path) => {
+        mockFetchWithAuth.mockRejectedValueOnce(reauthError());
+        const onDone = renderComponent();
+        choose(label);
+        fireEvent.click(getConfirmButton(label));
+
+        await waitFor(() => {
+          expect(screen.getByText("Verify dialog")).toBeTruthy();
+        });
+        expect(mockShowAlert).not.toHaveBeenCalled();
+        expect(onDone).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByText("Mock verify"));
+
+        await waitFor(() => {
+          expect(onDone).toHaveBeenCalledTimes(1);
+        });
+        const url = `/api/platform-admin/sandboxes/${TENANT_ID}/${path}`;
+        const calls = mockFetchWithAuth.mock.calls.filter((c) => c[0] === url);
+        expect(calls).toHaveLength(2);
+        expect(screen.queryByText("Verify dialog")).toBeNull();
+      },
+    );
+
+    it("cancelling the dialog abandons the action: no retry, no alert, no refresh", async () => {
+      mockFetchWithAuth.mockRejectedValueOnce(reauthError());
+      const onDone = renderComponent();
+      choose("Delete");
+      fireEvent.click(getConfirmButton("Delete"));
+      await waitFor(() => {
+        expect(screen.getByText("Verify dialog")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByText("Mock cancel"));
+
+      await waitFor(() => {
+        expect(screen.queryByText("Verify dialog")).toBeNull();
+      });
+      expect(mockFetchWithAuth).toHaveBeenCalledTimes(1);
+      expect(mockShowAlert).not.toHaveBeenCalled();
+      expect(onDone).not.toHaveBeenCalled();
+    });
+
+    it("does not loop: a second MFA_REAUTH_REQUIRED right after verifying is shown as an alert", async () => {
+      mockFetchWithAuth
+        .mockRejectedValueOnce(reauthError())
+        .mockRejectedValueOnce(reauthError());
+      renderComponent();
+      choose("Reset");
+      fireEvent.click(getConfirmButton("Reset"));
+      await waitFor(() => {
+        expect(screen.getByText("Verify dialog")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByText("Mock verify"));
+
+      await waitFor(() => {
+        expect(mockShowAlert).toHaveBeenCalledWith(
+          "Enter a new verification code",
+        );
+      });
+      expect(screen.queryByText("Verify dialog")).toBeNull();
+    });
+
+    it("an ordinary 403 (no MFA code) is an alert, not a code prompt", async () => {
+      const err: FetchError = new Error("Not authorized");
+      err.status = 403;
+      err.code = "FORBIDDEN";
+      mockFetchWithAuth.mockRejectedValueOnce(err);
+      renderComponent();
+      choose("Reset");
+      fireEvent.click(getConfirmButton("Reset"));
+
+      await waitFor(() => {
+        expect(mockShowAlert).toHaveBeenCalledWith("Not authorized");
+      });
+      expect(screen.queryByText("Verify dialog")).toBeNull();
     });
   });
 
