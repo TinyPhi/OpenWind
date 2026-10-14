@@ -45,6 +45,8 @@ import {
   planIntrospectionSecret,
   resolveSecretsDestination,
   splitProducedVars,
+  secretsDirPermissionWarning,
+  assertZitadelCredentialsAvailable,
 } from "./lib/bootstrap-secrets.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1011,6 +1013,12 @@ async function main(): Promise<void> {
     });
     if (dest.kind === "secrets-file") {
       assertSecretsFileAvailable(dest.path);
+      assertZitadelCredentialsAvailable({
+        ZITADEL_KEY_JSON: process.env["ZITADEL_KEY_JSON"],
+        ZITADEL_SETUP_PAT: process.env["ZITADEL_SETUP_PAT"],
+      });
+      const dirWarning = secretsDirPermissionWarning(dirname(dest.path));
+      if (dirWarning) warn(dirWarning);
       secretsFile = new SecretsFile(dest.path);
       info(
         `Production mode — new secrets go to the BOOTSTRAP_SECRETS_OUT file; .env.local will not be written`,

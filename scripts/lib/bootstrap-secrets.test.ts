@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -13,9 +14,11 @@ import {
   BootstrapSecretsError,
   SecretsFile,
   assertSecretsFileAvailable,
+  assertZitadelCredentialsAvailable,
   hasRealSecret,
   planIntrospectionSecret,
   resolveSecretsDestination,
+  secretsDirPermissionWarning,
   splitProducedVars,
 } from "./bootstrap-secrets.js";
 
@@ -265,6 +268,73 @@ describe("SecretsFile", () => {
     assert.throws(
       () => assertSecretsFileAvailable(join(dir, "missing", "out.json")),
       BootstrapSecretsError,
+    );
+  });
+});
+
+describe("secretsDirPermissionWarning", () => {
+  const posix = process.platform !== "win32";
+
+  it(
+    "warns when group or others can access the directory",
+    { skip: !posix },
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "bootstrap-dir-"));
+      try {
+        chmodSync(dir, 0o755);
+        const warning = secretsDirPermissionWarning(dir);
+        assert.ok(warning);
+        assert.match(warning, /mode 755/);
+        assert.ok(
+          !warning.includes(dir),
+          "the message must not include the path",
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("is quiet for a 0700 directory", { skip: !posix }, () => {
+    const dir = mkdtempSync(join(tmpdir(), "bootstrap-dir-"));
+    try {
+      chmodSync(dir, 0o700);
+      assert.equal(secretsDirPermissionWarning(dir), undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("never warns on Windows, which has no POSIX modes", () => {
+    assert.equal(secretsDirPermissionWarning(tmpdir(), "win32"), undefined);
+  });
+});
+
+describe("assertZitadelCredentialsAvailable", () => {
+  it("accepts a key from OpenBao", () => {
+    assert.doesNotThrow(() =>
+      assertZitadelCredentialsAvailable({
+        ZITADEL_KEY_JSON: "eyJrZXkiOiJ4In0=",
+      }),
+    );
+  });
+
+  it("accepts a one-time setup PAT on the first run", () => {
+    assert.doesNotThrow(() =>
+      assertZitadelCredentialsAvailable({ ZITADEL_SETUP_PAT: "pat-value" }),
+    );
+  });
+
+  it("stops before any change when neither is present", () => {
+    assert.throws(
+      () =>
+        assertZitadelCredentialsAvailable({
+          ZITADEL_KEY_JSON: "",
+          ZITADEL_SETUP_PAT: " ",
+        }),
+      (err: unknown) =>
+        err instanceof BootstrapSecretsError &&
+        /No Zitadel credentials/.test(err.message),
     );
   });
 });

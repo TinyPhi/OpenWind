@@ -38,10 +38,12 @@ async function createStore(): Promise<CredentialStore> {
   return {
     tenantIsActive: (tenantId) => isTenantActive(tenantId),
 
-    // connector_definitions is the platform-wide catalog (no tenant_id/RLS)
-    // and small, so it is filtered here: scripts/ can't import drizzle-orm's
-    // operators directly (not a root dependency), and the ones db.query hands
-    // back don't typecheck against @platform/db's built column types.
+    // connector_definitions is the platform-wide catalog (no tenant_id/RLS):
+    // one row per connector type the platform ships, not per tenant or
+    // install, so reading every id stays bounded. It is filtered here because
+    // scripts/ can't import drizzle-orm's operators directly (not a root
+    // dependency), and the ones db.query hands back don't typecheck against
+    // @platform/db's built column types.
     connectorDefinitionExists: async (connectorId) => {
       const rows = await db
         .select({ id: connectorDefinitions.id })

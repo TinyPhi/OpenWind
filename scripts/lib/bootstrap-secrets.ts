@@ -6,7 +6,7 @@
  * Kept free of Zitadel calls and process globals so each decision can be
  * unit-tested without a running stack.
  */
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 /** CLI flag that forces a new introspection client secret. */
@@ -119,6 +119,43 @@ export function assertSecretsFileAvailable(path: string): void {
       `Directory for BOOTSTRAP_SECRETS_OUT does not exist: ${dirname(path)}`,
     );
   }
+}
+
+/**
+ * The secrets file is mode 0600, but a directory that group or others can read
+ * lets anyone on the host list it. Returns a warning (no path, so nothing
+ * environment-derived is logged) when the directory is more open than 0700.
+ * POSIX permissions only: always undefined on Windows.
+ */
+export function secretsDirPermissionWarning(
+  dir: string,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  if (platform === "win32") return undefined;
+  const mode = statSync(dir).mode & 0o777;
+  if ((mode & 0o077) === 0) return undefined;
+  return `The BOOTSTRAP_SECRETS_OUT directory is accessible to group or others (mode ${mode.toString(8)}). Restrict it with: chmod 700 <dir>`;
+}
+
+/**
+ * Production bootstrap authenticates to Zitadel with ZITADEL_KEY_JSON (from
+ * OpenBao) or, on the very first run, a one-time ZITADEL_SETUP_PAT. Checked up
+ * front, before migrations or any Zitadel change, so a run with neither
+ * stops cleanly instead of failing half-way.
+ */
+export function assertZitadelCredentialsAvailable(env: {
+  ZITADEL_KEY_JSON?: string | undefined;
+  ZITADEL_SETUP_PAT?: string | undefined;
+}): void {
+  if (
+    hasRealSecret(env.ZITADEL_KEY_JSON) ||
+    hasRealSecret(env.ZITADEL_SETUP_PAT)
+  ) {
+    return;
+  }
+  throw new BootstrapSecretsError(
+    "No Zitadel credentials: production bootstrap needs ZITADEL_KEY_JSON (in its OpenBao path) or, on the first run only, ZITADEL_SETUP_PAT (docker compose run -e ZITADEL_SETUP_PAT=...).",
+  );
 }
 
 /**
